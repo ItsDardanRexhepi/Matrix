@@ -1,0 +1,60 @@
+{
+  "platform": "0pnMatrx",
+  "version": "1.0.0",
+  "model": {
+    "provider": "ollama",
+    "primary": "llama3.1",
+    "fallback": "mistral",
+    "providers": {
+      "ollama": {
+        "base_url": "http://localhost:11434",
+        "model": "llama3.1"
+      },
+      "openai": {
+        "api_key": "YOUR_OPENAI_API_KEY",
+        "model": "gpt-4o"
+      },
+      "anthropic": {
+        "api_key": "YOUR_ANTHROPIC_API_KEY",
+        "model": "claude-sonnet-4-6"
+      },
+      "nvidia": {
+        "api_key": "YOUR_NVIDIA_API_KEY",
+        "model": "meta/llama-3.3-70b-instruct"
+      },
+      "gemini": {
+        "api_key": "YOUR_GOOGLE_API_KEY",
+        "model": "gemini-pro"
+      }
+    }
+  },
+  "gateway": {
+    "port": 18790,
+    "host": "0.0.0.0"
+  },
+  "agents": {
+    "neo": {
+      "enabled": true,
+      "role": "execution"
+    },
+    "trinity": {
+      "enabled": true,
+      "role": "conversation"
+    },
+    "morpheus": {
+      "enabled": true,
+      "role": "guidance"
+    }
+  },
+  "blockchain": {
+    "network": "base",
+    "rpc_url": "YOUR_BASE_RPC_URL",
+    "eas_schema": "YOUR_EAS_SCHEMA_UID"
+  },
+  "notifications": {
+    "telegram": {
+      "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "owner_id": "YOUR_TELEGRAM_USER_ID"
+    }
+  }
+}
