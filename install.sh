@@ -51,14 +51,21 @@ install_dependencies() {
     info "Installing Python dependencies..."
     pip install --upgrade pip --quiet
 
-    pip install --quiet \
-        aiohttp>=3.9.0 \
-        aiofiles>=23.0 \
-        web3>=6.0.0 \
-        py-solc-x>=2.0.0 \
-        pynacl>=1.5.0 \
-        requests>=2.31.0 \
-        pyyaml>=6.0
+    if [ -f "requirements.txt" ]; then
+        pip install --quiet -r requirements.txt
+    else
+        pip install --quiet \
+            aiohttp>=3.9.0 \
+            aiofiles>=23.0 \
+            web3>=6.0.0 \
+            eth-account>=0.11.0 \
+            eth-abi>=5.0.0 \
+            py-solc-x>=2.0.0 \
+            pynacl>=1.5.0 \
+            requests>=2.31.0 \
+            pyyaml>=6.0 \
+            duckduckgo_search>=5.0.0
+    fi
 
     info "Dependencies installed"
 }
@@ -96,6 +103,7 @@ main() {
     setup_venv
     install_dependencies
     setup_config
+    pull_default_model
 
     echo ""
     info "Installation complete."

@@ -1,0 +1,25 @@
+# 0pnMatrx — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core ──────────────────────────────────────────────
+aiohttp>=3.9.0
+aiofiles>=23.0
+pyyaml>=6.0
+requests>=2.31.0
+
+# ── Blockchain (Web3 + Solidity) ─────────────────────
+web3>=6.0.0
+eth-account>=0.11.0
+eth-abi>=5.0.0
+py-solc-x>=2.0.0
+
+# ── Security ─────────────────────────────────────────
+pynacl>=1.5.0
+
+# ── Search ───────────────────────────────────────────
+duckduckgo_search>=5.0.0
+
+# ── Optional: Cloud Providers ────────────────────────
+# openai>=1.0.0        # Uncomment for OpenAI provider
+# anthropic>=0.20.0    # Uncomment for Anthropic provider
+# google-generativeai  # Uncomment for Gemini provider
