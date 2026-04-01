@@ -29,9 +29,11 @@ Each user has a managed wallet. Private keys are generated locally and never lea
 ## Transaction Processing
 
 All transactions use EIP-1559 (Type 2) for reliable inclusion:
-- `maxPriorityFeePerGas` — tip for miners/validators
-- `maxFeePerGas` — maximum total gas price
-- Dynamic fee estimation based on network conditions
+- `maxPriorityFeePerGas` — tip for validators
+- `maxFeePerGas` — maximum total price per unit of gas
+- Dynamic estimation based on network conditions
+
+All transaction fees are paid by the platform. Users never pay gas on 0pnMatrx.
 
 ## Event Monitoring
 

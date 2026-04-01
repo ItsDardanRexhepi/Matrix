@@ -22,7 +22,7 @@ What you can do on 0pnMatrx:
 - Co-own property, vehicles, and real-world assets with anyone in the world through legally enforceable smart contracts
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world instantly for a fraction of what it has always cost
+- Send money anywhere in the world instantly with zero fees
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves ownership forever
 - Build and deploy blockchain applications and games, no Solidity required
 - Trade tokenized securities 24 hours a day, 7 days a week, globally, with instant settlement
@@ -110,7 +110,7 @@ Every decision made by every agent on 0pnMatrx passes through the Unified Rexhep
 
 ## Blockchain Infrastructure
 
-20 core blockchain capabilities run natively on Base (Ethereum L2). Gas fees are covered by the platform. See `blockchain/docs/components.md`.
+20 core blockchain capabilities run natively on Base (Ethereum L2). All transaction fees are covered by the platform — users never pay gas. See `blockchain/docs/components.md`.
 
 ---
 

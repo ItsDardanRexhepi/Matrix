@@ -33,6 +33,6 @@ Users describe what they want to Trinity in plain language. Trinity translates t
 
 The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-value operations and attestations. Cross-chain bridges enable movement between networks.
 
-## Gas Fees
+## Fees
 
-The only cost users pay. Gas fees go to the network validators, not to 0pnMatrx. On Base L2, gas fees are fractions of a cent.
+There are none. The platform covers all blockchain transaction fees for every capability — smart contracts, DeFi loans, NFTs, transfers, staking, identity, payments, insurance, DAOs, governance, attestations, token creation, and everything else. Users never pay gas on 0pnMatrx. No exceptions. No conditions. Ever.

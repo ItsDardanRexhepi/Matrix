@@ -2,7 +2,7 @@
 
 ## Everything Is Free
 
-Every capability on 0pnMatrx is free. Smart contracts, DeFi loans, NFTs, identity, governance, payments, insurance — all of it. No subscriptions. No premium tiers. No hidden fees. The only costs users ever pay are blockchain gas fees, which go to the network, not to 0pnMatrx.
+Every capability on 0pnMatrx is free. Smart contracts, DeFi loans, NFTs, identity, governance, payments, insurance — all of it. No subscriptions. No premium tiers. No hidden fees. No gas fees. The platform covers all blockchain transaction costs for every user, for every capability, forever. Users never pay gas on 0pnMatrx.
 
 ## Everything Is Conversation
 
