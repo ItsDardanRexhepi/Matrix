@@ -21,6 +21,7 @@ class ToolDispatcher:
         self._tools: dict[str, Callable[..., Awaitable[str]]] = {}
         self._schemas: list[dict] = []
         self._register_builtin_tools()
+        self._register_blockchain_tools(config)
         self._register_skills(config)
 
     def _register_builtin_tools(self):
@@ -37,6 +38,14 @@ class ToolDispatcher:
         ]
         for tool in tools:
             self.register(tool.name, tool.execute, tool.schema)
+
+    def _register_blockchain_tools(self, config: dict):
+        """Register all 20 blockchain capabilities as tools."""
+        try:
+            from runtime.blockchain.registry import register_blockchain_tools
+            register_blockchain_tools(self, config)
+        except Exception as e:
+            logger.debug(f"Blockchain tools loading skipped: {e}")
 
     def _register_skills(self, config: dict):
         """Load skills from the skills directory and register them as tools."""
