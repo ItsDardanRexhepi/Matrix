@@ -50,7 +50,8 @@ class BashTool:
         if any(blocked in command for blocked in BLOCKED_COMMANDS):
             return "Error: this command is blocked for safety"
 
-        effective_timeout = min(timeout or COMMAND_TIMEOUT, 120)
+        # Validate timeout
+        effective_timeout = min(max(timeout or COMMAND_TIMEOUT, 1), 120)
 
         try:
             proc = await asyncio.create_subprocess_shell(

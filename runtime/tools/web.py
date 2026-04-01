@@ -74,7 +74,7 @@ class WebTool:
         try:
             client_timeout = aiohttp.ClientTimeout(total=min(timeout, 120))
             async with aiohttp.ClientSession(timeout=client_timeout) as session:
-                kwargs: dict = {"headers": req_headers, "allow_redirects": True}
+                kwargs: dict = {"headers": req_headers, "allow_redirects": False}
                 if body and method in ("POST", "PUT"):
                     # Try to send as JSON if parseable
                     try:

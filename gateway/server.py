@@ -61,12 +61,20 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        message = body.get("message", "").strip()
+        message = body.get("message", "")
+        if not isinstance(message, str):
+            return web.json_response({"error": "message must be a string"}, status=400)
+        message = message.strip()
         if not message:
             return web.json_response({"error": "message is required"}, status=400)
+        if len(message) > 100000:
+            return web.json_response({"error": "message too long"}, status=400)
 
-        session_id = body.get("session_id", "default")
-        agent = body.get("agent", "trinity")
+        session_id = str(body.get("session_id", "default"))[:100]
+        agent = str(body.get("agent", "trinity"))[:50]
+        valid_agents = {"neo", "trinity", "morpheus"}
+        if agent not in valid_agents:
+            return web.json_response({"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"}, status=400)
 
         if session_id not in self.conversations:
             self.conversations[session_id] = []
@@ -199,7 +207,10 @@ class GatewayServer:
             response = web.Response()
         else:
             response = await handler(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        allowed_origins = self.config.get("gateway", {}).get("cors_origins", ["*"])
+        origin = request.headers.get("Origin", "")
+        if "*" in allowed_origins or origin in allowed_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin or "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return response

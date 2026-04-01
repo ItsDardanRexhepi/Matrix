@@ -50,9 +50,10 @@ class GeminiClient(ModelInterface):
                 for t in tools
             ]}]
 
-        url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/models/{self.model}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
                     raise RuntimeError(f"Gemini HTTP {resp.status}: {body[:300]}")
