@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-0pnMatrx Contract Deployment — deploys MatrixPaymaster and MatrixAttestation
+0pnMatrx Contract Deployment — deploys OpenMatrixPaymaster and OpenMatrixAttestation
 to Base Sepolia testnet.
 
 Usage:
@@ -140,11 +140,11 @@ def main():
 
     results = {}
 
-    # 1. Deploy MatrixPaymaster
+    # 1. Deploy OpenMatrixPaymaster
     print()
-    logger.info("═══ Deploying MatrixPaymaster ═══")
+    logger.info("═══ Deploying OpenMatrixPaymaster ═══")
     try:
-        abi, bytecode = compile_contract("contracts/MatrixPaymaster.sol", "MatrixPaymaster")
+        abi, bytecode = compile_contract("contracts/OpenMatrixPaymaster.sol", "OpenMatrixPaymaster")
         result = deploy_contract(web3, account, abi, bytecode, [platform_wallet], chain_id)
         results["paymaster"] = result
         logger.info(f"  Address: {result['contract_address']}")
@@ -152,16 +152,16 @@ def main():
         logger.info(f"  Block: {result['block_number']}")
 
         # Save ABI
-        Path("contracts/MatrixPaymaster.abi.json").write_text(json.dumps(abi, indent=2))
+        Path("contracts/OpenMatrixPaymaster.abi.json").write_text(json.dumps(abi, indent=2))
     except Exception as e:
         logger.error(f"  Deployment failed: {e}")
         results["paymaster"] = {"status": "failed", "error": str(e)}
 
-    # 2. Deploy MatrixAttestation
+    # 2. Deploy OpenMatrixAttestation
     print()
-    logger.info("═══ Deploying MatrixAttestation ═══")
+    logger.info("═══ Deploying OpenMatrixAttestation ═══")
     try:
-        abi, bytecode = compile_contract("contracts/MatrixAttestation.sol", "MatrixAttestation")
+        abi, bytecode = compile_contract("contracts/OpenMatrixAttestation.sol", "OpenMatrixAttestation")
         result = deploy_contract(web3, account, abi, bytecode, [], chain_id)
         results["attestation"] = result
         logger.info(f"  Address: {result['contract_address']}")
@@ -169,7 +169,7 @@ def main():
         logger.info(f"  Block: {result['block_number']}")
 
         # Save ABI
-        Path("contracts/MatrixAttestation.abi.json").write_text(json.dumps(abi, indent=2))
+        Path("contracts/OpenMatrixAttestation.abi.json").write_text(json.dumps(abi, indent=2))
     except Exception as e:
         logger.error(f"  Deployment failed: {e}")
         results["attestation"] = {"status": "failed", "error": str(e)}

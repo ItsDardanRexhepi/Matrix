@@ -2,12 +2,12 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title MatrixPaymaster
+ * @title OpenMatrixPaymaster
  * @notice Gas sponsorship contract for the 0pnMatrx platform.
  *         The platform covers all gas fees for users — users never pay gas.
  *         This contract holds ETH and sponsors transactions on behalf of users.
  */
-contract MatrixPaymaster {
+contract OpenMatrixPaymaster {
     address public owner;
     address public platform;
 

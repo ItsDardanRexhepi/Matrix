@@ -50,7 +50,7 @@ Allow your imagination to meet your creativity.
 
 0pnMatrx is a free, open source AI agent platform. It combines a personal AI agent with a complete blockchain financial infrastructure, developer ecosystem, legal infrastructure, identity system, and governance architecture — all in one release, all free.
 
-**Matrix** is the private runtime Neo runs on — owner only, never public. **0pnMatrx** is what you are looking at now — the open source platform. **MTRX** is the iOS app that brings it all to your phone.
+**0pnMatrx** is the open source platform you are looking at now. **MTRX** is the iOS app that brings it all to your phone.
 
 ---
 

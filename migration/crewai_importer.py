@@ -136,11 +136,11 @@ class CrewAIImporter(BaseImporter):
         # Determine 0pnMatrx role
         role_lower = (role_desc + " " + goal).lower()
         if any(kw in role_lower for kw in ["execute", "code", "develop", "build", "deploy"]):
-            matrix_role = "execution"
+            agent_role = "execution"
         elif any(kw in role_lower for kw in ["guide", "mentor", "review", "security", "risk"]):
-            matrix_role = "guidance"
+            agent_role = "guidance"
         else:
-            matrix_role = "conversation"
+            agent_role = "conversation"
 
         tools = []
         for tool_name in cfg.get("tools", []):
@@ -148,7 +148,7 @@ class CrewAIImporter(BaseImporter):
 
         return ImportedAgent(
             name=name,
-            role=matrix_role,
+            role=agent_role,
             system_prompt="\n".join(prompt_parts) or f"CrewAI agent: {name}",
             tools=tools,
             source_framework="crewai",

@@ -71,7 +71,7 @@ Get system status including active agents and model configuration.
 For programmatic access, use the Python SDK:
 
 ```python
-from sdk.openmatrix_sdk import OpenMatrixClient
+from sdk import OpenMatrixClient
 
 client = OpenMatrixClient("http://localhost:18790")
 response = client.chat("Deploy a smart contract for me")

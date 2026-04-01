@@ -168,7 +168,7 @@ class DAOs(BlockchainInterface):
             return f"State check failed: {e}"
 
     async def _deploy_dao(self, params: dict) -> str:
-        dao_name = params.get("dao_name", "MatrixDAO")
+        dao_name = params.get("dao_name", "OpenMatrixDAO")
         return json.dumps({
             "status": "source_generated",
             "dao_name": dao_name,

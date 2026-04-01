@@ -2,12 +2,12 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title MatrixAttestation
+ * @title OpenMatrixAttestation
  * @notice On-chain attestation registry for 0pnMatrx agent actions.
  *         Every blockchain action is recorded here for transparency
  *         and verifiability. Gas covered by the platform.
  */
-contract MatrixAttestation {
+contract OpenMatrixAttestation {
     struct Attestation {
         address attester;
         string agent;

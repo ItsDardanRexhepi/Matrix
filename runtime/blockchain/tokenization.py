@@ -70,7 +70,7 @@ class Tokenization(BlockchainInterface):
 
     async def _deploy(self, params: dict) -> str:
         """Deploy a new ERC-20 token. Gas covered by platform."""
-        name = params.get("token_name", "MatrixToken")
+        name = params.get("token_name", "OpenMatrixToken")
         symbol = params.get("token_symbol", "MTRX")
         supply = params.get("initial_supply", "1000000")
 

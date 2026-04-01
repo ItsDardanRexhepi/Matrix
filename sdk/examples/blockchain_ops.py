@@ -10,11 +10,11 @@ import asyncio
 import sys
 sys.path.insert(0, ".")
 
-from sdk import MatrixClient
+from sdk import OpenMatrixClient
 
 
 async def main():
-    client = MatrixClient("http://localhost:18790")
+    client = OpenMatrixClient("http://localhost:18790")
 
     # 1. Check price feed
     print("── Oracle: ETH/USD Price ──")
@@ -27,7 +27,7 @@ async def main():
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-contract HelloMatrix {
+contract Hello0pnMatrx {
     string public message = "Hello from 0pnMatrx!";
 
     function setMessage(string memory _msg) public {

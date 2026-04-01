@@ -2,14 +2,14 @@
 0pnMatrx Developer SDK — Python client for the 0pnMatrx platform.
 
 Usage:
-    from sdk import MatrixClient
+    from sdk import OpenMatrixClient
 
-    client = MatrixClient("http://localhost:18790")
+    client = OpenMatrixClient("http://localhost:18790")
     response = client.chat("Hello, Trinity!")
     print(response.text)
 """
 
-from sdk.client import MatrixClient
+from sdk.client import OpenMatrixClient
 
-__all__ = ["MatrixClient"]
+__all__ = ["OpenMatrixClient"]
 __version__ = "1.0.0"

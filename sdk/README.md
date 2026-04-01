@@ -11,13 +11,13 @@ pip install openmatrix-sdk
 Or use directly from the repository:
 
 ```python
-from sdk.openmatrix_sdk import OpenMatrixClient
+from sdk import OpenMatrixClient
 ```
 
 ## Quick Start
 
 ```python
-from sdk.openmatrix_sdk import OpenMatrixClient
+from sdk import OpenMatrixClient
 
 client = OpenMatrixClient("http://localhost:18790")
 
@@ -27,22 +27,34 @@ print(response.text)
 
 # Check system health
 health = client.health()
-print(health)
+print(health.status)
 ```
 
 ## Features
 
-- **Chat**: Send messages to any agent
+- **Chat**: Send messages to any agent (sync and async)
 - **Sessions**: Maintain conversation context across messages
-- **Health**: Check system and model status
-- **Async**: Full async support with `AsyncOpenMatrixClient`
+- **Blockchain**: Access all 20 blockchain capabilities
+- **Memory**: Read/write agent memory
+- **Health & Status**: Full platform monitoring
+- **Async**: Full async support with `achat()`, `ahealth()`, etc.
 
 ## API Reference
 
-See `openmatrix_sdk.py` for the full API. The SDK mirrors the gateway's REST endpoints:
+See `client.py` for the full API. The SDK mirrors the gateway's REST endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `chat()` | `POST /chat` | Send a message |
 | `health()` | `GET /health` | Health check |
 | `status()` | `GET /status` | System status |
+| `memory_read()` | `POST /memory/read` | Read agent memory |
+| `memory_write()` | `POST /memory/write` | Write agent memory |
+| `blockchain()` | via `/chat` | Execute blockchain ops |
+
+## Examples
+
+See `examples/` for working examples:
+- `quickstart.py` — Basic chat and status
+- `blockchain_ops.py` — Deploying contracts, payments, attestations
+- `migration_example.py` — Importing agents from other frameworks

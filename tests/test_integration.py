@@ -329,13 +329,13 @@ def test_migration():
 
 def test_sdk():
     print("\n── 12. SDK Client ──")
-    from sdk.client import MatrixClient, ChatResponse, HealthStatus, PlatformStatus
+    from sdk.client import OpenMatrixClient, ChatResponse, HealthStatus, PlatformStatus
 
-    client = MatrixClient("http://localhost:18790")
+    client = OpenMatrixClient("http://localhost:18790")
     report("client creates with URL", client.base_url == "http://localhost:18790")
     report("client has session_id", len(client.session_id) == 12)
     report("new_session changes ID", client.new_session() != client.session_id or True)  # new_session sets new ID
-    report("repr works", "MatrixClient" in repr(client))
+    report("repr works", "OpenMatrixClient" in repr(client))
 
     # Verify dataclass creation
     resp = ChatResponse(text="hello", agent="trinity", session_id="test")
@@ -370,12 +370,12 @@ def test_gateway():
 
 def test_contracts():
     print("\n── 14. Solidity Contracts ──")
-    paymaster = Path("contracts/MatrixPaymaster.sol")
-    attestation = Path("contracts/MatrixAttestation.sol")
+    paymaster = Path("contracts/OpenMatrixPaymaster.sol")
+    attestation = Path("contracts/OpenMatrixAttestation.sol")
     deploy = Path("contracts/deploy.py")
 
-    report("MatrixPaymaster.sol exists", paymaster.exists())
-    report("MatrixAttestation.sol exists", attestation.exists())
+    report("OpenMatrixPaymaster.sol exists", paymaster.exists())
+    report("OpenMatrixAttestation.sol exists", attestation.exists())
     report("deploy.py exists", deploy.exists())
 
     if paymaster.exists():

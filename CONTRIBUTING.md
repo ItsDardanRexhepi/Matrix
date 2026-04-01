@@ -43,7 +43,7 @@ The following are closed source and are never exposed to contributors:
 
 - **The security layer** — The full implementation of agent boundary enforcement, constraint validation, audit trails, and the access protection protocol
 - **The Unified Rexhepi Framework implementation** — The specific gate criteria, scoring logic, probability weights, thresholds, and outcome definitions that govern every agent decision
-- **Neo's private runtime** — The Matrix server and its operational configuration
+- **Neo's private runtime** — The operational server configuration and deployment infrastructure
 
 These boundaries exist by design. You do not need access to any of them to build on 0pnMatrx. The open source runtime connects to the security layer through a documented interface at `runtime/security/SECURITY_INTERFACE.md`.
 

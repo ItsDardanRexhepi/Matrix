@@ -1,5 +1,5 @@
 """
-MatrixClient — the main SDK client for interacting with 0pnMatrx.
+OpenMatrixClient — the main SDK client for interacting with 0pnMatrx.
 
 Provides sync and async methods for:
 - Chat (single message and streaming)
@@ -53,12 +53,12 @@ class PlatformStatus:
     raw: dict = field(default_factory=dict)
 
 
-class MatrixClient:
+class OpenMatrixClient:
     """
     Python SDK client for the 0pnMatrx platform.
 
     Example:
-        client = MatrixClient("http://localhost:18790")
+        client = OpenMatrixClient("http://localhost:18790")
 
         # Chat with Trinity
         response = client.chat("Hello!")
@@ -252,4 +252,4 @@ class MatrixClient:
             return asyncio.run(coro)
 
     def __repr__(self):
-        return f"MatrixClient(base_url='{self.base_url}', session_id='{self.session_id}')"
+        return f"OpenMatrixClient(base_url='{self.base_url}', session_id='{self.session_id}')"
