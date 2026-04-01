@@ -1,7 +1,8 @@
 """
-Abstract interface that all model providers must implement.
+Unified model interface that all providers must implement.
 
-Any LLM — local or cloud — can power 0pnMatrx by implementing this interface.
+Defines the standard request and response format so the router
+can swap providers transparently.
 """
 
 from abc import ABC, abstractmethod
@@ -17,12 +18,14 @@ class ModelResponse:
     usage: dict[str, int] = field(default_factory=dict)
     model: str = ""
     finish_reason: str = ""
+    provider: str = ""
 
 
 class ModelInterface(ABC):
     """
-    Every model provider (Ollama, OpenAI, Anthropic, etc.) implements this interface.
-    The router selects and calls the appropriate provider at runtime.
+    Every model provider (Ollama, OpenAI, Anthropic, NVIDIA, Gemini)
+    implements this interface. The router selects and calls the
+    appropriate provider at runtime.
     """
 
     @abstractmethod
@@ -36,7 +39,7 @@ class ModelInterface(ABC):
         Send messages to the model and return a standardized response.
 
         Args:
-            messages: Conversation history as a list of Message objects.
+            messages: Conversation history — each item has .role and .content.
             tools: Optional list of tool schemas for function calling.
             **kwargs: Provider-specific options.
 

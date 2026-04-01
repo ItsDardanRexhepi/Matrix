@@ -1,69 +1,93 @@
 """
 Model Router — selects the appropriate model provider based on config.
 
-Supports automatic fallback: if the primary provider is unreachable,
-the router tries the fallback provider before giving up.
+Default order: Ollama -> OpenAI -> Anthropic -> NVIDIA -> Gemini.
+Checks for required API keys before routing to external providers.
+Retries 3 times on transient errors before moving to the next provider.
+Logs which provider handled each request.
 """
 
 import logging
 
 from runtime.models.model_interface import ModelInterface, ModelResponse
-from runtime.models.ollama_client import OllamaClient
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_MAP: dict[str, type[ModelInterface]] = {
-    "ollama": OllamaClient,
-}
-
-
-def _get_cloud_provider(name: str, config: dict) -> ModelInterface | None:
-    """
-    Dynamically load cloud providers only when configured.
-    Cloud providers require API keys and are optional.
-    """
-    if name == "openai":
-        try:
-            from runtime.models._openai_client import OpenAIClient
-            return OpenAIClient(config)
-        except ImportError:
-            logger.warning("OpenAI provider requested but openai package not installed")
-            return None
-
-    if name == "anthropic":
-        try:
-            from runtime.models._anthropic_client import AnthropicClient
-            return AnthropicClient(config)
-        except ImportError:
-            logger.warning("Anthropic provider requested but anthropic package not installed")
-            return None
-
-    return None
+PROVIDER_ORDER = ["ollama", "openai", "anthropic", "nvidia", "gemini"]
+MAX_RETRIES = 3
 
 
 class ModelRouter:
     """
     Routes model requests to the configured provider.
-    Falls back to the secondary provider if the primary is unavailable.
+    Falls back through the provider chain on failure.
     """
 
     def __init__(self, config: dict):
         self.config = config
-        primary_name = config.get("provider", "ollama")
-        fallback_name = config.get("fallback")
-        providers_config = config.get("providers", {})
+        self.providers_config = config.get("providers", {})
+        self.primary_name = config.get("provider", "ollama")
+        self.fallback_name = config.get("fallback")
+        self.providers: dict[str, ModelInterface] = {}
+        self._init_providers()
 
-        self.primary = self._init_provider(primary_name, providers_config.get(primary_name, {}))
-        self.fallback = None
-        if fallback_name and fallback_name != primary_name:
-            self.fallback = self._init_provider(fallback_name, providers_config.get(fallback_name, {}))
+    def _init_providers(self):
+        # Build provider chain: primary first, then fallback, then remaining in default order
+        chain = [self.primary_name]
+        if self.fallback_name and self.fallback_name not in chain:
+            chain.append(self.fallback_name)
+        for name in PROVIDER_ORDER:
+            if name not in chain:
+                chain.append(name)
 
-        logger.info(f"Model router: primary={primary_name}, fallback={fallback_name or 'none'}")
+        notifications_config = self.config.get("_notifications", {})
 
-    def _init_provider(self, name: str, config: dict) -> ModelInterface | None:
-        if name in PROVIDER_MAP:
-            return PROVIDER_MAP[name](config)
-        return _get_cloud_provider(name, config)
+        for name in chain:
+            provider_cfg = self.providers_config.get(name, {})
+            provider_cfg["_notifications"] = notifications_config
+            provider = self._create_provider(name, provider_cfg)
+            if provider:
+                self.providers[name] = provider
+
+        names = list(self.providers.keys())
+        logger.info(f"Model router initialized: providers={names}, primary={self.primary_name}")
+
+    def _create_provider(self, name: str, config: dict) -> ModelInterface | None:
+        try:
+            if name == "ollama":
+                from runtime.models.ollama_client import OllamaClient
+                return OllamaClient(config)
+            elif name == "openai":
+                api_key = config.get("api_key") or __import__("os").environ.get("OPENAI_API_KEY", "")
+                if not api_key or api_key.startswith("YOUR_"):
+                    logger.debug("OpenAI: no valid API key, skipping")
+                    return None
+                from runtime.models.openai_client import OpenAIClient
+                return OpenAIClient(config)
+            elif name == "anthropic":
+                api_key = config.get("api_key") or __import__("os").environ.get("ANTHROPIC_API_KEY", "")
+                if not api_key or api_key.startswith("YOUR_"):
+                    logger.debug("Anthropic: no valid API key, skipping")
+                    return None
+                from runtime.models.anthropic_client import AnthropicClient
+                return AnthropicClient(config)
+            elif name == "nvidia":
+                api_key = config.get("api_key") or __import__("os").environ.get("NVIDIA_API_KEY", "")
+                if not api_key or api_key.startswith("YOUR_"):
+                    logger.debug("NVIDIA: no valid API key, skipping")
+                    return None
+                from runtime.models.nvidia_client import NVIDIAClient
+                return NVIDIAClient(config)
+            elif name == "gemini":
+                api_key = config.get("api_key") or __import__("os").environ.get("GOOGLE_API_KEY", "")
+                if not api_key or api_key.startswith("YOUR_"):
+                    logger.debug("Gemini: no valid API key, skipping")
+                    return None
+                from runtime.models.gemini_client import GeminiClient
+                return GeminiClient(config)
+        except Exception as e:
+            logger.warning(f"Failed to initialize {name} provider: {e}")
+        return None
 
     async def complete(
         self,
@@ -73,28 +97,40 @@ class ModelRouter:
         **kwargs,
     ) -> ModelResponse:
         """
-        Send a completion request to the primary provider.
-        If it fails, try the fallback.
+        Send a completion request. Try primary with retries, then fall through
+        the provider chain until one succeeds.
         """
-        if self.primary:
-            try:
-                return await self.primary.complete(messages, tools, **kwargs)
-            except Exception as e:
-                logger.error(f"Primary provider failed: {e}")
-                if self.fallback:
-                    logger.info(f"Falling back to {self.fallback.provider_name}")
-                else:
-                    raise
+        errors = []
 
-        if self.fallback:
-            return await self.fallback.complete(messages, tools, **kwargs)
+        # Try primary first with retries
+        primary = self.providers.get(self.primary_name)
+        if primary:
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    result = await primary.complete(messages, tools, **kwargs)
+                    logger.info(f"[{agent_name}] served by {self.primary_name} (attempt {attempt})")
+                    return result
+                except Exception as e:
+                    logger.warning(f"[{agent_name}] {self.primary_name} attempt {attempt}/{MAX_RETRIES} failed: {e}")
+                    errors.append(f"{self.primary_name}: {e}")
 
-        raise RuntimeError("No model providers available")
+        # Fall through remaining providers
+        for name, provider in self.providers.items():
+            if name == self.primary_name:
+                continue
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    result = await provider.complete(messages, tools, **kwargs)
+                    logger.info(f"[{agent_name}] served by {name} (fallback, attempt {attempt})")
+                    return result
+                except Exception as e:
+                    logger.warning(f"[{agent_name}] {name} attempt {attempt}/{MAX_RETRIES} failed: {e}")
+                    errors.append(f"{name}: {e}")
+
+        raise RuntimeError(f"All model providers failed: {'; '.join(errors)}")
 
     async def health_check(self) -> dict[str, bool]:
         result = {}
-        if self.primary:
-            result[self.primary.provider_name] = await self.primary.health_check()
-        if self.fallback:
-            result[self.fallback.provider_name] = await self.fallback.health_check()
+        for name, provider in self.providers.items():
+            result[name] = await provider.health_check()
         return result

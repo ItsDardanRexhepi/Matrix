@@ -1,6 +1,9 @@
 {
   "platform": "0pnMatrx",
   "version": "1.0.0",
+  "workspace": ".",
+  "timezone": "America/Los_Angeles",
+  "max_steps": 10,
   "model": {
     "provider": "ollama",
     "primary": "llama3.1",
@@ -8,7 +11,8 @@
     "providers": {
       "ollama": {
         "base_url": "http://localhost:11434",
-        "model": "llama3.1"
+        "model": "llama3.1",
+        "fallback_model": "mistral"
       },
       "openai": {
         "api_key": "YOUR_OPENAI_API_KEY",
@@ -47,9 +51,14 @@
     }
   },
   "blockchain": {
-    "network": "base",
+    "network": "base-sepolia",
     "rpc_url": "YOUR_BASE_RPC_URL",
-    "eas_schema": "YOUR_EAS_SCHEMA_UID"
+    "chain_id": 84532,
+    "eas_contract": "0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
+    "eas_schema": "YOUR_EAS_SCHEMA_UID",
+    "paymaster_address": "YOUR_PAYMASTER_ADDRESS",
+    "paymaster_private_key": "YOUR_PAYMASTER_PRIVATE_KEY",
+    "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS"
   },
   "notifications": {
     "telegram": {

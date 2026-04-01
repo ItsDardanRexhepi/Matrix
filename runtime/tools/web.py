@@ -1,30 +1,48 @@
 """
-Web Tool — fetch and extract content from URLs.
+Web / HTTP Request Tool — full HTTP client supporting GET, POST, PUT, DELETE.
 
-Retrieves web pages and extracts readable text content,
-stripping HTML tags and navigation elements.
+Supports custom headers, configurable timeout, and returns status code,
+response headers, and response body.
 """
 
+import json
 import logging
 
 import aiohttp
 
 logger = logging.getLogger(__name__)
 
-MAX_CONTENT_LENGTH = 100_000
+MAX_BODY = 100_000
 
 
 class WebTool:
-    name = "web_fetch"
+    name = "web_request"
     schema = {
-        "name": "web_fetch",
-        "description": "Fetch a web page and extract its text content.",
+        "name": "web_request",
+        "description": "Make an HTTP request. Supports GET, POST, PUT, DELETE with custom headers and body.",
         "parameters": {
             "type": "object",
             "properties": {
                 "url": {
                     "type": "string",
-                    "description": "The URL to fetch",
+                    "description": "The URL to request",
+                },
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "DELETE"],
+                    "description": "HTTP method (default GET)",
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Custom request headers",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Request body (for POST/PUT)",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (default 30)",
                 },
             },
             "required": ["url"],
@@ -34,41 +52,70 @@ class WebTool:
     def __init__(self, config: dict):
         self.config = config
 
-    async def execute(self, url: str) -> str:
+    async def execute(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: dict | None = None,
+        body: str | None = None,
+        timeout: int = 30,
+    ) -> str:
         if not url.startswith(("http://", "https://")):
             return "Error: URL must start with http:// or https://"
 
+        method = method.upper()
+        if method not in ("GET", "POST", "PUT", "DELETE"):
+            return f"Error: unsupported method '{method}'"
+
+        req_headers = {"User-Agent": "Mozilla/5.0 (compatible; 0pnMatrx/1.0)"}
+        if headers:
+            req_headers.update(headers)
+
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; 0pnMatrx/1.0)"},
-                    timeout=aiohttp.ClientTimeout(total=15),
-                    allow_redirects=True,
-                ) as resp:
-                    if resp.status != 200:
-                        return f"Error: HTTP {resp.status}"
+            client_timeout = aiohttp.ClientTimeout(total=min(timeout, 120))
+            async with aiohttp.ClientSession(timeout=client_timeout) as session:
+                kwargs: dict = {"headers": req_headers, "allow_redirects": True}
+                if body and method in ("POST", "PUT"):
+                    # Try to send as JSON if parseable
+                    try:
+                        json.loads(body)
+                        kwargs["data"] = body
+                        req_headers.setdefault("Content-Type", "application/json")
+                    except (json.JSONDecodeError, TypeError):
+                        kwargs["data"] = body
 
+                async with session.request(method, url, **kwargs) as resp:
+                    status = resp.status
+                    resp_headers = dict(resp.headers)
                     content_type = resp.headers.get("Content-Type", "")
-                    if "text" not in content_type and "json" not in content_type:
-                        return f"Error: unsupported content type: {content_type}"
 
-                    body = await resp.text()
+                    if "text" in content_type or "json" in content_type or "xml" in content_type:
+                        resp_body = await resp.text()
+                    else:
+                        raw = await resp.read()
+                        resp_body = f"(binary content, {len(raw)} bytes)"
 
-            if len(body) > MAX_CONTENT_LENGTH:
-                body = body[:MAX_CONTENT_LENGTH]
+            if len(resp_body) > MAX_BODY:
+                resp_body = resp_body[:MAX_BODY] + "\n... (truncated)"
 
-            text = self._extract_text(body)
-            return text if text.strip() else "(page returned no readable content)"
+            # Extract text from HTML for readability
+            if "text/html" in content_type:
+                resp_body = self._extract_text(resp_body)
+
+            result_lines = [
+                f"Status: {status}",
+                f"Content-Type: {content_type}",
+                f"Body:\n{resp_body}",
+            ]
+            return "\n".join(result_lines)
 
         except aiohttp.ClientError as e:
-            return f"Error fetching URL: {e}"
+            return f"Error: {e}"
         except Exception as e:
-            logger.error(f"Web fetch failed: {e}")
+            logger.error(f"Web request failed: {e}")
             return f"Error: {e}"
 
     def _extract_text(self, html: str) -> str:
-        """Extract readable text from HTML, removing scripts, styles, and tags."""
         for tag in ["script", "style", "nav", "footer", "header"]:
             while True:
                 start = html.lower().find(f"<{tag}")
@@ -90,12 +137,5 @@ class WebTool:
             elif not in_tag:
                 result.append(char)
 
-        text = "".join(result)
-
-        lines = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped:
-                lines.append(stripped)
-
-        return "\n".join(lines)
+        lines = [line.strip() for line in "".join(result).splitlines() if line.strip()]
+        return "\n".join(lines[:200])
