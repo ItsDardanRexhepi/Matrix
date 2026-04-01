@@ -22,6 +22,7 @@ class ToolDispatcher:
         self._schemas: list[dict] = []
         self._register_builtin_tools()
         self._register_blockchain_tools(config)
+        self._register_service_dispatcher(config)
         self._register_skills(config)
 
     def _register_builtin_tools(self):
@@ -46,6 +47,16 @@ class ToolDispatcher:
             register_blockchain_tools(self, config)
         except Exception as e:
             logger.debug(f"Blockchain tools loading skipped: {e}")
+
+    def _register_service_dispatcher(self, config: dict):
+        """Register the ServiceDispatcher as the 'platform_action' mega-tool."""
+        try:
+            from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+            dispatcher = ServiceDispatcher(config)
+            self.register(dispatcher.name, dispatcher.execute, dispatcher.schema)
+            logger.info("ServiceDispatcher registered as tool: %s", dispatcher.name)
+        except Exception as e:
+            logger.debug(f"ServiceDispatcher loading skipped: {e}")
 
     def _register_skills(self, config: dict):
         """Load skills from the skills directory and register them as tools."""

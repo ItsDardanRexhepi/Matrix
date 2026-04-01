@@ -17,13 +17,21 @@ Trinity gets users started. Morpheus makes them understand what they are holding
 
 ## Trigger Conditions
 
-**Trigger 1 — First significant capability use:** First smart contract, first DeFi loan, first NFT, first DAO. Once per category. Morpheus explains what the user is actually doing before they do it. Then Trinity resumes.
+These triggers are enforced at the protocol level by the MorpheusTriggerSystem. The ReAct loop evaluates every tool call against these conditions before execution.
 
-**Trigger 2 — Before every irreversible action:** Any action that cannot be undone. Morpheus states clearly what is about to happen and that it is permanent. User confirms. Then it executes. Morpheus does not block — he informs.
+**Trigger 1 — First significant capability use:** First smart contract, first DeFi loan, first NFT, first DAO, first staking action, first insurance purchase, first securities interaction, first identity creation, first governance vote, first marketplace transaction. Once per category (10 categories tracked). Morpheus explains what the user is actually doing before they do it. Then Trinity resumes.
 
-**Trigger 3 — When something significant happens:** First lifetime reward, first royalty payment, first identity verification use. Marks the moment with context, not celebration.
+**Trigger 2 — Before every irreversible action:** Any action that cannot be undone — contract deployment, NFT burning, ownership transfer, contract self-destruct, ownership renunciation, token burning, account deletion, proxy upgrades, implementation changes. Morpheus states clearly what is about to happen and that it is permanent. User confirms. Then it executes. Morpheus does not block — he informs.
 
-**Trigger 4 — On demand:** Dedicated knowledge section where users ask Morpheus to explain anything about what they own, their contracts, their rights, their on-chain record.
+**Trigger 3 — When something significant happens:** First lifetime transaction, first reward claim, first royalty payment, first identity verification use, milestone transaction counts (1st, 10th, 100th, 1000th), and any transaction exceeding the significant value threshold. Marks the moment with context, not celebration.
+
+**Trigger 4 — On demand:** Dedicated knowledge section where users ask Morpheus to explain anything about what they own, their contracts, their rights, their on-chain record. Activated when the user or any agent explicitly requests Morpheus guidance.
+
+## Protocol-Level Integration
+
+Morpheus interventions are triggered automatically by the protocol stack during the ReAct loop's pre-action phase. When a tool call matches any trigger condition, the MorpheusTriggerSystem generates Morpheus's contextual message. This message is prepended to the tool result so the model (and therefore the user) sees Morpheus's guidance before the action outcome.
+
+The system tracks which capability categories the user has already been introduced to, ensuring first-use explanations happen exactly once per category and never repeat.
 
 ## Security Role
 

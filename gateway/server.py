@@ -99,6 +99,17 @@ class GatewayServer:
 
         logger.info(f"[{agent}] session={session_id} message={message[:100]}")
 
+        # Inject user context metadata so protocols can access it
+        context.metadata["user_context"] = {
+            "session_id": session_id,
+            "agent": agent,
+            "wallet_connected": body.get("wallet_connected", True),
+            "network": body.get("network"),
+            "balance": body.get("balance"),
+            "jurisdiction": body.get("jurisdiction", ""),
+            "total_transactions": body.get("total_transactions"),
+        }
+
         result = await self.react_loop.run(context)
 
         response_text = result.response
@@ -199,6 +210,16 @@ class GatewayServer:
         app.router.add_get("/status", self.handle_status)
         app.router.add_post("/memory/read", self.handle_memory_read)
         app.router.add_post("/memory/write", self.handle_memory_write)
+
+        # Register all 30 blockchain service REST endpoints
+        try:
+            from gateway.service_routes import ServiceRoutes
+            service_routes = ServiceRoutes(self.config)
+            service_routes.register_routes(app)
+            logger.info("Service routes registered successfully.")
+        except Exception as e:
+            logger.warning("Service routes registration skipped: %s", e)
+
         return app
 
     @web.middleware
