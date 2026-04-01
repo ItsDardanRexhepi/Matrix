@@ -34,7 +34,8 @@
   },
   "gateway": {
     "port": 18790,
-    "host": "0.0.0.0"
+    "host": "0.0.0.0",
+    "cors_origins": ["*"]
   },
   "agents": {
     "neo": {
@@ -64,6 +65,192 @@
     "telegram": {
       "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
       "owner_id": "YOUR_TELEGRAM_USER_ID"
+    }
+  },
+  "services": {
+    "agent_identity": {
+      "enabled": true,
+      "did_method": "did:ethr",
+      "registry_contract": "YOUR_AGENT_IDENTITY_REGISTRY_ADDRESS"
+    },
+    "attestation": {
+      "enabled": true,
+      "eas_contract": "0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
+      "batch_size": 50,
+      "flush_interval": 60
+    },
+    "brand_rewards": {
+      "enabled": true,
+      "contract_address": "YOUR_BRAND_REWARDS_CONTRACT_ADDRESS",
+      "min_cohort_size": 100,
+      "zkp_verifier_address": "YOUR_ZKP_VERIFIER_ADDRESS"
+    },
+    "cashback": {
+      "enabled": true,
+      "contract_address": "YOUR_CASHBACK_CONTRACT_ADDRESS",
+      "annual_threshold": 10000,
+      "reward_rate": 0.01
+    },
+    "contract_conversion": {
+      "enabled": true,
+      "template_registry": "YOUR_CONTRACT_TEMPLATE_REGISTRY_ADDRESS"
+    },
+    "cross_border": {
+      "enabled": true,
+      "contract_address": "YOUR_CROSS_BORDER_CONTRACT_ADDRESS",
+      "supported_fiat": ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "INR", "BRL"],
+      "fx_oracle_address": "YOUR_FX_ORACLE_ADDRESS"
+    },
+    "dao_management": {
+      "enabled": true,
+      "factory_contract": "YOUR_DAO_FACTORY_ADDRESS",
+      "governor_contract": "YOUR_GOVERNOR_CONTRACT_ADDRESS"
+    },
+    "dashboard": {
+      "enabled": true,
+      "cache_ttl_seconds": 300,
+      "max_history_days": 90
+    },
+    "defi": {
+      "enabled": true,
+      "router_address": "YOUR_DEFI_ROUTER_ADDRESS",
+      "max_slippage_bps": 100
+    },
+    "dex": {
+      "enabled": true,
+      "router_address": "YOUR_DEX_ROUTER_ADDRESS",
+      "factory_address": "YOUR_DEX_FACTORY_ADDRESS",
+      "max_slippage_bps": 50
+    },
+    "did_identity": {
+      "enabled": true,
+      "resolver_url": "YOUR_DID_RESOLVER_URL",
+      "registry_address": "YOUR_DID_REGISTRY_ADDRESS"
+    },
+    "dispute_resolution": {
+      "enabled": true,
+      "contract_address": "YOUR_DISPUTE_RESOLUTION_CONTRACT_ADDRESS",
+      "base_stake": 0.01,
+      "min_juror_stake": 0.1,
+      "minority_slash_ratio": 0.1,
+      "appeal_window_hours": 72
+    },
+    "fundraising": {
+      "enabled": true,
+      "contract_address": "YOUR_FUNDRAISING_CONTRACT_ADDRESS",
+      "milestone_verifier_address": "YOUR_MILESTONE_VERIFIER_ADDRESS",
+      "refund_window_days": 30
+    },
+    "gaming": {
+      "enabled": true,
+      "contract_address": "YOUR_GAMING_CONTRACT_ADDRESS",
+      "platform_fee_rate": 0.05,
+      "required_approvals": 2,
+      "vrf_coordinator": "YOUR_VRF_COORDINATOR_ADDRESS"
+    },
+    "governance": {
+      "enabled": true,
+      "contract_address": "YOUR_GOVERNANCE_CONTRACT_ADDRESS",
+      "quorum_thresholds": {
+        "standard": 0.04,
+        "critical": 0.10,
+        "emergency": 0.20
+      },
+      "voting_period_blocks": 50400,
+      "timelock_delay_seconds": 172800
+    },
+    "insurance": {
+      "enabled": true,
+      "contract_address": "YOUR_INSURANCE_CONTRACT_ADDRESS",
+      "min_reserve_ratio": 1.5,
+      "claims_oracle_address": "YOUR_CLAIMS_ORACLE_ADDRESS"
+    },
+    "ip_royalties": {
+      "enabled": true,
+      "contract_address": "YOUR_IP_ROYALTIES_CONTRACT_ADDRESS",
+      "royalty_registry_address": "YOUR_ROYALTY_REGISTRY_ADDRESS"
+    },
+    "loyalty": {
+      "enabled": true,
+      "contract_address": "YOUR_LOYALTY_CONTRACT_ADDRESS",
+      "points_to_token_ratio": 100
+    },
+    "marketplace": {
+      "enabled": true,
+      "contract_address": "YOUR_MARKETPLACE_CONTRACT_ADDRESS",
+      "platform_fee_bps": 500,
+      "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS"
+    },
+    "nft_services": {
+      "enabled": true,
+      "collection_factory_address": "YOUR_NFT_FACTORY_ADDRESS",
+      "metadata_base_url": "YOUR_NFT_METADATA_BASE_URL"
+    },
+    "oracle_gateway": {
+      "enabled": true,
+      "chainlink_feeds": {
+        "eth_usd": "YOUR_ETH_USD_FEED_ADDRESS",
+        "btc_usd": "YOUR_BTC_USD_FEED_ADDRESS",
+        "link_usd": "YOUR_LINK_USD_FEED_ADDRESS"
+      },
+      "vrf_coordinator": "YOUR_VRF_COORDINATOR_ADDRESS",
+      "vrf_key_hash": "YOUR_VRF_KEY_HASH",
+      "vrf_subscription_id": "YOUR_VRF_SUBSCRIPTION_ID",
+      "weather_api_key": "YOUR_WEATHER_API_KEY"
+    },
+    "privacy": {
+      "enabled": true,
+      "zkp_prover_url": "YOUR_ZKP_PROVER_URL",
+      "encryption_scheme": "aes-256-gcm"
+    },
+    "rwa_tokenization": {
+      "enabled": true,
+      "contract_address": "YOUR_RWA_TOKEN_CONTRACT_ADDRESS",
+      "custodian_address": "YOUR_CUSTODIAN_ADDRESS",
+      "appraisal_oracle": "YOUR_APPRAISAL_ORACLE_ADDRESS"
+    },
+    "securities_exchange": {
+      "enabled": true,
+      "contract_address": "YOUR_SECURITIES_EXCHANGE_ADDRESS",
+      "holding_period_days": 365,
+      "accredited_verifier_address": "YOUR_ACCREDITED_VERIFIER_ADDRESS"
+    },
+    "social": {
+      "enabled": true,
+      "proof_registry_address": "YOUR_SOCIAL_PROOF_REGISTRY_ADDRESS"
+    },
+    "stablecoin": {
+      "enabled": true,
+      "contract_address": "YOUR_STABLECOIN_CONTRACT_ADDRESS",
+      "rate_limits": {
+        "daily": 50000,
+        "weekly": 200000,
+        "monthly": 500000
+      },
+      "collateral_oracle": "YOUR_COLLATERAL_ORACLE_ADDRESS"
+    },
+    "staking": {
+      "enabled": true,
+      "contract_address": "YOUR_STAKING_CONTRACT_ADDRESS",
+      "commission_rate": 0.05,
+      "min_stake": 1.0,
+      "unbonding_period_days": 14
+    },
+    "subscriptions": {
+      "enabled": true,
+      "contract_address": "YOUR_SUBSCRIPTIONS_CONTRACT_ADDRESS",
+      "platform_fee_rate": 0.10,
+      "grace_period_hours": 48
+    },
+    "supply_chain": {
+      "enabled": true,
+      "contract_address": "YOUR_SUPPLY_CHAIN_CONTRACT_ADDRESS",
+      "iot_oracle_address": "YOUR_IOT_ORACLE_ADDRESS"
+    },
+    "x402_payments": {
+      "enabled": true,
+      "contract_address": "YOUR_X402_PAYMENTS_CONTRACT_ADDRESS",
+      "supported_tokens": ["USDC", "ETH"]
     }
   }
 }
