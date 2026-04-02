@@ -9,8 +9,8 @@ build/
 # Config (real config has secrets)
 openmatrix.config.json
 
-# Memory
-memory/
+# Memory data (agent conversation/kv storage at runtime)
+/memory/
 
 # Imported data
 imported/

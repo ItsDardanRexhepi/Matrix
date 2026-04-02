@@ -119,11 +119,21 @@ class OllamaClient(ModelInterface):
         for msg in messages:
             entry: dict = {"role": msg.role, "content": msg.content or ""}
             if msg.tool_calls:
-                entry["tool_calls"] = msg.tool_calls
-            if msg.tool_call_id:
-                entry["tool_call_id"] = msg.tool_call_id
-            if msg.name:
-                entry["name"] = msg.name
+                # Ollama expects arguments as objects, not JSON strings
+                native_calls = []
+                for tc in msg.tool_calls:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
+                    native_calls.append({"function": {"name": fn.get("name", ""), "arguments": args}})
+                entry["tool_calls"] = native_calls
+            # Ollama tool responses: just role + content, no extra fields
+            if msg.role == "tool":
+                entry = {"role": "tool", "content": msg.content or ""}
             formatted.append(entry)
         return formatted
 

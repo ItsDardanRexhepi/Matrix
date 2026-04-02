@@ -110,7 +110,16 @@ class GatewayServer:
             "total_transactions": body.get("total_transactions"),
         }
 
-        result = await self.react_loop.run(context)
+        try:
+            result = await self.react_loop.run(context)
+        except RuntimeError as e:
+            logger.error(f"[{agent}] model error: {e}")
+            return web.json_response({
+                "response": "I'm having trouble connecting to my language model right now. Please try again shortly.",
+                "error": str(e),
+                "agent": agent,
+                "session_id": session_id,
+            }, status=503)
 
         response_text = result.response
         if first_boot:
