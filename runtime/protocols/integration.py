@@ -3,9 +3,14 @@ Protocol Integration Layer — initializes and wires all protocols into the agen
 Single entry point that the ReAct loop uses.
 """
 
+from __future__ import annotations
+
 import logging
 import time
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from runtime.react_loop import ReActContext
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +111,7 @@ class ProtocolStack:
 
     # ── Pre-process: runs BEFORE the model call ──────────────────────
 
-    async def pre_process(self, context: "ReActContext") -> "ReActContext":
+    async def pre_process(self, context: ReActContext) -> ReActContext:
         """Enrich context before the model sees it.
 
         - Jarvis identity context
@@ -262,7 +267,7 @@ class ProtocolStack:
 
     # ── Post-process: runs on the FINAL response ─────────────────────
 
-    async def post_process(self, response: str, context: "ReActContext") -> str:
+    async def post_process(self, response: str, context: ReActContext) -> str:
         """Apply protocol transformations to the final agent response.
 
         - Jarvis voice consistency
