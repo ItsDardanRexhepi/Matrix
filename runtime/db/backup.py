@@ -78,6 +78,32 @@ class BackupManager:
                 logger.warning("Failed to delete old backup %s: %s", path, exc)
         return deleted
 
+    def latest_backup(self) -> Path | None:
+        """Return the most recent backup file, or ``None`` if there are none."""
+        files = self.list_backups()
+        return files[-1] if files else None
+
+    async def restore_latest(self) -> Path:
+        """Restore the database from the most recent snapshot.
+
+        WARNING: this overwrites the live database file. The caller MUST
+        stop the gateway (or at least the backup loop and request
+        handlers) first — see ``docs/RUNBOOK.md``.
+        """
+        latest = self.latest_backup()
+        if latest is None:
+            raise FileNotFoundError(
+                f"No backups found in {self.backup_dir}"
+            )
+        await self.db.restore_from(latest)
+        return latest
+
+    async def restore_from(self, source: str | Path) -> Path:
+        """Restore the database from an explicit backup path."""
+        path = Path(source)
+        await self.db.restore_from(path)
+        return path
+
 
 async def run_backup_loop(
     manager: BackupManager,

@@ -20,10 +20,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install flake8
+          pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Lint with flake8
+      - name: Lint with flake8 (fatal errors only)
         run: |
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv,migrations
 
@@ -31,6 +30,48 @@ jobs:
         run: |
           python -c "import gateway; print('gateway OK')" || true
           python -c "import runtime; print('runtime OK')" || true
+
+  typecheck:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run mypy
+        # Non-blocking for now: the codebase is being type-annotated
+        # incrementally. Per-module strictness lives in pyproject.toml.
+        run: |
+          mypy --config-file pyproject.toml || true
+
+  docstrings:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run interrogate (docstring coverage)
+        run: |
+          interrogate -c pyproject.toml runtime gateway hivemind || true
 
   test:
     runs-on: ubuntu-latest
@@ -46,14 +87,23 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov aiohttp
+          pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --tb=short -x
+          python -m pytest tests/ -v --tb=short \
+            --cov=runtime --cov=gateway --cov=hivemind \
+            --cov-report=term-missing --cov-report=xml
         env:
           PYTHONPATH: .
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
 
   security:
     runs-on: ubuntu-latest
@@ -69,13 +119,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install safety bandit
+          pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Check dependencies for vulnerabilities
+      - name: Audit dependencies with pip-audit
+        # Non-blocking: the dependency tree includes upstream advisories
+        # we cannot patch ourselves; this surfaces them in CI logs.
         run: |
-          pip install safety
-          safety check --output text || true
+          pip-audit --strict || true
 
       - name: Bandit security scan
         run: |
@@ -84,3 +134,40 @@ jobs:
       - name: Check for hardcoded secrets
         run: |
           grep -rn "YOUR_" --include="*.json" . | grep -v ".example" | grep -v "node_modules" && echo "WARNING: Possible non-example config with placeholder keys" || echo "No hardcoded secrets found"
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: opnmatrx-gateway:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test container
+        # Boot the gateway, hit /health, and make sure it returns 200.
+        run: |
+          set -e
+          cid=$(docker run -d --rm -p 18790:18790 opnmatrx-gateway:ci)
+          trap "docker kill $cid >/dev/null 2>&1 || true" EXIT
+          # Give the gateway a few seconds to bind.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://localhost:18790/health >/dev/null; then
+              echo "Gateway responded on attempt $i"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Gateway did not respond to /health within timeout"
+          docker logs $cid || true
+          exit 1

@@ -4,6 +4,77 @@ All notable changes to 0pnMatrx are documented here.
 
 ---
 
+## [0.4.0] — 2026-04-09
+
+### Production hardening — round 2
+
+#### Database
+
+- Versioned schema migrations replace the flat `SCHEMA` list. Each
+  migration runs inside `BEGIN IMMEDIATE` and is recorded in a new
+  `schema_version` table; partial failures roll back atomically.
+- `Database.restore_from()` closes the live connection, atomically
+  swaps the database file, reopens it, and re-runs migrations to bring
+  the snapshot up to the current version.
+- `BackupManager.restore_latest()` and `restore_from()` higher-level
+  helpers; full restore procedure documented in `docs/RUNBOOK.md`.
+
+#### Observability
+
+- New `GET /metrics/prom` endpoint exposes counters, gauges, and
+  histograms in Prometheus text exposition format (counters as
+  `_total`, histograms as summaries with 0.5 / 0.95 / 0.99 quantiles).
+- Service / oracle cache prune is now wired into the gateway cleanup
+  loop via a duck-typed `prune_caches()` chain
+  (`ToolDispatcher → ServiceDispatcher → ServiceRegistry →
+  OracleGateway`). Evictions are reported via `caches.evicted`.
+- `MatrixBridge` now performs real on-chain balance lookups via a
+  lazily constructed `Web3Manager`, falling back gracefully when the
+  chain is not configured.
+
+#### Packaging
+
+- `pyproject.toml` is now the source of truth for metadata, build
+  config, optional dependency groups, and tool configuration (pytest,
+  coverage, mypy, interrogate).
+- `requirements.txt` is now runtime-only with `~=` ("compatible
+  release") pins. Development tooling moved to `requirements-dev.txt`,
+  optional Sentry monitoring extras to `requirements-monitoring.txt`
+  and the `[opnmatrx[monitoring]]` extra.
+
+#### CI / repo hygiene
+
+- New CI jobs: mypy type-check, interrogate docstring coverage,
+  pytest-cov coverage reporting, pip-audit dependency audit, and a
+  Docker smoke-test job that builds the image and curls `/health`.
+- New release workflow (`.github/workflows/release.yml`) cuts a
+  GitHub Release when a `v*` tag is pushed, builds sdist + wheel, and
+  pulls the matching CHANGELOG section as the release body.
+- `.github/CODEOWNERS` and `.github/PULL_REQUEST_TEMPLATE.md` added.
+- `docs/RUNBOOK.md` added with the full on-call playbook.
+
+#### Tests
+
+- New: `tests/test_db_migrations.py` (12 tests) covering schema
+  versioning, idempotency, additive migrations, and rollback on
+  failure.
+- New: `tests/test_metrics.py` (14 tests) covering counter / gauge /
+  histogram collection plus Prometheus formatting.
+- New: `tests/test_websocket.py` (8 tests) covering the previously
+  uncovered `handle_websocket` endpoint: happy path, conversation
+  persistence, validation errors, and graceful failure when the ReAct
+  loop raises.
+- Extended: `tests/test_backup.py` and `tests/test_graceful_degradation.py`
+  with restore-flow and cache-eviction coverage.
+
+#### Notes
+
+- The MTRX iOS app remains intentionally out of scope for this
+  repository — see `ROADMAP.md` for what belongs in the separate
+  `MTRX-iOS` repo (Swift code, APNs, TestFlight CI, StoreKit).
+
+---
+
 ## [0.3.0] — 2026-04-08
 
 ### Managed Agent Orchestration

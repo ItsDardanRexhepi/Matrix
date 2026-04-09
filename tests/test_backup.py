@@ -99,3 +99,90 @@ class TestBackupListing:
         (mgr.backup_dir / f"{BACKUP_PREFIX}20260101T000000Z{BACKUP_SUFFIX}").write_bytes(b"x")
         files = mgr.list_backups()
         assert len(files) == 1
+
+
+class TestRestore:
+    """Restoring a snapshot brings the live database back to that state."""
+
+    @pytest.mark.asyncio
+    async def test_restore_from_explicit_path(self, tmp_path, db):
+        # Seed the live db with one row.
+        await db.execute(
+            "INSERT INTO agent_memory (agent, key, value, updated_at) VALUES (?, ?, ?, ?)",
+            ("neo", "before", '"v1"', 1.0),
+        )
+        mgr = BackupManager(db, backup_dir=tmp_path / "backups", retention=10)
+        snapshot = await mgr.create_backup()
+
+        # Add a second row that should NOT survive the restore.
+        await db.execute(
+            "INSERT INTO agent_memory (agent, key, value, updated_at) VALUES (?, ?, ?, ?)",
+            ("neo", "after", '"v2"', 2.0),
+        )
+        rows_before_restore = await db.fetchall(
+            "SELECT key FROM agent_memory WHERE agent = ?", ("neo",)
+        )
+        assert {r[0] for r in rows_before_restore} == {"before", "after"}
+
+        await mgr.restore_from(snapshot)
+
+        rows_after_restore = await db.fetchall(
+            "SELECT key FROM agent_memory WHERE agent = ?", ("neo",)
+        )
+        assert {r[0] for r in rows_after_restore} == {"before"}
+
+    @pytest.mark.asyncio
+    async def test_restore_latest_picks_newest(self, tmp_path, db):
+        await db.execute(
+            "INSERT INTO agent_memory (agent, key, value, updated_at) VALUES (?, ?, ?, ?)",
+            ("neo", "k1", '"v1"', 1.0),
+        )
+        mgr = BackupManager(db, backup_dir=tmp_path / "backups", retention=10)
+        await mgr.create_backup()
+
+        # Add a row, then take a *second* backup that captures it.
+        await db.execute(
+            "INSERT INTO agent_memory (agent, key, value, updated_at) VALUES (?, ?, ?, ?)",
+            ("neo", "k2", '"v2"', 2.0),
+        )
+        await mgr.create_backup()
+
+        # Drop the row locally, then restore_latest — k2 should reappear
+        # because it's in the newest snapshot.
+        await db.execute(
+            "DELETE FROM agent_memory WHERE agent = ? AND key = ?",
+            ("neo", "k2"),
+        )
+        rows = await db.fetchall(
+            "SELECT key FROM agent_memory WHERE agent = ?", ("neo",)
+        )
+        assert {r[0] for r in rows} == {"k1"}
+
+        restored_path = await mgr.restore_latest()
+        assert restored_path == mgr.latest_backup()
+
+        rows = await db.fetchall(
+            "SELECT key FROM agent_memory WHERE agent = ?", ("neo",)
+        )
+        assert {r[0] for r in rows} == {"k1", "k2"}
+
+    @pytest.mark.asyncio
+    async def test_restore_latest_with_no_backups_raises(self, tmp_path, db):
+        mgr = BackupManager(db, backup_dir=tmp_path / "empty-backups", retention=10)
+        with pytest.raises(FileNotFoundError):
+            await mgr.restore_latest()
+
+    @pytest.mark.asyncio
+    async def test_restore_missing_path_raises(self, tmp_path, db):
+        mgr = BackupManager(db, backup_dir=tmp_path / "backups", retention=10)
+        with pytest.raises(FileNotFoundError):
+            await mgr.restore_from(tmp_path / "does-not-exist.db")
+
+    @pytest.mark.asyncio
+    async def test_schema_version_preserved_after_restore(self, tmp_path, db):
+        mgr = BackupManager(db, backup_dir=tmp_path / "backups", retention=10)
+        snapshot = await mgr.create_backup()
+        original_version = db.schema_version
+        assert original_version >= 1
+        await mgr.restore_from(snapshot)
+        assert db.schema_version == original_version

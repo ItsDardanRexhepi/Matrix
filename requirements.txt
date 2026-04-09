@@ -1,14 +1,21 @@
-aiohttp>=3.9.0
-aiofiles>=23.0
-web3>=6.0.0
-eth-account>=0.11.0
-eth-abi>=5.0.0
-py-solc-x>=2.0.0
-pynacl>=1.5.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-pyyaml>=6.0
-duckduckgo_search>=5.0.0
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-pytest-aiohttp>=1.0.0
+# Runtime dependencies for the 0pnMatrx gateway.
+#
+# This file lists only what the production image needs. Development
+# tooling (pytest, mypy, interrogate, etc.) lives in requirements-dev.txt
+# and optional monitoring extras live in requirements-monitoring.txt.
+#
+# Pins use ~= ("compatible release") so security and bug-fix releases
+# flow through while locking the major/minor. Run ``pip install -r
+# requirements.txt`` inside a clean virtualenv for reproducible builds.
+
+aiohttp~=3.9
+aiofiles~=23.2
+web3~=6.20
+eth-account~=0.11
+eth-abi~=5.0
+py-solc-x~=2.0
+pynacl~=1.5
+requests~=2.32
+python-dotenv~=1.0
+pyyaml~=6.0
+duckduckgo_search~=5.3

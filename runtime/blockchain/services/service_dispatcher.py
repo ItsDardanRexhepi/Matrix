@@ -438,6 +438,14 @@ class ServiceDispatcher:
             logger.info("ServiceDispatcher: ServiceRegistry initialised.")
         return self._registry
 
+    async def prune_caches(self, grace_seconds: float = 0.0) -> int:
+        """Prune caches across every instantiated service. Returns the
+        number of cache entries evicted (0 if the registry was never
+        touched)."""
+        if self._registry is None:
+            return 0
+        return await self._registry.prune_caches(grace_seconds=grace_seconds)
+
     def _get_neosafe(self):
         """Lazily initialise the NeoSafe fee router."""
         if self._neosafe is None:

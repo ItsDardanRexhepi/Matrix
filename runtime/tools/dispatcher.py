@@ -51,13 +51,23 @@ class ToolDispatcher:
 
     def _register_service_dispatcher(self, config: dict):
         """Register the ServiceDispatcher as the 'platform_action' mega-tool."""
+        self.service_dispatcher = None
         try:
             from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
             dispatcher = ServiceDispatcher(config)
+            self.service_dispatcher = dispatcher
             self.register(dispatcher.name, dispatcher.execute, dispatcher.schema)
             logger.info("ServiceDispatcher registered as tool: %s", dispatcher.name)
         except Exception as e:
             logger.debug(f"ServiceDispatcher loading skipped: {e}")
+
+    async def prune_caches(self, grace_seconds: float = 0.0) -> int:
+        """Prune caches across every downstream service. Returns the
+        count of evicted entries. Safe to call when the service
+        dispatcher hasn't loaded."""
+        if self.service_dispatcher is None:
+            return 0
+        return await self.service_dispatcher.prune_caches(grace_seconds=grace_seconds)
 
     def _register_skills(self, config: dict):
         """Load skills from the skills directory and register them as tools."""

@@ -67,6 +67,16 @@ class TestOracleStaleCache:
         assert result["stale"] is False
         assert "error" in result
 
+    @pytest.mark.asyncio
+    async def test_prune_caches_evicts_expired_entries(self):
+        gw = OracleGateway({"oracle": {"cache_ttls": {"price_feed": 1}}})
+        await gw._cache.set("price_feed", "k1", {"price": 1})
+        await gw._cache.set("price_feed", "k2", {"price": 2})
+        await _sleep_until_expired()
+        evicted = await gw.prune_caches()
+        assert evicted == 2
+        assert gw._cache.stats["size"] == 0
+
 
 async def _sleep_until_expired():
     import asyncio

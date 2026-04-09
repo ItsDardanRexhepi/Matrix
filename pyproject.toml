@@ -1,0 +1,151 @@
+# 0pnMatrx — packaging and tooling config.
+#
+# We keep a minimal setup.py around so ``pip install -e .`` still works
+# on older toolchains, but the source of truth for metadata, tool
+# config, and optional dependency groups lives here.
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opnmatrx"
+version = "0.4.0"
+description = "0pnMatrx — multi-agent crypto-native platform (Trinity, Neo, Morpheus)."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Neo", email = "242350397+ItsDardanRexhepi@users.noreply.github.com" },
+]
+keywords = ["blockchain", "agents", "react", "sqlite", "gateway"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+dependencies = [
+    "aiohttp~=3.9",
+    "aiofiles~=23.2",
+    "web3~=6.20",
+    "eth-account~=0.11",
+    "eth-abi~=5.0",
+    "py-solc-x~=2.0",
+    "pynacl~=1.5",
+    "requests~=2.32",
+    "python-dotenv~=1.0",
+    "pyyaml~=6.0",
+    "duckduckgo_search~=5.3",
+]
+
+[project.optional-dependencies]
+monitoring = ["sentry-sdk~=2.14"]
+dev = [
+    "pytest~=8.3",
+    "pytest-asyncio~=0.24",
+    "pytest-aiohttp~=1.0",
+    "pytest-cov~=5.0",
+    "mypy~=1.11",
+    "interrogate~=1.7",
+    "pdoc~=15.0",
+    "pip-audit~=2.7",
+    "bandit~=1.7",
+    "flake8~=7.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/ItsDardanRexhepi/0pnMatrx"
+Issues = "https://github.com/ItsDardanRexhepi/0pnMatrx/issues"
+Changelog = "https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/CHANGELOG.md"
+
+[project.scripts]
+opnmatrx-gateway = "gateway.server:main"
+opnmatrx-changelog = "scripts.generate_changelog:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*"]
+exclude = ["tests*", "data*", "memory*", "site*", ".venv*"]
+
+# ── Pytest ──────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+# ── Coverage ────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["runtime", "gateway", "hivemind"]
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+    "*/migration/*",
+    "*/examples/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+precision = 1
+show_missing = true
+skip_covered = false
+
+# ── mypy ────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.9"
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = false
+ignore_missing_imports = true
+follow_imports = "silent"
+files = ["runtime", "gateway", "hivemind"]
+# This codebase wasn't written type-first — keep the check non-strict
+# and opt in on a per-module basis once we clean things up.
+check_untyped_defs = false
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = [
+    "runtime.db.*",
+    "runtime.monitoring.*",
+    "runtime.auth.session_store",
+]
+check_untyped_defs = true
+disallow_untyped_defs = false
+
+# ── Interrogate (docstring coverage) ────────────────────────────────
+[tool.interrogate]
+ignore-init-method = true
+ignore-init-module = true
+ignore-magic = true
+ignore-module = false
+ignore-nested-functions = true
+ignore-private = true
+ignore-property-decorators = true
+ignore-semiprivate = true
+fail-under = 60
+exclude = [
+    "tests",
+    "build",
+    "docs",
+    "migration",
+    "examples",
+    ".venv",
+    "data",
+    "memory",
+]
+verbose = 1
+quiet = false
+color = true

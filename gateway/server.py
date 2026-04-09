@@ -400,8 +400,17 @@ class GatewayServer:
         return result
 
     async def handle_metrics(self, request: web.Request) -> web.Response:
-        """GET /metrics — return the in-process metrics snapshot."""
+        """GET /metrics — JSON snapshot of counters/gauges/histograms."""
         return web.json_response(self.metrics.snapshot())
+
+    async def handle_metrics_prometheus(self, request: web.Request) -> web.Response:
+        """GET /metrics/prom — Prometheus text exposition format."""
+        body = self.metrics.format_prometheus()
+        return web.Response(
+            text=body,
+            content_type="text/plain",
+            charset="utf-8",
+        )
 
     async def handle_memory_read(self, request: web.Request) -> web.Response:
         """POST /memory/read — {agent} -> memory data"""
@@ -757,12 +766,23 @@ class GatewayServer:
                 logger.warning("Failed to start backup loop: %s", exc)
 
     async def _cleanup_loop(self) -> None:
-        """Periodically prune stale rate-limiter buckets."""
+        """Periodically prune stale rate-limiter buckets and service caches."""
         while True:
             try:
                 await asyncio.sleep(300)
                 self.rate_limiter_auth.cleanup()
                 self.rate_limiter_anon.cleanup()
+                # Sweep stale oracle/service caches so expired entries
+                # left behind for ``get_stale`` don't accumulate.
+                dispatcher = getattr(self.react_loop, "dispatcher", None)
+                prune = getattr(dispatcher, "prune_caches", None)
+                if prune is not None:
+                    try:
+                        evicted = await prune(grace_seconds=300.0)
+                        if evicted:
+                            self.metrics.incr("caches.evicted", evicted)
+                    except Exception as exc:
+                        logger.warning("Service cache prune failed: %s", exc)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -803,6 +823,7 @@ class GatewayServer:
         app.router.add_post("/auth/nonce", self.handle_auth_nonce)
         app.router.add_post("/auth/verify", self.handle_auth_verify)
         app.router.add_get("/metrics", self.handle_metrics)
+        app.router.add_get("/metrics/prom", self.handle_metrics_prometheus)
 
         # Register all 30 blockchain service REST endpoints
         try:

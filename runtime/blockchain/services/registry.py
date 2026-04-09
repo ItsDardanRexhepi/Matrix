@@ -57,6 +57,26 @@ class ServiceRegistry:
         self._instances: dict[str, Any] = {}
         logger.debug("ServiceRegistry created with %d available services", len(_SERVICE_MAP))
 
+    async def prune_caches(self, grace_seconds: float = 0.0) -> int:
+        """Ask every instantiated service to prune its caches.
+
+        Services that expose an async ``prune_caches`` method are swept;
+        services that don't are skipped. Returns the total number of
+        cache entries evicted across all services.
+        """
+        total = 0
+        for name, instance in list(self._instances.items()):
+            prune = getattr(instance, "prune_caches", None)
+            if prune is None:
+                continue
+            try:
+                evicted = await prune(grace_seconds=grace_seconds)
+                if isinstance(evicted, int):
+                    total += evicted
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("prune_caches failed for %s: %s", name, exc)
+        return total
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------

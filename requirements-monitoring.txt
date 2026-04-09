@@ -1,0 +1,9 @@
+# Optional monitoring extras.
+#
+# Install alongside the base requirements when you want Sentry error
+# reporting enabled. The runtime imports ``sentry_sdk`` only inside a
+# try/except, so leaving this file uninstalled cleanly disables Sentry.
+#
+#   pip install -r requirements.txt -r requirements-monitoring.txt
+
+sentry-sdk~=2.14

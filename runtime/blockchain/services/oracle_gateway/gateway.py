@@ -473,6 +473,17 @@ class OracleGateway:
         """Expose cache statistics."""
         return self._cache.stats
 
+    async def prune_caches(self, grace_seconds: float = 0.0) -> int:
+        """Drop expired cache entries. Returns the number evicted.
+
+        Exposed so long-running processes can schedule a periodic sweep
+        — :meth:`OracleCache.get` intentionally keeps expired entries in
+        place so that :meth:`request_safe` can serve stale data during
+        upstream outages, which means memory has to be reclaimed by an
+        explicit prune.
+        """
+        return await self._cache.prune_expired(grace_seconds=grace_seconds)
+
     async def invalidate_cache(
         self, oracle_type: str, params: dict[str, Any] | None = None
     ) -> None:

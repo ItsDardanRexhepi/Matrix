@@ -1,0 +1,28 @@
+# 0pnMatrx codeowners
+#
+# Pull requests touching these paths automatically request a review from
+# the listed owners. Order matters: the LAST matching pattern wins.
+
+# Catch-all
+*                       @ItsDardanRexhepi
+
+# Gateway / runtime / hivemind core
+/gateway/               @ItsDardanRexhepi
+/runtime/               @ItsDardanRexhepi
+/hivemind/              @ItsDardanRexhepi
+
+# Smart contracts and blockchain glue
+/contracts/             @ItsDardanRexhepi
+/runtime/blockchain/    @ItsDardanRexhepi
+
+# CI / release tooling
+/.github/workflows/     @ItsDardanRexhepi
+/Dockerfile             @ItsDardanRexhepi
+/pyproject.toml         @ItsDardanRexhepi
+/requirements*.txt      @ItsDardanRexhepi
+
+# Docs / runbook
+/docs/                  @ItsDardanRexhepi
+/README.md              @ItsDardanRexhepi
+/CHANGELOG.md           @ItsDardanRexhepi
+/ROADMAP.md             @ItsDardanRexhepi

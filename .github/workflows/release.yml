@@ -1,0 +1,82 @@
+name: Release
+
+# Cuts a GitHub Release whenever a ``v*`` tag is pushed (e.g. ``v0.4.0``).
+# The job:
+#   1. checks out the tag
+#   2. builds the sdist + wheel from pyproject.toml
+#   3. extracts the matching section of CHANGELOG.md as the release body
+#   4. creates the GitHub Release with the build artefacts attached
+#
+# Tagging convention: lightweight or annotated tags both work as long as
+# they match ``v[0-9]+.[0-9]+.[0-9]+``. The CHANGELOG section header must
+# be ``## [X.Y.Z] - YYYY-MM-DD`` for the extractor to find it.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build sdist and wheel
+        run: |
+          python -m build
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          # Pull the section between ``## [X.Y.Z]`` and the next ``## [``.
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { capture=1; next }
+            capture && $0 ~ "^## \\[" { exit }
+            capture { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "No CHANGELOG entry for $version — falling back to tag message" >&2
+            git tag -l --format='%(contents)' "${{ steps.version.outputs.tag }}" > release_notes.md
+          fi
+          # Always show what we're about to publish for log auditability.
+          echo "----- release_notes.md -----"
+          cat release_notes.md
+          echo "----- end -----"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
+          files: |
+            dist/*.whl
+            dist/*.tar.gz

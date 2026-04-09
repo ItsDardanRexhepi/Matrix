@@ -495,6 +495,38 @@ class BridgeRoutes:
         self._server = gateway_server
         self._linked_wallets: dict[str, dict] = {}  # session_id → wallet info
         self._push_tokens: dict[str, str] = {}  # session_id → APNs token
+        self._web3_manager = None  # lazy; built on first balance lookup
+
+    def _get_web3_manager(self):
+        """Lazily instantiate a :class:`Web3Manager` for balance reads.
+
+        Returns ``None`` if web3 isn't installed or the blockchain
+        config is missing/placeholder — callers should treat that as
+        "balance unavailable" rather than an error.
+        """
+        if self._web3_manager is not None:
+            return self._web3_manager
+        try:
+            from runtime.blockchain.web3_manager import Web3Manager
+            mgr = Web3Manager(self._config)
+            if not mgr.available:
+                return None
+            self._web3_manager = mgr
+            return mgr
+        except Exception as exc:
+            logger.debug("Web3Manager unavailable for balance lookup: %s", exc)
+            return None
+
+    def _lookup_balance_eth(self, address: str) -> float | None:
+        """Return the ETH balance of *address* or ``None`` if unavailable."""
+        mgr = self._get_web3_manager()
+        if mgr is None or not address:
+            return None
+        try:
+            return mgr.get_balance_eth(address)
+        except Exception as exc:
+            logger.warning("Balance lookup failed for %s: %s", address, exc)
+            return None
 
     def register_routes(self, app: web.Application) -> None:
         """Register all bridge endpoints."""
@@ -753,14 +785,11 @@ class BridgeRoutes:
         if not wallet:
             return MobileResponse.ok({"linked": False})
 
-        # TODO: Wire balance lookup through a concrete provider client
-        # (e.g. Web3 / Alchemy). BlockchainInterface is an abstract base
-        # and cannot be instantiated directly.
         return MobileResponse.ok({
             "linked": True,
             "address": wallet["address"],
             "network": wallet.get("network", "base-sepolia"),
-            "balance_eth": None,
+            "balance_eth": self._lookup_balance_eth(wallet["address"]),
             "verified": wallet.get("verified", False),
         })
 
@@ -893,11 +922,9 @@ class BridgeRoutes:
         }
 
         if wallet:
-            # TODO: Wire balance lookup through a concrete provider client.
-            # BlockchainInterface is an abstract base — see wallet_status().
             dashboard["wallet"] = {
                 "address": wallet["address"],
-                "balance_eth": None,
+                "balance_eth": self._lookup_balance_eth(wallet["address"]),
                 "network": wallet.get("network"),
                 "verified": wallet.get("verified", False),
             }
