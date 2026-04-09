@@ -7,6 +7,14 @@ Components:
 - SharedContextLayer: thread-safe shared state with pub/sub
 - TaskRouter: routes tasks based on agent capability
 - AgentDelegate: handles cross-agent task delegation (Trinity -> Neo -> Trinity)
+- EventBus: typed event-driven inter-agent communication
+- LifecycleManager: session persistence, hooks, and state transitions
+
+Architecture follows managed agent orchestration patterns:
+- Neo acts as coordinator, delegating to Trinity (conversation) and Morpheus (guidance)
+- All agent communication flows through typed events for auditability
+- Sessions are persistent and resumable across context windows
+- Lifecycle hooks enable governance without modifying agent logic
 
 Extensible: adding a fourth agent requires one dict entry and one capability list.
 """
@@ -23,6 +31,8 @@ from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 from runtime.react_loop import ReActLoop, ReActContext, ReActResult, Message
+from hivemind.events import EventBus, EventType, AgentEvent
+from hivemind.lifecycle import LifecycleManager, HookPoint, SessionState
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +222,11 @@ class HivemindOrchestrator:
     """
     Central coordinator that manages task assignment, tracks active tasks,
     handles task completion and failure, and coordinates agent handoffs.
+
+    Uses managed agent orchestration:
+    - EventBus for typed, auditable inter-agent communication
+    - LifecycleManager for session persistence and hook-based governance
+    - Neo as coordinator with single-level delegation to Trinity/Morpheus
     """
 
     def __init__(self, config: dict, react_loop: ReActLoop):
@@ -222,11 +237,14 @@ class HivemindOrchestrator:
         self.message_bus = MessageBus(workspace)
         self.shared_context = SharedContextLayer()
         self.task_router = TaskRouter()
+        self.event_bus = EventBus(workspace)
+        self.lifecycle = LifecycleManager(workspace)
         self.agents: dict[str, AgentCapabilities] = {}
         self.active_tasks: dict[str, Task] = {}
         self._user_firsts: dict[str, set[str]] = {}
 
         self._init_agents()
+        self._init_event_handlers()
 
         # Subscribe to task completions so Trinity knows when Neo finishes
         self.shared_context.subscribe("task_completed", self._on_task_completed)
@@ -243,6 +261,45 @@ class HivemindOrchestrator:
                 system_prompt=self.react_loop.get_agent_prompt(name),
             )
 
+    def _init_event_handlers(self):
+        """Register default event handlers for orchestration coordination."""
+        # Log all task events
+        self.event_bus.subscribe(
+            EventType.TASK_COMPLETED, self._on_task_event,
+        )
+        self.event_bus.subscribe(
+            EventType.TASK_FAILED, self._on_task_event,
+        )
+        # Track Morpheus interventions
+        self.event_bus.subscribe(
+            EventType.MORPHEUS_INTERVENTION, self._on_morpheus_event,
+        )
+        # Track security audit events
+        self.event_bus.subscribe(
+            EventType.AUDIT_BLOCKED, self._on_audit_blocked,
+        )
+
+    async def _on_task_event(self, event: AgentEvent):
+        """Handle task lifecycle events."""
+        logger.info(
+            f"Task event: {event.type.value} from {event.source_agent} "
+            f"-> {event.target_agent}: {event.payload.get('task_id', '?')}"
+        )
+
+    async def _on_morpheus_event(self, event: AgentEvent):
+        """Track Morpheus interventions for analytics."""
+        logger.info(
+            f"Morpheus intervention: {event.payload.get('trigger', 'unknown')} "
+            f"session={event.session_id}"
+        )
+
+    async def _on_audit_blocked(self, event: AgentEvent):
+        """Handle blocked deployments from Glasswing audit."""
+        logger.warning(
+            f"Deployment BLOCKED by Glasswing audit: "
+            f"{event.payload.get('reason', 'critical vulnerabilities')}"
+        )
+
     def _on_task_completed(self, key: str, value: Any):
         """Callback when a task is completed — updates shared context."""
         logger.info(f"Task completed notification: {value}")
@@ -257,13 +314,39 @@ class HivemindOrchestrator:
     ) -> dict:
         """
         Process a user message through the hivemind.
-        Checks Morpheus triggers, routes to Trinity, delegates to Neo if needed.
+        Manages session lifecycle, emits events, checks Morpheus triggers,
+        routes to Trinity, delegates to Neo if needed.
         """
+        # Ensure session exists (start or resume)
+        session = self.lifecycle.get_session(session_id)
+        if not session:
+            session = await self.lifecycle.start_session(
+                agent_name="trinity",
+                session_id=session_id,
+                metadata={"message_count": len(conversation)},
+            )
+            await self.event_bus.emit(AgentEvent(
+                type=EventType.SESSION_STARTED,
+                source_agent="orchestrator",
+                session_id=session_id,
+                payload={"agent": "trinity"},
+            ))
+
+        await self.lifecycle.record_message(session_id)
+
         # Check Morpheus triggers first
         morpheus_response = await self._check_morpheus_triggers(
             user_message, session_id, conversation,
         )
         if morpheus_response:
+            await self.event_bus.emit(AgentEvent(
+                type=EventType.MORPHEUS_INTERVENTION,
+                source_agent="morpheus",
+                target_agent="trinity",
+                session_id=session_id,
+                payload={"trigger": "pre_message", "message": user_message[:200]},
+            ))
+            self.lifecycle.mark_idle(session_id)
             return {
                 "response": morpheus_response,
                 "agent": "morpheus",
@@ -280,6 +363,17 @@ class HivemindOrchestrator:
 
         result = await self.react_loop.run(context)
 
+        # Emit inter-agent message event
+        await self.event_bus.emit(AgentEvent(
+            type=EventType.MESSAGE_SENT,
+            source_agent="trinity",
+            target_agent="user",
+            session_id=session_id,
+            payload={"response_length": len(result.response)},
+        ))
+
+        self.lifecycle.mark_idle(session_id)
+
         return {
             "response": result.response,
             "agent": "trinity",
@@ -292,10 +386,14 @@ class HivemindOrchestrator:
         task_type: str,
         payload: dict,
         source_agent: str = "trinity",
+        session_id: str = "",
     ) -> Task:
         """
         Create a delegated task. Routes to the correct agent, executes it,
         and returns the result through the source agent.
+
+        Emits TASK_DELEGATED, TASK_COMPLETED/TASK_FAILED events for
+        observability and cross-agent coordination.
         """
         target_agent = self.task_router.route(task_type)
         task = Task(
@@ -308,6 +406,15 @@ class HivemindOrchestrator:
 
         self.active_tasks[task.id] = task
         logger.info(f"Task {task.id}: {source_agent} -> {target_agent} ({task_type})")
+
+        # Emit delegation event
+        await self.event_bus.emit(AgentEvent(
+            type=EventType.TASK_DELEGATED,
+            source_agent=source_agent,
+            target_agent=target_agent,
+            session_id=session_id,
+            payload={"task_id": task.id, "task_type": task_type},
+        ))
 
         # Send to target agent's queue
         await self.message_bus.send(target_agent, {
@@ -332,10 +439,32 @@ class HivemindOrchestrator:
                 "target_agent": target_agent,
             })
 
+            # Emit completion event
+            await self.event_bus.emit(AgentEvent(
+                type=EventType.TASK_COMPLETED,
+                source_agent=target_agent,
+                target_agent=source_agent,
+                session_id=session_id,
+                payload={"task_id": task.id, "task_type": task_type},
+            ))
+
         except Exception as e:
             task.status = TaskStatus.FAILED
             task.error = str(e)
             logger.error(f"Task {task.id} failed: {e}")
+
+            # Emit failure event
+            await self.event_bus.emit(AgentEvent(
+                type=EventType.TASK_FAILED,
+                source_agent=target_agent,
+                target_agent=source_agent,
+                session_id=session_id,
+                payload={
+                    "task_id": task.id,
+                    "task_type": task_type,
+                    "error": str(e)[:500],
+                },
+            ))
 
         return task
 
