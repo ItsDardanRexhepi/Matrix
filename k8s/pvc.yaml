@@ -1,0 +1,21 @@
+# Persistent storage for SQLite database + daily backups.
+#
+# Size this generously — the SQLite database grows with conversation
+# history and event log files, and the backup retention policy defaults
+# to 7 daily snapshots. 10Gi is a reasonable starting point; scale up
+# before running out rather than after.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opnmatrx-data
+  namespace: opnmatrx
+  labels:
+    app.kubernetes.io/name: opnmatrx-gateway
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: <leave unset to use default, or set your provisioner>

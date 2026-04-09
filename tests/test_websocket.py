@@ -73,7 +73,9 @@ def _build_mock_server(config):
     server._backup_task = None
 
     from runtime.monitoring.metrics import MetricsCollector
+    from runtime.monitoring.otel import OTelMetricsBridge
     server.metrics = MetricsCollector()
+    server.otel_bridge = OTelMetricsBridge(server.metrics, {})
 
     gw = config.get("gateway", {})
     server.api_key = gw.get("api_key", "")
@@ -84,10 +86,21 @@ def _build_mock_server(config):
         requests_per_minute=gw.get("rate_limit_rpm", 600),
         burst=gw.get("rate_limit_burst", 100),
     )
+    server.rate_limiter_wallet = RateLimiter(
+        requests_per_minute=gw.get("rate_limit_rpm", 600),
+        burst=gw.get("rate_limit_burst", 100),
+    )
     server.rate_limiter_anon = RateLimiter(
         requests_per_minute=gw.get("rate_limit_rpm", 600),
         burst=gw.get("rate_limit_burst", 100),
     )
+
+    # Timeout and WebSocket config (new in 0.5.0)
+    server.request_timeout = float(gw.get("request_timeout_seconds", 120))
+    ws_cfg = gw.get("websocket", {}) if isinstance(gw.get("websocket"), dict) else {}
+    # Keep the WS frame limit well above the 100k message cap in tests.
+    server.ws_max_message_size = int(ws_cfg.get("max_message_size", 4 * (1 << 20)))
+    server.ws_heartbeat_seconds = float(ws_cfg.get("heartbeat_seconds", 30))
 
     mock_loop = MagicMock()
     mock_loop.get_agent_prompt = MagicMock(return_value="You are an agent.")

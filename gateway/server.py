@@ -29,8 +29,22 @@ from runtime.auth.session_store import (
     run_cleanup_loop,
 )
 from runtime.db.backup import BackupManager, run_backup_loop
+from runtime.logging import (
+    configure_logging,
+    generate_request_id,
+    get_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from runtime.monitoring.metrics import MetricsCollector
+from runtime.monitoring.otel import OTelMetricsBridge
 from runtime.monitoring.sentry import initialize_sentry
+from runtime.config.validation import (
+    ConfigValidationError,
+    enforce_env_only_secrets,
+    is_production_mode,
+    validate_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +54,14 @@ START_TIME = time.time()
 # ─── Rate Limiter ────────────────────────────────────────────────────────────
 
 class RateLimiter:
-    """Token-bucket rate limiter per client IP."""
+    """Token-bucket rate limiter.
+
+    The caller supplies the bucket *key* on every ``allow`` call, which
+    lets the same limiter serve multiple key shapes (per-IP for
+    anonymous traffic, per-API-key for bearer auth, per-wallet-address
+    for SIWE-authenticated wallets). Buckets are created on first
+    touch and garbage-collected periodically via :meth:`cleanup`.
+    """
 
     def __init__(self, requests_per_minute: int = 60, burst: int = 10):
         self.rpm = requests_per_minute
@@ -132,13 +153,55 @@ def _apply_env_overrides(config: dict) -> dict:
 
 
 def load_config() -> dict:
+    """Load, env-override, enforce secret-env rules, and validate the config.
+
+    In **production mode** (``OPNMATRX_ENV=production``):
+      - Secrets must come from environment variables. Any plaintext
+        copies in the JSON file are stripped.
+      - Validation errors abort startup.
+      - Missing required env secrets abort startup.
+
+    In **development/testnet mode** (default):
+      - Placeholder values are treated as "not configured" so the
+        blockchain services degrade gracefully.
+      - Validation errors are logged but do not abort.
+    """
     _load_dotenv()
     path = Path(CONFIG_PATH)
     if not path.exists():
-        logger.error(f"Config file not found: {CONFIG_PATH}")
+        logger.error("Config file not found: %s", CONFIG_PATH)
         sys.exit(1)
-    config = json.loads(path.read_text())
-    return _apply_env_overrides(config)
+
+    try:
+        config = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        logger.error(
+            "Config file %s is not valid JSON: %s (line %d col %d)",
+            CONFIG_PATH,
+            exc.msg,
+            exc.lineno,
+            exc.colno,
+        )
+        sys.exit(1)
+
+    config = _apply_env_overrides(config)
+
+    strict = is_production_mode()
+    try:
+        config = enforce_env_only_secrets(config, strict=strict)
+    except ConfigValidationError as exc:
+        logger.error("Secret loading failed:\n%s", exc)
+        sys.exit(1)
+
+    report = validate_config(config, strict=strict)
+    if report.errors:
+        logger.error("Config validation failed:\n%s", report.format())
+        if strict:
+            sys.exit(1)
+    if report.warnings:
+        logger.warning("Config validation warnings:\n%s", report.format())
+
+    return config
 
 
 class GatewayServer:
@@ -192,14 +255,33 @@ class GatewayServer:
         # In-process metrics collector and (optional) Sentry reporter
         self.metrics = MetricsCollector()
         initialize_sentry(self.config)
+        # Optional OTel push exporter — no-op unless both the config
+        # flag and the opentelemetry packages are present.
+        self.otel_bridge = OTelMetricsBridge(self.metrics, self.config)
 
-        # Rate limiting — separate buckets for authenticated and anonymous
+        # Rate limiting — three buckets:
+        #   - ``rate_limiter_auth``   : API-key bearer auth (operator tokens)
+        #   - ``rate_limiter_wallet`` : per-SIWE-address, keyed by wallet
+        #   - ``rate_limiter_anon``   : per-IP, for unauthenticated traffic
         auth_rpm = gw.get("rate_limit_rpm_authenticated", gw.get("rate_limit_rpm", 120))
         auth_burst = gw.get("rate_limit_burst_authenticated", gw.get("rate_limit_burst", 30))
+        wallet_rpm = gw.get("rate_limit_rpm_wallet", auth_rpm)
+        wallet_burst = gw.get("rate_limit_burst_wallet", auth_burst)
         anon_rpm = gw.get("rate_limit_rpm_anonymous", 20)
         anon_burst = gw.get("rate_limit_burst_anonymous", 5)
         self.rate_limiter_auth = RateLimiter(requests_per_minute=auth_rpm, burst=auth_burst)
+        self.rate_limiter_wallet = RateLimiter(
+            requests_per_minute=wallet_rpm, burst=wallet_burst
+        )
         self.rate_limiter_anon = RateLimiter(requests_per_minute=anon_rpm, burst=anon_burst)
+
+        # Request timeout (seconds) applied via middleware. ``0`` disables.
+        self.request_timeout = float(gw.get("request_timeout_seconds", 120))
+
+        # WebSocket configuration — frame size limit and heartbeat.
+        ws_cfg = gw.get("websocket", {}) if isinstance(gw.get("websocket"), dict) else {}
+        self.ws_max_message_size = int(ws_cfg.get("max_message_size", 1 << 20))  # 1 MiB
+        self.ws_heartbeat_seconds = float(ws_cfg.get("heartbeat_seconds", 30))
 
     async def handle_chat(self, request: web.Request) -> web.Response:
         """POST /chat — {agent, message, session_id} -> {response, tool_calls, session_id}"""
@@ -649,7 +731,10 @@ class GatewayServer:
         Server responds with ``{"type":"token","text":"..."}`` events and a final
         ``{"type":"done", ...}`` frame.
         """
-        ws = web.WebSocketResponse(heartbeat=30)
+        ws = web.WebSocketResponse(
+            heartbeat=self.ws_heartbeat_seconds,
+            max_msg_size=self.ws_max_message_size,
+        )
         await ws.prepare(request)
 
         async for msg in ws:
@@ -741,6 +826,11 @@ class GatewayServer:
         await self.react_loop.memory.initialize()
         await self.wallet_sessions.initialize()
         await self.wallet_nonces.initialize()
+        # Optional OTel push exporter (no-op unless configured + installed)
+        try:
+            self.otel_bridge.start()
+        except Exception as exc:
+            logger.warning("OTel bridge failed to start: %s", exc)
         # Rate-limiter bucket sweeper
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         # Wallet session / nonce sweeper
@@ -799,18 +889,29 @@ class GatewayServer:
                 except (asyncio.CancelledError, Exception):
                     pass
         try:
+            bridge = getattr(self, "otel_bridge", None)
+            if bridge is not None:
+                bridge.shutdown()
+        except Exception as exc:
+            logger.debug("OTel bridge shutdown raised: %s", exc)
+        try:
             await self.react_loop.memory.close()
         except Exception as exc:
             logger.warning("Memory close failed: %s", exc)
         logger.info("Gateway shutting down cleanly.")
 
     def create_app(self) -> web.Application:
-        app = web.Application(middlewares=[
-            self._cors_middleware,
-            self._auth_middleware,
-            self._rate_limit_middleware,
-            self._logging_middleware,
-        ])
+        app = web.Application(
+            middlewares=[
+                self._request_id_middleware,
+                self._cors_middleware,
+                self._auth_middleware,
+                self._rate_limit_middleware,
+                self._timeout_middleware,
+                self._logging_middleware,
+            ],
+            client_max_size=self.ws_max_message_size,
+        )
         app.on_startup.append(self._start_cleanup_task)
         app.on_cleanup.append(self._on_cleanup)
         app.router.add_post("/chat", self.handle_chat)
@@ -869,37 +970,107 @@ class GatewayServer:
 
     @web.middleware
     async def _rate_limit_middleware(self, request: web.Request, handler):
-        """Enforce rate limits. Uses API key as bucket when authenticated, IP otherwise."""
+        """Enforce rate limits, keyed by the strongest identity available.
+
+        Precedence:
+          1. ``X-Wallet-Session`` header → per-wallet-address bucket
+             (SIWE-authenticated traffic).
+          2. ``Authorization: Bearer <api_key>`` → per-API-key bucket
+             (operator / integration tokens).
+          3. Fall back to the client IP for anonymous traffic.
+        """
         if request.method == "OPTIONS":
             return await handler(request)
 
-        # Determine rate limit key and limiter
-        auth_header = request.headers.get("Authorization", "")
-        api_key = ""
-        if auth_header.startswith("Bearer "):
-            api_key = auth_header[7:]
-        elif request.query.get("api_key"):
-            api_key = request.query["api_key"]
+        rate_key: str
+        limiter: RateLimiter
 
-        if api_key and self.auth_enabled and hmac.compare_digest(api_key, self.api_key):
-            # Authenticated: use API key as bucket, higher limits
-            rate_key = f"key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
-            limiter = self.rate_limiter_auth
+        wallet_token = request.headers.get("X-Wallet-Session", "").strip()
+        wallet_session = None
+        if wallet_token:
+            try:
+                wallet_session = self.wallet_sessions.get(wallet_token)
+            except Exception as exc:  # defensive — store unavailable, etc.
+                logger.debug("wallet session lookup failed: %s", exc)
+
+        if (
+            wallet_session
+            and float(wallet_session.get("expires_at", 0)) > time.time()
+        ):
+            # Per-wallet-address bucket — cap each signer individually.
+            address = str(wallet_session.get("address", "")).lower() or "unknown"
+            rate_key = f"wallet:{address}"
+            limiter = self.rate_limiter_wallet
         else:
-            # Anonymous: use IP as bucket, stricter limits
-            client_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            if not client_ip:
-                peername = request.transport.get_extra_info("peername")
-                client_ip = peername[0] if peername else "unknown"
-            rate_key = f"ip:{client_ip}"
-            limiter = self.rate_limiter_anon
+            auth_header = request.headers.get("Authorization", "")
+            api_key = ""
+            if auth_header.startswith("Bearer "):
+                api_key = auth_header[7:]
+            elif request.query.get("api_key"):
+                api_key = request.query["api_key"]
+
+            if (
+                api_key
+                and self.auth_enabled
+                and hmac.compare_digest(api_key, self.api_key)
+            ):
+                rate_key = (
+                    f"key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
+                )
+                limiter = self.rate_limiter_auth
+            else:
+                client_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                if not client_ip:
+                    peername = request.transport.get_extra_info("peername")
+                    client_ip = peername[0] if peername else "unknown"
+                rate_key = f"ip:{client_ip}"
+                limiter = self.rate_limiter_anon
 
         if not limiter.allow(rate_key):
+            self.metrics.incr("requests.rate_limited")
             return web.json_response(
                 {"error": "rate_limited", "message": "Too many requests. Please slow down."},
                 status=429,
             )
         return await handler(request)
+
+    @web.middleware
+    async def _request_id_middleware(self, request: web.Request, handler):
+        """Bind a request ID to the contextvar scope and response headers."""
+        incoming = request.headers.get("X-Request-ID", "").strip()
+        request_id = incoming or generate_request_id()
+        token = set_request_id(request_id)
+        try:
+            response = await handler(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            reset_request_id(token)
+
+    @web.middleware
+    async def _timeout_middleware(self, request: web.Request, handler):
+        """Enforce a per-request wall-clock timeout."""
+        timeout = self.request_timeout
+        if timeout <= 0 or request.path == "/ws":
+            # WebSocket upgrades are long-lived; don't time them out.
+            return await handler(request)
+        try:
+            return await asyncio.wait_for(handler(request), timeout=timeout)
+        except asyncio.TimeoutError:
+            self.metrics.incr("requests.timeout")
+            logger.warning(
+                "request timed out after %.1fs: %s %s",
+                timeout,
+                request.method,
+                request.path,
+            )
+            return web.json_response(
+                {
+                    "error": "request_timeout",
+                    "message": f"Request exceeded {timeout:.0f}s budget.",
+                },
+                status=504,
+            )
 
     @web.middleware
     async def _cors_middleware(self, request: web.Request, handler):
@@ -925,18 +1096,55 @@ class GatewayServer:
         try:
             response = await handler(request)
             elapsed = time.time() - start
-            logger.info(f"{request.method} {request.path} -> {response.status} ({elapsed:.3f}s)")
+            # Record per-endpoint latency histogram (truncate to 2 decimals)
+            self.metrics.observe(
+                f"http.duration.{request.method.lower()}",
+                elapsed,
+            )
+            self.metrics.incr(f"http.status.{response.status}")
+            logger.info(
+                "%s %s -> %d (%.3fs)",
+                request.method,
+                request.path,
+                response.status,
+                elapsed,
+                extra={
+                    "http_method": request.method,
+                    "http_path": request.path,
+                    "http_status": response.status,
+                    "duration_ms": round(elapsed * 1000, 3),
+                },
+            )
             return response
-        except Exception as e:
+        except Exception as exc:
             elapsed = time.time() - start
-            logger.error(f"{request.method} {request.path} -> ERROR ({elapsed:.3f}s): {e}")
+            self.metrics.incr("http.exceptions")
+            logger.error(
+                "%s %s -> EXCEPTION (%.3fs): %s",
+                request.method,
+                request.path,
+                elapsed,
+                exc,
+                extra={
+                    "http_method": request.method,
+                    "http_path": request.path,
+                    "duration_ms": round(elapsed * 1000, 3),
+                    "exception_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
             raise
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    # Emit JSON logs by default in production, plain text otherwise.
+    json_logs = os.environ.get("OPNMATRX_LOG_FORMAT", "").strip().lower() == "json" or (
+        is_production_mode()
+        and os.environ.get("OPNMATRX_LOG_FORMAT", "").strip().lower() != "text"
+    )
+    configure_logging(
+        level=os.environ.get("OPNMATRX_LOG_LEVEL", "INFO").upper(),
+        json_format=json_logs,
     )
 
     config = load_config()
@@ -946,7 +1154,15 @@ def main():
     host = config.get("gateway", {}).get("host", "0.0.0.0")
     port = config.get("gateway", {}).get("port", 18790)
 
-    logger.info(f"0pnMatrx gateway starting on {host}:{port}")
+    logger.info(
+        "0pnMatrx gateway starting",
+        extra={
+            "host": host,
+            "port": port,
+            "production_mode": is_production_mode(),
+            "json_logs": json_logs,
+        },
+    )
     web.run_app(app, host=host, port=port, print=None, shutdown_timeout=30)
 
 

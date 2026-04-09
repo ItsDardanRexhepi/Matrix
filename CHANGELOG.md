@@ -4,6 +4,125 @@ All notable changes to 0pnMatrx are documented here.
 
 ---
 
+## [0.5.0] — 2026-04-09
+
+### Production hardening — round 3 (mainnet-ready)
+
+#### Secrets & configuration
+
+- New `runtime/config/validation.py` enforces env-only loading for
+  every secret listed in `SECRET_PATHS`. Placeholder values
+  (`YOUR_…`, `CHANGE_ME`, `REPLACE_…`, `xxx-…`) are treated as
+  unset.
+- Strict mode (`OPNMATRX_ENV=production`) refuses to start the
+  gateway if a required secret is missing from the environment —
+  no more silent fallback to committed placeholders.
+- `ValidationReport` returns structured missing/warnings lists so CI
+  can diff them.
+
+#### Observability
+
+- New `runtime/logging/` package with `JsonFormatter`,
+  `RequestIdFilter`, and a `configure_logging()` bootstrap. Every
+  log line is single-line JSON with `timestamp`, `level`, `logger`,
+  `message`, `request_id`, and arbitrary `extra` fields.
+- Per-request `request_id` propagated through an async
+  `contextvars.ContextVar`, generated (or accepted via
+  `X-Request-Id`) by a new middleware in `gateway/server.py`. The
+  request ID is returned to the client and stamped on every log
+  line for the request.
+- New `runtime/monitoring/otel.py` soft-failing OTLP push exporter
+  that bridges the internal `MetricsCollector` into OpenTelemetry
+  when the SDK is installed. Controlled by
+  `monitoring.otel.{enabled,endpoint,headers,interval_seconds}` or
+  `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+#### Gateway hardening
+
+- Per-authenticated-wallet rate limiter (three-tier: wallet → API
+  key → IP) replaces the single-shape bucket. Fixed a bug where
+  `wallet_session` was checked against the wrong field (`expired`
+  instead of `expires_at`).
+- New `timeout` middleware enforces
+  `gateway.request_timeout_seconds` (default 30s) and returns
+  `504 Gateway Timeout` for deadline overruns.
+- WebSocket frame limit (`gateway.ws_max_message_size`, default
+  1 MiB) and heartbeat interval (`gateway.ws_heartbeat_seconds`,
+  default 30s) are now pulled from config instead of hard-coded.
+
+#### Deployment
+
+- `docker-compose.prod.yml` composes a Caddy sidecar on top of the
+  base `docker-compose.yml`. Gateway port is reset to
+  `expose`-only; Caddy handles TLS.
+- `Caddyfile` — auto-HTTPS via Let's Encrypt, HSTS, X-Frame-Options,
+  WebSocket-aware upstream, JSON access logs.
+- `k8s/` directory with namespace, configmap, secret template,
+  PVC, deployment (securityContext, readOnlyRootFilesystem,
+  liveness/readiness/startup probes), service, ingress, and
+  README.
+
+#### Solidity contracts
+
+- `foundry.toml` pins solc 0.8.20, sets `evm_version = shanghai`,
+  enables the optimizer, and wires gas reports for all nine
+  production contracts.
+- `remappings.txt` maps `forge-std/` to `contracts/lib/forge-std/`.
+- `scripts/build-contracts.sh` is a one-shot wrapper: installs
+  forge-std + OpenZeppelin (pinned), builds, then runs the full
+  test suite. `--no-test` and `--clean` flags supported.
+- New `contracts/test/` directory with nine Foundry test files
+  covering every production contract:
+  - `OpenMatrixPaymaster.t.sol` (14 tests — agent auth, sponsorGas,
+    withdraw, ownership)
+  - `OpenMatrixAttestation.t.sol` (10 tests including a fuzz run)
+  - `OpenMatrixStaking.t.sol` (9 tests — stake / unstake / claim /
+    fees)
+  - `OpenMatrixDAO.t.sol` (6 tests — deposit, propose, voting power)
+  - `OpenMatrixDID.t.sol` (8 tests — create, resolve, update,
+    addService)
+  - `OpenMatrixInsurance.t.sol` (7 tests — premium tiers, purchase,
+    expire)
+  - `OpenMatrixNFT.t.sol` (9 tests — constructor, mint, royalty)
+  - `OpenMatrixDEX.t.sol` (5 tests — createPool, swap)
+  - `OpenMatrixMarketplace.t.sol` (5 tests — listItem, approval,
+    ownership)
+  - `mocks/MockERC20.sol` helper
+
+#### Tests
+
+- New: `tests/test_config_validation.py` (36 tests) covering
+  production detection, placeholder detection, env-only enforcement
+  in strict and lenient modes, required-secret errors,
+  `validate_config`, and `ValidationReport`.
+- New: `tests/test_logging_json.py` (20 tests) covering request-ID
+  contextvars, async task isolation, `JsonFormatter` field emission,
+  exception capture, non-serializable fallback, and
+  `configure_logging()`.
+- New: `tests/test_sentry_init.py` (8 tests) covering Sentry DSN
+  detection, placeholder stripping, env-var precedence, missing-SDK
+  fallback, and init-exception handling.
+- New: `tests/test_otel_bridge.py` (12 tests) covering
+  `_parse_headers`, disabled-by-default, missing-endpoint handling,
+  non-dict config, shutdown-before-start, and env-var override.
+- Extended: `tests/test_gateway.py` and `tests/test_websocket.py`
+  fixtures now seed `rate_limiter_wallet`, `request_timeout`,
+  `ws_max_message_size`, `ws_heartbeat_seconds`, and `otel_bridge`.
+
+#### Repo hygiene
+
+- `pytest.ini` removed — `[tool.pytest.ini_options]` in
+  `pyproject.toml` is now the single source of truth.
+- `docs/api-reference.md` rewritten to cover the full HTTP +
+  WebSocket + `/bridge/v1/` surface, middleware chain, and error
+  envelope.
+- README updated with a "Production Deployment" section pointing at
+  the new Caddy / k8s / Foundry plumbing, and the blockchain
+  capability count corrected to match the 30 services exposed by
+  `ServiceDispatcher`.
+
+---
+
 ## [0.4.0] — 2026-04-09
 
 ### Production hardening — round 2

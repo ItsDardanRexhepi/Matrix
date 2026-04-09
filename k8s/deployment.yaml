@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opnmatrx-gateway
+  namespace: opnmatrx
+  labels:
+    app.kubernetes.io/name: opnmatrx-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: opnmatrx-platform
+spec:
+  # SQLite only supports a single writer, so replicas MUST stay at 1
+  # unless you switch to a shared database backend.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opnmatrx-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opnmatrx-gateway
+        app.kubernetes.io/component: gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: opnmatrx/gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 18790
+              protocol: TCP
+          env:
+            - name: OPNMATRX_ENV
+              value: "production"
+            - name: OPNMATRX_LOG_FORMAT
+              value: "json"
+            - name: OPNMATRX_LOG_LEVEL
+              value: "INFO"
+            # Secrets pulled from the ``opnmatrx-secrets`` Secret.
+            - name: OPENMATRIX_PAYMASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opnmatrx-secrets
+                  key: OPENMATRIX_PAYMASTER_KEY
+            - name: OPENMATRIX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opnmatrx-secrets
+                  key: OPENMATRIX_API_KEY
+                  optional: true
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opnmatrx-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: opnmatrx-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: opnmatrx-secrets
+                  key: SENTRY_DSN
+                  optional: true
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 24
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /app/openmatrix.config.json
+              subPath: openmatrix.config.json
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: opnmatrx-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: opnmatrx-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi

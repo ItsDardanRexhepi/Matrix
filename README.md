@@ -143,7 +143,13 @@ Every decision made by every agent on 0pnMatrx passes through the Unified Rexhep
 
 ## Blockchain Infrastructure
 
-20 core blockchain capabilities run natively on Base (Ethereum L2). All transaction fees are covered by the platform — users never pay gas. See `blockchain/docs/components.md`.
+30 core blockchain services run natively on Base (Ethereum L2) and
+return a well-formed `{"status": "not_deployed", ...}` envelope
+whenever a chain is not configured, so every flow is safe to exercise
+offline. All transaction fees are covered by the platform paymaster
+once deployed — users never pay gas. See
+`blockchain/docs/components.md` and `ROADMAP.md` for the activation
+checklist.
 
 ---
 
@@ -238,6 +244,51 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 **Omega** — The synthesis layer. Combines all protocol outputs into a single unified agent response — the orchestration brain.
 
 **Protocol Stack (Integration)** — Wires all protocols into the agent runtime. The single entry point that the ReAct loop calls on every turn.
+
+---
+
+## Production Deployment
+
+0pnMatrx ships with the plumbing required for a hardened mainnet
+launch:
+
+- **Env-only secrets** — `runtime/config/validation.py` strips
+  placeholder values (`YOUR_`, `CHANGE_ME`, …) and, with
+  `OPNMATRX_ENV=production`, refuses to start if a required secret is
+  missing from the environment.
+- **Structured JSON logging** — every log line carries the per-request
+  `request_id` via `contextvars`. See `runtime/logging/` and the
+  `request_id` middleware in `gateway/server.py`.
+- **Per-wallet rate limiting** — three-tier token bucket (wallet → API
+  key → IP). Limits are configurable under
+  `gateway.rate_limits.wallet`.
+- **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
+  give you automatic HTTPS via Let's Encrypt, security headers, and
+  WebSocket-aware proxying on top of the base `docker-compose.yml`.
+- **Kubernetes manifests** — `k8s/` has a ready-to-`kubectl apply`
+  stack: namespace, configmap, secret template, PVC, deployment with
+  liveness / readiness / startup probes, service, and ingress.
+- **OpenTelemetry bridge** — `runtime/monitoring/otel.py` is a
+  soft-failing OTLP push exporter. Set `monitoring.otel.endpoint`
+  (or `OTEL_EXPORTER_OTLP_ENDPOINT`) to enable it.
+- **Foundry contract tests** — `foundry.toml` pins solc 0.8.20 and
+  `scripts/build-contracts.sh` is a one-shot bootstrap that installs
+  forge-std + OpenZeppelin, compiles, and runs every test under
+  `contracts/test/`.
+
+```bash
+# TLS-terminated production stack (gateway + Caddy)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Kubernetes
+kubectl apply -f k8s/
+
+# Solidity contracts
+./scripts/build-contracts.sh
+```
+
+See `docs/RUNBOOK.md` for the full on-call playbook and
+`docs/api-reference.md` for the complete HTTP / WebSocket surface.
 
 ---
 

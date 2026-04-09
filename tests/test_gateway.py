@@ -87,7 +87,9 @@ def _build_mock_server(config):
     server.backup_manager = None
     server._backup_task = None
     from runtime.monitoring.metrics import MetricsCollector
+    from runtime.monitoring.otel import OTelMetricsBridge
     server.metrics = MetricsCollector()
+    server.otel_bridge = OTelMetricsBridge(server.metrics, {})
 
     gw = config.get("gateway", {})
     server.api_key = gw.get("api_key", "")
@@ -96,10 +98,21 @@ def _build_mock_server(config):
 
     auth_rpm = gw.get("rate_limit_rpm_authenticated", gw.get("rate_limit_rpm", 60))
     auth_burst = gw.get("rate_limit_burst_authenticated", gw.get("rate_limit_burst", 10))
+    wallet_rpm = gw.get("rate_limit_rpm_wallet", auth_rpm)
+    wallet_burst = gw.get("rate_limit_burst_wallet", auth_burst)
     anon_rpm = gw.get("rate_limit_rpm_anonymous", gw.get("rate_limit_rpm", 60))
     anon_burst = gw.get("rate_limit_burst_anonymous", gw.get("rate_limit_burst", 10))
     server.rate_limiter_auth = RateLimiter(requests_per_minute=auth_rpm, burst=auth_burst)
+    server.rate_limiter_wallet = RateLimiter(
+        requests_per_minute=wallet_rpm, burst=wallet_burst
+    )
     server.rate_limiter_anon = RateLimiter(requests_per_minute=anon_rpm, burst=anon_burst)
+
+    # Timeout and WebSocket config (new in 0.5.0)
+    server.request_timeout = float(gw.get("request_timeout_seconds", 120))
+    ws_cfg = gw.get("websocket", {}) if isinstance(gw.get("websocket"), dict) else {}
+    server.ws_max_message_size = int(ws_cfg.get("max_message_size", 1 << 20))
+    server.ws_heartbeat_seconds = float(ws_cfg.get("heartbeat_seconds", 30))
 
     # Mock the react_loop
     mock_loop = MagicMock()

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opnmatrx
+  labels:
+    app.kubernetes.io/name: opnmatrx
+    app.kubernetes.io/part-of: opnmatrx-platform

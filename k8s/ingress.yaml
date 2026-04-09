@@ -1,0 +1,45 @@
+# Ingress with TLS termination.
+#
+# Assumes cert-manager is installed and a ClusterIssuer named
+# ``letsencrypt-prod`` exists. Adjust the annotations to match your
+# ingress controller (nginx, Traefik, AWS ALB, GCE, etc.).
+#
+# If you prefer the Caddy sidecar approach (docker-compose.prod.yml),
+# skip this file and route directly to the Service.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opnmatrx-gateway
+  namespace: opnmatrx
+  labels:
+    app.kubernetes.io/name: opnmatrx-gateway
+  annotations:
+    # cert-manager — automatically provision a Let's Encrypt cert.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # nginx-ingress tuning for streaming endpoints.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # HSTS — trust the gateway won't be served over plain HTTP again.
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - gateway.example.com
+      secretName: opnmatrx-gateway-tls
+  rules:
+    - host: gateway.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: opnmatrx-gateway
+                port:
+                  name: http

@@ -1,0 +1,76 @@
+# 0pnMatrx — production compose file with Caddy TLS termination.
+#
+# This layers on top of the base ``docker-compose.yml`` to add a Caddy
+# reverse proxy that terminates TLS (auto-provisions Let's Encrypt
+# certificates) in front of the gateway. The gateway itself is not
+# exposed publicly — only port 80/443 on the host are, via Caddy.
+#
+# Usage:
+#   export OPNMATRX_DOMAIN=gateway.example.com
+#   export OPNMATRX_ADMIN_EMAIL=ops@example.com
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+# - Domain DNS must point at the host's public IP
+# - Ports 80 and 443 must be reachable from the internet (ACME HTTP-01
+#   challenge needs port 80, TLS traffic needs 443)
+# - The openmatrix.config.json must have
+#   ``gateway.tls_terminated_externally: true`` set
+#
+# To see real-time logs from both services:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+
+services:
+  gateway:
+    # Stop publishing the gateway on the host — Caddy reaches it over
+    # the internal compose network instead.
+    ports: !reset []
+    expose:
+      - "18790"
+    environment:
+      OPNMATRX_ENV: production
+      OPNMATRX_LOG_FORMAT: json
+    networks:
+      - opnmatrx_internal
+
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: opnmatrx-caddy
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 over QUIC
+    environment:
+      OPNMATRX_DOMAIN: "${OPNMATRX_DOMAIN:-gateway.example.com}"
+      OPNMATRX_ADMIN_EMAIL: "${OPNMATRX_ADMIN_EMAIL:-ops@example.com}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data         # certificates + ACME account keys
+      - caddy_config:/config     # Caddy admin API state
+    networks:
+      - opnmatrx_internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  opnmatrx_internal:
+    driver: bridge
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

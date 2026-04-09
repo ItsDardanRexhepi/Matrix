@@ -1,0 +1,76 @@
+# 0pnMatrx Caddy configuration.
+#
+# Caddy auto-provisions Let's Encrypt certificates for the site block
+# below (HTTP-01 challenge on port 80). The upstream is the gateway
+# container on the internal compose network.
+#
+# Override ``OPNMATRX_DOMAIN`` / ``OPNMATRX_ADMIN_EMAIL`` via environment
+# variables when launching compose.
+
+{
+	email {$OPNMATRX_ADMIN_EMAIL}
+	# Opt out of Caddy's telemetry.
+	admin off
+	# Compress responses globally.
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$OPNMATRX_DOMAIN} {
+	encode zstd gzip
+
+	# Health endpoint: bypass auth, no rate limiting.
+	handle /health {
+		reverse_proxy gateway:18790
+	}
+
+	# WebSocket upgrades need an explicit handler so Caddy doesn't
+	# buffer them. ``reverse_proxy`` detects Upgrade headers
+	# automatically, but the matcher below documents the intent.
+	@websockets {
+		header Connection *Upgrade*
+		header Upgrade    websocket
+	}
+	handle @websockets {
+		reverse_proxy gateway:18790
+	}
+
+	# All other HTTP traffic flows to the gateway.
+	handle {
+		reverse_proxy gateway:18790 {
+			# Pass the real client IP so per-IP rate limiting
+			# buckets anonymous traffic correctly.
+			header_up X-Forwarded-For  {remote_host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Real-IP        {remote_host}
+			# 2 minute budget to match the gateway's default
+			# request timeout middleware.
+			transport http {
+				dial_timeout  5s
+				read_timeout  120s
+				write_timeout 120s
+			}
+		}
+	}
+
+	# Security headers — sensible defaults for an API backend.
+	header {
+		# Force HTTPS for a year, include subdomains, preload opt-in.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# Refuse to be rendered inside any frame.
+		X-Frame-Options "DENY"
+		# Block MIME sniffing.
+		X-Content-Type-Options "nosniff"
+		# Minimal Referrer-Policy for an API.
+		Referrer-Policy "no-referrer"
+		# Caddy sets this automatically but be explicit.
+		-Server
+	}
+
+	# Log every request in JSON — pipe to stdout so Docker collects it.
+	log {
+		output stdout
+		format json
+	}
+}

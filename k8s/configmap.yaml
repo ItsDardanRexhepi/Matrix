@@ -1,0 +1,59 @@
+# 0pnMatrx non-secret configuration.
+#
+# This holds ``openmatrix.config.json`` with all public settings and
+# placeholder strings. Real secrets are injected via the separate
+# ``opnmatrx-secrets`` Secret and the strict-mode validator in
+# ``runtime.config.validation`` will refuse to start the gateway unless
+# all required secrets are present in the environment.
+#
+# To update the config in-cluster:
+#   kubectl -n opnmatrx create configmap opnmatrx-config \
+#       --from-file=openmatrix.config.json=./openmatrix.config.json \
+#       --dry-run=client -o yaml | kubectl apply -f -
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opnmatrx-config
+  namespace: opnmatrx
+  labels:
+    app.kubernetes.io/name: opnmatrx-gateway
+data:
+  # Minimal inline config — replace with the real one via kubectl create
+  # configmap --from-file=openmatrix.config.json.
+  openmatrix.config.json: |
+    {
+      "platform": "0pnMatrx",
+      "gateway": {
+        "host": "0.0.0.0",
+        "port": 18790,
+        "cors_origins": [],
+        "rate_limit_rpm_authenticated": 120,
+        "rate_limit_rpm_anonymous": 20,
+        "rate_limit_burst": 30,
+        "request_timeout_seconds": 120,
+        "tls_terminated_externally": true,
+        "websocket": {
+          "max_message_size": 1048576,
+          "heartbeat_seconds": 30
+        }
+      },
+      "model": {
+        "provider": "anthropic",
+        "providers": {
+          "anthropic": {},
+          "openai": {}
+        }
+      },
+      "database": {"path": "/app/data/openmatrix.db"},
+      "backup": {
+        "enabled": true,
+        "directory": "/app/data/backups",
+        "retention": 7,
+        "interval_seconds": 86400
+      },
+      "monitoring": {
+        "environment": "production",
+        "traces_sample_rate": 0.1
+      }
+    }
