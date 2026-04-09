@@ -143,6 +143,10 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
 
     bc = config.get("blockchain", {})
     rpc_url = bc["rpc_url"]
+    print("WARNING: demo.py uses your configured demo_wallet_private_key.")
+    print("Never use a wallet with significant funds for demos.")
+    print("Use a dedicated testnet wallet only.")
+    print()
     private_key = bc["demo_wallet_private_key"]
     wallet_address = bc["demo_wallet_address"]
     chain_id = bc.get("chain_id", 84532)

@@ -51,7 +51,6 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m pytest tests/ -v --tb=short --co -q 2>/dev/null || true
           python -m pytest tests/ -v --tb=short -x
         env:
           PYTHONPATH: .

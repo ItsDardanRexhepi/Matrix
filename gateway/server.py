@@ -634,6 +634,9 @@ class GatewayServer:
             if not message:
                 await ws.send_json({"type": "error", "error": "message required"})
                 continue
+            if len(message) > 100000:
+                await ws.send_json({"type": "error", "error": "message too long"})
+                continue
 
             session_id = str(payload.get("session_id", "default"))[:100]
             agent = str(payload.get("agent", "trinity"))[:50]
@@ -697,6 +700,33 @@ class GatewayServer:
 
         return ws
 
+    async def _start_cleanup_task(self, app: web.Application) -> None:
+        """Start the background rate-limiter cleanup task on app startup."""
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    async def _cleanup_loop(self) -> None:
+        """Periodically prune stale rate-limiter buckets."""
+        while True:
+            try:
+                await asyncio.sleep(300)
+                self.rate_limiter_auth.cleanup()
+                self.rate_limiter_anon.cleanup()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("Rate limiter cleanup failed: %s", exc)
+
+    async def _on_cleanup(self, app: web.Application) -> None:
+        """Run on aiohttp shutdown to cancel background tasks and log shutdown."""
+        task = getattr(self, "_cleanup_task", None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        logger.info("Gateway shutting down cleanly.")
+
     def create_app(self) -> web.Application:
         app = web.Application(middlewares=[
             self._cors_middleware,
@@ -704,6 +734,8 @@ class GatewayServer:
             self._rate_limit_middleware,
             self._logging_middleware,
         ])
+        app.on_startup.append(self._start_cleanup_task)
+        app.on_cleanup.append(self._on_cleanup)
         app.router.add_post("/chat", self.handle_chat)
         app.router.add_post("/chat/stream", self.handle_chat_stream)
         app.router.add_get("/ws", self.handle_websocket)
@@ -836,7 +868,7 @@ def main():
     port = config.get("gateway", {}).get("port", 18790)
 
     logger.info(f"0pnMatrx gateway starting on {host}:{port}")
-    web.run_app(app, host=host, port=port, print=None)
+    web.run_app(app, host=host, port=port, print=None, shutdown_timeout=30)
 
 
 if __name__ == "__main__":
