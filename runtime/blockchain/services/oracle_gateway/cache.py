@@ -69,7 +69,13 @@ class OracleCache:
     # ------------------------------------------------------------------
 
     async def get(self, oracle_type: str, key: str) -> Any | None:
-        """Return cached value or ``None`` if missing / expired."""
+        """Return cached value or ``None`` if missing / expired.
+
+        Note: expired entries are *kept* in the store so that
+        :meth:`get_stale` can serve them as a graceful-degradation
+        fallback. They get evicted by the size-based LRU policy in
+        :meth:`set` or by an explicit :meth:`prune_expired` sweep.
+        """
         cache_key = self._make_key(oracle_type, key)
 
         async with self._lock:
@@ -78,11 +84,49 @@ class OracleCache:
                 self._misses += 1
                 return None
             if entry.is_expired:
-                del self._store[cache_key]
                 self._misses += 1
                 return None
             self._hits += 1
             return entry.value
+
+    async def prune_expired(self, grace_seconds: float = 0.0) -> int:
+        """Drop entries that expired more than *grace_seconds* ago.
+
+        Returns the number of evicted entries. Call this periodically
+        from a background task to bound memory growth — :meth:`get`
+        intentionally leaves expired entries in place so they can serve
+        as stale-cache fallbacks.
+        """
+        now = time.monotonic()
+        async with self._lock:
+            stale_keys = [
+                k for k, v in self._store.items()
+                if now - v.expires_at > grace_seconds
+            ]
+            for k in stale_keys:
+                del self._store[k]
+            return len(stale_keys)
+
+    async def get_stale(
+        self, oracle_type: str, key: str, max_age_seconds: float | None = None
+    ) -> tuple[Any | None, float | None]:
+        """Return a possibly-expired entry for graceful degradation.
+
+        Returns a ``(value, age_seconds)`` tuple. If no entry exists, or
+        if *max_age_seconds* is provided and the entry is older than
+        that, returns ``(None, None)``. Used by the gateway's
+        ``request_safe`` path when the upstream provider is unreachable
+        but a recently-cached value is still acceptable.
+        """
+        cache_key = self._make_key(oracle_type, key)
+        async with self._lock:
+            entry = self._store.get(cache_key)
+            if entry is None:
+                return None, None
+            age = time.monotonic() - entry.created_at
+            if max_age_seconds is not None and age > max_age_seconds:
+                return None, None
+            return entry.value, age
 
     async def set(self, oracle_type: str, key: str, value: Any) -> None:
         """Store *value* with the TTL configured for *oracle_type*.

@@ -1,0 +1,49 @@
+# 0pnMatrx — local development / single-host production compose file.
+#
+# Usage:
+#   cp openmatrix.config.json.example openmatrix.config.json
+#   # edit openmatrix.config.json with real keys
+#   docker compose up -d
+#
+# Persistent state lives in the ``opnmatrx_data`` named volume so the
+# SQLite database, daily backups, and any tool workspace files survive
+# container rebuilds.
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: opnmatrx/gateway:latest
+    container_name: opnmatrx-gateway
+    restart: unless-stopped
+    ports:
+      - "18790:18790"
+    environment:
+      # Sentry / monitoring overrides (optional)
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      OPNMATRX_ENV: "${OPNMATRX_ENV:-production}"
+      # Provider keys can be passed through the environment instead of
+      # baking them into openmatrix.config.json.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    volumes:
+      # Mount config read-only so the container can't accidentally rewrite it.
+      - ./openmatrix.config.json:/app/openmatrix.config.json:ro
+      # Persistent SQLite + backups + tool workspace
+      - opnmatrx_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18790/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  opnmatrx_data:
+    driver: local

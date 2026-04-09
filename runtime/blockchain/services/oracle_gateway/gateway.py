@@ -202,6 +202,52 @@ class OracleGateway:
 
         return response
 
+    async def request_safe(
+        self,
+        oracle_type: str,
+        params: dict[str, Any],
+        *,
+        caller: str = "anonymous",
+        stale_max_age: float = 3600.0,
+    ) -> dict[str, Any]:
+        """Graceful-degradation wrapper around :meth:`request`.
+
+        On any error (rate limit, provider failure, network timeout) this
+        method tries to fall back to a stale cache entry up to
+        *stale_max_age* seconds old. If no usable fallback exists it
+        returns a structured ``{"error": ..., "degraded": True}``
+        response instead of raising. Callers that need hard-fail
+        behaviour should use :meth:`request` directly.
+        """
+        try:
+            return await self.request(oracle_type, params, caller=caller)
+        except Exception as exc:
+            logger.warning(
+                "Oracle request failed (type=%s caller=%s): %s — trying stale cache",
+                oracle_type, caller, exc,
+            )
+            cache_key = self._cache_key(params)
+            stale_value, age = await self._cache.get_stale(
+                oracle_type, cache_key, stale_max_age
+            )
+            if stale_value is not None:
+                return {
+                    **stale_value,
+                    "cached": True,
+                    "stale": True,
+                    "stale_age_seconds": round(age, 2) if age is not None else None,
+                    "degraded": True,
+                    "error": str(exc),
+                }
+            return {
+                "oracle_type": oracle_type,
+                "cached": False,
+                "stale": False,
+                "degraded": True,
+                "error": str(exc),
+                "timestamp": int(time.time()),
+            }
+
     # ------------------------------------------------------------------
     # Dispatch & handlers
     # ------------------------------------------------------------------

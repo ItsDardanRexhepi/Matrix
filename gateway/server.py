@@ -23,6 +23,14 @@ from aiohttp import web
 
 from runtime.react_loop import ReActLoop, ReActContext, Message
 from runtime.time.temporal_context import TemporalContext
+from runtime.auth.session_store import (
+    WalletSessionStore,
+    NonceStore,
+    run_cleanup_loop,
+)
+from runtime.db.backup import BackupManager, run_backup_loop
+from runtime.monitoring.metrics import MetricsCollector
+from runtime.monitoring.sentry import initialize_sentry
 
 logger = logging.getLogger(__name__)
 
@@ -162,11 +170,28 @@ class GatewayServer:
         # Endpoints that don't require auth
         self._public_paths = {"/health", "/auth/nonce", "/auth/verify"}
 
-        # SIWE wallet sessions: token -> {address, issued_at, expires_at}
-        self.wallet_sessions: dict[str, dict] = {}
-        # Pending SIWE nonces: nonce -> issued_at
-        self.wallet_nonces: dict[str, float] = {}
+        # SIWE auth stores (SQLite-backed). Initialised in the on_startup
+        # hook once the underlying memory database has been opened.
+        self.wallet_sessions = WalletSessionStore(self.react_loop.memory.db)
+        self.wallet_nonces = NonceStore(self.react_loop.memory.db)
         self._wallet_session_ttl = gw.get("wallet_session_ttl_seconds", 86400)
+        self._auth_cleanup_task: asyncio.Task | None = None
+
+        # Daily SQLite backup. Disabled when ``backup.enabled`` is false.
+        backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
+        self._backup_enabled = bool(backup_cfg.get("enabled", True))
+        self._backup_dir = backup_cfg.get(
+            "directory",
+            str(Path(self.react_loop.memory.db.db_path).parent / "backups"),
+        )
+        self._backup_retention = int(backup_cfg.get("retention", 7))
+        self._backup_interval = float(backup_cfg.get("interval_seconds", 24 * 60 * 60))
+        self.backup_manager: BackupManager | None = None
+        self._backup_task: asyncio.Task | None = None
+
+        # In-process metrics collector and (optional) Sentry reporter
+        self.metrics = MetricsCollector()
+        initialize_sentry(self.config)
 
         # Rate limiting — separate buckets for authenticated and anonymous
         auth_rpm = gw.get("rate_limit_rpm_authenticated", gw.get("rate_limit_rpm", 120))
@@ -179,9 +204,11 @@ class GatewayServer:
     async def handle_chat(self, request: web.Request) -> web.Response:
         """POST /chat — {agent, message, session_id} -> {response, tool_calls, session_id}"""
         self.request_count += 1
+        self.metrics.incr("chat.requests")
         try:
             body = await request.json()
         except json.JSONDecodeError:
+            self.metrics.incr("chat.errors.invalid_json")
             return web.json_response({"error": "invalid JSON"}, status=400)
 
         message = body.get("message", "")
@@ -244,8 +271,10 @@ class GatewayServer:
         }
 
         try:
-            result = await self.react_loop.run(context)
+            with self.metrics.timer("chat.latency"):
+                result = await self.react_loop.run(context)
         except RuntimeError as e:
+            self.metrics.incr("chat.errors.model")
             logger.error(f"[{agent}] model error: {e}")
             return web.json_response({
                 "response": "I'm having trouble connecting to my language model right now. Please try again shortly.",
@@ -370,6 +399,10 @@ class GatewayServer:
 
         return result
 
+    async def handle_metrics(self, request: web.Request) -> web.Response:
+        """GET /metrics — return the in-process metrics snapshot."""
+        return web.json_response(self.metrics.snapshot())
+
     async def handle_memory_read(self, request: web.Request) -> web.Response:
         """POST /memory/read — {agent} -> memory data"""
         try:
@@ -418,12 +451,8 @@ class GatewayServer:
         if not address or not address.startswith("0x") or len(address) != 42:
             return web.json_response({"error": "valid 0x address required"}, status=400)
 
-        # Sweep expired nonces (5 min TTL)
-        cutoff = time.time() - 300
-        self.wallet_nonces = {n: t for n, t in self.wallet_nonces.items() if t >= cutoff}
-
         nonce = generate_nonce()
-        self.wallet_nonces[nonce] = time.time()
+        await self.wallet_nonces.add(nonce)
 
         gw = self.config.get("gateway", {})
         domain = gw.get("siwe_domain", "0pnmatrx.local")
@@ -471,28 +500,25 @@ class GatewayServer:
         if f"Nonce: {nonce}" not in message:
             return web.json_response({"error": "nonce mismatch"}, status=401)
         # Single-use
-        del self.wallet_nonces[nonce]
+        await self.wallet_nonces.consume(nonce)
 
         if not verify_signature(address, message, signature):
             return web.json_response({"error": "invalid signature"}, status=401)
 
         token = create_session_token()
         now = time.time()
-        self.wallet_sessions[token] = {
-            "address": address,
-            "issued_at": now,
-            "expires_at": now + self._wallet_session_ttl,
-        }
-
-        # Sweep expired sessions
-        self.wallet_sessions = {
-            t: s for t, s in self.wallet_sessions.items() if s["expires_at"] > now
-        }
+        expires_at = now + self._wallet_session_ttl
+        await self.wallet_sessions.add(
+            token=token,
+            address=address,
+            issued_at=now,
+            expires_at=expires_at,
+        )
 
         return web.json_response({
             "token": token,
             "address": address,
-            "expires_at": self.wallet_sessions[token]["expires_at"],
+            "expires_at": expires_at,
         })
 
     # ─── Streaming ────────────────────────────────────────────────────────
@@ -701,8 +727,34 @@ class GatewayServer:
         return ws
 
     async def _start_cleanup_task(self, app: web.Application) -> None:
-        """Start the background rate-limiter cleanup task on app startup."""
+        """Initialise persistence and start background cleanup tasks."""
+        # Open the SQLite database and load auth stores from disk.
+        await self.react_loop.memory.initialize()
+        await self.wallet_sessions.initialize()
+        await self.wallet_nonces.initialize()
+        # Rate-limiter bucket sweeper
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+        # Wallet session / nonce sweeper
+        self._auth_cleanup_task = asyncio.create_task(
+            run_cleanup_loop(self.wallet_sessions, self.wallet_nonces)
+        )
+        # Daily database backup
+        if self._backup_enabled:
+            try:
+                self.backup_manager = BackupManager(
+                    self.react_loop.memory.db,
+                    backup_dir=self._backup_dir,
+                    retention=self._backup_retention,
+                )
+                self._backup_task = asyncio.create_task(
+                    run_backup_loop(self.backup_manager, self._backup_interval)
+                )
+                logger.info(
+                    "Backup loop scheduled: dir=%s retention=%d interval=%.0fs",
+                    self._backup_dir, self._backup_retention, self._backup_interval,
+                )
+            except Exception as exc:
+                logger.warning("Failed to start backup loop: %s", exc)
 
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets."""
@@ -718,13 +770,18 @@ class GatewayServer:
 
     async def _on_cleanup(self, app: web.Application) -> None:
         """Run on aiohttp shutdown to cancel background tasks and log shutdown."""
-        task = getattr(self, "_cleanup_task", None)
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+        for attr in ("_cleanup_task", "_auth_cleanup_task", "_backup_task"):
+            task = getattr(self, attr, None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+        try:
+            await self.react_loop.memory.close()
+        except Exception as exc:
+            logger.warning("Memory close failed: %s", exc)
         logger.info("Gateway shutting down cleanly.")
 
     def create_app(self) -> web.Application:
@@ -745,6 +802,7 @@ class GatewayServer:
         app.router.add_post("/memory/write", self.handle_memory_write)
         app.router.add_post("/auth/nonce", self.handle_auth_nonce)
         app.router.add_post("/auth/verify", self.handle_auth_verify)
+        app.router.add_get("/metrics", self.handle_metrics)
 
         # Register all 30 blockchain service REST endpoints
         try:

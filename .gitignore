@@ -13,6 +13,15 @@ openmatrix.config.json
 # Memory data (agent conversation/kv storage at runtime)
 /memory/
 
+# SQLite database, WAL/SHM files, and daily backups
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Generated API docs site
+/site/
+
 # Demo artifacts
 demo_deployment.json
 

@@ -479,6 +479,8 @@ class ServiceDispatcher:
         if action not in ACTION_MAP:
             return json.dumps({
                 "status": "error",
+                "error_category": "not_found",
+                "degraded": False,
                 "error": f"Unknown action '{action}'",
                 "available_actions": sorted(ACTION_MAP.keys()),
             })
@@ -494,12 +496,32 @@ class ServiceDispatcher:
 
         try:
             registry = self._get_registry()
-            svc_instance = registry.get(target_service)
-            method = getattr(svc_instance, method_name, None)
+            try:
+                svc_instance = registry.get(target_service)
+            except (KeyError, LookupError, AttributeError) as exc:
+                # Service is unregistered or its dependencies failed to
+                # initialise (e.g. RPC URL missing). Return a degraded
+                # response so the caller can fall back gracefully.
+                logger.warning(
+                    "Service '%s' unavailable: %s — returning degraded response",
+                    target_service, exc,
+                )
+                return json.dumps({
+                    "status": "error",
+                    "error_category": "service_unavailable",
+                    "degraded": True,
+                    "service": target_service,
+                    "error": (
+                        f"Service '{target_service}' is currently unavailable: {exc}"
+                    ),
+                })
 
+            method = getattr(svc_instance, method_name, None)
             if method is None:
                 return json.dumps({
                     "status": "error",
+                    "error_category": "not_found",
+                    "degraded": False,
                     "error": (
                         f"Service '{target_service}' has no method '{method_name}'"
                     ),
@@ -520,19 +542,29 @@ class ServiceDispatcher:
                 "elapsed_ms": int(elapsed * 1000),
             })
 
-        except KeyError as exc:
-            logger.error("Service lookup failed: %s", exc)
-            return json.dumps({"status": "error", "error": str(exc)})
         except TypeError as exc:
             logger.error("Bad params for %s.%s: %s", target_service, method_name, exc)
             return json.dumps({
                 "status": "error",
+                "error_category": "validation",
+                "degraded": False,
                 "error": f"Invalid parameters for {action}: {exc}",
+            })
+        except NotImplementedError as exc:
+            logger.warning("Action %s not implemented: %s", action, exc)
+            return json.dumps({
+                "status": "error",
+                "error_category": "not_implemented",
+                "degraded": True,
+                "error": f"Action '{action}' is not implemented in this build: {exc}",
             })
         except Exception as exc:
             logger.exception("Action %s failed", action)
             return json.dumps({
                 "status": "error",
+                "error_category": "service_error",
+                "degraded": True,
+                "service": target_service,
                 "error": f"Action '{action}' failed: {exc}",
             })
 

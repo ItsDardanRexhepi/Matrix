@@ -116,19 +116,19 @@ class TestMemoryPersistence:
         assert "User: hello" in ctx
 
     @pytest.mark.asyncio
-    async def test_file_is_valid_json(self, tmp_path):
+    async def test_storage_file_created_on_disk(self, tmp_path):
+        """Backing store file is materialised under the configured directory."""
         mm = MemoryManager({"memory_dir": str(tmp_path)})
         await mm.write("neo", "k", "v")
-        files = [p for p in tmp_path.glob("*.json") if p.parent == tmp_path]
-        assert len(files) == 1
-        data = json.loads(files[0].read_text())
-        assert data["kv"]["k"] == "v"
+        # SQLite places one file (plus optional WAL/SHM siblings) under tmp_path.
+        db_files = list(tmp_path.glob("*.db"))
+        assert db_files, f"expected at least one .db file in {tmp_path}"
 
     @pytest.mark.asyncio
-    async def test_agent_name_sanitized_in_filename(self, tmp_path):
+    async def test_unusual_agent_names_handled(self, tmp_path):
+        """Slashes and other special characters in agent names must round-trip."""
         mm = MemoryManager({"memory_dir": str(tmp_path)})
         await mm.write("agent/with/slashes", "k", "v")
-        files = [p for p in tmp_path.glob("*.json") if p.parent == tmp_path]
-        assert len(files) == 1
-        # Slashes should be replaced with underscores
-        assert "/" not in files[0].name
+        # Round-trip through a new instance to prove it survived to disk.
+        mm2 = MemoryManager({"memory_dir": str(tmp_path)})
+        assert mm2.get("agent/with/slashes", "k") == "v"

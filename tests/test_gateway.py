@@ -63,9 +63,31 @@ def _build_mock_server(config):
     server.request_count = 0
     server._first_boot_sent = set()
     server._conv_loaded = set()
-    server.wallet_sessions = {}
-    server.wallet_nonces = {}
+    # WalletSessionStore / NonceStore stand-ins: dict-like reads, async writes/init.
+    server.wallet_sessions = MagicMock()
+    server.wallet_sessions.initialize = AsyncMock()
+    server.wallet_sessions.cleanup = AsyncMock()
+    server.wallet_sessions.add = AsyncMock()
+    server.wallet_sessions.remove = AsyncMock()
+    server.wallet_sessions.get = MagicMock(return_value=None)
+    server.wallet_sessions.__contains__ = MagicMock(return_value=False)
+    server.wallet_nonces = MagicMock()
+    server.wallet_nonces.initialize = AsyncMock()
+    server.wallet_nonces.cleanup = AsyncMock()
+    server.wallet_nonces.add = AsyncMock()
+    server.wallet_nonces.consume = AsyncMock(return_value=False)
+    server.wallet_nonces.__contains__ = MagicMock(return_value=False)
     server._wallet_session_ttl = 86400
+    server._auth_cleanup_task = None
+    # Backups disabled in tests — no on-disk side effects
+    server._backup_enabled = False
+    server._backup_dir = ""
+    server._backup_retention = 7
+    server._backup_interval = 86400.0
+    server.backup_manager = None
+    server._backup_task = None
+    from runtime.monitoring.metrics import MetricsCollector
+    server.metrics = MetricsCollector()
 
     gw = config.get("gateway", {})
     server.api_key = gw.get("api_key", "")
@@ -91,6 +113,8 @@ def _build_mock_server(config):
     mock_loop.router = MagicMock()
     mock_loop.router.health_check = AsyncMock(return_value={"mock": True})
     mock_loop.memory = MagicMock()
+    mock_loop.memory.initialize = AsyncMock()
+    mock_loop.memory.close = AsyncMock()
     mock_loop.memory.read = MagicMock(return_value={"kv": {}, "turns": []})
     mock_loop.memory.write = AsyncMock()
     mock_loop.memory.load_conversation = MagicMock(return_value=[])

@@ -1,0 +1,56 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Editor / OS junk
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Python build artefacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.eggs
+build
+dist
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+.coverage.*
+*.log
+
+# Local virtualenvs
+.venv
+venv
+env
+
+# Node / SDK builds (not needed inside the gateway image)
+node_modules
+
+# Local persistent state — must come from a mounted volume, not baked in
+data
+memory
+backups
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets
+.env
+.env.*
+openmatrix.config.json
+
+# Docs and CI artefacts
+docs/_build
+site
+.github
+
+# Tests are useful in CI but not needed inside the runtime image
+tests

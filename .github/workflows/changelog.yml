@@ -1,0 +1,82 @@
+name: Changelog
+
+# When a new ``v*`` tag is pushed, regenerate the changelog from commits
+# since the previous tag and open a pull request that bumps
+# CHANGELOG.md.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label for the changelog section'
+        required: true
+        default: 'UNRELEASED'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so we can diff against previous tag
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Determine version label
+        id: version
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            echo "label=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Strip the leading v from the tag (v1.2.3 -> 1.2.3)
+            echo "label=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine previous tag
+        id: prev
+        run: |
+          # Most recent v* tag *before* the one that triggered this run.
+          PREV=$(git tag --list 'v*' --sort=-creatordate \
+            | grep -v "^${GITHUB_REF_NAME}$" \
+            | head -n 1 || true)
+          echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
+
+      - name: Regenerate CHANGELOG.md
+        run: |
+          if [[ -n "${{ steps.prev.outputs.tag }}" ]]; then
+            python scripts/generate_changelog.py \
+              --since "${{ steps.prev.outputs.tag }}" \
+              --version "${{ steps.version.outputs.label }}" \
+              --write
+          else
+            python scripts/generate_changelog.py \
+              --version "${{ steps.version.outputs.label }}" \
+              --write
+          fi
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "docs(changelog): bump for ${{ steps.version.outputs.label }}"
+          title: "docs(changelog): ${{ steps.version.outputs.label }}"
+          body: |
+            Auto-generated changelog for **${{ steps.version.outputs.label }}**.
+
+            Generated from commits since `${{ steps.prev.outputs.tag }}` using
+            `scripts/generate_changelog.py`. Review the categorisation before
+            merging — anything in the `Other` bucket may need a manual touch-up.
+          branch: chore/changelog-${{ steps.version.outputs.label }}
+          base: main
+          delete-branch: true
+          author: "Neo <242350397+ItsDardanRexhepi@users.noreply.github.com>"
+          committer: "Neo <242350397+ItsDardanRexhepi@users.noreply.github.com>"
