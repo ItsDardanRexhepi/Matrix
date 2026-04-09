@@ -268,13 +268,126 @@ class ServiceDispatcher:
         "function": {
             "name": "platform_action",
             "description": (
-                "Execute any blockchain platform action. Covers all 30 services: "
-                "contracts, DeFi, NFTs, RWA, identity, DAOs, stablecoins, "
-                "attestations, agent identity, x402 payments, oracles, supply chain, "
-                "insurance, gaming, IP/royalties, staking, cross-border payments, "
-                "securities, governance, dashboard, DEX, fundraising, loyalty, "
-                "marketplace, cashback, brand rewards, subscriptions, social, "
-                "privacy, and dispute resolution."
+                "Execute a blockchain platform action. Choose the right action "
+                "based on what the user wants, then pass the required params.\n\n"
+
+                "SMART CONTRACTS:\n"
+                "  convert_contract — Convert a contract between chains. "
+                    "params: {source_code, source_lang, target_chain}\n"
+                "  deploy_contract — Deploy a contract to a blockchain. "
+                    "params: {source_code, source_lang, target_chain}\n"
+                "  estimate_contract_cost — Estimate deployment cost. "
+                    "params: {source_code, target_chain}\n"
+                "  list_templates — Browse available contract templates.\n\n"
+
+                "DEFI & LOANS:\n"
+                "  create_loan — Borrow tokens against collateral. "
+                    "params: {collateral_token, collateral_amount, borrow_token, borrow_amount}\n"
+                "  repay_loan — Repay an outstanding loan. "
+                    "params: {loan_id, amount}\n"
+                "  get_loan — Check loan details. params: {loan_id}\n\n"
+
+                "NFTs:\n"
+                "  mint_nft — Mint a new NFT. "
+                    "params: {metadata: {name, description, image}, royalty_bps}\n"
+                "  buy_nft — Buy an NFT. params: {token_id, collection}\n"
+                "  list_nft_for_sale — List an NFT for sale. "
+                    "params: {token_id, price}\n"
+                "  create_nft_collection, transfer_nft, estimate_nft_value, "
+                    "get_nft_rarity, set_nft_rights, check_nft_rights, "
+                    "configure_nft_royalty\n\n"
+
+                "TOKEN SWAPS & DEX:\n"
+                "  swap_tokens — Swap one token for another. "
+                    "params: {token_in, token_out, amount}\n"
+                "  get_swap_quote — Get a swap price quote. "
+                    "params: {token_in, token_out, amount}\n"
+                "  add_liquidity, remove_liquidity, get_dex_positions\n\n"
+
+                "PAYMENTS & TRANSFERS:\n"
+                "  send_payment — Send tokens to someone. "
+                    "params: {recipient, amount, currency}\n"
+                "  get_payment_quote — Get a cross-border payment quote. "
+                    "params: {amount, currency, destination_country}\n"
+                "  create_payment, authorize_payment, complete_payment, "
+                    "refund_payment\n\n"
+
+                "STAKING:\n"
+                "  stake — Stake tokens in a pool. params: {amount, pool_id}\n"
+                "  unstake — Unstake tokens. params: {amount, pool_id}\n"
+                "  claim_staking_rewards — Claim earned rewards. "
+                    "params: {pool_id}\n"
+                "  get_staking_position — Check staking position.\n\n"
+
+                "DASHBOARD & PORTFOLIO:\n"
+                "  get_dashboard — Show portfolio overview and balances. "
+                    "No params needed.\n"
+                "  get_activity — Recent transaction history.\n"
+                "  get_platform_stats, get_component_status\n\n"
+
+                "INSURANCE:\n"
+                "  create_insurance — Buy insurance. "
+                    "params: {policy_type, coverage, premium}\n"
+                "  file_insurance_claim — File a claim. "
+                    "params: {policy_id, evidence}\n"
+                "  get_insurance_policy, cancel_insurance\n\n"
+
+                "GOVERNANCE & DAOs:\n"
+                "  create_dao — Create a DAO. params: {name, config}\n"
+                "  create_proposal — Submit a proposal. "
+                    "params: {title, description, actions}\n"
+                "  vote — Vote on a proposal. "
+                    "params: {proposal_id, support (bool)}\n"
+                "  get_dao, join_dao, leave_dao, get_proposal, "
+                    "finalize_proposal, list_proposals\n\n"
+
+                "IDENTITY:\n"
+                "  create_did — Create a decentralized identity. "
+                    "params: {name, attributes}\n"
+                "  resolve_did, update_did, deactivate_did\n\n"
+
+                "IP & ROYALTIES:\n"
+                "  register_ip — Register intellectual property. "
+                    "params: {title, description, content_hash}\n"
+                "  get_ip, transfer_ip, license_ip\n\n"
+
+                "ASSET TOKENIZATION:\n"
+                "  tokenize_asset — Tokenize a real-world asset. "
+                    "params: {asset_type, details}\n"
+                "  transfer_rwa_ownership, get_rwa_asset\n\n"
+
+                "MARKETPLACE:\n"
+                "  list_marketplace — List an item for sale. "
+                    "params: {item, price}\n"
+                "  buy_marketplace — Buy a listing. params: {listing_id}\n"
+                "  cancel_listing, search_marketplace, get_listing\n\n"
+
+                "SUPPLY CHAIN:\n"
+                "  track_product — Track a product. params: {product_id}\n"
+                "  register_product, update_product_status, verify_product, "
+                    "transfer_custody\n\n"
+
+                "FUNDRAISING:\n"
+                "  create_campaign — Start a fundraising campaign. "
+                    "params: {title, goal, milestones}\n"
+                "  contribute_to_campaign, get_campaign, list_campaigns, "
+                    "release_milestone_funds, trigger_refunds\n\n"
+
+                "SUBSCRIPTIONS:\n"
+                "  subscribe — Subscribe to a plan. params: {plan_id}\n"
+                "  create_subscription_plan, cancel_subscription, "
+                    "get_subscription\n\n"
+
+                "OTHER SERVICES: stablecoins (transfer_stablecoin, "
+                "get_stablecoin_balance), attestations (create_attestation, "
+                "verify_attestation), agent identity (register_agent, "
+                "get_agent), oracle (get_price), gaming (register_game, "
+                "mint_game_asset), securities (create_security, buy_security, "
+                "sell_security), loyalty (earn_loyalty, redeem_loyalty), "
+                "cashback (track_spending, claim_cashback), brand rewards "
+                "(create_brand_campaign), social (create_social_profile), "
+                "privacy (request_deletion), disputes (file_dispute, "
+                "resolve_dispute)."
             ),
             "parameters": {
                 "type": "object",
@@ -282,7 +395,11 @@ class ServiceDispatcher:
                     "action": {
                         "type": "string",
                         "enum": sorted(ACTION_MAP.keys()),
-                        "description": "The platform action to execute.",
+                        "description": (
+                            "The platform action to execute. See the tool "
+                            "description for which action matches the user's "
+                            "intent and what params each action needs."
+                        ),
                     },
                     "service": {
                         "type": "string",
@@ -293,7 +410,11 @@ class ServiceDispatcher:
                     },
                     "params": {
                         "type": "object",
-                        "description": "Parameters to pass to the service method.",
+                        "description": (
+                            "Parameters for the action. Each action has its own "
+                            "required and optional parameters — see the tool "
+                            "description for parameter details per action."
+                        ),
                     },
                 },
                 "required": ["action"],

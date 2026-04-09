@@ -280,6 +280,15 @@ class GatewayServer:
         except Exception as e:
             logger.warning("Service routes registration skipped: %s", e)
 
+        # Register MTRX iOS bridge endpoints
+        try:
+            from gateway.bridge import BridgeRoutes
+            bridge = BridgeRoutes(self.config, self)
+            bridge.register_routes(app)
+            logger.info("Bridge routes registered under /bridge/v1/")
+        except Exception as e:
+            logger.warning("Bridge routes registration skipped: %s", e)
+
         return app
 
     @web.middleware
