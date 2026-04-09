@@ -8,6 +8,7 @@ build/
 
 # Config (real config has secrets)
 openmatrix.config.json
+.env
 
 # Memory data (agent conversation/kv storage at runtime)
 /memory/
