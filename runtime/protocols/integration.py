@@ -135,6 +135,40 @@ class ProtocolStack:
         """
         enrichments: list[str] = []
 
+        # Intent classification — score the user's message against known actions
+        try:
+            from runtime.chat.intent_actions import match_intent, get_param_prompt
+            user_msg = ""
+            for msg in reversed(context.conversation):
+                if msg.role == "user":
+                    user_msg = str(msg.content)
+                    break
+            if user_msg:
+                matches = match_intent(user_msg)
+                if matches:
+                    top = matches[0]
+                    context.metadata["matched_intent"] = top
+                    hint_parts = [
+                        f"[Intent Detection] The user likely wants: {top['action_name']} "
+                        f"(confidence: {top['score']:.0%})",
+                    ]
+                    param_prompt = get_param_prompt(top["action_name"])
+                    if param_prompt:
+                        hint_parts.append(f"Required info: {param_prompt}")
+                    if top.get("follow_up"):
+                        hint_parts.append(f"If info is missing, ask: {top['follow_up']}")
+                    enrichments.append("\n".join(hint_parts))
+
+                    # Include runner-up if close in score
+                    if len(matches) > 1 and matches[1]["score"] >= top["score"] * 0.7:
+                        alt = matches[1]
+                        enrichments.append(
+                            f"[Intent Alt] Also possible: {alt['action_name']} "
+                            f"(confidence: {alt['score']:.0%})"
+                        )
+        except Exception:
+            logger.debug("Intent classification unavailable")
+
         # Jarvis — build identity context + structured plan
         if self._jarvis is not None:
             try:
@@ -192,6 +226,28 @@ class ProtocolStack:
                 enrichments.extend(vision_enrichments)
             except Exception:
                 logger.exception("Vision pre-process failed")
+
+        # OutcomeLearning — inject learned patterns for the detected action
+        if self._outcome_learning is not None:
+            try:
+                # Determine action type from intent match or conversation
+                action_type = ""
+                matched = context.metadata.get("matched_intent")
+                if matched:
+                    action_type = matched.get("action_name", "")
+                if action_type:
+                    patterns = await self._outcome_learning.get_learned_patterns(action_type)
+                    if patterns:
+                        pattern_lines = [f"[Learned Patterns for '{action_type}']"]
+                        for p in patterns[:3]:
+                            pattern_lines.append(
+                                f"  - {p['description']} "
+                                f"(confidence: {p.get('confidence', 0):.0%}) "
+                                f"→ {p.get('recommendation', '')}"
+                            )
+                        enrichments.append("\n".join(pattern_lines))
+            except Exception:
+                logger.debug("OutcomeLearning pattern injection failed")
 
         # Append enrichments to metadata for system prompt construction
         if enrichments:
@@ -334,12 +390,46 @@ class ProtocolStack:
             "status": "success",
         }
 
-        # Outcome recording
+        # Outcome recording + confidence feedback loop
         if self._outcome_learning is not None:
             try:
                 await self._outcome_learning.record_outcome(action, outcome, context)
+
+                # Feed outcome back to Trajectory to update base rates
+                if self._trajectory is not None:
+                    action_type = str(action.get("action_type", action.get("type", "unknown")))
+                    patterns = await self._outcome_learning.get_learned_patterns(action_type)
+                    for p in patterns:
+                        if p.get("success_rate") is not None and p.get("sample_size", 0) >= 10:
+                            # Blend learned rate into Trajectory base rates
+                            current_base = self._trajectory._BASE_RATES.get(action_type, 0.85)
+                            learned_rate = p["success_rate"]
+                            # Weighted blend: 60% base, 40% learned (grows with sample size)
+                            weight = min(p["sample_size"] / 50.0, 0.6)
+                            blended = current_base * (1 - weight) + learned_rate * weight
+                            self._trajectory._BASE_RATES[action_type] = round(blended, 3)
+                            logger.info(
+                                "Updated Trajectory base rate for '%s': %.3f -> %.3f (learned from %d outcomes)",
+                                action_type, current_base, blended, p["sample_size"],
+                            )
+                            break
             except Exception:
                 logger.exception("OutcomeLearning post-action failed")
+
+        # Confidence calibration — compare Trajectory prediction vs actual outcome
+        if self._outcome_learning is not None and self._trajectory is not None:
+            try:
+                # Retrieve the cached prediction for this action type
+                action_type = str(action.get("action_type", action.get("type", "unknown")))
+                cached_pred = None
+                for pid, pred in self._trajectory._prediction_cache.items():
+                    if pred.get("action_type") == action_type:
+                        cached_pred = pred
+                        break
+                if cached_pred:
+                    await self._outcome_learning.adjust_confidence(cached_pred, outcome)
+            except Exception:
+                logger.debug("Confidence calibration skipped")
 
         # Jarvis — mark plan step as complete if it matches the tool call
         if self._jarvis is not None and self._jarvis._active_plan is not None:

@@ -17,6 +17,7 @@ the backend's internal formats. All responses are JSON with consistent
 envelope: {"ok": true, "data": {...}} or {"ok": false, "error": "..."}.
 """
 
+import hashlib
 import json
 import logging
 import time
@@ -168,6 +169,319 @@ SERVICE_CATALOG = [
 ]
 
 
+# ─── Component Registry — dynamic UI schemas for iOS ──────────────────────
+
+COMPONENT_REGISTRY: dict[str, dict[str, Any]] = {
+    "contract_conversion": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "convert_contract",
+                    "title": "Convert to Smart Contract",
+                    "fields": [
+                        {"name": "contract_text", "type": "text", "label": "Agreement Text", "required": True, "placeholder": "Paste your agreement or contract text here..."},
+                        {"name": "contract_type", "type": "select", "label": "Contract Type", "required": True, "placeholder": "Select type", "options": ["Escrow", "Vesting", "Revenue Share", "Service Agreement", "Custom"]},
+                        {"name": "parties", "type": "text", "label": "Counterparty Address", "required": True, "placeholder": "0x..."},
+                        {"name": "auto_deploy", "type": "toggle", "label": "Deploy Immediately", "required": False, "placeholder": ""},
+                    ],
+                },
+            ],
+        },
+    },
+    "defi": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "create_loan",
+                    "title": "Create DeFi Loan",
+                    "fields": [
+                        {"name": "collateral_token", "type": "select", "label": "Collateral Token", "required": True, "placeholder": "Select token", "options": ["ETH", "WETH", "USDC", "DAI"]},
+                        {"name": "collateral_amount", "type": "decimal", "label": "Collateral Amount", "required": True, "placeholder": "0.00"},
+                        {"name": "borrow_token", "type": "select", "label": "Borrow Token", "required": True, "placeholder": "Select token", "options": ["USDC", "DAI", "ETH"]},
+                        {"name": "borrow_amount", "type": "decimal", "label": "Borrow Amount", "required": True, "placeholder": "0.00"},
+                    ],
+                },
+            ],
+        },
+    },
+    "nft_services": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "mint_nft",
+                    "title": "Mint NFT",
+                    "fields": [
+                        {"name": "name", "type": "text", "label": "NFT Name", "required": True, "placeholder": "My NFT"},
+                        {"name": "description", "type": "text", "label": "Description", "required": False, "placeholder": "Describe your NFT..."},
+                        {"name": "image_uri", "type": "text", "label": "Image URI", "required": True, "placeholder": "ipfs:// or https://..."},
+                        {"name": "royalty_percent", "type": "decimal", "label": "Royalty %", "required": False, "placeholder": "2.5"},
+                        {"name": "collection", "type": "select", "label": "Collection", "required": False, "placeholder": "Select collection", "options": ["New Collection", "Existing"]},
+                    ],
+                },
+            ],
+        },
+    },
+    "rwa_tokenization": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base", "kyc_verified"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "tokenize_asset",
+                    "title": "Tokenize Real World Asset",
+                    "fields": [
+                        {"name": "asset_type", "type": "select", "label": "Asset Type", "required": True, "placeholder": "Select type", "options": ["Real Estate", "Vehicle", "Commodity", "Equipment", "Other"]},
+                        {"name": "asset_name", "type": "text", "label": "Asset Name", "required": True, "placeholder": "e.g. 123 Main St Apt 4B"},
+                        {"name": "valuation", "type": "decimal", "label": "Valuation (USD)", "required": True, "placeholder": "0.00"},
+                        {"name": "total_shares", "type": "decimal", "label": "Total Shares", "required": True, "placeholder": "1000"},
+                        {"name": "document_uri", "type": "text", "label": "Supporting Document URI", "required": False, "placeholder": "ipfs:// or https://..."},
+                    ],
+                },
+            ],
+        },
+    },
+    "did_identity": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "create_did",
+                    "title": "Create Digital Identity",
+                    "fields": [
+                        {"name": "display_name", "type": "text", "label": "Display Name", "required": True, "placeholder": "Your public name"},
+                        {"name": "method", "type": "select", "label": "DID Method", "required": True, "placeholder": "Select method", "options": ["did:ethr", "did:web", "did:key"]},
+                        {"name": "public_profile", "type": "toggle", "label": "Public Profile", "required": False, "placeholder": ""},
+                    ],
+                },
+            ],
+        },
+    },
+    "dao_management": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "create_dao",
+                    "title": "Create DAO",
+                    "fields": [
+                        {"name": "dao_name", "type": "text", "label": "DAO Name", "required": True, "placeholder": "My Organization"},
+                        {"name": "description", "type": "text", "label": "Description", "required": True, "placeholder": "What is this DAO for?"},
+                        {"name": "governance_model", "type": "select", "label": "Governance Model", "required": True, "placeholder": "Select model", "options": ["Token Voting", "Multisig", "Quadratic Voting", "Conviction Voting"]},
+                        {"name": "quorum_percent", "type": "decimal", "label": "Quorum %", "required": True, "placeholder": "51"},
+                        {"name": "token_symbol", "type": "text", "label": "Governance Token Symbol", "required": True, "placeholder": "e.g. GOV"},
+                    ],
+                },
+            ],
+        },
+    },
+    "staking": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "stake",
+                    "title": "Stake Assets",
+                    "fields": [
+                        {"name": "token", "type": "select", "label": "Token", "required": True, "placeholder": "Select token", "options": ["ETH", "USDC", "DAI", "WETH"]},
+                        {"name": "amount", "type": "decimal", "label": "Amount", "required": True, "placeholder": "0.00"},
+                        {"name": "lock_period", "type": "select", "label": "Lock Period", "required": True, "placeholder": "Select period", "options": ["30 days", "90 days", "180 days", "365 days"]},
+                        {"name": "auto_compound", "type": "toggle", "label": "Auto-Compound Rewards", "required": False, "placeholder": ""},
+                    ],
+                },
+            ],
+        },
+    },
+    "insurance": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "create_insurance",
+                    "title": "Create Insurance Policy",
+                    "fields": [
+                        {"name": "policy_type", "type": "select", "label": "Policy Type", "required": True, "placeholder": "Select type", "options": ["Smart Contract Cover", "Stablecoin Depeg", "Oracle Failure", "Slashing Protection"]},
+                        {"name": "coverage_amount", "type": "decimal", "label": "Coverage Amount (USD)", "required": True, "placeholder": "0.00"},
+                        {"name": "duration_days", "type": "decimal", "label": "Duration (days)", "required": True, "placeholder": "30"},
+                        {"name": "beneficiary", "type": "address", "label": "Beneficiary Address", "required": False, "placeholder": "0x... (defaults to your wallet)"},
+                    ],
+                },
+            ],
+        },
+    },
+    "marketplace": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "list_marketplace",
+                    "title": "List Item for Sale",
+                    "fields": [
+                        {"name": "item_name", "type": "text", "label": "Item Name", "required": True, "placeholder": "What are you selling?"},
+                        {"name": "description", "type": "text", "label": "Description", "required": True, "placeholder": "Describe the item..."},
+                        {"name": "price", "type": "decimal", "label": "Price (USDC)", "required": True, "placeholder": "0.00"},
+                        {"name": "category", "type": "select", "label": "Category", "required": True, "placeholder": "Select category", "options": ["Digital Good", "Physical Good", "Service", "NFT", "Other"]},
+                        {"name": "escrow_enabled", "type": "toggle", "label": "Enable Escrow", "required": False, "placeholder": ""},
+                    ],
+                },
+            ],
+        },
+    },
+    "payments": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "send_payment",
+                    "title": "Send Payment",
+                    "fields": [
+                        {"name": "recipient", "type": "address", "label": "Recipient Address", "required": True, "placeholder": "0x..."},
+                        {"name": "amount", "type": "decimal", "label": "Amount", "required": True, "placeholder": "0.00"},
+                        {"name": "token", "type": "select", "label": "Token", "required": True, "placeholder": "Select token", "options": ["ETH", "USDC", "DAI", "WETH"]},
+                        {"name": "memo", "type": "text", "label": "Memo", "required": False, "placeholder": "What is this payment for?"},
+                    ],
+                },
+            ],
+        },
+    },
+    "governance": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "create_proposal",
+                    "title": "Create Proposal",
+                    "fields": [
+                        {"name": "dao_address", "type": "address", "label": "DAO Address", "required": True, "placeholder": "0x..."},
+                        {"name": "title", "type": "text", "label": "Proposal Title", "required": True, "placeholder": "Title of your proposal"},
+                        {"name": "description", "type": "text", "label": "Description", "required": True, "placeholder": "Describe your proposal in detail..."},
+                        {"name": "voting_period", "type": "select", "label": "Voting Period", "required": True, "placeholder": "Select period", "options": ["3 days", "5 days", "7 days", "14 days"]},
+                    ],
+                },
+            ],
+        },
+    },
+    "ip_royalties": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "register_ip",
+                    "title": "Register Intellectual Property",
+                    "fields": [
+                        {"name": "ip_title", "type": "text", "label": "Title", "required": True, "placeholder": "Name of your work"},
+                        {"name": "ip_type", "type": "select", "label": "IP Type", "required": True, "placeholder": "Select type", "options": ["Music", "Art", "Software", "Literature", "Patent", "Other"]},
+                        {"name": "content_hash", "type": "text", "label": "Content Hash / URI", "required": True, "placeholder": "ipfs:// or sha256:..."},
+                        {"name": "royalty_percent", "type": "decimal", "label": "Royalty %", "required": True, "placeholder": "5.0"},
+                    ],
+                },
+            ],
+        },
+    },
+    "fundraising": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "create_campaign",
+                    "title": "Create Fundraising Campaign",
+                    "fields": [
+                        {"name": "campaign_name", "type": "text", "label": "Campaign Name", "required": True, "placeholder": "Name your campaign"},
+                        {"name": "goal_amount", "type": "decimal", "label": "Goal (USDC)", "required": True, "placeholder": "0.00"},
+                        {"name": "description", "type": "text", "label": "Description", "required": True, "placeholder": "What are you raising funds for?"},
+                        {"name": "duration_days", "type": "decimal", "label": "Duration (days)", "required": True, "placeholder": "30"},
+                        {"name": "milestone_based", "type": "toggle", "label": "Milestone-Based Release", "required": False, "placeholder": ""},
+                    ],
+                },
+            ],
+        },
+    },
+    "dex": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected", "network_base"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "swap_tokens",
+                    "title": "Swap Tokens",
+                    "fields": [
+                        {"name": "token_in", "type": "select", "label": "From Token", "required": True, "placeholder": "Select token", "options": ["ETH", "USDC", "DAI", "WETH"]},
+                        {"name": "amount_in", "type": "decimal", "label": "Amount", "required": True, "placeholder": "0.00"},
+                        {"name": "token_out", "type": "select", "label": "To Token", "required": True, "placeholder": "Select token", "options": ["ETH", "USDC", "DAI", "WETH"]},
+                        {"name": "slippage", "type": "decimal", "label": "Max Slippage %", "required": False, "placeholder": "0.5"},
+                    ],
+                },
+            ],
+        },
+    },
+    "security_audit": {
+        "version": "1.0.0",
+        "min_app_version": "1.0.0",
+        "capabilities": ["wallet_connected"],
+        "ui_flow": {
+            "screens": [
+                {
+                    "id": "audit_contract",
+                    "title": "Audit Smart Contract",
+                    "fields": [
+                        {"name": "contract_address", "type": "address", "label": "Contract Address", "required": True, "placeholder": "0x..."},
+                        {"name": "source_code", "type": "text", "label": "Source Code (optional)", "required": False, "placeholder": "Paste Solidity source or leave blank for bytecode analysis"},
+                        {"name": "audit_depth", "type": "select", "label": "Audit Depth", "required": True, "placeholder": "Select depth", "options": ["Quick Scan", "Standard", "Deep Analysis"]},
+                    ],
+                },
+            ],
+        },
+    },
+}
+
+
+def _build_component_list() -> list[dict[str, Any]]:
+    """Merge SERVICE_CATALOG entries with their COMPONENT_REGISTRY schemas."""
+    components: list[dict[str, Any]] = []
+    for svc in SERVICE_CATALOG:
+        entry: dict[str, Any] = {**svc}
+        registry = COMPONENT_REGISTRY.get(svc["id"])
+        if registry:
+            entry.update(registry)
+        components.append(entry)
+    return components
+
+
+def _component_checksum(component_id: str) -> str:
+    """Deterministic checksum for a single component's registry data."""
+    data = COMPONENT_REGISTRY.get(component_id, {})
+    raw = json.dumps(data, sort_keys=True).encode()
+    return hashlib.sha256(raw).hexdigest()[:16]
+
+
 class BridgeRoutes:
     """
     Mobile bridge endpoints for the MTRX iOS app.
@@ -207,6 +521,11 @@ class BridgeRoutes:
 
         # Dashboard (aggregated data for iOS home screen)
         app.router.add_get("/bridge/v1/dashboard", self.get_dashboard)
+
+        # Component registry (dynamic UI schemas)
+        app.router.add_get("/bridge/v1/components", self.get_components)
+        app.router.add_get("/bridge/v1/components/manifest", self.get_components_manifest)
+        app.router.add_get("/bridge/v1/components/{component_id}", self.get_component)
 
         logger.info("Bridge routes registered under /bridge/v1/")
 
@@ -466,6 +785,65 @@ class BridgeRoutes:
     async def get_services(self, request: web.Request) -> web.Response:
         """Return the full service catalog for the iOS app."""
         return MobileResponse.ok({"services": SERVICE_CATALOG})
+
+    # ─── Component Registry ──────────────────────────────────────────────
+
+    async def get_components(self, request: web.Request) -> web.Response:
+        """Return the full component registry with UI schemas for all services."""
+        try:
+            components = _build_component_list()
+            return MobileResponse.ok({"components": components})
+        except Exception as e:
+            logger.error(f"Bridge get_components error: {e}", exc_info=True)
+            return MobileResponse.error(str(e), 500)
+
+    async def get_component(self, request: web.Request) -> web.Response:
+        """Return a single component by ID with its full UI schema."""
+        component_id = request.match_info.get("component_id", "")
+        if not component_id:
+            return MobileResponse.error("component_id required")
+
+        try:
+            # Find the service catalog entry
+            svc_entry = None
+            for svc in SERVICE_CATALOG:
+                if svc["id"] == component_id:
+                    svc_entry = svc
+                    break
+
+            if svc_entry is None:
+                return MobileResponse.error(f"Component not found: {component_id}", 404)
+
+            component: dict[str, Any] = {**svc_entry}
+            registry = COMPONENT_REGISTRY.get(component_id)
+            if registry:
+                component.update(registry)
+
+            return MobileResponse.ok({"component": component})
+        except Exception as e:
+            logger.error(f"Bridge get_component error: {e}", exc_info=True)
+            return MobileResponse.error(str(e), 500)
+
+    async def get_components_manifest(self, request: web.Request) -> web.Response:
+        """
+        Return a lightweight manifest of component IDs, versions, and checksums.
+        The iOS app uses this to detect what has changed without downloading
+        the full registry.
+        """
+        try:
+            manifest: list[dict[str, str]] = []
+            for svc in SERVICE_CATALOG:
+                sid = svc["id"]
+                registry = COMPONENT_REGISTRY.get(sid, {})
+                manifest.append({
+                    "id": sid,
+                    "version": registry.get("version", "0.0.0"),
+                    "checksum": _component_checksum(sid),
+                })
+            return MobileResponse.ok({"manifest": manifest})
+        except Exception as e:
+            logger.error(f"Bridge get_components_manifest error: {e}", exc_info=True)
+            return MobileResponse.error(str(e), 500)
 
     # ─── Push Notifications ───────────────────────────────────────────────
 

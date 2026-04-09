@@ -1,5 +1,5 @@
-from __future__ import annotations
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 08 — Oracle Gateway: Multi-Source Oracle Routing on Base Sepolia
 

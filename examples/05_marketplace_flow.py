@@ -1,5 +1,5 @@
-from __future__ import annotations
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 05 — Marketplace Flow: List, Buy, and Escrow on Base Sepolia
 

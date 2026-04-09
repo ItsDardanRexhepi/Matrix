@@ -1,5 +1,5 @@
-from __future__ import annotations
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 06 — EAS Attestation Chain: Every Action Creates a Verifiable Record
 

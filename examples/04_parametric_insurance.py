@@ -1,5 +1,5 @@
-from __future__ import annotations
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 04 — Parametric Insurance: Weather-Based Crop Insurance on Base Sepolia
 

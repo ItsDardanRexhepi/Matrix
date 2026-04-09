@@ -120,6 +120,100 @@ Every decision made by every agent on 0pnMatrx passes through the Unified Rexhep
 
 ---
 
+## Try It Now
+
+After setup and starting the gateway with `python -m gateway.server`, try these:
+
+**Chat with Trinity**
+```bash
+curl -X POST http://localhost:18790/chat \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "trinity", "message": "Hi Trinity, what can you help me with?"}'
+```
+
+**Convert a contract**
+```bash
+curl -X POST http://localhost:18790/chat \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "trinity", "message": "Convert this rental agreement into a smart contract: Monthly rent of $2000, 12 month term, $4000 security deposit, late fee of $100 after 5 days"}'
+```
+
+**Check platform health**
+```bash
+curl http://localhost:18790/health
+```
+
+**Get platform status**
+```bash
+curl http://localhost:18790/status
+```
+
+**Run an example script**
+```bash
+python examples/01_contract_conversion.py
+```
+
+---
+
+## Architecture
+
+```
+User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Protocol Stack → Tools
+                                                                         ↓
+                                                              Jarvis · Ultron · Friday
+                                                              Vision · Trajectory · Morpheus
+                                                              Rexhepi · Glasswing · Omega
+                                                                         ↓
+                                                              30 Blockchain Services
+                                                              136 Platform Actions
+```
+
+---
+
+## Example Scripts
+
+All examples live in `examples/` and run against Base Sepolia testnet.
+
+| Script | Description |
+|---|---|
+| `01_contract_conversion.py` | End-to-end contract conversion from plain English to deployed smart contract |
+| `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
+| `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
+| `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
+| `05_marketplace_flow.py` | List, buy, and escrow a marketplace transaction |
+| `06_eas_attestation_chain.py` | Every action creates a verifiable on-chain attestation record |
+| `07_revenue_to_neosafe.py` | Platform fee routing and tracking to the NeoSafe multisig wallet |
+| `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
+| `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
+
+---
+
+## Protocol Stack
+
+The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every user interaction passes through these protocols before a response is produced.
+
+**Jarvis** — Identity foundation. Handles agent personality persistence, voice consistency, memory integration, and structured planning that feeds into the ReAct loop.
+
+**Ultron** — Strategic reasoning engine. Decomposes goals into multi-step plans with risk assessment at each stage.
+
+**Friday** — Proactive monitoring. Watches for opportunities, risks, and relevant events, then surfaces suggestions before the user asks.
+
+**Vision** — Pattern recognition and emergence detection. Identifies trends, anomalies, and correlations across user activity to anticipate needs.
+
+**Trajectory** — Outcome prediction and path optimization. Predicts likely results of actions and suggests the optimal sequence to reach a goal.
+
+**Outcome Learning** — Feedback loop. Captures the results of past decisions and uses them to improve future reasoning.
+
+**Morpheus Triggers** — Determines when Morpheus appears. Activates before irreversible actions, significant events, and high-stakes moments.
+
+**Rexhepi Gate** — The execution gate. Every agent decision passes through the Unified Rexhepi Framework before it reaches the user.
+
+**Omega** — The synthesis layer. Combines all protocol outputs into a single unified agent response — the orchestration brain.
+
+**Protocol Stack (Integration)** — Wires all protocols into the agent runtime. The single entry point that the ReAct loop calls on every turn.
+
+---
+
 ## Contributing
 
 See `CONTRIBUTING.md` for the Möbius loop contribution model.

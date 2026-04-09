@@ -1,5 +1,5 @@
-from __future__ import annotations
 #!/usr/bin/env python3
+from __future__ import annotations
 """
 03 — NFT with Royalties: Mint, List, Sell with Automatic Royalty Enforcement
 

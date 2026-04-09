@@ -556,18 +556,29 @@ def match_intent(user_message: str) -> list[dict[str, Any]]:
     includes the action guide plus a ``score`` field.
     """
     msg = user_message.lower().strip()
+    # Strip common filler words for looser matching
+    _FILLERS = {"a", "an", "the", "my", "some", "please", "can", "you", "i", "want", "to", "need", "help", "me", "with"}
+    msg_words = [w for w in msg.split() if w not in _FILLERS]
+    msg_compact = " ".join(msg_words)
+
     scored: list[tuple[float, str]] = []
 
     for action_name, guide in INTENT_ACTION_MAP.items():
         score = 0.0
         for keyword in guide["keywords"]:
             kw = keyword.lower()
-            if kw in msg:
+            kw_words = [w for w in kw.split() if w not in _FILLERS]
+            kw_compact = " ".join(kw_words)
+            # Check both original and filler-stripped versions
+            if kw in msg or kw_compact in msg_compact:
                 # Longer keyword matches are worth more
                 score += len(kw.split())
                 # Exact-start bonus
-                if msg.startswith(kw):
+                if msg.startswith(kw) or msg_compact.startswith(kw_compact):
                     score += 1.0
+            # Also check if all keyword content words appear in the message
+            elif kw_words and all(w in msg for w in kw_words):
+                score += len(kw_words) * 0.7
         if score > 0:
             scored.append((score, action_name))
 
