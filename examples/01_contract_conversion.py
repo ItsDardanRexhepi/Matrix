@@ -15,6 +15,11 @@ This is the core value proposition of 0pnMatrx: describe a contract in
 plain English and the platform handles parsing, generation, auditing,
 compilation, deployment, and attestation.
 
+NOTE: Until ``blockchain.rpc_url`` is configured AND
+``contract_conversion.auto_deploy`` is set to ``True``, the example will
+generate Solidity but skip the on-chain deploy step and return
+``status='not_deployed'``. See ROADMAP.md "Blockchain Activation".
+
 Usage:
     python examples/01_contract_conversion.py
 """

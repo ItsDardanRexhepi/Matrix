@@ -14,6 +14,7 @@ from typing import Any
 
 from runtime.blockchain.services.dex.pools import LiquidityPoolManager
 from runtime.blockchain.services.dex.router import SwapRouter
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ class DEXService:
             d_cfg.get("platform_wallet", "")
             or bc_cfg.get("platform_wallet", "")
         )
+        self._dex_router_contract: str = d_cfg.get("router_contract", "") or ""
+        self._web3 = Web3Manager.get_shared(config)
 
         self._pools = LiquidityPoolManager(config)
         self._router = SwapRouter(config, self._pools)
@@ -91,6 +94,24 @@ class DEXService:
             raise ValueError("Swap amount must be positive")
         if not 0 <= slippage <= 50:
             raise ValueError("Slippage must be between 0 and 50 percent")
+
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._dex_router_contract)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("dex", {
+                "operation": "swap",
+                "requested": {
+                    "trader": trader,
+                    "token_in": token_in,
+                    "token_out": token_out,
+                    "amount_in": amount_in,
+                },
+            })
 
         # Find best route
         route = await self._router.find_best_route(token_in, token_out, amount_in)

@@ -13,6 +13,11 @@ Demonstrates the DeFi service (Component 2):
 This shows how 0pnMatrx wraps complex DeFi lending logic into simple
 platform_action calls that any AI agent can invoke.
 
+NOTE: Until ``defi.lending_pool_address`` points at a deployed contract
+on the configured chain, every call short-circuits to
+``status='not_deployed'`` with a deployment guide. See ROADMAP.md
+"Blockchain Activation".
+
 Usage:
     python examples/02_defi_loan.py
 """

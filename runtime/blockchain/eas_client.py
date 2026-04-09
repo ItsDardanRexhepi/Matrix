@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Any
 
+from runtime.blockchain.web3_manager import Web3Manager, is_placeholder_value
+
 logger = logging.getLogger(__name__)
 
 # EAS contract ABI (attest function)
@@ -57,14 +59,20 @@ class EASClient:
         self.paymaster_key = bc.get("paymaster_private_key", "")
         self.platform_wallet = bc.get("platform_wallet", "")
         self.chain_id = bc.get("chain_id", 84532)
-        self._web3 = None
+        self._manager = Web3Manager.get_shared(config)
+
+    def _is_configured(self) -> bool:
+        """Return True only if EAS is fully configured and the manager is online."""
+        if not self._manager.available:
+            return False
+        for val in (self.eas_contract, self.eas_schema, self.paymaster_key):
+            if is_placeholder_value(val):
+                return False
+        return True
 
     @property
     def web3(self):
-        if self._web3 is None:
-            from web3 import Web3
-            self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
-        return self._web3
+        return self._manager.w3
 
     async def attest(
         self,
@@ -83,6 +91,18 @@ class EASClient:
             details: Key-value details about the action
             recipient: Ethereum address of the recipient (default: zero address)
         """
+        if not self._is_configured():
+            logger.warning(
+                "EAS attestation skipped — blockchain not configured (action=%s)",
+                action,
+            )
+            return {
+                "status": "skipped",
+                "reason": "blockchain not configured",
+                "action": action,
+                "agent": agent,
+            }
+
         try:
             from web3 import Web3
             from eth_account import Account

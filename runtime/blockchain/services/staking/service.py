@@ -15,6 +15,7 @@ from typing import Any
 
 from runtime.blockchain.services.staking.apy_calculator import APYCalculator
 from runtime.blockchain.services.staking.pools import StakingPoolManager
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,12 @@ class StakingService:
             s_cfg.get("min_stake", _MIN_STAKE_ETH)
         )
         self._platform_wallet: str = bc_cfg.get("platform_wallet", "")
+        self._staking_contract: str = (
+            s_cfg.get("staking_contract", "")
+            or bc_cfg.get("staking_contract", "")
+            or ""
+        )
+        self._web3 = Web3Manager.get_shared(config)
 
         self._apy = APYCalculator(config)
         self._pools = StakingPoolManager(config)
@@ -89,6 +96,19 @@ class StakingService:
         """
         if amount <= 0:
             raise ValueError("Stake amount must be positive")
+
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._staking_contract)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("staking", {
+                "operation": "stake",
+                "requested": {"staker": staker, "amount": amount, "pool_id": pool_id},
+            })
 
         pool = await self._pools.get_pool(pool_id)
         pool_min = float(pool.get("min_stake", self._min_stake))

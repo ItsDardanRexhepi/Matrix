@@ -14,7 +14,12 @@ import logging
 import time
 from typing import Any
 
+from runtime.blockchain.web3_manager import Web3Manager
+
 logger = logging.getLogger(__name__)
+
+_FALLBACK_ETH_USD = 3000.0
+_LOW_BALANCE_THRESHOLD_ETH = 0.01
 
 
 class GasSponsor:
@@ -28,14 +33,45 @@ class GasSponsor:
         self.paymaster_address = bc.get("paymaster_address", "")
         self.paymaster_key = bc.get("paymaster_private_key", "")
         self.platform_wallet = bc.get("platform_wallet", "")
-        self._web3 = None
+        self._manager = Web3Manager.get_shared(config)
 
     @property
     def web3(self):
-        if self._web3 is None:
-            from web3 import Web3
-            self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
-        return self._web3
+        return self._manager.w3
+
+    async def estimate_gas_cost(self, tx: dict) -> dict:
+        """Return estimated gas cost in ETH and USD for *tx*.
+
+        Falls back to a hardcoded ETH price ($3000) if no oracle is wired.
+        Always returns a dict — never raises.
+        """
+        if not self._manager.available:
+            return {
+                "status": "skipped",
+                "reason": "blockchain not configured",
+            }
+        try:
+            w3 = self.web3
+            gas_limit = w3.eth.estimate_gas({
+                "from": self.platform_wallet or self._manager.get_account().address,
+                "to": tx.get("to", ""),
+                "value": tx.get("value", 0),
+                "data": tx.get("data", b""),
+            })
+            gas_price = w3.eth.gas_price
+            cost_wei = gas_limit * gas_price
+            cost_eth = float(w3.from_wei(cost_wei, "ether"))
+            return {
+                "status": "ok",
+                "gas_limit": gas_limit,
+                "gas_price_gwei": float(w3.from_wei(gas_price, "gwei")),
+                "cost_eth": cost_eth,
+                "cost_usd": round(cost_eth * _FALLBACK_ETH_USD, 4),
+                "eth_usd_source": "fallback($3000)",
+            }
+        except Exception as exc:
+            logger.warning("estimate_gas_cost failed: %s", exc)
+            return {"status": "error", "error": str(exc)}
 
     async def sponsor_transaction(self, tx: dict) -> dict:
         """
@@ -104,17 +140,27 @@ class GasSponsor:
 
     async def get_balance(self) -> dict:
         """Check the platform wallet balance (for monitoring gas fund levels)."""
+        if not self._manager.available:
+            return {"status": "skipped", "reason": "blockchain not configured"}
         try:
             balance_wei = self.web3.eth.get_balance(self.platform_wallet)
-            balance_eth = self.web3.from_wei(balance_wei, "ether")
-            return {
+            balance_eth = float(self.web3.from_wei(balance_wei, "ether"))
+            response = {
                 "wallet": self.platform_wallet,
                 "balance_wei": str(balance_wei),
-                "balance_eth": str(balance_eth),
+                "balance_eth": balance_eth,
+                "balance_usd": round(balance_eth * _FALLBACK_ETH_USD, 2),
                 "network": self.config.get("blockchain", {}).get("network", "base-sepolia"),
             }
+            if balance_eth < _LOW_BALANCE_THRESHOLD_ETH:
+                response["low_balance"] = True
+                response["warning"] = (
+                    f"Paymaster balance is below {_LOW_BALANCE_THRESHOLD_ETH} ETH"
+                )
+            return response
         except Exception as e:
-            return {"error": str(e)}
+            logger.warning("get_balance failed: %s", e)
+            return {"status": "error", "error": str(e)}
 
     def _validate_config(self):
         """Ensure paymaster config is present."""

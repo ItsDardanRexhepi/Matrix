@@ -102,6 +102,33 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 
 ---
 
+## Current Status
+
+0pnMatrx is **build-complete and offline-ready**. Every one of the 30
+blockchain services is wired through `ServiceDispatcher` and exercised
+by automated tests in `tests/test_e2e_flows.py` and
+`tests/test_dispatch_integration.py`.
+
+What works today, no chain required:
+
+- **Trinity / Morpheus / Neo agents** — full ReAct loop, tool use, session memory
+- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
+- **All 30 blockchain services** — return a standardised
+  `{"status": "not_deployed", ...}` response with a deployment guide
+  whenever the chain is not yet configured. No fake addresses, no
+  fabricated transaction hashes
+- **NeoSafe revenue routing** — queues fees in-memory until live
+- **Gateway** — REST + WebSocket, rate limiting, background cleanup,
+  graceful shutdown, full middleware chain
+- **EAS attestation client** — skips gracefully when offline
+
+What activates the moment a chain is configured: actual contract
+deployment, on-chain attestations, paymaster gas sponsorship, and the
+NeoSafe ETH transfer. See `ROADMAP.md` → "Blockchain Activation" for the
+checklist.
+
+---
+
 ## The Security Layer
 
 0pnMatrx has a closed-source security layer that governs all agent behavior. This layer is not in this repository by design. See `SECURITY_STUB.md` for details.

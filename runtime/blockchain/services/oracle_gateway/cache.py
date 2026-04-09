@@ -26,7 +26,7 @@ DEFAULT_TTLS: dict[str, int] = {
 }
 
 
-@dataclass(slots=True)
+@dataclass
 class _CacheEntry:
     """Single cached value with expiration metadata."""
 

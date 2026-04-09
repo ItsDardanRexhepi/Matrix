@@ -15,6 +15,7 @@ from typing import Any
 from runtime.blockchain.services.ip_royalties.ip_registry import IPRegistry
 from runtime.blockchain.services.ip_royalties.royalty_enforcement import RoyaltyEnforcement
 from runtime.blockchain.services.ip_royalties.distribution import RoyaltyDistribution
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,10 @@ class IPRoyaltyService:
         self._max_licenses: int = int(
             ip_cfg.get("max_licenses_per_ip", 1_000)
         )
+        self._ip_registry_contract: str = (
+            ip_cfg.get("registry_contract", "") or ""
+        )
+        self._web3 = Web3Manager.get_shared(config)
 
         self._registry = IPRegistry(config)
         self._enforcement = RoyaltyEnforcement(config)
@@ -84,6 +89,23 @@ class IPRoyaltyService:
                 f"Unknown ip_type '{ip_type}'. "
                 f"Must be one of: {', '.join(sorted(IP_TYPES))}"
             )
+
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._ip_registry_contract)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("ip_royalties", {
+                "operation": "register_ip",
+                "requested": {
+                    "owner": owner,
+                    "ip_type": ip_type,
+                    "title": metadata.get("title", ""),
+                },
+            })
 
         ip_record = await self._registry.register({
             "owner": owner,

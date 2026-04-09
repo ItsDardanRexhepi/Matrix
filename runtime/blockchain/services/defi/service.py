@@ -16,6 +16,7 @@ from runtime.blockchain.services.defi.loans import LoanManager
 from runtime.blockchain.services.defi.p2p_lending import P2PLending
 from runtime.blockchain.services.defi.reputation import LenderReputation
 from runtime.blockchain.services.defi.whitelist_governance import WhitelistGovernance
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,10 @@ class DeFiService:
     ) -> None:
         self._config = config
         self._oracle = oracle_gateway
+        self._web3 = Web3Manager.get_shared(config)
+        self._lending_pool_address: str = (
+            config.get("defi", {}).get("lending_pool_address", "") or ""
+        )
 
         self._loan_manager = LoanManager(config)
         self._collateral_manager = CollateralManager(config, oracle_gateway)
@@ -86,6 +91,25 @@ class DeFiService:
         dict
             Loan details.
         """
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._lending_pool_address)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("defi", {
+                "operation": "create_loan",
+                "requested": {
+                    "borrower": borrower,
+                    "collateral_token": collateral_token,
+                    "collateral_amount": collateral_amount,
+                    "borrow_token": borrow_token,
+                    "borrow_amount": borrow_amount,
+                },
+            })
+
         try:
             # Fetch prices
             collateral_price = await self._get_token_price(collateral_token)

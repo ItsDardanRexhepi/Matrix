@@ -18,6 +18,7 @@ from runtime.blockchain.services.insurance.fee_engine import FeeEngine
 from runtime.blockchain.services.insurance.trigger_manager import TriggerManager
 from runtime.blockchain.services.insurance.reserve_fund import ReserveFund
 from runtime.blockchain.services.insurance.claims_processor import ClaimsProcessor
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class InsuranceService:
 
         self._default_duration: int = int(ins_cfg.get("default_duration_days", 365))
         self._max_coverage: float = float(ins_cfg.get("max_coverage", 1_000_000.0))
+        self._policy_contract: str = ins_cfg.get("policy_contract", "") or ""
+        self._web3 = Web3Manager.get_shared(config)
 
         self._eligibility = EligibilityTracker(config)
         self._fee_engine = FeeEngine(config)
@@ -86,6 +89,23 @@ class InsuranceService:
                 f"Unknown policy_type '{policy_type}'. "
                 f"Must be one of: {', '.join(sorted(POLICY_TYPES))}"
             )
+
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._policy_contract)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("insurance", {
+                "operation": "create_policy",
+                "requested": {
+                    "holder": holder,
+                    "policy_type": policy_type,
+                    "premium": premium,
+                },
+            })
 
         coverage_amount = float(coverage.get("amount", 0))
         if coverage_amount <= 0:

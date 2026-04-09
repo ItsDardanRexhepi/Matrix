@@ -1,4 +1,8 @@
-"""Revenue routing — all platform fees go to NeoSafe wallet."""
+"""Revenue routing — all platform fees go to the NeoSafe multisig.
+
+The canonical NeoSafe address is ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
+That value is used when ``blockchain.neosafe_wallet`` is not set in config.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,11 @@ import logging
 import time
 from typing import Any
 
+from runtime.blockchain.web3_manager import Web3Manager
+
 logger = logging.getLogger(__name__)
+
+NEOSAFE_DEFAULT_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 
 
 class NeoSafeRouter:
@@ -23,9 +31,16 @@ class NeoSafeRouter:
 
     def __init__(self, config: dict) -> None:
         blockchain_cfg = config.get("blockchain", {})
-        self._platform_wallet: str = blockchain_cfg.get("platform_wallet", "")
+        self._neosafe_wallet: str = (
+            blockchain_cfg.get("neosafe_wallet")
+            or blockchain_cfg.get("platform_wallet")
+            or NEOSAFE_DEFAULT_ADDRESS
+        )
+        # Backwards-compatible alias used by existing callers
+        self._platform_wallet: str = self._neosafe_wallet
         self._chain_id: int = blockchain_cfg.get("chain_id", 8453)
         self._config = config
+        self._web3 = Web3Manager.get_shared(config)
 
         # In-memory ledger for this process lifetime
         self._ledger: list[dict[str, Any]] = []
@@ -104,6 +119,91 @@ class NeoSafeRouter:
             "status": "ok",
             "fee": entry,
         }
+
+    async def route_revenue(
+        self, amount_eth: float, source_action: str
+    ) -> dict[str, Any]:
+        """Send *amount_eth* ETH to the NeoSafe multisig and attest the routing.
+
+        Returns a dict describing the on-chain action. When the platform
+        is not yet configured for live execution, the routing is queued
+        in-memory and a ``status='queued'`` response is returned.
+        """
+        if amount_eth <= 0:
+            return {"status": "skipped", "reason": "non-positive amount"}
+
+        if not self._web3.available:
+            logger.info(
+                "Revenue routing queued: %.6f ETH from %s "
+                "(blockchain not configured)",
+                amount_eth, source_action,
+            )
+            self._ledger.append({
+                "amount": amount_eth,
+                "token": "ETH",
+                "source": source_action,
+                "recipient": self._neosafe_wallet,
+                "timestamp": int(time.time()),
+                "queued": True,
+            })
+            return {
+                "status": "queued",
+                "message": (
+                    "Revenue routing queued — will execute when blockchain "
+                    "is configured"
+                ),
+                "amount_eth": amount_eth,
+                "source": source_action,
+                "recipient": self._neosafe_wallet,
+            }
+
+        try:
+            w3 = self._web3.w3
+            amount_wei = w3.to_wei(amount_eth, "ether")
+            tx_hash_hex = await self._web3.send_transaction({
+                "to": w3.to_checksum_address(self._neosafe_wallet),
+                "value": amount_wei,
+                "gas": 21000,
+            })
+            logger.info(
+                "Revenue routed: %s ETH from %s, tx=%s",
+                amount_eth, source_action, tx_hash_hex,
+            )
+            # Best-effort attestation
+            attestation_uid = None
+            try:
+                from runtime.blockchain.eas_client import EASClient
+                eas = EASClient(self._config)
+                attest_result = await eas.attest(
+                    action="revenue_routing",
+                    agent="neosafe_router",
+                    details={
+                        "amount_eth": amount_eth,
+                        "source": source_action,
+                        "tx_hash": tx_hash_hex,
+                    },
+                )
+                attestation_uid = attest_result.get("attestation_tx") if isinstance(attest_result, dict) else None
+            except Exception as exc:
+                logger.warning("NeoSafe attestation skipped: %s", exc)
+
+            return {
+                "status": "routed",
+                "amount_eth": amount_eth,
+                "source": source_action,
+                "recipient": self._neosafe_wallet,
+                "tx_hash": tx_hash_hex,
+                "explorer": self._web3.explorer_url(tx_hash_hex),
+                "attestation_uid": attestation_uid,
+            }
+        except Exception as exc:
+            logger.error("Revenue routing failed: %s", exc)
+            return {
+                "status": "error",
+                "error": str(exc),
+                "amount_eth": amount_eth,
+                "source": source_action,
+            }
 
     async def get_total_revenue(self) -> dict[str, Any]:
         """Return accumulated revenue totals by token.

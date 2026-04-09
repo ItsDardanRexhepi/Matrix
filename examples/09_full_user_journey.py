@@ -20,9 +20,16 @@ This script exercises Components 1-8 plus governance, fundraising, staking,
 and more — showing how they all compose through ServiceDispatcher.
 
 Usage:
-    python examples/09_full_user_journey.py
+    python examples/09_full_user_journey.py            # live (uses config)
+    python examples/09_full_user_journey.py --dry-run  # no dispatch calls
+
+NOTE: Until the platform contracts are deployed on-chain, every dispatch
+returns ``status='not_deployed'`` and the script falls back to printing
+the intended action. This is by design — see ROADMAP.md "Blockchain
+Activation" for the deployment plan.
 """
 
+import argparse
 import asyncio
 import json
 import os
@@ -51,8 +58,14 @@ def load_config() -> dict:
         return json.load(f)
 
 
+DRY_RUN = False
+
+
 async def dispatch(dispatcher, action, params, label=""):
     """Helper that dispatches an action and returns the parsed result."""
+    if DRY_RUN:
+        warn(f"[dry-run] would call {action}({len(params)} params)")
+        return None
     try:
         raw = await dispatcher.execute(action=action, params=params)
         data = json.loads(raw)
@@ -411,4 +424,12 @@ async def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="0pnMatrx full user journey example")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Skip dispatcher calls and print what would happen.",
+    )
+    args = parser.parse_args()
+    DRY_RUN = args.dry_run
     asyncio.run(main())

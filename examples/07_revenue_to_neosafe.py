@@ -13,6 +13,14 @@ Demonstrates how 0pnMatrx routes revenue to the NeoSafe multisig wallet:
 
 Every fee-generating action across all 30 services follows this pattern.
 The platform wallet (NeoSafe) is the single point of revenue collection.
+The canonical NeoSafe address is
+``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
+
+NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
+``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
+``status='queued'``. Once the chain is live, the same call will execute
+the actual transfer and EAS attestation. See ROADMAP.md "Blockchain
+Activation".
 
 Usage:
     python examples/07_revenue_to_neosafe.py

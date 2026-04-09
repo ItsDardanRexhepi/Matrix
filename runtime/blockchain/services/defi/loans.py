@@ -17,6 +17,8 @@ import uuid
 from enum import Enum
 from typing import Any
 
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+
 logger = logging.getLogger(__name__)
 
 
@@ -68,8 +70,13 @@ class LoanManager:
         self._base_rate: float = float(
             defi_cfg.get("base_rate", _BASE_RATE)
         )
+        self._lending_pool_address: str = (
+            defi_cfg.get("lending_pool_address", "") or ""
+        )
 
-        # In-memory loan storage (production: on-chain or DB)
+        self._web3 = Web3Manager.get_shared(config)
+
+        # In-memory loan storage (used only when contracts are not deployed)
         self._loans: dict[str, dict[str, Any]] = {}
         # Pool utilisation tracking per token
         self._pool_total: dict[str, float] = {}     # total deposited
@@ -117,6 +124,25 @@ class LoanManager:
         """
         if collateral_amount <= 0 or borrow_amount <= 0:
             raise ValueError("Amounts must be positive")
+
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._lending_pool_address)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("defi", {
+                "operation": "create_loan",
+                "requested": {
+                    "borrower": borrower,
+                    "collateral_token": collateral_token,
+                    "collateral_amount": collateral_amount,
+                    "borrow_token": borrow_token,
+                    "borrow_amount": borrow_amount,
+                },
+            })
 
         collateral_value = collateral_amount * collateral_price
         borrow_value = borrow_amount * borrow_price

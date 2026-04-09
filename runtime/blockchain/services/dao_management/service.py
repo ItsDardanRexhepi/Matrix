@@ -10,6 +10,8 @@ import logging
 import time
 from typing import Any
 
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+
 from .conversion_wizard import ConversionWizard
 from .factory import DAOFactory
 from .treasury import TreasuryManager
@@ -57,6 +59,12 @@ class DAOService:
             "default_governance", "token_weighted"
         )
         self._max_members: int = dao_cfg.get("max_members", 10_000)
+        self._dao_factory_address: str = (
+            dao_cfg.get("factory_address", "")
+            or config.get("blockchain", {}).get("dao_factory_address", "")
+            or ""
+        )
+        self._web3 = Web3Manager.get_shared(config)
 
         # Sub-components
         self.factory = DAOFactory(config)
@@ -98,6 +106,19 @@ class DAOService:
             raise ValueError("Creator address is required")
         if not name:
             raise ValueError("DAO name is required")
+
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._dao_factory_address)
+        ):
+            logger.warning(
+                "Service %s called but contract not deployed",
+                self.__class__.__name__,
+            )
+            return not_deployed_response("dao_management", {
+                "operation": "create_dao",
+                "requested": {"creator": creator, "name": name},
+            })
 
         governance_type = config.get("governance_type", self._default_governance)
         token_address = config.get("token_address")

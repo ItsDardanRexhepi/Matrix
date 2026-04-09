@@ -9,8 +9,16 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
+
+
+def _explorer_url(network: str, tx_hash: str) -> str:
+    base = "https://sepolia.basescan.org/tx/"
+    if network and "mainnet" in network.lower():
+        base = "https://basescan.org/tx/"
+    return f"{base}{tx_hash}"
 
 ERC20_TRANSFER_ABI = [
     {"inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "transfer", "outputs": [{"name": "", "type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
@@ -54,6 +62,16 @@ class Payments(BlockchainInterface):
         return f"Unknown payment action: {action}"
 
     async def _send_eth(self, params: dict) -> str:
+        manager = Web3Manager.get_shared(self.config)
+        if not manager.available:
+            logger.warning(
+                "Service %s called but blockchain not configured",
+                self.__class__.__name__,
+            )
+            return json.dumps(not_deployed_response("payments", {
+                "operation": "send_eth",
+                "requested": {"to": params.get("to"), "amount": params.get("amount")},
+            }))
         try:
             from web3 import Web3
             from eth_account import Account
@@ -80,17 +98,34 @@ class Payments(BlockchainInterface):
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
+            tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             return json.dumps({
                 "status": "sent" if receipt["status"] == 1 else "failed",
                 "to": to,
                 "amount_eth": str(amount_eth),
-                "tx_hash": tx_hash.hex(),
+                "tx_hash": tx_hash_hex,
+                "explorer": _explorer_url(self.network, tx_hash_hex),
                 "gas_paid_by": "platform (0pnMatrx)",
             }, indent=2)
         except Exception as e:
-            return f"ETH send failed: {e}"
+            logger.error("ETH send failed: %s", e)
+            return json.dumps({"status": "error", "error": str(e)})
 
     async def _send_token(self, params: dict) -> str:
+        manager = Web3Manager.get_shared(self.config)
+        if not manager.available:
+            logger.warning(
+                "Service %s called but blockchain not configured",
+                self.__class__.__name__,
+            )
+            return json.dumps(not_deployed_response("payments", {
+                "operation": "send_token",
+                "requested": {
+                    "to": params.get("to"),
+                    "token_address": params.get("token_address"),
+                    "amount": params.get("amount"),
+                },
+            }))
         try:
             from web3 import Web3
             from eth_account import Account
@@ -122,15 +157,18 @@ class Payments(BlockchainInterface):
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
+            tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             return json.dumps({
                 "status": "sent" if receipt["status"] == 1 else "failed",
                 "to": to,
                 "token": token_addr,
-                "tx_hash": tx_hash.hex(),
+                "tx_hash": tx_hash_hex,
+                "explorer": _explorer_url(self.network, tx_hash_hex),
                 "gas_paid_by": "platform (0pnMatrx)",
             }, indent=2)
         except Exception as e:
-            return f"Token send failed: {e}"
+            logger.error("Token send failed: %s", e)
+            return json.dumps({"status": "error", "error": str(e)})
 
     async def _get_balance(self, params: dict) -> str:
         try:
