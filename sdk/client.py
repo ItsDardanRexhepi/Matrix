@@ -179,14 +179,58 @@ class OpenMatrixClient:
         }
 
     async def astream_chat(self, message: str, agent: str = "trinity") -> AsyncIterator[str]:
+        """Stream a chat response from ``POST /chat/stream`` (Server-Sent Events).
+
+        Yields each ``token`` event's ``text`` payload as it arrives. Stops on
+        the first ``done`` or ``error`` event. Falls back to a single
+        :meth:`achat` call if the gateway returns a non-200 response.
         """
-        Stream a chat response (async generator).
-        Falls back to single response if streaming not supported.
-        """
-        # The gateway currently returns complete responses
-        # This wraps it as a stream for API compatibility
-        response = await self.achat(message, agent)
-        yield response.text
+        import aiohttp
+
+        body = {
+            "message": message,
+            "agent": agent,
+            "session_id": self.session_id,
+        }
+        headers = {"Accept": "text/event-stream"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.base_url}/chat/stream",
+                json=body,
+                headers=headers,
+            ) as resp:
+                if resp.status != 200:
+                    # Streaming endpoint unavailable — fall back to /chat
+                    response = await self.achat(message, agent)
+                    yield response.text
+                    return
+
+                event_name = ""
+                async for raw in resp.content:
+                    line = raw.decode("utf-8", errors="replace").rstrip("\n")
+                    if not line:
+                        event_name = ""
+                        continue
+                    if line.startswith("event: "):
+                        event_name = line[7:].strip()
+                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:]
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        if event_name == "token":
+                            text = data.get("text", "")
+                            if text:
+                                yield text
+                        elif event_name == "done":
+                            return
+                        elif event_name == "error":
+                            raise RuntimeError(data.get("error", "stream error"))
 
     # ─── Convenience Methods ───────────────────────────────────────────────
 

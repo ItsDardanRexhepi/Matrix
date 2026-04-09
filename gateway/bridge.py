@@ -602,12 +602,6 @@ class BridgeRoutes:
         agent = body.get("agent", "trinity")
         session_id = body.get("session_id", "default")
 
-        # Delegate to the main gateway handler
-        # Build a fake request for handle_chat
-        from aiohttp.test_utils import make_mocked_request
-        from unittest.mock import AsyncMock
-
-        # Just call the chat logic directly
         try:
             result = await self._handle_chat_internal(message, agent, session_id, body)
             return MobileResponse.ok(result)
@@ -709,27 +703,46 @@ class BridgeRoutes:
     # ─── Wallet ───────────────────────────────────────────────────────────
 
     async def link_wallet(self, request: web.Request) -> web.Response:
-        """Link a wallet address to a session."""
+        """Link a SIWE-verified wallet to a session.
+
+        Requires the ``X-Wallet-Session`` header containing a session token
+        previously issued by ``POST /auth/verify``. The verified address is
+        taken from the server-side session record — any address supplied in
+        the request body is ignored to prevent impersonation.
+        """
+        wallet_token = request.headers.get("X-Wallet-Session", "")
+        if not wallet_token:
+            return MobileResponse.error(
+                "X-Wallet-Session header required (sign in via /auth/verify first)",
+                401,
+            )
+
+        wallet_sessions = getattr(self._server, "wallet_sessions", {})
+        wallet_session = wallet_sessions.get(wallet_token)
+        if not wallet_session:
+            return MobileResponse.error("invalid or expired wallet session", 401)
+
         try:
             body = await request.json()
         except Exception:
-            return MobileResponse.error("Invalid JSON")
+            body = {}
 
         session_id = body.get("session_id", "")
-        address = body.get("address", "")
+        if not session_id:
+            return MobileResponse.error("session_id required")
 
-        if not session_id or not address:
-            return MobileResponse.error("session_id and address required")
-
+        address = wallet_session["address"]
         self._linked_wallets[session_id] = {
             "address": address,
             "linked_at": time.time(),
             "network": body.get("network", "base-sepolia"),
+            "verified": True,
         }
 
         return MobileResponse.ok({
             "linked": True,
             "address": address,
+            "verified": True,
         })
 
     async def wallet_status(self, request: web.Request) -> web.Response:
@@ -740,21 +753,15 @@ class BridgeRoutes:
         if not wallet:
             return MobileResponse.ok({"linked": False})
 
-        # Try to get balance
-        balance = None
-        try:
-            from runtime.blockchain.interface import BlockchainInterface
-            blockchain = BlockchainInterface(self._config)
-            balance_wei = blockchain.w3.eth.get_balance(wallet["address"])
-            balance = str(blockchain.w3.from_wei(balance_wei, "ether"))
-        except Exception:
-            pass
-
+        # TODO: Wire balance lookup through a concrete provider client
+        # (e.g. Web3 / Alchemy). BlockchainInterface is an abstract base
+        # and cannot be instantiated directly.
         return MobileResponse.ok({
             "linked": True,
             "address": wallet["address"],
             "network": wallet.get("network", "base-sepolia"),
-            "balance_eth": balance,
+            "balance_eth": None,
+            "verified": wallet.get("verified", False),
         })
 
     # ─── App Config ───────────────────────────────────────────────────────
@@ -886,21 +893,13 @@ class BridgeRoutes:
         }
 
         if wallet:
-            try:
-                from runtime.blockchain.interface import BlockchainInterface
-                blockchain = BlockchainInterface(self._config)
-                balance_wei = blockchain.w3.eth.get_balance(wallet["address"])
-                balance = str(blockchain.w3.from_wei(balance_wei, "ether"))
-                dashboard["wallet"] = {
-                    "address": wallet["address"],
-                    "balance_eth": balance,
-                    "network": wallet.get("network"),
-                }
-            except Exception:
-                dashboard["wallet"] = {
-                    "address": wallet["address"],
-                    "balance_eth": None,
-                    "network": wallet.get("network"),
-                }
+            # TODO: Wire balance lookup through a concrete provider client.
+            # BlockchainInterface is an abstract base — see wallet_status().
+            dashboard["wallet"] = {
+                "address": wallet["address"],
+                "balance_eth": None,
+                "network": wallet.get("network"),
+                "verified": wallet.get("verified", False),
+            }
 
         return MobileResponse.ok(dashboard)

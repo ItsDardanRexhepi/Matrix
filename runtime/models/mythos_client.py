@@ -16,7 +16,7 @@ from runtime.models.anthropic_client import AnthropicClient
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MYTHOS_MODEL = "claude-mythos-preview"
+DEFAULT_MYTHOS_MODEL = "claude-opus-4-6"
 
 
 class MythosClient(AnthropicClient):

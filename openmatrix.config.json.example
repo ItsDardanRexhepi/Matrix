@@ -1,4 +1,5 @@
 {
+  "_readme": "Replace all YOUR_* values before the platform is functional. See contracts/DEPLOYMENT_GUIDE.md for instructions. Environment variables in .env override values here.",
   "platform": "0pnMatrx",
   "version": "1.0.0",
   "workspace": ".",
@@ -24,7 +25,7 @@
       },
       "mythos": {
         "api_key": "YOUR_ANTHROPIC_API_KEY",
-        "model": "claude-mythos-preview"
+        "model": "claude-opus-4-6"
       },
       "nvidia": {
         "api_key": "YOUR_NVIDIA_API_KEY",
@@ -39,10 +40,14 @@
   "gateway": {
     "port": 18790,
     "host": "0.0.0.0",
-    "cors_origins": ["*"],
+    "cors_origins": [],
     "api_key": "",
     "rate_limit_rpm": 60,
-    "rate_limit_burst": 15
+    "rate_limit_burst": 15,
+    "rate_limit_rpm_authenticated": 120,
+    "rate_limit_burst_authenticated": 30,
+    "rate_limit_rpm_anonymous": 20,
+    "rate_limit_burst_anonymous": 5
   },
   "agents": {
     "neo": {

@@ -81,24 +81,26 @@ def test_memory():
     print("\n── 3. Memory Manager ──")
     from runtime.memory.manager import MemoryManager
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config = {"workspace": tmpdir}
-        mm = MemoryManager(config)
+    async def _run():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = {"memory_dir": tmpdir}
+            mm = MemoryManager(config)
 
-        # Write and read
-        mm.write("neo", "test_key", "test_value")
-        data = mm.read("neo")
-        report("write and read works", data.get("test_key") == "test_value")
+            # Write and read
+            await mm.write("neo", "test_key", "test_value")
+            assert mm.get("neo", "test_key") == "test_value"
+            report("write and read works", True)
 
-        # Write list value
-        mm.write("neo", "log", ["entry1", "entry2"])
-        data = mm.read("neo")
-        report("list write works", isinstance(data.get("log"), list) and len(data["log"]) == 2)
+            # Write list value
+            await mm.write("neo", "log", ["entry1", "entry2"])
+            log = mm.get("neo", "log")
+            report("list write works", isinstance(log, list) and len(log) == 2)
 
-        # Overwrite key
-        mm.write("neo", "test_key", "updated_value")
-        val = mm.get("neo", "test_key")
-        report("overwrite and get works", val == "updated_value")
+            # Overwrite key
+            await mm.write("neo", "test_key", "updated_value")
+            report("overwrite and get works", mm.get("neo", "test_key") == "updated_value")
+
+    asyncio.run(_run())
 
 
 # ─── 4. Skill Loader ────────────────────────────────────────────────────────

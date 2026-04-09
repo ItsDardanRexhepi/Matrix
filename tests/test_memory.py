@@ -11,15 +11,17 @@ from runtime.memory.manager import MemoryManager, MAX_CONTEXT_TURNS
 class TestMemoryKeyValue:
     """Key/value read, write, and get operations."""
 
-    def test_write_and_read(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_write_and_read(self, tmp_path):
         mm = MemoryManager({"memory_dir": str(tmp_path)})
-        mm.write("neo", "colour", "blue")
+        await mm.write("neo", "colour", "blue")
         data = mm.read("neo")
         assert data["kv"]["colour"] == "blue"
 
-    def test_get_existing_key(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_get_existing_key(self, tmp_path):
         mm = MemoryManager({"memory_dir": str(tmp_path)})
-        mm.write("neo", "level", 42)
+        await mm.write("neo", "level", 42)
         assert mm.get("neo", "level") == 42
 
     def test_get_missing_key_returns_default(self, tmp_path):
@@ -32,16 +34,18 @@ class TestMemoryKeyValue:
         data = mm.read("unknown_agent")
         assert data == {"kv": {}, "turns": []}
 
-    def test_overwrite_key(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_overwrite_key(self, tmp_path):
         mm = MemoryManager({"memory_dir": str(tmp_path)})
-        mm.write("neo", "x", 1)
-        mm.write("neo", "x", 2)
+        await mm.write("neo", "x", 1)
+        await mm.write("neo", "x", 2)
         assert mm.get("neo", "x") == 2
 
-    def test_multiple_agents_isolated(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_multiple_agents_isolated(self, tmp_path):
         mm = MemoryManager({"memory_dir": str(tmp_path)})
-        mm.write("neo", "key", "neo_val")
-        mm.write("trinity", "key", "trinity_val")
+        await mm.write("neo", "key", "neo_val")
+        await mm.write("trinity", "key", "trinity_val")
         assert mm.get("neo", "key") == "neo_val"
         assert mm.get("trinity", "key") == "trinity_val"
 
@@ -94,9 +98,10 @@ class TestMemoryConversation:
 class TestMemoryPersistence:
     """File persistence across MemoryManager instances."""
 
-    def test_data_survives_new_instance(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_data_survives_new_instance(self, tmp_path):
         mm1 = MemoryManager({"memory_dir": str(tmp_path)})
-        mm1.write("neo", "persist_key", "persist_val")
+        await mm1.write("neo", "persist_key", "persist_val")
 
         mm2 = MemoryManager({"memory_dir": str(tmp_path)})
         assert mm2.get("neo", "persist_key") == "persist_val"
@@ -110,18 +115,20 @@ class TestMemoryPersistence:
         ctx = mm2.get_context("neo")
         assert "User: hello" in ctx
 
-    def test_file_is_valid_json(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_file_is_valid_json(self, tmp_path):
         mm = MemoryManager({"memory_dir": str(tmp_path)})
-        mm.write("neo", "k", "v")
-        files = list(tmp_path.glob("*.json"))
+        await mm.write("neo", "k", "v")
+        files = [p for p in tmp_path.glob("*.json") if p.parent == tmp_path]
         assert len(files) == 1
         data = json.loads(files[0].read_text())
         assert data["kv"]["k"] == "v"
 
-    def test_agent_name_sanitized_in_filename(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_agent_name_sanitized_in_filename(self, tmp_path):
         mm = MemoryManager({"memory_dir": str(tmp_path)})
-        mm.write("agent/with/slashes", "k", "v")
-        files = list(tmp_path.glob("*.json"))
+        await mm.write("agent/with/slashes", "k", "v")
+        files = [p for p in tmp_path.glob("*.json") if p.parent == tmp_path]
         assert len(files) == 1
         # Slashes should be replaced with underscores
         assert "/" not in files[0].name

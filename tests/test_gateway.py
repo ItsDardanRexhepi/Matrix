@@ -62,15 +62,22 @@ def _build_mock_server(config):
     server.conversations = {}
     server.request_count = 0
     server._first_boot_sent = set()
+    server._conv_loaded = set()
+    server.wallet_sessions = {}
+    server.wallet_nonces = {}
+    server._wallet_session_ttl = 86400
 
     gw = config.get("gateway", {})
     server.api_key = gw.get("api_key", "")
     server.auth_enabled = bool(server.api_key)
-    server._public_paths = {"/health"}
+    server._public_paths = {"/health", "/auth/nonce", "/auth/verify"}
 
-    rpm = gw.get("rate_limit_rpm", 60)
-    burst = gw.get("rate_limit_burst", 10)
-    server.rate_limiter = RateLimiter(requests_per_minute=rpm, burst=burst)
+    auth_rpm = gw.get("rate_limit_rpm_authenticated", gw.get("rate_limit_rpm", 60))
+    auth_burst = gw.get("rate_limit_burst_authenticated", gw.get("rate_limit_burst", 10))
+    anon_rpm = gw.get("rate_limit_rpm_anonymous", gw.get("rate_limit_rpm", 60))
+    anon_burst = gw.get("rate_limit_burst_anonymous", gw.get("rate_limit_burst", 10))
+    server.rate_limiter_auth = RateLimiter(requests_per_minute=auth_rpm, burst=auth_burst)
+    server.rate_limiter_anon = RateLimiter(requests_per_minute=anon_rpm, burst=anon_burst)
 
     # Mock the react_loop
     mock_loop = MagicMock()
@@ -85,7 +92,13 @@ def _build_mock_server(config):
     mock_loop.router.health_check = AsyncMock(return_value={"mock": True})
     mock_loop.memory = MagicMock()
     mock_loop.memory.read = MagicMock(return_value={"kv": {}, "turns": []})
-    mock_loop.memory.write = MagicMock()
+    mock_loop.memory.write = AsyncMock()
+    mock_loop.memory.load_conversation = MagicMock(return_value=[])
+    mock_loop.memory.save_conversation = AsyncMock()
+    mock_loop.memory.is_first_boot_sent = MagicMock(return_value=True)
+    mock_loop.memory.mark_first_boot_sent = AsyncMock()
+    from pathlib import Path as _P
+    mock_loop.memory.memory_dir = _P("memory")
     server.react_loop = mock_loop
 
     # Mock temporal context

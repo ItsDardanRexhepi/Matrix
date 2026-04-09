@@ -6,6 +6,7 @@ eth-abi>=5.0.0
 py-solc-x>=2.0.0
 pynacl>=1.5.0
 requests>=2.31.0
+python-dotenv>=1.0.0
 pyyaml>=6.0
 duckduckgo_search>=5.0.0
 pytest>=8.0.0
