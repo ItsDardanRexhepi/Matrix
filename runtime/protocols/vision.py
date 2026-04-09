@@ -9,7 +9,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-PATTERN_TYPES = ("spending", "interaction", "governance", "social", "market")
+PATTERN_TYPES = ("spending", "interaction", "governance", "social", "market", "security")
 
 
 class VisionProtocol:

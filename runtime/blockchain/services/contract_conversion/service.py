@@ -18,6 +18,7 @@ from runtime.blockchain.services.contract_conversion.parser import SourceParser
 from runtime.blockchain.services.contract_conversion.revenue_enforcer import RevenueEnforcer
 from runtime.blockchain.services.contract_conversion.templates import get_template, list_templates
 from runtime.blockchain.services.contract_conversion.tier_manager import TierManager
+from runtime.security.audit import ContractAuditor
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class ContractConversionService:
         self._tier_manager = TierManager(config)
         self._artist_classifier = ArtistClassifier(config)
         self._revenue_enforcer = RevenueEnforcer(config)
+        self._auditor = ContractAuditor(config)
 
         logger.info("ContractConversionService initialised.")
 
@@ -134,6 +136,9 @@ class ContractConversionService:
                         "Fee injection skipped: %s", exc,
                     )
 
+            # 6. Security audit
+            audit_report = self._auditor.audit(generated, ir.get("contract_name", ""))
+
             elapsed_ms = round((time.monotonic() - start) * 1000, 2)
 
             result: dict[str, Any] = {
@@ -143,6 +148,8 @@ class ContractConversionService:
                 "target_chain": target_chain,
                 "tier": tier_info,
                 "artist_info": artist_info,
+                "audit": audit_report.to_dict(),
+                "audit_passed": audit_report.passed,
                 "ir": {
                     "functions": len(ir.get("functions", [])),
                     "state_variables": len(ir.get("state_variables", [])),
@@ -156,9 +163,9 @@ class ContractConversionService:
             }
 
             logger.info(
-                "Conversion complete: contract=%s tier=%s chain=%s time=%.1fms",
+                "Conversion complete: contract=%s tier=%s chain=%s time=%.1fms audit=%s",
                 ir.get("contract_name"), tier_info["tier"],
-                target_chain, elapsed_ms,
+                target_chain, elapsed_ms, "PASS" if audit_report.passed else "FAIL",
             )
             return result
 

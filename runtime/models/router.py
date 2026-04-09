@@ -13,7 +13,7 @@ from runtime.models.model_interface import ModelInterface, ModelResponse
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_ORDER = ["ollama", "openai", "anthropic", "nvidia", "gemini"]
+PROVIDER_ORDER = ["ollama", "openai", "anthropic", "mythos", "nvidia", "gemini"]
 MAX_RETRIES = 3
 
 
@@ -71,6 +71,13 @@ class ModelRouter:
                     return None
                 from runtime.models.anthropic_client import AnthropicClient
                 return AnthropicClient(config)
+            elif name == "mythos":
+                api_key = config.get("api_key") or __import__("os").environ.get("ANTHROPIC_API_KEY", "")
+                if not api_key or api_key.startswith("YOUR_"):
+                    logger.debug("Mythos: no valid API key, skipping")
+                    return None
+                from runtime.models.mythos_client import MythosClient
+                return MythosClient(config)
             elif name == "nvidia":
                 api_key = config.get("api_key") or __import__("os").environ.get("NVIDIA_API_KEY", "")
                 if not api_key or api_key.startswith("YOUR_"):

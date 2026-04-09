@@ -16,6 +16,7 @@ MONITOR_CATEGORIES = (
     "insurance_trigger",
     "loan_health",
     "staking_rewards",
+    "security_vulnerability",
 )
 
 # Notification urgency thresholds (seconds until deadline)

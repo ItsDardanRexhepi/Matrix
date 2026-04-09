@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 DOMAIN_CATEGORIES: list[str] = [
     "blockchain", "defi", "nft", "identity", "governance", "insurance",
     "gaming", "social", "payments", "securities", "supply_chain",
-    "iot", "ai", "legal", "healthcare",
+    "iot", "ai", "legal", "healthcare", "security",
 ]
 
 MILESTONE_THRESHOLDS: list[float] = [

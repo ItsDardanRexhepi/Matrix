@@ -24,6 +24,7 @@ class ToolDispatcher:
         self._register_blockchain_tools(config)
         self._register_service_dispatcher(config)
         self._register_skills(config)
+        self._register_security_tools(config)
 
     def _register_builtin_tools(self):
         from runtime.tools.bash import BashTool
@@ -73,6 +74,36 @@ class ToolDispatcher:
                 )
         except Exception as e:
             logger.debug(f"Skill loading skipped: {e}")
+
+    def _register_security_tools(self, config: dict):
+        """Register the contract security auditor as a tool."""
+        try:
+            from runtime.security.audit import ContractAuditor
+            import json as _json
+            auditor = ContractAuditor(config)
+
+            async def audit_contract(source_code: str = "", contract_name: str = "") -> str:
+                report = auditor.audit(source_code, contract_name)
+                return _json.dumps(report.to_dict(), indent=2)
+
+            self.register("security_audit", audit_contract, {
+                "type": "function",
+                "function": {
+                    "name": "security_audit",
+                    "description": "Scan Solidity source code for security vulnerabilities before deployment.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "source_code": {"type": "string", "description": "Solidity source code to audit"},
+                            "contract_name": {"type": "string", "description": "Name of the contract"},
+                        },
+                        "required": ["source_code"],
+                    },
+                },
+            })
+            logger.info("Security audit tool registered")
+        except Exception as e:
+            logger.debug(f"Security audit tool loading skipped: {e}")
 
     def register(self, name: str, handler: Callable[..., Awaitable[str]], schema: dict):
         self._tools[name] = handler

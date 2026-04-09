@@ -66,6 +66,7 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "transfer_security": "securities",
     "create_identity": "identity",
     "verify_identity": "identity",
+    "security_audit": "smart_contract",
     "transfer_ownership": "smart_contract",
     "renounce_ownership": "smart_contract",
 }

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 INSTANCE_TYPES: list[str] = [
     "geopolitical", "financial", "technical",
     "governance", "creative", "synthesis",
+    "security",
 ]
 
 

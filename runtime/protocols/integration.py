@@ -12,6 +12,12 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from runtime.react_loop import ReActContext
 
+# Contract-related tool names that trigger Glasswing audit
+_CONTRACT_TOOLS: set[str] = {
+    "smart_contract", "deploy_contract", "platform_action",
+    "contract_conversion", "security_audit",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,6 +43,7 @@ class ProtocolStack:
         self._morpheus_triggers = None
         self._rexhepi_gate = None
         self._omega = None
+        self._auditor = None
 
         self._init_protocols()
 
@@ -99,13 +106,20 @@ class ProtocolStack:
         except Exception:
             logger.exception("Failed to initialise OmegaMind")
 
+        try:
+            from runtime.security.audit import ContractAuditor
+            self._auditor = ContractAuditor(self.config)
+        except Exception:
+            logger.exception("Failed to initialise ContractAuditor")
+
         logger.info(
-            "ProtocolStack initialised for agent=%s (protocols loaded: %d/9)",
+            "ProtocolStack initialised for agent=%s (protocols loaded: %d/10)",
             self.agent_name,
             sum(1 for p in [
                 self._jarvis, self._ultron, self._friday, self._vision,
                 self._trajectory, self._outcome_learning,
                 self._morpheus_triggers, self._rexhepi_gate, self._omega,
+                self._auditor,
             ] if p is not None),
         )
 
@@ -216,6 +230,34 @@ class ProtocolStack:
                 result["risk"] = risk
             except Exception:
                 logger.exception("Ultron risk assessment failed")
+
+        # Glasswing security audit — runs on contract-related tool calls
+        if self._auditor is not None and tool_name in _CONTRACT_TOOLS:
+            try:
+                source_code = arguments.get("source_code", "")
+                if source_code:
+                    audit_report = self._auditor.audit(
+                        source_code, arguments.get("contract_name", "")
+                    )
+                    result["audit"] = audit_report.to_dict()
+                    if self._auditor.should_block(audit_report):
+                        result["approved"] = False
+                        result["denial_reason"] = (
+                            f"Glasswing audit blocked deployment: {audit_report.summary}"
+                        )
+                        result["morpheus_message"] = (
+                            f"[Morpheus] Security audit failed. {audit_report.summary} "
+                            "Review the findings and fix the vulnerabilities before deploying."
+                        )
+                        return result
+                    elif audit_report.findings:
+                        # Findings exist but not blocking — feed to Morpheus as context
+                        if result.get("risk"):
+                            result["risk"]["concerns"].append(
+                                f"Glasswing audit: {audit_report.summary}"
+                            )
+            except Exception:
+                logger.exception("Glasswing audit pre-action failed")
 
         # Morpheus intervention check
         if self._morpheus_triggers is not None:

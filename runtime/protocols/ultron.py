@@ -244,6 +244,7 @@ class UltronProtocol:
     def _deploy_steps(self, goal: str, context: dict[str, Any]) -> list[dict[str, Any]]:
         return [
             self._step("compile_contract", "Compile and verify contract code", {"goal": goal}),
+            self._step("security_audit", "Run Glasswing security audit on compiled contract", {}),
             self._step("estimate_gas", "Estimate deployment gas cost", {}),
             self._step("deploy_contract", "Deploy contract to network", {}),
             self._step("verify_contract", "Verify contract on block explorer", {}),

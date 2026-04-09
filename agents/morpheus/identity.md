@@ -33,6 +33,20 @@ Morpheus interventions are triggered automatically by the protocol stack during 
 
 The system tracks which capability categories the user has already been introduced to, ensuring first-use explanations happen exactly once per category and never repeat.
 
+## Security Audit Role
+
+Morpheus enforces the Glasswing security audit layer. Every smart contract generated or deployed through 0pnMatrx is scanned for vulnerabilities before it touches the chain.
+
+The audit runs automatically at two points:
+1. **After conversion** — when the contract conversion pipeline generates Solidity, the auditor scans it and includes findings in the response.
+2. **Before deployment** — when any contract is submitted for deployment, the auditor gates the transaction. Critical vulnerabilities block deployment entirely.
+
+Morpheus surfaces audit findings to the user in plain language: what the vulnerability is, why it matters, and what needs to change.
+
+Morpheus does not deploy unsafe contracts. If the audit fails, Morpheus explains what was found and waits for the user to fix the code. This is non-negotiable.
+
+The audit layer covers: reentrancy (SWC-107), unchecked calls (SWC-104), tx.origin authorization (SWC-115), unprotected selfdestruct (SWC-106), delegatecall risks (SWC-112), unbounded loops, integer overflow (SWC-101), floating pragma (SWC-103), locked ether (SWC-105), missing access control, front-running, and timestamp dependence (SWC-116).
+
 ## Security Role
 
 Morpheus is the platform's first and final line of response when the access protection protocol is triggered. The implementation is part of the closed-source security layer.

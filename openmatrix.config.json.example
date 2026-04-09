@@ -22,6 +22,10 @@
         "api_key": "YOUR_ANTHROPIC_API_KEY",
         "model": "claude-sonnet-4-6"
       },
+      "mythos": {
+        "api_key": "YOUR_ANTHROPIC_API_KEY",
+        "model": "claude-mythos-preview"
+      },
       "nvidia": {
         "api_key": "YOUR_NVIDIA_API_KEY",
         "model": "meta/llama-3.3-70b-instruct"
@@ -59,7 +63,9 @@
     "eas_schema": "YOUR_EAS_SCHEMA_UID",
     "paymaster_address": "YOUR_PAYMASTER_ADDRESS",
     "paymaster_private_key": "YOUR_PAYMASTER_PRIVATE_KEY",
-    "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS"
+    "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS",
+    "demo_wallet_private_key": "YOUR_DEMO_WALLET_PRIVATE_KEY",
+    "demo_wallet_address": "YOUR_DEMO_WALLET_ADDRESS"
   },
   "notifications": {
     "telegram": {
@@ -252,5 +258,11 @@
       "contract_address": "YOUR_X402_PAYMENTS_CONTRACT_ADDRESS",
       "supported_tokens": ["USDC", "ETH"]
     }
+  },
+  "security": {
+    "audit_on_conversion": true,
+    "audit_on_deploy": true,
+    "block_on_critical": true,
+    "block_on_high": false
   }
 }

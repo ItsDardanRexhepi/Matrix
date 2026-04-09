@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.security.audit import ContractAuditor
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,17 @@ class SmartContracts(BlockchainInterface):
             contract_id, contract_data = next(iter(compiled.items()))
             abi = contract_data["abi"]
             bytecode = contract_data["bin"]
+
+            # Security audit gate
+            auditor = ContractAuditor(self.config)
+            audit_report = auditor.audit(source, contract_id.split(":")[-1])
+            if auditor.should_block(audit_report):
+                return json.dumps({
+                    "status": "blocked",
+                    "reason": "Security audit failed — critical vulnerability detected",
+                    "audit": audit_report.to_dict(),
+                    "message": "Morpheus has blocked this deployment. Fix the contract before deploying.",
+                }, indent=2)
 
             bc = self.config["blockchain"]
             account = Account.from_key(bc["paymaster_private_key"])
