@@ -145,11 +145,50 @@ class DAOs(BlockchainInterface):
             return f"Vote failed: {e}"
 
     async def _execute_proposal(self, params: dict) -> str:
-        return json.dumps({
-            "status": "execution_requires_succeeded_state",
-            "proposal_id": params.get("proposal_id"),
-            "note": "Proposal must be in Succeeded state before execution. Gas covered by platform.",
-        })
+        """Execute a succeeded proposal. Gas covered by platform."""
+        try:
+            from web3 import Web3
+            from eth_account import Account
+
+            self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
+            bc = self.config["blockchain"]
+
+            if not params.get("governor_address"):
+                return json.dumps({"status": "error", "error": "governor_address is required"})
+
+            governor = self.web3.eth.contract(
+                address=Web3.to_checksum_address(params["governor_address"]),
+                abi=GOVERNOR_ABI,
+            )
+            account = Account.from_key(bc["paymaster_private_key"])
+
+            targets = [Web3.to_checksum_address(t) for t in params.get("targets", [])]
+            values = [int(v) for v in params.get("values", ["0"])]
+            calldatas = [bytes.fromhex(c.replace("0x", "")) for c in params.get("calldatas", ["0x"])]
+            description = params.get("description", "")
+            desc_hash = Web3.keccak(text=description)
+
+            tx = governor.functions.execute(
+                targets, values, calldatas, desc_hash
+            ).build_transaction({
+                "from": bc["platform_wallet"],
+                "chainId": self.chain_id,
+                "gas": 500000,
+                "gasPrice": self.web3.eth.gas_price,
+                "nonce": self.web3.eth.get_transaction_count(bc["platform_wallet"]),
+            })
+
+            signed = account.sign_transaction(tx)
+            tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+
+            return json.dumps({
+                "status": "executed" if receipt["status"] == 1 else "failed",
+                "tx_hash": tx_hash.hex(),
+                "gas_paid_by": "platform (0pnMatrx)",
+            }, indent=2)
+        except Exception as e:
+            return f"Proposal execution failed: {e}"
 
     async def _get_state(self, params: dict) -> str:
         try:

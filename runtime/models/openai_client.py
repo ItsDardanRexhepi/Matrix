@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OpenAI model provider for 0pnMatrx.
 

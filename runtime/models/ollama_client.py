@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Ollama model provider — local, private, free inference.
 

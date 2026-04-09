@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Web / HTTP Request Tool — full HTTP client supporting GET, POST, PUT, DELETE.
 

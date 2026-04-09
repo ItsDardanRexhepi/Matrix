@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 DAOFactory — deploys and configures DAO governance infrastructure.
 

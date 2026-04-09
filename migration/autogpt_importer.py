@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 AutoGPT Importer — converts AutoGPT agent configurations to 0pnMatrx format.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Agent Lifecycle Manager — manages agent sessions, hooks, and state transitions.
 

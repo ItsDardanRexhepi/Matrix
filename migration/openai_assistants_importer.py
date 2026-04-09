@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OpenAI Assistants Importer — converts OpenAI Assistants API configs to 0pnMatrx.
 

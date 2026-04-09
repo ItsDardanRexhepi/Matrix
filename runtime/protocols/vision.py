@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 """
 Vision Protocol — Emergence detection and pattern recognition.
 Identifies trends, anomalies, and correlations across user activity.
+Builds pattern summaries that get injected into the system prompt and
+proactively suggests follow-up actions when repeated sequences are detected.
 """
 
 import logging
 import statistics
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -19,6 +24,10 @@ class VisionProtocol:
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         self.config = config or {}
         self._known_patterns: list[dict[str, Any]] = []
+        # Sequence tracking: records (action_A, action_B) pairs and counts
+        self._sequence_counts: dict[tuple[str, str], int] = {}
+        self._last_user_action: str | None = None
+        self._sequence_min_confidence = self.config.get("sequence_min_confidence", 0.5)
         logger.info("VisionProtocol initialised")
 
     # ── Public API ────────────────────────────────────────────────────
@@ -143,6 +152,121 @@ class VisionProtocol:
 
         logger.info("Found %d correlations across %d events", len(correlations), len(events))
         return correlations
+
+    # ── Pre-process integration ────────────────────────────────────────
+
+    async def build_pattern_enrichments(
+        self, activity_history: list[dict[str, Any]], current_action: str | None = None,
+    ) -> list[str]:
+        """Detect patterns and build system-prompt enrichments.
+
+        Returns a list of strings ready for injection into the system prompt.
+        When repeated sequences are detected (user always does X before Y),
+        proactively suggests Y.
+        """
+        enrichments: list[str] = []
+
+        # Run pattern detection
+        patterns = await self.detect_patterns(activity_history)
+
+        # Build pattern summary from high-confidence patterns
+        summary = self._build_pattern_summary(patterns)
+        if summary:
+            enrichments.append(summary)
+
+        # Track action sequences for proactive suggestions
+        if current_action:
+            self._record_action_sequence(current_action)
+
+        # Generate proactive suggestions from learned sequences
+        suggestions = self._get_proactive_suggestions(current_action)
+        for s in suggestions:
+            enrichments.append(s)
+
+        return enrichments
+
+    def _build_pattern_summary(self, patterns: list[dict[str, Any]]) -> str:
+        """Build a concise pattern summary for the system prompt,
+        including only patterns above the confidence threshold."""
+        min_conf = self._sequence_min_confidence
+        high_conf = [p for p in patterns if p.get("confidence", 0) >= min_conf]
+        if not high_conf:
+            return ""
+
+        # Sort by confidence descending, take top 5
+        high_conf.sort(key=lambda p: p.get("confidence", 0), reverse=True)
+        top = high_conf[:5]
+
+        lines = ["[Vision — Detected Patterns]"]
+        for p in top:
+            conf = p.get("confidence", 0)
+            desc = p.get("description", "")
+            ptype = p.get("pattern_type", "")
+            stars = "*" * min(int(conf * 5), 5)
+            lines.append(f"  [{ptype}] {desc} (confidence: {conf:.0%} {stars})")
+
+        # Add behavioral insight if we have enough patterns
+        if len(self._known_patterns) >= 5:
+            top_types = self._get_dominant_pattern_types()
+            if top_types:
+                lines.append(f"  User profile: primarily {', '.join(top_types)} activity")
+
+        return "\n".join(lines)
+
+    def _record_action_sequence(self, current_action: str) -> None:
+        """Track action sequences to learn what the user typically does
+        after a given action."""
+        if self._last_user_action is not None:
+            pair = (self._last_user_action, current_action)
+            self._sequence_counts[pair] = self._sequence_counts.get(pair, 0) + 1
+        self._last_user_action = current_action
+
+        # Prune rare sequences to prevent unbounded growth
+        max_sequences = self.config.get("max_tracked_sequences", 200)
+        if len(self._sequence_counts) > max_sequences:
+            # Keep only the most frequent half
+            sorted_seqs = sorted(
+                self._sequence_counts.items(), key=lambda x: x[1], reverse=True
+            )
+            self._sequence_counts = dict(sorted_seqs[: max_sequences // 2])
+
+    def _get_proactive_suggestions(self, current_action: str | None) -> list[str]:
+        """If the user just did action X and historically always follows
+        with action Y, suggest Y proactively."""
+        if current_action is None:
+            return []
+
+        suggestions: list[str] = []
+        total_from_current = sum(
+            count for (src, _), count in self._sequence_counts.items()
+            if src == current_action
+        )
+        if total_from_current < 2:
+            return []
+
+        for (src, dst), count in self._sequence_counts.items():
+            if src != current_action:
+                continue
+            confidence = count / total_from_current
+            if confidence >= self._sequence_min_confidence and count >= 2:
+                suggestions.append(
+                    f"[Vision — Proactive] Based on past behavior, after '{src}' "
+                    f"you typically do '{dst}' ({confidence:.0%} of the time, "
+                    f"{count} occurrences). Consider suggesting this next."
+                )
+
+        return suggestions[:3]
+
+    def _get_dominant_pattern_types(self) -> list[str]:
+        """Return the most common pattern types from known patterns."""
+        type_counts: dict[str, int] = {}
+        for p in self._known_patterns:
+            pt = p.get("pattern_type", "unknown")
+            type_counts[pt] = type_counts.get(pt, 0) + 1
+        if not type_counts:
+            return []
+        sorted_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)
+        return [t for t, _ in sorted_types[:3]]
 
     # ── Pattern detection by type ─────────────────────────────────────
 

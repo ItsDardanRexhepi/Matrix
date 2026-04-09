@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 TTL-based cache for oracle responses.
 

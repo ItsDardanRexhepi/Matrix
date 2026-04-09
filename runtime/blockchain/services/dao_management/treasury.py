@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 TreasuryManager — manages DAO treasury funds with tiered fees.
 

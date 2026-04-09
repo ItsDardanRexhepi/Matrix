@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OpenMatrixClient — the main SDK client for interacting with 0pnMatrx.
 

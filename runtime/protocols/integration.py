@@ -135,7 +135,7 @@ class ProtocolStack:
         """
         enrichments: list[str] = []
 
-        # Jarvis — build identity context
+        # Jarvis — build identity context + structured plan
         if self._jarvis is not None:
             try:
                 # Feed conversation patterns into Jarvis
@@ -147,33 +147,49 @@ class ProtocolStack:
                 identity_ctx = await self._jarvis.build_identity_context()
                 if identity_ctx:
                     enrichments.append(identity_ctx)
+
+                # Build a structured plan from the latest user message
+                user_msg = ""
+                for msg in reversed(context.conversation):
+                    if msg.role == "user":
+                        user_msg = str(msg.content)
+                        break
+                if user_msg:
+                    plan = self._jarvis.build_plan(user_msg, context.metadata)
+                    context.metadata["active_plan"] = plan
+                    plan_enrichment = self._jarvis.get_plan_enrichment()
+                    if plan_enrichment:
+                        enrichments.append(plan_enrichment)
             except Exception:
                 logger.exception("Jarvis pre-process failed")
 
-        # Friday — proactive checks
+        # Friday — proactive checks with time-decay and actionable suggestions
         if self._friday is not None:
             try:
                 user_context = context.metadata.get("user_context", {})
-                opportunities = await self._friday.check_opportunities(user_context)
-                for opp in opportunities[:3]:
-                    should_notify = await self._friday.should_notify(opp)
-                    if should_notify:
-                        suggestion = await self._friday.generate_suggestion(opp)
-                        enrichments.append(f"[Friday Alert] {suggestion}")
+                friday_enrichments = await self._friday.build_enrichments(user_context)
+                enrichments.extend(friday_enrichments)
+                # Store active opportunities in metadata for other protocols
+                context.metadata["active_opportunities"] = (
+                    self._friday.get_active_opportunities()
+                )
             except Exception:
                 logger.exception("Friday pre-process failed")
 
-        # Vision — pattern detection on conversation history
+        # Vision — pattern detection with summaries and proactive suggestions
         if self._vision is not None:
             try:
                 activity = context.metadata.get("activity_history", [])
-                if activity:
-                    patterns = await self._vision.detect_patterns(activity)
-                    for p in patterns[:3]:
-                        enrichments.append(
-                            f"[Pattern] {p.get('description', '')} "
-                            f"(confidence: {p.get('confidence', 0):.0%})"
-                        )
+                # Determine current action from latest user message
+                current_action = None
+                for msg in reversed(context.conversation):
+                    if msg.role == "user":
+                        current_action = str(msg.content)[:50]
+                        break
+                vision_enrichments = await self._vision.build_pattern_enrichments(
+                    activity, current_action,
+                )
+                enrichments.extend(vision_enrichments)
             except Exception:
                 logger.exception("Vision pre-process failed")
 
@@ -223,9 +239,34 @@ class ProtocolStack:
             except Exception:
                 logger.exception("RexhepiGate pre-action failed")
 
-        # Ultron risk assessment
+        # Trajectory — outcome prediction (feeds into Ultron and Morpheus)
+        if self._trajectory is not None:
+            try:
+                trajectory_prediction = await self._trajectory.build_pre_action_prediction(
+                    tool_name, arguments, context,
+                )
+                result["trajectory"] = trajectory_prediction
+                # If trajectory warns, surface it to Morpheus
+                if trajectory_prediction.get("should_warn"):
+                    risk_summary = trajectory_prediction.get("risk_summary", "")
+                    existing_morpheus = result.get("morpheus_message") or ""
+                    trajectory_warning = (
+                        f"[Trajectory] Prediction for '{tool_name}': {risk_summary}"
+                    )
+                    result["morpheus_message"] = (
+                        f"{existing_morpheus}\n{trajectory_warning}".strip()
+                        if existing_morpheus
+                        else trajectory_warning
+                    )
+            except Exception:
+                logger.exception("Trajectory pre-action prediction failed")
+
+        # Ultron risk assessment (enriched with trajectory data)
         if self._ultron is not None:
             try:
+                # Inject trajectory prediction into action for Ultron to consider
+                if result.get("trajectory"):
+                    action["trajectory_prediction"] = result["trajectory"].get("prediction")
                 risk = await self._ultron.assess_risk(action)
                 result["risk"] = risk
             except Exception:
@@ -300,12 +341,15 @@ class ProtocolStack:
             except Exception:
                 logger.exception("OutcomeLearning post-action failed")
 
-        # Trajectory prediction logging
-        if self._trajectory is not None:
+        # Jarvis — mark plan step as complete if it matches the tool call
+        if self._jarvis is not None and self._jarvis._active_plan is not None:
             try:
-                await self._trajectory.predict_outcome(action, context)
+                next_step = self._jarvis.suggest_next_action()
+                if next_step and next_step.get("action") == tool_name:
+                    self._jarvis.mark_step_complete(next_step["step_id"])
+                    logger.debug("Marked plan step '%s' complete", next_step["step_id"])
             except Exception:
-                logger.exception("Trajectory post-action logging failed")
+                logger.exception("Jarvis plan step tracking failed")
 
     # ── Post-process: runs on the FINAL response ─────────────────────
 

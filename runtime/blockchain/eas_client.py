@@ -170,14 +170,63 @@ class EASClient:
             }
 
     async def verify(self, attestation_uid: str) -> dict:
-        """Verify an existing attestation on-chain."""
+        """Verify an existing attestation on-chain by querying the EAS contract."""
         try:
-            # Query EAS contract for attestation data
+            from web3 import Web3
+
+            self._validate_config()
+
+            # EAS getAttestation ABI
+            get_attestation_abi = [{
+                "inputs": [{"name": "uid", "type": "bytes32"}],
+                "name": "getAttestation",
+                "outputs": [{
+                    "components": [
+                        {"name": "uid", "type": "bytes32"},
+                        {"name": "schema", "type": "bytes32"},
+                        {"name": "time", "type": "uint64"},
+                        {"name": "expirationTime", "type": "uint64"},
+                        {"name": "revocationTime", "type": "uint64"},
+                        {"name": "refUID", "type": "bytes32"},
+                        {"name": "recipient", "type": "address"},
+                        {"name": "attester", "type": "address"},
+                        {"name": "revocable", "type": "bool"},
+                        {"name": "data", "type": "bytes"},
+                    ],
+                    "name": "",
+                    "type": "tuple",
+                }],
+                "stateMutability": "view",
+                "type": "function",
+            }]
+
+            eas = self.web3.eth.contract(
+                address=Web3.to_checksum_address(self.eas_contract),
+                abi=get_attestation_abi,
+            )
+
+            uid_bytes = bytes.fromhex(attestation_uid.replace("0x", ""))
+            attestation = eas.functions.getAttestation(uid_bytes).call()
+
+            # attestation[4] is revocationTime — 0 means not revoked
+            is_revoked = attestation[4] != 0
+            # attestation[2] is the creation time — 0 means attestation doesn't exist
+            exists = attestation[2] != 0
+
             return {
                 "uid": attestation_uid,
-                "verified": True,
+                "verified": exists and not is_revoked,
+                "exists": exists,
+                "revoked": is_revoked,
+                "schema": "0x" + attestation[1].hex() if isinstance(attestation[1], bytes) else str(attestation[1]),
+                "attester": attestation[7],
+                "recipient": attestation[6],
+                "time": attestation[2],
                 "network": self.config.get("blockchain", {}).get("network", "base-sepolia"),
             }
+        except ValueError as e:
+            return {"uid": attestation_uid, "verified": False, "error": str(e),
+                    "hint": "Ensure blockchain.eas_contract and blockchain.rpc_url are configured."}
         except Exception as e:
             return {"uid": attestation_uid, "verified": False, "error": str(e)}
 

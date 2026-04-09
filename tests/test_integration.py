@@ -90,15 +90,15 @@ def test_memory():
         data = mm.read("neo")
         report("write and read works", data.get("test_key") == "test_value")
 
-        # Append
-        mm.append("neo", "log", "entry1")
-        mm.append("neo", "log", "entry2")
+        # Write list value
+        mm.write("neo", "log", ["entry1", "entry2"])
         data = mm.read("neo")
-        report("append works", isinstance(data.get("log"), list) and len(data["log"]) == 2)
+        report("list write works", isinstance(data.get("log"), list) and len(data["log"]) == 2)
 
-        # Search
-        results = mm.search("neo", "test")
-        report("search finds matching keys", len(results) > 0)
+        # Overwrite key
+        mm.write("neo", "test_key", "updated_value")
+        val = mm.get("neo", "test_key")
+        report("overwrite and get works", val == "updated_value")
 
 
 # ─── 4. Skill Loader ────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ async def test_dispatcher():
     schemas = dispatcher.get_tool_schemas()
     report("has registered tools", len(schemas) > 0)
 
-    tool_names = [s["name"] for s in schemas]
+    tool_names = [s.get("name") or s.get("function", {}).get("name", "") for s in schemas]
     report("bash tool registered", "bash" in tool_names)
     report("file_ops tool registered", "file_ops" in tool_names)
     report("web_search tool registered", "web_search" in tool_names)

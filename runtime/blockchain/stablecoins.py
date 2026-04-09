@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Stablecoins — interact with stablecoins (USDC, DAI, USDT) on Base L2.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Generic Importer — import agents from any framework with standard config.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Model Router — selects the appropriate model provider based on config.
 

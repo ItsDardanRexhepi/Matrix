@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 JurorPool — verifiable random juror selection for dispute resolution.
 

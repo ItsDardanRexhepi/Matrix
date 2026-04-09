@@ -33,12 +33,29 @@ class BlockchainInterface(ABC):
         if self._web3 is None:
             try:
                 from web3 import Web3
-                self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
-                if not self._web3.is_connected():
-                    logger.warning(f"Web3 not connected to {self.rpc_url}")
             except ImportError:
                 logger.error("web3 package not installed — run: pip install web3")
                 raise
+
+            if not self.rpc_url or str(self.rpc_url).startswith("YOUR_"):
+                raise ConnectionError(
+                    "blockchain.rpc_url is not configured. "
+                    "Set a valid RPC URL in openmatrix.config.json "
+                    "(e.g., https://sepolia.base.org for Base Sepolia)."
+                )
+
+            try:
+                self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+            except Exception as e:
+                raise ConnectionError(
+                    f"Failed to create Web3 provider for {self.rpc_url}: {e}"
+                ) from e
+
+            if not self._web3.is_connected():
+                raise ConnectionError(
+                    f"Web3 cannot reach RPC at {self.rpc_url}. "
+                    f"Check that the URL is correct and the node is running."
+                )
         return self._web3
 
     @property

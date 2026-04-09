@@ -68,15 +68,33 @@ class AgentIdentity(BlockchainInterface):
         return json.dumps(result, indent=2, default=str)
 
     async def _verify(self, params: dict) -> str:
-        """Verify an agent's on-chain identity."""
+        """Verify an agent's on-chain identity by checking the platform wallet on-chain."""
         agent_name = params.get("agent_name", "neo")
-        return json.dumps({
-            "agent": agent_name,
-            "platform": "0pnMatrx",
-            "verified": True,
-            "capabilities": self._get_capabilities(agent_name),
-            "network": self.network,
-        }, indent=2)
+        try:
+            # Verify the platform wallet exists on-chain with a real balance check
+            balance_wei = self.web3.eth.get_balance(self.platform_wallet) if self.platform_wallet else 0
+            tx_count = self.web3.eth.get_transaction_count(self.platform_wallet) if self.platform_wallet else 0
+
+            return json.dumps({
+                "agent": agent_name,
+                "platform": "0pnMatrx",
+                "verified": tx_count > 0,
+                "platform_wallet": self.platform_wallet,
+                "wallet_tx_count": tx_count,
+                "wallet_has_balance": balance_wei > 0,
+                "capabilities": self._get_capabilities(agent_name),
+                "network": self.network,
+            }, indent=2)
+        except Exception as e:
+            return json.dumps({
+                "agent": agent_name,
+                "platform": "0pnMatrx",
+                "verified": False,
+                "error": str(e),
+                "hint": "Ensure blockchain.rpc_url and blockchain.platform_wallet are configured.",
+                "capabilities": self._get_capabilities(agent_name),
+                "network": self.network,
+            }, indent=2)
 
     async def _attest_action(self, params: dict) -> str:
         """Attest an action performed by an agent."""

@@ -67,17 +67,23 @@ Allow your imagination to meet your creativity.
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/install.sh | bash
-```
-
-Or manually:
-
-```bash
 git clone https://github.com/ItsDardanRexhepi/0pnMatrx.git
 cd 0pnMatrx
-cp openmatrix.config.json.example openmatrix.config.json
-# Edit openmatrix.config.json with your model provider
-./start.sh
+python setup.py
+```
+
+The interactive setup walks you through everything — model provider, blockchain network, agent configuration, API key generation, and security settings. It installs dependencies, verifies connectivity, and writes your config. One command, done.
+
+After setup:
+
+```bash
+python -m gateway.server
+```
+
+Or use the install script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/install.sh | bash
 ```
 
 ---

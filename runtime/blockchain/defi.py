@@ -316,20 +316,128 @@ class DeFi(BlockchainInterface):
             return f"Repay failed: {e}"
 
     async def _get_rates(self, params: dict) -> str:
-        """Get current lending/borrowing rates."""
-        return json.dumps({
-            "protocol": "aave_v3",
-            "network": self.network,
-            "note": "Connect to Aave V3 data provider for live rates",
-            "tokens": list(BASE_SEPOLIA_TOKENS.keys()),
-        }, indent=2)
+        """Get current lending/borrowing rates from Aave V3 data provider."""
+        try:
+            from web3 import Web3
+
+            pool_address = params.get("pool_address", "")
+            if not pool_address:
+                return json.dumps({
+                    "status": "error",
+                    "error": "pool_address (Aave V3 Pool) is required to query live rates.",
+                    "hint": "Pass the Aave V3 Pool contract address for this network.",
+                    "tokens": list(BASE_SEPOLIA_TOKENS.keys()),
+                    "network": self.network,
+                }, indent=2)
+
+            # Aave V3 getReserveData ABI (simplified — returns the ReserveData struct)
+            reserve_data_abi = [{
+                "inputs": [{"name": "asset", "type": "address"}],
+                "name": "getReserveData",
+                "outputs": [{
+                    "components": [
+                        {"name": "configuration", "type": "uint256"},
+                        {"name": "liquidityIndex", "type": "uint128"},
+                        {"name": "currentLiquidityRate", "type": "uint128"},
+                        {"name": "variableBorrowIndex", "type": "uint128"},
+                        {"name": "currentVariableBorrowRate", "type": "uint128"},
+                        {"name": "currentStableBorrowRate", "type": "uint128"},
+                        {"name": "lastUpdateTimestamp", "type": "uint40"},
+                        {"name": "id", "type": "uint16"},
+                        {"name": "aTokenAddress", "type": "address"},
+                        {"name": "stableDebtTokenAddress", "type": "address"},
+                        {"name": "variableDebtTokenAddress", "type": "address"},
+                        {"name": "interestRateStrategyAddress", "type": "address"},
+                        {"name": "accruedToTreasury", "type": "uint128"},
+                        {"name": "unbacked", "type": "uint128"},
+                        {"name": "isolationModeTotalDebt", "type": "uint128"},
+                    ],
+                    "name": "",
+                    "type": "tuple",
+                }],
+                "stateMutability": "view",
+                "type": "function",
+            }]
+
+            pool = self.web3.eth.contract(
+                address=Web3.to_checksum_address(pool_address),
+                abi=reserve_data_abi,
+            )
+
+            rates = {}
+            for token_name, token_addr in BASE_SEPOLIA_TOKENS.items():
+                try:
+                    data = pool.functions.getReserveData(
+                        Web3.to_checksum_address(token_addr)
+                    ).call()
+                    # Aave rates are in RAY (1e27)
+                    supply_apy = float(data[2]) / 1e27 * 100
+                    borrow_apy = float(data[4]) / 1e27 * 100
+                    rates[token_name] = {
+                        "supply_apy": f"{supply_apy:.4f}%",
+                        "variable_borrow_apy": f"{borrow_apy:.4f}%",
+                    }
+                except Exception as e:
+                    rates[token_name] = {"error": str(e)}
+
+            return json.dumps({
+                "protocol": "aave_v3",
+                "network": self.network,
+                "rates": rates,
+            }, indent=2)
+        except Exception as e:
+            return f"Rate query failed: {e}"
 
     async def _get_positions(self, params: dict) -> str:
-        """Get user's current DeFi positions."""
-        user = params.get("user_address", self.platform_wallet)
-        return json.dumps({
-            "user": user,
-            "protocol": "aave_v3",
-            "network": self.network,
-            "note": "Connect to Aave V3 data provider for live positions",
-        }, indent=2)
+        """Get user's current DeFi positions by querying aToken balances."""
+        try:
+            from web3 import Web3
+
+            user = params.get("user_address", self.platform_wallet)
+            if not user:
+                return json.dumps({"status": "error", "error": "user_address or configured platform_wallet is required"})
+
+            erc20_balance_abi = [{
+                "inputs": [{"name": "account", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function",
+            }]
+
+            pool_address = params.get("pool_address", "")
+            if not pool_address:
+                return json.dumps({
+                    "status": "error",
+                    "error": "pool_address (Aave V3 Pool) is required to query positions.",
+                    "hint": "Pass the Aave V3 Pool contract address for this network.",
+                    "network": self.network,
+                }, indent=2)
+
+            # Query native token balances for each known token
+            positions = {}
+            for token_name, token_addr in BASE_SEPOLIA_TOKENS.items():
+                try:
+                    contract = self.web3.eth.contract(
+                        address=Web3.to_checksum_address(token_addr),
+                        abi=erc20_balance_abi,
+                    )
+                    balance = contract.functions.balanceOf(
+                        Web3.to_checksum_address(user)
+                    ).call()
+                    if balance > 0:
+                        positions[token_name] = {
+                            "wallet_balance": str(balance),
+                            "wallet_balance_human": str(balance / 10**18),
+                        }
+                except Exception as e:
+                    positions[token_name] = {"error": str(e)}
+
+            return json.dumps({
+                "user": user,
+                "protocol": "aave_v3",
+                "network": self.network,
+                "token_balances": positions,
+            }, indent=2)
+        except Exception as e:
+            return f"Position query failed: {e}"

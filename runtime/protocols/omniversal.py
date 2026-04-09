@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Omniversal Protocol — continuous capability expansion with no domain ceiling.
 Manages domain gap mapping, expansion loop, and omniversal alignment scoring.

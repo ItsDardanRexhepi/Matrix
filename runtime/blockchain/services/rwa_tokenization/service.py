@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 RWAService — main entry point for the Real-World Asset Tokenization component.
 

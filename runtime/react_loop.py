@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 ReAct Reasoning Loop — The core reasoning engine for all 0pnMatrx agents.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Rexhepi Framework Execution Gate — every decision passes through this gate.
 The public interface to the closed-source framework.

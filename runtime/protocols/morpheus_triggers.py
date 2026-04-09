@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Morpheus Trigger System — determines when Morpheus should appear.
 """

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Agent Event System — typed, async event-driven communication between agents.
 

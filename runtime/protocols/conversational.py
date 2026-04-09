@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Rexhepi Conversational Layer — transforms agent interactions from command-response
 into genuine fluid dialogue. Memory, personality, proactive initiative, transparency.

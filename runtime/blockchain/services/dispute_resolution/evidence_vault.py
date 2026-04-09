@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 EvidenceVault — immutable evidence storage with hash verification.
 

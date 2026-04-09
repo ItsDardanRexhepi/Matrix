@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 NeoSafe Revenue Verifier — confirms all platform fees reach NeoSafe wallet.
 Address: config-driven (0x46fF491D7054A6F500026B3E81f358190f8d8Ec5 in production).

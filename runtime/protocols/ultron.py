@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Ultron Protocol — Strategic reasoning engine.
 Multi-step planning, goal decomposition, risk assessment.

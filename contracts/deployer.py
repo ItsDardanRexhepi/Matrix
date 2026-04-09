@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Universal Contract Deployer — deploys any Solidity contract to Base.
 Every deployment is attested via EAS schema 348.

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 File Operations Tool — read, write, append, list, mkdir, delete, search.
 

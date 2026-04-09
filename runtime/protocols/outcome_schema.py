@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Outcome Learning Schema — canonical schema for decision outcome records.
 Append-only JSONL storage with linkers and replay validation.

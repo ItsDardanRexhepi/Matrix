@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Deploy all contracts to Base Sepolia and attest each deployment."""
 
 import asyncio

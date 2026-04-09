@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Bash Tool — executes shell commands in a sandboxed subprocess.
 

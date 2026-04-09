@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Outcome Learning Protocol — Captures outcomes and improves future decisions.
 """

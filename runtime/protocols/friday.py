@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Friday Protocol — Proactive monitoring and suggestions.
 Watches for opportunities, risks, and relevant events.
@@ -47,6 +49,9 @@ class FridayProtocol:
         )
         self._cooldowns: dict[str, float] = {}  # category -> earliest next notify
         self._default_cooldown = self.config.get("notification_cooldown_seconds", 300)
+        # Active opportunities with timestamps for time-decay
+        self._active_opportunities: list[dict[str, Any]] = []
+        self._opportunity_ttl = self.config.get("opportunity_ttl_seconds", 3600)  # 1 hour default
         logger.info("FridayProtocol initialised")
 
     # ── Public API ────────────────────────────────────────────────────
@@ -138,6 +143,93 @@ class FridayProtocol:
         """Resume notifications for *category*."""
         self._suppressed_categories.discard(category)
         logger.info("Unsuppressed category '%s'", category)
+
+    # ── Pre-process integration ──────────────────────────────────────
+
+    async def build_enrichments(
+        self, user_context: dict[str, Any]
+    ) -> list[str]:
+        """Scan for opportunities, apply time-decay to stale ones,
+        and return actionable suggestion strings ready for injection
+        into the system prompt enrichments list."""
+        self._expire_stale_opportunities()
+
+        opportunities = await self.check_opportunities(user_context)
+        enrichments: list[str] = []
+
+        now = time.time()
+        for opp in opportunities[:5]:
+            should = await self.should_notify(opp)
+            if not should:
+                continue
+
+            suggestion = await self.generate_suggestion(opp)
+            urgency = opp.get("urgency", "low")
+
+            # Build actionable system-prompt injection
+            enrichment = self._format_actionable_suggestion(suggestion, urgency, opp)
+            enrichments.append(enrichment)
+
+            # Track with timestamp for decay
+            self._active_opportunities.append({
+                **opp,
+                "surfaced_at": now,
+                "suggestion": suggestion,
+            })
+
+        # Cap stored opportunities
+        max_active = self.config.get("max_active_opportunities", 50)
+        if len(self._active_opportunities) > max_active:
+            self._active_opportunities = self._active_opportunities[-max_active:]
+
+        return enrichments
+
+    def get_active_opportunities(self) -> list[dict[str, Any]]:
+        """Return non-expired active opportunities for other protocols
+        to reference (e.g., Ultron risk assessment)."""
+        self._expire_stale_opportunities()
+        return list(self._active_opportunities)
+
+    def _expire_stale_opportunities(self) -> None:
+        """Remove opportunities older than the TTL."""
+        now = time.time()
+        ttl = self._opportunity_ttl
+        before = len(self._active_opportunities)
+        self._active_opportunities = [
+            opp for opp in self._active_opportunities
+            if now - opp.get("surfaced_at", 0) < ttl
+        ]
+        expired = before - len(self._active_opportunities)
+        if expired:
+            logger.debug("Expired %d stale opportunities", expired)
+
+    @staticmethod
+    def _format_actionable_suggestion(
+        suggestion: str, urgency: str, opp: dict[str, Any]
+    ) -> str:
+        """Format an opportunity into an actionable system-prompt
+        enrichment with clear instructions for the agent."""
+        category = opp.get("category", "unknown")
+
+        # Map category to actionable instruction
+        action_hints = {
+            "staking_rewards": "Suggest the user claim their staking rewards.",
+            "loan_health": "Warn the user about loan liquidation risk and suggest adding collateral.",
+            "governance_deadline": "Remind the user to vote before the deadline.",
+            "price_movement": "Alert the user to the price movement and suggest reviewing positions.",
+            "insurance_trigger": "Notify the user their insurance trigger condition is met.",
+        }
+        hint = action_hints.get(category, "Bring this to the user's attention.")
+
+        urgency_prefix = {
+            "critical": "CRITICAL",
+            "high": "URGENT",
+            "medium": "NOTE",
+            "low": "FYI",
+        }
+        prefix = urgency_prefix.get(urgency, "FYI")
+
+        return f"[Friday {prefix}] {suggestion} Action: {hint}"
 
     # ── Private scanning ──────────────────────────────────────────────
 

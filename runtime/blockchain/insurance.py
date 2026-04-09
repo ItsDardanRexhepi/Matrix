@@ -85,15 +85,88 @@ class Insurance(BlockchainInterface):
         return json.dumps(result, indent=2, default=str)
 
     async def _get_policy(self, params: dict) -> str:
-        return json.dumps({
-            "policy_id": params.get("policy_id", ""),
-            "note": "Query EAS attestations for policy details",
-            "network": self.network,
-        })
+        """Query an insurance policy by verifying its EAS attestation on-chain."""
+        try:
+            policy_id = params.get("policy_id", "")
+            if not policy_id:
+                return json.dumps({"status": "error", "error": "policy_id (EAS attestation UID) is required"})
+
+            from runtime.blockchain.eas_client import EASClient
+            client = EASClient(self.config)
+            result = await client.verify(policy_id)
+
+            return json.dumps({
+                "policy_id": policy_id,
+                "attestation": result,
+                "network": self.network,
+            }, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({
+                "policy_id": params.get("policy_id", ""),
+                "status": "error",
+                "error": str(e),
+                "hint": "Ensure blockchain.eas_contract and blockchain.rpc_url are configured.",
+            }, indent=2)
 
     async def _process_payout(self, params: dict) -> str:
-        return json.dumps({
-            "policy_id": params.get("policy_id", ""),
-            "status": "payout_prepared",
-            "note": "Payout execution requires verified claim. Gas covered by platform.",
-        })
+        """Process an insurance payout by sending ETH to the beneficiary. Gas covered by platform."""
+        try:
+            from web3 import Web3
+            from eth_account import Account
+
+            self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
+            bc = self.config["blockchain"]
+
+            beneficiary = params.get("beneficiary", "")
+            amount = params.get("coverage_amount", "0")
+            policy_id = params.get("policy_id", "")
+
+            if not beneficiary:
+                return json.dumps({"status": "error", "error": "beneficiary address is required for payout"})
+            if not amount or float(amount) <= 0:
+                return json.dumps({"status": "error", "error": "coverage_amount must be greater than 0"})
+
+            amount_wei = self.web3.to_wei(float(amount), "ether")
+            account = Account.from_key(bc["paymaster_private_key"])
+
+            tx = {
+                "from": bc["platform_wallet"],
+                "to": Web3.to_checksum_address(beneficiary),
+                "value": amount_wei,
+                "chainId": self.chain_id,
+                "gas": 21000,
+                "gasPrice": self.web3.eth.gas_price,
+                "nonce": self.web3.eth.get_transaction_count(bc["platform_wallet"]),
+            }
+
+            signed = account.sign_transaction(tx)
+            tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+
+            # Attest the payout for audit trail
+            from runtime.blockchain.eas_client import EASClient
+            client = EASClient(self.config)
+            attestation = await client.attest(
+                action="insurance_payout",
+                agent="neo",
+                details={
+                    "policy_id": policy_id,
+                    "beneficiary": beneficiary,
+                    "amount_eth": amount,
+                    "payout_tx": tx_hash.hex(),
+                    "paid_at": int(time.time()),
+                },
+                recipient=beneficiary,
+            )
+
+            return json.dumps({
+                "status": "paid" if receipt["status"] == 1 else "failed",
+                "policy_id": policy_id,
+                "beneficiary": beneficiary,
+                "amount_eth": amount,
+                "tx_hash": tx_hash.hex(),
+                "attestation": attestation,
+                "gas_paid_by": "platform (0pnMatrx)",
+            }, indent=2, default=str)
+        except Exception as e:
+            return f"Payout failed: {e}"

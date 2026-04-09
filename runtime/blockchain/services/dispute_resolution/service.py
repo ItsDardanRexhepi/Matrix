@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 DisputeResolution — main service orchestrating decentralised dispute
 resolution across the 0pnMatrx platform.

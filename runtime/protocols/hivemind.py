@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 HiveMind Protocol — multi-instance collective intelligence architecture.
 Specialized reasoning instances share state and reach consensus.

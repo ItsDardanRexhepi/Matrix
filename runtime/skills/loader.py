@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Skill Loader — discovers and loads skills from the skills/ directory.
 

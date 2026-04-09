@@ -12,6 +12,9 @@ openmatrix.config.json
 # Memory data (agent conversation/kv storage at runtime)
 /memory/
 
+# Demo artifacts
+demo_deployment.json
+
 # Imported data
 imported/
 

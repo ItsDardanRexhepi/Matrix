@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 SchellingPoint — commit-reveal voting mechanism for dispute resolution.
 

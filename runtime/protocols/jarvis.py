@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 """
 Jarvis Protocol — Identity foundation for all agents.
 Handles agent personality persistence, voice consistency,
-memory integration, and context window management.
+memory integration, context window management, and
+structured planning that feeds back into the ReAct loop.
 """
 
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -63,6 +67,7 @@ class JarvisProtocol:
         self.traits = self.get_personality_traits(self.agent_name)
         self._conversation_patterns: list[dict[str, Any]] = []
         self._memory_entries: list[dict[str, Any]] = []
+        self._active_plan: dict[str, Any] | None = None
         logger.info("JarvisProtocol initialised for agent=%s", self.agent_name)
 
     # ── Public API ────────────────────────────────────────────────────
@@ -159,6 +164,171 @@ class JarvisProtocol:
         max_patterns = self.config.get("max_conversation_patterns", 50)
         if len(self._conversation_patterns) > max_patterns:
             self._conversation_patterns = self._conversation_patterns[-max_patterns:]
+
+    # ── Planning ─────────────────────────────────────────────────────
+
+    def build_plan(self, user_message: str, context_metadata: dict[str, Any]) -> dict[str, Any]:
+        """Build a structured plan from the user's message and inject it
+        into context metadata so the ReAct loop can reference it.
+
+        The plan contains prioritized steps derived from intent keywords,
+        conversation history, and known patterns.
+        """
+        intent_keywords = self._extract_intent_keywords(user_message)
+        steps = self._derive_steps(intent_keywords, user_message, context_metadata)
+
+        plan: dict[str, Any] = {
+            "goal": user_message[:200],
+            "created_at": time.time(),
+            "steps": steps,
+            "completed_steps": [],
+            "current_step_index": 0,
+        }
+        self._active_plan = plan
+        logger.info(
+            "Built plan with %d steps for: %s",
+            len(steps), user_message[:60],
+        )
+        return plan
+
+    def suggest_next_action(self) -> dict[str, Any] | None:
+        """Return the highest-priority unfinished step from the active
+        plan, or None if no plan is active or all steps are done."""
+        if self._active_plan is None:
+            return None
+
+        steps = self._active_plan.get("steps", [])
+        completed = set(self._active_plan.get("completed_steps", []))
+        for step in steps:
+            if step["step_id"] not in completed:
+                return step
+        return None
+
+    def mark_step_complete(self, step_id: str) -> None:
+        """Mark a plan step as completed."""
+        if self._active_plan is not None:
+            completed = self._active_plan.setdefault("completed_steps", [])
+            if step_id not in completed:
+                completed.append(step_id)
+                idx = self._active_plan.get("current_step_index", 0)
+                self._active_plan["current_step_index"] = idx + 1
+
+    def get_plan_enrichment(self) -> str:
+        """Return a formatted string describing the active plan for
+        injection into the system prompt."""
+        if self._active_plan is None:
+            return ""
+
+        steps = self._active_plan.get("steps", [])
+        completed = set(self._active_plan.get("completed_steps", []))
+        if not steps:
+            return ""
+
+        lines = [f"[Active Plan] Goal: {self._active_plan['goal'][:120]}"]
+        for step in steps:
+            status = "DONE" if step["step_id"] in completed else "TODO"
+            marker = "x" if status == "DONE" else " "
+            lines.append(
+                f"  [{marker}] (P{step['priority']}) {step['description']}"
+            )
+
+        next_action = self.suggest_next_action()
+        if next_action:
+            lines.append(f"  >> Next: {next_action['description']}")
+
+        return "\n".join(lines)
+
+    # ── Planning internals ───────────────────────────────────────────
+
+    _INTENT_STEP_MAP: dict[str, list[dict[str, Any]]] = {
+        "swap": [
+            {"action": "check_balance", "description": "Check token balances", "priority": 1},
+            {"action": "approve_token", "description": "Approve token for DEX", "priority": 2},
+            {"action": "swap", "description": "Execute token swap", "priority": 3},
+            {"action": "verify", "description": "Verify swap completed", "priority": 4},
+        ],
+        "transfer": [
+            {"action": "check_balance", "description": "Check available balance", "priority": 1},
+            {"action": "validate_address", "description": "Validate recipient address", "priority": 2},
+            {"action": "transfer", "description": "Execute transfer", "priority": 3},
+        ],
+        "stake": [
+            {"action": "check_balance", "description": "Check available balance", "priority": 1},
+            {"action": "approve_token", "description": "Approve staking contract", "priority": 2},
+            {"action": "stake", "description": "Stake tokens", "priority": 3},
+        ],
+        "bridge": [
+            {"action": "check_balance", "description": "Check source chain balance", "priority": 1},
+            {"action": "approve_token", "description": "Approve bridge contract", "priority": 2},
+            {"action": "bridge", "description": "Bridge tokens to destination", "priority": 3},
+            {"action": "verify", "description": "Verify bridge completed on destination", "priority": 4},
+        ],
+        "deploy": [
+            {"action": "audit", "description": "Audit contract source", "priority": 1},
+            {"action": "estimate_gas", "description": "Estimate deployment gas", "priority": 2},
+            {"action": "deploy_contract", "description": "Deploy contract", "priority": 3},
+            {"action": "verify", "description": "Verify deployment on explorer", "priority": 4},
+        ],
+        "claim": [
+            {"action": "check_rewards", "description": "Check claimable rewards", "priority": 1},
+            {"action": "claim_rewards", "description": "Claim rewards", "priority": 2},
+        ],
+        "vote": [
+            {"action": "review_proposal", "description": "Review governance proposal", "priority": 1},
+            {"action": "vote", "description": "Cast governance vote", "priority": 2},
+        ],
+    }
+
+    def _extract_intent_keywords(self, message: str) -> list[str]:
+        """Extract intent keywords from the user's message."""
+        msg_lower = message.lower()
+        found: list[str] = []
+        for keyword in self._INTENT_STEP_MAP:
+            if keyword in msg_lower:
+                found.append(keyword)
+        # Also check common synonyms
+        synonyms = {
+            "exchange": "swap", "trade": "swap", "send": "transfer",
+            "delegate": "stake", "cross-chain": "bridge",
+            "governance": "vote", "proposal": "vote",
+        }
+        for synonym, canonical in synonyms.items():
+            if synonym in msg_lower and canonical not in found:
+                found.append(canonical)
+        return found
+
+    def _derive_steps(
+        self, intents: list[str], message: str, context_metadata: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Build prioritized steps from intent keywords."""
+        steps: list[dict[str, Any]] = []
+        step_counter = 0
+
+        for intent in intents:
+            template_steps = self._INTENT_STEP_MAP.get(intent, [])
+            for tmpl in template_steps:
+                step_counter += 1
+                steps.append({
+                    "step_id": f"step_{step_counter}",
+                    "action": tmpl["action"],
+                    "description": tmpl["description"],
+                    "priority": tmpl["priority"],
+                    "intent": intent,
+                })
+
+        if not steps:
+            # Generic single-step plan for unknown intents
+            steps.append({
+                "step_id": "step_1",
+                "action": "execute",
+                "description": f"Process request: {message[:80]}",
+                "priority": 1,
+                "intent": "general",
+            })
+
+        # Sort by priority
+        steps.sort(key=lambda s: s["priority"])
+        return steps
 
     # ── Private helpers ───────────────────────────────────────────────
 

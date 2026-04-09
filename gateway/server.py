@@ -2,16 +2,21 @@
 Gateway Server — the HTTP interface to 0pnMatrx.
 
 Runs on port 18790 by default (configurable). Exposes endpoints for
-chat, health, status, and memory operations. Handles CORS.
+chat, health, status, and memory operations. Handles CORS, API key
+authentication, and per-IP rate limiting.
 Logs all requests with timestamps.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
+import secrets
 import sys
 import time
+from collections import defaultdict
 from pathlib import Path
 
 from aiohttp import web
@@ -23,6 +28,35 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "openmatrix.config.json"
 START_TIME = time.time()
+
+# ─── Rate Limiter ────────────────────────────────────────────────────────────
+
+class RateLimiter:
+    """Token-bucket rate limiter per client IP."""
+
+    def __init__(self, requests_per_minute: int = 60, burst: int = 10):
+        self.rpm = requests_per_minute
+        self.burst = burst
+        self._buckets: dict[str, list] = defaultdict(lambda: [burst, time.time()])
+
+    def allow(self, client_ip: str) -> bool:
+        bucket = self._buckets[client_ip]
+        now = time.time()
+        elapsed = now - bucket[1]
+        bucket[1] = now
+        # Refill tokens based on elapsed time
+        bucket[0] = min(self.burst, bucket[0] + elapsed * (self.rpm / 60.0))
+        if bucket[0] >= 1.0:
+            bucket[0] -= 1.0
+            return True
+        return False
+
+    def cleanup(self):
+        """Remove stale entries older than 5 minutes."""
+        cutoff = time.time() - 300
+        stale = [ip for ip, b in self._buckets.items() if b[1] < cutoff]
+        for ip in stale:
+            del self._buckets[ip]
 
 
 def load_config() -> dict:
@@ -52,6 +86,18 @@ class GatewayServer:
         self.conversations: dict[str, list[Message]] = {}
         self.request_count = 0
         self._first_boot_sent: set[str] = set()
+
+        # Auth: API key from config or environment
+        gw = config.get("gateway", {})
+        self.api_key = gw.get("api_key") or os.environ.get("OPENMATRIX_API_KEY", "")
+        self.auth_enabled = bool(self.api_key)
+        # Endpoints that don't require auth
+        self._public_paths = {"/health"}
+
+        # Rate limiting
+        rpm = gw.get("rate_limit_rpm", 60)
+        burst = gw.get("rate_limit_burst", 15)
+        self.rate_limiter = RateLimiter(requests_per_minute=rpm, burst=burst)
 
     async def handle_chat(self, request: web.Request) -> web.Response:
         """POST /chat — {agent, message, session_id} -> {response, tool_calls, session_id}"""
@@ -213,7 +259,12 @@ class GatewayServer:
         return web.json_response({"success": True, "agent": agent, "key": key})
 
     def create_app(self) -> web.Application:
-        app = web.Application(middlewares=[self._cors_middleware, self._logging_middleware])
+        app = web.Application(middlewares=[
+            self._cors_middleware,
+            self._auth_middleware,
+            self._rate_limit_middleware,
+            self._logging_middleware,
+        ])
         app.router.add_post("/chat", self.handle_chat)
         app.router.add_get("/health", self.handle_health)
         app.router.add_get("/status", self.handle_status)
@@ -230,6 +281,46 @@ class GatewayServer:
             logger.warning("Service routes registration skipped: %s", e)
 
         return app
+
+    @web.middleware
+    async def _auth_middleware(self, request: web.Request, handler):
+        """Validate API key on protected endpoints."""
+        if not self.auth_enabled or request.path in self._public_paths:
+            return await handler(request)
+        if request.method == "OPTIONS":
+            return await handler(request)
+
+        auth_header = request.headers.get("Authorization", "")
+        provided_key = ""
+        if auth_header.startswith("Bearer "):
+            provided_key = auth_header[7:]
+        elif request.query.get("api_key"):
+            provided_key = request.query["api_key"]
+
+        if not provided_key or not hmac.compare_digest(provided_key, self.api_key):
+            return web.json_response(
+                {"error": "unauthorized", "message": "Valid API key required. Set Authorization: Bearer <key>"},
+                status=401,
+            )
+        return await handler(request)
+
+    @web.middleware
+    async def _rate_limit_middleware(self, request: web.Request, handler):
+        """Enforce per-IP rate limits."""
+        if request.method == "OPTIONS":
+            return await handler(request)
+
+        client_ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        if not client_ip:
+            peername = request.transport.get_extra_info("peername")
+            client_ip = peername[0] if peername else "unknown"
+
+        if not self.rate_limiter.allow(client_ip):
+            return web.json_response(
+                {"error": "rate_limited", "message": "Too many requests. Please slow down."},
+                status=429,
+            )
+        return await handler(request)
 
     @web.middleware
     async def _cors_middleware(self, request: web.Request, handler):

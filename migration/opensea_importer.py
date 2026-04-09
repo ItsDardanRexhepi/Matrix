@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OpenSea Importer — imports NFT collection data from OpenSea.
 

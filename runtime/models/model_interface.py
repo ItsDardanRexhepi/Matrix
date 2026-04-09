@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Unified model interface that all providers must implement.
 

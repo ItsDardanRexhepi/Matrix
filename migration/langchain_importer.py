@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 LangChain Importer — converts LangChain agents to 0pnMatrx format.
 

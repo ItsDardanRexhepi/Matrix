@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Verify the entire platform is operational on Base Sepolia."""
 
 import asyncio

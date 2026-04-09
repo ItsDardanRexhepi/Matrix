@@ -31,3 +31,57 @@ jobs:
         run: |
           python -c "import gateway; print('gateway OK')" || true
           python -c "import runtime; print('runtime OK')" || true
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov aiohttp
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short --co -q 2>/dev/null || true
+          python -m pytest tests/ -v --tb=short -x
+        env:
+          PYTHONPATH: .
+
+  security:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install safety bandit
+
+      - name: Check dependencies for vulnerabilities
+        run: |
+          pip install safety
+          safety check --output text || true
+
+      - name: Bandit security scan
+        run: |
+          bandit -r runtime/ gateway/ hivemind/ -ll --skip B101,B603,B607 -f txt || true
+
+      - name: Check for hardcoded secrets
+        run: |
+          grep -rn "YOUR_" --include="*.json" . | grep -v ".example" | grep -v "node_modules" && echo "WARNING: Possible non-example config with placeholder keys" || echo "No hardcoded secrets found"

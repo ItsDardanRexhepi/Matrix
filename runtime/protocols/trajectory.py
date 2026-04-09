@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Trajectory Protocol — Outcome prediction and path optimization.
 Predicts likely outcomes of actions and suggests optimal paths.
@@ -167,6 +169,90 @@ class TrajectoryEngine:
         }
         logger.info("Compared %d paths; recommended path_%d", len(paths), best_idx)
         return result
+
+    # ── Pre-action integration ─────────────────────────────────────────
+
+    async def build_pre_action_prediction(
+        self, tool_name: str, arguments: dict[str, Any], context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Generate a risk/reward prediction for a tool call and return it
+        in a format that the pre_action gate can inject into its result
+        for Ultron and Morpheus to consume.
+
+        Returns a dict with:
+            prediction: full prediction dict
+            risk_summary: short string for Morpheus
+            should_warn: bool (True if success rate is low or risks are high)
+            estimated_impact: str ("high", "medium", "low")
+        """
+        action = {
+            "action_type": tool_name,
+            "type": tool_name,
+            "parameters": arguments,
+        }
+
+        prediction = await self.predict_outcome(action, context)
+
+        success_rate = prediction.get("predicted_success_rate", 0.85)
+        risks = prediction.get("risks", [])
+        confidence = prediction.get("confidence", 0.5)
+
+        # Determine impact level based on action value and type
+        estimated_impact = self._estimate_impact(tool_name, arguments)
+
+        # Determine if we should warn
+        high_severity_risks = [r for r in risks if r.get("severity") == "high"]
+        should_warn = (
+            success_rate < 0.7
+            or len(high_severity_risks) > 0
+            or (estimated_impact == "high" and success_rate < 0.85)
+        )
+
+        # Build concise risk summary for Morpheus/Ultron
+        risk_parts: list[str] = []
+        risk_parts.append(f"Success: {success_rate:.0%}")
+        risk_parts.append(f"Confidence: {confidence:.0%}")
+        risk_parts.append(f"Impact: {estimated_impact}")
+        if risks:
+            risk_names = [r.get("risk", "unknown") for r in risks[:3]]
+            risk_parts.append(f"Risks: {', '.join(risk_names)}")
+        risk_summary = " | ".join(risk_parts)
+
+        result = {
+            "prediction": prediction,
+            "risk_summary": risk_summary,
+            "should_warn": should_warn,
+            "estimated_impact": estimated_impact,
+        }
+
+        if should_warn:
+            logger.warning(
+                "Trajectory warning for '%s': %s", tool_name, risk_summary,
+            )
+
+        return result
+
+    def _estimate_impact(self, tool_name: str, arguments: dict[str, Any]) -> str:
+        """Estimate the impact level of a tool call."""
+        # High-impact actions
+        high_impact = {"deploy_contract", "bridge", "borrow"}
+        if tool_name in high_impact:
+            return "high"
+
+        # Value-based impact
+        value = arguments.get("value") or arguments.get("amount", 0)
+        if isinstance(value, (int, float)):
+            if value > 1000:
+                return "high"
+            elif value > 100:
+                return "medium"
+
+        # Medium-impact actions
+        medium_impact = {"swap", "transfer", "stake", "unstake", "repay"}
+        if tool_name in medium_impact:
+            return "medium"
+
+        return "low"
 
     # ── Private helpers ───────────────────────────────────────────────
 

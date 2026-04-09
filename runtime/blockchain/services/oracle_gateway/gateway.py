@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OracleGateway — single entry point for ALL oracle data across 0pnMatrx.
 

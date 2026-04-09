@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """
 Migration CLI — import agents from other frameworks into 0pnMatrx.

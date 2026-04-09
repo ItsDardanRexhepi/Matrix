@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Google Gemini model provider for 0pnMatrx.
 

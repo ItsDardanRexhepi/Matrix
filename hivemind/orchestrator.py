@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Hivemind Orchestrator — coordinates the three agents of 0pnMatrx.
 

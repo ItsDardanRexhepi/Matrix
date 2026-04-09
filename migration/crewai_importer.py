@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 CrewAI Importer — converts CrewAI crew and agent definitions to 0pnMatrx.
 

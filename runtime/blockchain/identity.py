@@ -62,17 +62,45 @@ class Identity(BlockchainInterface):
             return f"Resolve failed: {e}"
 
     async def _register(self, params: dict) -> str:
-        """Register an identity attestation on-chain. Gas covered by platform."""
+        """Register an identity attestation on-chain via EAS. Gas covered by platform."""
         name = params.get("name", "")
         address = params.get("address", self.platform_wallet)
         claims = params.get("claims", {})
-        return json.dumps({
-            "status": "registration_prepared",
-            "name": name,
-            "address": address,
-            "claims": claims,
-            "note": "Use EAS attestation to create on-chain identity record. Gas covered by platform.",
-        }, indent=2)
+
+        try:
+            import time
+            from runtime.blockchain.eas_client import EASClient
+
+            client = EASClient(self.config)
+            result = await client.attest(
+                action="identity_registration",
+                agent="neo",
+                details={
+                    "name": name,
+                    "address": address,
+                    "claims": claims,
+                    "registered_at": int(time.time()),
+                },
+                recipient=address if address else "0x0000000000000000000000000000000000000000",
+            )
+
+            return json.dumps({
+                "status": result.get("status", "unknown"),
+                "name": name,
+                "address": address,
+                "claims": claims,
+                "attestation": result,
+                "gas_paid_by": "platform (0pnMatrx)",
+            }, indent=2, default=str)
+
+        except Exception as e:
+            return json.dumps({
+                "status": "failed",
+                "name": name,
+                "address": address,
+                "error": str(e),
+                "hint": "Ensure blockchain.eas_contract, blockchain.eas_schema, and blockchain.paymaster_private_key are set in config.",
+            }, indent=2)
 
     async def _verify(self, params: dict) -> str:
         """Verify an on-chain identity."""

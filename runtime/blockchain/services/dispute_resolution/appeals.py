@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Appeals — multi-tier appeal process for dispute resolution.
 

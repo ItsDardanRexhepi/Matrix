@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 NVIDIA model provider for 0pnMatrx.
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Omega Protocol — The synthesis layer that combines all protocol outputs
 into a unified agent response. This is the orchestration brain.
