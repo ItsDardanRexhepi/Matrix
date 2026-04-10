@@ -931,6 +931,10 @@ class GatewayServer:
             from gateway.service_routes import ServiceRoutes
             service_routes = ServiceRoutes(self.config)
             service_routes.register_routes(app)
+            # Expose the broadcaster so other subsystems (bridge,
+            # service dispatchers, metrics) can push live events into
+            # /api/v1/events/stream.
+            self.event_broadcaster = service_routes.broadcaster
             logger.info("Service routes registered successfully.")
         except Exception as e:
             logger.warning("Service routes registration skipped: %s", e)
