@@ -927,9 +927,10 @@ class GatewayServer:
         app.router.add_get("/metrics/prom", self.handle_metrics_prometheus)
 
         # Register all 30 blockchain service REST endpoints
+        service_routes = None
         try:
             from gateway.service_routes import ServiceRoutes
-            service_routes = ServiceRoutes(self.config)
+            service_routes = ServiceRoutes(self.config, metrics=self.metrics)
             service_routes.register_routes(app)
             # Expose the broadcaster so other subsystems (bridge,
             # service dispatchers, metrics) can push live events into
@@ -944,6 +945,11 @@ class GatewayServer:
             from gateway.bridge import BridgeRoutes
             bridge = BridgeRoutes(self.config, self)
             bridge.register_routes(app)
+            # Let the batch dispatcher know about the bridge so
+            # /api/v1/batch can forward /bridge/v1/* items through the
+            # same in-process fast path used for /api/v1/* items.
+            if service_routes is not None:
+                service_routes.attach_bridge_routes(bridge)
             logger.info("Bridge routes registered under /bridge/v1/")
         except Exception as e:
             logger.warning("Bridge routes registration skipped: %s", e)

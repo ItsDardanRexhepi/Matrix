@@ -2,7 +2,7 @@
 gateway/event_broadcaster.py
 ============================
 
-In-process pub/sub fan-out for the `/api/v1/events/stream` SSE endpoint.
+In-process pub/sub fan-out for the ``/api/v1/events/stream`` SSE endpoint.
 
 The ``EventBroadcaster`` is intentionally tiny and has **no persistence**
 — it's purely a live feed for connected SSE subscribers. Durable events
@@ -22,6 +22,11 @@ Design notes
   from any async context (including middleware and service handlers).
 * ``subscribe`` returns a ``Subscription`` context manager that yields
   events as an async iterator.
+* The broadcaster keeps a bounded **replay buffer** of the most recent
+  events so reconnecting SSE clients can ask for everything after
+  ``Last-Event-ID`` and not lose data during a brief network drop.
+* Subscribers are counted per-IP and globally so a single misbehaving
+  client can't exhaust gateway memory.
 
 The Packager's SSE parser (see ``MTRXPackager.handleSSEMessage``)
 expects each server-sent event to carry a JSON payload with at least
@@ -34,8 +39,9 @@ import asyncio
 import logging
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Deque, Dict, Iterable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +92,7 @@ class _Subscriber:
         "types",
         "dropped",
         "created_at",
+        "remote_ip",
     )
 
     def __init__(
@@ -95,6 +102,7 @@ class _Subscriber:
         components: Optional[Iterable[int]],
         session_id: Optional[str],
         types: Optional[Iterable[str]],
+        remote_ip: Optional[str] = None,
     ) -> None:
         self.queue: asyncio.Queue[BroadcastEvent] = asyncio.Queue(maxsize=max_queue)
         self.components = set(components) if components else None
@@ -102,6 +110,7 @@ class _Subscriber:
         self.types = set(types) if types else None
         self.dropped = 0
         self.created_at = time.time()
+        self.remote_ip = remote_ip
 
     def matches(self, event: BroadcastEvent) -> bool:
         if self.types is not None and event.type not in self.types:
@@ -134,6 +143,21 @@ class _Subscriber:
 
 
 # ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+
+class BroadcasterCapacityError(Exception):
+    """Raised when a new subscriber would exceed a capacity limit."""
+
+    def __init__(self, message: str, *, scope: str) -> None:
+        super().__init__(message)
+        #: Either ``"global"`` or ``"per_ip"`` so callers can map this
+        #: to the right HTTP status (503 vs 429).
+        self.scope = scope
+
+
+# ---------------------------------------------------------------------------
 # The broadcaster itself
 # ---------------------------------------------------------------------------
 
@@ -141,11 +165,58 @@ class _Subscriber:
 class EventBroadcaster:
     """Fan-out hub used by the SSE endpoint and anyone who wants to push."""
 
-    def __init__(self, *, max_queue_per_subscriber: int = 256) -> None:
+    def __init__(
+        self,
+        *,
+        max_queue_per_subscriber: int = 256,
+        max_subscribers: int = 512,
+        max_subscribers_per_ip: int = 8,
+        replay_buffer_size: int = 512,
+        metrics: Optional[Any] = None,
+    ) -> None:
         self._subs: List[_Subscriber] = []
         self._lock = asyncio.Lock()
         self._max_queue = max_queue_per_subscriber
+        self._max_subscribers = max_subscribers
+        self._max_subscribers_per_ip = max_subscribers_per_ip
         self._published = 0
+        #: Ring buffer of the most recent events, keyed by insertion
+        #: order. Used to answer ``Last-Event-ID`` reconnect requests.
+        self._replay: Deque[BroadcastEvent] = deque(maxlen=replay_buffer_size)
+        self._metrics = metrics
+
+    # -- metrics plumbing -----------------------------------------------
+
+    def attach_metrics(self, metrics: Any) -> None:
+        """Attach a ``MetricsCollector`` after construction.
+
+        The gateway typically constructs the broadcaster inside
+        ``ServiceRoutes.__init__`` before the metrics collector is
+        fully wired; this lets ``GatewayServer`` attach its collector
+        once both exist.
+        """
+
+        self._metrics = metrics
+
+    def _metric_incr(self, name: str, value: int = 1) -> None:
+        if self._metrics is None:
+            return
+        try:
+            self._metrics.incr(name, value)
+        except Exception:  # pragma: no cover — telemetry must never raise
+            pass
+
+    def _metric_gauge(self, name: str, value: float) -> None:
+        if self._metrics is None:
+            return
+        try:
+            # MetricsCollector exposes set_gauge(); fall back to incr if
+            # the collector predates gauges.
+            setter = getattr(self._metrics, "set_gauge", None)
+            if callable(setter):
+                setter(name, value)
+        except Exception:  # pragma: no cover
+            pass
 
     # -- subscription lifecycle -----------------------------------------
 
@@ -155,20 +226,51 @@ class EventBroadcaster:
         components: Optional[Iterable[int]] = None,
         session_id: Optional[str] = None,
         types: Optional[Iterable[str]] = None,
+        remote_ip: Optional[str] = None,
     ) -> _Subscriber:
+        """Register a new SSE subscriber.
+
+        Raises :class:`BroadcasterCapacityError` if the global cap or
+        the per-IP cap would be exceeded. Callers should translate
+        ``scope == "global"`` to HTTP 503 (Service Unavailable) and
+        ``scope == "per_ip"`` to HTTP 429 (Too Many Requests).
+        """
+
         sub = _Subscriber(
             max_queue=self._max_queue,
             components=components,
             session_id=session_id,
             types=types,
+            remote_ip=remote_ip,
         )
         async with self._lock:
+            if len(self._subs) >= self._max_subscribers:
+                self._metric_incr("sse.rejected.global")
+                raise BroadcasterCapacityError(
+                    f"SSE subscriber cap reached ({self._max_subscribers})",
+                    scope="global",
+                )
+            if remote_ip is not None:
+                same_ip = sum(1 for s in self._subs if s.remote_ip == remote_ip)
+                if same_ip >= self._max_subscribers_per_ip:
+                    self._metric_incr("sse.rejected.per_ip")
+                    raise BroadcasterCapacityError(
+                        (
+                            f"SSE subscriber cap reached for IP "
+                            f"{remote_ip} ({self._max_subscribers_per_ip})"
+                        ),
+                        scope="per_ip",
+                    )
             self._subs.append(sub)
+
+        self._metric_incr("sse.subscribers.opened")
+        self._metric_gauge("sse.subscribers.current", len(self._subs))
         logger.debug(
-            "SSE subscriber registered (total=%d, components=%s, session=%s)",
+            "SSE subscriber registered (total=%d, components=%s, session=%s, ip=%s)",
             len(self._subs),
             components,
             session_id,
+            remote_ip,
         )
         return sub
 
@@ -178,8 +280,16 @@ class EventBroadcaster:
                 self._subs.remove(sub)
             except ValueError:
                 pass
-        logger.debug("SSE subscriber gone (remaining=%d, dropped=%d)",
-                     len(self._subs), sub.dropped)
+            remaining = len(self._subs)
+        self._metric_incr("sse.subscribers.closed")
+        self._metric_gauge("sse.subscribers.current", remaining)
+        if sub.dropped:
+            self._metric_incr("sse.events.dropped", sub.dropped)
+        logger.debug(
+            "SSE subscriber gone (remaining=%d, dropped=%d)",
+            remaining,
+            sub.dropped,
+        )
 
     async def iter_events(
         self,
@@ -204,6 +314,53 @@ class EventBroadcaster:
                 return
             yield event
 
+    # -- replay ---------------------------------------------------------
+
+    def replay_since(
+        self,
+        last_event_id: str,
+        *,
+        matcher: Optional[_Subscriber] = None,
+    ) -> List[BroadcastEvent]:
+        """Return every buffered event newer than ``last_event_id``.
+
+        If ``last_event_id`` is unknown (rotated out of the ring buffer
+        or never existed) the caller gets the entire buffer back — it's
+        better to re-deliver than to silently lose state.
+
+        When *matcher* is provided, events that don't pass its filters
+        are skipped so a reconnecting client only sees events it would
+        have seen on the live stream.
+        """
+
+        events = list(self._replay)
+        if not events:
+            return []
+
+        start_idx: Optional[int] = None
+        for idx, evt in enumerate(events):
+            if evt.event_id == last_event_id:
+                start_idx = idx + 1
+                break
+
+        if start_idx is None:
+            self._metric_incr("sse.replay.cursor_miss")
+            tail = events
+        else:
+            tail = events[start_idx:]
+
+        if matcher is not None:
+            tail = [e for e in tail if matcher.matches(e)]
+
+        if tail:
+            self._metric_incr("sse.replay.delivered", len(tail))
+        return tail
+
+    def replay_buffer_size(self) -> int:
+        """Current number of events held in the replay ring buffer."""
+
+        return len(self._replay)
+
     # -- publish --------------------------------------------------------
 
     def publish(self, event: BroadcastEvent) -> int:
@@ -214,6 +371,8 @@ class EventBroadcaster:
         """
 
         self._published += 1
+        self._replay.append(event)
+        self._metric_incr("sse.events.published")
         delivered = 0
         # Snapshot the subscriber list so we don't hold the lock while
         # iterating. Registrations during publish are fine — newcomers
@@ -222,6 +381,8 @@ class EventBroadcaster:
             if sub.matches(event):
                 sub.try_enqueue(event)
                 delivered += 1
+        if delivered:
+            self._metric_incr("sse.events.delivered", delivered)
         return delivered
 
     def publish_dict(
@@ -249,4 +410,8 @@ class EventBroadcaster:
             "published_total": self._published,
             "dropped_total": sum(s.dropped for s in self._subs),
             "max_queue_per_subscriber": self._max_queue,
+            "max_subscribers": self._max_subscribers,
+            "max_subscribers_per_ip": self._max_subscribers_per_ip,
+            "replay_buffer": len(self._replay),
+            "replay_buffer_capacity": self._replay.maxlen,
         }

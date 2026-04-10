@@ -22,7 +22,11 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from gateway.event_broadcaster import BroadcastEvent, EventBroadcaster
+from gateway.event_broadcaster import (
+    BroadcastEvent,
+    BroadcasterCapacityError,
+    EventBroadcaster,
+)
 from gateway.service_routes import (
     BATCH_MAX_ITEMS,
     ServiceRoutes,
@@ -197,6 +201,130 @@ def test_broadcaster_snapshot():
     assert snap["subscribers"] == 0
     assert snap["published_total"] == 0
     assert snap["max_queue_per_subscriber"] == 64
+    # New fields from the replay / cap rewrite
+    assert snap["max_subscribers"] == 512
+    assert snap["max_subscribers_per_ip"] == 8
+    assert snap["replay_buffer"] == 0
+    assert snap["replay_buffer_capacity"] == 512
+
+
+# ---------------------------------------------------------------------------
+# Broadcaster capacity limits (global + per-IP)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_enforces_global_cap():
+    bus = EventBroadcaster(max_subscribers=2)
+    s1 = await bus.register()
+    s2 = await bus.register()
+    with pytest.raises(BroadcasterCapacityError) as exc_info:
+        await bus.register()
+    assert exc_info.value.scope == "global"
+    await bus.unregister(s1)
+    await bus.unregister(s2)
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_enforces_per_ip_cap():
+    bus = EventBroadcaster(max_subscribers_per_ip=2)
+    s1 = await bus.register(remote_ip="10.0.0.1")
+    s2 = await bus.register(remote_ip="10.0.0.1")
+    # Different IP still allowed
+    s_other = await bus.register(remote_ip="10.0.0.2")
+    with pytest.raises(BroadcasterCapacityError) as exc_info:
+        await bus.register(remote_ip="10.0.0.1")
+    assert exc_info.value.scope == "per_ip"
+    await bus.unregister(s1)
+    await bus.unregister(s2)
+    await bus.unregister(s_other)
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_records_remote_ip_on_subscriber():
+    bus = EventBroadcaster()
+    sub = await bus.register(remote_ip="192.168.1.42")
+    assert sub.remote_ip == "192.168.1.42"
+    await bus.unregister(sub)
+
+
+# ---------------------------------------------------------------------------
+# Broadcaster replay buffer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_replay_returns_events_after_cursor():
+    bus = EventBroadcaster(replay_buffer_size=16)
+    # Publish a handful of events before anyone connects
+    ids = []
+    for i in range(5):
+        evt = BroadcastEvent(type="x", payload={"i": i})
+        bus.publish(evt)
+        ids.append(evt.event_id)
+
+    # Replay everything newer than index 1 → we expect 3 events back.
+    tail = bus.replay_since(ids[1])
+    assert [e.payload["i"] for e in tail] == [2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_replay_unknown_cursor_returns_full_buffer():
+    bus = EventBroadcaster(replay_buffer_size=4)
+    for i in range(3):
+        bus.publish(BroadcastEvent(type="x", payload={"i": i}))
+    tail = bus.replay_since("unknown-cursor-id")
+    assert len(tail) == 3
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_replay_filters_via_matcher():
+    bus = EventBroadcaster(replay_buffer_size=16)
+    bus.publish(BroadcastEvent(type="a", payload={}, component=1))
+    bus.publish(BroadcastEvent(type="b", payload={}, component=2))
+    bus.publish(BroadcastEvent(type="c", payload={}, component=1))
+
+    sub = await bus.register(components={1})
+    tail = bus.replay_since("missing-cursor", matcher=sub)
+    assert [e.type for e in tail] == ["a", "c"]
+    await bus.unregister(sub)
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_replay_buffer_bounded():
+    bus = EventBroadcaster(replay_buffer_size=3)
+    for i in range(10):
+        bus.publish(BroadcastEvent(type="x", payload={"i": i}))
+    assert bus.replay_buffer_size() == 3
+
+
+# ---------------------------------------------------------------------------
+# Metrics attachment
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_broadcaster_attach_metrics_emits_counters():
+    calls: list[tuple[str, int]] = []
+
+    class _FakeMetrics:
+        def incr(self, name, value=1):
+            calls.append((name, value))
+
+        def set_gauge(self, name, value):
+            calls.append((name, value))
+
+    bus = EventBroadcaster()
+    bus.attach_metrics(_FakeMetrics())
+
+    sub = await bus.register()
+    bus.publish(BroadcastEvent(type="x", payload={}))
+    await bus.unregister(sub)
+
+    emitted = {c[0] for c in calls}
+    assert "sse.subscribers.opened" in emitted
+    assert "sse.events.published" in emitted
+    assert "sse.subscribers.closed" in emitted
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +604,34 @@ async def test_event_stream_emits_hello_then_event(app_client):
         frame = await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=2)
         assert b"event: price.update" in frame
         assert b"ETH/USD" in frame
+
+
+@pytest.mark.asyncio
+async def test_event_stream_replays_on_last_event_id(app_client):
+    client, routes, _ = app_client
+    # Seed the replay buffer with one event BEFORE anyone connects.
+    evt = BroadcastEvent(type="price.update", payload={"pair": "ETH/USD", "price": 1})
+    routes.broadcaster.publish(evt)
+    # The client reconnects with a cursor the broadcaster doesn't
+    # recognise — it should still get the full buffer back on resume.
+    async with client.get(
+        "/api/v1/events/stream",
+        headers={"Last-Event-ID": "nonexistent"},
+    ) as resp:
+        assert resp.status == 200
+        replayed = await asyncio.wait_for(resp.content.readuntil(b"\n\n"), timeout=2)
+        assert b"event: price.update" in replayed
+
+
+@pytest.mark.asyncio
+async def test_event_stream_rejects_when_capacity_full(app_client):
+    client, routes, _ = app_client
+    # Shrink the cap on the already-running broadcaster.
+    routes.broadcaster._max_subscribers = 0
+    resp = await client.get("/api/v1/events/stream")
+    assert resp.status == 503
+    # Restore the cap so the rest of the suite still works.
+    routes.broadcaster._max_subscribers = 512
 
 
 @pytest.mark.asyncio

@@ -23,7 +23,11 @@ from typing import Any, Awaitable, Callable, List, Optional, Tuple
 
 from aiohttp import web
 
-from gateway.event_broadcaster import BroadcastEvent, EventBroadcaster
+from gateway.event_broadcaster import (
+    BroadcastEvent,
+    BroadcasterCapacityError,
+    EventBroadcaster,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +86,70 @@ class ServiceRoutes:
         self,
         config: dict,
         broadcaster: Optional[EventBroadcaster] = None,
+        metrics: Optional[Any] = None,
+        bridge_routes: Optional[Any] = None,
     ) -> None:
         self._config = config
         self._registry = None  # lazy
         self._broadcaster = broadcaster or EventBroadcaster()
+        self._metrics = metrics
+        #: Reference to the ``BridgeRoutes`` instance so the batch
+        #: dispatcher can forward ``/bridge/v1/*`` items through the same
+        #: in-process fast path used for ``/api/v1/*``. Set by the
+        #: gateway server right after both ServiceRoutes and BridgeRoutes
+        #: exist — see :meth:`attach_bridge_routes`.
+        self._bridge_routes = bridge_routes
+        if metrics is not None:
+            self._broadcaster.attach_metrics(metrics)
         #: (method, compiled_regex, param_names, handler, literal_path)
         self._batch_routes: List[
             Tuple[str, re.Pattern, List[str], Callable[..., Awaitable[web.Response]], str]
         ] = []
+
+    # -- post-construction wiring --------------------------------------
+
+    def attach_metrics(self, metrics: Any) -> None:
+        """Attach a metrics collector after the fact.
+
+        Used by :class:`GatewayServer` when it constructs the service
+        routes inside ``create_app`` but only finishes wiring metrics a
+        few lines later.
+        """
+
+        self._metrics = metrics
+        self._broadcaster.attach_metrics(metrics)
+
+    def attach_bridge_routes(self, bridge_routes: Any) -> None:
+        """Give the batch dispatcher access to the bridge handlers.
+
+        The gateway server creates the ``ServiceRoutes`` first, then
+        constructs ``BridgeRoutes`` (which takes the server as a
+        dependency), then calls this hook so ``/api/v1/batch`` can
+        transparently dispatch ``/bridge/v1/*`` sub-requests without a
+        second HTTP round trip.
+        """
+
+        self._bridge_routes = bridge_routes
+        # Rebuild the route map so the bridge entries get compiled in.
+        self._build_batch_route_map()
+
+    def _metric_incr(self, name: str, value: int = 1) -> None:
+        if self._metrics is None:
+            return
+        try:
+            self._metrics.incr(name, value)
+        except Exception:  # pragma: no cover — telemetry must never raise
+            pass
+
+    def _metric_observe(self, name: str, value: float) -> None:
+        if self._metrics is None:
+            return
+        try:
+            observer = getattr(self._metrics, "observe", None)
+            if callable(observer):
+                observer(name, value)
+        except Exception:  # pragma: no cover
+            pass
 
     def _get_registry(self):
         if self._registry is None:
@@ -288,6 +348,29 @@ class ServiceRoutes:
             ("GET",  "/api/v1/oracle/price/{pair}", self._handle_oracle_price),
             ("GET",  "/api/v1/attestation/verify/{uid}", self._handle_attestation_verify),
         ]
+
+        # Bridge endpoints — only registered if the gateway server has
+        # wired a BridgeRoutes instance via :meth:`attach_bridge_routes`.
+        # Without the bridge available we simply skip them so a bare
+        # ``ServiceRoutes`` (as used in unit tests) still builds cleanly.
+        if self._bridge_routes is not None:
+            br = self._bridge_routes
+            bridge_specs: List[Tuple[str, str, Callable[..., Awaitable[web.Response]]]] = [
+                ("POST", "/bridge/v1/session/create", br.create_session),
+                ("POST", "/bridge/v1/session/resume", br.resume_session),
+                ("POST", "/bridge/v1/chat", br.chat),
+                ("POST", "/bridge/v1/action", br.execute_action),
+                ("POST", "/bridge/v1/wallet/link", br.link_wallet),
+                ("GET",  "/bridge/v1/wallet/status", br.wallet_status),
+                ("GET",  "/bridge/v1/config", br.get_config),
+                ("GET",  "/bridge/v1/services", br.get_services),
+                ("POST", "/bridge/v1/push/register", br.register_push),
+                ("GET",  "/bridge/v1/dashboard", br.get_dashboard),
+                ("GET",  "/bridge/v1/components", br.get_components),
+                ("GET",  "/bridge/v1/components/manifest", br.get_components_manifest),
+                ("GET",  "/bridge/v1/components/{component_id}", br.get_component),
+            ]
+            specs.extend(bridge_specs)
 
         routes = []
         for method, path, handler in specs:
@@ -925,21 +1008,25 @@ class ServiceRoutes:
         """
 
         start_wall = time.monotonic()
+        self._metric_incr("batch.requests")
         body = await self._parse_body(request)
         self._require(body, "requests")
 
         items = body["requests"]
         if not isinstance(items, list):
+            self._metric_incr("batch.errors.bad_shape")
             raise web.HTTPBadRequest(
                 text=json.dumps({"error": "'requests' must be a list"}),
                 content_type="application/json",
             )
         if len(items) == 0:
+            self._metric_observe("batch.items.count", 0)
             return web.json_response({
                 "results": [],
                 "total_duration_ms": 0,
             })
         if len(items) > BATCH_MAX_ITEMS:
+            self._metric_incr("batch.errors.too_large")
             raise web.HTTPBadRequest(
                 text=json.dumps({
                     "error": f"Batch exceeds maximum of {BATCH_MAX_ITEMS} items",
@@ -947,15 +1034,30 @@ class ServiceRoutes:
                 content_type="application/json",
             )
 
+        self._metric_observe("batch.items.count", float(len(items)))
+
         sequential = bool(body.get("sequential", False))
         abort_on_failure = bool(body.get("abort_on_failure", False))
 
         if sequential:
+            self._metric_incr("batch.mode.sequential")
             results = await self._run_batch_sequential(items, abort_on_failure)
         else:
+            self._metric_incr("batch.mode.parallel")
             results = await self._run_batch_parallel(items, abort_on_failure)
 
         total_ms = int((time.monotonic() - start_wall) * 1000)
+        self._metric_observe("batch.duration_ms", float(total_ms))
+
+        success_count = sum(1 for r in results if 200 <= r["status"] < 300)
+        failure_count = len(results) - success_count
+        if success_count:
+            self._metric_incr("batch.item.success", success_count)
+        if failure_count:
+            self._metric_incr("batch.item.failure", failure_count)
+        timeout_count = sum(1 for r in results if r.get("status") == 504)
+        if timeout_count:
+            self._metric_incr("batch.items.timeout", timeout_count)
 
         # Broadcast a batch-completed event so any SSE subscribers can
         # refresh their UI without polling.
@@ -964,9 +1066,7 @@ class ServiceRoutes:
                 "batch.completed",
                 {
                     "item_count": len(items),
-                    "success_count": sum(
-                        1 for r in results if 200 <= r["status"] < 300
-                    ),
+                    "success_count": success_count,
                     "total_duration_ms": total_ms,
                 },
             )
@@ -1142,6 +1242,36 @@ class ServiceRoutes:
         components = _parse_int_csv(request.query.get("components"))
         types = _parse_str_csv(request.query.get("types"))
         session_id = request.query.get("session") or None
+        remote_ip = request.remote or None
+        last_event_id = (
+            request.headers.get("Last-Event-ID")
+            or request.query.get("last_event_id")
+            or None
+        )
+
+        self._metric_incr("sse.connect.attempt")
+
+        # Try to register the subscriber *before* sending any bytes so
+        # we can return a clean HTTP error on capacity rejection.
+        try:
+            sub = await self._broadcaster.register(
+                components=components,
+                session_id=session_id,
+                types=types,
+                remote_ip=remote_ip,
+            )
+        except BroadcasterCapacityError as exc:
+            if exc.scope == "per_ip":
+                raise web.HTTPTooManyRequests(
+                    text=json.dumps({"error": str(exc), "scope": exc.scope}),
+                    content_type="application/json",
+                    headers={"Retry-After": "30"},
+                )
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({"error": str(exc), "scope": exc.scope}),
+                content_type="application/json",
+                headers={"Retry-After": "5"},
+            )
 
         response = web.StreamResponse(
             status=200,
@@ -1154,11 +1284,24 @@ class ServiceRoutes:
         )
         await response.prepare(request)
 
-        sub = await self._broadcaster.register(
-            components=components,
-            session_id=session_id,
-            types=types,
-        )
+        # Replay any events the client missed during the reconnect window.
+        if last_event_id:
+            try:
+                missed = self._broadcaster.replay_since(last_event_id, matcher=sub)
+            except Exception:  # pragma: no cover — replay must never break a stream
+                missed = []
+            for event in missed:
+                try:
+                    await response.write(
+                        _format_sse(
+                            event_type=event.type,
+                            data=event.to_dict(),
+                            event_id=event.event_id,
+                        )
+                    )
+                except (ConnectionResetError, asyncio.CancelledError):
+                    await self._broadcaster.unregister(sub)
+                    return response
 
         # Send an initial hello event so the client knows the stream is
         # live even before the first real event arrives.
@@ -1170,6 +1313,7 @@ class ServiceRoutes:
                         "components": components or [],
                         "session_id": session_id,
                         "types": types or [],
+                        "resumed_from": last_event_id,
                     },
                 )
             )

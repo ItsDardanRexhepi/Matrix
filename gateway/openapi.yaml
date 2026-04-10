@@ -1,0 +1,1008 @@
+openapi: 3.1.0
+info:
+  title: 0pnMatrx Gateway API
+  summary: Unified REST + SSE surface for the MTRX iOS app and third-party integrators.
+  description: |
+    This document describes every route exposed by the 0pnMatrx gateway
+    process. The gateway is a single aiohttp server that mounts three
+    families of endpoints:
+
+      * `/health`, `/auth/*`, `/metrics*` — cross-cutting plumbing.
+      * `/api/v1/*` — the thirty blockchain services the MTRX iOS
+        Packager (`MTRXPackager`) targets directly, plus two
+        cross-cutting endpoints (`/api/v1/batch` and
+        `/api/v1/events/stream`).
+      * `/bridge/v1/*` — the mobile bridge envelope used by the iOS
+        app for session bring-up, chat, wallet linking and dashboard.
+
+    The gateway is designed to answer every call the iOS `MTRXAPIClient`
+    and `MTRXPackager` can make. Schemas here are the source of truth for
+    field names and types; the Swift client mirrors them with
+    `encodeSnakeCase` / `decodeSnakeCase` strategies.
+  version: "1.0.0"
+  contact:
+    name: 0pnMatrx engineering
+    url: https://openmatrix.io
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.openmatrix.io
+    description: Production gateway
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+security:
+  - bearerApiKey: []
+
+components:
+  securitySchemes:
+    bearerApiKey:
+      type: http
+      scheme: bearer
+      description: |
+        Static API key set at gateway boot via `gateway.api_key` in
+        `openmatrix.config.json` or `MTRX_API_KEY` environment override.
+        Sent as `Authorization: Bearer <key>`. The `/health`,
+        `/auth/nonce` and `/auth/verify` endpoints are public.
+
+  # -------------------------------------------------------------------
+  # Reusable envelopes
+  # -------------------------------------------------------------------
+  schemas:
+    ServiceEnvelope:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        data:
+          description: Arbitrary per-service result; shape documented per endpoint.
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        scope:
+          type: string
+          description: Populated for capacity errors (`global` or `per_ip`).
+
+    BatchItem:
+      type: object
+      required: [method, path]
+      properties:
+        id:
+          type: string
+          description: Client-generated correlation id, echoed back on the response.
+        method:
+          type: string
+          enum: [GET, POST, DELETE]
+        path:
+          type: string
+          example: /api/v1/contracts/convert
+        body:
+          description: Inline JSON body for this sub-request.
+          nullable: true
+
+    BatchRequest:
+      type: object
+      required: [requests]
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatchItem"
+          minItems: 0
+          maxItems: 25
+        sequential:
+          type: boolean
+          default: false
+          description: Run items one after another instead of in parallel.
+        abort_on_failure:
+          type: boolean
+          default: false
+          description: In sequential mode, stop at the first non-2xx and mark the
+            rest as aborted. In parallel mode this is a no-op (everything
+            already fired) but the flag is still echoed in logs.
+
+    BatchItemResult:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: string
+        status:
+          type: integer
+          description: HTTP status of the sub-request; 0 means "aborted".
+        body:
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    BatchResponse:
+      type: object
+      required: [results, total_duration_ms]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatchItemResult"
+        total_duration_ms:
+          type: integer
+
+    BroadcastEvent:
+      type: object
+      required: [type, payload, timestamp, event_id]
+      properties:
+        type:
+          type: string
+          example: price.update
+        payload:
+          type: object
+          additionalProperties: true
+        component:
+          type: integer
+          nullable: true
+        session_id:
+          type: string
+          nullable: true
+        timestamp:
+          type: number
+          format: double
+        event_id:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [status, uptime_seconds]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        uptime_seconds:
+          type: number
+          format: double
+        components:
+          type: object
+          additionalProperties: true
+
+    BridgeEnvelope:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        data:
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    DashboardData:
+      type: object
+      properties:
+        address:
+          type: string
+        balance_eth:
+          type: number
+          nullable: true
+        components:
+          type: array
+          items:
+            type: integer
+
+    SessionCreateRequest:
+      type: object
+      properties:
+        device_id:
+          type: string
+        app_version:
+          type: string
+
+    WalletLinkRequest:
+      type: object
+      required: [session_id, address]
+      properties:
+        session_id:
+          type: string
+        address:
+          type: string
+          example: "0x0000000000000000000000000000000000000000"
+        network:
+          type: string
+          default: base
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+paths:
+
+  /health:
+    get:
+      summary: Liveness/readiness probe
+      security: []
+      responses:
+        "200":
+          description: Gateway is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /metrics:
+    get:
+      summary: JSON metrics snapshot
+      responses:
+        "200":
+          description: Current counters, gauges, and histograms
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /metrics/prom:
+    get:
+      summary: Prometheus text exposition
+      responses:
+        "200":
+          description: Prometheus-formatted metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /auth/nonce:
+    post:
+      summary: Get a challenge nonce for SIWE sign-in
+      security: []
+      responses:
+        "200":
+          description: Nonce issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nonce:
+                    type: string
+
+  /auth/verify:
+    post:
+      summary: Verify a SIWE signature and mint a session token
+      security: []
+      responses:
+        "200":
+          description: Session token
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # -------------------------------------------------------------------
+  # Cross-cutting: batch dispatch + live event stream
+  # -------------------------------------------------------------------
+
+  /api/v1/batch:
+    post:
+      summary: Dispatch up to 25 sub-requests in one round trip
+      description: |
+        Used by the MTRX iOS `MTRXPackager.batchPackage` helper to
+        coalesce multi-service calls. Each item is resolved against
+        the gateway's in-process route map — no HTTP round trip is
+        made for sub-requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchRequest"
+      responses:
+        "200":
+          description: Results envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchResponse"
+        "400":
+          description: Invalid body or too many items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/events/stream:
+    get:
+      summary: Server-Sent Events fan-out
+      description: |
+        Endless `text/event-stream` connection. Clients may filter by
+        component ids (`components=3,13`), session id (`session=<id>`),
+        or event types (`types=price.update,chat.token`).
+
+        Supports reconnect via the standard `Last-Event-ID` header —
+        events newer than the cursor that match the client's filters
+        are replayed from the bounded in-memory ring buffer before the
+        live stream resumes. A `stream.opened` hello frame is sent on
+        every successful connection.
+
+        Returns `429 Too Many Requests` if the per-IP cap is exceeded
+        and `503 Service Unavailable` if the global cap is exceeded.
+      parameters:
+        - in: query
+          name: components
+          schema:
+            type: string
+          description: Comma-separated component ids
+        - in: query
+          name: session
+          schema:
+            type: string
+        - in: query
+          name: types
+          schema:
+            type: string
+        - in: header
+          name: Last-Event-ID
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "429":
+          description: Per-IP subscriber cap reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Global subscriber cap reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # -------------------------------------------------------------------
+  # Blockchain services (Component 1-30). Each follows the same
+  # ServiceEnvelope pattern, so we describe request/response shapes
+  # inline and skip repeating the envelope for every route.
+  # -------------------------------------------------------------------
+
+  /api/v1/contracts/convert:
+    post:
+      summary: Component 1 — cross-chain contract conversion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_code, source_lang]
+              properties:
+                source_code: {type: string}
+                source_lang: {type: string}
+                target_chain: {type: string, default: base}
+      responses:
+        "200":
+          description: Converted contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceEnvelope"
+
+  /api/v1/contracts/deploy:
+    post:
+      summary: Component 1 — deploy a converted contract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_code, source_lang]
+              properties:
+                source_code: {type: string}
+                source_lang: {type: string}
+                target_chain: {type: string, default: base}
+      responses:
+        "200":
+          description: Deployment receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceEnvelope"
+
+  /api/v1/defi/loan/create:
+    post:
+      summary: Component 2 — open a DeFi loan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [borrower, collateral_token, collateral_amount, borrow_token, borrow_amount]
+              properties:
+                borrower: {type: string}
+                collateral_token: {type: string}
+                collateral_amount: {type: number}
+                borrow_token: {type: string}
+                borrow_amount: {type: number}
+      responses:
+        "200":
+          description: Loan created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/defi/loan/repay:
+    post:
+      summary: Component 2 — repay a DeFi loan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loan_id, amount]
+              properties:
+                loan_id: {type: string}
+                amount: {type: number}
+      responses:
+        "200":
+          description: Repayment accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/nft/mint:
+    post:
+      summary: Component 3 — mint an NFT
+      responses:
+        "200":
+          description: Minted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/nft/collection/create:
+    post:
+      summary: Component 3 — create an NFT collection
+      responses:
+        "200":
+          description: Collection created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/rwa/tokenize:
+    post:
+      summary: Component 4 — tokenize a real-world asset
+      responses:
+        "200":
+          description: RWA tokenized
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/identity/create:
+    post:
+      summary: Component 5 — create a DID
+      responses:
+        "200":
+          description: DID issued
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/dao/create:
+    post:
+      summary: Component 6 — create a DAO
+      responses:
+        "200":
+          description: DAO created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/stablecoin/transfer:
+    post:
+      summary: Component 7 — stablecoin transfer
+      responses:
+        "200":
+          description: Transfer accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/attestation/verify/{uid}:
+    get:
+      summary: Component 8 — verify an attestation
+      parameters:
+        - in: path
+          name: uid
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/agent/register:
+    post:
+      summary: Component 9 — register an autonomous agent
+      responses:
+        "200":
+          description: Agent registered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/payments/create:
+    post:
+      summary: Component 10 — x402 payment
+      responses:
+        "200":
+          description: Payment intent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/oracle/price/{pair}:
+    get:
+      summary: Component 11 — oracle price feed
+      parameters:
+        - in: path
+          name: pair
+          required: true
+          schema: {type: string, example: ETH/USD}
+      responses:
+        "200":
+          description: Price quote
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/supply-chain/register:
+    post:
+      summary: Component 12 — supply-chain item
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/insurance/policy/create:
+    post:
+      summary: Component 13 — insurance policy
+      responses:
+        "200":
+          description: Policy created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/insurance/claim:
+    post:
+      summary: Component 13 — file insurance claim
+      responses:
+        "200":
+          description: Claim filed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/gaming/register:
+    post:
+      summary: Component 14 — gaming asset registry
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/ip/register:
+    post:
+      summary: Component 15 — IP & royalties registry
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/staking/stake:
+    post:
+      summary: Component 16 — stake tokens
+      responses:
+        "200":
+          description: Staked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/staking/unstake:
+    post:
+      summary: Component 16 — unstake tokens
+      responses:
+        "200":
+          description: Unstake requested
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/crossborder/send:
+    post:
+      summary: Component 17 — cross-border transfer
+      responses:
+        "200":
+          description: Transfer accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/securities/create:
+    post:
+      summary: Component 18 — tokenized security
+      responses:
+        "200":
+          description: Security created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/governance/proposal/create:
+    post:
+      summary: Component 19 — create proposal
+      responses:
+        "200":
+          description: Proposal created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/governance/vote:
+    post:
+      summary: Component 19 — cast vote
+      responses:
+        "200":
+          description: Vote recorded
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/dashboard/{address}:
+    get:
+      summary: Component 20 — user dashboard overview
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/dex/swap:
+    post:
+      summary: Component 21 — DEX swap
+      responses:
+        "200":
+          description: Swap quoted/executed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/dex/liquidity/add:
+    post:
+      summary: Component 21 — add liquidity
+      responses:
+        "200":
+          description: Liquidity added
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/fundraising/campaign/create:
+    post:
+      summary: Component 22 — create fundraising campaign
+      responses:
+        "200":
+          description: Campaign created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/fundraising/contribute:
+    post:
+      summary: Component 22 — contribute to campaign
+      responses:
+        "200":
+          description: Contribution accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/loyalty/earn:
+    post:
+      summary: Component 23 — loyalty earn
+      responses:
+        "200":
+          description: Points earned
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/loyalty/redeem:
+    post:
+      summary: Component 23 — loyalty redeem
+      responses:
+        "200":
+          description: Redemption accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/marketplace/list:
+    post:
+      summary: Component 24 — list item on marketplace
+      responses:
+        "200":
+          description: Listed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/marketplace/buy:
+    post:
+      summary: Component 24 — buy listed item
+      responses:
+        "200":
+          description: Purchase accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/cashback/track:
+    post:
+      summary: Component 25 — cashback tracking
+      responses:
+        "200":
+          description: Cashback tracked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/brand/campaign/create:
+    post:
+      summary: Component 26 — brand rewards campaign
+      responses:
+        "200":
+          description: Campaign created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/subscriptions/subscribe:
+    post:
+      summary: Component 27 — subscribe
+      responses:
+        "200":
+          description: Subscribed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/social/message:
+    post:
+      summary: Component 28 — social message
+      responses:
+        "200":
+          description: Message sent
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/social/profile:
+    post:
+      summary: Component 28 — update social profile
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/privacy/delete:
+    post:
+      summary: Component 29 — privacy-aware delete
+      responses:
+        "200":
+          description: Delete scheduled
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  /api/v1/dispute/file:
+    post:
+      summary: Component 30 — file dispute
+      responses:
+        "200":
+          description: Dispute filed
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+
+  # -------------------------------------------------------------------
+  # Mobile bridge — consumed by the MTRX iOS app
+  # -------------------------------------------------------------------
+
+  /bridge/v1/session/create:
+    post:
+      summary: Create a chat session
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionCreateRequest"}
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/session/resume:
+    post:
+      summary: Resume an existing session
+      responses:
+        "200":
+          description: Resumed (or absent)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/chat:
+    post:
+      summary: Send a message to an agent
+      responses:
+        "200":
+          description: Agent reply
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/action:
+    post:
+      summary: Execute a direct action (bypasses chat)
+      responses:
+        "200":
+          description: Action result
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/wallet/link:
+    post:
+      summary: Link a wallet to a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/WalletLinkRequest"}
+      responses:
+        "200":
+          description: Link accepted
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/wallet/status:
+    get:
+      summary: Check current wallet link status
+      responses:
+        "200":
+          description: Wallet status
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/config:
+    get:
+      summary: Get mobile app config (feature flags, tunables)
+      responses:
+        "200":
+          description: Config
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/services:
+    get:
+      summary: Enumerate all 30 blockchain services
+      responses:
+        "200":
+          description: Service catalog
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/push/register:
+    post:
+      summary: Register an APNs device token
+      responses:
+        "200":
+          description: Token stored
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/dashboard:
+    get:
+      summary: Aggregated dashboard payload for the iOS home screen
+      responses:
+        "200":
+          description: Dashboard data
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/components:
+    get:
+      summary: List all 30 iOS component schemas
+      responses:
+        "200":
+          description: Component list
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/components/manifest:
+    get:
+      summary: Compact manifest used by the iOS schema cache
+      responses:
+        "200":
+          description: Manifest
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
+
+  /bridge/v1/components/{component_id}:
+    get:
+      summary: Detail schema for one component
+      parameters:
+        - in: path
+          name: component_id
+          required: true
+          schema: {type: integer}
+      responses:
+        "200":
+          description: Component detail
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BridgeEnvelope"}
