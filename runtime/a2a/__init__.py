@@ -5,12 +5,11 @@ each other. Implements a marketplace where agents can list capabilities
 and purchase services from other agents.
 """
 
-from runtime.a2a.protocol import A2AProtocol, ServiceListing, JobRequest, JobResult
+from runtime.a2a.protocol import ServiceListing, JobRequest, JobResult
 from runtime.a2a.marketplace import A2AMarketplace
 from runtime.a2a.coordinator import A2ACoordinator
 
 __all__ = [
-    "A2AProtocol",
     "A2AMarketplace",
     "A2ACoordinator",
     "ServiceListing",

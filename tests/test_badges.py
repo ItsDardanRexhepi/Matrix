@@ -48,7 +48,7 @@ def fake_db():
 def badge_manager(fake_db):
     """Provide an initialised BadgeManager."""
     mgr = BadgeManager(fake_db)
-    asyncio.get_event_loop().run_until_complete(mgr.initialize())
+    asyncio.run(mgr.initialize())
     return mgr
 
 
