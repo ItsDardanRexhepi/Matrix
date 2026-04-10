@@ -111,12 +111,31 @@ def spinner(text, duration=1.0):
 # ─── Setup Steps ─────────────────────────────────────────────────────────────
 
 def check_python():
-    """Verify Python version."""
+    """Verify Python version.
+
+    If the running interpreter is too old but a suitable venv exists in
+    the project directory, restart under that venv automatically so
+    users who cloned the repo on a system with an older global Python
+    aren't blocked.
+    """
     v = sys.version_info
-    if v.major < 3 or (v.major == 3 and v.minor < 10):
-        fail(f"Python 3.10+ required. You have {v.major}.{v.minor}.{v.micro}")
-        sys.exit(1)
-    success(f"Python {v.major}.{v.minor}.{v.micro}")
+    if v.major >= 3 and v.minor >= 10:
+        success(f"Python {v.major}.{v.minor}.{v.micro}")
+        return
+
+    # The running Python is too old — check for a usable venv before
+    # giving up.
+    venv_python = Path(__file__).parent / ".venv" / "bin" / "python3"
+    if venv_python.exists():
+        warn(f"System Python is {v.major}.{v.minor}.{v.micro}, but .venv has a newer version.")
+        info("Restarting setup under .venv/bin/python3 …")
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+        # execv replaces the process; this line is never reached.
+
+    fail(f"Python 3.10+ required. You have {v.major}.{v.minor}.{v.micro}")
+    info("Create a venv with a newer Python, or install Python 3.10+:")
+    info("  python3.12 -m venv .venv && source .venv/bin/activate && python setup.py")
+    sys.exit(1)
 
 
 def install_dependencies():
@@ -402,7 +421,10 @@ def main():
     print(f"  {DIM}You can re-run this anytime to change settings.{RESET}")
 
     total = 8
-    config = {}
+    config = {
+        "platform": "0pnMatrx",
+        "database": {"path": "data/0pnmatrx.db"},
+    }
 
     # Step 1: Python check
     step(1, total, "Checking environment")

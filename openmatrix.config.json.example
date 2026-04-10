@@ -5,6 +5,9 @@
   "workspace": ".",
   "timezone": "America/Los_Angeles",
   "max_steps": 10,
+  "database": {
+    "path": "data/0pnmatrx.db"
+  },
   "model": {
     "provider": "ollama",
     "primary": "llama3.1",
