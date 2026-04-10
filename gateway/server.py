@@ -239,7 +239,7 @@ class GatewayServer:
             "/subscription/webhook",
             "/a2a/services",
             "/sponsor", "/glasswing", "/learn",
-            "/badges",
+            "/badges", "/privacy", "/terms",
         }
 
         # SIWE auth stores (SQLite-backed). Initialised in the on_startup
@@ -872,6 +872,14 @@ class GatewayServer:
         """GET /services/conversion — serve the conversion service page."""
         return self._serve_html("web/conversion-service.html")
 
+    async def handle_privacy_page(self, request: web.Request) -> web.Response:
+        """GET /privacy — serve the privacy policy page."""
+        return self._serve_html("web/privacy.html")
+
+    async def handle_terms_page(self, request: web.Request) -> web.Response:
+        """GET /terms — serve the terms of service page."""
+        return self._serve_html("web/terms.html")
+
     def _serve_html(self, path: str) -> web.Response:
         """Serve a static HTML file."""
         filepath = Path(path)
@@ -1495,6 +1503,8 @@ class GatewayServer:
         app.router.add_get("/audit", self.handle_audit_page)
         app.router.add_get("/marketplace", self.handle_marketplace_page)
         app.router.add_get("/services/conversion", self.handle_conversion_page)
+        app.router.add_get("/privacy", self.handle_privacy_page)
+        app.router.add_get("/terms", self.handle_terms_page)
 
         # ── Extensions registry ───────────────────────────────────────
         app.router.add_get("/extensions/registry", self.handle_extensions_registry)

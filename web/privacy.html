@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy - 0pnMatrx</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#0e0e0e;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003b00;
+  --green-glow:0 0 10px rgba(0,255,65,.3);
+  --text:#c8c8c8;--text-muted:#666;--text-bright:#e8e8e8;
+  --border:#1e1e1e;--radius:12px;--max-w:860px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.7;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+.container{max-width:var(--max-w);margin:0 auto;padding:0 24px}
+
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,10,10,.88);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+nav .container{
+  display:flex;align-items:center;justify-content:space-between;height:58px;
+}
+.nav-logo{
+  font-family:'SF Mono','Fira Code',monospace;
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;color:var(--green);
+  text-shadow:var(--green-glow);
+}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{color:var(--text-muted);font-size:.85rem;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--green);text-decoration:none}
+
+.content{padding:120px 0 80px}
+h1{
+  font-size:2rem;font-weight:700;color:var(--green);margin-bottom:8px;
+  font-family:'SF Mono','Fira Code',monospace;
+}
+.subtitle{color:var(--text-muted);margin-bottom:48px;font-size:.9rem}
+h2{
+  font-size:1.2rem;font-weight:700;color:var(--text-bright);
+  margin:40px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--border);
+}
+h3{font-size:1rem;font-weight:600;color:var(--text-bright);margin:24px 0 8px}
+p{margin-bottom:16px}
+ul{margin:0 0 16px 24px}
+li{margin-bottom:6px}
+strong{color:var(--text-bright)}
+
+footer{
+  border-top:1px solid var(--border);padding:32px 0;text-align:center;
+  color:var(--text-muted);font-size:.8rem;
+}
+footer a{color:var(--text-muted)}
+footer a:hover{color:var(--green)}
+</style>
+</head>
+<body>
+<nav>
+  <div class="container">
+    <a href="/" class="nav-logo">0pnMatrx</a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/chat">Chat</a></li>
+      <li><a href="/pricing">Pricing</a></li>
+      <li><a href="/terms">Terms</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="content">
+<div class="container">
+
+<h1>Privacy Policy</h1>
+<p class="subtitle">Last updated: April 10, 2026</p>
+
+<p>0pnMatrx ("we," "us," or "the Platform") is an open-source AI agent platform for blockchain financial services. This Privacy Policy describes how we collect, use, store, and protect your information when you use the Platform, the MTRX iOS application, or any associated services.</p>
+
+<p>We believe in radical transparency. Our codebase is MIT-licensed and publicly auditable at <a href="https://github.com/ItsDardanRexhepi/0pnMatrx">github.com/ItsDardanRexhepi/0pnMatrx</a>. You can verify every claim in this policy by reading the source code.</p>
+
+<h2>1. Information We Collect</h2>
+
+<h3>1.1 Information You Provide</h3>
+<ul>
+  <li><strong>Wallet Address.</strong> When you authenticate using Sign-In with Ethereum (SIWE), we store your public wallet address to identify your session and associate your subscription tier, referral codes, and certification records. Your wallet address is a public blockchain identifier and does not reveal your real-world identity on its own.</li>
+  <li><strong>Conversation History.</strong> Messages you send to Trinity, Neo, or Morpheus are stored locally in an encrypted SQLite database on the server instance you connect to. Conversation history is used to maintain context within your session and is not shared with third parties.</li>
+  <li><strong>Subscription and Payment Data.</strong> If you subscribe to a paid tier (Pro or Enterprise), payment is processed by Stripe. We store your Stripe customer ID and subscription status. We never see, store, or process your credit card number, CVV, or banking details. Stripe's privacy policy governs the handling of your payment information.</li>
+  <li><strong>Certification Exam Responses.</strong> If you take a certification exam, your answers are stored to compute your score and issue your certificate. Exam data is associated with your wallet address.</li>
+  <li><strong>Referral Codes.</strong> If you generate or use a referral code, we store the code, the referring wallet address, and the referred wallet address to administer referral credits.</li>
+</ul>
+
+<h3>1.2 Information Collected Automatically</h3>
+<ul>
+  <li><strong>Usage Data.</strong> We collect aggregate, anonymized usage metrics: request counts, endpoint latency, error rates, and API call volumes. These are used for platform health monitoring and capacity planning. They are not tied to individual users.</li>
+  <li><strong>IP Address.</strong> Your IP address is used for rate limiting (to prevent abuse) and is stored only in rotating server logs. IP addresses are not associated with wallet addresses or conversation history. Log entries older than 7 days are automatically purged.</li>
+  <li><strong>Device Information.</strong> The MTRX iOS app collects standard device metadata (OS version, app version, device model) for crash reporting and compatibility purposes. This data is processed by Apple's standard crash reporting infrastructure.</li>
+</ul>
+
+<h3>1.3 Information We Do Not Collect</h3>
+<ul>
+  <li>We do not collect your name, email address, phone number, or physical address unless you voluntarily provide it when contacting support.</li>
+  <li>We do not collect biometric data.</li>
+  <li>We do not collect location data.</li>
+  <li>We do not use tracking pixels, advertising identifiers, or cross-site tracking of any kind.</li>
+</ul>
+
+<h2>2. How We Use Your Information</h2>
+<ul>
+  <li><strong>To provide the service.</strong> Wallet addresses authenticate sessions. Conversation history maintains agent context. Subscription data determines feature access.</li>
+  <li><strong>To administer programs.</strong> Referral codes, certifications, and Glasswing Security Badges are linked to wallet addresses to verify eligibility and issue credentials.</li>
+  <li><strong>To monitor platform health.</strong> Aggregate usage metrics help us identify performance bottlenecks and plan infrastructure scaling.</li>
+  <li><strong>To prevent abuse.</strong> Rate limiting by IP address protects the platform from denial-of-service attacks and ensures fair access for all users.</li>
+  <li><strong>To improve the platform.</strong> Anonymized, aggregate usage patterns inform feature development priorities. We do not analyze individual conversations for this purpose.</li>
+</ul>
+
+<h2>3. How We Store Your Information</h2>
+
+<p><strong>On-Premise Storage.</strong> All user data is stored in an encrypted SQLite database on the server running the 0pnMatrx gateway. For self-hosted instances, data never leaves your infrastructure. For the hosted service at openmatrix.io, data is stored on infrastructure controlled by the Platform operator.</p>
+
+<p><strong>Encryption.</strong> The SQLite database uses AES-256-GCM encryption at rest. All API communication is encrypted in transit via TLS 1.3.</p>
+
+<p><strong>Backups.</strong> Automated daily backups are retained for 7 days and then permanently deleted. Backup files are stored in the same security perimeter as the primary database.</p>
+
+<p><strong>No Third-Party Data Storage.</strong> We do not send your conversation history, wallet addresses, or usage data to any third-party analytics service, advertising network, or data broker. The only third-party service that receives user data is Stripe, and only for payment processing.</p>
+
+<h2>4. Blockchain Transparency Notice</h2>
+
+<p><strong>On-chain transactions are public by nature.</strong> When you use 0pnMatrx to execute blockchain transactions (DeFi swaps, NFT mints, contract deployments, governance votes, etc.), those transactions are recorded on the Base (Ethereum L2) blockchain. Blockchain transactions are permanent, public, and cannot be deleted or modified by anyone, including us.</p>
+
+<p>This means:</p>
+<ul>
+  <li>Your wallet address and transaction history are visible to anyone who inspects the blockchain.</li>
+  <li>Transaction amounts, contract interactions, and token transfers are publicly recorded.</li>
+  <li>We cannot delete, modify, or reverse on-chain transactions on your behalf.</li>
+  <li>Platform fees routed to the NeoSafe multisig (0x46fF491D7054A6F500026B3E81f358190f8d8Ec5) are publicly auditable.</li>
+</ul>
+
+<p>Off-chain data (conversations, session tokens, subscription status) is not published to the blockchain and is governed by the storage policies described above.</p>
+
+<h2>5. Data Sharing</h2>
+
+<p><strong>We do not sell your data.</strong> We do not share, rent, lease, or trade your personal information with any third party for marketing, advertising, or any other commercial purpose.</p>
+
+<p>We may share limited data in these circumstances:</p>
+<ul>
+  <li><strong>Payment processing.</strong> Stripe receives your payment information to process subscriptions. See <a href="https://stripe.com/privacy">Stripe's Privacy Policy</a>.</li>
+  <li><strong>Legal compliance.</strong> We may disclose information if required by law, court order, or governmental regulation.</li>
+  <li><strong>Platform security.</strong> If we detect malicious activity, we may share IP addresses with abuse prevention services or law enforcement.</li>
+</ul>
+
+<h2>6. Cookies and Tracking</h2>
+
+<p><strong>We do not use cookies.</strong> The Platform authenticates using wallet-based sessions (SIWE) and API keys. No HTTP cookies are set, read, or required. No third-party tracking scripts (Google Analytics, Facebook Pixel, etc.) are loaded on any Platform page.</p>
+
+<h2>7. Your Rights</h2>
+
+<p>You have the right to:</p>
+<ul>
+  <li><strong>Access your data.</strong> Request a copy of all data associated with your wallet address.</li>
+  <li><strong>Delete your data.</strong> Request deletion of your conversation history, referral records, certification records, and subscription data. Contact <a href="mailto:support@openmatrix.io">support@openmatrix.io</a> with your wallet address.</li>
+  <li><strong>Export your data.</strong> Enterprise subscribers can export conversation logs and audit reports via the API.</li>
+  <li><strong>Withdraw consent.</strong> Stop using the platform at any time. Self-hosted instances give you complete control over your data.</li>
+</ul>
+
+<p>Note: We cannot delete data that has been recorded on the blockchain, as blockchain records are immutable by design. Deletion requests apply only to off-chain data stored in our databases.</p>
+
+<p>To exercise any of these rights, email <a href="mailto:support@openmatrix.io">support@openmatrix.io</a> from any address, including your wallet address for identification. We will respond within 30 days.</p>
+
+<h2>8. Children's Privacy</h2>
+
+<p>The Platform is not intended for children under the age of 13. We do not knowingly collect personal information from children under 13. If you believe a child under 13 has provided us with personal information, please contact <a href="mailto:privacy@openmatrix.io">privacy@openmatrix.io</a> and we will promptly delete it.</p>
+
+<p>Users between 13 and 18 may use the Platform with parental or guardian consent. Financial services involving real assets should only be used by individuals who are legally permitted to enter into financial transactions in their jurisdiction.</p>
+
+<h2>9. International Data Transfers</h2>
+
+<p>The Platform is operated from the United States. If you access the Platform from outside the United States, your data may be transferred to and processed in the United States. By using the Platform, you consent to this transfer. For self-hosted instances, data remains in whatever jurisdiction you choose to deploy.</p>
+
+<h2>10. Data Retention</h2>
+<ul>
+  <li><strong>Conversation history:</strong> Retained for the duration of your active use. Deleted upon request or after 12 months of account inactivity.</li>
+  <li><strong>Subscription records:</strong> Retained for 3 years after cancellation for tax and accounting purposes.</li>
+  <li><strong>Certification records:</strong> Retained permanently (certifications are verifiable credentials).</li>
+  <li><strong>Server logs:</strong> Automatically purged after 7 days.</li>
+  <li><strong>Backups:</strong> Retained for 7 days, then permanently deleted.</li>
+</ul>
+
+<h2>11. Security</h2>
+
+<p>We implement industry-standard security measures to protect your data:</p>
+<ul>
+  <li>AES-256-GCM encryption at rest</li>
+  <li>TLS 1.3 encryption in transit</li>
+  <li>Three-tier rate limiting (per-IP, per-API-key, per-wallet)</li>
+  <li>Automated Glasswing security audits on all deployed contracts</li>
+  <li>Regular dependency updates and vulnerability scanning</li>
+  <li>No plaintext storage of secrets in configuration files (enforced in production mode)</li>
+</ul>
+
+<p>No system is perfectly secure. If you discover a vulnerability, please report it to <a href="mailto:security@openmatrix.io">security@openmatrix.io</a>.</p>
+
+<h2>12. Open Source Verification</h2>
+
+<p>Because 0pnMatrx is open source, you do not need to take our word for any of these claims. The entire codebase is available at <a href="https://github.com/ItsDardanRexhepi/0pnMatrx">github.com/ItsDardanRexhepi/0pnMatrx</a>. You can:</p>
+<ul>
+  <li>Inspect exactly what data is collected and stored by reading the database schema</li>
+  <li>Verify that no tracking scripts are included by reading the HTML source</li>
+  <li>Confirm encryption implementations by reviewing the security modules</li>
+  <li>Run your own instance with full control over all data</li>
+</ul>
+
+<h2>13. Changes to This Policy</h2>
+
+<p>We may update this Privacy Policy from time to time. Changes will be posted on this page with an updated "Last updated" date. Material changes will be announced via the #announcements channel on Discord and the changelog on GitHub. Continued use of the Platform after changes constitutes acceptance of the updated policy.</p>
+
+<h2>14. Contact</h2>
+
+<p>For privacy-related inquiries:</p>
+<ul>
+  <li><strong>Privacy:</strong> <a href="mailto:privacy@openmatrix.io">privacy@openmatrix.io</a></li>
+  <li><strong>General support:</strong> <a href="mailto:support@openmatrix.io">support@openmatrix.io</a></li>
+  <li><strong>Security issues:</strong> <a href="mailto:security@openmatrix.io">security@openmatrix.io</a></li>
+  <li><strong>GitHub:</strong> <a href="https://github.com/ItsDardanRexhepi/0pnMatrx">github.com/ItsDardanRexhepi/0pnMatrx</a></li>
+</ul>
+
+</div>
+</div>
+
+<footer>
+  <div class="container">
+    <a href="/">Home</a> &middot; <a href="/terms">Terms of Service</a> &middot; <a href="/pricing">Pricing</a> &middot; <a href="https://github.com/ItsDardanRexhepi/0pnMatrx">GitHub</a>
+    <br><br>&copy; 2026 0pnMatrx. MIT License.
+  </div>
+</footer>
+
+</body>
+</html>
