@@ -37,3 +37,19 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Internal — launch materials, grant applications, ops scripts
+launch/
+grants/
+ROADMAP.md
+scripts/generate_launch_pdf.py
+scripts/rotate_credentials.sh
+scripts/deploy_and_configure.sh
+scripts/stripe_setup.py
+docs/RUNBOOK.md
+docs/MONETIZATION.md
+docs/REVENUE_STREAMS.md
+docs/SPONSORSHIP.md
+docs/OPEN_COLLECTIVE.md
+education/GUMROAD_LISTINGS.md
+gumroad/PACK_DESCRIPTIONS.md
