@@ -1,0 +1,23 @@
+{
+  "name": "@opnmatrx/sdk",
+  "version": "1.0.0",
+  "description": "JavaScript/TypeScript SDK for the 0pnMatrx AI agent platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "keywords": ["0pnmatrx", "ai", "blockchain", "agents", "web3"],
+  "author": "Dardan Rexhepi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ItsDardanRexhepi/0pnMatrx"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}

@@ -1,0 +1,454 @@
+{
+  "version": "1.0.0",
+  "platform": "0pnMatrx",
+  "description": "Component registry for all 30 blockchain services. Used by the MTRX iOS app and web interface to discover available features and tier requirements.",
+  "components": [
+    {
+      "id": "contract_conversion",
+      "name": "Smart Contract Conversion",
+      "description": "Convert plain English or any language to optimised Solidity smart contracts",
+      "category": "core",
+      "min_tier": "free",
+      "limits": {
+        "free": {"conversions_per_month": 5},
+        "pro": {"conversions_per_month": 100},
+        "enterprise": {"conversions_per_month": -1}
+      },
+      "gateway_actions": ["convert_contract", "deploy_contract", "estimate_contract_cost", "list_templates"],
+      "icon": "doc.text.magnifyingglass",
+      "available": true
+    },
+    {
+      "id": "defi_loans",
+      "name": "DeFi Loans",
+      "description": "Borrow against crypto collateral with no bank, no credit check",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"monthly_volume_usd": 5000},
+        "pro": {"monthly_volume_usd": 500000},
+        "enterprise": {"monthly_volume_usd": -1}
+      },
+      "gateway_actions": ["create_loan", "repay_loan", "get_loan"],
+      "icon": "banknote",
+      "available": true
+    },
+    {
+      "id": "nft_services",
+      "name": "NFT Creation & Trading",
+      "description": "Mint, trade, and manage NFTs with automatic royalty enforcement",
+      "category": "creative",
+      "min_tier": "free",
+      "limits": {
+        "free": {"mints_per_month": 3},
+        "pro": {"mints_per_month": 50},
+        "enterprise": {"mints_per_month": -1}
+      },
+      "gateway_actions": ["mint_nft", "create_nft_collection", "transfer_nft", "list_nft_for_sale", "buy_nft", "estimate_nft_value", "get_nft_rarity", "set_nft_rights", "check_nft_rights", "configure_nft_royalty"],
+      "icon": "photo.artframe",
+      "available": true
+    },
+    {
+      "id": "rwa_tokenization",
+      "name": "Real World Asset Tokenization",
+      "description": "Tokenize physical assets like real estate, art, and equipment for fractional ownership",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"assets_per_month": 2},
+        "pro": {"assets_per_month": 25},
+        "enterprise": {"assets_per_month": -1}
+      },
+      "gateway_actions": ["tokenize_asset", "transfer_rwa_ownership", "get_rwa_asset"],
+      "icon": "building.2",
+      "available": true
+    },
+    {
+      "id": "staking",
+      "name": "Staking & Yield",
+      "description": "Stake tokens and earn yield with transparent on-chain returns",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"stakes_per_month": 5},
+        "pro": {"stakes_per_month": 100},
+        "enterprise": {"stakes_per_month": -1}
+      },
+      "gateway_actions": ["stake_tokens", "unstake_tokens", "get_staking_info", "claim_rewards"],
+      "icon": "chart.line.uptrend.xyaxis",
+      "available": true
+    },
+    {
+      "id": "governance",
+      "name": "On-Chain Governance",
+      "description": "Create proposals and vote on decisions with tamper-proof blockchain voting",
+      "category": "governance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"votes_per_month": 10},
+        "pro": {"votes_per_month": 200},
+        "enterprise": {"votes_per_month": -1}
+      },
+      "gateway_actions": ["vote", "create_proposal", "get_proposal", "delegate_votes"],
+      "icon": "checkmark.seal",
+      "available": true
+    },
+    {
+      "id": "dao_management",
+      "name": "DAO Management",
+      "description": "Create and manage decentralized autonomous organizations",
+      "category": "governance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"daos_per_month": 1},
+        "pro": {"daos_per_month": 10},
+        "enterprise": {"daos_per_month": -1}
+      },
+      "gateway_actions": ["create_dao", "update_dao", "get_dao", "add_member", "remove_member"],
+      "icon": "person.3",
+      "available": true
+    },
+    {
+      "id": "marketplace",
+      "name": "Marketplace",
+      "description": "List, buy, and sell digital and physical goods with smart contract escrow",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"listings_per_month": 2},
+        "pro": {"listings_per_month": 25},
+        "enterprise": {"listings_per_month": -1}
+      },
+      "gateway_actions": ["list_marketplace", "buy_marketplace", "get_listing", "cancel_listing"],
+      "icon": "storefront",
+      "available": true
+    },
+    {
+      "id": "insurance",
+      "name": "Decentralized Insurance",
+      "description": "Create and manage insurance policies with automatic claims processing",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"policies_per_month": 2},
+        "pro": {"policies_per_month": 25},
+        "enterprise": {"policies_per_month": -1}
+      },
+      "gateway_actions": ["create_policy", "file_claim", "get_policy", "process_claim"],
+      "icon": "shield.checkered",
+      "available": true
+    },
+    {
+      "id": "did_identity",
+      "name": "Decentralized Identity",
+      "description": "Create and manage self-sovereign digital identity credentials",
+      "category": "identity",
+      "min_tier": "free",
+      "limits": {
+        "free": {"credentials_per_month": 5},
+        "pro": {"credentials_per_month": 50},
+        "enterprise": {"credentials_per_month": -1}
+      },
+      "gateway_actions": ["create_did", "issue_credential", "verify_credential", "revoke_credential"],
+      "icon": "person.text.rectangle",
+      "available": true
+    },
+    {
+      "id": "ip_royalties",
+      "name": "IP & Royalty Management",
+      "description": "Register intellectual property and manage royalty distributions",
+      "category": "legal",
+      "min_tier": "free",
+      "limits": {
+        "free": {"registrations_per_month": 3},
+        "pro": {"registrations_per_month": 50},
+        "enterprise": {"registrations_per_month": -1}
+      },
+      "gateway_actions": ["register_ip", "transfer_ip", "configure_royalty", "get_ip_record"],
+      "icon": "doc.badge.gearshape",
+      "available": true
+    },
+    {
+      "id": "cross_border",
+      "name": "Cross-Border Payments",
+      "description": "Send money globally with near-zero fees and instant settlement",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"transfers_per_month": 5},
+        "pro": {"transfers_per_month": 100},
+        "enterprise": {"transfers_per_month": -1}
+      },
+      "gateway_actions": ["send_payment", "get_transfer_status", "estimate_fee"],
+      "icon": "globe",
+      "available": true
+    },
+    {
+      "id": "attestation",
+      "name": "Ethereum Attestation Service",
+      "description": "Create verifiable on-chain attestations using EAS",
+      "category": "identity",
+      "min_tier": "free",
+      "limits": {
+        "free": {"attestations_per_month": 10},
+        "pro": {"attestations_per_month": 200},
+        "enterprise": {"attestations_per_month": -1}
+      },
+      "gateway_actions": ["create_attestation", "verify_attestation", "revoke_attestation"],
+      "icon": "checkmark.shield",
+      "available": true
+    },
+    {
+      "id": "agent_identity",
+      "name": "Agent Identity",
+      "description": "Manage AI agent identities and their on-chain credentials",
+      "category": "identity",
+      "min_tier": "free",
+      "limits": {
+        "free": {"identities_per_month": 3},
+        "pro": {"identities_per_month": 30},
+        "enterprise": {"identities_per_month": -1}
+      },
+      "gateway_actions": ["register_agent", "update_agent_identity", "get_agent_identity"],
+      "icon": "cpu",
+      "available": true
+    },
+    {
+      "id": "stablecoin",
+      "name": "Stablecoin Operations",
+      "description": "Manage stablecoin transfers, minting, and conversion",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"operations_per_month": 10},
+        "pro": {"operations_per_month": 200},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["transfer_stablecoin", "get_stablecoin_balance"],
+      "icon": "dollarsign.circle",
+      "available": true
+    },
+    {
+      "id": "dex",
+      "name": "Decentralized Exchange",
+      "description": "Swap tokens on decentralized exchanges with best-price routing",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"swaps_per_month": 10},
+        "pro": {"swaps_per_month": 200},
+        "enterprise": {"swaps_per_month": -1}
+      },
+      "gateway_actions": ["swap_tokens", "get_quote", "get_liquidity"],
+      "icon": "arrow.triangle.2.circlepath",
+      "available": true
+    },
+    {
+      "id": "oracle_gateway",
+      "name": "Oracle Gateway",
+      "description": "Access real-world data feeds including prices, weather, and randomness",
+      "category": "data",
+      "min_tier": "free",
+      "limits": {
+        "free": {"queries_per_month": 50},
+        "pro": {"queries_per_month": 1000},
+        "enterprise": {"queries_per_month": -1}
+      },
+      "gateway_actions": ["get_price_feed", "get_weather", "get_random"],
+      "icon": "antenna.radiowaves.left.and.right",
+      "available": true
+    },
+    {
+      "id": "supply_chain",
+      "name": "Supply Chain Tracking",
+      "description": "Track product provenance and supply chain events on-chain",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"events_per_month": 10},
+        "pro": {"events_per_month": 200},
+        "enterprise": {"events_per_month": -1}
+      },
+      "gateway_actions": ["register_product", "add_checkpoint", "get_provenance"],
+      "icon": "shippingbox",
+      "available": true
+    },
+    {
+      "id": "fundraising",
+      "name": "Fundraising & Crowdfunding",
+      "description": "Launch token sales, crowdfunding campaigns, and milestone-based raises",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"campaigns_per_month": 1},
+        "pro": {"campaigns_per_month": 10},
+        "enterprise": {"campaigns_per_month": -1}
+      },
+      "gateway_actions": ["create_campaign", "contribute", "get_campaign", "withdraw_funds"],
+      "icon": "megaphone",
+      "available": true
+    },
+    {
+      "id": "gaming",
+      "name": "Gaming & Play-to-Earn",
+      "description": "Build blockchain gaming economies with in-game assets and rewards",
+      "category": "creative",
+      "min_tier": "free",
+      "limits": {
+        "free": {"assets_per_month": 10},
+        "pro": {"assets_per_month": 200},
+        "enterprise": {"assets_per_month": -1}
+      },
+      "gateway_actions": ["create_game_asset", "transfer_game_asset", "get_leaderboard"],
+      "icon": "gamecontroller",
+      "available": true
+    },
+    {
+      "id": "loyalty",
+      "name": "Loyalty Programs",
+      "description": "Create token-based loyalty and rewards programs",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"programs_per_month": 1},
+        "pro": {"programs_per_month": 10},
+        "enterprise": {"programs_per_month": -1}
+      },
+      "gateway_actions": ["create_loyalty_program", "issue_reward", "redeem_reward"],
+      "icon": "star.circle",
+      "available": true
+    },
+    {
+      "id": "privacy",
+      "name": "Privacy & Zero-Knowledge",
+      "description": "Generate and verify zero-knowledge proofs for private transactions",
+      "category": "security",
+      "min_tier": "pro",
+      "limits": {
+        "pro": {"proofs_per_month": 50},
+        "enterprise": {"proofs_per_month": -1}
+      },
+      "gateway_actions": ["generate_zkp", "verify_zkp"],
+      "icon": "lock.shield",
+      "available": true
+    },
+    {
+      "id": "dispute_resolution",
+      "name": "Dispute Resolution",
+      "description": "On-chain arbitration and dispute resolution for smart contracts",
+      "category": "legal",
+      "min_tier": "free",
+      "limits": {
+        "free": {"disputes_per_month": 2},
+        "pro": {"disputes_per_month": 25},
+        "enterprise": {"disputes_per_month": -1}
+      },
+      "gateway_actions": ["file_dispute", "submit_evidence", "get_ruling"],
+      "icon": "scale.3d",
+      "available": true
+    },
+    {
+      "id": "securities_exchange",
+      "name": "Securities Exchange",
+      "description": "Tokenized securities trading with regulatory compliance",
+      "category": "finance",
+      "min_tier": "pro",
+      "limits": {
+        "pro": {"trades_per_month": 50},
+        "enterprise": {"trades_per_month": -1}
+      },
+      "gateway_actions": ["create_security", "trade_security", "get_compliance_status"],
+      "icon": "chart.bar.xaxis",
+      "available": true
+    },
+    {
+      "id": "subscriptions",
+      "name": "On-Chain Subscriptions",
+      "description": "Create recurring payment subscriptions enforced by smart contracts",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"subscriptions_per_month": 3},
+        "pro": {"subscriptions_per_month": 50},
+        "enterprise": {"subscriptions_per_month": -1}
+      },
+      "gateway_actions": ["create_subscription", "cancel_subscription", "get_subscription_status"],
+      "icon": "repeat.circle",
+      "available": true
+    },
+    {
+      "id": "x402_payments",
+      "name": "x402 Micropayments",
+      "description": "HTTP 402 micropayment protocol for pay-per-request APIs",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"payments_per_month": 20},
+        "pro": {"payments_per_month": 500},
+        "enterprise": {"payments_per_month": -1}
+      },
+      "gateway_actions": ["create_x402_payment", "verify_x402_payment"],
+      "icon": "creditcard",
+      "available": true
+    },
+    {
+      "id": "cashback",
+      "name": "Cashback Rewards",
+      "description": "Automatic cashback rewards on platform transactions",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"claims_per_month": 10},
+        "pro": {"claims_per_month": 100},
+        "enterprise": {"claims_per_month": -1}
+      },
+      "gateway_actions": ["claim_cashback", "get_cashback_balance"],
+      "icon": "arrow.uturn.backward.circle",
+      "available": true
+    },
+    {
+      "id": "brand_rewards",
+      "name": "Brand Partnership Rewards",
+      "description": "Brand-sponsored reward programs and co-branded experiences",
+      "category": "commerce",
+      "min_tier": "pro",
+      "limits": {
+        "pro": {"campaigns_per_month": 5},
+        "enterprise": {"campaigns_per_month": -1}
+      },
+      "gateway_actions": ["create_brand_campaign", "redeem_brand_reward"],
+      "icon": "gift",
+      "available": true
+    },
+    {
+      "id": "social",
+      "name": "Social Proof & Verification",
+      "description": "On-chain social verification and reputation scoring",
+      "category": "identity",
+      "min_tier": "free",
+      "limits": {
+        "free": {"verifications_per_month": 5},
+        "pro": {"verifications_per_month": 50},
+        "enterprise": {"verifications_per_month": -1}
+      },
+      "gateway_actions": ["verify_social", "get_reputation", "link_social_account"],
+      "icon": "person.badge.clock",
+      "available": true
+    },
+    {
+      "id": "dashboard",
+      "name": "Analytics Dashboard",
+      "description": "Real-time portfolio analytics, transaction history, and export tools",
+      "category": "core",
+      "min_tier": "free",
+      "limits": {
+        "free": {"views_per_month": -1, "export": false},
+        "pro": {"views_per_month": -1, "export": true},
+        "enterprise": {"views_per_month": -1, "export": true}
+      },
+      "gateway_actions": ["get_dashboard", "export_dashboard"],
+      "icon": "chart.bar",
+      "available": true
+    }
+  ]
+}

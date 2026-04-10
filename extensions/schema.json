@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "0pnMatrx Component Registry",
+  "description": "Schema for the component registry manifest used by 0pnMatrx gateway and MTRX iOS app",
+  "type": "object",
+  "required": ["version", "components"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "platform": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/component"
+      }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["id", "name", "description", "category", "min_tier", "limits", "gateway_actions", "icon", "available"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z_]+$",
+          "description": "Unique component identifier matching the service dispatcher key"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable display name"
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line description of what the component does"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["core", "finance", "creative", "governance", "commerce", "identity", "legal", "security", "data"],
+          "description": "Component category for grouping in the UI"
+        },
+        "min_tier": {
+          "type": "string",
+          "enum": ["free", "pro", "enterprise"],
+          "description": "Minimum subscription tier required to access this component"
+        },
+        "limits": {
+          "type": "object",
+          "description": "Per-tier usage limits. Keys are tier names, values are limit objects."
+        },
+        "gateway_actions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of platform_action names this component handles"
+        },
+        "icon": {
+          "type": "string",
+          "description": "SF Symbols icon name for the MTRX iOS app"
+        },
+        "available": {
+          "type": "boolean",
+          "description": "Whether this component is currently operational"
+        }
+      }
+    }
+  }
+}

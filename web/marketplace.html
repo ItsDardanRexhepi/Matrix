@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plugin Marketplace - 0pnMatrx</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#141414;--bg-hover:#1a1a1a;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003300;
+  --green-glow:0 0 8px rgba(0,255,65,.35);
+  --green-subtle:rgba(0,255,65,.06);
+  --text:#c8c8c8;--text-bright:#e8e8e8;--text-muted:#666;
+  --border:#1e1e1e;--border-green:rgba(0,255,65,.2);
+  --yellow:#ffcc00;--orange:#ff9944;--blue:#4488ff;
+  --radius:10px;--max-w:1100px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:'SF Mono','Fira Code','Cascadia Code',monospace;
+  background:var(--bg);color:var(--text);line-height:1.6;
+  min-height:100vh;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+
+/* ── Navigation ── */
+.nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(10,10,10,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+  text-decoration:none;
+}
+.nav-logo span{color:var(--text-muted);font-weight:400;font-size:.72rem;margin-left:6px;text-shadow:none}
+.nav-links{display:flex;gap:20px;align-items:center}
+.nav-links a{
+  color:var(--text-muted);text-decoration:none;font-size:.78rem;
+  transition:color .2s;
+}
+.nav-links a:hover{color:var(--green)}
+.nav-links a.active{color:var(--green)}
+.nav-toggle{display:none;background:none;border:none;color:var(--text);cursor:pointer;font-size:1.3rem;padding:4px}
+
+/* ── Hero ── */
+.hero{
+  text-align:center;padding:72px 24px 56px;
+  background:linear-gradient(180deg,rgba(0,255,65,.03) 0%,transparent 100%);
+  position:relative;overflow:hidden;
+}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 500px 300px at 50% 40%,rgba(0,255,65,.04) 0%,transparent 70%);
+}
+.hero h1{
+  font-size:2rem;font-weight:700;color:var(--text-bright);
+  line-height:1.3;margin-bottom:12px;position:relative;
+}
+.hero h1 em{
+  font-style:normal;color:var(--green);text-shadow:var(--green-glow);
+}
+.hero p{
+  font-size:.88rem;color:var(--text-muted);max-width:640px;
+  margin:0 auto 32px;position:relative;
+}
+.hero-badge{
+  display:inline-block;padding:6px 16px;
+  border:1px solid var(--border-green);border-radius:20px;
+  font-size:.72rem;color:var(--green-dim);
+  background:var(--green-subtle);position:relative;
+}
+
+/* ── Section ── */
+.section{padding:64px 24px;max-width:var(--max-w);margin:0 auto}
+.section-title{
+  font-size:1.3rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:8px;text-align:center;
+}
+.section-sub{
+  font-size:.82rem;color:var(--text-muted);text-align:center;
+  margin-bottom:40px;
+}
+.section-bg{background:var(--bg-surface)}
+
+/* ── Search / Filter Bar ── */
+.search-bar{
+  max-width:var(--max-w);margin:0 auto;padding:0 24px;
+  position:relative;margin-top:-28px;z-index:10;
+}
+.search-inner{
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  padding:16px 20px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+}
+.search-input{
+  flex:1;min-width:200px;padding:10px 14px;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);
+  font-family:inherit;font-size:.82rem;
+  outline:none;transition:border-color .2s;
+}
+.search-input:focus{border-color:var(--green)}
+.search-input::placeholder{color:var(--text-muted)}
+.filter-select{
+  padding:10px 12px;background:var(--bg);
+  border:1px solid var(--border);border-radius:6px;
+  color:var(--text);font-family:inherit;font-size:.78rem;
+  cursor:pointer;outline:none;transition:border-color .2s;
+}
+.filter-select:focus{border-color:var(--green)}
+.filter-select option{background:var(--bg);color:var(--text)}
+.search-btn{
+  padding:10px 20px;border:1px solid var(--green);
+  border-radius:6px;background:transparent;
+  color:var(--green);font-family:inherit;font-size:.78rem;
+  font-weight:600;cursor:pointer;transition:all .2s;
+}
+.search-btn:hover{background:var(--green);color:var(--bg)}
+
+/* ── Plugin Grid ── */
+.plugin-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+  gap:20px;
+}
+.plugin-card{
+  padding:28px 24px;border-radius:var(--radius);
+  background:var(--bg-card);border:1px solid var(--border);
+  transition:border-color .3s,transform .2s;
+  display:flex;flex-direction:column;
+}
+.plugin-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
+.plugin-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.plugin-icon{
+  width:44px;height:44px;border-radius:10px;
+  background:var(--green-subtle);border:1px solid var(--border-green);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.2rem;flex-shrink:0;
+}
+.plugin-tier{
+  padding:3px 10px;border-radius:4px;
+  font-size:.62rem;font-weight:700;letter-spacing:.5px;
+  text-transform:uppercase;
+}
+.plugin-tier.free{background:rgba(0,255,65,.1);color:var(--green-dim);border:1px solid var(--border-green)}
+.plugin-tier.pro{background:rgba(68,136,255,.1);color:var(--blue);border:1px solid rgba(68,136,255,.2)}
+.plugin-tier.enterprise{background:rgba(255,153,68,.1);color:var(--orange);border:1px solid rgba(255,153,68,.2)}
+.plugin-name{
+  font-size:.95rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:4px;
+}
+.plugin-author{font-size:.72rem;color:var(--text-muted);margin-bottom:10px}
+.plugin-desc{
+  font-size:.8rem;color:var(--text-muted);line-height:1.6;
+  margin-bottom:16px;flex:1;
+}
+.plugin-meta{
+  display:flex;align-items:center;gap:16px;
+  padding-top:14px;border-top:1px solid var(--border);
+  margin-bottom:16px;
+}
+.plugin-meta-item{font-size:.72rem;color:var(--text-muted)}
+.plugin-meta-item strong{color:var(--text)}
+.plugin-stars{display:flex;gap:2px;align-items:center}
+.plugin-stars .star{color:var(--yellow);font-size:.72rem}
+.plugin-stars .star.empty{color:var(--border)}
+.plugin-stars .rating-num{font-size:.68rem;color:var(--text-muted);margin-left:4px}
+.plugin-price{
+  font-size:.88rem;font-weight:700;color:var(--green);
+  text-shadow:var(--green-glow);
+}
+.plugin-price.paid{color:var(--text-bright);text-shadow:none}
+.plugin-footer{display:flex;align-items:center;justify-content:space-between}
+.plugin-btn{
+  padding:8px 20px;border-radius:6px;
+  font-family:inherit;font-size:.76rem;font-weight:600;
+  cursor:pointer;transition:all .2s;
+}
+.plugin-btn.install{
+  background:var(--green);color:var(--bg);border:1px solid var(--green);
+}
+.plugin-btn.install:hover{background:var(--green-dim);border-color:var(--green-dim)}
+.plugin-btn.purchase{
+  background:transparent;color:var(--green);border:1px solid var(--green);
+}
+.plugin-btn.purchase:hover{background:var(--green);color:var(--bg)}
+
+/* ── Developer Section ── */
+.dev-section{
+  padding:80px 24px;
+  background:var(--bg-surface);
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+}
+.dev-container{max-width:var(--max-w);margin:0 auto}
+.dev-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}
+.dev-info h2{
+  font-size:1.4rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:16px;line-height:1.3;
+}
+.dev-info h2 em{font-style:normal;color:var(--green);text-shadow:var(--green-glow)}
+.dev-info p{font-size:.84rem;color:var(--text-muted);margin-bottom:16px;line-height:1.7}
+.dev-revenue{
+  display:inline-flex;align-items:center;gap:12px;
+  padding:14px 20px;border-radius:8px;
+  background:rgba(0,255,65,.06);border:1px solid var(--border-green);
+  margin-bottom:20px;
+}
+.dev-revenue .rev-split{
+  font-size:1.6rem;font-weight:800;color:var(--green);
+  text-shadow:var(--green-glow);
+  font-family:'SF Mono','Fira Code',monospace;
+}
+.dev-revenue .rev-label{font-size:.76rem;color:var(--text-muted);line-height:1.4}
+.dev-revenue .rev-label strong{color:var(--text-bright)}
+.dev-link{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:10px 18px;border:1px solid var(--border);
+  border-radius:6px;font-size:.78rem;color:var(--text);
+  transition:all .2s;text-decoration:none;
+}
+.dev-link:hover{border-color:var(--green);color:var(--green);text-decoration:none}
+
+/* ── Submit Form ── */
+.submit-form{
+  padding:32px 28px;border-radius:var(--radius);
+  background:var(--bg-card);border:1px solid var(--border);
+}
+.submit-form h3{
+  font-size:1rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:4px;
+}
+.submit-form .form-sub{
+  font-size:.76rem;color:var(--text-muted);margin-bottom:24px;
+}
+.form-group{margin-bottom:18px}
+.form-label{
+  display:block;font-size:.72rem;color:var(--text-muted);
+  margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;
+}
+.form-input,.form-textarea{
+  width:100%;padding:10px 14px;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);
+  font-family:inherit;font-size:.82rem;
+  outline:none;transition:border-color .2s;
+}
+.form-input:focus,.form-textarea:focus{border-color:var(--green)}
+.form-textarea{height:100px;resize:vertical;line-height:1.5}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-submit{
+  width:100%;padding:12px;margin-top:4px;
+  border:none;border-radius:6px;
+  background:var(--green);color:var(--bg);
+  font-family:inherit;font-size:.82rem;font-weight:700;
+  letter-spacing:.5px;cursor:pointer;transition:background .2s;
+}
+.form-submit:hover{background:var(--green-dim)}
+.form-submit:disabled{opacity:.5;cursor:not-allowed}
+
+/* ── Revenue Share Box ── */
+.rev-box{
+  max-width:var(--max-w);margin:0 auto;padding:0 24px;
+}
+.rev-inner{
+  padding:32px;border-radius:var(--radius);
+  background:var(--bg-card);border:1px solid var(--border);
+  display:grid;grid-template-columns:auto 1fr;gap:28px;
+  align-items:center;
+}
+.rev-icon{
+  width:64px;height:64px;border-radius:50%;
+  background:var(--green-subtle);border:2px solid var(--border-green);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.4rem;flex-shrink:0;
+}
+.rev-content h3{font-size:1rem;font-weight:700;color:var(--text-bright);margin-bottom:8px}
+.rev-content p{font-size:.8rem;color:var(--text-muted);line-height:1.7;margin-bottom:12px}
+.rev-breakdown{display:flex;gap:24px;flex-wrap:wrap}
+.rev-item{
+  padding:10px 16px;border-radius:6px;
+  background:var(--bg-surface);border:1px solid var(--border);
+  text-align:center;
+}
+.rev-item .rev-pct{
+  font-size:1.3rem;font-weight:800;
+  font-family:'SF Mono','Fira Code',monospace;
+  margin-bottom:2px;
+}
+.rev-item .rev-pct.dev{color:var(--green);text-shadow:var(--green-glow)}
+.rev-item .rev-pct.platform{color:var(--text-muted)}
+.rev-item .rev-who{font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
+
+/* ── Footer ── */
+.footer{
+  text-align:center;padding:40px 24px;
+  border-top:1px solid var(--border);
+  font-size:.72rem;color:var(--text-muted);
+}
+.footer-links{
+  display:flex;gap:24px;justify-content:center;flex-wrap:wrap;
+  margin-bottom:16px;list-style:none;
+}
+.footer-links a{color:var(--text-muted);font-size:.72rem;transition:color .2s;text-decoration:none}
+.footer-links a:hover{color:var(--green)}
+
+/* ── Animations ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+  .nav-links{
+    display:none;position:absolute;top:50px;left:0;right:0;
+    flex-direction:column;background:rgba(10,10,10,.96);
+    border-bottom:1px solid var(--border);padding:16px 24px;gap:14px;
+  }
+  .nav-links.open{display:flex}
+  .nav-toggle{display:block}
+  .hero{padding:56px 16px 48px}
+  .hero h1{font-size:1.4rem}
+  .search-inner{flex-direction:column}
+  .search-input{min-width:0;width:100%}
+  .plugin-grid{grid-template-columns:1fr}
+  .dev-grid{grid-template-columns:1fr;gap:28px}
+  .form-row{grid-template-columns:1fr}
+  .rev-inner{grid-template-columns:1fr;text-align:center}
+  .rev-icon{margin:0 auto}
+  .rev-breakdown{justify-content:center}
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <a href="/" class="nav-logo">0pnMatrx<span>marketplace</span></a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
+  <div class="nav-links" id="navLinks">
+    <a href="/">Home</a>
+    <a href="/chat">Chat</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/audit">Audit</a>
+    <a href="/marketplace" class="active">Marketplace</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-badge">Open Plugin Ecosystem</div>
+  <h1 style="margin-top:20px">Extend <em>0pnMatrx</em> &mdash;<br>Developer Plugin Marketplace</h1>
+  <p>Build, sell, and install plugins that add new capabilities to the platform. From gas monitors to portfolio dashboards, the marketplace has it all.</p>
+</header>
+
+<!-- Search / Filter -->
+<div class="search-bar">
+  <div class="search-inner">
+    <input class="search-input" type="text" id="searchInput" placeholder="Search plugins by name, author, or keyword...">
+    <select class="filter-select" id="filterCategory">
+      <option value="all">All Categories</option>
+      <option value="defi">DeFi</option>
+      <option value="nft">NFT</option>
+      <option value="analytics">Analytics</option>
+      <option value="security">Security</option>
+      <option value="governance">Governance</option>
+      <option value="utilities">Utilities</option>
+      <option value="alerts">Alerts</option>
+    </select>
+    <select class="filter-select" id="filterPrice">
+      <option value="all">Any Price</option>
+      <option value="free">Free</option>
+      <option value="paid">Paid</option>
+    </select>
+    <select class="filter-select" id="filterTier">
+      <option value="all">Any Tier</option>
+      <option value="free">Free Tier</option>
+      <option value="pro">Pro Tier</option>
+      <option value="enterprise">Enterprise Tier</option>
+    </select>
+    <button class="search-btn" id="searchBtn">Search</button>
+  </div>
+</div>
+
+<!-- Plugin Grid -->
+<section class="section" id="plugins">
+  <h2 class="section-title">Featured Plugins</h2>
+  <p class="section-sub">Browse community-built plugins to extend your 0pnMatrx workspace</p>
+  <div class="plugin-grid" id="pluginGrid">
+
+    <!-- Hello World -->
+    <div class="plugin-card" data-category="utilities" data-price="free" data-tier="free">
+      <div class="plugin-header">
+        <div class="plugin-icon">&#128075;</div>
+        <span class="plugin-tier free">Free Tier</span>
+      </div>
+      <div class="plugin-name">Hello World</div>
+      <div class="plugin-author">by 0pnMatrx Team</div>
+      <div class="plugin-desc">The canonical starter plugin. Demonstrates the plugin API, lifecycle hooks, configuration schema, and service registration. Perfect for learning how to build your own.</div>
+      <div class="plugin-meta">
+        <div class="plugin-meta-item"><strong>12,430</strong> downloads</div>
+        <div class="plugin-stars">
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="rating-num">5.0</span>
+        </div>
+      </div>
+      <div class="plugin-footer">
+        <span class="plugin-price">Free</span>
+        <button class="plugin-btn install" onclick="installPlugin('hello-world')">Install</button>
+      </div>
+    </div>
+
+    <!-- Portfolio Tracker -->
+    <div class="plugin-card" data-category="analytics" data-price="paid" data-tier="pro">
+      <div class="plugin-header">
+        <div class="plugin-icon">&#128200;</div>
+        <span class="plugin-tier pro">Pro Tier</span>
+      </div>
+      <div class="plugin-name">Portfolio Tracker</div>
+      <div class="plugin-author">by ChainMetrics Labs</div>
+      <div class="plugin-desc">Real-time cross-chain portfolio analytics with P&amp;L tracking, asset allocation charts, historical performance, and automated rebalancing alerts. Supports 12 chains.</div>
+      <div class="plugin-meta">
+        <div class="plugin-meta-item"><strong>8,712</strong> downloads</div>
+        <div class="plugin-stars">
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star empty">&#9733;</span>
+          <span class="rating-num">4.6</span>
+        </div>
+      </div>
+      <div class="plugin-footer">
+        <span class="plugin-price paid">$2.99</span>
+        <button class="plugin-btn purchase" onclick="purchasePlugin('portfolio-tracker')">Purchase</button>
+      </div>
+    </div>
+
+    <!-- Gas Price Alerts -->
+    <div class="plugin-card" data-category="alerts" data-price="free" data-tier="free">
+      <div class="plugin-header">
+        <div class="plugin-icon">&#9981;</div>
+        <span class="plugin-tier free">Free Tier</span>
+      </div>
+      <div class="plugin-name">Gas Price Alerts</div>
+      <div class="plugin-author">by GasWatch DAO</div>
+      <div class="plugin-desc">Monitor gas prices across Ethereum, Polygon, Arbitrum, and Base. Set custom thresholds and receive in-platform notifications when gas drops below your target.</div>
+      <div class="plugin-meta">
+        <div class="plugin-meta-item"><strong>6,245</strong> downloads</div>
+        <div class="plugin-stars">
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="rating-num">4.8</span>
+        </div>
+      </div>
+      <div class="plugin-footer">
+        <span class="plugin-price">Free</span>
+        <button class="plugin-btn install" onclick="installPlugin('gas-price-alerts')">Install</button>
+      </div>
+    </div>
+
+    <!-- Whale Watcher -->
+    <div class="plugin-card" data-category="analytics" data-price="paid" data-tier="pro">
+      <div class="plugin-header">
+        <div class="plugin-icon">&#128051;</div>
+        <span class="plugin-tier pro">Pro Tier</span>
+      </div>
+      <div class="plugin-name">Whale Watcher</div>
+      <div class="plugin-author">by DeepSea Analytics</div>
+      <div class="plugin-desc">Track large wallet movements in real time. Get alerts when whales accumulate, dump, or move assets across chains. Includes sentiment scoring and flow analysis.</div>
+      <div class="plugin-meta">
+        <div class="plugin-meta-item"><strong>4,891</strong> downloads</div>
+        <div class="plugin-stars">
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star empty">&#9733;</span>
+          <span class="rating-num">4.3</span>
+        </div>
+      </div>
+      <div class="plugin-footer">
+        <span class="plugin-price paid">$4.99</span>
+        <button class="plugin-btn purchase" onclick="purchasePlugin('whale-watcher')">Purchase</button>
+      </div>
+    </div>
+
+    <!-- DAO Toolkit -->
+    <div class="plugin-card" data-category="governance" data-price="paid" data-tier="enterprise">
+      <div class="plugin-header">
+        <div class="plugin-icon">&#127963;</div>
+        <span class="plugin-tier enterprise">Enterprise</span>
+      </div>
+      <div class="plugin-name">DAO Governance Toolkit</div>
+      <div class="plugin-author">by OpenGov Labs</div>
+      <div class="plugin-desc">Advanced governance module with quadratic voting, delegation trees, proposal templates, quorum analytics, and multi-chain treasury oversight for enterprise DAOs.</div>
+      <div class="plugin-meta">
+        <div class="plugin-meta-item"><strong>2,156</strong> downloads</div>
+        <div class="plugin-stars">
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="rating-num">4.9</span>
+        </div>
+      </div>
+      <div class="plugin-footer">
+        <span class="plugin-price paid">$9.99</span>
+        <button class="plugin-btn purchase" onclick="purchasePlugin('dao-toolkit')">Purchase</button>
+      </div>
+    </div>
+
+    <!-- Contract Diff -->
+    <div class="plugin-card" data-category="security" data-price="free" data-tier="free">
+      <div class="plugin-header">
+        <div class="plugin-icon">&#128269;</div>
+        <span class="plugin-tier free">Free Tier</span>
+      </div>
+      <div class="plugin-name">Contract Diff Viewer</div>
+      <div class="plugin-author">by SolidityTools</div>
+      <div class="plugin-desc">Side-by-side contract comparison with syntax highlighting, structural diff, and storage layout analysis. Quickly spot changes between contract versions.</div>
+      <div class="plugin-meta">
+        <div class="plugin-meta-item"><strong>3,820</strong> downloads</div>
+        <div class="plugin-stars">
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star">&#9733;</span>
+          <span class="star empty">&#9733;</span>
+          <span class="rating-num">4.4</span>
+        </div>
+      </div>
+      <div class="plugin-footer">
+        <span class="plugin-price">Free</span>
+        <button class="plugin-btn install" onclick="installPlugin('contract-diff')">Install</button>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Developer Section -->
+<div class="dev-section" id="developers">
+  <div class="dev-container">
+    <div class="dev-grid">
+
+      <!-- Left: Info -->
+      <div class="dev-info">
+        <h2>Become a <em>Plugin Developer</em></h2>
+        <p>The 0pnMatrx plugin system is fully open. Build plugins in Python or JavaScript, publish them to the marketplace, and earn revenue from every install.</p>
+        <div class="dev-revenue">
+          <div class="rev-split">90/10</div>
+          <div class="rev-label"><strong>You keep 90%.</strong><br>We take 10%.</div>
+        </div>
+        <p>Revenue is paid monthly to your connected wallet address. No minimum payout threshold. Transparent on-chain settlement.</p>
+        <a href="/docs/PLUGIN_DEVELOPMENT.md" class="dev-link">&#128214; Read the Plugin Development Guide</a>
+      </div>
+
+      <!-- Right: Submit Form -->
+      <div class="submit-form">
+        <h3>Submit Your Plugin</h3>
+        <p class="form-sub">Fill out the form below. Our review team will evaluate your plugin within 48 hours.</p>
+        <form id="submitPluginForm" onsubmit="submitPlugin(event)">
+          <div class="form-group">
+            <label class="form-label" for="pluginName">Plugin Name</label>
+            <input class="form-input" type="text" id="pluginName" placeholder="My Awesome Plugin" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pluginDesc">Description</label>
+            <textarea class="form-textarea" id="pluginDesc" placeholder="Describe what your plugin does, what services it adds, and who it is for..." required></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="pluginRepo">Repository URL</label>
+              <input class="form-input" type="url" id="pluginRepo" placeholder="https://github.com/you/plugin" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="pluginPrice">Price (USD)</label>
+              <input class="form-input" type="number" id="pluginPrice" placeholder="0.00" min="0" step="0.01" value="0">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pluginEmail">Contact Email</label>
+            <input class="form-input" type="email" id="pluginEmail" placeholder="dev@example.com" required>
+          </div>
+          <button class="form-submit" type="submit" id="submitPluginBtn">Submit for Review</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Revenue Share Explanation -->
+<section class="section" style="padding-bottom:80px">
+  <div class="rev-box">
+    <div class="rev-inner">
+      <div class="rev-icon">&#128176;</div>
+      <div class="rev-content">
+        <h3>Transparent Revenue Sharing</h3>
+        <p>Every paid plugin purchase is split between you and the platform. Revenue is settled on-chain monthly via the NeoSafe multisig. You can track every payment in the public ledger. No hidden fees, no surprises.</p>
+        <div class="rev-breakdown">
+          <div class="rev-item">
+            <div class="rev-pct dev">90%</div>
+            <div class="rev-who">Developer</div>
+          </div>
+          <div class="rev-item">
+            <div class="rev-pct platform">10%</div>
+            <div class="rev-who">Platform</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <ul class="footer-links">
+    <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank">GitHub</a></li>
+    <li><a href="/docs">API Docs</a></li>
+    <li><a href="/chat">Chat</a></li>
+    <li><a href="/pricing">Pricing</a></li>
+    <li><a href="/audit">Audit</a></li>
+    <li><a href="/docs/PLUGIN_DEVELOPMENT.md">Plugin Docs</a></li>
+  </ul>
+  <p>&copy; 2026 0pnMatrx. Open source under MIT license.</p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // ── Mobile nav toggle ──
+  const toggle = document.getElementById("navToggle");
+  const links = document.getElementById("navLinks");
+  toggle.addEventListener("click", ()=> links.classList.toggle("open"));
+  links.querySelectorAll("a").forEach(a=>{
+    a.addEventListener("click", ()=> links.classList.remove("open"));
+  });
+
+  // ── Search & Filter ──
+  const searchInput = document.getElementById("searchInput");
+  const filterCat = document.getElementById("filterCategory");
+  const filterPrice = document.getElementById("filterPrice");
+  const filterTier = document.getElementById("filterTier");
+  const searchBtn = document.getElementById("searchBtn");
+  const cards = document.querySelectorAll(".plugin-card");
+
+  function applyFilters(){
+    const query = searchInput.value.toLowerCase().trim();
+    const cat = filterCat.value;
+    const price = filterPrice.value;
+    const tier = filterTier.value;
+
+    cards.forEach(card=>{
+      const text = card.textContent.toLowerCase();
+      const matchQuery = !query || text.includes(query);
+      const matchCat = cat === "all" || card.dataset.category === cat;
+      const matchPrice = price === "all" || card.dataset.price === price;
+      const matchTier = tier === "all" || card.dataset.tier === tier;
+
+      card.style.display = (matchQuery && matchCat && matchPrice && matchTier) ? "" : "none";
+    });
+  }
+
+  searchBtn.addEventListener("click", applyFilters);
+  searchInput.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){ e.preventDefault(); applyFilters(); }
+  });
+  filterCat.addEventListener("change", applyFilters);
+  filterPrice.addEventListener("change", applyFilters);
+  filterTier.addEventListener("change", applyFilters);
+
+  // ── Install / Purchase ──
+  window.installPlugin = function(slug){
+    const btn = event.target;
+    btn.textContent = "Installing...";
+    btn.disabled = true;
+    setTimeout(()=>{
+      btn.textContent = "Installed";
+      btn.style.background = "var(--bg-surface)";
+      btn.style.color = "var(--green)";
+      btn.style.borderColor = "var(--border)";
+    }, 1200);
+  };
+
+  window.purchasePlugin = function(slug){
+    const btn = event.target;
+    btn.textContent = "Processing...";
+    btn.disabled = true;
+    setTimeout(()=>{
+      btn.textContent = "Purchased";
+      btn.classList.remove("purchase");
+      btn.classList.add("install");
+      btn.style.background = "var(--bg-surface)";
+      btn.style.color = "var(--green)";
+      btn.style.borderColor = "var(--border)";
+    }, 1500);
+  };
+
+  // ── Submit Plugin Form ──
+  window.submitPlugin = function(e){
+    e.preventDefault();
+    const btn = document.getElementById("submitPluginBtn");
+    btn.disabled = true;
+    btn.textContent = "Submitting...";
+
+    const payload = {
+      name: document.getElementById("pluginName").value,
+      description: document.getElementById("pluginDesc").value,
+      repository_url: document.getElementById("pluginRepo").value,
+      price: parseFloat(document.getElementById("pluginPrice").value) || 0,
+      email: document.getElementById("pluginEmail").value
+    };
+
+    fetch("/marketplace/submit", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    })
+    .then(r=> r.json())
+    .then(data=>{
+      if(data.status === "ok"){
+        btn.textContent = "Submitted! We will review within 48h.";
+        btn.style.background = "var(--bg-surface)";
+        btn.style.color = "var(--green)";
+        document.getElementById("submitPluginForm").reset();
+      } else {
+        alert(data.message || "Submission failed. Please try again.");
+        btn.textContent = "Submit for Review";
+        btn.disabled = false;
+      }
+    })
+    .catch(()=>{
+      alert("Connection error. Please check that the server is running.");
+      btn.textContent = "Submit for Review";
+      btn.disabled = false;
+    });
+  };
+
+  // ── Fade-in observer ──
+  const observer = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        entry.target.style.opacity = "1";
+        entry.target.style.transform = "translateY(0)";
+      }
+    });
+  }, {threshold:0.08});
+
+  document.querySelectorAll(".plugin-card, .rev-inner, .submit-form, .dev-info").forEach(el=>{
+    el.style.opacity = "0";
+    el.style.transform = "translateY(16px)";
+    el.style.transition = "opacity .45s ease, transform .45s ease";
+    observer.observe(el);
+  });
+
+})();
+</script>
+</body>
+</html>

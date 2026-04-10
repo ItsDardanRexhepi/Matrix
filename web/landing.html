@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>0pnMatrx - The Free, Open Source AI Agent Platform for Blockchain</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#0e0e0e;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003b00;
+  --green-glow:0 0 10px rgba(0,255,65,.3);
+  --text:#c8c8c8;--text-muted:#666;--text-bright:#e8e8e8;
+  --border:#1e1e1e;--radius:12px;--max-w:1120px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);
+  line-height:1.6;overflow-x:hidden;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+img{max-width:100%}
+.container{max-width:var(--max-w);margin:0 auto;padding:0 24px}
+
+/* ── Navigation ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,10,10,.88);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+nav .container{
+  display:flex;align-items:center;justify-content:space-between;
+  height:58px;
+}
+.nav-logo{
+  font-family:'SF Mono','Fira Code',monospace;
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{color:var(--text-muted);font-size:.85rem;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--green);text-decoration:none}
+.nav-cta{
+  padding:7px 18px;border:1px solid var(--green);border-radius:6px;
+  color:var(--green);font-size:.82rem;font-weight:600;transition:all .2s;
+}
+.nav-cta:hover{background:var(--green);color:var(--bg);text-decoration:none}
+
+/* ── Hero ── */
+.hero{
+  padding:140px 0 100px;text-align:center;position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 600px 400px at 50% 30%, rgba(0,255,65,.04) 0%, transparent 70%);
+}
+/* Matrix rain effect - lightweight CSS columns */
+.matrix-rain{
+  position:absolute;top:0;left:0;right:0;bottom:0;
+  pointer-events:none;overflow:hidden;opacity:.12;
+}
+.rain-col{
+  position:absolute;top:-100%;
+  font-family:'SF Mono','Fira Code',monospace;
+  font-size:14px;color:var(--green);
+  line-height:1.4;writing-mode:vertical-rl;
+  animation:rain linear infinite;
+  white-space:nowrap;
+}
+@keyframes rain{
+  0%{transform:translateY(-100%)}
+  100%{transform:translateY(calc(100vh + 100%))}
+}
+
+.hero h1{
+  font-size:clamp(2rem,5.5vw,3.6rem);font-weight:800;
+  color:var(--text-bright);line-height:1.15;
+  margin-bottom:20px;position:relative;
+}
+.hero h1 span{color:var(--green);text-shadow:var(--green-glow)}
+.hero .subtitle{
+  font-size:clamp(1rem,2.2vw,1.3rem);color:var(--text-muted);
+  max-width:640px;margin:0 auto 40px;position:relative;
+}
+.hero .subtitle strong{color:var(--text);font-weight:600}
+.hero-btns{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:14px 32px;border-radius:8px;font-size:.95rem;
+  font-weight:600;transition:all .2s;border:none;cursor:pointer;
+}
+.btn-primary{
+  background:var(--green);color:var(--bg);
+  box-shadow:0 0 20px rgba(0,255,65,.2);
+}
+.btn-primary:hover{box-shadow:0 0 30px rgba(0,255,65,.35);transform:translateY(-1px);text-decoration:none;color:var(--bg)}
+.btn-secondary{
+  background:transparent;border:1px solid var(--border);color:var(--text);
+}
+.btn-secondary:hover{border-color:var(--green);color:var(--green);text-decoration:none}
+
+/* ── Section shared ── */
+section{padding:80px 0}
+.section-label{
+  font-size:.75rem;font-weight:700;letter-spacing:3px;
+  text-transform:uppercase;color:var(--green-dim);margin-bottom:10px;
+}
+.section-title{
+  font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:700;
+  color:var(--text-bright);margin-bottom:16px;
+}
+.section-desc{color:var(--text-muted);max-width:560px;margin-bottom:48px;font-size:.95rem}
+.centered{text-align:center}
+.centered .section-desc{margin-left:auto;margin-right:auto}
+
+/* ── Stats Bar ── */
+.stats-bar{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:20px;padding:48px 0;border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  max-width:700px;margin:0 auto;text-align:center;
+}
+.stat-num{
+  font-size:clamp(2rem,4vw,2.8rem);font-weight:800;
+  color:var(--green);text-shadow:var(--green-glow);
+  font-family:'SF Mono','Fira Code',monospace;
+}
+.stat-label{font-size:.8rem;color:var(--text-muted);margin-top:4px}
+
+/* ── Feature Grid ── */
+.feature-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:16px;
+}
+.feature-card{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:24px;transition:border-color .25s;
+}
+.feature-card:hover{border-color:#2a2a2a}
+.feature-icon{
+  font-size:1.5rem;margin-bottom:12px;
+  width:42px;height:42px;border-radius:8px;
+  background:rgba(0,255,65,.06);border:1px solid #1a2a1a;
+  display:flex;align-items:center;justify-content:center;
+}
+.feature-card h3{font-size:.92rem;font-weight:600;color:var(--text-bright);margin-bottom:6px}
+.feature-card p{font-size:.8rem;color:var(--text-muted);line-height:1.55}
+
+/* ── Agent Cards ── */
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.agent-card{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:32px 28px;
+  text-align:center;transition:border-color .25s,transform .25s;
+}
+.agent-card:hover{border-color:#2a2a2a;transform:translateY(-2px)}
+.agent-avatar{
+  width:64px;height:64px;border-radius:50%;margin:0 auto 16px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'SF Mono','Fira Code',monospace;
+  font-size:1.3rem;font-weight:700;
+  background:rgba(0,255,65,.06);border:2px solid var(--green-dark);
+  color:var(--green);
+}
+.agent-card h3{font-size:1.05rem;font-weight:700;color:var(--text-bright);margin-bottom:8px}
+.agent-card .role{font-size:.75rem;color:var(--green-dim);margin-bottom:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
+.agent-card p{font-size:.83rem;color:var(--text-muted);line-height:1.6}
+
+/* ── How It Works ── */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:28px}
+.step{text-align:center;padding:20px}
+.step-num{
+  width:48px;height:48px;border-radius:50%;margin:0 auto 18px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'SF Mono','Fira Code',monospace;
+  font-size:1.1rem;font-weight:700;
+  background:rgba(0,255,65,.08);border:2px solid var(--green-dark);
+  color:var(--green);
+}
+.step h3{font-size:1rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
+.step p{font-size:.85rem;color:var(--text-muted)}
+
+/* ── Pricing ── */
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start}
+.price-card{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:36px 28px;
+  text-align:center;transition:border-color .25s;
+}
+.price-card.featured{border-color:var(--green-dark);position:relative}
+.price-card.featured::before{
+  content:"POPULAR";position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+  background:var(--green);color:var(--bg);font-size:.6rem;font-weight:700;
+  padding:3px 12px;border-radius:4px;letter-spacing:1px;
+}
+.price-card h3{font-size:1.05rem;font-weight:700;color:var(--text-bright);margin-bottom:6px}
+.price-amount{
+  font-size:2.4rem;font-weight:800;color:var(--text-bright);margin:12px 0 4px;
+  font-family:'SF Mono','Fira Code',monospace;
+}
+.price-amount span{font-size:.85rem;font-weight:400;color:var(--text-muted)}
+.price-period{font-size:.8rem;color:var(--text-muted);margin-bottom:24px}
+.price-features{list-style:none;text-align:left;margin-bottom:28px}
+.price-features li{
+  font-size:.82rem;color:var(--text-muted);padding:7px 0;
+  border-bottom:1px solid #161616;display:flex;align-items:center;gap:8px;
+}
+.price-features li::before{content:"\2713";color:var(--green-dim);font-weight:700;font-size:.75rem}
+.price-features li.disabled{opacity:.35}
+.price-features li.disabled::before{content:"\2013";color:var(--text-muted)}
+.price-btn{
+  display:block;width:100%;padding:12px;border-radius:8px;
+  font-size:.85rem;font-weight:600;cursor:pointer;transition:all .2s;
+  border:1px solid var(--border);background:transparent;color:var(--text);
+}
+.price-btn:hover{border-color:var(--green);color:var(--green);text-decoration:none}
+.price-card.featured .price-btn{
+  background:var(--green);color:var(--bg);border-color:var(--green);
+}
+.price-card.featured .price-btn:hover{opacity:.88}
+
+/* ── Footer ── */
+footer{
+  padding:48px 0 32px;border-top:1px solid var(--border);
+  text-align:center;
+}
+.footer-links{
+  display:flex;gap:28px;justify-content:center;flex-wrap:wrap;
+  margin-bottom:20px;list-style:none;
+}
+.footer-links a{color:var(--text-muted);font-size:.82rem;transition:color .2s}
+.footer-links a:hover{color:var(--green)}
+.footer-copy{font-size:.72rem;color:#444}
+
+/* ── Mobile nav ── */
+.nav-toggle{display:none;background:none;border:none;color:var(--text);cursor:pointer;font-size:1.4rem;padding:4px}
+@media(max-width:700px){
+  .nav-links{
+    display:none;position:absolute;top:58px;left:0;right:0;
+    flex-direction:column;background:rgba(10,10,10,.96);
+    border-bottom:1px solid var(--border);padding:16px 24px;gap:14px;
+  }
+  .nav-links.open{display:flex}
+  .nav-toggle{display:block}
+  .hero{padding:110px 0 70px}
+  section{padding:56px 0}
+  .stats-bar{grid-template-columns:1fr;gap:24px;padding:36px 0}
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+  <div class="container">
+    <a href="#" class="nav-logo">0pnMatrx</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Menu">&#9776;</button>
+    <ul class="nav-links" id="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#agents">Agents</a></li>
+      <li><a href="#how">How It Works</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+      <li><a href="/chat" class="nav-cta">Try Now</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero" id="top">
+  <div class="matrix-rain" id="matrix-rain"></div>
+  <div class="container">
+    <h1>The Free, Open Source<br><span>AI Agent Platform</span> for Blockchain</h1>
+    <p class="subtitle"><strong>30 blockchain services.</strong> Three AI agents. <strong>Zero fees</strong> to start.</p>
+    <div class="hero-btns">
+      <a href="/chat" class="btn btn-primary">Try Now</a>
+      <a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank" class="btn btn-secondary">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<section style="padding:0">
+  <div class="container">
+    <div class="stats-bar">
+      <div><div class="stat-num">30</div><div class="stat-label">Blockchain Services</div></div>
+      <div><div class="stat-num">89</div><div class="stat-label">Available Actions</div></div>
+      <div><div class="stat-num">329</div><div class="stat-label">Tests Passing</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="container">
+    <div class="centered">
+      <div class="section-label">Capabilities</div>
+      <div class="section-title">Everything you need for blockchain development</div>
+      <div class="section-desc">From deploying smart contracts to managing DAOs, 0pnMatrx covers the full blockchain lifecycle with natural language commands.</div>
+    </div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">&#128260;</div>
+        <h3>Contract Conversion</h3>
+        <p>Convert Solidity contracts to Rust, Move, Cairo, and more. Cross-chain compatible output.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#128176;</div>
+        <h3>DeFi Operations</h3>
+        <p>Token swaps, liquidity provisioning, yield farming, and flash loan orchestration.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#127912;</div>
+        <h3>NFT Management</h3>
+        <p>Mint, list, transfer, and manage NFT collections with full metadata support.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#127963;</div>
+        <h3>DAO Governance</h3>
+        <p>Create DAOs, manage proposals, delegate votes, and execute governance actions.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#128274;</div>
+        <h3>Security Auditing</h3>
+        <p>Automated vulnerability scanning, reentrancy detection, and security report generation.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#9981;</div>
+        <h3>Gas Optimization</h3>
+        <p>Analyze and optimize gas costs across contracts with actionable recommendations.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#128279;</div>
+        <h3>Cross-Chain Bridge</h3>
+        <p>Bridge assets between Ethereum, Polygon, Arbitrum, Solana, and more.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#127793;</div>
+        <h3>Token Launch</h3>
+        <p>ERC-20 deployment, tokenomics configuration, airdrop distribution, and vesting schedules.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">&#128200;</div>
+        <h3>Portfolio Tracking</h3>
+        <p>Real-time portfolio analytics, P&amp;L tracking, and cross-chain balance aggregation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Agents -->
+<section id="agents" style="background:var(--bg-surface)">
+  <div class="container">
+    <div class="centered">
+      <div class="section-label">Meet the Agents</div>
+      <div class="section-title">Three specialized AI agents at your command</div>
+      <div class="section-desc">Each agent is fine-tuned for different aspects of blockchain development and operations.</div>
+    </div>
+    <div class="agent-grid">
+      <div class="agent-card">
+        <div class="agent-avatar">T</div>
+        <h3>Trinity</h3>
+        <div class="role">Operations Agent</div>
+        <p>Your primary interface. Trinity handles contract deployment, DeFi operations, token management, and most day-to-day blockchain tasks with precise execution.</p>
+      </div>
+      <div class="agent-card">
+        <div class="agent-avatar">N</div>
+        <h3>Neo</h3>
+        <div class="role">Analysis Agent</div>
+        <p>The deep thinker. Neo specializes in security auditing, gas optimization, code analysis, and complex cross-chain strategy planning.</p>
+      </div>
+      <div class="agent-card">
+        <div class="agent-avatar">M</div>
+        <h3>Morpheus</h3>
+        <div class="role">Orchestration Agent</div>
+        <p>The coordinator. Morpheus manages multi-step workflows, DAO governance, batch operations, and complex multi-agent task delegation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section id="how">
+  <div class="container">
+    <div class="centered">
+      <div class="section-label">How It Works</div>
+      <div class="section-title">Three steps to blockchain automation</div>
+      <div class="section-desc">No SDKs to learn. No boilerplate. Just describe what you need in plain English.</div>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Connect</h3>
+        <p>Start the gateway server and open the chat interface. No API keys required to get started.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Describe</h3>
+        <p>Tell the agent what you want in natural language. "Deploy an ERC-20 token" or "Audit this contract for vulnerabilities."</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Execute</h3>
+        <p>The agent selects the right tools, generates the code, and executes the operation -- all while you watch in real time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing" style="background:var(--bg-surface)">
+  <div class="container">
+    <div class="centered">
+      <div class="section-label">Pricing</div>
+      <div class="section-title">Start free. Scale when ready.</div>
+      <div class="section-desc">Open source at its core. Premium tiers add managed infrastructure and priority support.</div>
+    </div>
+    <div class="pricing-grid">
+      <!-- Free -->
+      <div class="price-card">
+        <h3>Free</h3>
+        <div class="price-amount">$0</div>
+        <div class="price-period">forever</div>
+        <ul class="price-features">
+          <li>All 30 blockchain services</li>
+          <li>3 AI agents (Trinity, Neo, Morpheus)</li>
+          <li>Community support</li>
+          <li>Self-hosted gateway</li>
+          <li class="disabled">Managed cloud hosting</li>
+          <li class="disabled">Priority support</li>
+          <li class="disabled">Custom agent training</li>
+        </ul>
+        <a href="/chat" class="price-btn">Get Started</a>
+      </div>
+      <!-- Pro -->
+      <div class="price-card featured">
+        <h3>Pro</h3>
+        <div class="price-amount">$4.99<span>/mo</span></div>
+        <div class="price-period">per user</div>
+        <ul class="price-features">
+          <li>Everything in Free</li>
+          <li>Managed cloud gateway</li>
+          <li>Priority API access</li>
+          <li>Email support (24h SLA)</li>
+          <li>Usage analytics dashboard</li>
+          <li class="disabled">Custom agent training</li>
+          <li class="disabled">Dedicated infrastructure</li>
+        </ul>
+        <a href="/chat" class="price-btn">Start Pro Trial</a>
+      </div>
+      <!-- Enterprise -->
+      <div class="price-card">
+        <h3>Enterprise</h3>
+        <div class="price-amount">$19.99<span>/mo</span></div>
+        <div class="price-period">per user</div>
+        <ul class="price-features">
+          <li>Everything in Pro</li>
+          <li>Dedicated infrastructure</li>
+          <li>Custom agent training</li>
+          <li>SSO &amp; team management</li>
+          <li>Priority support (4h SLA)</li>
+          <li>SLA guarantee (99.9%)</li>
+          <li>On-prem deployment option</li>
+        </ul>
+        <a href="/chat" class="price-btn">Contact Sales</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <ul class="footer-links">
+      <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank">GitHub</a></li>
+      <li><a href="/docs">API Docs</a></li>
+      <li><a href="/chat">Chat</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+      <li><a href="#" title="Coming May 2026">iOS App (Coming May 2026)</a></li>
+    </ul>
+    <div class="footer-copy">&copy; 2026 0pnMatrx. Open source under MIT license.</div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // Mobile nav toggle
+  const toggle = document.getElementById("nav-toggle");
+  const links = document.getElementById("nav-links");
+  toggle.addEventListener("click", ()=> links.classList.toggle("open"));
+
+  // Close nav on link click (mobile)
+  links.querySelectorAll("a").forEach(a=>{
+    a.addEventListener("click", ()=> links.classList.remove("open"));
+  });
+
+  // Matrix rain effect - lightweight CSS animation
+  const rain = document.getElementById("matrix-rain");
+  const chars = "01001101011000010111010001110010011010010111100001000011011011110110010001100101";
+  const colCount = Math.floor(window.innerWidth / 28);
+
+  for(let i = 0; i < colCount; i++){
+    const col = document.createElement("div");
+    col.className = "rain-col";
+    // Random substring of binary chars
+    const start = Math.floor(Math.random() * chars.length);
+    const len = 12 + Math.floor(Math.random() * 20);
+    let text = "";
+    for(let j = 0; j < len; j++){
+      text += chars[(start + j) % chars.length] + "\n";
+    }
+    col.textContent = text;
+    col.style.left = (i * 28 + Math.random() * 14) + "px";
+    col.style.animationDuration = (6 + Math.random() * 10) + "s";
+    col.style.animationDelay = (-Math.random() * 12) + "s";
+    col.style.fontSize = (12 + Math.random() * 4) + "px";
+    col.style.opacity = (0.3 + Math.random() * 0.7);
+    rain.appendChild(col);
+  }
+
+  // Smooth scroll for anchor links
+  document.querySelectorAll('a[href^="#"]').forEach(a=>{
+    a.addEventListener("click", e=>{
+      const target = document.querySelector(a.getAttribute("href"));
+      if(target){
+        e.preventDefault();
+        target.scrollIntoView({behavior:"smooth"});
+      }
+    });
+  });
+
+  // Intersection Observer for fade-in
+  const observer = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        entry.target.style.opacity = "1";
+        entry.target.style.transform = "translateY(0)";
+      }
+    });
+  }, {threshold:0.1});
+
+  document.querySelectorAll(".feature-card, .agent-card, .price-card, .step").forEach(el=>{
+    el.style.opacity = "0";
+    el.style.transform = "translateY(20px)";
+    el.style.transition = "opacity .5s ease, transform .5s ease";
+    observer.observe(el);
+  });
+})();
+</script>
+</body>
+</html>

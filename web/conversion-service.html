@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Contract Conversion Service - 0pnMatrx</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#141414;--bg-hover:#1a1a1a;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003300;
+  --green-glow:0 0 8px rgba(0,255,65,.35);
+  --green-subtle:rgba(0,255,65,.06);
+  --text:#c8c8c8;--text-bright:#e8e8e8;--text-muted:#666;
+  --border:#1e1e1e;--border-green:rgba(0,255,65,.2);
+  --radius:10px;--max-w:1100px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:'SF Mono','Fira Code','Cascadia Code',monospace;
+  background:var(--bg);color:var(--text);line-height:1.6;
+  min-height:100vh;
+}
+
+/* ── Navigation ── */
+.nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(10,10,10,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+  text-decoration:none;
+}
+.nav-logo span{color:var(--text-muted);font-weight:400;font-size:.72rem;margin-left:6px;text-shadow:none}
+.nav-links{display:flex;gap:20px;align-items:center}
+.nav-links a{
+  color:var(--text-muted);text-decoration:none;font-size:.78rem;
+  transition:color .2s;
+}
+.nav-links a:hover{color:var(--green)}
+
+/* ── Hero ── */
+.hero{
+  text-align:center;padding:72px 24px 56px;
+  background:linear-gradient(180deg,rgba(0,255,65,.03) 0%,transparent 100%);
+}
+.hero h1{
+  font-size:2rem;font-weight:700;color:var(--text-bright);
+  line-height:1.3;margin-bottom:12px;
+}
+.hero h1 em{
+  font-style:normal;color:var(--green);text-shadow:var(--green-glow);
+}
+.hero p{
+  font-size:.88rem;color:var(--text-muted);max-width:640px;margin:0 auto 32px;
+}
+.hero-stats{
+  display:flex;justify-content:center;gap:40px;flex-wrap:wrap;
+  margin-top:28px;
+}
+.hero-stat{text-align:center}
+.hero-stat-num{
+  font-size:1.8rem;font-weight:700;color:var(--green);
+  text-shadow:var(--green-glow);
+}
+.hero-stat-label{font-size:.72rem;color:var(--text-muted);margin-top:2px}
+
+/* ── Section ── */
+.section{padding:64px 24px;max-width:var(--max-w);margin:0 auto}
+.section-title{
+  font-size:1.3rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:8px;text-align:center;
+}
+.section-sub{
+  font-size:.82rem;color:var(--text-muted);text-align:center;
+  margin-bottom:40px;
+}
+
+/* ── How It Works ── */
+.steps{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  gap:20px;margin-bottom:48px;position:relative;
+}
+.steps::before{
+  content:'';position:absolute;top:48px;left:16.66%;right:16.66%;
+  height:2px;background:linear-gradient(90deg,var(--border),var(--green-dim),var(--border));
+  z-index:0;
+}
+@media(max-width:720px){
+  .steps{grid-template-columns:1fr;gap:16px}
+  .steps::before{display:none}
+}
+.step{
+  text-align:center;padding:32px 24px;
+  border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+  position:relative;z-index:1;
+  transition:border-color .3s;
+}
+.step:hover{border-color:var(--border-green)}
+.step-num{
+  width:40px;height:40px;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:1rem;font-weight:700;
+  background:var(--green-subtle);color:var(--green);
+  border:2px solid var(--border-green);
+  margin-bottom:16px;
+}
+.step h3{
+  font-size:.92rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:8px;
+}
+.step p{font-size:.78rem;color:var(--text-muted);line-height:1.6}
+
+/* ── Pricing Cards ── */
+.pricing-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:20px;margin-bottom:48px;
+}
+.price-card{
+  padding:32px 28px;border-radius:var(--radius);
+  background:var(--bg-card);border:1px solid var(--border);
+  position:relative;transition:border-color .3s,transform .2s;
+}
+.price-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
+.price-card.featured{border-color:var(--green-dim)}
+.price-card.featured::before{
+  content:"BEST VALUE";position:absolute;top:-11px;left:50%;
+  transform:translateX(-50%);
+  padding:3px 14px;border-radius:10px;
+  font-size:.62rem;font-weight:700;letter-spacing:1px;
+  background:var(--green);color:var(--bg);
+}
+.price-tier{font-size:.88rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
+.price-amount{
+  font-size:2.2rem;font-weight:700;color:var(--green);
+  text-shadow:var(--green-glow);margin-bottom:4px;
+}
+.price-amount span{font-size:.82rem;color:var(--text-muted);font-weight:400}
+.price-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:20px}
+.price-features{list-style:none;margin-bottom:24px}
+.price-features li{
+  font-size:.78rem;color:var(--text);
+  padding:6px 0;border-bottom:1px solid rgba(30,30,30,.6);
+  display:flex;align-items:flex-start;gap:8px;
+}
+.price-features li::before{
+  content:">";color:var(--green);font-weight:700;flex-shrink:0;
+}
+.price-btn{
+  display:block;width:100%;padding:12px;
+  border:1px solid var(--green);border-radius:6px;
+  background:transparent;color:var(--green);
+  font-family:inherit;font-size:.82rem;font-weight:600;
+  cursor:pointer;transition:all .2s;text-align:center;
+}
+.price-btn:hover{background:var(--green);color:var(--bg)}
+.price-card.featured .price-btn{
+  background:var(--green);color:var(--bg);
+}
+.price-card.featured .price-btn:hover{
+  background:var(--green-dim);
+}
+
+/* ── Form ── */
+.conv-form-wrap{
+  max-width:720px;margin:0 auto;
+  padding:36px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+}
+.form-title{
+  font-size:1.1rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:4px;
+}
+.form-subtitle{
+  font-size:.78rem;color:var(--text-muted);margin-bottom:28px;
+}
+.form-group{margin-bottom:20px}
+.form-label{
+  display:block;font-size:.76rem;color:var(--text-muted);
+  margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;
+}
+.form-input,.form-textarea{
+  width:100%;padding:12px 14px;
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:6px;color:var(--text);
+  font-family:inherit;font-size:.82rem;
+  outline:none;transition:border-color .2s;
+}
+.form-input:focus,.form-textarea:focus{border-color:var(--green)}
+.form-textarea{
+  height:200px;resize:vertical;line-height:1.5;
+}
+.form-submit{
+  width:100%;padding:14px;margin-top:8px;
+  border:none;border-radius:6px;
+  background:var(--green);color:var(--bg);
+  font-family:inherit;font-size:.88rem;font-weight:700;
+  letter-spacing:.5px;cursor:pointer;
+  transition:background .2s;
+}
+.form-submit:hover{background:var(--green-dim)}
+.form-submit:disabled{opacity:.5;cursor:not-allowed}
+
+.plan-select{display:flex;gap:10px;flex-wrap:wrap}
+.plan-option{flex:1;min-width:140px}
+.plan-option input{display:none}
+.plan-option label{
+  display:block;padding:14px 12px;text-align:center;
+  border:1px solid var(--border);border-radius:6px;
+  cursor:pointer;transition:all .2s;
+  font-size:.74rem;color:var(--text-muted);
+}
+.plan-option label strong{
+  display:block;font-size:.84rem;color:var(--text);margin-bottom:2px;
+}
+.plan-option input:checked+label{
+  border-color:var(--green);color:var(--green);
+  background:var(--green-subtle);
+}
+.plan-option label:hover{border-color:var(--border-green)}
+
+/* ── Preview Panel ── */
+.preview-panel{
+  display:none;max-width:720px;margin:32px auto 0;
+  padding:32px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+}
+.preview-panel.visible{display:block;animation:fadeIn .4s ease}
+.preview-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border);
+}
+.preview-title{font-size:1rem;font-weight:700;color:var(--text-bright)}
+.preview-badge{
+  padding:4px 12px;border-radius:12px;
+  font-size:.68rem;font-weight:600;letter-spacing:.5px;
+  background:rgba(0,255,65,.1);color:var(--green-dim);
+  border:1px solid var(--border-green);
+}
+.preview-meta{
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;
+  margin-bottom:20px;
+}
+.preview-meta-item{
+  padding:12px 14px;border-radius:6px;
+  background:var(--bg);border:1px solid var(--border);
+}
+.preview-meta-label{font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
+.preview-meta-value{font-size:.88rem;color:var(--text-bright);font-weight:600;margin-top:2px}
+.preview-code{
+  padding:20px;border-radius:6px;
+  background:rgba(0,0,0,.5);border:1px solid var(--border);
+  font-size:.76rem;line-height:1.6;color:var(--text);
+  overflow-x:auto;white-space:pre;
+  max-height:400px;overflow-y:auto;
+  margin-bottom:20px;
+}
+.preview-code::-webkit-scrollbar{width:6px;height:6px}
+.preview-code::-webkit-scrollbar-track{background:transparent}
+.preview-code::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.preview-includes{
+  list-style:none;
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  margin-bottom:24px;
+}
+.preview-includes li{
+  font-size:.76rem;color:var(--text);
+  padding:6px 0;display:flex;align-items:center;gap:8px;
+}
+.preview-includes li::before{content:">";color:var(--green);font-weight:700}
+
+.checkout-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;border-radius:6px;
+  background:linear-gradient(135deg,rgba(0,255,65,.06),rgba(0,255,65,.02));
+  border:1px solid var(--border-green);
+  flex-wrap:wrap;gap:12px;
+}
+.checkout-text{font-size:.82rem;color:var(--text)}
+.checkout-text strong{color:var(--green)}
+.checkout-btn{
+  padding:10px 28px;border:none;border-radius:6px;
+  background:var(--green);color:var(--bg);
+  font-family:inherit;font-size:.82rem;font-weight:700;
+  cursor:pointer;transition:background .2s;text-decoration:none;
+}
+.checkout-btn:hover{background:var(--green-dim)}
+
+/* ── Portfolio ── */
+.portfolio-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+  gap:16px;
+}
+.portfolio-card{
+  padding:24px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+  transition:border-color .3s;
+}
+.portfolio-card:hover{border-color:var(--border-green)}
+.portfolio-type{
+  display:inline-block;padding:3px 10px;border-radius:4px;
+  font-size:.66rem;font-weight:600;letter-spacing:.5px;
+  text-transform:uppercase;margin-bottom:12px;
+  background:var(--green-subtle);color:var(--green-dim);
+  border:1px solid var(--border-green);
+}
+.portfolio-name{
+  font-size:.94rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:6px;
+}
+.portfolio-desc{font-size:.78rem;color:var(--text-muted);margin-bottom:14px;line-height:1.5}
+.portfolio-stats{
+  display:flex;gap:16px;padding-top:12px;
+  border-top:1px solid var(--border);
+}
+.portfolio-stat{font-size:.72rem;color:var(--text-muted)}
+.portfolio-stat strong{color:var(--text)}
+
+/* ── Footer ── */
+.footer{
+  text-align:center;padding:40px 24px;
+  border-top:1px solid var(--border);
+  font-size:.72rem;color:var(--text-muted);
+}
+
+/* ── Animations ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Responsive ── */
+@media(max-width:680px){
+  .hero h1{font-size:1.4rem}
+  .hero-stats{gap:24px}
+  .pricing-grid{grid-template-columns:1fr}
+  .steps{grid-template-columns:1fr}
+  .preview-meta{grid-template-columns:1fr}
+  .preview-includes{grid-template-columns:1fr}
+  .portfolio-grid{grid-template-columns:1fr}
+  .plan-select{flex-direction:column}
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <a href="/" class="nav-logo">0pnMatrx<span>convert</span></a>
+  <div class="nav-links">
+    <a href="#how-it-works">How It Works</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#preview-form">Get Preview</a>
+    <a href="#portfolio">Portfolio</a>
+    <a href="/audit.html">Audit</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <h1>Plain English to Production<br>Smart Contract &mdash; <em>In Minutes</em></h1>
+  <p>Describe what you need in plain language. We generate a fully audited, gas-optimised, deployment-ready Solidity contract complete with OpenZeppelin security, NatSpec documentation, and comprehensive test coverage.</p>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="hero-stat-num">12</div>
+      <div class="hero-stat-label">Contract Types</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">100%</div>
+      <div class="hero-stat-label">Audit Included</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">&lt;5min</div>
+      <div class="hero-stat-label">Generation Time</div>
+    </div>
+  </div>
+</header>
+
+<!-- How It Works -->
+<section class="section" id="how-it-works">
+  <h2 class="section-title">How It Works</h2>
+  <p class="section-sub">Three steps from idea to deployed contract</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Describe</h3>
+      <p>Write what your contract should do in plain English. No Solidity knowledge required. Include business rules, roles, payment flows, and any constraints.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Review</h3>
+      <p>Get an instant free preview of your contract structure. Review the architecture, then pay to receive the full production-ready source code with audit report.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Deploy</h3>
+      <p>Receive your complete Solidity contract with Glasswing security audit, gas optimisation, and NatSpec documentation. Ready for mainnet deployment.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section class="section" id="pricing">
+  <h2 class="section-title">Conversion Plans</h2>
+  <p class="section-sub">From single contracts to unlimited enterprise generation</p>
+  <div class="pricing-grid">
+
+    <!-- Single -->
+    <div class="price-card">
+      <div class="price-tier">Single Contract</div>
+      <div class="price-amount">$499 <span>one-time</span></div>
+      <div class="price-desc">One production-ready contract from your specification</div>
+      <ul class="price-features">
+        <li>Full Solidity contract generation from plain English</li>
+        <li>Glasswing security audit included</li>
+        <li>Gas optimisation pass</li>
+        <li>Deployment-ready output</li>
+        <li>30-day support window</li>
+      </ul>
+      <button class="price-btn" onclick="selectPlan('single')">Get Started</button>
+    </div>
+
+    <!-- Monthly 5 -->
+    <div class="price-card featured">
+      <div class="price-tier">Professional (5/month)</div>
+      <div class="price-amount">$1,499 <span>/month</span></div>
+      <div class="price-desc">Up to five contracts per month with priority processing</div>
+      <ul class="price-features">
+        <li>Up to 5 contracts per month</li>
+        <li>Full Glasswing audit on each</li>
+        <li>Priority queue</li>
+        <li>Revision requests included</li>
+        <li>Dedicated support channel</li>
+      </ul>
+      <button class="price-btn" onclick="selectPlan('monthly_5')">Subscribe</button>
+    </div>
+
+    <!-- Unlimited -->
+    <div class="price-card">
+      <div class="price-tier">Enterprise (Unlimited)</div>
+      <div class="price-amount">$3,999 <span>/month</span></div>
+      <div class="price-desc">Unlimited generation with SLA-backed turnaround</div>
+      <ul class="price-features">
+        <li>Unlimited contract generation</li>
+        <li>Full audit + manual review</li>
+        <li>Custom template creation</li>
+        <li>SLA-backed turnaround</li>
+        <li>Direct engineering support</li>
+      </ul>
+      <button class="price-btn" onclick="selectPlan('unlimited')">Contact Sales</button>
+    </div>
+
+  </div>
+</section>
+
+<!-- Preview Form -->
+<section class="section" id="preview-form">
+  <div class="conv-form-wrap">
+    <h2 class="form-title">Get a Free Preview</h2>
+    <p class="form-subtitle">Describe your contract in plain English. We will generate a preview showing the contract structure, type detection, and included features.</p>
+
+    <form id="convForm" onsubmit="submitConversion(event)">
+      <div class="form-group">
+        <label class="form-label" for="description">Contract Description</label>
+        <textarea class="form-textarea" id="description" name="description"
+          placeholder="Example: I need a rental agreement contract where a landlord can list properties, tenants can sign leases and pay rent monthly, with automatic late fees after 5 days and a security deposit that is returned when the lease ends..." required></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="convEmail">Email Address</label>
+        <input class="form-input" type="email" id="convEmail" name="email"
+          placeholder="you@company.com" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Plan</label>
+        <div class="plan-select">
+          <div class="plan-option">
+            <input type="radio" name="plan" id="planSingle" value="single" checked>
+            <label for="planSingle"><strong>Single</strong>$499 one-time</label>
+          </div>
+          <div class="plan-option">
+            <input type="radio" name="plan" id="planMonthly" value="monthly_5">
+            <label for="planMonthly"><strong>Professional</strong>$1,499/mo</label>
+          </div>
+          <div class="plan-option">
+            <input type="radio" name="plan" id="planUnlimited" value="unlimited">
+            <label for="planUnlimited"><strong>Enterprise</strong>$3,999/mo</label>
+          </div>
+        </div>
+      </div>
+
+      <button class="form-submit" type="submit" id="submitBtn">Generate Free Preview</button>
+    </form>
+  </div>
+
+  <!-- Preview Results -->
+  <div class="preview-panel" id="previewPanel">
+    <div class="preview-header">
+      <div class="preview-title" id="previewTitle">Contract Preview</div>
+      <span class="preview-badge">FREE PREVIEW</span>
+    </div>
+
+    <div class="preview-meta" id="previewMeta"></div>
+
+    <div class="preview-code" id="previewCode"></div>
+
+    <div style="font-size:.78rem;font-weight:600;color:var(--text-bright);margin-bottom:10px">Included in Full Version</div>
+    <ul class="preview-includes" id="previewIncludes"></ul>
+
+    <div class="checkout-bar" id="checkoutBar" style="display:none">
+      <div class="checkout-text">
+        <strong id="checkoutPlan"></strong> &mdash; <span id="checkoutPrice"></span><br>
+        <span style="font-size:.72rem;color:var(--text-muted)">Full contract with audit delivered after payment</span>
+      </div>
+      <a class="checkout-btn" id="checkoutLink" href="#" target="_blank">Get Full Contract</a>
+    </div>
+  </div>
+</section>
+
+<!-- Portfolio -->
+<section class="section" id="portfolio">
+  <h2 class="section-title">Example Contracts</h2>
+  <p class="section-sub">Types of contracts we have generated for clients</p>
+  <div class="portfolio-grid">
+
+    <div class="portfolio-card">
+      <div class="portfolio-type">DeFi</div>
+      <div class="portfolio-name">Lending Pool Agreement</div>
+      <div class="portfolio-desc">Multi-asset lending protocol with variable interest rates, liquidation mechanics, and flash loan support.</div>
+      <div class="portfolio-stats">
+        <div class="portfolio-stat"><strong>340</strong> lines</div>
+        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
+        <div class="portfolio-stat"><strong>A+</strong> quality</div>
+      </div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-type">Real Estate</div>
+      <div class="portfolio-name">Tokenized Property Shares</div>
+      <div class="portfolio-desc">Fractional real estate ownership with dividend distribution, voting rights, and secondary market trading.</div>
+      <div class="portfolio-stats">
+        <div class="portfolio-stat"><strong>285</strong> lines</div>
+        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
+        <div class="portfolio-stat"><strong>A</strong> quality</div>
+      </div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-type">Governance</div>
+      <div class="portfolio-name">DAO Treasury Manager</div>
+      <div class="portfolio-desc">Multi-sig treasury with proposal voting, timelock execution, and role-based access for community DAOs.</div>
+      <div class="portfolio-stats">
+        <div class="portfolio-stat"><strong>410</strong> lines</div>
+        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
+        <div class="portfolio-stat"><strong>A+</strong> quality</div>
+      </div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-type">NFT</div>
+      <div class="portfolio-name">Generative Art Collection</div>
+      <div class="portfolio-desc">ERC-721A collection with reveal mechanics, royalty enforcement, allowlist minting, and on-chain metadata.</div>
+      <div class="portfolio-stats">
+        <div class="portfolio-stat"><strong>220</strong> lines</div>
+        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
+        <div class="portfolio-stat"><strong>A+</strong> quality</div>
+      </div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-type">Payroll</div>
+      <div class="portfolio-name">Token Vesting Schedule</div>
+      <div class="portfolio-desc">Cliff-based vesting with linear unlock, revocation capability, and multi-beneficiary batch creation.</div>
+      <div class="portfolio-stats">
+        <div class="portfolio-stat"><strong>195</strong> lines</div>
+        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
+        <div class="portfolio-stat"><strong>A</strong> quality</div>
+      </div>
+    </div>
+
+    <div class="portfolio-card">
+      <div class="portfolio-type">Commerce</div>
+      <div class="portfolio-name">Subscription Billing</div>
+      <div class="portfolio-desc">Recurring payment contract with trial periods, tiered pricing, automatic renewal, and cancellation handling.</div>
+      <div class="portfolio-stats">
+        <div class="portfolio-stat"><strong>260</strong> lines</div>
+        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
+        <div class="portfolio-stat"><strong>A</strong> quality</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <p>0pnMatrx &middot; Smart Contract Conversion Service &middot; Plain English to Production Solidity</p>
+</footer>
+
+<script>
+function selectPlan(plan) {
+  const radios = {single:'planSingle',monthly_5:'planMonthly',unlimited:'planUnlimited'};
+  if (radios[plan]) document.getElementById(radios[plan]).checked = true;
+  document.getElementById('preview-form').scrollIntoView({behavior:'smooth'});
+}
+
+async function submitConversion(e) {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating preview...';
+
+  const form = document.getElementById('convForm');
+  const plan = form.querySelector('input[name="plan"]:checked').value;
+
+  const payload = {
+    description: document.getElementById('description').value,
+    email: document.getElementById('convEmail').value,
+    plan: plan,
+  };
+
+  try {
+    const resp = await fetch('/services/conversion/request', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+
+    if (data.status === 'ok') {
+      renderPreview(data);
+    } else {
+      alert(data.message || 'Request failed. Please try again.');
+    }
+  } catch (err) {
+    alert('Connection error. Please check that the server is running.');
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate Free Preview';
+  }
+}
+
+function renderPreview(data) {
+  const panel = document.getElementById('previewPanel');
+  const preview = data.preview || {};
+
+  // Title
+  document.getElementById('previewTitle').textContent =
+    `${preview.contract_name || 'Contract'} - ${preview.contract_type || 'Custom'}`;
+
+  // Meta
+  const meta = document.getElementById('previewMeta');
+  meta.innerHTML = `
+    <div class="preview-meta-item">
+      <div class="preview-meta-label">Contract Type</div>
+      <div class="preview-meta-value">${esc(preview.contract_type || 'Custom')}</div>
+    </div>
+    <div class="preview-meta-item">
+      <div class="preview-meta-label">Estimated Size</div>
+      <div class="preview-meta-value">~${preview.estimated_lines || 150} lines</div>
+    </div>
+  `;
+
+  // Code
+  document.getElementById('previewCode').textContent = preview.preview_code || '// Preview unavailable';
+
+  // Includes
+  const includes = document.getElementById('previewIncludes');
+  includes.innerHTML = '';
+  const items = preview.includes || [];
+  for (const item of items) {
+    const li = document.createElement('li');
+    li.textContent = item;
+    includes.appendChild(li);
+  }
+
+  // Checkout bar
+  const bar = document.getElementById('checkoutBar');
+  document.getElementById('checkoutPlan').textContent = data.plan;
+  document.getElementById('checkoutPrice').textContent =
+    `$${data.price_usd}${data.billing === 'monthly' ? '/mo' : ''}`;
+
+  if (data.checkout_url) {
+    document.getElementById('checkoutLink').href = data.checkout_url;
+    bar.style.display = 'flex';
+  } else {
+    bar.style.display = 'none';
+  }
+
+  panel.classList.add('visible');
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+
+</body>
+</html>

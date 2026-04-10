@@ -231,7 +231,14 @@ class GatewayServer:
         self.api_key = gw.get("api_key") or os.environ.get("OPENMATRIX_API_KEY", "")
         self.auth_enabled = bool(self.api_key)
         # Endpoints that don't require auth
-        self._public_paths = {"/health", "/auth/nonce", "/auth/verify"}
+        self._public_paths = {
+            "/health", "/auth/nonce", "/auth/verify",
+            "/", "/chat", "/pricing", "/audit", "/marketplace",
+            "/services/conversion",
+            "/extensions/registry",
+            "/subscription/webhook",
+            "/a2a/services",
+        }
 
         # SIWE auth stores (SQLite-backed). Initialised in the on_startup
         # hook once the underlying memory database has been opened.
@@ -258,6 +265,17 @@ class GatewayServer:
         # Optional OTel push exporter — no-op unless both the config
         # flag and the opentelemetry packages are present.
         self.otel_bridge = OTelMetricsBridge(self.metrics, self.config)
+
+        # ── Subscription system ──────────────────────────────────────
+        self.subscription_store = None
+        self.usage_tracker = None
+        self.feature_gate_instance = None
+        self.stripe_client = None
+        self.audit_service = None
+        self.conversion_service = None
+        self.plugin_marketplace = None
+        self.a2a_marketplace = None
+        self.social_manager = None
 
         # Rate limiting — three buckets:
         #   - ``rate_limiter_auth``   : API-key bearer auth (operator tokens)
@@ -820,6 +838,273 @@ class GatewayServer:
 
         return ws
 
+    # ─── Web Pages ───────────────────────────────────────────────────
+
+    async def handle_landing(self, request: web.Request) -> web.Response:
+        """GET / — serve the landing page."""
+        return self._serve_html("web/landing.html")
+
+    async def handle_chat_page(self, request: web.Request) -> web.Response:
+        """GET /chat — serve the web chat interface."""
+        return self._serve_html("web/index.html")
+
+    async def handle_pricing_page(self, request: web.Request) -> web.Response:
+        """GET /pricing — serve the pricing page."""
+        return self._serve_html("web/pricing.html")
+
+    async def handle_audit_page(self, request: web.Request) -> web.Response:
+        """GET /audit — serve the audit service page."""
+        return self._serve_html("web/audit.html")
+
+    async def handle_marketplace_page(self, request: web.Request) -> web.Response:
+        """GET /marketplace — serve the plugin marketplace page."""
+        return self._serve_html("web/marketplace.html")
+
+    async def handle_conversion_page(self, request: web.Request) -> web.Response:
+        """GET /services/conversion — serve the conversion service page."""
+        return self._serve_html("web/conversion-service.html")
+
+    def _serve_html(self, path: str) -> web.Response:
+        """Serve a static HTML file."""
+        filepath = Path(path)
+        if filepath.exists():
+            return web.Response(
+                text=filepath.read_text(encoding="utf-8"),
+                content_type="text/html",
+            )
+        return web.Response(text="Page not found", status=404)
+
+    # ─── Extensions Registry ─────────────────────────────────────────
+
+    async def handle_extensions_registry(self, request: web.Request) -> web.Response:
+        """GET /extensions/registry — serve the component registry JSON."""
+        registry_path = Path("extensions/registry.json")
+        if not registry_path.exists():
+            return web.json_response({"error": "Registry not found"}, status=404)
+        import json as _json
+        data = _json.loads(registry_path.read_text(encoding="utf-8"))
+        return web.json_response(data)
+
+    async def handle_extensions_component(self, request: web.Request) -> web.Response:
+        """GET /extensions/registry/{component_id} — single component."""
+        component_id = request.match_info.get("component_id", "")
+        registry_path = Path("extensions/registry.json")
+        if not registry_path.exists():
+            return web.json_response({"error": "Registry not found"}, status=404)
+        import json as _json
+        data = _json.loads(registry_path.read_text(encoding="utf-8"))
+        for comp in data.get("components", []):
+            if comp.get("id") == component_id:
+                return web.json_response(comp)
+        return web.json_response({"error": "Component not found"}, status=404)
+
+    # ─── Subscription Endpoints ──────────────────────────────────────
+
+    async def handle_subscription_checkout(self, request: web.Request) -> web.Response:
+        """POST /subscription/checkout — create a Stripe checkout session."""
+        if not self.stripe_client or not self.stripe_client.available:
+            return web.json_response({
+                "status": "not_configured",
+                "message": "Stripe is not configured. Contact support to upgrade.",
+            })
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        tier = str(body.get("tier", "pro"))
+        wallet = str(body.get("wallet_address", ""))
+        success_url = str(body.get("success_url", "http://localhost:18790/pricing?status=success"))
+        cancel_url = str(body.get("cancel_url", "http://localhost:18790/pricing?status=cancelled"))
+        result = await self.stripe_client.create_checkout_session(tier, wallet, success_url, cancel_url)
+        return web.json_response(result)
+
+    async def handle_subscription_webhook(self, request: web.Request) -> web.Response:
+        """POST /subscription/webhook — receive Stripe webhook events."""
+        if not self.stripe_client:
+            return web.json_response({"status": "not_configured"}, status=503)
+        payload = await request.read()
+        sig = request.headers.get("Stripe-Signature", "")
+        result = await self.stripe_client.handle_webhook(payload, sig)
+        if result.get("status") == "error":
+            return web.json_response(result, status=400)
+        # Update subscription store on successful events
+        if self.subscription_store and result.get("wallet_address"):
+            tier = result.get("tier", "free")
+            if result.get("cancelled"):
+                tier = "free"
+            await self.subscription_store.upsert(
+                result["wallet_address"], tier,
+                {"customer_id": result.get("customer_id"),
+                 "subscription_id": result.get("subscription_id"),
+                 "status": result.get("status_value", "active"),
+                 "current_period_end": result.get("current_period_end"),
+                 "trial_end": result.get("trial_end")},
+            )
+        return web.json_response(result)
+
+    async def handle_subscription_status(self, request: web.Request) -> web.Response:
+        """GET /subscription/status — current tier and usage."""
+        wallet = request.headers.get("X-Wallet-Address", "")
+        if not wallet:
+            wallet_token = request.headers.get("X-Wallet-Session", "").strip()
+            if wallet_token:
+                try:
+                    session = self.wallet_sessions.get(wallet_token)
+                    if session:
+                        wallet = str(session.get("address", ""))
+                except Exception:
+                    pass
+        tier = "free"
+        usage = {}
+        is_trial = False
+        if self.subscription_store and wallet:
+            from runtime.subscriptions.tiers import SubscriptionTier
+            tier_enum = await self.subscription_store.get_tier(wallet)
+            tier = tier_enum.value
+            is_trial = await self.subscription_store.is_trial(wallet)
+        if self.usage_tracker and wallet:
+            usage = await self.usage_tracker.get_summary(wallet)
+        return web.json_response({
+            "tier": tier,
+            "usage": usage,
+            "is_trial": is_trial,
+        })
+
+    # ─── Audit Endpoints ─────────────────────────────────────────────
+
+    async def handle_audit_request(self, request: web.Request) -> web.Response:
+        """POST /audit/request — submit a contract for audit."""
+        if not self.audit_service:
+            return web.json_response({"status": "not_available"}, status=503)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        source = str(body.get("source_code", ""))
+        name = str(body.get("contract_name", "Contract"))
+        email = str(body.get("email", ""))
+        tier = str(body.get("tier", "standard"))
+        if not source:
+            return web.json_response({"error": "source_code is required"}, status=400)
+        result = await self.audit_service.create_audit_request(source, name, email, tier)
+        return web.json_response(result)
+
+    async def handle_audit_report(self, request: web.Request) -> web.Response:
+        """GET /audit/{audit_id} — get an audit report."""
+        if not self.audit_service:
+            return web.json_response({"status": "not_available"}, status=503)
+        audit_id = request.match_info.get("audit_id", "")
+        result = await self.audit_service.get_audit_report(audit_id)
+        return web.json_response(result)
+
+    # ─── Social Endpoints ────────────────────────────────────────────
+
+    async def handle_social_post(self, request: web.Request) -> web.Response:
+        """POST /social/post — post to social media."""
+        if not self.social_manager or not self.social_manager.available:
+            return web.json_response({"status": "not_configured",
+                                      "message": "No social media platforms configured."})
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        content = str(body.get("content", ""))
+        platform = str(body.get("platform", "all"))
+        if not content:
+            return web.json_response({"error": "content is required"}, status=400)
+        result = await self.social_manager.post(content=content, platform=platform,
+                                                 metadata=body.get("metadata"))
+        return web.json_response(result)
+
+    # ─── A2A Endpoints ───────────────────────────────────────────────
+
+    async def handle_a2a_services(self, request: web.Request) -> web.Response:
+        """GET /a2a/services — list available agent services."""
+        if not self.a2a_marketplace:
+            return web.json_response({"services": []})
+        category = request.query.get("category")
+        services = await self.a2a_marketplace.list_services(category=category)
+        return web.json_response({"services": services})
+
+    async def handle_a2a_submit_job(self, request: web.Request) -> web.Response:
+        """POST /a2a/jobs — submit a job to an agent service."""
+        if not self.a2a_marketplace:
+            return web.json_response({"status": "not_available"}, status=503)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        from runtime.a2a.protocol import JobRequest
+        job = JobRequest(
+            service_id=str(body.get("service_id", "")),
+            requester_agent_id=str(body.get("requester", "user")),
+            provider_agent_id=str(body.get("provider", "")),
+            input_data=body.get("input", {}),
+            max_price_usd=float(body.get("max_price_usd", 0)),
+        )
+        await self.a2a_marketplace.submit_job(job)
+        return web.json_response(job.to_dict(), status=201)
+
+    async def handle_a2a_get_job(self, request: web.Request) -> web.Response:
+        """GET /a2a/jobs/{job_id} — get job status."""
+        if not self.a2a_marketplace:
+            return web.json_response({"status": "not_available"}, status=503)
+        job_id = request.match_info.get("job_id", "")
+        result = await self.a2a_marketplace.get_job(job_id)
+        if not result:
+            return web.json_response({"error": "Job not found"}, status=404)
+        return web.json_response(result)
+
+    # ─── Marketplace Endpoints ───────────────────────────────────────
+
+    async def handle_marketplace_list(self, request: web.Request) -> web.Response:
+        """GET /marketplace/plugins — list plugins."""
+        if not self.plugin_marketplace:
+            return web.json_response({"plugins": []})
+        tier = request.query.get("tier")
+        category = request.query.get("category")
+        plugins = await self.plugin_marketplace.list_plugins(tier=tier, category=category)
+        return web.json_response({"plugins": plugins})
+
+    async def handle_marketplace_plugin(self, request: web.Request) -> web.Response:
+        """GET /marketplace/plugins/{plugin_id} — single plugin."""
+        if not self.plugin_marketplace:
+            return web.json_response({"error": "Not available"}, status=503)
+        plugin_id = request.match_info.get("plugin_id", "")
+        plugin = await self.plugin_marketplace.get_plugin(plugin_id)
+        if not plugin:
+            return web.json_response({"error": "Plugin not found"}, status=404)
+        return web.json_response(plugin)
+
+    async def handle_marketplace_purchase(self, request: web.Request) -> web.Response:
+        """POST /marketplace/plugins/{plugin_id}/purchase — purchase a plugin."""
+        if not self.plugin_marketplace:
+            return web.json_response({"error": "Not available"}, status=503)
+        plugin_id = request.match_info.get("plugin_id", "")
+        wallet = request.headers.get("X-Wallet-Address", "anonymous")
+        result = await self.plugin_marketplace.purchase(wallet, plugin_id)
+        return web.json_response(result)
+
+    async def handle_marketplace_submit(self, request: web.Request) -> web.Response:
+        """POST /marketplace/plugins/submit — submit a plugin for review."""
+        if not self.plugin_marketplace:
+            return web.json_response({"error": "Not available"}, status=503)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        author = body.get("author", "anonymous")
+        result = await self.plugin_marketplace.submit_listing(author, body)
+        return web.json_response(result)
+
+    async def handle_marketplace_purchased(self, request: web.Request) -> web.Response:
+        """GET /marketplace/purchased — plugins owned by wallet."""
+        if not self.plugin_marketplace:
+            return web.json_response({"plugins": []})
+        wallet = request.headers.get("X-Wallet-Address", "anonymous")
+        plugins = await self.plugin_marketplace.get_purchased(wallet)
+        return web.json_response({"plugins": plugins})
+
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
@@ -854,6 +1139,38 @@ class GatewayServer:
                 )
             except Exception as exc:
                 logger.warning("Failed to start backup loop: %s", exc)
+
+        # ── Initialize subscription subsystems ───────────────────────
+        try:
+            from runtime.subscriptions.usage_tracker import UsageTracker
+            from runtime.subscriptions.feature_gate import FeatureGate as FeatureGateImpl
+            from runtime.subscriptions.subscription_store import SubscriptionStore
+            from runtime.subscriptions.stripe_client import StripeClient
+            from runtime.subscriptions.audit_service import ProfessionalAuditService
+            from runtime.subscriptions.conversion_service import ConversionService
+            from runtime.marketplace.plugin_store import PluginMarketplace
+            from runtime.a2a.marketplace import A2AMarketplace
+            from runtime.social.manager import SocialManager
+
+            db = self.react_loop.memory.db
+            self.usage_tracker = UsageTracker(db)
+            await self.usage_tracker.initialize()
+            self.feature_gate_instance = FeatureGateImpl(self.config, self.usage_tracker)
+            self.subscription_store = SubscriptionStore(db)
+            await self.subscription_store.initialize()
+            self.stripe_client = StripeClient(self.config)
+            self.audit_service = ProfessionalAuditService(self.config, self.stripe_client, db)
+            await self.audit_service.initialize()
+            self.conversion_service = ConversionService(self.config, self.stripe_client, db)
+            await self.conversion_service.initialize()
+            self.plugin_marketplace = PluginMarketplace(self.config, db, self.stripe_client)
+            await self.plugin_marketplace.initialize()
+            self.a2a_marketplace = A2AMarketplace(self.config, db)
+            await self.a2a_marketplace.initialize()
+            self.social_manager = SocialManager(self.config)
+            logger.info("Subscription and marketplace subsystems initialized.")
+        except Exception as exc:
+            logger.warning("Subscription subsystems init skipped: %s", exc)
 
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets and service caches."""
@@ -925,6 +1242,42 @@ class GatewayServer:
         app.router.add_post("/auth/verify", self.handle_auth_verify)
         app.router.add_get("/metrics", self.handle_metrics)
         app.router.add_get("/metrics/prom", self.handle_metrics_prometheus)
+
+        # ── Web pages ─────────────────────────────────────────────────
+        app.router.add_get("/", self.handle_landing)
+        app.router.add_get("/chat", self.handle_chat_page)
+        app.router.add_get("/pricing", self.handle_pricing_page)
+        app.router.add_get("/audit", self.handle_audit_page)
+        app.router.add_get("/marketplace", self.handle_marketplace_page)
+        app.router.add_get("/services/conversion", self.handle_conversion_page)
+
+        # ── Extensions registry ───────────────────────────────────────
+        app.router.add_get("/extensions/registry", self.handle_extensions_registry)
+        app.router.add_get("/extensions/registry/{component_id}", self.handle_extensions_component)
+
+        # ── Subscription ──────────────────────────────────────────────
+        app.router.add_post("/subscription/checkout", self.handle_subscription_checkout)
+        app.router.add_post("/subscription/webhook", self.handle_subscription_webhook)
+        app.router.add_get("/subscription/status", self.handle_subscription_status)
+
+        # ── Audit service ─────────────────────────────────────────────
+        app.router.add_post("/audit/request", self.handle_audit_request)
+        app.router.add_get("/audit/{audit_id}", self.handle_audit_report)
+
+        # ── Social media ──────────────────────────────────────────────
+        app.router.add_post("/social/post", self.handle_social_post)
+
+        # ── A2A commerce ──────────────────────────────────────────────
+        app.router.add_get("/a2a/services", self.handle_a2a_services)
+        app.router.add_post("/a2a/jobs", self.handle_a2a_submit_job)
+        app.router.add_get("/a2a/jobs/{job_id}", self.handle_a2a_get_job)
+
+        # ── Plugin marketplace ────────────────────────────────────────
+        app.router.add_get("/marketplace/plugins", self.handle_marketplace_list)
+        app.router.add_get("/marketplace/plugins/{plugin_id}", self.handle_marketplace_plugin)
+        app.router.add_post("/marketplace/plugins/{plugin_id}/purchase", self.handle_marketplace_purchase)
+        app.router.add_post("/marketplace/plugins/submit", self.handle_marketplace_submit)
+        app.router.add_get("/marketplace/purchased", self.handle_marketplace_purchased)
 
         # Register all 30 blockchain service REST endpoints
         service_routes = None

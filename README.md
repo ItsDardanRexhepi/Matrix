@@ -292,6 +292,71 @@ See `docs/RUNBOOK.md` for the full on-call playbook and
 
 ---
 
+## Subscription Tiers
+
+| Feature | Free | Pro ($4.99/mo) | Enterprise ($19.99/mo) |
+|---------|------|----------------|----------------------|
+| Contract conversions | 5/month | 100/month | Unlimited |
+| NFT mints | 3/month | 50/month | Unlimited |
+| DeFi loan volume | $5,000/month | $500,000/month | Unlimited |
+| API calls | 20/min | 120/min | 600/min |
+| Dashboard export | — | ✓ | ✓ |
+| Team accounts | — | — | ✓ |
+| Priority support | — | — | ✓ |
+
+All tiers include a 3-day free trial. See `/pricing` for full details.
+
+---
+
+## Web Interface
+
+The gateway serves a built-in web interface:
+
+- `http://localhost:18790` — Landing page
+- `http://localhost:18790/chat` — Web chat with Trinity
+- `http://localhost:18790/pricing` — Pricing and plans
+- `http://localhost:18790/audit` — Glasswing security audit service
+- `http://localhost:18790/marketplace` — Plugin marketplace
+
+---
+
+## Professional Services
+
+- **Glasswing Security Audit** ($299+) — Automated smart contract security scanning at `/audit`
+- **Contract Conversion** ($499+) — Professional plain-English to Solidity at `/services/conversion`
+
+---
+
+## Plugin Development
+
+Build and sell plugins for 0pnMatrx. Developers keep 90% of revenue.
+
+```bash
+# See the example plugin
+cat runtime/plugins/example_plugin.py
+
+# Full guide
+cat docs/PLUGIN_DEVELOPMENT.md
+```
+
+Submit plugins at `/marketplace` or via `POST /marketplace/plugins/submit`.
+
+---
+
+## JavaScript SDK
+
+```bash
+npm install @opnmatrx/sdk
+```
+
+```typescript
+import { OpenMatrixClient } from '@opnmatrx/sdk';
+const client = new OpenMatrixClient('http://localhost:18790');
+const response = await client.chat('What can you do?');
+```
+
+---
+
 ## Contributing
 
 See `CONTRIBUTING.md` for the Möbius loop contribution model.

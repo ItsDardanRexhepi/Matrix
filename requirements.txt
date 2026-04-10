@@ -19,3 +19,4 @@ requests~=2.32
 python-dotenv~=1.0
 pyyaml~=6.0
 duckduckgo_search~=5.3
+requests-oauthlib~=2.0

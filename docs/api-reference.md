@@ -215,6 +215,157 @@ All error responses share this shape:
 
 ---
 
+## Web pages
+
+| Method | Path                     | Description                          |
+|--------|--------------------------|--------------------------------------|
+| `GET`  | `/`                      | Landing page                         |
+| `GET`  | `/chat`                  | Web chat interface (Trinity)         |
+| `GET`  | `/pricing`               | Pricing and subscription tiers       |
+| `GET`  | `/audit`                 | Glasswing security audit service     |
+| `GET`  | `/marketplace`           | Developer plugin marketplace         |
+| `GET`  | `/services/conversion`   | Smart contract conversion service    |
+
+---
+
+## Subscription endpoints
+
+### `GET /subscription/status`
+
+Get the current subscription tier and usage for a wallet.
+
+**Query:** `?wallet=0xabc...`
+
+```json
+{
+  "tier": "pro",
+  "usage": { "contract_conversions": 12, "nft_mints": 3 },
+  "limits": { "contract_conversions": 100, "nft_mints": 50 },
+  "trial_active": false
+}
+```
+
+### `POST /subscription/checkout`
+
+Create a Stripe checkout session for upgrading.
+
+```json
+{ "wallet_address": "0xabc...", "tier": "pro" }
+```
+
+### `POST /subscription/webhook`
+
+Stripe webhook receiver. Automatically processes subscription events.
+
+---
+
+## Audit service endpoints
+
+### `POST /audit/scan`
+
+Submit a smart contract for Glasswing security scanning.
+
+```json
+{
+  "contract_source": "pragma solidity ^0.8.20; ...",
+  "contract_name": "MyToken"
+}
+```
+
+### `GET /audit/report/{report_id}`
+
+Retrieve a completed audit report.
+
+---
+
+## Plugin marketplace endpoints
+
+### `GET /marketplace/plugins`
+
+List available plugins. Supports query filters:
+
+| Param      | Type   | Description                        |
+|------------|--------|------------------------------------|
+| `category` | string | Filter by category                 |
+| `tier`     | string | Filter by minimum tier requirement |
+
+### `GET /marketplace/plugins/{plugin_id}`
+
+Get details for a single plugin.
+
+### `POST /marketplace/plugins/purchase`
+
+Purchase or install a plugin.
+
+```json
+{ "wallet_address": "0xabc...", "plugin_id": "plugin_abc123" }
+```
+
+### `POST /marketplace/plugins/submit`
+
+Submit a new plugin for review (Enterprise tier required).
+
+```json
+{
+  "name": "My Plugin",
+  "description": "Does something useful",
+  "price_usd": 4.99,
+  "category": "defi",
+  "repository_url": "https://github.com/..."
+}
+```
+
+### `GET /marketplace/plugins/purchased`
+
+List all plugins purchased by a wallet.
+
+**Query:** `?wallet=0xabc...`
+
+---
+
+## A2A commerce endpoints
+
+### `GET /a2a/services`
+
+List all registered agent-to-agent services.
+
+### `POST /a2a/services/register`
+
+Register a new A2A service.
+
+### `POST /a2a/services/invoke`
+
+Invoke an A2A service by ID.
+
+---
+
+## Extensions registry
+
+### `GET /extensions/registry`
+
+List all registered platform extensions.
+
+### `POST /extensions/register`
+
+Register a new extension.
+
+---
+
+## Social media endpoints
+
+### `POST /social/announce`
+
+Post an announcement to configured social channels (Twitter, Discord).
+
+```json
+{
+  "message": "New feature launched!",
+  "channels": ["twitter", "discord"]
+}
+```
+
+---
+
 ## SDK
 
 For programmatic access, use the Python SDK:
@@ -225,6 +376,16 @@ from sdk import OpenMatrixClient
 client = OpenMatrixClient("http://localhost:18790", api_key="sk-...")
 response = client.chat("Deploy a smart contract for me")
 print(response.text)
+```
+
+Or the JavaScript SDK:
+
+```typescript
+import { OpenMatrixClient } from '@opnmatrx/sdk';
+
+const client = new OpenMatrixClient('http://localhost:18790', { apiKey: 'sk-...' });
+const response = await client.chat('Deploy a smart contract for me');
+console.log(response.text);
 ```
 
 See `sdk/README.md` for full SDK documentation.

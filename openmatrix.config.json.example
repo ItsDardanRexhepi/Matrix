@@ -275,5 +275,23 @@
     "audit_on_deploy": true,
     "block_on_critical": true,
     "block_on_high": false
+  },
+  "subscriptions": {
+    "trial_days": 3,
+    "stripe_webhook_secret": "YOUR_STRIPE_WEBHOOK_SECRET",
+    "stripe_pro_price_id": "YOUR_STRIPE_PRO_PRICE_ID",
+    "stripe_enterprise_price_id": "YOUR_STRIPE_ENTERPRISE_PRICE_ID"
+  },
+  "social": {
+    "twitter": {
+      "api_key": "YOUR_TWITTER_API_KEY",
+      "api_secret": "YOUR_TWITTER_API_SECRET",
+      "access_token": "YOUR_TWITTER_ACCESS_TOKEN",
+      "access_secret": "YOUR_TWITTER_ACCESS_SECRET"
+    },
+    "discord": {
+      "webhook_url": "YOUR_DISCORD_WEBHOOK_URL",
+      "announcements_webhook": "YOUR_DISCORD_ANNOUNCEMENTS_WEBHOOK"
+    }
   }
 }
