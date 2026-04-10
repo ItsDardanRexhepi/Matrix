@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Badge Verification - Glasswing Security</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#141414;--bg-hover:#1a1a1a;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003300;
+  --green-glow:0 0 8px rgba(0,255,65,.35);
+  --green-subtle:rgba(0,255,65,.06);
+  --text:#c8c8c8;--text-bright:#e8e8e8;--text-muted:#666;
+  --border:#1e1e1e;--border-green:rgba(0,255,65,.2);
+  --red:#ff4444;--orange:#ff9944;--yellow:#ffcc00;--blue:#4488ff;
+  --radius:10px;--max-w:720px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:'SF Mono','Fira Code','Cascadia Code',monospace;
+  background:var(--bg);color:var(--text);line-height:1.6;
+  min-height:100vh;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+
+/* ── Navigation ── */
+.nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(10,10,10,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+  text-decoration:none;
+}
+.nav-logo span{color:var(--text-muted);font-weight:400;font-size:.72rem;margin-left:6px;text-shadow:none}
+.nav-links{display:flex;gap:20px;align-items:center}
+.nav-links a{
+  color:var(--text-muted);text-decoration:none;font-size:.78rem;
+  transition:color .2s;
+}
+.nav-links a:hover{color:var(--green)}
+
+/* ── Badge Card ── */
+.badge-wrap{
+  max-width:var(--max-w);margin:60px auto;padding:0 24px;
+}
+.badge-card{
+  padding:48px 40px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+  text-align:center;
+}
+
+/* ── Shield Icon (CSS-drawn) ── */
+.shield{
+  width:96px;height:112px;margin:0 auto 28px;position:relative;
+}
+.shield-body{
+  width:96px;height:112px;
+  background:linear-gradient(180deg,var(--green-dark) 0%,rgba(0,255,65,.08) 100%);
+  border:2px solid var(--green);
+  border-radius:50% 50% 50% 50% / 30% 30% 60% 60%;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 24px rgba(0,255,65,.2),inset 0 0 20px rgba(0,255,65,.05);
+  position:relative;
+}
+.shield-check{
+  width:36px;height:20px;
+  border-left:4px solid var(--green);
+  border-bottom:4px solid var(--green);
+  transform:rotate(-45deg);
+  margin-top:-6px;
+  filter:drop-shadow(0 0 6px rgba(0,255,65,.6));
+}
+.shield.expired .shield-body{
+  border-color:var(--orange);
+  background:linear-gradient(180deg,rgba(255,153,68,.08) 0%,rgba(255,153,68,.02) 100%);
+  box-shadow:0 0 24px rgba(255,153,68,.15);
+}
+.shield.expired .shield-check{
+  border-color:var(--orange);
+  filter:drop-shadow(0 0 6px rgba(255,153,68,.4));
+}
+.shield.revoked .shield-body{
+  border-color:var(--red);
+  background:linear-gradient(180deg,rgba(255,68,68,.08) 0%,rgba(255,68,68,.02) 100%);
+  box-shadow:0 0 24px rgba(255,68,68,.15);
+}
+.shield.revoked .shield-check{display:none}
+.shield.revoked .shield-body::before,
+.shield.revoked .shield-body::after{
+  content:"";position:absolute;
+  width:4px;height:36px;background:var(--red);
+  border-radius:2px;
+}
+.shield.revoked .shield-body::before{transform:rotate(45deg)}
+.shield.revoked .shield-body::after{transform:rotate(-45deg)}
+
+/* ── Status Indicator ── */
+.status-pill{
+  display:inline-block;padding:6px 20px;border-radius:20px;
+  font-size:.78rem;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;margin-bottom:24px;
+}
+.status-pill.valid{
+  background:var(--green-subtle);color:var(--green);
+  border:1px solid var(--border-green);
+}
+.status-pill.expired{
+  background:rgba(255,153,68,.08);color:var(--orange);
+  border:1px solid rgba(255,153,68,.2);
+}
+.status-pill.revoked{
+  background:rgba(255,68,68,.08);color:var(--red);
+  border:1px solid rgba(255,68,68,.2);
+}
+
+/* ── Badge Details ── */
+.badge-id{
+  font-size:1.6rem;font-weight:700;color:var(--green);
+  text-shadow:var(--green-glow);margin-bottom:8px;
+  letter-spacing:1px;
+}
+.badge-contract{
+  font-size:1rem;font-weight:600;color:var(--text-bright);
+  margin-bottom:4px;
+}
+.badge-address{
+  font-size:.76rem;color:var(--text-muted);
+  margin-bottom:24px;cursor:default;
+  transition:color .2s;
+}
+.badge-address:hover{color:var(--text-bright)}
+.badge-address .full{display:none}
+.badge-address:hover .truncated{display:none}
+.badge-address:hover .full{display:inline}
+
+.detail-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:16px;
+  margin:24px 0;text-align:left;
+}
+.detail-item{
+  padding:14px 16px;border-radius:8px;
+  background:var(--bg);border:1px solid var(--border);
+}
+.detail-label{
+  font-size:.66rem;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.5px;
+  margin-bottom:4px;
+}
+.detail-value{
+  font-size:.84rem;color:var(--text-bright);font-weight:600;
+}
+
+.branding{
+  font-size:.72rem;color:var(--text-muted);
+  margin-top:28px;padding-top:20px;
+  border-top:1px solid var(--border);
+}
+.branding em{font-style:normal;color:var(--green)}
+
+/* ── Embed Section ── */
+.embed-section{
+  margin-top:32px;padding:24px;border-radius:var(--radius);
+  background:var(--bg);border:1px solid var(--border);
+  text-align:left;
+}
+.embed-title{
+  font-size:.82rem;font-weight:600;color:var(--text-bright);
+  margin-bottom:12px;
+}
+.embed-code-wrap{
+  display:flex;gap:8px;align-items:stretch;
+}
+.embed-code{
+  flex:1;padding:12px;border-radius:6px;
+  background:var(--bg-card);border:1px solid var(--border);
+  font-size:.72rem;color:var(--green);
+  font-family:inherit;overflow-x:auto;
+  white-space:nowrap;
+  line-height:1.8;
+}
+.copy-btn{
+  padding:0 16px;border:1px solid var(--border-green);
+  border-radius:6px;background:transparent;
+  color:var(--green);font-family:inherit;
+  font-size:.74rem;font-weight:600;
+  cursor:pointer;transition:all .2s;
+  white-space:nowrap;
+}
+.copy-btn:hover{background:var(--green);color:var(--bg)}
+.copy-btn.copied{background:var(--green);color:var(--bg)}
+
+/* ── Report Link ── */
+.report-link{
+  display:inline-block;margin-top:20px;
+  padding:10px 24px;border:1px solid var(--border-green);
+  border-radius:6px;color:var(--green);
+  font-size:.78rem;font-weight:600;
+  transition:all .2s;
+}
+.report-link:hover{background:var(--green);color:var(--bg);text-decoration:none}
+
+/* ── Loading / Error ── */
+.loading{
+  text-align:center;padding:80px 24px;
+  font-size:.88rem;color:var(--text-muted);
+}
+.loading-spinner{
+  width:32px;height:32px;margin:0 auto 16px;
+  border:3px solid var(--border);border-top-color:var(--green);
+  border-radius:50%;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.error-msg{
+  text-align:center;padding:80px 24px;
+  font-size:.88rem;color:var(--red);
+}
+
+/* ── Footer ── */
+.footer{
+  text-align:center;padding:40px 24px;
+  border-top:1px solid var(--border);
+  font-size:.72rem;color:var(--text-muted);
+}
+
+/* ── Responsive ── */
+@media(max-width:540px){
+  .badge-card{padding:32px 20px}
+  .badge-id{font-size:1.2rem}
+  .detail-grid{grid-template-columns:1fr}
+  .embed-code-wrap{flex-direction:column}
+  .copy-btn{padding:10px 16px}
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <a href="/" class="nav-logo">0pnMatrx<span>badge</span></a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/chat">Chat</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/audit">Audit</a>
+    <a href="/glasswing">Glasswing</a>
+  </div>
+</nav>
+
+<!-- Loading State -->
+<div class="badge-wrap" id="loadingState">
+  <div class="loading">
+    <div class="loading-spinner"></div>
+    Verifying badge...
+  </div>
+</div>
+
+<!-- Error State -->
+<div class="badge-wrap" id="errorState" style="display:none">
+  <div class="error-msg" id="errorMsg">Badge not found.</div>
+</div>
+
+<!-- Badge Content -->
+<div class="badge-wrap" id="badgeContent" style="display:none">
+  <div class="badge-card">
+
+    <!-- Shield Icon -->
+    <div class="shield" id="shieldIcon">
+      <div class="shield-body">
+        <div class="shield-check"></div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-pill valid" id="statusPill">Valid</div>
+
+    <!-- Badge ID -->
+    <div class="badge-id" id="badgeId">GLASSWING-2026-0001</div>
+
+    <!-- Contract Info -->
+    <div class="badge-contract" id="contractName">--</div>
+    <div class="badge-address" id="contractAddress">
+      <span class="truncated"></span>
+      <span class="full"></span>
+    </div>
+
+    <!-- Details Grid -->
+    <div class="detail-grid">
+      <div class="detail-item">
+        <div class="detail-label">Audit Date</div>
+        <div class="detail-value" id="auditDate">--</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Expires</div>
+        <div class="detail-value" id="expiryDate">--</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Renewals</div>
+        <div class="detail-value" id="renewalCount">0</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">Time Remaining</div>
+        <div class="detail-value" id="timeRemaining">--</div>
+      </div>
+    </div>
+
+    <!-- Branding -->
+    <div class="branding">
+      Verified by <em>Glasswing</em> on <em>0pnMatrx</em>
+    </div>
+  </div>
+
+  <!-- Embed Code -->
+  <div class="embed-section">
+    <div class="embed-title">Embed this badge on your site</div>
+    <div class="embed-code-wrap">
+      <code class="embed-code" id="embedCode"></code>
+      <button class="copy-btn" id="copyBtn" onclick="copyEmbed()">Copy</button>
+    </div>
+  </div>
+
+  <!-- Report Link -->
+  <div style="text-align:center;margin-top:24px">
+    <a class="report-link" id="reportLink" href="#">View Full Audit Report</a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer class="footer">
+  <p><a href="/glasswing">Glasswing Security</a> &middot; <a href="/">0pnMatrx</a></p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // Extract badge ID from the URL path: /badge/{badge_id}
+  var pathParts = window.location.pathname.split("/").filter(Boolean);
+  var badgeId = null;
+  for (var i = 0; i < pathParts.length; i++) {
+    if (pathParts[i] === "badge" && i + 1 < pathParts.length) {
+      badgeId = decodeURIComponent(pathParts[i + 1]);
+      break;
+    }
+  }
+
+  if (!badgeId) {
+    showError("No badge ID specified.");
+    return;
+  }
+
+  fetchBadge(badgeId);
+
+  function fetchBadge(id) {
+    fetch("/badge/" + encodeURIComponent(id) + "/status")
+      .then(function(resp) {
+        if (!resp.ok) throw new Error("Badge not found");
+        return resp.json();
+      })
+      .then(function(data) { renderBadge(data); })
+      .catch(function(err) { showError(err.message || "Verification unavailable"); });
+  }
+
+  function renderBadge(data) {
+    document.getElementById("loadingState").style.display = "none";
+    document.getElementById("badgeContent").style.display = "block";
+
+    // Badge ID
+    document.getElementById("badgeId").textContent = data.badge_id;
+    document.title = data.badge_id + " - Glasswing Badge Verification";
+
+    // Contract info
+    document.getElementById("contractName").textContent = data.contract_name || "--";
+    var addr = data.contract_address || "";
+    var truncEl = document.querySelector(".badge-address .truncated");
+    var fullEl = document.querySelector(".badge-address .full");
+    if (addr.length > 16) {
+      truncEl.textContent = addr.slice(0, 8) + "..." + addr.slice(-6);
+    } else {
+      truncEl.textContent = addr;
+    }
+    fullEl.textContent = addr;
+
+    // Status
+    var status = data.status || "valid";
+    var pill = document.getElementById("statusPill");
+    var shield = document.getElementById("shieldIcon");
+    pill.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    pill.className = "status-pill " + status;
+    shield.className = "shield " + (status === "valid" ? "" : status);
+
+    // Dates
+    document.getElementById("auditDate").textContent = formatDate(data.issued_at);
+    document.getElementById("expiryDate").textContent = formatDate(data.expires_at);
+    document.getElementById("renewalCount").textContent = String(data.renewal_count || 0);
+
+    // Time remaining
+    var remaining = data.time_until_expiry || 0;
+    if (status === "revoked") {
+      document.getElementById("timeRemaining").textContent = "Revoked";
+      document.getElementById("timeRemaining").style.color = "var(--red)";
+    } else if (remaining <= 0) {
+      document.getElementById("timeRemaining").textContent = "Expired";
+      document.getElementById("timeRemaining").style.color = "var(--orange)";
+    } else {
+      document.getElementById("timeRemaining").textContent = formatDuration(remaining);
+    }
+
+    // Badge ID color matching status
+    var badgeIdEl = document.getElementById("badgeId");
+    if (status === "expired") {
+      badgeIdEl.style.color = "var(--orange)";
+      badgeIdEl.style.textShadow = "0 0 8px rgba(255,153,68,.35)";
+    } else if (status === "revoked") {
+      badgeIdEl.style.color = "var(--red)";
+      badgeIdEl.style.textShadow = "0 0 8px rgba(255,68,68,.35)";
+    }
+
+    // Embed code
+    var embedCode = '<script src="https://api.openmatrix.io/badge/widget.js" data-badge="' + esc(data.badge_id) + '"><\/script>';
+    document.getElementById("embedCode").textContent = embedCode;
+
+    // Report link
+    var reportLink = document.getElementById("reportLink");
+    if (data.audit_report_hash) {
+      reportLink.href = "/audit/report/" + encodeURIComponent(data.audit_report_hash);
+    } else {
+      reportLink.style.display = "none";
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById("loadingState").style.display = "none";
+    document.getElementById("errorState").style.display = "block";
+    document.getElementById("errorMsg").textContent = msg;
+  }
+
+  function formatDate(ts) {
+    if (!ts) return "--";
+    var d = new Date(ts * 1000);
+    return d.toLocaleDateString("en-US", {
+      year: "numeric", month: "short", day: "numeric"
+    });
+  }
+
+  function formatDuration(seconds) {
+    var days = Math.floor(seconds / 86400);
+    if (days > 30) {
+      var months = Math.floor(days / 30);
+      var remainDays = days % 30;
+      return months + "mo " + remainDays + "d";
+    }
+    return days + " day" + (days !== 1 ? "s" : "");
+  }
+
+  function esc(s) {
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // Expose copy function
+  window.copyEmbed = function() {
+    var code = document.getElementById("embedCode").textContent;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code).then(function() {
+        var btn = document.getElementById("copyBtn");
+        btn.textContent = "Copied";
+        btn.classList.add("copied");
+        setTimeout(function() {
+          btn.textContent = "Copy";
+          btn.classList.remove("copied");
+        }, 2000);
+      });
+    } else {
+      // Fallback for older browsers
+      var ta = document.createElement("textarea");
+      ta.value = code;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      var btn = document.getElementById("copyBtn");
+      btn.textContent = "Copied";
+      btn.classList.add("copied");
+      setTimeout(function() {
+        btn.textContent = "Copy";
+        btn.classList.remove("copied");
+      }, 2000);
+    }
+  };
+})();
+</script>
+
+</body>
+</html>

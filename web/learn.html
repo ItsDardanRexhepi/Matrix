@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learn - 0pnMatrx</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#141414;--bg-hover:#1a1a1a;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003300;
+  --green-glow:0 0 8px rgba(0,255,65,.35);
+  --green-subtle:rgba(0,255,65,.06);
+  --text:#c8c8c8;--text-bright:#e8e8e8;--text-muted:#666;
+  --border:#1e1e1e;--border-green:rgba(0,255,65,.2);
+  --yellow:#ffcc00;--orange:#ff9944;--blue:#4488ff;
+  --radius:10px;--max-w:1100px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:'SF Mono','Fira Code','Cascadia Code',monospace;
+  background:var(--bg);color:var(--text);line-height:1.6;
+  min-height:100vh;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+
+.nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(10,10,10,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+  text-decoration:none;
+}
+.nav-logo span{color:var(--text-muted);font-weight:400;font-size:.72rem;margin-left:6px;text-shadow:none}
+.nav-links{display:flex;gap:20px;align-items:center}
+.nav-links a{
+  color:var(--text-muted);text-decoration:none;font-size:.78rem;
+  transition:color .2s;
+}
+.nav-links a:hover{color:var(--green)}
+.nav-links a.active{color:var(--green)}
+.nav-toggle{display:none;background:none;border:none;color:var(--text);cursor:pointer;font-size:1.3rem;padding:4px}
+
+.hero{text-align:center;padding:72px 24px 48px}
+.hero h1{font-size:2rem;color:var(--text-bright);margin-bottom:12px}
+.hero p{color:var(--text-muted);max-width:600px;margin:0 auto;font-size:.9rem}
+
+.section{max-width:var(--max-w);margin:0 auto;padding:0 24px 56px}
+.section h2{font-size:1.3rem;color:var(--text-bright);margin-bottom:24px;text-align:center}
+
+.course-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px;margin-bottom:40px}
+.course-card{
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:28px;transition:border-color .3s,transform .2s;
+}
+.course-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
+.course-badge{
+  display:inline-block;font-size:.65rem;text-transform:uppercase;letter-spacing:1.5px;
+  padding:3px 10px;border-radius:4px;margin-bottom:14px;font-weight:600;
+}
+.course-badge.beginner{background:rgba(0,255,65,.12);color:var(--green)}
+.course-badge.intermediate{background:rgba(255,204,0,.12);color:var(--yellow)}
+.course-card h3{font-size:1.05rem;color:var(--text-bright);margin-bottom:8px}
+.course-card p{font-size:.82rem;color:var(--text);margin-bottom:16px;line-height:1.7}
+.course-meta{display:flex;gap:16px;margin-bottom:18px;font-size:.72rem;color:var(--text-muted)}
+.course-price{font-size:1.3rem;color:var(--green);font-weight:700;margin-bottom:16px}
+.course-btn{
+  display:inline-block;padding:10px 20px;border-radius:6px;font-size:.8rem;
+  font-weight:600;cursor:pointer;text-decoration:none;font-family:inherit;
+  transition:all .2s;
+}
+.course-btn.primary{background:var(--green);color:var(--bg);border:none}
+.course-btn.primary:hover{background:var(--green-dim);text-decoration:none}
+.course-btn.secondary{border:1px solid var(--green);color:var(--green);background:transparent}
+.course-btn.secondary:hover{background:rgba(0,255,65,.08);text-decoration:none}
+
+.bundle{
+  background:var(--bg-card);border:2px solid var(--green);border-radius:var(--radius);
+  padding:36px;text-align:center;margin-bottom:48px;
+  box-shadow:0 0 24px rgba(0,255,65,.08);
+}
+.bundle h3{font-size:1.2rem;color:var(--text-bright);margin-bottom:8px}
+.bundle .price{font-size:2rem;color:var(--green);font-weight:700;margin:12px 0}
+.bundle .orig{color:var(--text-muted);text-decoration:line-through;font-size:.9rem;margin-right:8px}
+
+.cert-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;margin-bottom:40px}
+.cert-card{
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:24px;text-align:center;
+}
+.cert-card h4{color:var(--text-bright);margin-bottom:6px;font-size:.95rem}
+.cert-card .price{color:var(--green);font-size:1.1rem;font-weight:700;margin:8px 0}
+.cert-card p{font-size:.78rem;color:var(--text);margin-bottom:12px}
+.cert-card .detail{font-size:.7rem;color:var(--text-muted)}
+
+.free-section{
+  text-align:center;padding:40px;border:1px solid var(--border);border-radius:var(--radius);
+  margin-bottom:40px;background:var(--bg-surface);
+}
+.free-section h3{color:var(--text-bright);margin-bottom:8px}
+.free-section p{color:var(--text);font-size:.85rem;margin-bottom:16px;max-width:500px;margin-left:auto;margin-right:auto}
+
+.teams{
+  background:var(--bg-card);border:1px solid var(--border-green);border-radius:var(--radius);
+  padding:32px;text-align:center;margin-bottom:48px;
+}
+.teams h3{color:var(--text-bright);margin-bottom:8px}
+.teams p{color:var(--text);font-size:.85rem;margin-bottom:16px;max-width:500px;margin-left:auto;margin-right:auto}
+
+.footer{
+  text-align:center;padding:32px 24px;border-top:1px solid var(--border);
+  font-size:.72rem;color:var(--text-muted);
+}
+.footer-links{list-style:none;display:flex;gap:20px;justify-content:center;margin-bottom:12px;flex-wrap:wrap}
+.footer-links a{color:var(--text-muted);font-size:.72rem}
+.footer-links a:hover{color:var(--green)}
+
+@media(max-width:700px){
+  .nav-links{display:none;flex-direction:column;position:absolute;top:50px;left:0;right:0;background:var(--bg);padding:16px;border-bottom:1px solid var(--border)}
+  .nav-links.open{display:flex}
+  .nav-toggle{display:block}
+  .course-grid{grid-template-columns:1fr}
+  .cert-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="nav-logo">0pnMatrx <span>Learn</span></a>
+  <button class="nav-toggle" id="navToggle">&#9776;</button>
+  <div class="nav-links" id="navLinks">
+    <a href="/">Home</a>
+    <a href="/chat">Chat</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/audit">Audit</a>
+    <a href="/marketplace">Marketplace</a>
+    <a href="/glasswing">Glasswing</a>
+    <a href="/learn" class="active">Learn</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <h1>Learn 0pnMatrx</h1>
+  <p>Three comprehensive courses that take you from zero to building production applications on the platform. Learn blockchain, smart contracts, and DeFi the right way.</p>
+</div>
+
+<div class="section">
+  <h2>Courses</h2>
+  <div class="course-grid">
+
+    <div class="course-card">
+      <div class="course-badge beginner">Beginner</div>
+      <h3>Introduction to 0pnMatrx</h3>
+      <p>Build your first plugin, deploy a smart contract, and use both the Python and JavaScript SDKs. Everything you need to start building on the platform.</p>
+      <div class="course-meta">
+        <span>6 modules</span>
+        <span>5 exercises</span>
+        <span>~4 hours</span>
+      </div>
+      <div class="course-price">$49</div>
+      <a href="#" class="course-btn primary">Buy on Gumroad</a>
+      <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/tree/main/education/course-01-intro-to-0pnmatrx" class="course-btn secondary" style="margin-left:8px">Read Free</a>
+    </div>
+
+    <div class="course-card">
+      <div class="course-badge intermediate">Intermediate</div>
+      <h3>Smart Contract Security</h3>
+      <p>Master reentrancy attacks, access control patterns, and the Glasswing audit methodology. Includes vulnerable contracts to practice with and their fixed versions.</p>
+      <div class="course-meta">
+        <span>5 modules</span>
+        <span>3 practice contracts</span>
+        <span>~6 hours</span>
+      </div>
+      <div class="course-price">$79</div>
+      <a href="#" class="course-btn primary">Buy on Gumroad</a>
+      <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/tree/main/education/course-02-smart-contract-security" class="course-btn secondary" style="margin-left:8px">Read Free</a>
+    </div>
+
+    <div class="course-card">
+      <div class="course-badge beginner">Beginner</div>
+      <h3>DeFi from Scratch</h3>
+      <p>Understand DeFi without any assumed knowledge. Collateral, loans, NFT royalties, DAOs, staking, and yield — explained simply and built hands-on.</p>
+      <div class="course-meta">
+        <span>5 modules</span>
+        <span>No Solidity required</span>
+        <span>~3 hours</span>
+      </div>
+      <div class="course-price">$49</div>
+      <a href="#" class="course-btn primary">Buy on Gumroad</a>
+      <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/tree/main/education/course-03-defi-from-scratch" class="course-btn secondary" style="margin-left:8px">Read Free</a>
+    </div>
+
+  </div>
+
+  <div class="bundle">
+    <h3>Complete Learning Bundle</h3>
+    <p style="color:var(--text);font-size:.85rem;margin-bottom:12px">All three courses. Everything you need to master the platform.</p>
+    <div class="price"><span class="orig">$177</span> $149</div>
+    <a href="#" class="course-btn primary" style="font-size:.9rem;padding:12px 32px">Buy the Bundle on Gumroad</a>
+  </div>
+
+  <div class="free-section">
+    <h3>Start Learning Free</h3>
+    <p>All course content is open source on GitHub. The paid version includes the guided experience, exercises, solutions, and certification prep materials.</p>
+    <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/tree/main/education" target="_blank" class="course-btn secondary">Browse on GitHub</a>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Get Certified</h2>
+  <p style="text-align:center;color:var(--text);font-size:.85rem;margin-bottom:28px;max-width:600px;margin-left:auto;margin-right:auto">
+    Professional certifications backed by on-chain EAS attestations. Prove your expertise to employers and clients.
+  </p>
+  <div class="cert-grid">
+    <div class="cert-card">
+      <h4>Certified Developer</h4>
+      <div class="price">$149</div>
+      <p>Plugins, SDK integration, contract deployment</p>
+      <div class="detail">40 questions | 90 minutes | 80% to pass | Valid 2 years</div>
+    </div>
+    <div class="cert-card">
+      <h4>Certified Security Auditor</h4>
+      <div class="price">$249</div>
+      <p>Glasswing methodology, vulnerability analysis</p>
+      <div class="detail">50 questions | 120 minutes | 85% to pass | Valid 1 year</div>
+    </div>
+    <div class="cert-card">
+      <h4>Enterprise Architect</h4>
+      <div class="price">$399</div>
+      <p>Multi-chain deployment, infrastructure at scale</p>
+      <div class="detail">60 questions | 150 minutes | 85% to pass | Valid 2 years</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="teams">
+    <h3>For Teams</h3>
+    <p>Training 5+ developers? We offer bulk licensing for companies. Get discounted course access and group certification rates.</p>
+    <a href="mailto:enterprise@0pnmatrx.io" class="course-btn secondary">Contact for Team Pricing</a>
+  </div>
+</div>
+
+<footer class="footer">
+  <ul class="footer-links">
+    <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank">GitHub</a></li>
+    <li><a href="/docs">API Docs</a></li>
+    <li><a href="/chat">Chat</a></li>
+    <li><a href="/pricing">Pricing</a></li>
+    <li><a href="/marketplace">Marketplace</a></li>
+    <li><a href="/glasswing">Glasswing</a></li>
+  </ul>
+  <p>&copy; 2026 0pnMatrx. Open source under MIT license.</p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  const toggle = document.getElementById("navToggle");
+  const links = document.getElementById("navLinks");
+  toggle.addEventListener("click", ()=> links.classList.toggle("open"));
+  links.querySelectorAll("a").forEach(a=>{
+    a.addEventListener("click", ()=> links.classList.remove("open"));
+  });
+
+  const observer = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        entry.target.style.opacity = "1";
+        entry.target.style.transform = "translateY(0)";
+      }
+    });
+  }, {threshold:0.08});
+
+  document.querySelectorAll(".course-card, .cert-card, .bundle").forEach(el=>{
+    el.style.opacity = "0";
+    el.style.transform = "translateY(16px)";
+    el.style.transition = "opacity .45s ease, transform .45s ease";
+    observer.observe(el);
+  });
+})();
+</script>
+</body>
+</html>

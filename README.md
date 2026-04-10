@@ -1,5 +1,8 @@
 # 0pnMatrx
 
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/ItsDardanRexhepi?style=flat&logo=github)](https://github.com/sponsors/ItsDardanRexhepi)
+[![Open Collective](https://img.shields.io/opencollective/all/openmatrix?style=flat&logo=opencollective)](https://opencollective.com/openmatrix)
+
 ---
 
 Hello world,
@@ -292,6 +295,39 @@ See `docs/RUNBOOK.md` for the full on-call playbook and
 
 ---
 
+## Sponsors
+
+0pnMatrx is free and open source because of the people who sponsor it.
+Sponsorship keeps the free tier free forever.
+
+[Become a Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
+
+| Tier | Monthly | What You Get |
+|------|---------|--------------|
+| Community Supporter | $5 | Name in CONTRIBUTORS.md |
+| Platform Backer | $25 | Name + link in README, Discord access |
+| Builder | $100 | Logo in README, priority issues, roadmap influence |
+| Infrastructure Partner | $500 | Logo on landing page, dedicated Slack, quarterly calls |
+| Founding Sponsor | $2,500 | Everything above + white-label rights, press mentions |
+
+**Corporate sponsors:** See [Open Collective](https://opencollective.com/openmatrix) for invoiced tiers with tax receipts.
+
+### Founding Sponsors
+
+*Your logo here* — [Become a Founding Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
+
+### Infrastructure Partners
+
+*Your logo here* — [Become an Infrastructure Partner](https://github.com/sponsors/ItsDardanRexhepi)
+
+### Builders
+
+*Your logo here* — [Become a Builder](https://github.com/sponsors/ItsDardanRexhepi)
+
+See `SPONSORS.md` for the full sponsor list and `docs/SPONSORSHIP.md` for details.
+
+---
+
 ## Subscription Tiers
 
 | Feature | Free | Pro ($4.99/mo) | Enterprise ($19.99/mo) |
@@ -317,6 +353,9 @@ The gateway serves a built-in web interface:
 - `http://localhost:18790/pricing` — Pricing and plans
 - `http://localhost:18790/audit` — Glasswing security audit service
 - `http://localhost:18790/marketplace` — Plugin marketplace
+- `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
+- `http://localhost:18790/learn` — Educational courses and certifications
+- `http://localhost:18790/admin/revenue` — Revenue dashboard (API key required)
 
 ---
 
@@ -324,6 +363,32 @@ The gateway serves a built-in web interface:
 
 - **Glasswing Security Audit** ($299+) — Automated smart contract security scanning at `/audit`
 - **Contract Conversion** ($499+) — Professional plain-English to Solidity at `/services/conversion`
+
+## Glasswing Security Badges
+
+Projects that pass a Glasswing audit can display a verifiable security
+badge backed by on-chain EAS attestation. Badges are embeddable,
+independently verifiable, and expire after one year (renewable).
+
+See `/glasswing` for the badge registry and `docs/SPONSORSHIP.md` for details.
+
+## Learn
+
+Three comprehensive courses for developers at every level:
+
+- **Introduction to 0pnMatrx** ($49) — Build plugins, deploy contracts, use the SDK
+- **Smart Contract Security** ($79) — Reentrancy, access control, Glasswing methodology
+- **DeFi from Scratch** ($49) — Loans, NFTs, DAOs, staking, explained simply
+
+See `/learn` for details or browse the open source content in `education/`.
+
+## Get Certified
+
+Professional certifications backed by on-chain attestations:
+
+- **Certified Developer** ($149) — Plugins, SDK, contract deployment
+- **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis
+- **Enterprise Architect** ($399) — Multi-chain deployment, infrastructure at scale
 
 ---
 
@@ -360,6 +425,9 @@ const response = await client.chat('What can you do?');
 ## Contributing
 
 See `CONTRIBUTING.md` for the Möbius loop contribution model.
+
+Community builders: share your referral link to earn free subscription
+months. Generate your code at `/pricing` or via `POST /referral/generate`.
 
 ---
 

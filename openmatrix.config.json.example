@@ -270,6 +270,25 @@
       "supported_tokens": ["USDC", "ETH"]
     }
   },
+  "referrals": {
+    "enabled": true,
+    "pro_referral_months": 1,
+    "enterprise_referral_months": 2
+  },
+  "metered_api": {
+    "enabled": true
+  },
+  "protocol_referrals": {
+    "enabled": true,
+    "neosafe_address": "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
+  },
+  "badges": {
+    "enabled": true,
+    "annual_renewal_usd": 99.00
+  },
+  "certification": {
+    "enabled": true
+  },
   "security": {
     "audit_on_conversion": true,
     "audit_on_deploy": true,

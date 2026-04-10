@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glasswing Smart Contract Security - 0pnMatrx</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#141414;--bg-hover:#1a1a1a;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003300;
+  --green-glow:0 0 8px rgba(0,255,65,.35);
+  --green-subtle:rgba(0,255,65,.06);
+  --text:#c8c8c8;--text-bright:#e8e8e8;--text-muted:#666;
+  --border:#1e1e1e;--border-green:rgba(0,255,65,.2);
+  --red:#ff4444;--orange:#ff9944;--yellow:#ffcc00;--blue:#4488ff;
+  --radius:10px;--max-w:1100px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:'SF Mono','Fira Code','Cascadia Code',monospace;
+  background:var(--bg);color:var(--text);line-height:1.6;
+  min-height:100vh;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+
+/* ── Navigation ── */
+.nav{
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 24px;
+  background:rgba(10,10,10,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+.nav-logo{
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+  text-decoration:none;
+}
+.nav-logo span{color:var(--text-muted);font-weight:400;font-size:.72rem;margin-left:6px;text-shadow:none}
+.nav-links{display:flex;gap:20px;align-items:center}
+.nav-links a{
+  color:var(--text-muted);text-decoration:none;font-size:.78rem;
+  transition:color .2s;
+}
+.nav-links a:hover{color:var(--green)}
+.nav-links a.active{color:var(--green)}
+.nav-toggle{display:none;background:none;border:none;color:var(--text);cursor:pointer;font-size:1.3rem;padding:4px}
+
+/* ── Hero ── */
+.hero{
+  text-align:center;padding:72px 24px 56px;
+  background:linear-gradient(180deg,rgba(0,255,65,.03) 0%,transparent 100%);
+  position:relative;overflow:hidden;
+}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse 500px 300px at 50% 40%,rgba(0,255,65,.04) 0%,transparent 70%);
+}
+.hero h1{
+  font-size:2rem;font-weight:700;color:var(--text-bright);
+  line-height:1.3;margin-bottom:12px;position:relative;
+}
+.hero h1 em{
+  font-style:normal;color:var(--green);text-shadow:var(--green-glow);
+}
+.hero p{
+  font-size:.88rem;color:var(--text-muted);max-width:640px;margin:0 auto 32px;
+  position:relative;
+}
+.hero-badge{
+  display:inline-block;padding:6px 16px;
+  border:1px solid var(--border-green);border-radius:20px;
+  font-size:.72rem;color:var(--green-dim);
+  background:var(--green-subtle);position:relative;
+}
+
+/* ── Section ── */
+.section{padding:64px 24px;max-width:var(--max-w);margin:0 auto}
+.section-title{
+  font-size:1.3rem;font-weight:700;color:var(--text-bright);
+  margin-bottom:8px;text-align:center;
+}
+.section-sub{
+  font-size:.82rem;color:var(--text-muted);text-align:center;
+  margin-bottom:40px;
+}
+
+/* ── Vulnerability Grid ── */
+.vuln-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:12px;margin-bottom:48px;
+}
+.vuln-item{
+  display:flex;align-items:center;gap:10px;
+  padding:14px 16px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+  font-size:.8rem;color:var(--text);
+  transition:border-color .2s,background .2s;
+}
+.vuln-item:hover{border-color:var(--border-green);background:var(--bg-hover)}
+.vuln-num{
+  width:28px;height:28px;border-radius:50%;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:.68rem;font-weight:700;
+  background:var(--green-subtle);color:var(--green);
+  border:1px solid var(--border-green);
+}
+
+/* ── Pricing Cards ── */
+.pricing-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:20px;margin-bottom:48px;
+}
+.price-card{
+  padding:32px 28px;border-radius:var(--radius);
+  background:var(--bg-card);border:1px solid var(--border);
+  position:relative;transition:border-color .3s,transform .2s;
+}
+.price-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
+.price-card.featured{border-color:var(--green-dim)}
+.price-card.featured::before{
+  content:"MOST POPULAR";position:absolute;top:-11px;left:50%;
+  transform:translateX(-50%);
+  padding:3px 14px;border-radius:10px;
+  font-size:.62rem;font-weight:700;letter-spacing:1px;
+  background:var(--green);color:var(--bg);
+}
+.price-tier{font-size:.88rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
+.price-amount{
+  font-size:2.2rem;font-weight:700;color:var(--green);
+  text-shadow:var(--green-glow);margin-bottom:4px;
+}
+.price-amount span{font-size:.82rem;color:var(--text-muted);font-weight:400}
+.price-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:20px}
+.price-features{list-style:none;margin-bottom:24px}
+.price-features li{
+  font-size:.78rem;color:var(--text);
+  padding:6px 0;border-bottom:1px solid rgba(30,30,30,.6);
+  display:flex;align-items:flex-start;gap:8px;
+}
+.price-features li::before{
+  content:">";color:var(--green);font-weight:700;flex-shrink:0;
+}
+.price-btn{
+  display:block;width:100%;padding:12px;
+  border:1px solid var(--green);border-radius:6px;
+  background:transparent;color:var(--green);
+  font-family:inherit;font-size:.82rem;font-weight:600;
+  cursor:pointer;transition:all .2s;text-align:center;
+  text-decoration:none;
+}
+.price-btn:hover{background:var(--green);color:var(--bg);text-decoration:none}
+.price-card.featured .price-btn{
+  background:var(--green);color:var(--bg);
+}
+.price-card.featured .price-btn:hover{
+  background:var(--green-dim);
+}
+
+/* ── Badge Preview Section ── */
+.badge-section{
+  padding:64px 24px;
+  background:linear-gradient(180deg,transparent,rgba(0,255,65,.02) 50%,transparent);
+}
+.badge-section-inner{max-width:var(--max-w);margin:0 auto}
+.badge-features{
+  display:grid;grid-template-columns:1fr 1fr;gap:24px;
+  margin-top:32px;
+}
+.badge-feature{
+  padding:20px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+  transition:border-color .2s;
+}
+.badge-feature:hover{border-color:var(--border-green)}
+.badge-feature-title{
+  font-size:.84rem;font-weight:600;color:var(--text-bright);
+  margin-bottom:6px;
+}
+.badge-feature-desc{
+  font-size:.76rem;color:var(--text-muted);line-height:1.5;
+}
+
+/* ── Example Badge ── */
+.badge-example{
+  display:flex;align-items:center;justify-content:center;
+  margin:36px auto 0;
+}
+.badge-demo{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 18px 8px 12px;
+  background:#001a00;border:1px solid var(--green);
+  border-radius:6px;color:var(--green);
+  font-size:.78rem;font-weight:600;
+  box-shadow:0 0 16px rgba(0,255,65,.15);
+}
+.badge-demo svg{flex-shrink:0}
+.badge-demo-label{margin-top:12px;font-size:.68rem;color:var(--text-muted);text-align:center}
+
+/* ── Registry Table ── */
+.registry{
+  margin-top:32px;border-radius:var(--radius);
+  background:var(--bg-surface);border:1px solid var(--border);
+  overflow:hidden;
+}
+.registry table{width:100%;border-collapse:collapse}
+.registry th{
+  text-align:left;padding:14px 16px;
+  font-size:.68rem;font-weight:700;
+  color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:.5px;
+  border-bottom:1px solid var(--border);
+  background:var(--bg-card);
+}
+.registry td{
+  padding:12px 16px;font-size:.76rem;color:var(--text);
+  border-bottom:1px solid rgba(30,30,30,.5);
+}
+.registry tr:last-child td{border-bottom:none}
+.registry tr:hover td{background:var(--bg-hover)}
+.registry-badge-id{
+  color:var(--green);font-weight:600;
+}
+.registry-badge-id a{color:var(--green)}
+.registry-status{
+  display:inline-block;padding:2px 10px;border-radius:10px;
+  font-size:.66rem;font-weight:700;letter-spacing:.5px;
+  text-transform:uppercase;
+}
+.registry-status.valid{background:var(--green-subtle);color:var(--green);border:1px solid var(--border-green)}
+.registry-status.expired{background:rgba(255,153,68,.08);color:var(--orange);border:1px solid rgba(255,153,68,.2)}
+.registry-empty{
+  padding:40px 24px;text-align:center;
+  font-size:.82rem;color:var(--text-muted);
+}
+
+/* ── CTA ── */
+.cta-section{
+  text-align:center;padding:64px 24px;
+}
+.cta-btn{
+  display:inline-block;padding:16px 48px;
+  border:none;border-radius:8px;
+  background:var(--green);color:var(--bg);
+  font-family:inherit;font-size:.92rem;font-weight:700;
+  letter-spacing:.5px;cursor:pointer;
+  transition:background .2s;text-decoration:none;
+}
+.cta-btn:hover{background:var(--green-dim);text-decoration:none}
+.cta-sub{
+  font-size:.76rem;color:var(--text-muted);margin-top:12px;
+}
+
+/* ── Footer ── */
+.footer{
+  text-align:center;padding:40px 24px;
+  border-top:1px solid var(--border);
+  font-size:.72rem;color:var(--text-muted);
+}
+.footer-links{
+  display:flex;gap:24px;justify-content:center;flex-wrap:wrap;
+  margin-bottom:16px;list-style:none;
+}
+.footer-links a{color:var(--text-muted);font-size:.72rem;transition:color .2s;text-decoration:none}
+.footer-links a:hover{color:var(--green)}
+
+/* ── Animations ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Responsive ── */
+@media(max-width:680px){
+  .nav-links{
+    display:none;position:absolute;top:50px;left:0;right:0;
+    flex-direction:column;background:rgba(10,10,10,.96);
+    border-bottom:1px solid var(--border);padding:16px 24px;gap:14px;
+  }
+  .nav-links.open{display:flex}
+  .nav-toggle{display:block}
+  .hero h1{font-size:1.4rem}
+  .hero{padding:56px 16px 48px}
+  .pricing-grid{grid-template-columns:1fr}
+  .vuln-grid{grid-template-columns:1fr 1fr}
+  .badge-features{grid-template-columns:1fr}
+  .registry{overflow-x:auto}
+  .registry table{min-width:560px}
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <a href="/" class="nav-logo">0pnMatrx<span>glasswing</span></a>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">&#9776;</button>
+  <div class="nav-links" id="navLinks">
+    <a href="/">Home</a>
+    <a href="/chat">Chat</a>
+    <a href="/pricing">Pricing</a>
+    <a href="/audit">Audit</a>
+    <a href="/marketplace">Marketplace</a>
+    <a href="/glasswing" class="active">Glasswing</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="hero-badge">Glasswing Security Engine v1.0</div>
+  <h1 style="margin-top:20px"><em>Glasswing</em> Smart Contract<br>Security</h1>
+  <p>Protecting users and protocols with automated vulnerability detection, manual expert review, and on-chain verified security badges. 12 attack classes. One comprehensive audit.</p>
+</header>
+
+<!-- How Glasswing Works: 12 Vulnerability Checks -->
+<section class="section" id="how-it-works">
+  <h2 class="section-title">How Glasswing Works</h2>
+  <p class="section-sub">Every contract is scanned across 12 vulnerability classes</p>
+  <div class="vuln-grid">
+    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy detection</div>
+    <div class="vuln-item"><div class="vuln-num">2</div>Integer overflow / underflow</div>
+    <div class="vuln-item"><div class="vuln-num">3</div>Unchecked external calls</div>
+    <div class="vuln-item"><div class="vuln-num">4</div>Access control violations</div>
+    <div class="vuln-item"><div class="vuln-num">5</div>Front-running vulnerabilities</div>
+    <div class="vuln-item"><div class="vuln-num">6</div>Denial of service vectors</div>
+    <div class="vuln-item"><div class="vuln-num">7</div>Gas optimization issues</div>
+    <div class="vuln-item"><div class="vuln-num">8</div>Logic errors and edge cases</div>
+    <div class="vuln-item"><div class="vuln-num">9</div>Oracle manipulation risks</div>
+    <div class="vuln-item"><div class="vuln-num">10</div>Flash loan attack vectors</div>
+    <div class="vuln-item"><div class="vuln-num">11</div>MEV extraction vulnerabilities</div>
+    <div class="vuln-item"><div class="vuln-num">12</div>Upgrade proxy safety</div>
+  </div>
+</section>
+
+<!-- Audit Pricing -->
+<section class="section" id="pricing">
+  <h2 class="section-title">Audit Pricing</h2>
+  <p class="section-sub">Choose the depth of analysis your project requires</p>
+  <div class="pricing-grid">
+
+    <!-- Standard -->
+    <div class="price-card">
+      <div class="price-tier">Standard Audit</div>
+      <div class="price-amount">$299 <span>per audit</span></div>
+      <div class="price-desc">Automated 12-point scan with full PDF report</div>
+      <ul class="price-features">
+        <li>Automated 12-point vulnerability scan</li>
+        <li>Severity classification (Critical / High / Medium / Low)</li>
+        <li>PDF report delivered within 48 hours</li>
+        <li>Remediation guidance per finding</li>
+      </ul>
+      <a class="price-btn" href="/audit">Get Started</a>
+    </div>
+
+    <!-- Advanced -->
+    <div class="price-card featured">
+      <div class="price-tier">Advanced Audit</div>
+      <div class="price-amount">$599 <span>per audit</span></div>
+      <div class="price-desc">Automated scan plus manual review with detailed recommendations</div>
+      <ul class="price-features">
+        <li>Everything in Standard, plus:</li>
+        <li>Manual expert code review</li>
+        <li>Detailed remediation recommendations</li>
+        <li>Gas optimisation analysis</li>
+        <li>Code quality scoring</li>
+        <li>Delivered within 1 week</li>
+      </ul>
+      <a class="price-btn" href="/audit">Get Started</a>
+    </div>
+
+    <!-- Enterprise -->
+    <div class="price-card">
+      <div class="price-tier">Enterprise Audit</div>
+      <div class="price-amount">$999 <span>per audit</span></div>
+      <div class="price-desc">Full audit with ongoing monitoring and first-year badge included</div>
+      <ul class="price-features">
+        <li>Everything in Advanced, plus:</li>
+        <li>Ongoing contract monitoring</li>
+        <li>Priority re-audit after fixes</li>
+        <li>Executive summary for stakeholders</li>
+        <li>First-year Glasswing Verified badge included</li>
+        <li>Dedicated support channel</li>
+      </ul>
+      <a class="price-btn" href="/audit">Get Started</a>
+    </div>
+
+  </div>
+</section>
+
+<!-- Glasswing Verified Badge -->
+<section class="badge-section" id="badge">
+  <div class="badge-section-inner">
+    <h2 class="section-title">Glasswing Verified Badge</h2>
+    <p class="section-sub">Verifiable proof your contract passed a professional security audit</p>
+
+    <div class="badge-features">
+      <div class="badge-feature">
+        <div class="badge-feature-title">On-Chain Verification</div>
+        <div class="badge-feature-desc">Every badge is backed by an EAS (Ethereum Attestation Service) attestation, providing tamper-proof on-chain proof of your audit status.</div>
+      </div>
+      <div class="badge-feature">
+        <div class="badge-feature-title">Embeddable Widget</div>
+        <div class="badge-feature-desc">Add a single script tag to your project's website. The widget automatically displays your badge status and links to the full verification page.</div>
+      </div>
+      <div class="badge-feature">
+        <div class="badge-feature-title">Annual Renewal</div>
+        <div class="badge-feature-desc">Badges are valid for one year. Renew for $99/year with a fresh audit to keep your verified status current. First year included with Enterprise audit.</div>
+      </div>
+      <div class="badge-feature">
+        <div class="badge-feature-title">Public Registry</div>
+        <div class="badge-feature-desc">All verified contracts appear in the public badge registry below, giving users confidence that your protocol has been professionally audited.</div>
+      </div>
+    </div>
+
+    <!-- Example Badge -->
+    <div class="badge-example">
+      <div>
+        <div class="badge-demo">
+          <svg width="18" height="20" viewBox="0 0 18 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M9 1L2 4v5c0 5.25 3.15 10.15 7 11.25C12.85 19.15 16 14.25 16 9V4L9 1z" stroke="#00ff41" stroke-width="1.5" fill="#001a00"/>
+            <polyline points="6,10 8.5,12.5 12.5,7.5" stroke="#00ff41" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Glasswing Verified
+        </div>
+        <div class="badge-demo-label">Example badge as rendered on your site</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Public Badge Registry -->
+<section class="section" id="registry">
+  <h2 class="section-title">Verified Contracts</h2>
+  <p class="section-sub">Public registry of contracts that have passed a Glasswing security audit</p>
+
+  <div class="registry" id="registryTable">
+    <div class="registry-empty" id="registryLoading">Loading verified contracts...</div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <a class="cta-btn" href="/audit">Get Your Contract Audited</a>
+  <div class="cta-sub">Start with a free preview scan &mdash; no payment required until you see findings.</div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <ul class="footer-links">
+    <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank">GitHub</a></li>
+    <li><a href="/docs">API Docs</a></li>
+    <li><a href="/chat">Chat</a></li>
+    <li><a href="/marketplace">Marketplace</a></li>
+    <li><a href="/audit">Audit</a></li>
+    <li><a href="/glasswing">Glasswing</a></li>
+  </ul>
+  <p>&copy; 2026 0pnMatrx. Open source under MIT license.</p>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // ── Mobile nav toggle ──
+  var toggle = document.getElementById("navToggle");
+  var links = document.getElementById("navLinks");
+  if (toggle && links) {
+    toggle.addEventListener("click", function() {
+      links.classList.toggle("open");
+    });
+    links.addEventListener("click", function(e) {
+      if (e.target.tagName === "A") links.classList.remove("open");
+    });
+  }
+
+  // ── Load badge registry ──
+  loadRegistry();
+
+  function loadRegistry() {
+    fetch("/badges?status=valid")
+      .then(function(resp) {
+        if (!resp.ok) throw new Error("Failed to load");
+        return resp.json();
+      })
+      .then(function(data) {
+        var badges = data.badges || data || [];
+        renderRegistry(badges);
+      })
+      .catch(function() {
+        document.getElementById("registryLoading").textContent =
+          "No verified contracts to display yet. Be the first to get audited.";
+      });
+  }
+
+  function renderRegistry(badges) {
+    var container = document.getElementById("registryTable");
+
+    if (!badges.length) {
+      container.innerHTML =
+        '<div class="registry-empty">No verified contracts yet. ' +
+        '<a href="/audit">Get your contract audited</a> to be the first.</div>';
+      return;
+    }
+
+    var html = "<table><thead><tr>" +
+      "<th>Badge ID</th>" +
+      "<th>Contract</th>" +
+      "<th>Address</th>" +
+      "<th>Issued</th>" +
+      "<th>Status</th>" +
+      "</tr></thead><tbody>";
+
+    for (var i = 0; i < badges.length; i++) {
+      var b = badges[i];
+      var addr = b.contract_address || "";
+      var shortAddr = addr.length > 14
+        ? addr.slice(0, 6) + "..." + addr.slice(-4)
+        : addr;
+      var issued = b.issued_at ? formatDate(b.issued_at) : "--";
+      var statusClass = b.status || "valid";
+
+      html += "<tr>" +
+        '<td class="registry-badge-id"><a href="/badge/' + esc(b.badge_id) + '">' + esc(b.badge_id) + "</a></td>" +
+        "<td>" + esc(b.contract_name || "--") + "</td>" +
+        '<td title="' + esc(addr) + '">' + esc(shortAddr) + "</td>" +
+        "<td>" + issued + "</td>" +
+        '<td><span class="registry-status ' + statusClass + '">' + statusClass + "</span></td>" +
+        "</tr>";
+    }
+
+    html += "</tbody></table>";
+    container.innerHTML = html;
+  }
+
+  function formatDate(ts) {
+    var d = new Date(ts * 1000);
+    return d.toLocaleDateString("en-US", {
+      year: "numeric", month: "short", day: "numeric"
+    });
+  }
+
+  function esc(s) {
+    if (!s) return "";
+    var d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+})();
+</script>
+
+</body>
+</html>
