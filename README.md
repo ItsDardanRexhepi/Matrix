@@ -424,7 +424,7 @@ const response = await client.chat('What can you do?');
 
 ## Contributing
 
-See `CONTRIBUTING.md` for the Möbius loop contribution model.
+See `CONTRIBUTING.md` for the open contribution model.
 
 Community builders: share your referral link to earn free subscription
 months. Generate your code at `/pricing` or via `POST /referral/generate`.

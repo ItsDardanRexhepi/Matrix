@@ -4,9 +4,9 @@ Welcome. 0pnMatrx is open source and welcomes contributions from developers ever
 
 ---
 
-## The Möbius Loop Contribution Model
+## The Continuous Contribution Model
 
-0pnMatrx uses a contribution model called the Möbius loop. It works like this:
+0pnMatrx uses a continuous contribution model. It works like this:
 
 **Build freely.** Any developer can fork 0pnMatrx, build anything they want on top of it, and run it on their own infrastructure without asking permission. The MIT license guarantees this. You do not need approval to build, experiment, extend, or deploy.
 
