@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 dist/
-build/
+/build/
 .venv/
 
 # Config (real config has secrets)
