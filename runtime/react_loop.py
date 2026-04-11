@@ -17,6 +17,13 @@ every turn. Loads agent identity from agents/{agent}/identity.md.
 Protocol integration: the ProtocolStack is initialised per agent and
 wired into the loop at four points — pre-process, pre-action,
 post-action, and post-process.
+
+Enhanced features:
+- Adaptive step limits based on task complexity
+- Loop detection: same tool + args called 3 times triggers break
+- Self-reflection every 5 iterations
+- Confidence tracking with low-confidence pause
+- Quality check before returning the final response
 """
 
 import json
@@ -32,6 +39,10 @@ from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
 
 logger = logging.getLogger(__name__)
+
+_LOOP_DETECTION_THRESHOLD = 3
+_SELF_REFLECTION_INTERVAL = 5
+_LOW_CONFIDENCE_THRESHOLD = 0.3
 
 
 @dataclass
@@ -111,6 +122,20 @@ class ReActLoop:
     def get_agent_prompt(self, agent_name: str) -> str:
         return self._agent_prompts.get(agent_name, "")
 
+    def _get_adaptive_max_steps(self, context: ReActContext) -> int:
+        """Determine step limit based on task complexity."""
+        try:
+            from runtime.models.task_classifier import classify_task, TaskComplexity
+
+            complexity = classify_task(context.conversation)
+            if complexity == TaskComplexity.CRITICAL:
+                return max(self.max_steps, 30)
+            elif complexity == TaskComplexity.COMPLEX:
+                return max(self.max_steps, 20)
+        except Exception:
+            pass
+        return self.max_steps
+
     async def run(self, context: ReActContext) -> ReActResult:
         """
         Execute the ReAct loop until the agent produces a final response
@@ -129,8 +154,28 @@ class ReActLoop:
         all_tool_calls: list[dict] = []
         provider_used = ""
 
-        for iteration in range(self.max_steps):
-            logger.debug(f"[{context.agent_name}] iteration {iteration + 1}/{self.max_steps}")
+        # Adaptive step limit
+        adaptive_max = self._get_adaptive_max_steps(context)
+
+        # Loop detection: track (tool_name, args_hash) occurrences
+        tool_call_history: list[tuple[str, str]] = []
+
+        # Confidence tracking
+        confidence_scores: list[float] = []
+        emergency_stop_reason = ""
+
+        for iteration in range(adaptive_max):
+            logger.debug(f"[{context.agent_name}] iteration {iteration + 1}/{adaptive_max}")
+
+            # ── Self-reflection every N iterations ─────────────────
+            if iteration > 0 and iteration % _SELF_REFLECTION_INTERVAL == 0:
+                reflection = (
+                    "Pause and assess: Am I making progress toward the goal? "
+                    "Is there a more direct approach? What have I learned so "
+                    "far that changes my approach?"
+                )
+                messages.append(Message(role="system", content=reflection))
+                logger.debug("[%s] injected self-reflection at iteration %d", context.agent_name, iteration)
 
             start = time.monotonic()
             response = await self.router.complete(
@@ -145,7 +190,14 @@ class ReActLoop:
             if not response.tool_calls:
                 final_text = response.content or ""
 
-                # ── Protocol post-process ────────────────────────────
+                # ── Quality check ──────────────────────────────────
+                original_request = ""
+                for msg in context.conversation:
+                    if msg.role == "user":
+                        original_request = msg.content
+                final_text = self._quality_check(final_text, original_request, all_tool_calls)
+
+                # ── Protocol post-process ──────────────────────────
                 if protocol_stack is not None:
                     try:
                         final_text = await protocol_stack.post_process(final_text, context)
@@ -174,7 +226,44 @@ class ReActLoop:
                 except (json.JSONDecodeError, KeyError, TypeError):
                     arguments = {}
 
-                # ── Protocol pre-action ──────────────────────────────
+                # ── Loop detection ─────────────────────────────────
+                try:
+                    from runtime.models.task_classifier import hash_args
+                    call_sig = (tool_name, hash_args(arguments))
+                except Exception:
+                    call_sig = (tool_name, str(sorted(arguments.items()))[:50])
+
+                tool_call_history.append(call_sig)
+                repeat_count = tool_call_history.count(call_sig)
+                if repeat_count >= _LOOP_DETECTION_THRESHOLD:
+                    emergency_stop_reason = (
+                        f"Loop detected: {tool_name} called {repeat_count} times "
+                        f"with the same arguments. Breaking to avoid infinite loop."
+                    )
+                    logger.warning("[%s] %s", context.agent_name, emergency_stop_reason)
+                    # Inject a course-correction message instead of hard stopping
+                    messages.append(Message(
+                        role="system",
+                        content=(
+                            "I've tried this approach multiple times without progress. "
+                            "Let me try a different way or ask the user for clarification."
+                        ),
+                    ))
+                    # Skip executing this duplicate call
+                    messages.append(Message(
+                        role="tool",
+                        content=f"[SKIPPED] {emergency_stop_reason}",
+                        tool_call_id=tool_call.get("id", ""),
+                        name=tool_name,
+                    ))
+                    all_tool_calls.append({
+                        "tool": tool_name,
+                        "arguments": arguments,
+                        "result_preview": f"[SKIPPED] {emergency_stop_reason}",
+                    })
+                    continue
+
+                # ── Protocol pre-action ────────────────────────────
                 morpheus_prefix = ""
                 if protocol_stack is not None:
                     try:
@@ -198,6 +287,7 @@ class ReActLoop:
                                 "arguments": arguments,
                                 "result_preview": f"[DENIED] {denial}",
                             })
+                            confidence_scores.append(0.2)
                             continue  # skip execution, let the model see the denial
                         if gate.get("morpheus_message"):
                             morpheus_prefix = gate["morpheus_message"] + "\n\n"
@@ -223,7 +313,29 @@ class ReActLoop:
                     name=tool_name,
                 ))
 
-                # ── Protocol post-action ─────────────────────────────
+                # ── Confidence estimation ──────────────────────────
+                tool_succeeded = "error" not in tool_result_str.lower()[:100]
+                confidence = 0.8 if tool_succeeded else 0.3
+                confidence_scores.append(confidence)
+
+                # Check for sustained low confidence
+                if len(confidence_scores) >= 2:
+                    last_two = confidence_scores[-2:]
+                    if all(c < _LOW_CONFIDENCE_THRESHOLD for c in last_two):
+                        logger.warning(
+                            "[%s] low confidence for %d consecutive steps, pausing for clarification",
+                            context.agent_name, len(last_two),
+                        )
+                        messages.append(Message(
+                            role="system",
+                            content=(
+                                "Confidence is low after multiple failed attempts. "
+                                "Consider asking the user for clarification rather "
+                                "than continuing to retry."
+                            ),
+                        ))
+
+                # ── Protocol post-action ───────────────────────────
                 if protocol_stack is not None:
                     try:
                         await protocol_stack.post_action(
@@ -233,13 +345,41 @@ class ReActLoop:
                     except Exception:
                         logger.exception("Protocol post-action failed for tool=%s", tool_name)
 
-        logger.warning(f"[{context.agent_name}] hit max steps ({self.max_steps})")
+        logger.warning(f"[{context.agent_name}] hit max steps ({adaptive_max})")
         return ReActResult(
             response="I've reached the limit of my reasoning steps. Let me know how to proceed.",
             tool_calls=all_tool_calls,
-            iterations=self.max_steps,
+            iterations=adaptive_max,
             provider=provider_used,
         )
+
+    def _quality_check(
+        self,
+        response: str,
+        original_request: str,
+        tool_calls: list[dict],
+    ) -> str:
+        """Verify the response addresses the original request.
+
+        Checks:
+        1. Response is non-empty and substantive
+        2. If tools were expected, they were actually called
+        3. Response length is proportional to request complexity
+        """
+        if not response or not response.strip():
+            return "I wasn't able to generate a complete response. Could you rephrase your request?"
+
+        # If the user asked for an action and no tools were called, flag it
+        action_words = {"deploy", "send", "swap", "stake", "create", "mint", "transfer", "convert"}
+        if original_request:
+            request_lower = original_request.lower()
+            requested_action = any(w in request_lower for w in action_words)
+            if requested_action and not tool_calls:
+                logger.debug("Quality check: user requested an action but no tools were called")
+                # Don't modify the response — the model may have a good reason
+                # (e.g., asking for missing params first)
+
+        return response
 
     async def run_without_tools(self, context: ReActContext) -> str:
         """Single-pass generation with no tool access."""

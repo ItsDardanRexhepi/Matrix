@@ -12,6 +12,7 @@
     "provider": "ollama",
     "primary": "llama3.1",
     "fallback": "mistral",
+    "routing_strategy": "intelligent",
     "providers": {
       "ollama": {
         "base_url": "http://localhost:11434",
@@ -24,7 +25,12 @@
       },
       "anthropic": {
         "api_key": "YOUR_ANTHROPIC_API_KEY",
-        "model": "claude-sonnet-4-6"
+        "model": "claude-sonnet-4-6",
+        "models": {
+          "fast": "claude-haiku-4-5-20251001",
+          "balanced": "claude-sonnet-4-6",
+          "best": "claude-opus-4-6"
+        }
       },
       "mythos": {
         "api_key": "YOUR_ANTHROPIC_API_KEY",
@@ -39,6 +45,11 @@
         "model": "gemini-pro"
       }
     }
+  },
+  "finetuning": {
+    "collect": false,
+    "min_rating_for_export": 4,
+    "export_path": "data/finetuning/"
   },
   "gateway": {
     "port": 18790,

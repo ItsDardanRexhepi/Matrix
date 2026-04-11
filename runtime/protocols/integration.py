@@ -249,6 +249,48 @@ class ProtocolStack:
             except Exception:
                 logger.debug("OutcomeLearning pattern injection failed")
 
+        # ── Live knowledge injection (non-blocking) ────────────────
+        try:
+            from runtime.knowledge.retriever import KnowledgeRetriever
+
+            retriever = KnowledgeRetriever(self.config.get("blockchain", {}))
+            user_msg = ""
+            for msg in reversed(context.conversation):
+                if msg.role == "user":
+                    user_msg = str(msg.content)
+                    break
+            if user_msg:
+                knowledge = await retriever.get_relevant_context(user_msg, self.agent_name)
+                if knowledge:
+                    parts = [item["content"] for item in knowledge if item.get("content")]
+                    if parts:
+                        enrichments.append("[Live Data] " + " | ".join(parts))
+        except Exception:
+            logger.debug("Knowledge retrieval skipped")
+
+        # ── Blockchain state context ──────────────────────────────
+        user_context = context.metadata.get("user_context", {})
+        wallet = user_context.get("wallet_address", "")
+        if wallet:
+            state_parts = [f"Wallet: {wallet[:8]}...{wallet[-4:]}"]
+            tier = user_context.get("tier", "free")
+            state_parts.append(f"Tier: {tier.title()}")
+            balance = user_context.get("eth_balance")
+            if balance is not None:
+                state_parts.append(f"Balance: {balance} ETH")
+            if state_parts:
+                enrichments.append("[User Context] " + " | ".join(state_parts))
+
+        # ── Error recovery context ────────────────────────────────
+        prev_error = context.metadata.get("previous_error")
+        if prev_error:
+            enrichments.append(
+                f"[Previous Attempt Failed] Last action: {prev_error.get('action', 'unknown')}. "
+                f"Reason: {prev_error.get('reason', 'unknown')}. "
+                "Do not repeat the same approach. Acknowledge the limitation "
+                "clearly and offer alternatives."
+            )
+
         # Append enrichments to metadata for system prompt construction
         if enrichments:
             context.metadata["protocol_enrichments"] = enrichments

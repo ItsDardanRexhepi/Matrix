@@ -53,7 +53,7 @@ SENSITIVE_PATTERNS = [
     (re.compile(r"sk-ant-[A-Za-z0-9-]{80,}"), "Anthropic API key"),
     (re.compile(r"xoxb-[0-9]{10,}-[A-Za-z0-9-]+"), "Slack bot token"),
     (re.compile(r"\d{9,10}:[A-Za-z0-9_-]{35}"), "Telegram bot token"),
-    (re.compile(r"0"), "Dardan Telegram ID"),
+    (re.compile(r"(?<!\d)\d{10}(?!\d)"), "Possible Telegram user ID"),
     (re.compile(r"0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"), "NeoSafe address"),
     (re.compile(r"0x45C07600825E79e36629537BFcAC64cfB285B5ae"), "NeoWrite address"),
     (re.compile(r"password\s*[=:]\s*[\"'][^\"']+[\"']", re.IGNORECASE), "hardcoded password"),

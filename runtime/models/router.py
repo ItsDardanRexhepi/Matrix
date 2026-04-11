@@ -7,6 +7,10 @@ Default order: Ollama -> OpenAI -> Anthropic -> NVIDIA -> Gemini.
 Checks for required API keys before routing to external providers.
 Retries 3 times on transient errors before moving to the next provider.
 Logs which provider handled each request.
+
+Supports intelligent task-based routing: simple tasks go to fast models,
+complex tasks to the most capable, and critical tasks always route to
+the best model regardless of cost.
 """
 
 import logging
@@ -18,11 +22,25 @@ logger = logging.getLogger(__name__)
 PROVIDER_ORDER = ["ollama", "openai", "anthropic", "mythos", "nvidia", "gemini"]
 MAX_RETRIES = 3
 
+# Mapping from TaskComplexity to preferred Anthropic model tiers
+_COMPLEXITY_MODEL_MAP = {
+    "simple": "fast",
+    "moderate": "balanced",
+    "complex": "best",
+    "critical": "best",
+}
+
 
 class ModelRouter:
     """
     Routes model requests to the configured provider.
     Falls back through the provider chain on failure.
+
+    Supports four routing strategies:
+    - ``intelligent`` (default): classify task complexity and route accordingly
+    - ``always_best``: always use the configured primary (current behaviour)
+    - ``always_fast``: always prefer the fastest model
+    - ``cost_optimised``: prefer the cheapest model that can handle the task
     """
 
     def __init__(self, config: dict):
@@ -30,7 +48,11 @@ class ModelRouter:
         self.providers_config = config.get("providers", {})
         self.primary_name = config.get("provider", "ollama")
         self.fallback_name = config.get("fallback")
+        self.routing_strategy = config.get("routing_strategy", "intelligent")
         self.providers: dict[str, ModelInterface] = {}
+        self.routing_stats: dict[str, int] = {
+            "simple": 0, "moderate": 0, "complex": 0, "critical": 0,
+        }
         self._init_providers()
 
     def _init_providers(self):
@@ -98,6 +120,49 @@ class ModelRouter:
             logger.warning(f"Failed to initialize {name} provider: {e}")
         return None
 
+    def _classify_and_get_kwargs(
+        self, messages: list, tools: list[dict] | None,
+    ) -> dict:
+        """Classify the task and return extra kwargs for the model call.
+
+        For ``intelligent`` routing, this determines the model tier and
+        injects a ``model_override`` kwarg so Anthropic/Mythos providers
+        use the right model variant.
+        """
+        extra: dict = {}
+
+        if self.routing_strategy == "always_best":
+            return extra
+
+        try:
+            from runtime.models.task_classifier import classify_task, TaskComplexity
+            complexity = classify_task(messages, tools)
+        except Exception:
+            logger.debug("Task classification failed, using default routing")
+            return extra
+
+        tier = _COMPLEXITY_MODEL_MAP.get(complexity.value, "balanced")
+        self.routing_stats[complexity.value] = self.routing_stats.get(complexity.value, 0) + 1
+
+        # Resolve tier to a concrete model name from provider config
+        for provider_name in ("anthropic", "mythos"):
+            pcfg = self.providers_config.get(provider_name, {})
+            models = pcfg.get("models", {})
+            if models and tier in models:
+                extra["model_override"] = models[tier]
+                break
+
+        if self.routing_strategy == "always_fast":
+            for provider_name in ("anthropic", "mythos"):
+                pcfg = self.providers_config.get(provider_name, {})
+                models = pcfg.get("models", {})
+                if models and "fast" in models:
+                    extra["model_override"] = models["fast"]
+                    break
+
+        logger.info("Task classified as %s, routing to tier=%s", complexity.value, tier)
+        return extra
+
     async def complete(
         self,
         messages: list,
@@ -109,6 +174,10 @@ class ModelRouter:
         Send a completion request. Try primary with retries, then fall through
         the provider chain until one succeeds.
         """
+        # Intelligent routing: classify and inject model override
+        routing_kwargs = self._classify_and_get_kwargs(messages, tools)
+        kwargs.update(routing_kwargs)
+
         errors = []
 
         # Try primary first with retries

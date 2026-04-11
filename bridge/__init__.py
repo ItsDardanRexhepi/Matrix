@@ -17,6 +17,8 @@ All attestations are recorded on-chain via EAS (Ethereum Attestation Service).
 
 from __future__ import annotations
 
+import os
+
 __all__ = [
     "ComponentExporter",
     "SanitizationValidator",
@@ -29,8 +31,8 @@ __all__ = [
 # NeoSafe attester address (Base mainnet)
 NEOSAFE_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 
-# Dardan's Telegram ID — only this ID can approve exports
-DARDAN_TELEGRAM_ID = 0
+# Owner Telegram ID — only this ID can approve exports
+DARDAN_TELEGRAM_ID = int(os.environ.get("OWNER_TELEGRAM_ID", "0"))
 
 # EAS contract on Base mainnet
 EAS_CONTRACT = "0xA1207F3BBa224E2c9c3c6D5aF63D816e64D54892"

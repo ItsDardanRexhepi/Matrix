@@ -1295,19 +1295,6 @@ class GatewayServer:
         result = await self.certification_manager.verify_certification(cert_id)
         return web.json_response(result)
 
-    # ─── Revenue Dashboard ───────────────────────────────────────
-
-    async def handle_revenue_page(self, request: web.Request) -> web.Response:
-        """GET /admin/revenue — serve the revenue dashboard (requires auth)."""
-        return self._serve_html("web/revenue.html")
-
-    async def handle_revenue_data(self, request: web.Request) -> web.Response:
-        """GET /admin/revenue/data — revenue metrics JSON (requires auth)."""
-        if not self.revenue_reporter:
-            return web.json_response({"status": "not_available"}, status=503)
-        summary = await self.revenue_reporter.get_revenue_summary()
-        return web.json_response(summary)
-
     # ─── Metered API ─────────────────────────────────────────────
 
     async def handle_metered_usage(self, request: web.Request) -> web.Response:
@@ -1558,10 +1545,6 @@ class GatewayServer:
         app.router.add_post("/certification/start", self.handle_cert_start)
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
-
-        # ── Revenue dashboard ─────────────────────────────────────────
-        app.router.add_get("/admin/revenue", self.handle_revenue_page)
-        app.router.add_get("/admin/revenue/data", self.handle_revenue_data)
 
         # ── Metered API ───────────────────────────────────────────────
         app.router.add_get("/metered/usage", self.handle_metered_usage)

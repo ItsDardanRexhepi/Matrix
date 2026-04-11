@@ -355,7 +355,6 @@ The gateway serves a built-in web interface:
 - `http://localhost:18790/marketplace` — Plugin marketplace
 - `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
 - `http://localhost:18790/learn` — Educational courses and certifications
-- `http://localhost:18790/admin/revenue` — Revenue dashboard (API key required)
 
 ---
 

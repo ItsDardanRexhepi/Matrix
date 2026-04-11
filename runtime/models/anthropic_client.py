@@ -29,6 +29,9 @@ class AnthropicClient(ModelInterface):
         if not self.api_key:
             raise RuntimeError("Anthropic API key not configured")
 
+        # Per-call model override for intelligent routing
+        model = kwargs.pop("model_override", None) or self.model
+
         system_text = ""
         formatted = []
         for m in messages:
@@ -56,7 +59,7 @@ class AnthropicClient(ModelInterface):
             else:
                 formatted.append({"role": m.role if m.role in ("user", "assistant") else "user", "content": m.content or ""})
 
-        payload: dict = {"model": self.model, "max_tokens": 4096, "messages": formatted}
+        payload: dict = {"model": model, "max_tokens": 4096, "messages": formatted}
         if system_text.strip():
             payload["system"] = system_text.strip()
         if tools:

@@ -157,17 +157,132 @@ class MemoryManager:
             )
 
     def get_context(self, agent: str) -> str:
-        """Return the most recent turns as a text block for prompt injection."""
+        """Return conversation context with smart summarisation.
+
+        Keeps the last 5 turns verbatim for precision and summarises
+        older turns into a brief narrative.  Extracts user facts
+        (wallet addresses, goals, preferences) into a persistent block.
+        """
         self._load_agent_sync(agent)
         turns = self._turn_cache.get(agent, [])
         if not turns:
             return ""
-        recent = turns[-MAX_CONTEXT_TURNS:]
+
+        parts: list[str] = []
+
+        # Extract user facts from all turns
+        facts = self._extract_user_facts(turns)
+        if facts:
+            fact_lines = [f"  {k}: {v}" for k, v in facts.items()]
+            parts.append("[User Facts]\n" + "\n".join(fact_lines))
+
+        # Summarise older turns (beyond last 5)
+        if len(turns) > 5:
+            older = turns[:-5]
+            summary = self._summarise_turns(older)
+            if summary:
+                parts.append(f"[Earlier in this conversation]\n{summary}")
+
+        # Last 5 turns verbatim
+        recent = turns[-5:]
         lines: list[str] = []
         for t in recent:
             lines.append(f"User: {t['user']}")
             lines.append(f"Agent: {t['agent']}")
-        return "\n".join(lines)
+        parts.append("\n".join(lines))
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _extract_user_facts(turns: list[dict]) -> dict[str, str]:
+        """Extract key facts the user stated about themselves."""
+        import re
+
+        facts: dict[str, str] = {}
+        for t in turns:
+            user_msg = t.get("user", "")
+            if not user_msg:
+                continue
+
+            # Wallet addresses (0x...)
+            wallet_match = re.search(r"0x[a-fA-F0-9]{40}", user_msg)
+            if wallet_match:
+                facts["wallet"] = wallet_match.group(0)
+
+            # Goals ("I want to...", "My goal is...")
+            goal_match = re.search(
+                r"(?:i want to|my goal is|i(?:'m| am) trying to|i need to)\s+(.{10,80})",
+                user_msg,
+                re.IGNORECASE,
+            )
+            if goal_match:
+                facts["goal"] = goal_match.group(1).rstrip(".,!?")
+
+            # Risk preferences
+            risk_match = re.search(
+                r"(?:i(?:'m| am) (?:not )?comfortable with|"
+                r"i don(?:'t| not) want to risk|"
+                r"my risk tolerance is)\s+(.{5,60})",
+                user_msg,
+                re.IGNORECASE,
+            )
+            if risk_match:
+                facts["risk_preference"] = risk_match.group(1).rstrip(".,!?")
+
+            # Budget / amount limits
+            budget_match = re.search(
+                r"(?:budget|limit|maximum|at most|no more than)\s+\$?([\d,]+(?:\.\d+)?)",
+                user_msg,
+                re.IGNORECASE,
+            )
+            if budget_match:
+                facts["budget"] = "$" + budget_match.group(1)
+
+        return facts
+
+    @staticmethod
+    def _summarise_turns(turns: list[dict]) -> str:
+        """Produce a brief narrative summary of older turns."""
+        if not turns:
+            return ""
+
+        topics: list[str] = []
+        actions_taken: list[str] = []
+        declines: list[str] = []
+
+        topic_keywords = {
+            "loan": "DeFi loans", "stake": "staking", "swap": "token swaps",
+            "nft": "NFTs", "deploy": "contract deployment", "dao": "DAOs",
+            "insurance": "insurance", "balance": "balance checks",
+            "price": "price queries", "identity": "identity",
+            "governance": "governance", "vote": "voting",
+        }
+
+        for t in turns:
+            user_msg = (t.get("user", "") or "").lower()
+            agent_msg = (t.get("agent", "") or "").lower()
+
+            for keyword, topic in topic_keywords.items():
+                if keyword in user_msg and topic not in topics:
+                    topics.append(topic)
+
+            if "successfully" in agent_msg or "completed" in agent_msg:
+                for keyword, topic in topic_keywords.items():
+                    if keyword in agent_msg and topic not in actions_taken:
+                        actions_taken.append(topic)
+
+            if "no" in user_msg[:20] or "don't" in user_msg or "cancel" in user_msg:
+                declines.append(user_msg[:50])
+
+        parts: list[str] = []
+        if topics:
+            parts.append(f"User asked about: {', '.join(topics[:5])}")
+        if actions_taken:
+            parts.append(f"Completed: {', '.join(actions_taken[:3])}")
+        if declines:
+            parts.append(f"Declined {len(declines)} suggestion(s)")
+
+        return ". ".join(parts) + "." if parts else ""
 
     # ── Per-session conversation persistence ───────────────────────
 

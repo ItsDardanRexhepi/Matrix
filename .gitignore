@@ -9,6 +9,8 @@ build/
 # Config (real config has secrets)
 openmatrix.config.json
 .env
+.env.stripe
+.env.rotated
 
 # Memory data (agent conversation/kv storage at runtime)
 /memory/
@@ -22,8 +24,12 @@ openmatrix.config.json
 # Generated API docs site
 /site/
 
-# Demo artifacts
+# Deploy and demo artifacts
 demo_deployment.json
+deployment_manifest.json
+
+# Private internal documents
+private/
 
 # Imported data
 imported/

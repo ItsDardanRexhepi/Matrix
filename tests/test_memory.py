@@ -72,9 +72,12 @@ class TestMemoryConversation:
         for i in range(30):
             await mm.save_turn("neo", f"msg_{i}", f"resp_{i}")
         ctx = mm.get_context("neo")
-        # Should only include the last MAX_CONTEXT_TURNS turns
-        lines = ctx.strip().split("\n")
-        assert len(lines) == MAX_CONTEXT_TURNS * 2  # user + agent per turn
+        # The last 5 turns should appear verbatim
+        assert "User: msg_29" in ctx
+        assert "Agent: resp_29" in ctx
+        assert "User: msg_25" in ctx
+        # Older turns should be summarised, not verbatim
+        assert "User: msg_0" not in ctx
 
     @pytest.mark.asyncio
     async def test_trimming_at_200_turns(self, tmp_path):
