@@ -6,9 +6,6 @@ dist/
 /build/
 .venv/
 
-# MTRX iOS app (lives in its own repo)
-MTRX/
-
 # Config (real config has secrets)
 openmatrix.config.json
 .env
