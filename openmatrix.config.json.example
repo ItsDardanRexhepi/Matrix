@@ -245,7 +245,12 @@
     },
     "social": {
       "enabled": true,
-      "proof_registry_address": "YOUR_SOCIAL_PROOF_REGISTRY_ADDRESS"
+      "proof_registry_address": "YOUR_SOCIAL_PROOF_REGISTRY_ADDRESS",
+      "feed": {
+        "enabled": true,
+        "max_events": 10000,
+        "trending_window_hours": 24
+      }
     },
     "stablecoin": {
       "enabled": true,

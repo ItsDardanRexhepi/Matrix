@@ -382,6 +382,64 @@ footer{
   </div>
 </section>
 
+<!-- Live Activity -->
+<section id="activity">
+  <div class="container">
+    <div class="centered">
+      <div class="section-label">Live Activity</div>
+      <div class="section-title">See what's happening on 0pnMatrx right now</div>
+      <div class="section-desc">Every smart contract deployment, token swap, NFT mint, and DAO vote — ranked by impact and streamed live.</div>
+    </div>
+    <div id="liveActivityFeed" style="
+      max-width:680px;margin:0 auto;
+      display:flex;flex-direction:column;gap:10px;
+      min-height:200px;
+    ">
+      <div style="text-align:center;color:var(--text-muted);padding:40px 0;font-size:.9rem">
+        Loading live activity...
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:28px">
+      <a href="/social" style="
+        display:inline-flex;align-items:center;gap:8px;
+        padding:12px 28px;border:1px solid var(--border);border-radius:8px;
+        color:var(--text);font-size:.88rem;font-weight:600;
+        transition:all .2s;
+      " onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green)'"
+         onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text)'">
+        View Full Activity Feed &rarr;
+      </a>
+    </div>
+  </div>
+</section>
+<script>
+(function(){
+  var feed=document.getElementById('liveActivityFeed');
+  if(!feed)return;
+  fetch('/social/feed?limit=5').then(function(r){return r.json()}).then(function(data){
+    var events=data.events||[];
+    if(events.length===0){
+      feed.innerHTML='<div style="text-align:center;color:var(--text-muted);padding:40px 0;font-size:.9rem">No activity yet. Be the first to make a move.</div>';
+      return;
+    }
+    feed.innerHTML=events.map(function(ev){
+      var icon=ev.icon||'\u26A1';
+      var col=ev.colour||'#00ff41';
+      return '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;gap:12px">'
+        +'<span style="font-size:1.1rem">'+icon+'</span>'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:.88rem;color:var(--text-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(ev.summary||ev.event_type)+'</div>'
+        +'<div style="font-size:.72rem;color:var(--text-muted);margin-top:2px">'+(ev.category||'')+' &middot; '+(ev.time_ago||'')+'</div>'
+        +'</div>'
+        +'<div style="font-family:monospace;font-size:.75rem;color:'+col+';font-weight:600;white-space:nowrap">'+Math.round((ev.ranked_score||0)*100)+'%</div>'
+        +'</div>';
+    }).join('');
+  }).catch(function(){
+    feed.innerHTML='<div style="text-align:center;color:var(--text-muted);padding:40px 0;font-size:.9rem">Activity feed unavailable</div>';
+  });
+})();
+</script>
+
 <!-- How It Works -->
 <section id="how">
   <div class="container">

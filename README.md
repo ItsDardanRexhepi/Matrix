@@ -33,6 +33,7 @@ What you can do on 0pnMatrx:
 - Stake your assets and earn yield at better rates than any major platform
 - Verify the complete history of any product, property, or asset before you buy it
 - Participate in governance and voting that is tamper-proof, transparent, and permanently recorded on-chain
+- Watch the platform come alive through the real-time social feed — every deployment, swap, mint, and vote, ranked and streamed live
 - And much more, all free, all yours, all open
 
 Your companions Trinity, Morpheus, and Neo are with you every step of the way.

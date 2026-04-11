@@ -135,6 +135,43 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        2,
+        "social feed events table",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS social_feed_events (
+                id           TEXT PRIMARY KEY,
+                event_type   TEXT NOT NULL,
+                actor        TEXT NOT NULL DEFAULT '',
+                summary      TEXT NOT NULL DEFAULT '',
+                detail       TEXT NOT NULL DEFAULT '{}',
+                component    INTEGER,
+                tx_hash      TEXT,
+                value_usd    REAL,
+                rarity_score REAL NOT NULL DEFAULT 0,
+                timestamp    REAL NOT NULL,
+                ranked_score REAL NOT NULL DEFAULT 0
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_feed_ts
+                ON social_feed_events (timestamp DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_feed_score
+                ON social_feed_events (ranked_score DESC)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_feed_actor
+                ON social_feed_events (actor)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_feed_type
+                ON social_feed_events (event_type)
+            """,
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class

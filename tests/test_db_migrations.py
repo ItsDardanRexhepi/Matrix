@@ -57,11 +57,12 @@ class TestIdempotency:
 
 class TestNewMigrationIsApplied:
     def test_added_migration_runs_on_next_open(self, tmp_path, monkeypatch):
-        # First open establishes v1 only.
+        # First open applies all current migrations.
         path = tmp_path / "upgrade.db"
         Database({"database": {"path": str(path)}})._conn.close()
         conn = sqlite3.connect(str(path))
-        assert {r[0] for r in conn.execute("SELECT version FROM schema_version").fetchall()} == {1}
+        current_versions = {v for v, _, _ in MIGRATIONS}
+        assert {r[0] for r in conn.execute("SELECT version FROM schema_version").fetchall()} == current_versions
         conn.close()
 
         # Inject a fake v999 migration, reopen, and verify it ran.

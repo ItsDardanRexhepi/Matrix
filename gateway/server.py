@@ -240,6 +240,8 @@ class GatewayServer:
             "/a2a/services",
             "/sponsor", "/glasswing", "/learn",
             "/badges", "/privacy", "/terms",
+            "/social", "/social/feed", "/social/feed/stream",
+            "/social/trending", "/social/stats",
         }
 
         # SIWE auth stores (SQLite-backed). Initialised in the on_startup
@@ -278,6 +280,7 @@ class GatewayServer:
         self.plugin_marketplace = None
         self.a2a_marketplace = None
         self.social_manager = None
+        self.social_feed_engine = None
         self.referral_manager = None
         self.metered_billing = None
         self.protocol_referrals = None
@@ -1032,6 +1035,107 @@ class GatewayServer:
                                                  metadata=body.get("metadata"))
         return web.json_response(result)
 
+    # ─── Social Feed Endpoints ──────────────────────────────────────
+
+    async def handle_social_feed_page(self, request: web.Request) -> web.Response:
+        """GET /social — serve the social feed UI."""
+        return self._serve_html("web/social.html")
+
+    async def handle_social_feed(self, request: web.Request) -> web.Response:
+        """GET /social/feed — return ranked feed events as JSON."""
+        if not self.social_feed_engine:
+            return web.json_response({"events": [], "message": "Feed not initialised"})
+        limit = min(int(request.query.get("limit", "50")), 200)
+        offset = int(request.query.get("offset", "0"))
+        event_type = request.query.get("type")
+        component = request.query.get("component")
+        actor = request.query.get("actor")
+        min_score = float(request.query.get("min_score", "0"))
+
+        comp_int = int(component) if component else None
+
+        from runtime.social.feed_formatter import FeedFormatter
+        events = await self.social_feed_engine.get_feed(
+            limit=limit, offset=offset, event_type=event_type,
+            component=comp_int, actor=actor, min_score=min_score,
+        )
+        return web.json_response({
+            "events": FeedFormatter.format_feed(events),
+            "count": len(events),
+            "offset": offset,
+            "limit": limit,
+        })
+
+    async def handle_social_feed_stream(self, request: web.Request) -> web.StreamResponse:
+        """GET /social/feed/stream — SSE stream of live feed events.
+
+        Uses the :class:`EventBroadcaster` to push new
+        ``feed.new_event`` broadcasts to connected clients.
+        """
+        response = web.StreamResponse(
+            status=200,
+            reason="OK",
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await response.prepare(request)
+
+        broadcaster = getattr(self, "event_broadcaster", None)
+        if broadcaster is None:
+            await response.write(b"event: error\ndata: {\"error\":\"broadcaster not available\"}\n\n")
+            return response
+
+        peer = request.remote or "unknown"
+        sub = broadcaster.register(
+            ip=peer,
+            types={"feed.new_event"},
+        )
+
+        try:
+            async for event in broadcaster.iter_events(sub):
+                payload = json.dumps(event.to_dict())
+                chunk = f"id: {event.event_id}\nevent: feed\ndata: {payload}\n\n"
+                await response.write(chunk.encode())
+        except (asyncio.CancelledError, ConnectionResetError):
+            pass
+        finally:
+            broadcaster.unregister(sub)
+
+        return response
+
+    async def handle_social_trending(self, request: web.Request) -> web.Response:
+        """GET /social/trending — trending actions over a time window."""
+        if not self.social_feed_engine:
+            return web.json_response({"trending": []})
+        window = int(request.query.get("hours", "24"))
+        trending = await self.social_feed_engine.get_trending(window_hours=window)
+        return web.json_response({"trending": trending, "window_hours": window})
+
+    async def handle_social_actor(self, request: web.Request) -> web.Response:
+        """GET /social/actor/{wallet} — activity for a specific wallet."""
+        if not self.social_feed_engine:
+            return web.json_response({"events": []})
+        wallet = request.match_info.get("wallet", "")
+        limit = min(int(request.query.get("limit", "50")), 200)
+        from runtime.social.feed_formatter import FeedFormatter
+        events = await self.social_feed_engine.get_actor_feed(wallet=wallet, limit=limit)
+        return web.json_response({
+            "actor": wallet,
+            "events": FeedFormatter.format_feed(events),
+            "count": len(events),
+        })
+
+    async def handle_social_stats(self, request: web.Request) -> web.Response:
+        """GET /social/stats — global feed statistics."""
+        if not self.social_feed_engine:
+            return web.json_response({"stats": {}})
+        stats = await self.social_feed_engine.get_stats()
+        return web.json_response({"stats": stats})
+
     # ─── A2A Endpoints ───────────────────────────────────────────────
 
     async def handle_a2a_services(self, request: web.Request) -> web.Response:
@@ -1412,6 +1516,20 @@ class GatewayServer:
         except Exception as exc:
             logger.warning("Extended subsystems init skipped: %s", exc)
 
+        # ── Social feed engine ─────────────────────────────────────────
+        try:
+            from runtime.social.feed_engine import SocialFeedEngine
+            db = self.react_loop.memory.db
+            self.social_feed_engine = SocialFeedEngine(db)
+            # Attach to the service dispatcher so state-modifying actions
+            # are automatically published to the feed.
+            dispatcher = getattr(self.react_loop, "dispatcher", None)
+            if dispatcher is not None:
+                dispatcher.attach_feed_engine(self.social_feed_engine)
+            logger.info("Social feed engine initialized.")
+        except Exception as exc:
+            logger.warning("Social feed engine init skipped: %s", exc)
+
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets and service caches."""
         while True:
@@ -1508,6 +1626,14 @@ class GatewayServer:
 
         # ── Social media ──────────────────────────────────────────────
         app.router.add_post("/social/post", self.handle_social_post)
+
+        # ── Social feed ──────────────────────────────────────────────
+        app.router.add_get("/social", self.handle_social_feed_page)
+        app.router.add_get("/social/feed", self.handle_social_feed)
+        app.router.add_get("/social/feed/stream", self.handle_social_feed_stream)
+        app.router.add_get("/social/trending", self.handle_social_trending)
+        app.router.add_get("/social/actor/{wallet}", self.handle_social_actor)
+        app.router.add_get("/social/stats", self.handle_social_stats)
 
         # ── A2A commerce ──────────────────────────────────────────────
         app.router.add_get("/a2a/services", self.handle_a2a_services)

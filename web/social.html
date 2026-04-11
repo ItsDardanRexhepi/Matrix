@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Activity — 0pnMatrx</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--bg-surface:#111111;--bg-card:#0e0e0e;
+  --green:#00ff41;--green-dim:#00cc33;--green-dark:#003b00;
+  --green-glow:0 0 10px rgba(0,255,65,.3);
+  --text:#c8c8c8;--text-muted:#666;--text-bright:#e8e8e8;
+  --border:#1e1e1e;--radius:12px;--max-w:1120px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden;
+}
+a{text-decoration:none;color:var(--green)}
+a:hover{text-decoration:underline}
+
+/* ── Navigation ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,10,10,.88);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);
+}
+nav .container{
+  display:flex;align-items:center;justify-content:space-between;height:58px;
+}
+.nav-logo{
+  font-family:'SF Mono','Fira Code',monospace;
+  font-size:1.1rem;font-weight:700;letter-spacing:2px;
+  color:var(--green);text-shadow:var(--green-glow);
+}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{color:var(--text-muted);font-size:.85rem;font-weight:500;transition:color .2s}
+.nav-links a:hover{color:var(--green);text-decoration:none}
+.container{max-width:var(--max-w);margin:0 auto;padding:0 24px}
+
+/* ── Page layout ── */
+.page{padding-top:78px;min-height:100vh;display:flex;flex-direction:column}
+.page-header{text-align:center;padding:40px 0 32px}
+.page-header h1{
+  font-size:clamp(1.6rem,4vw,2.4rem);font-weight:700;color:var(--text-bright);
+  margin-bottom:8px;
+}
+.page-header h1 span{color:var(--green);text-shadow:var(--green-glow)}
+.page-header p{color:var(--text-muted);font-size:.95rem;max-width:520px;margin:0 auto}
+
+/* ── Stats strip ── */
+.stats-strip{
+  display:flex;gap:24px;justify-content:center;flex-wrap:wrap;
+  padding:20px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  margin-bottom:32px;
+}
+.stat-pill{
+  display:flex;align-items:center;gap:8px;
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:20px;padding:6px 16px;font-size:.82rem;
+}
+.stat-pill .num{
+  font-family:'SF Mono','Fira Code',monospace;
+  font-weight:700;color:var(--green);
+}
+.stat-pill .label{color:var(--text-muted)}
+
+/* ── Main grid ── */
+.feed-layout{
+  display:grid;grid-template-columns:1fr 320px;gap:24px;
+  flex:1;padding-bottom:60px;
+}
+@media(max-width:860px){
+  .feed-layout{grid-template-columns:1fr}
+  .sidebar{order:-1}
+}
+
+/* ── Filters ── */
+.filters{
+  display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;
+}
+.filter-btn{
+  padding:6px 14px;border-radius:16px;font-size:.78rem;font-weight:600;
+  border:1px solid var(--border);background:var(--bg-card);color:var(--text-muted);
+  cursor:pointer;transition:all .2s;
+}
+.filter-btn:hover,.filter-btn.active{
+  border-color:var(--green);color:var(--green);background:rgba(0,255,65,.06);
+}
+
+/* ── Feed card ── */
+.feed-list{display:flex;flex-direction:column;gap:12px}
+.feed-card{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:16px 18px;
+  transition:border-color .2s;position:relative;overflow:hidden;
+}
+.feed-card:hover{border-color:var(--green-dim)}
+.feed-card.new-event{
+  animation:cardFlash .6s ease-out;
+}
+@keyframes cardFlash{
+  0%{border-color:var(--green);box-shadow:0 0 12px rgba(0,255,65,.2)}
+  100%{border-color:var(--border);box-shadow:none}
+}
+.feed-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.feed-icon{font-size:1.2rem;flex-shrink:0}
+.feed-actor{
+  font-family:'SF Mono','Fira Code',monospace;font-size:.78rem;
+  color:var(--green-dim);
+}
+.feed-time{
+  font-size:.72rem;color:var(--text-muted);margin-left:auto;white-space:nowrap;
+}
+.feed-summary{font-size:.9rem;color:var(--text-bright);margin-bottom:6px}
+.feed-meta{display:flex;gap:12px;font-size:.75rem;color:var(--text-muted)}
+.feed-category{
+  padding:2px 8px;border-radius:8px;background:rgba(0,255,65,.08);
+  color:var(--green-dim);font-size:.7rem;font-weight:600;
+}
+.feed-score{
+  display:inline-flex;align-items:center;gap:4px;
+}
+.feed-score-dot{
+  width:6px;height:6px;border-radius:50%;
+}
+.feed-tx{
+  font-family:'SF Mono','Fira Code',monospace;font-size:.7rem;color:var(--text-muted);
+}
+.feed-tx a{color:var(--green-dim)}
+
+/* ── Load more ── */
+.load-more{
+  text-align:center;padding:20px;
+}
+.load-more button{
+  padding:10px 28px;border-radius:8px;font-size:.85rem;font-weight:600;
+  border:1px solid var(--border);background:var(--bg-card);color:var(--text);
+  cursor:pointer;transition:all .2s;
+}
+.load-more button:hover{border-color:var(--green);color:var(--green)}
+
+/* ── Sidebar ── */
+.sidebar{display:flex;flex-direction:column;gap:20px}
+.sidebar-card{
+  background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--radius);padding:18px;
+}
+.sidebar-card h3{
+  font-size:.82rem;font-weight:700;text-transform:uppercase;
+  letter-spacing:2px;color:var(--green-dim);margin-bottom:14px;
+}
+.trending-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 0;border-bottom:1px solid var(--border);
+}
+.trending-item:last-child{border-bottom:none}
+.trending-label{font-size:.82rem;color:var(--text)}
+.trending-count{
+  font-family:'SF Mono','Fira Code',monospace;font-size:.78rem;
+  color:var(--green);font-weight:600;
+}
+
+/* ── SSE indicator ── */
+.sse-status{
+  display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--text-muted);
+  margin-bottom:12px;
+}
+.sse-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:#666;transition:background .3s;
+}
+.sse-dot.connected{background:var(--green);box-shadow:var(--green-glow)}
+.sse-dot.error{background:#ff4444}
+
+/* ── Empty state ── */
+.empty-state{
+  text-align:center;padding:60px 20px;color:var(--text-muted);
+}
+.empty-state .icon{font-size:2.5rem;margin-bottom:12px}
+.empty-state p{font-size:.9rem}
+
+/* ── Footer ── */
+footer{
+  border-top:1px solid var(--border);padding:24px 0;
+  text-align:center;font-size:.78rem;color:var(--text-muted);
+}
+</style>
+</head>
+<body>
+<nav>
+  <div class="container">
+    <a href="/" class="nav-logo">0pnMatrx</a>
+    <ul class="nav-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/chat">Chat</a></li>
+      <li><a href="/social" style="color:var(--green)">Activity</a></li>
+      <li><a href="/marketplace">Marketplace</a></li>
+      <li><a href="/audit">Audit</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="container">
+
+    <div class="page-header">
+      <h1><span>Live</span> Activity</h1>
+      <p>Real-time blockchain actions across the 0pnMatrx network, ranked by impact, rarity, and recency.</p>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="stats-strip" id="statsStrip">
+      <div class="stat-pill"><span class="num" id="statTotal">—</span><span class="label">events</span></div>
+      <div class="stat-pill"><span class="num" id="statActors">—</span><span class="label">actors</span></div>
+      <div class="stat-pill"><span class="num" id="statTypes">—</span><span class="label">action types</span></div>
+      <div class="stat-pill"><span class="num" id="stat24h">—</span><span class="label">last 24h</span></div>
+    </div>
+
+    <!-- SSE status -->
+    <div class="sse-status">
+      <div class="sse-dot" id="sseDot"></div>
+      <span id="sseLabel">Connecting...</span>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters" id="filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="DeFi">DeFi</button>
+      <button class="filter-btn" data-filter="NFT">NFT</button>
+      <button class="filter-btn" data-filter="Governance">Governance</button>
+      <button class="filter-btn" data-filter="Contracts">Contracts</button>
+      <button class="filter-btn" data-filter="Identity">Identity</button>
+      <button class="filter-btn" data-filter="Finance">Finance</button>
+    </div>
+
+    <div class="feed-layout">
+      <!-- Main feed -->
+      <div class="feed-main">
+        <div class="feed-list" id="feedList">
+          <div class="empty-state" id="emptyState">
+            <div class="icon">📡</div>
+            <p>Loading live activity feed...</p>
+          </div>
+        </div>
+        <div class="load-more" id="loadMore" style="display:none">
+          <button onclick="loadMore()">Load More</button>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <div class="sidebar-card">
+          <h3>Trending Actions</h3>
+          <div id="trendingList">
+            <div style="color:var(--text-muted);font-size:.82rem">Loading...</div>
+          </div>
+        </div>
+        <div class="sidebar-card">
+          <h3>Feed Stats</h3>
+          <div id="feedStatsDetail">
+            <div style="color:var(--text-muted);font-size:.82rem">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <div class="container">
+    0pnMatrx — free, open source AI agent platform for blockchain
+  </div>
+</footer>
+
+<script>
+(function(){
+  const FEED_URL = '/social/feed';
+  const STREAM_URL = '/social/feed/stream';
+  const TRENDING_URL = '/social/trending';
+  const STATS_URL = '/social/stats';
+  const PAGE_SIZE = 50;
+
+  let currentOffset = 0;
+  let activeFilter = 'all';
+  let eventSource = null;
+  let knownIds = new Set();
+
+  // ── Category mapping (mirrors feed_formatter.py) ──
+  const CATEGORY_MAP = {
+    swap_tokens:'DeFi', add_liquidity:'DeFi', remove_liquidity:'DeFi',
+    stake:'DeFi', unstake:'DeFi', claim_rewards:'DeFi',
+    request_loan:'DeFi', repay_loan:'DeFi', bridge_assets:'DeFi',
+    mint_nft:'NFT', transfer_nft:'NFT', create_collection:'NFT',
+    create_proposal:'Governance', vote:'Governance',
+    execute_proposal:'Governance', create_dao:'Governance',
+    deploy_contract:'Contracts', convert_contract:'Contracts', deploy_token:'Contracts',
+    verify_social:'Identity', create_social_profile:'Identity',
+    issue_badge:'Identity', create_attestation:'Identity',
+    send_payment:'Finance', create_invoice:'Finance',
+    create_insurance_policy:'Finance', file_insurance_claim:'Finance',
+    create_subscription:'Finance', tokenize_asset:'Finance',
+    list_security:'Finance', trade_security:'Finance',
+    register_ip:'IP & Supply', create_license:'IP & Supply',
+    register_supply_item:'IP & Supply', verify_product:'IP & Supply',
+    create_game:'Gaming',
+  };
+
+  // ── Render helpers ──
+
+  function renderCard(ev, isNew) {
+    const cat = ev.category || CATEGORY_MAP[ev.event_type] || 'Other';
+    if (activeFilter !== 'all' && cat !== activeFilter) return '';
+    const cls = isNew ? ' new-event' : '';
+    const icon = ev.icon || '⚡';
+    const actor = ev.actor ? shortAddr(ev.actor) : '';
+    const timeAgo = ev.time_ago || relTime(ev.timestamp);
+    const colour = ev.colour || scoreColour(ev.ranked_score);
+    const txLink = ev.tx_hash
+      ? `<div class="feed-tx">tx: <a href="https://basescan.org/tx/${ev.tx_hash}" target="_blank" rel="noopener">${ev.tx_hash.slice(0,10)}...</a></div>`
+      : '';
+    const value = ev.value_usd ? `$${Number(ev.value_usd).toLocaleString()}` : '';
+
+    return `<div class="feed-card${cls}" data-id="${ev.id}" data-category="${cat}">
+      <div class="feed-top">
+        <span class="feed-icon">${icon}</span>
+        <span class="feed-actor">${actor}</span>
+        <span class="feed-time">${timeAgo}</span>
+      </div>
+      <div class="feed-summary">${esc(ev.summary)}</div>
+      <div class="feed-meta">
+        <span class="feed-category">${cat}</span>
+        <span class="feed-score"><span class="feed-score-dot" style="background:${colour}"></span>${(ev.ranked_score*100).toFixed(0)}%</span>
+        ${value ? `<span>${value}</span>` : ''}
+      </div>
+      ${txLink}
+    </div>`;
+  }
+
+  function shortAddr(a) {
+    return a.length > 10 ? a.slice(0,6) + '...' + a.slice(-4) : a;
+  }
+
+  function scoreColour(s) {
+    if (s >= 0.8) return '#00ff41';
+    if (s >= 0.6) return '#00cc33';
+    if (s >= 0.4) return '#33aa55';
+    if (s >= 0.2) return '#666';
+    return '#444';
+  }
+
+  function relTime(ts) {
+    const d = (Date.now()/1000) - ts;
+    if (d < 5) return 'just now';
+    if (d < 60) return Math.floor(d) + 's ago';
+    if (d < 3600) return Math.floor(d/60) + 'm ago';
+    if (d < 86400) return Math.floor(d/3600) + 'h ago';
+    return Math.floor(d/86400) + 'd ago';
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ── Feed loading ──
+
+  async function loadFeed(append) {
+    try {
+      const params = new URLSearchParams({limit: PAGE_SIZE, offset: currentOffset});
+      if (activeFilter !== 'all') {
+        // Filter client-side since categories are computed in formatter
+      }
+      const res = await fetch(FEED_URL + '?' + params);
+      const data = await res.json();
+      const events = data.events || [];
+      const list = document.getElementById('feedList');
+      const empty = document.getElementById('emptyState');
+
+      if (!append) list.innerHTML = '';
+      if (events.length === 0 && !append) {
+        list.innerHTML = '<div class="empty-state"><div class="icon">📡</div><p>No activity yet. Actions will appear here in real time.</p></div>';
+        document.getElementById('loadMore').style.display = 'none';
+        return;
+      }
+      if (empty && !append) empty.remove();
+
+      let html = '';
+      events.forEach(ev => {
+        knownIds.add(ev.id);
+        html += renderCard(ev, false);
+      });
+      if (append) list.insertAdjacentHTML('beforeend', html);
+      else list.innerHTML = html;
+
+      document.getElementById('loadMore').style.display = events.length >= PAGE_SIZE ? '' : 'none';
+    } catch(e) {
+      console.error('Feed load error:', e);
+    }
+  }
+
+  window.loadMore = function() {
+    currentOffset += PAGE_SIZE;
+    loadFeed(true);
+  };
+
+  // ── SSE stream ──
+
+  function connectSSE() {
+    const dot = document.getElementById('sseDot');
+    const label = document.getElementById('sseLabel');
+
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource(STREAM_URL);
+
+    eventSource.onopen = function() {
+      dot.className = 'sse-dot connected';
+      label.textContent = 'Live';
+    };
+
+    eventSource.addEventListener('feed', function(e) {
+      try {
+        const ev = JSON.parse(e.data);
+        if (knownIds.has(ev.id || ev.event_id)) return;
+        knownIds.add(ev.id || ev.event_id);
+
+        // Re-fetch single event formatted data
+        const formatted = {
+          ...ev,
+          ...ev.payload,
+          icon: ev.payload?.icon || '⚡',
+          category: ev.payload?.category || CATEGORY_MAP[ev.type] || 'Other',
+          ranked_score: ev.payload?.ranked_score || 0,
+          summary: ev.payload?.summary || '',
+          time_ago: 'just now',
+        };
+
+        const card = renderCard(formatted, true);
+        if (card) {
+          const list = document.getElementById('feedList');
+          const empty = list.querySelector('.empty-state');
+          if (empty) empty.remove();
+          list.insertAdjacentHTML('afterbegin', card);
+        }
+      } catch(err) {
+        console.error('SSE parse error:', err);
+      }
+    });
+
+    eventSource.onerror = function() {
+      dot.className = 'sse-dot error';
+      label.textContent = 'Reconnecting...';
+      setTimeout(connectSSE, 5000);
+    };
+  }
+
+  // ── Trending ──
+
+  async function loadTrending() {
+    try {
+      const res = await fetch(TRENDING_URL);
+      const data = await res.json();
+      const items = data.trending || [];
+      const el = document.getElementById('trendingList');
+      if (items.length === 0) {
+        el.innerHTML = '<div style="color:var(--text-muted);font-size:.82rem">No trending actions yet</div>';
+        return;
+      }
+      el.innerHTML = items.slice(0, 10).map(t =>
+        `<div class="trending-item">
+          <span class="trending-label">${esc(t.label || t.event_type)}</span>
+          <span class="trending-count">${t.count}x</span>
+        </div>`
+      ).join('');
+    } catch(e) {
+      console.error('Trending load error:', e);
+    }
+  }
+
+  // ── Stats ──
+
+  async function loadStats() {
+    try {
+      const res = await fetch(STATS_URL);
+      const data = await res.json();
+      const s = data.stats || {};
+      document.getElementById('statTotal').textContent = (s.total_events || 0).toLocaleString();
+      document.getElementById('statActors').textContent = (s.unique_actors || 0).toLocaleString();
+      document.getElementById('statTypes').textContent = s.unique_action_types || 0;
+      document.getElementById('stat24h').textContent = (s.events_last_24h || 0).toLocaleString();
+
+      const detail = document.getElementById('feedStatsDetail');
+      const topActor = s.most_active_actor;
+      detail.innerHTML = `
+        <div style="font-size:.82rem;color:var(--text)">
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="color:var(--text-muted)">Avg Score</span>
+            <span style="color:var(--green);font-family:monospace">${((s.avg_score||0)*100).toFixed(1)}%</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="color:var(--text-muted)">Total Events</span>
+            <span style="font-family:monospace">${(s.total_events||0).toLocaleString()}</span>
+          </div>
+          ${topActor ? `<div style="display:flex;justify-content:space-between;padding:6px 0">
+            <span style="color:var(--text-muted)">Top Actor</span>
+            <span style="color:var(--green-dim);font-family:monospace;font-size:.72rem">${shortAddr(topActor.address)} (${topActor.event_count})</span>
+          </div>` : ''}
+        </div>
+      `;
+    } catch(e) {
+      console.error('Stats load error:', e);
+    }
+  }
+
+  // ── Filters ──
+
+  document.getElementById('filters').addEventListener('click', function(e) {
+    const btn = e.target.closest('.filter-btn');
+    if (!btn) return;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeFilter = btn.dataset.filter;
+    currentOffset = 0;
+    loadFeed(false);
+  });
+
+  // ── Init ──
+
+  loadFeed(false);
+  loadTrending();
+  loadStats();
+  connectSSE();
+
+  // Refresh stats and trending every 60s
+  setInterval(loadStats, 60000);
+  setInterval(loadTrending, 60000);
+})();
+</script>
+</body>
+</html>

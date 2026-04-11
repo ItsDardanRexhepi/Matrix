@@ -8,6 +8,7 @@ Trinity's ReAct loop calls tools. This dispatcher registers one mega-tool
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -426,6 +427,7 @@ class ServiceDispatcher:
         self._config = config
         self._registry = None  # lazy
         self._neosafe = None   # lazy
+        self._feed_engine = None  # lazy — SocialFeedEngine
         self._platform_wallet: str = (
             config.get("blockchain", {}).get("platform_wallet", "")
         )
@@ -452,6 +454,15 @@ class ServiceDispatcher:
             from runtime.blockchain.services.neosafe import NeoSafeRouter
             self._neosafe = NeoSafeRouter(self._config)
         return self._neosafe
+
+    def attach_feed_engine(self, engine) -> None:
+        """Inject the :class:`SocialFeedEngine` so successful
+        state-modifying actions are published to the live feed.
+
+        Called once during gateway startup.
+        """
+        self._feed_engine = engine
+        logger.info("ServiceDispatcher: SocialFeedEngine attached.")
 
     # ------------------------------------------------------------------
     # Main execution entry point
@@ -540,6 +551,46 @@ class ServiceDispatcher:
             # Attest state-modifying actions
             if action in _STATE_MODIFYING_ACTIONS:
                 await self._attest_action(action, target_service, params, result)
+
+                # Fire-and-forget: publish to the social feed.
+                # Never blocks the response — failures are logged and
+                # swallowed inside SocialFeedEngine.ingest().
+                if self._feed_engine is not None:
+                    _component_id = None
+                    try:
+                        from extensions import registry as _reg
+                        _component_id = _reg.service_to_component(target_service)
+                    except Exception:
+                        pass
+                    _actor = params.get("wallet") or params.get("address") or ""
+                    _tx = None
+                    if isinstance(result, dict):
+                        _tx = result.get("tx_hash") or result.get("transaction_hash")
+                    _value = None
+                    for _vk in ("amount", "value", "total", "price"):
+                        _v = params.get(_vk)
+                        if _v is not None:
+                            try:
+                                _value = float(_v)
+                            except (ValueError, TypeError):
+                                pass
+                            break
+                    asyncio.create_task(
+                        self._feed_engine.ingest(
+                            action=action,
+                            actor=_actor,
+                            detail={
+                                "service": target_service,
+                                "params": {
+                                    k: v for k, v in params.items()
+                                    if k not in ("private_key", "seed_phrase", "mnemonic")
+                                },
+                            },
+                            component=_component_id,
+                            tx_hash=_tx,
+                            value_usd=_value,
+                        )
+                    )
 
             elapsed = round(time.time() - start, 3)
             return json.dumps({

@@ -449,6 +449,21 @@
       "gateway_actions": ["get_dashboard", "export_dashboard"],
       "icon": "chart.bar",
       "available": true
+    },
+    {
+      "id": "social_feed",
+      "name": "Live Activity Feed",
+      "description": "Real-time ranked feed of blockchain activity across the platform — deployments, swaps, mints, votes, and more",
+      "category": "core",
+      "min_tier": "free",
+      "limits": {
+        "free": {"events_per_page": 50},
+        "pro": {"events_per_page": 200},
+        "enterprise": {"events_per_page": 200}
+      },
+      "gateway_actions": ["get_social_feed"],
+      "icon": "antenna.radiowaves.left.and.right",
+      "available": true
     }
   ]
 }
