@@ -38,16 +38,6 @@ banner() {
 }
 
 # ── Dependency checks ────────────────────────────────────────────────
-check_command() {
-    if command -v "$1" &>/dev/null; then
-        info "$1 found"
-        return 0
-    else
-        error "$1 not found."
-        return 1
-    fi
-}
-
 check_python() {
     if ! command -v python3 &>/dev/null; then
         error "Python 3 is required. Install from https://python.org"
@@ -104,8 +94,8 @@ clone_repo() {
     else
         info "Cloning 0pnMatrx..."
         git clone --depth 1 --branch "$BRANCH" "$REPO" "$INSTALL_DIR"
-        cd "$INSTALL_DIR"
     fi
+    cd "$INSTALL_DIR"
 }
 
 create_venv() {
@@ -128,75 +118,106 @@ install_deps() {
     info "Dependencies installed"
 }
 
-setup_config() {
-    cd "$INSTALL_DIR"
-    if [ ! -f "openmatrix.config.json" ]; then
-        if [ -f "openmatrix.config.json.example" ]; then
-            cp openmatrix.config.json.example openmatrix.config.json
-            warn "Created openmatrix.config.json — edit it with your settings"
-        fi
-    else
-        info "Config already exists"
-    fi
-}
-
 install_cli() {
-    # Create shell wrapper so 'openmatrix' works from anywhere
-    local bin_dir="$INSTALL_DIR/.venv/bin"
-    local wrapper="$bin_dir/openmatrix"
+    local venv_bin="$INSTALL_DIR/.venv/bin"
+    local wrapper="$venv_bin/openmatrix"
 
-    # pip install -e . should have created the entry point,
-    # but if not, create a wrapper script
-    if [ ! -f "$wrapper" ]; then
-        cat > "$wrapper" << WRAPPER
+    # Create wrapper that resolves symlinks (so ~/.local/bin/openmatrix works)
+    cat > "$wrapper" << 'WRAPPER'
 #!/usr/bin/env bash
-SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="\$(dirname "\$SCRIPT_DIR")"
-PROJECT_DIR="\$(dirname "\$VENV_DIR")"
-source "\$VENV_DIR/bin/activate" 2>/dev/null
-cd "\$PROJECT_DIR"
-exec python3 -m cli "\$@"
+set -euo pipefail
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+VENV_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$VENV_DIR")"
+source "$VENV_DIR/bin/activate" 2>/dev/null
+cd "$PROJECT_DIR"
+exec python3 -m cli "$@"
 WRAPPER
-        chmod +x "$wrapper"
+    chmod +x "$wrapper"
+
+    # ── Make 'openmatrix' available system-wide ──
+    # Strategy: symlink into a directory that's already in PATH.
+    # Try /usr/local/bin first, then ~/.local/bin, then fall back to
+    # shell rc PATH addition.
+
+    local linked=false
+
+    # Option 1: /usr/local/bin (works on macOS out of the box)
+    if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
+        ln -sf "$wrapper" /usr/local/bin/openmatrix
+        info "Linked: /usr/local/bin/openmatrix"
+        linked=true
     fi
 
-    info "CLI installed: openmatrix"
+    # Option 2: ~/.local/bin (common on Linux, sometimes macOS)
+    if [ "$linked" = false ]; then
+        local local_bin="$HOME/.local/bin"
+        mkdir -p "$local_bin"
+        ln -sf "$wrapper" "$local_bin/openmatrix"
+
+        if echo "$PATH" | grep -q "$local_bin"; then
+            info "Linked: $local_bin/openmatrix"
+            linked=true
+        else
+            # Add ~/.local/bin to PATH via shell rc
+            _add_path_to_rc "$local_bin"
+            info "Linked: $local_bin/openmatrix"
+            linked=true
+        fi
+    fi
+
+    # Option 3: Add venv bin to shell rc directly
+    if [ "$linked" = false ]; then
+        _add_path_to_rc "$venv_bin"
+    fi
+
+    info "CLI ready: openmatrix"
 }
 
-add_to_path() {
-    local bin_dir="$INSTALL_DIR/.venv/bin"
+_add_path_to_rc() {
+    local dir_to_add="$1"
     local shell_rc=""
 
-    # Detect shell config file
-    if [ -n "${ZSH_VERSION:-}" ] || [ "$SHELL" = "$(command -v zsh)" ]; then
-        shell_rc="$HOME/.zshrc"
-    elif [ -n "${BASH_VERSION:-}" ] || [ "$SHELL" = "$(command -v bash)" ]; then
-        shell_rc="$HOME/.bashrc"
+    # On macOS the login shell is almost always zsh.
+    # When running via 'curl | bash' we're in bash, but the user's
+    # actual shell is what matters for persistent PATH.
+    if [ "$(uname -s)" = "Darwin" ]; then
+        # macOS: prefer .zshrc (default shell since Catalina)
+        if [ -f "$HOME/.zshrc" ]; then
+            shell_rc="$HOME/.zshrc"
+        elif [ -f "$HOME/.bash_profile" ]; then
+            shell_rc="$HOME/.bash_profile"
+        else
+            shell_rc="$HOME/.zshrc"
+        fi
+    else
+        # Linux: check common locations
+        if [ -f "$HOME/.zshrc" ] && grep -q "zsh" /etc/shells 2>/dev/null; then
+            shell_rc="$HOME/.zshrc"
+        elif [ -f "$HOME/.bashrc" ]; then
+            shell_rc="$HOME/.bashrc"
+        elif [ -f "$HOME/.profile" ]; then
+            shell_rc="$HOME/.profile"
+        else
+            shell_rc="$HOME/.bashrc"
+        fi
     fi
 
-    if [ -z "$shell_rc" ]; then
-        warn "Could not detect shell. Add this to your shell config:"
-        echo "  export PATH=\"$bin_dir:\$PATH\""
-        return
-    fi
-
-    # Check if already in PATH
-    if echo "$PATH" | grep -q "$bin_dir"; then
-        info "Already in PATH"
-        return
-    fi
-
-    # Check if already in rc file
-    if [ -f "$shell_rc" ] && grep -q "opnmatrx" "$shell_rc" 2>/dev/null; then
-        info "PATH entry already in $shell_rc"
+    # Skip if already present
+    if [ -f "$shell_rc" ] && grep -q "$dir_to_add" "$shell_rc" 2>/dev/null; then
         return
     fi
 
     echo "" >> "$shell_rc"
-    echo "# 0pnMatrx" >> "$shell_rc"
-    echo "export PATH=\"$bin_dir:\$PATH\"" >> "$shell_rc"
-    info "Added to PATH in $shell_rc"
-    warn "Run: source $shell_rc  (or open a new terminal)"
+    echo "# 0pnMatrx CLI" >> "$shell_rc"
+    echo "export PATH=\"$dir_to_add:\$PATH\"" >> "$shell_rc"
+    info "Added to PATH in $(basename "$shell_rc")"
 }
 
 check_ollama() {
@@ -224,30 +245,36 @@ main() {
     clone_repo
     create_venv
     install_deps
-    setup_config
     install_cli
-    add_to_path
     check_ollama
 
-    # Done
     echo ""
     echo -e "  ${GREEN}${BOLD}Installation complete.${NC}"
     echo ""
-    echo -e "  ${BOLD}Quick start:${NC}"
-    echo ""
-    echo -e "    ${CYAN}openmatrix setup${NC}            Run interactive setup"
-    echo -e "    ${CYAN}openmatrix gateway start${NC}     Start the gateway"
-    echo -e "    ${CYAN}openmatrix gateway start -d${NC}  Start in background"
-    echo -e "    ${CYAN}openmatrix gateway status${NC}    Check status"
-    echo -e "    ${CYAN}openmatrix gateway stop${NC}      Stop the gateway"
-    echo -e "    ${CYAN}openmatrix gateway logs${NC}      View logs"
-    echo -e "    ${CYAN}openmatrix health${NC}            Health check"
-    echo -e "    ${CYAN}openmatrix version${NC}           Show version"
-    echo ""
-    if [ "$LOCAL_MODE" = false ]; then
-        echo -e "  ${DIM}Installed to: $INSTALL_DIR${NC}"
+
+    # ── Launch interactive setup ─────────────────────────────────────
+    # If no config exists yet, walk the user through first-boot setup
+    # using the interactive setup wizard.
+    cd "$INSTALL_DIR"
+    if [ ! -f "openmatrix.config.json" ]; then
+        echo -e "  ${BOLD}Launching first-time setup...${NC}"
+        echo ""
+        sleep 1
+        exec "$INSTALL_DIR/.venv/bin/python3" "$INSTALL_DIR/setup.py"
+    else
+        info "Config already exists — skipping setup wizard."
+        echo ""
+        echo -e "  ${BOLD}Quick start:${NC}"
+        echo ""
+        echo -e "    ${CYAN}openmatrix gateway start${NC}     Start the gateway"
+        echo -e "    ${CYAN}openmatrix gateway start -d${NC}  Start in background"
+        echo -e "    ${CYAN}openmatrix gateway status${NC}    Check status"
+        echo -e "    ${CYAN}openmatrix gateway stop${NC}      Stop the gateway"
+        echo -e "    ${CYAN}openmatrix gateway logs${NC}      View logs"
+        echo -e "    ${CYAN}openmatrix health${NC}            Health check"
+        echo -e "    ${CYAN}openmatrix version${NC}           Show version"
+        echo ""
     fi
-    echo ""
 }
 
 main "$@"

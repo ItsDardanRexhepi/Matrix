@@ -478,6 +478,9 @@ def main():
     verify_setup(config)
 
     # Done
+    port = config.get('gateway', {}).get('port', 18790)
+    api_key = config.get('gateway', {}).get('api_key', '<your-key>')
+
     print(f"""
 {GREEN}{BOLD}
     ╔══════════════════════════════════════════════════════════════╗
@@ -486,22 +489,27 @@ def main():
     ║                                                              ║
     ╚══════════════════════════════════════════════════════════════╝
 {RESET}
-  {BOLD}To start 0pnMatrx:{RESET}
+  {BOLD}Start the gateway:{RESET}
 
-    {CYAN}python -m gateway.server{RESET}
+    {CYAN}openmatrix gateway start{RESET}        Foreground (see logs live)
+    {CYAN}openmatrix gateway start -d{RESET}     Background (daemon mode)
 
-  {BOLD}Then send a message:{RESET}
+  {BOLD}Manage the gateway:{RESET}
 
-    {CYAN}curl -X POST http://localhost:{config.get('gateway', {}).get('port', 18790)}/chat \\
+    {CYAN}openmatrix gateway status{RESET}       Check if running
+    {CYAN}openmatrix gateway stop{RESET}         Stop the gateway
+    {CYAN}openmatrix gateway restart{RESET}      Restart
+    {CYAN}openmatrix gateway logs -f{RESET}      Follow logs in real time
+    {CYAN}openmatrix health{RESET}               Quick health check
+
+  {BOLD}Send a message:{RESET}
+
+    {CYAN}curl -X POST http://localhost:{port}/chat \\
       -H "Content-Type: application/json" \\
-      -H "Authorization: Bearer {config.get('gateway', {}).get('api_key', '<your-key>')}" \\
+      -H "Authorization: Bearer {api_key}" \\
       -d '{{"agent": "trinity", "message": "Hello", "session_id": "demo"}}'{RESET}
 
-  {BOLD}Or check health:{RESET}
-
-    {CYAN}curl http://localhost:{config.get('gateway', {}).get('port', 18790)}/health{RESET}
-
-  {DIM}Run 'python setup.py' again anytime to reconfigure.{RESET}
+  {DIM}Run 'openmatrix setup' anytime to reconfigure.{RESET}
 """)
 
 
