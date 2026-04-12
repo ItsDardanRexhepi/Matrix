@@ -131,25 +131,77 @@ def cmd_start(args) -> None:
         _info(f"Check status: {CYAN}openmatrix gateway status{NC}")
         print()
     else:
-        # Foreground mode
+        # Foreground mode — clean output, logs go to file
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        log_fd = open(LOG_FILE, "a")
+
+        env = os.environ.copy()
+        if not args.verbose:
+            env["OPNMATRX_LOG_LEVEL"] = "WARNING"
+
+        proc = subprocess.Popen(
+            [python, "-m", "gateway.server"],
+            cwd=str(PROJECT_ROOT),
+            stdout=log_fd,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        _write_pid(proc.pid)
+
+        # Wait briefly to confirm it started
+        time.sleep(1.5)
+        if proc.poll() is not None:
+            stderr_out = proc.stderr.read().decode() if proc.stderr else ""
+            log_fd.close()
+            _error("Gateway failed to start.")
+            if stderr_out.strip():
+                print(stderr_out.strip(), file=sys.stderr)
+            _info(f"Check logs: {CYAN}openmatrix gateway logs{NC}")
+            _remove_pid()
+            sys.exit(1)
+
         print()
         print(f"  {CYAN}{BOLD}┌──────────────────────────────────┐{NC}")
         print(f"  {CYAN}{BOLD}│     0pnMatrx Gateway — Live      │{NC}")
         print(f"  {CYAN}{BOLD}└──────────────────────────────────┘{NC}")
         print()
         _info(f"Listening on {BOLD}http://{host}:{port}{NC}")
+        print(f"  {GREEN}●{NC} Gateway ready")
+        print()
+        _info(f"Logs:  {DIM}{LOG_FILE}{NC}")
         _info("Press Ctrl+C to stop")
         print()
 
         try:
-            proc = subprocess.run(
-                [python, "-m", "gateway.server"],
-                cwd=str(PROJECT_ROOT),
-            )
-            sys.exit(proc.returncode)
+            # Monitor subprocess — forward only errors to terminal
+            while proc.poll() is None:
+                if proc.stderr:
+                    line = proc.stderr.readline()
+                    if line:
+                        decoded = line.decode().strip()
+                        log_fd.write(decoded + "\n")
+                        log_fd.flush()
+                        # Show warnings/errors to user
+                        if any(k in decoded.upper() for k in ("ERROR", "CRITICAL", "FATAL")):
+                            _error(decoded)
+                        elif "WARNING" in decoded.upper():
+                            _warn(decoded)
+                else:
+                    time.sleep(0.5)
         except KeyboardInterrupt:
             print()
+            _info("Stopping gateway...")
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
             _info("Gateway stopped.")
+        finally:
+            _remove_pid()
+            log_fd.close()
+            if proc.poll() is not None and proc.returncode and proc.returncode != 0:
+                sys.exit(proc.returncode)
 
 
 def cmd_stop(args) -> None:
@@ -280,6 +332,10 @@ def register_gateway_commands(subparsers) -> None:
     start.add_argument(
         "-p", "--port", type=int, default=None,
         help="Override gateway port",
+    )
+    start.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Show full server logs in the terminal",
     )
     start.set_defaults(func=cmd_start)
 

@@ -174,7 +174,7 @@ def configure_model(config):
   {BOLD}Which AI model provider do you want to use?{RESET}
 
   {CYAN}1{RESET}  Ollama       {DIM}(free, local, private — recommended for getting started){RESET}
-  {CYAN}2{RESET}  Anthropic    {DIM}(Claude models — best quality){RESET}
+  {CYAN}2{RESET}  Anthropic    {DIM}(best quality){RESET}
   {CYAN}3{RESET}  OpenAI       {DIM}(GPT models){RESET}
   {CYAN}4{RESET}  NVIDIA       {DIM}(NVIDIA AI endpoints){RESET}
   {CYAN}5{RESET}  Google       {DIM}(Gemini models){RESET}
@@ -339,6 +339,77 @@ def configure_security(config):
         success("Blocking on CRITICAL findings only")
 
 
+def configure_communications(config):
+    """Set up notification and communication channels."""
+    print(f"""
+  {BOLD}How should 0pnMatrx reach you?{RESET}
+  {DIM}Select your preferred notification channels.{RESET}
+  {DIM}You can configure multiple channels.{RESET}
+""")
+
+    channels = {}
+
+    # Telegram
+    use_telegram = ask("Enable Telegram notifications?", default="no", options=["yes", "no"])
+    if use_telegram.lower() == "yes":
+        bot_token = ask("Telegram Bot Token (from @BotFather)")
+        chat_id = ask("Telegram Chat ID")
+        if bot_token and chat_id:
+            channels["telegram"] = {
+                "enabled": True,
+                "bot_token": bot_token,
+                "chat_id": chat_id,
+            }
+            success("Telegram configured")
+
+    # Discord
+    use_discord = ask("Enable Discord notifications?", default="no", options=["yes", "no"])
+    if use_discord.lower() == "yes":
+        webhook_url = ask("Discord Webhook URL")
+        if webhook_url:
+            channels["discord"] = {
+                "enabled": True,
+                "webhook_url": webhook_url,
+            }
+            success("Discord configured")
+
+    # Email
+    use_email = ask("Enable email notifications?", default="no", options=["yes", "no"])
+    if use_email.lower() == "yes":
+        smtp_host = ask("SMTP host", default="smtp.gmail.com")
+        smtp_port = ask("SMTP port", default="587")
+        smtp_user = ask("SMTP username (email address)")
+        smtp_pass = ask("SMTP password or app password")
+        to_addr = ask("Send notifications to (email)", default=smtp_user)
+        if smtp_user:
+            channels["email"] = {
+                "enabled": True,
+                "smtp_host": smtp_host,
+                "smtp_port": int(smtp_port),
+                "smtp_user": smtp_user,
+                "smtp_pass": smtp_pass,
+                "to": to_addr,
+            }
+            success("Email configured")
+
+    # Webhooks
+    use_webhook = ask("Enable custom webhook notifications?", default="no", options=["yes", "no"])
+    if use_webhook.lower() == "yes":
+        url = ask("Webhook URL (POST)")
+        if url:
+            channels["webhook"] = {
+                "enabled": True,
+                "url": url,
+            }
+            success("Webhook configured")
+
+    if not channels:
+        info("No notification channels configured. You can add them later in openmatrix.config.json")
+        channels["none"] = True
+
+    config["communications"] = channels
+
+
 def configure_extras(config):
     """Optional extras: timezone, memory."""
     tz = ask("Timezone", default="America/Los_Angeles")
@@ -429,7 +500,7 @@ def main():
     print(f"  {DIM}Press Enter to accept defaults shown in [brackets].{RESET}")
     print(f"  {DIM}You can re-run this anytime to change settings.{RESET}")
 
-    total = 8
+    total = 9
     config = {
         "platform": "0pnMatrx",
         "database": {"path": "data/0pnmatrx.db"},
@@ -459,12 +530,16 @@ def main():
     step(6, total, "Gateway Server")
     configure_gateway(config)
 
-    # Step 7: Security
-    step(7, total, "Security Settings")
+    # Step 7: Communications
+    step(7, total, "Communication Channels")
+    configure_communications(config)
+
+    # Step 8: Security
+    step(8, total, "Security Settings")
     configure_security(config)
 
-    # Step 8: Extras
-    step(8, total, "Final Settings")
+    # Step 9: Extras
+    step(9, total, "Final Settings")
     configure_extras(config)
 
     # Write and verify

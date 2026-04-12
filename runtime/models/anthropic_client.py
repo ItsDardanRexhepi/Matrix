@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Anthropic model provider for 0pnMatrx.
 
-Supports Claude models via the Messages API.
+Supports Anthropic models via the Messages API.
 API key loaded from config — never hardcoded.
 """
 

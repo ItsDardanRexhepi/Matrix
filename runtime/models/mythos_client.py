@@ -1,11 +1,11 @@
 """
-Claude Mythos Preview — Glasswing cybersecurity-focused frontier model.
+Mythos Preview — Glasswing cybersecurity-focused frontier model.
 
-Uses the Anthropic API but targets Claude Mythos Preview specifically.
+Uses the Anthropic API but targets Mythos Preview specifically.
 Glasswing models are optimised for vulnerability detection, code security
 analysis, and exploit identification.
 
-Access: Claude API, Amazon Bedrock, Google Vertex AI, Microsoft Foundry.
+Access: Anthropic API, Amazon Bedrock, Google Vertex AI, Microsoft Foundry.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class MythosClient(AnthropicClient):
     """Anthropic Mythos model provider — security-optimised frontier model.
 
     Inherits all Anthropic API logic. Overrides the model name to target
-    Claude Mythos Preview for security-critical operations.
+    Mythos Preview for security-critical operations.
     """
 
     def __init__(self, config: dict) -> None:

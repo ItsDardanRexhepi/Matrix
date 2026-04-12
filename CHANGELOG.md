@@ -222,7 +222,7 @@ All notable changes to 0pnMatrx are documented here.
 - Audit gate on deploy: critical vulnerabilities block deployment
 - Audit report included in every contract conversion response
 - Morpheus enforces audit findings — no unsafe contracts reach the chain
-- Claude Mythos Preview added as model provider (Glasswing frontier model)
+- Mythos Preview added as model provider (Glasswing frontier model)
 - Security configuration in openmatrix.config.json
 - HiveMind security instance type for collective vulnerability reasoning
 - Ultron deploy planning now includes mandatory security audit step
