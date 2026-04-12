@@ -112,9 +112,7 @@ create_venv() {
 install_deps() {
     info "Installing dependencies..."
     pip install --upgrade pip --quiet 2>/dev/null
-    pip install -e ".[dev]" --quiet 2>/dev/null || {
-        pip install -r requirements.txt --quiet 2>/dev/null
-    }
+    pip install -r requirements.txt --quiet 2>/dev/null
     info "Dependencies installed"
 }
 
