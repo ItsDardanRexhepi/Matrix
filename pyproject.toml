@@ -66,12 +66,13 @@ Issues = "https://github.com/ItsDardanRexhepi/0pnMatrx/issues"
 Changelog = "https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/CHANGELOG.md"
 
 [project.scripts]
+openmatrix = "cli:main"
 opnmatrx-gateway = "gateway.server:main"
 opnmatrx-changelog = "scripts.generate_changelog:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*"]
+include = ["cli*", "runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*"]
 exclude = ["tests*", "data*", "memory*", "site*", ".venv*"]
 
 # ── Pytest ──────────────────────────────────────────────────────────
