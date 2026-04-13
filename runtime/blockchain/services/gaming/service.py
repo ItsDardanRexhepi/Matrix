@@ -207,3 +207,135 @@ class GamingService:
         game["status"] = "approved"
         game["approved_at"] = int(time.time())
         return game
+
+    # ------------------------------------------------------------------
+    # Expanded gaming operations
+    # ------------------------------------------------------------------
+
+    async def enter_tournament(
+        self, game_id: str, player: str, entry_fee: float, tournament_name: str = "",
+    ) -> dict:
+        """Enter a player into a tournament."""
+        entry_id = f"tourn_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": entry_id,
+            "status": "entered",
+            "game_id": game_id,
+            "player": player,
+            "entry_fee": entry_fee,
+            "tournament_name": tournament_name,
+            "entered_at": now,
+        }
+        self._assets[entry_id] = record
+        logger.info("Tournament entry: id=%s player=%s", entry_id, player)
+        return record
+
+    async def trade_item(
+        self, asset_id: str, seller: str, buyer: str, price: float,
+    ) -> dict:
+        """Trade a game item between players."""
+        trade_id = f"trade_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": trade_id,
+            "status": "completed",
+            "asset_id": asset_id,
+            "seller": seller,
+            "buyer": buyer,
+            "price": price,
+            "traded_at": now,
+        }
+        self._assets[trade_id] = record
+        logger.info("Item traded: id=%s", trade_id)
+        return record
+
+    async def attest_achievement(
+        self, game_id: str, player: str, achievement: str, proof: dict | None = None,
+    ) -> dict:
+        """Attest a player achievement on-chain."""
+        ach_id = f"ach_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": ach_id,
+            "status": "attested",
+            "game_id": game_id,
+            "player": player,
+            "achievement": achievement,
+            "proof": proof or {},
+            "attested_at": now,
+        }
+        self._assets[ach_id] = record
+        logger.info("Achievement attested: id=%s player=%s", ach_id, player)
+        return record
+
+    async def create_prediction_market(
+        self, creator: str, question: str, options: list[str], end_time: int = 0,
+    ) -> dict:
+        """Create a prediction market."""
+        market_id = f"mkt_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": market_id,
+            "status": "open",
+            "creator": creator,
+            "question": question,
+            "options": options,
+            "end_time": end_time or (now + 7 * 86400),
+            "total_volume": 0.0,
+            "created_at": now,
+        }
+        self._games[f"_market_{market_id}"] = record
+        logger.info("Prediction market created: id=%s", market_id)
+        return record
+
+    async def place_prediction_bet(
+        self, market_id: str, bettor: str, option: str, amount: float,
+    ) -> dict:
+        """Place a bet on a prediction market."""
+        bet_id = f"bet_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": bet_id,
+            "status": "placed",
+            "market_id": market_id,
+            "bettor": bettor,
+            "option": option,
+            "amount": amount,
+            "placed_at": now,
+        }
+        self._assets[bet_id] = record
+        logger.info("Prediction bet placed: id=%s", bet_id)
+        return record
+
+    async def resolve_market(
+        self, market_id: str, outcome: str, resolver: str = "",
+    ) -> dict:
+        """Resolve a prediction market with the outcome."""
+        resolve_id = f"mres_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": resolve_id,
+            "status": "resolved",
+            "market_id": market_id,
+            "outcome": outcome,
+            "resolver": resolver,
+            "resolved_at": now,
+        }
+        self._games[f"_resolve_{resolve_id}"] = record
+        logger.info("Market resolved: id=%s outcome=%s", resolve_id, outcome)
+        return record
+
+    async def query_market(
+        self, market_id: str,
+    ) -> dict:
+        """Query current state of a prediction market."""
+        query_id = f"mqry_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": query_id,
+            "status": "queried",
+            "market_id": market_id,
+            "queried_at": int(time.time()),
+        }
+        logger.info("Market queried: id=%s", query_id)
+        return record

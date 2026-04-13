@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Any
+
+from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 from runtime.blockchain.services.nft_services.factory import NFTFactory
 from runtime.blockchain.services.nft_services.rights import RightsManagement
@@ -44,10 +47,18 @@ class NFTService:
     ) -> None:
         self._config = config
 
+        self._web3 = Web3Manager.get_shared(config)
+        self._nft_contract: str = config.get("nft", {}).get("contract_address", "") or ""
+
         self._factory = NFTFactory(config)
         self._valuation = ValuationEngine(config)
         self._rights = RightsManagement(config)
         self._royalty = RoyaltyEnforcement(config, attestation_service)
+
+        # Extended in-memory stores
+        self._fractions: dict[str, dict[str, Any]] = {}
+        self._rentals: dict[str, dict[str, Any]] = {}
+        self._soulbound: dict[str, dict[str, Any]] = {}
 
         logger.info("NFTService initialised.")
 
@@ -427,3 +438,157 @@ class NFTService:
         return await self._royalty.get_royalty_info(
             collection, token_id, sale_price
         )
+
+    # ── Expanded NFT Operations ─────────────────────────────────────
+
+    async def fractionalize(
+        self, collection: str, token_id: int, fractions: int, price_per_fraction: float,
+    ) -> dict[str, Any]:
+        """Fractionalize an NFT into fungible shares."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "fractionalize",
+                "requested": {"collection": collection, "token_id": token_id, "fractions": fractions},
+            })
+        frac_id = f"frac_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": frac_id,
+            "status": "fractionalized",
+            "collection": collection,
+            "token_id": token_id,
+            "total_fractions": fractions,
+            "price_per_fraction": price_per_fraction,
+            "sold_fractions": 0,
+        }
+        self._fractions[frac_id] = record
+        logger.info("NFT fractionalized: id=%s", frac_id)
+        return record
+
+    async def rent(
+        self, collection: str, token_id: int, renter: str, duration_days: int, price: float,
+    ) -> dict[str, Any]:
+        """Rent an NFT (ERC-4907)."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "rent",
+                "requested": {"collection": collection, "token_id": token_id, "renter": renter},
+            })
+        rental_id = f"rent_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": rental_id,
+            "status": "rented",
+            "collection": collection,
+            "token_id": token_id,
+            "renter": renter,
+            "duration_days": duration_days,
+            "price": price,
+        }
+        self._rentals[rental_id] = record
+        logger.info("NFT rented: id=%s", rental_id)
+        return record
+
+    async def dynamic_update(
+        self, collection: str, token_id: int, updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update dynamic NFT metadata."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "dynamic_update",
+                "requested": {"collection": collection, "token_id": token_id, "updates": updates},
+            })
+        update_id = f"dynup_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": update_id,
+            "status": "updated",
+            "collection": collection,
+            "token_id": token_id,
+            "updates": updates,
+        }
+        logger.info("Dynamic NFT updated: id=%s", update_id)
+        return record
+
+    async def batch_mint(
+        self, collection: str, creator: str, count: int, metadata_template: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Batch mint multiple NFTs."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "batch_mint",
+                "requested": {"collection": collection, "creator": creator, "count": count},
+            })
+        batch_id = f"batch_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": batch_id,
+            "status": "minted",
+            "collection": collection,
+            "creator": creator,
+            "count": count,
+            "metadata_template": metadata_template,
+            "token_ids": list(range(1, count + 1)),
+        }
+        logger.info("Batch mint completed: id=%s count=%d", batch_id, count)
+        return record
+
+    async def royalty_claim(
+        self, collection: str, token_id: int, claimer: str,
+    ) -> dict[str, Any]:
+        """Claim accrued royalties for an NFT."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "royalty_claim",
+                "requested": {"collection": collection, "token_id": token_id, "claimer": claimer},
+            })
+        claim_id = f"rclaim_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": claim_id,
+            "status": "claimed",
+            "collection": collection,
+            "token_id": token_id,
+            "claimer": claimer,
+            "amount_claimed": 0.0,
+        }
+        logger.info("Royalty claimed: id=%s", claim_id)
+        return record
+
+    async def bridge_nft(
+        self, collection: str, token_id: int, destination_chain: str, owner: str,
+    ) -> dict[str, Any]:
+        """Bridge an NFT to another chain."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "bridge_nft",
+                "requested": {"collection": collection, "token_id": token_id, "destination_chain": destination_chain},
+            })
+        bridge_id = f"nftbr_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": bridge_id,
+            "status": "bridged",
+            "collection": collection,
+            "token_id": token_id,
+            "destination_chain": destination_chain,
+            "owner": owner,
+        }
+        logger.info("NFT bridged: id=%s", bridge_id)
+        return record
+
+    async def mint_soulbound(
+        self, recipient: str, metadata: dict[str, Any], issuer: str,
+    ) -> dict[str, Any]:
+        """Mint a soulbound (non-transferable) token."""
+        if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
+            return not_deployed_response("nft_services", {
+                "operation": "mint_soulbound",
+                "requested": {"recipient": recipient, "issuer": issuer},
+            })
+        sbt_id = f"sbt_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": sbt_id,
+            "status": "minted",
+            "recipient": recipient,
+            "issuer": issuer,
+            "metadata": metadata,
+            "transferable": False,
+        }
+        self._soulbound[sbt_id] = record
+        logger.info("Soulbound token minted: id=%s", sbt_id)
+        return record

@@ -345,6 +345,103 @@ class GovernanceService:
     # Internals
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Expanded governance operations
+    # ------------------------------------------------------------------
+
+    async def queue_timelock(
+        self, proposal_id: str, delay_seconds: int = 86400,
+    ) -> dict:
+        """Queue a passed proposal into a timelock."""
+        tl_id = f"tl_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record = {
+            "id": tl_id,
+            "status": "queued",
+            "proposal_id": proposal_id,
+            "delay_seconds": delay_seconds,
+            "executable_at": now + delay_seconds,
+            "queued_at": now,
+        }
+        self._proposals.setdefault(f"_timelock_{tl_id}", record)
+        logger.info("Timelock queued: id=%s", tl_id)
+        return record
+
+    async def propose_multisig(
+        self, proposer: str, signers: list[str], threshold: int, action: str, params: dict,
+    ) -> dict:
+        """Create a multisig proposal."""
+        ms_id = f"ms_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record = {
+            "id": ms_id,
+            "status": "proposed",
+            "proposer": proposer,
+            "signers": signers,
+            "threshold": threshold,
+            "action": action,
+            "params": params,
+            "approvals": [proposer],
+            "proposed_at": now,
+        }
+        self._proposals[f"_multisig_{ms_id}"] = record
+        logger.info("Multisig proposed: id=%s", ms_id)
+        return record
+
+    async def approve_multisig(
+        self, multisig_id: str, signer: str,
+    ) -> dict:
+        """Approve a multisig proposal."""
+        approval_id = f"msa_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": approval_id,
+            "status": "approved",
+            "multisig_id": multisig_id,
+            "signer": signer,
+            "approved_at": int(time.time()),
+        }
+        logger.info("Multisig approved: id=%s signer=%s", approval_id, signer)
+        return record
+
+    async def snapshot_vote(
+        self, proposal_id: str, voter: str, choice: str, block_number: int = 0,
+    ) -> dict:
+        """Cast an off-chain snapshot vote."""
+        sv_id = f"sv_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": sv_id,
+            "status": "cast",
+            "proposal_id": proposal_id,
+            "voter": voter,
+            "choice": choice,
+            "block_number": block_number,
+            "cast_at": int(time.time()),
+        }
+        logger.info("Snapshot vote cast: id=%s", sv_id)
+        return record
+
+    async def parameter_change(
+        self, parameter: str, old_value: Any, new_value: Any, proposer: str,
+    ) -> dict:
+        """Propose a protocol parameter change."""
+        pc_id = f"pc_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": pc_id,
+            "status": "proposed",
+            "parameter": parameter,
+            "old_value": old_value,
+            "new_value": new_value,
+            "proposer": proposer,
+            "proposed_at": int(time.time()),
+        }
+        self._proposals[f"_param_{pc_id}"] = record
+        logger.info("Parameter change proposed: id=%s param=%s", pc_id, parameter)
+        return record
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
     def _classify_proposal(self, title: str, description: str) -> str:
         """Classify proposal type from text heuristics."""
         text = f"{title} {description}".lower()

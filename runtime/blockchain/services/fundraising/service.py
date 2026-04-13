@@ -392,3 +392,83 @@ class FundraisingService:
             campaign_id, result["contributors_refunded"],
         )
         return result
+
+    # ------------------------------------------------------------------
+    # Energy and sustainability operations
+    # ------------------------------------------------------------------
+
+    async def buy_carbon_credit(
+        self, buyer: str, amount: float, project: str = "", vintage_year: int = 0,
+    ) -> dict:
+        """Purchase carbon credits."""
+        credit_id = f"cc_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": credit_id,
+            "status": "purchased",
+            "buyer": buyer,
+            "amount": amount,
+            "project": project,
+            "vintage_year": vintage_year or 2024,
+            "tonnes_co2": amount,
+            "purchased_at": now,
+        }
+        self._campaigns[f"_carbon_{credit_id}"] = record
+        logger.info("Carbon credit purchased: id=%s", credit_id)
+        return record
+
+    async def retire_carbon_credit(
+        self, holder: str, credit_id: str, tonnes: float,
+    ) -> dict:
+        """Retire carbon credits to offset emissions."""
+        retire_id = f"ccr_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": retire_id,
+            "status": "retired",
+            "holder": holder,
+            "credit_id": credit_id,
+            "tonnes_retired": tonnes,
+            "retired_at": now,
+        }
+        self._campaigns[f"_retire_{retire_id}"] = record
+        logger.info("Carbon credit retired: id=%s", retire_id)
+        return record
+
+    async def buy_renewable_cert(
+        self, buyer: str, energy_mwh: float, source: str = "solar", region: str = "",
+    ) -> dict:
+        """Purchase a renewable energy certificate."""
+        cert_id = f"rec_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": cert_id,
+            "status": "purchased",
+            "buyer": buyer,
+            "energy_mwh": energy_mwh,
+            "source": source,
+            "region": region,
+            "purchased_at": now,
+        }
+        self._campaigns[f"_rec_{cert_id}"] = record
+        logger.info("Renewable cert purchased: id=%s", cert_id)
+        return record
+
+    async def invest_green_bond(
+        self, investor: str, amount: float, bond_name: str = "", maturity_years: int = 5,
+    ) -> dict:
+        """Invest in a green bond."""
+        bond_id = f"gb_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": bond_id,
+            "status": "invested",
+            "investor": investor,
+            "amount": amount,
+            "bond_name": bond_name,
+            "maturity_years": maturity_years,
+            "invested_at": now,
+        }
+        self._campaigns[f"_bond_{bond_id}"] = record
+        logger.info("Green bond investment: id=%s", bond_id)
+        return record

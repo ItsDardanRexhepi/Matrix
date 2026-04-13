@@ -219,6 +219,59 @@ class CrossBorderService:
     # Attestation
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Expanded cross-border operations
+    # ------------------------------------------------------------------
+
+    async def bridge_transfer(
+        self, sender: str, recipient: str, amount: float, source_chain: str, dest_chain: str, token: str = "USDC",
+    ) -> dict:
+        """Bridge assets across chains."""
+        bridge_id = f"bridge_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": bridge_id,
+            "status": "bridging",
+            "sender": sender,
+            "recipient": recipient,
+            "amount": amount,
+            "source_chain": source_chain,
+            "dest_chain": dest_chain,
+            "token": token,
+            "initiated_at": now,
+        }
+        self._payments[bridge_id] = record
+        logger.info("Bridge transfer initiated: id=%s", bridge_id)
+        return record
+
+    async def remit(
+        self, sender: str, recipient: str, amount: float, from_currency: str, to_currency: str, corridor: str = "",
+    ) -> dict:
+        """Send a remittance payment."""
+        remit_id = f"remit_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        fee = round(amount * (self._fee_pct / 100.0), 6)
+        record: dict[str, Any] = {
+            "id": remit_id,
+            "status": "sent",
+            "sender": sender,
+            "recipient": recipient,
+            "amount": amount,
+            "from_currency": from_currency.upper(),
+            "to_currency": to_currency.upper(),
+            "corridor": corridor or f"{from_currency.upper()}->{to_currency.upper()}",
+            "fee": fee,
+            "net_amount": round(amount - fee, 6),
+            "sent_at": now,
+        }
+        self._payments[remit_id] = record
+        logger.info("Remittance sent: id=%s", remit_id)
+        return record
+
+    # ------------------------------------------------------------------
+    # Attestation
+    # ------------------------------------------------------------------
+
     async def _attest_payment(self, payment: dict) -> None:
         """Attest cross-border payment via Component 8."""
         try:

@@ -22,6 +22,18 @@ CAPABILITY_CATEGORIES = (
     "identity",
     "governance",
     "marketplace",
+    # Expanded
+    "privacy",
+    "prediction_market",
+    "rwa",
+    "bridge",
+    "streaming_payment",
+    "social",
+    "gaming",
+    "energy",
+    "compute",
+    "ai_agent",
+    "legal",
 )
 
 # Trigger types
@@ -37,6 +49,8 @@ _IRREVERSIBLE_ACTIONS: set[str] = {
     "deploy_contract", "burn_nft", "transfer_ownership", "self_destruct",
     "upgrade_proxy", "set_implementation", "renounce_ownership",
     "burn_tokens", "delete_account",
+    "flash_loan", "leverage_position", "perp_trade", "private_transfer",
+    "carbon_credit_retire", "soulbound_mint", "agreement_execute",
 }
 
 # Action-type to category mapping
@@ -71,6 +85,106 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "security_audit": "smart_contract",
     "transfer_ownership": "smart_contract",
     "renounce_ownership": "smart_contract",
+    # DeFi expanded
+    "flash_loan": "defi",
+    "yield_optimize": "defi",
+    "liquidity_provide": "defi",
+    "perp_trade": "defi",
+    "options_trade": "defi",
+    "vault_deposit": "defi",
+    "leverage_position": "defi",
+    "collateral_manage": "defi",
+    "synthetic_asset": "defi",
+    # Bridge
+    "cross_chain_bridge": "bridge",
+    "nft_bridge": "bridge",
+    # NFT expanded
+    "nft_fractionalize": "nft",
+    "nft_rent": "nft",
+    "nft_batch_mint": "nft",
+    "nft_dynamic_update": "nft",
+    "nft_royalty_claim": "nft",
+    "soulbound_mint": "nft",
+    # Identity
+    "did_create": "identity",
+    "credential_issue": "identity",
+    "credential_verify": "identity",
+    "selective_disclose": "identity",
+    "reputation_query": "identity",
+    # Governance
+    "timelock_queue": "governance",
+    "multisig_propose": "governance",
+    "multisig_approve": "governance",
+    "snapshot_vote": "governance",
+    "treasury_transfer": "governance",
+    "parameter_change": "governance",
+    # RWA
+    "rwa_tokenize": "rwa",
+    "rwa_fractional_buy": "rwa",
+    "rwa_income_claim": "rwa",
+    "rwa_verify": "rwa",
+    # Payments
+    "stream_payment": "streaming_payment",
+    "recurring_create": "streaming_payment",
+    "escrow_milestone": "streaming_payment",
+    "payment_split": "streaming_payment",
+    "payroll_run": "streaming_payment",
+    "cross_border_remit": "streaming_payment",
+    "invoice_factor": "streaming_payment",
+    # Privacy
+    "private_transfer": "privacy",
+    "stealth_address": "privacy",
+    "zk_proof_generate": "privacy",
+    "private_vote": "privacy",
+    "confidential_compute": "privacy",
+    # Social
+    "social_post": "social",
+    "social_follow": "social",
+    "social_gate": "social",
+    "creator_monetize": "social",
+    "community_create": "social",
+    "message_encrypt": "social",
+    # Gaming
+    "game_asset_mint": "gaming",
+    "tournament_enter": "gaming",
+    "game_item_trade": "gaming",
+    "achievement_attest": "gaming",
+    # Prediction markets
+    "market_create": "prediction_market",
+    "market_bet": "prediction_market",
+    "market_resolve": "prediction_market",
+    "market_query": "prediction_market",
+    # Supply chain
+    "provenance_log": "marketplace",
+    "batch_track": "marketplace",
+    "authenticity_verify": "marketplace",
+    "custody_transfer": "marketplace",
+    # Insurance
+    "parametric_policy": "insurance",
+    "claim_auto_settle": "insurance",
+    "cover_renew": "insurance",
+    "risk_assess": "insurance",
+    # Compute/storage
+    "decentralized_store": "compute",
+    "compute_job_submit": "compute",
+    "ipfs_pin": "compute",
+    "arweave_store": "compute",
+    # AI
+    "ai_agent_register": "ai_agent",
+    "ai_model_trade": "ai_agent",
+    "ai_inference_verify": "ai_agent",
+    "training_data_sell": "ai_agent",
+    # Energy
+    "carbon_credit_buy": "energy",
+    "carbon_credit_retire": "energy",
+    "renewable_cert_buy": "energy",
+    "green_bond_invest": "energy",
+    # Legal
+    "ip_license_grant": "legal",
+    "ip_license_verify": "legal",
+    "agreement_execute": "legal",
+    "dispute_file": "legal",
+    "arbitration_request": "legal",
 }
 
 
@@ -133,6 +247,35 @@ class MorpheusTriggerSystem:
             return await self._trigger(
                 "significant_event", action, user_context, category
             )
+
+        # 5. Flash loan — always intervene
+        if action_type == "flash_loan":
+            return await self._trigger("irreversible_action", action, user_context, "defi")
+
+        # 6. Leveraged position — always intervene
+        if action_type in ("leverage_position", "perp_trade", "options_trade"):
+            return await self._trigger("significant_event", action, user_context, "defi")
+
+        # 7. Bridge > $5000
+        if action_type == "cross_chain_bridge":
+            amount = action.get("params", {}).get("amount", 0)
+            if amount > 5000 or "bridge" not in self._seen_categories:
+                return await self._trigger("significant_event", action, user_context, "bridge")
+
+        # 8. Private transfer > $1000
+        if action_type == "private_transfer":
+            amount = action.get("params", {}).get("amount", 0)
+            if amount > 1000 or "privacy" not in self._seen_categories:
+                return await self._trigger("significant_event", action, user_context, "privacy")
+
+        # 9. RWA purchase — always (regulatory)
+        if action_type in ("rwa_tokenize", "rwa_fractional_buy"):
+            return await self._trigger("significant_event", action, user_context, "rwa")
+
+        # 10. Streaming payment creation — explain unbounded nature
+        if action_type == "stream_payment":
+            if "streaming_payment" not in self._seen_categories:
+                return await self._trigger("first_capability", action, user_context, "streaming_payment")
 
         return self._no_intervention()
 
@@ -295,6 +438,61 @@ class MorpheusTriggerSystem:
             "marketplace": (
                 "You are about to use a decentralised marketplace. "
                 "Listings, purchases, and sales are executed via smart contracts."
+            ),
+            "privacy": (
+                "You are about to use privacy-preserving technology. "
+                "Private transfers and zero-knowledge proofs shield your transaction details from public view. "
+                "Once sent, private transactions are final and cannot be traced or reversed."
+            ),
+            "prediction_market": (
+                "You are about to enter a prediction market. "
+                "You will stake real value on the outcome of future events. "
+                "Positions are locked until the market resolves, and losses are permanent."
+            ),
+            "rwa": (
+                "You are about to interact with real-world assets on-chain. "
+                "Tokenized real estate, commodities, and other physical assets carry legal and regulatory obligations. "
+                "Verify the asset's legitimacy and your jurisdiction's compliance requirements before proceeding."
+            ),
+            "bridge": (
+                "You are about to bridge assets across blockchains. "
+                "Cross-chain transfers involve locking tokens on one chain and minting on another. "
+                "Bridge exploits are among the most costly in crypto — verify the bridge, the destination chain, and the amount carefully."
+            ),
+            "streaming_payment": (
+                "You are about to create a streaming payment. "
+                "Streaming payments continuously transfer tokens over time and remain active until explicitly cancelled. "
+                "Ensure you have sufficient balance for the full stream duration."
+            ),
+            "social": (
+                "You are about to use on-chain social features. "
+                "Posts, follows, and interactions are recorded permanently on the blockchain. "
+                "Unlike traditional social media, on-chain content cannot be deleted."
+            ),
+            "gaming": (
+                "You are about to interact with blockchain gaming. "
+                "Game assets, tournament entries, and achievements are tokenized on-chain. "
+                "Understand the entry costs and reward structures before committing."
+            ),
+            "energy": (
+                "You are about to interact with on-chain energy and carbon markets. "
+                "Carbon credits and renewable energy certificates represent real-world environmental impact. "
+                "Retired credits are permanently consumed and cannot be resold."
+            ),
+            "compute": (
+                "You are about to use decentralized compute and storage services. "
+                "Data stored on IPFS or Arweave may be permanent and publicly accessible. "
+                "Compute jobs are billed on execution — verify the cost and parameters before submitting."
+            ),
+            "ai_agent": (
+                "You are about to interact with on-chain AI services. "
+                "AI model trading, inference verification, and agent registration involve binding commitments. "
+                "Verify model provenance and licensing terms before transacting."
+            ),
+            "legal": (
+                "You are about to execute a legal action on-chain. "
+                "IP licenses, agreements, and dispute filings carry real legal weight and may be enforceable in court. "
+                "Review all terms carefully — executed agreements are immutable."
             ),
         }
 

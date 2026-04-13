@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+import uuid
 from typing import Any
 
 from runtime.blockchain.services.supply_chain.product_registry import ProductRegistry
@@ -407,6 +408,78 @@ class SupplyChainService:
     ) -> str:
         payload = f"{product_id}|{event_data}|{timestamp}"
         return "0x" + hashlib.sha256(payload.encode()).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Expanded supply chain operations
+    # ------------------------------------------------------------------
+
+    async def log_event(
+        self, product_id: str, event_type: str, data: dict[str, Any], handler: str = "",
+    ) -> dict[str, Any]:
+        """Log a custom provenance event."""
+        event_id = f"evt_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        chain = self._provenance.get(product_id, [])
+        event = {
+            "id": event_id,
+            "event": event_type,
+            "data": data,
+            "handler": handler,
+            "timestamp": now,
+            "hash": self._compute_event_hash(product_id, event_type, now),
+            "previous_hash": chain[-1]["hash"] if chain else None,
+        }
+        self._provenance.setdefault(product_id, []).append(event)
+        record: dict[str, Any] = {
+            "id": event_id,
+            "status": "logged",
+            "product_id": product_id,
+            "event_type": event_type,
+            "data": data,
+            "handler": handler,
+            "logged_at": now,
+        }
+        logger.info("Provenance event logged: id=%s", event_id)
+        return record
+
+    async def track_batch(
+        self, batch_id: str, product_ids: list[str], location: str = "", handler: str = "",
+    ) -> dict[str, Any]:
+        """Track a batch of products together."""
+        track_id = f"batch_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": track_id,
+            "status": "tracked",
+            "batch_id": batch_id,
+            "product_ids": product_ids,
+            "product_count": len(product_ids),
+            "location": location,
+            "handler": handler,
+            "tracked_at": now,
+        }
+        logger.info("Batch tracked: id=%s products=%d", track_id, len(product_ids))
+        return record
+
+    async def verify_authenticity(
+        self, product_id: str, verifier: str = "",
+    ) -> dict[str, Any]:
+        """Verify product authenticity via provenance chain."""
+        auth_id = f"auth_{uuid.uuid4().hex[:16]}"
+        chain = self._provenance.get(product_id, [])
+        integrity = self._verify_chain_integrity(chain) if chain else {"valid": False, "length": 0, "issues": ["No provenance chain"]}
+        record: dict[str, Any] = {
+            "id": auth_id,
+            "status": "verified",
+            "product_id": product_id,
+            "verifier": verifier,
+            "authentic": integrity["valid"],
+            "chain_length": integrity["length"],
+            "issues": integrity.get("issues", []),
+            "verified_at": int(time.time()),
+        }
+        logger.info("Authenticity verified: id=%s authentic=%s", auth_id, integrity["valid"])
+        return record
 
     @staticmethod
     def _verify_chain_integrity(chain: list[dict[str, Any]]) -> dict[str, Any]:

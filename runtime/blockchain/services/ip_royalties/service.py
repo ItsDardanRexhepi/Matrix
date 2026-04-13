@@ -228,3 +228,91 @@ class IPRoyaltyService:
             license_id, ip_id, licensee, license_type,
         )
         return license_record
+
+    # ------------------------------------------------------------------
+    # Expanded IP operations
+    # ------------------------------------------------------------------
+
+    async def grant_license(
+        self, ip_id: str, licensee: str, license_type: str = "non_exclusive",
+        duration_days: int = 365, royalty_pct: float = 0.0,
+    ) -> dict:
+        """Grant a license for an IP asset (expanded)."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._ip_registry_contract)
+        ):
+            return not_deployed_response("ip_royalties", {
+                "operation": "grant_license",
+                "requested": {"ip_id": ip_id, "licensee": licensee, "license_type": license_type},
+            })
+        lic_id = f"glic_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": lic_id,
+            "status": "granted",
+            "ip_id": ip_id,
+            "licensee": licensee,
+            "license_type": license_type,
+            "duration_days": duration_days,
+            "royalty_pct": royalty_pct,
+            "expires_at": now + duration_days * 86400,
+            "granted_at": now,
+        }
+        self._licenses[lic_id] = record
+        self._ip_licenses.setdefault(ip_id, []).append(lic_id)
+        logger.info("License granted: id=%s ip=%s", lic_id, ip_id)
+        return record
+
+    async def verify_license(
+        self, license_id: str, verifier: str = "",
+    ) -> dict:
+        """Verify that a license is valid and active."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._ip_registry_contract)
+        ):
+            return not_deployed_response("ip_royalties", {
+                "operation": "verify_license",
+                "requested": {"license_id": license_id},
+            })
+        verify_id = f"vlic_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        lic = self._licenses.get(license_id, {})
+        is_valid = lic.get("status") == "active" and lic.get("expires_at", 0) > now
+        record: dict[str, Any] = {
+            "id": verify_id,
+            "status": "verified",
+            "license_id": license_id,
+            "verifier": verifier,
+            "valid": is_valid,
+            "verified_at": now,
+        }
+        logger.info("License verified: id=%s valid=%s", verify_id, is_valid)
+        return record
+
+    async def execute_agreement(
+        self, agreement_type: str, parties: list[str], terms: dict,
+    ) -> dict:
+        """Execute a legal agreement on-chain."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._ip_registry_contract)
+        ):
+            return not_deployed_response("ip_royalties", {
+                "operation": "execute_agreement",
+                "requested": {"agreement_type": agreement_type, "parties": parties},
+            })
+        agree_id = f"agr_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": agree_id,
+            "status": "executed",
+            "agreement_type": agreement_type,
+            "parties": parties,
+            "terms": terms,
+            "executed_at": now,
+        }
+        self._licenses[agree_id] = record
+        logger.info("Agreement executed: id=%s type=%s", agree_id, agreement_type)
+        return record

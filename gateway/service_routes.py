@@ -1,5 +1,5 @@
 """
-Service API Routes — exposes all 30 blockchain services as REST endpoints.
+Service API Routes — exposes the complete Web3 surface as REST endpoints.
 Each service gets its own endpoint group under /api/v1/
 
 This module also owns two cross-cutting endpoints that power the MTRX
@@ -271,12 +271,109 @@ class ServiceRoutes:
         # Attestation (Component 8) — GET
         app.router.add_get("/api/v1/attestation/verify/{uid}", self._handle_attestation_verify)
 
+        # ── DeFi Expanded ────────────────────────────────────────────
+        app.router.add_post("/api/v1/defi/yield/optimize", self._handle_yield_optimize)
+        app.router.add_post("/api/v1/defi/swap/route", self._handle_swap_route)
+        app.router.add_post("/api/v1/defi/swap/execute", self._handle_swap_execute)
+        app.router.add_post("/api/v1/defi/bridge/quote", self._handle_bridge_quote)
+        app.router.add_post("/api/v1/defi/bridge/execute", self._handle_bridge_execute)
+        app.router.add_post("/api/v1/defi/flash-loan/execute", self._handle_flash_loan)
+        app.router.add_post("/api/v1/defi/vault/deposit", self._handle_vault_deposit)
+        app.router.add_post("/api/v1/defi/liquidity/provide", self._handle_liquidity_provide)
+        app.router.add_post("/api/v1/defi/perp/trade", self._handle_perp_trade)
+        app.router.add_post("/api/v1/defi/collateral/manage", self._handle_collateral_manage)
+
+        # ── NFT Expanded ─────────────────────────────────────────────
+        app.router.add_post("/api/v1/nft/fractionalize", self._handle_nft_fractionalize)
+        app.router.add_post("/api/v1/nft/rent", self._handle_nft_rent)
+        app.router.add_post("/api/v1/nft/batch-mint", self._handle_nft_batch_mint)
+        app.router.add_post("/api/v1/nft/royalty/claim", self._handle_nft_royalty_claim)
+        app.router.add_post("/api/v1/nft/bridge", self._handle_nft_bridge)
+
+        # ── Identity ─────────────────────────────────────────────────
+        app.router.add_post("/api/v1/identity/did/create", self._handle_identity_did_create)
+        app.router.add_post("/api/v1/identity/credential/issue", self._handle_credential_issue)
+        app.router.add_post("/api/v1/identity/credential/verify", self._handle_credential_verify)
+        app.router.add_post("/api/v1/identity/zk-proof/generate", self._handle_zk_proof)
+        app.router.add_post("/api/v1/identity/soulbound/mint", self._handle_soulbound_mint)
+
+        # ── Social ───────────────────────────────────────────────────
+        app.router.add_post("/api/v1/social/post", self._handle_social_post)
+        app.router.add_post("/api/v1/social/message/send", self._handle_social_message_send)
+        app.router.add_post("/api/v1/social/gate/create", self._handle_social_gate)
+        app.router.add_post("/api/v1/social/community/create", self._handle_community_create)
+        app.router.add_get("/api/v1/social/feed/{wallet}", self._handle_social_feed)
+
+        # ── Payments Expanded ────────────────────────────────────────
+        app.router.add_post("/api/v1/payments/stream/create", self._handle_stream_create)
+        app.router.add_post("/api/v1/payments/recurring/create", self._handle_recurring_create)
+        app.router.add_post("/api/v1/payments/escrow/milestone", self._handle_escrow_milestone)
+        app.router.add_post("/api/v1/payments/split", self._handle_payment_split)
+        app.router.add_post("/api/v1/payments/payroll", self._handle_payroll_run)
+
+        # ── Compute & Storage ────────────────────────────────────────
+        app.router.add_post("/api/v1/compute/store", self._handle_decentralized_store)
+        app.router.add_post("/api/v1/compute/ipfs/pin", self._handle_ipfs_pin)
+        app.router.add_post("/api/v1/compute/arweave/store", self._handle_arweave_store)
+
+        # ── RWA ──────────────────────────────────────────────────────
+        app.router.add_post("/api/v1/rwa/fractional/buy", self._handle_rwa_fractional_buy)
+        app.router.add_get("/api/v1/rwa/listings", self._handle_rwa_listings)
+
+        # ── Prediction Markets ──────────────────────────────────────
+        app.router.add_post("/api/v1/prediction/market/create", self._handle_market_create)
+        app.router.add_post("/api/v1/prediction/market/bet", self._handle_market_bet)
+        app.router.add_get("/api/v1/prediction/market/list", self._handle_market_list)
+
+        # ── Energy ───────────────────────────────────────────────────
+        app.router.add_post("/api/v1/energy/carbon/buy", self._handle_carbon_buy)
+        app.router.add_post("/api/v1/energy/carbon/retire", self._handle_carbon_retire)
+        app.router.add_get("/api/v1/energy/carbon/prices", self._handle_carbon_prices)
+
+        # ── Governance Expanded ──────────────────────────────────────
+        app.router.add_post("/api/v1/governance/multisig/propose", self._handle_multisig_propose)
+        app.router.add_post("/api/v1/governance/multisig/approve", self._handle_multisig_approve)
+        app.router.add_post("/api/v1/governance/snapshot/vote", self._handle_snapshot_vote)
+        app.router.add_post("/api/v1/governance/treasury/transfer", self._handle_treasury_transfer)
+
+        # ── Portfolio ────────────────────────────────────────────────
+        app.router.add_get("/api/v1/portfolio/complete/{wallet}", self._handle_portfolio_complete)
+        app.router.add_get("/api/v1/portfolio/positions/{wallet}", self._handle_portfolio_positions)
+        app.router.add_get("/api/v1/portfolio/history/{wallet}", self._handle_portfolio_history)
+
+        # ── Intent Resolution ────────────────────────────────────────
+        app.router.add_post("/api/v1/intent/resolve", self._handle_intent_resolve)
+        app.router.add_post("/api/v1/intent/execute", self._handle_intent_execute)
+        app.router.add_get("/api/v1/intent/summary/{plan_id}", self._handle_intent_summary)
+
+        # ── Legal ────────────────────────────────────────────────────
+        app.router.add_post("/api/v1/legal/license/grant", self._handle_license_grant)
+        app.router.add_post("/api/v1/legal/agreement/execute", self._handle_agreement_execute)
+        app.router.add_post("/api/v1/legal/dispute/file", self._handle_legal_dispute_file)
+
+        # ── AI ───────────────────────────────────────────────────────
+        app.router.add_post("/api/v1/ai/agent/register", self._handle_ai_agent_register)
+        app.router.add_post("/api/v1/ai/model/trade", self._handle_ai_model_trade)
+
+        # ── Supply Chain Expanded ────────────────────────────────────
+        app.router.add_post("/api/v1/supply-chain/provenance/log", self._handle_provenance_log)
+        app.router.add_post("/api/v1/supply-chain/verify", self._handle_authenticity_verify)
+        app.router.add_post("/api/v1/supply-chain/custody/transfer", self._handle_custody_transfer)
+
+        # ── Insurance Expanded ───────────────────────────────────────
+        app.router.add_post("/api/v1/insurance/parametric/create", self._handle_parametric_policy)
+        app.router.add_post("/api/v1/insurance/claim/settle", self._handle_claim_settle)
+
+        # ── Privacy ──────────────────────────────────────────────────
+        app.router.add_post("/api/v1/privacy/transfer", self._handle_private_transfer)
+        app.router.add_post("/api/v1/privacy/stealth-address", self._handle_stealth_address)
+
         # Batch dispatch and live event stream (used by MTRXPackager)
         app.router.add_post("/api/v1/batch", self._handle_batch)
         app.router.add_get("/api/v1/events/stream", self._handle_event_stream)
 
         self._build_batch_route_map()
-        logger.info("ServiceRoutes: registered %d endpoints", 43)
+        logger.info("ServiceRoutes: registered %d endpoints", 118)
 
     # ------------------------------------------------------------------
     # Batch route map — mirrors every non-batch route above so we can
@@ -347,6 +444,70 @@ class ServiceRoutes:
             ("GET",  "/api/v1/dashboard/{address}", self._handle_dashboard),
             ("GET",  "/api/v1/oracle/price/{pair}", self._handle_oracle_price),
             ("GET",  "/api/v1/attestation/verify/{uid}", self._handle_attestation_verify),
+            # ── Expanded routes ──────────────────────────────────────
+            ("POST", "/api/v1/defi/yield/optimize", self._handle_yield_optimize),
+            ("POST", "/api/v1/defi/swap/route", self._handle_swap_route),
+            ("POST", "/api/v1/defi/swap/execute", self._handle_swap_execute),
+            ("POST", "/api/v1/defi/bridge/quote", self._handle_bridge_quote),
+            ("POST", "/api/v1/defi/bridge/execute", self._handle_bridge_execute),
+            ("POST", "/api/v1/defi/flash-loan/execute", self._handle_flash_loan),
+            ("POST", "/api/v1/defi/vault/deposit", self._handle_vault_deposit),
+            ("POST", "/api/v1/defi/liquidity/provide", self._handle_liquidity_provide),
+            ("POST", "/api/v1/defi/perp/trade", self._handle_perp_trade),
+            ("POST", "/api/v1/defi/collateral/manage", self._handle_collateral_manage),
+            ("POST", "/api/v1/nft/fractionalize", self._handle_nft_fractionalize),
+            ("POST", "/api/v1/nft/rent", self._handle_nft_rent),
+            ("POST", "/api/v1/nft/batch-mint", self._handle_nft_batch_mint),
+            ("POST", "/api/v1/nft/royalty/claim", self._handle_nft_royalty_claim),
+            ("POST", "/api/v1/nft/bridge", self._handle_nft_bridge),
+            ("POST", "/api/v1/identity/did/create", self._handle_identity_did_create),
+            ("POST", "/api/v1/identity/credential/issue", self._handle_credential_issue),
+            ("POST", "/api/v1/identity/credential/verify", self._handle_credential_verify),
+            ("POST", "/api/v1/identity/zk-proof/generate", self._handle_zk_proof),
+            ("POST", "/api/v1/identity/soulbound/mint", self._handle_soulbound_mint),
+            ("POST", "/api/v1/social/post", self._handle_social_post),
+            ("POST", "/api/v1/social/message/send", self._handle_social_message_send),
+            ("POST", "/api/v1/social/gate/create", self._handle_social_gate),
+            ("POST", "/api/v1/social/community/create", self._handle_community_create),
+            ("GET",  "/api/v1/social/feed/{wallet}", self._handle_social_feed),
+            ("POST", "/api/v1/payments/stream/create", self._handle_stream_create),
+            ("POST", "/api/v1/payments/recurring/create", self._handle_recurring_create),
+            ("POST", "/api/v1/payments/escrow/milestone", self._handle_escrow_milestone),
+            ("POST", "/api/v1/payments/split", self._handle_payment_split),
+            ("POST", "/api/v1/payments/payroll", self._handle_payroll_run),
+            ("POST", "/api/v1/compute/store", self._handle_decentralized_store),
+            ("POST", "/api/v1/compute/ipfs/pin", self._handle_ipfs_pin),
+            ("POST", "/api/v1/compute/arweave/store", self._handle_arweave_store),
+            ("POST", "/api/v1/rwa/fractional/buy", self._handle_rwa_fractional_buy),
+            ("GET",  "/api/v1/rwa/listings", self._handle_rwa_listings),
+            ("POST", "/api/v1/prediction/market/create", self._handle_market_create),
+            ("POST", "/api/v1/prediction/market/bet", self._handle_market_bet),
+            ("GET",  "/api/v1/prediction/market/list", self._handle_market_list),
+            ("POST", "/api/v1/energy/carbon/buy", self._handle_carbon_buy),
+            ("POST", "/api/v1/energy/carbon/retire", self._handle_carbon_retire),
+            ("GET",  "/api/v1/energy/carbon/prices", self._handle_carbon_prices),
+            ("POST", "/api/v1/governance/multisig/propose", self._handle_multisig_propose),
+            ("POST", "/api/v1/governance/multisig/approve", self._handle_multisig_approve),
+            ("POST", "/api/v1/governance/snapshot/vote", self._handle_snapshot_vote),
+            ("POST", "/api/v1/governance/treasury/transfer", self._handle_treasury_transfer),
+            ("GET",  "/api/v1/portfolio/complete/{wallet}", self._handle_portfolio_complete),
+            ("GET",  "/api/v1/portfolio/positions/{wallet}", self._handle_portfolio_positions),
+            ("GET",  "/api/v1/portfolio/history/{wallet}", self._handle_portfolio_history),
+            ("POST", "/api/v1/intent/resolve", self._handle_intent_resolve),
+            ("POST", "/api/v1/intent/execute", self._handle_intent_execute),
+            ("GET",  "/api/v1/intent/summary/{plan_id}", self._handle_intent_summary),
+            ("POST", "/api/v1/legal/license/grant", self._handle_license_grant),
+            ("POST", "/api/v1/legal/agreement/execute", self._handle_agreement_execute),
+            ("POST", "/api/v1/legal/dispute/file", self._handle_legal_dispute_file),
+            ("POST", "/api/v1/ai/agent/register", self._handle_ai_agent_register),
+            ("POST", "/api/v1/ai/model/trade", self._handle_ai_model_trade),
+            ("POST", "/api/v1/supply-chain/provenance/log", self._handle_provenance_log),
+            ("POST", "/api/v1/supply-chain/verify", self._handle_authenticity_verify),
+            ("POST", "/api/v1/supply-chain/custody/transfer", self._handle_custody_transfer),
+            ("POST", "/api/v1/insurance/parametric/create", self._handle_parametric_policy),
+            ("POST", "/api/v1/insurance/claim/settle", self._handle_claim_settle),
+            ("POST", "/api/v1/privacy/transfer", self._handle_private_transfer),
+            ("POST", "/api/v1/privacy/stealth-address", self._handle_stealth_address),
         ]
 
         # Bridge endpoints — only registered if the gateway server has
@@ -971,6 +1132,742 @@ class ServiceRoutes:
         result = await self._call(
             "attestation", "verify",
             attestation_uid=uid,
+        )
+        return self._ok(result)
+
+    # -- DeFi Expanded --
+
+    async def _handle_yield_optimize(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "asset", "amount")
+        result = await self._call(
+            "defi", "yield_optimize",
+            asset=body["asset"],
+            amount=body["amount"],
+            risk_tolerance=body.get("risk_tolerance", "medium"),
+        )
+        return self._ok(result)
+
+    async def _handle_swap_route(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "token_in", "token_out", "amount")
+        result = await self._call(
+            "defi", "swap_route",
+            token_in=body["token_in"],
+            token_out=body["token_out"],
+            amount=body["amount"],
+            slippage=body.get("slippage", 0.5),
+        )
+        return self._ok(result)
+
+    async def _handle_swap_execute(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "wallet", "route_id")
+        result = await self._call(
+            "defi", "swap_execute",
+            wallet=body["wallet"],
+            route_id=body["route_id"],
+            slippage=body.get("slippage", 0.5),
+        )
+        return self._ok(result)
+
+    async def _handle_bridge_quote(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "token", "amount", "source_chain", "dest_chain")
+        result = await self._call(
+            "defi", "bridge_quote",
+            token=body["token"],
+            amount=body["amount"],
+            source_chain=body["source_chain"],
+            dest_chain=body["dest_chain"],
+        )
+        return self._ok(result)
+
+    async def _handle_bridge_execute(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "wallet", "quote_id")
+        result = await self._call(
+            "defi", "bridge_execute",
+            wallet=body["wallet"],
+            quote_id=body["quote_id"],
+        )
+        return self._ok(result)
+
+    async def _handle_flash_loan(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "token", "amount", "operations")
+        result = await self._call(
+            "defi", "flash_loan_execute",
+            token=body["token"],
+            amount=body["amount"],
+            operations=body["operations"],
+            wallet=body.get("wallet", ""),
+        )
+        return self._ok(result)
+
+    async def _handle_vault_deposit(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "wallet", "vault_id", "amount")
+        result = await self._call(
+            "defi", "vault_deposit",
+            wallet=body["wallet"],
+            vault_id=body["vault_id"],
+            amount=body["amount"],
+        )
+        return self._ok(result)
+
+    async def _handle_liquidity_provide(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "wallet", "pool_id", "token_a_amount", "token_b_amount")
+        result = await self._call(
+            "defi", "liquidity_provide",
+            wallet=body["wallet"],
+            pool_id=body["pool_id"],
+            token_a_amount=body["token_a_amount"],
+            token_b_amount=body["token_b_amount"],
+        )
+        return self._ok(result)
+
+    async def _handle_perp_trade(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "wallet", "market", "side", "size")
+        result = await self._call(
+            "defi", "perp_trade",
+            wallet=body["wallet"],
+            market=body["market"],
+            side=body["side"],
+            size=body["size"],
+            leverage=body.get("leverage", 1),
+        )
+        return self._ok(result)
+
+    async def _handle_collateral_manage(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "wallet", "action", "token", "amount")
+        result = await self._call(
+            "defi", "collateral_manage",
+            wallet=body["wallet"],
+            action=body["action"],
+            token=body["token"],
+            amount=body["amount"],
+        )
+        return self._ok(result)
+
+    # -- NFT Expanded --
+
+    async def _handle_nft_fractionalize(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "token_id", "fractions")
+        result = await self._call(
+            "nft_services", "fractionalize",
+            owner=body["owner"],
+            token_id=body["token_id"],
+            fractions=int(body["fractions"]),
+            price_per_fraction=body.get("price_per_fraction"),
+        )
+        return self._ok(result)
+
+    async def _handle_nft_rent(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "renter", "token_id", "duration")
+        result = await self._call(
+            "nft_services", "rent",
+            renter=body["renter"],
+            token_id=body["token_id"],
+            duration=body["duration"],
+            price=body.get("price"),
+        )
+        return self._ok(result)
+
+    async def _handle_nft_batch_mint(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "creator", "collection_id", "items")
+        result = await self._call(
+            "nft_services", "batch_mint",
+            creator=body["creator"],
+            collection_id=body["collection_id"],
+            items=body["items"],
+        )
+        return self._ok(result)
+
+    async def _handle_nft_royalty_claim(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "creator", "token_id")
+        result = await self._call(
+            "nft_services", "royalty_claim",
+            creator=body["creator"],
+            token_id=body["token_id"],
+        )
+        return self._ok(result)
+
+    async def _handle_nft_bridge(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "token_id", "dest_chain")
+        result = await self._call(
+            "nft_services", "bridge_nft",
+            owner=body["owner"],
+            token_id=body["token_id"],
+            dest_chain=body["dest_chain"],
+        )
+        return self._ok(result)
+
+    # -- Identity Expanded --
+
+    async def _handle_identity_did_create(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner")
+        result = await self._call(
+            "did_identity", "create_did",
+            owner=body["owner"],
+            method=body.get("method", "openmatrix"),
+        )
+        return self._ok(result)
+
+    async def _handle_credential_issue(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "issuer", "subject", "credential_type", "claims")
+        result = await self._call(
+            "did_identity", "issue_credential",
+            issuer=body["issuer"],
+            subject=body["subject"],
+            credential_type=body["credential_type"],
+            claims=body["claims"],
+        )
+        return self._ok(result)
+
+    async def _handle_credential_verify(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "credential_id")
+        result = await self._call(
+            "did_identity", "verify_credential",
+            credential_id=body["credential_id"],
+        )
+        return self._ok(result)
+
+    async def _handle_zk_proof(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "prover", "claim", "proof_type")
+        result = await self._call(
+            "did_identity", "generate_zk_proof",
+            prover=body["prover"],
+            claim=body["claim"],
+            proof_type=body["proof_type"],
+        )
+        return self._ok(result)
+
+    async def _handle_soulbound_mint(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "issuer", "recipient", "metadata")
+        result = await self._call(
+            "did_identity", "mint_soulbound",
+            issuer=body["issuer"],
+            recipient=body["recipient"],
+            metadata=body["metadata"],
+        )
+        return self._ok(result)
+
+    # -- Social Expanded --
+
+    async def _handle_social_post(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "author", "content")
+        result = await self._call(
+            "social", "create_post",
+            author=body["author"],
+            content=body["content"],
+            media=body.get("media", []),
+        )
+        return self._ok(result)
+
+    async def _handle_social_message_send(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "sender", "recipient", "content")
+        result = await self._call(
+            "social", "send_message",
+            sender=body["sender"],
+            recipient=body["recipient"],
+            content=body["content"],
+            encrypted=body.get("encrypted", True),
+        )
+        return self._ok(result)
+
+    async def _handle_social_gate(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "gate_type", "criteria")
+        result = await self._call(
+            "social", "create_gate",
+            owner=body["owner"],
+            gate_type=body["gate_type"],
+            criteria=body["criteria"],
+        )
+        return self._ok(result)
+
+    async def _handle_community_create(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "creator", "name", "rules")
+        result = await self._call(
+            "social", "create_community",
+            creator=body["creator"],
+            name=body["name"],
+            rules=body["rules"],
+            token_gate=body.get("token_gate"),
+        )
+        return self._ok(result)
+
+    async def _handle_social_feed(self, request: web.Request) -> web.Response:
+        wallet = request.match_info["wallet"]
+        result = await self._call(
+            "social", "get_feed",
+            wallet=wallet,
+        )
+        return self._ok(result)
+
+    # -- Payments Expanded --
+
+    async def _handle_stream_create(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "sender", "recipient", "token", "total_amount", "duration")
+        result = await self._call(
+            "x402_payments", "create_stream",
+            sender=body["sender"],
+            recipient=body["recipient"],
+            token=body["token"],
+            total_amount=float(body["total_amount"]),
+            duration=body["duration"],
+        )
+        return self._ok(result)
+
+    async def _handle_recurring_create(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "payer", "payee", "token", "amount", "interval")
+        result = await self._call(
+            "x402_payments", "create_recurring",
+            payer=body["payer"],
+            payee=body["payee"],
+            token=body["token"],
+            amount=float(body["amount"]),
+            interval=body["interval"],
+        )
+        return self._ok(result)
+
+    async def _handle_escrow_milestone(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "escrow_id", "milestone_id", "action")
+        result = await self._call(
+            "x402_payments", "escrow_milestone",
+            escrow_id=body["escrow_id"],
+            milestone_id=body["milestone_id"],
+            action=body["action"],
+        )
+        return self._ok(result)
+
+    async def _handle_payment_split(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "payer", "recipients", "token", "total_amount")
+        result = await self._call(
+            "x402_payments", "split_payment",
+            payer=body["payer"],
+            recipients=body["recipients"],
+            token=body["token"],
+            total_amount=float(body["total_amount"]),
+        )
+        return self._ok(result)
+
+    async def _handle_payroll_run(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "employer", "employees", "token")
+        result = await self._call(
+            "x402_payments", "run_payroll",
+            employer=body["employer"],
+            employees=body["employees"],
+            token=body["token"],
+        )
+        return self._ok(result)
+
+    # -- Compute & Storage --
+
+    async def _handle_decentralized_store(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "data", "storage_type")
+        result = await self._call(
+            "compute", "store",
+            owner=body["owner"],
+            data=body["data"],
+            storage_type=body["storage_type"],
+        )
+        return self._ok(result)
+
+    async def _handle_ipfs_pin(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "cid")
+        result = await self._call(
+            "compute", "ipfs_pin",
+            cid=body["cid"],
+            name=body.get("name", ""),
+        )
+        return self._ok(result)
+
+    async def _handle_arweave_store(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "data")
+        result = await self._call(
+            "compute", "arweave_store",
+            owner=body["owner"],
+            data=body["data"],
+            content_type=body.get("content_type", "application/octet-stream"),
+        )
+        return self._ok(result)
+
+    # -- RWA Expanded --
+
+    async def _handle_rwa_fractional_buy(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "buyer", "asset_id", "fractions")
+        result = await self._call(
+            "rwa_tokenization", "buy_fractions",
+            buyer=body["buyer"],
+            asset_id=body["asset_id"],
+            fractions=int(body["fractions"]),
+        )
+        return self._ok(result)
+
+    async def _handle_rwa_listings(self, request: web.Request) -> web.Response:
+        result = await self._call(
+            "rwa_tokenization", "list_assets",
+        )
+        return self._ok(result)
+
+    # -- Prediction Markets --
+
+    async def _handle_market_create(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "creator", "question", "outcomes", "resolution_date")
+        result = await self._call(
+            "prediction", "create_market",
+            creator=body["creator"],
+            question=body["question"],
+            outcomes=body["outcomes"],
+            resolution_date=body["resolution_date"],
+        )
+        return self._ok(result)
+
+    async def _handle_market_bet(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "bettor", "market_id", "outcome", "amount")
+        result = await self._call(
+            "prediction", "place_bet",
+            bettor=body["bettor"],
+            market_id=body["market_id"],
+            outcome=body["outcome"],
+            amount=float(body["amount"]),
+        )
+        return self._ok(result)
+
+    async def _handle_market_list(self, request: web.Request) -> web.Response:
+        result = await self._call(
+            "prediction", "list_markets",
+        )
+        return self._ok(result)
+
+    # -- Energy --
+
+    async def _handle_carbon_buy(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "buyer", "tonnes", "project_id")
+        result = await self._call(
+            "energy", "buy_carbon_credits",
+            buyer=body["buyer"],
+            tonnes=float(body["tonnes"]),
+            project_id=body["project_id"],
+        )
+        return self._ok(result)
+
+    async def _handle_carbon_retire(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "credit_ids")
+        result = await self._call(
+            "energy", "retire_carbon",
+            owner=body["owner"],
+            credit_ids=body["credit_ids"],
+        )
+        return self._ok(result)
+
+    async def _handle_carbon_prices(self, request: web.Request) -> web.Response:
+        result = await self._call(
+            "energy", "get_carbon_prices",
+        )
+        return self._ok(result)
+
+    # -- Governance Expanded --
+
+    async def _handle_multisig_propose(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "proposer", "multisig_address", "action", "params")
+        result = await self._call(
+            "governance", "multisig_propose",
+            proposer=body["proposer"],
+            multisig_address=body["multisig_address"],
+            action=body["action"],
+            params=body["params"],
+        )
+        return self._ok(result)
+
+    async def _handle_multisig_approve(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "approver", "multisig_address", "proposal_id")
+        result = await self._call(
+            "governance", "multisig_approve",
+            approver=body["approver"],
+            multisig_address=body["multisig_address"],
+            proposal_id=body["proposal_id"],
+        )
+        return self._ok(result)
+
+    async def _handle_snapshot_vote(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "voter", "space", "proposal_id", "choice")
+        result = await self._call(
+            "governance", "snapshot_vote",
+            voter=body["voter"],
+            space=body["space"],
+            proposal_id=body["proposal_id"],
+            choice=body["choice"],
+        )
+        return self._ok(result)
+
+    async def _handle_treasury_transfer(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "dao_address", "recipient", "token", "amount")
+        result = await self._call(
+            "governance", "treasury_transfer",
+            dao_address=body["dao_address"],
+            recipient=body["recipient"],
+            token=body["token"],
+            amount=float(body["amount"]),
+        )
+        return self._ok(result)
+
+    # -- Portfolio --
+
+    async def _handle_portfolio_complete(self, request: web.Request) -> web.Response:
+        wallet = request.match_info["wallet"]
+        try:
+            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
+            aggregator = DataAggregator(self._config)
+            result = await aggregator.get_user_portfolio(wallet)
+        except Exception as e:
+            logger.warning("Portfolio aggregation failed: %s", e)
+            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
+        return self._ok(result)
+
+    async def _handle_portfolio_positions(self, request: web.Request) -> web.Response:
+        wallet = request.match_info["wallet"]
+        try:
+            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
+            aggregator = DataAggregator(self._config)
+            result = await aggregator.get_positions(wallet)
+        except Exception as e:
+            logger.warning("Portfolio positions failed: %s", e)
+            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
+        return self._ok(result)
+
+    async def _handle_portfolio_history(self, request: web.Request) -> web.Response:
+        wallet = request.match_info["wallet"]
+        try:
+            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
+            aggregator = DataAggregator(self._config)
+            result = await aggregator.get_history(wallet)
+        except Exception as e:
+            logger.warning("Portfolio history failed: %s", e)
+            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
+        return self._ok(result)
+
+    # -- Intent Resolution --
+
+    async def _handle_intent_resolve(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "intent")
+        try:
+            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
+            resolver = IntentResolver(self._config)
+            result = await resolver.resolve(
+                intent=body["intent"],
+                entities=body.get("entities", {}),
+                wallet=body.get("wallet", ""),
+                tier=body.get("tier", "free"),
+            )
+        except Exception as e:
+            logger.warning("Intent resolution failed: %s", e)
+            result = {"status": "error", "message": str(e)}
+        return self._ok(result)
+
+    async def _handle_intent_execute(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "plan_id", "wallet")
+        try:
+            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
+            resolver = IntentResolver(self._config)
+            result = await resolver.execute(
+                plan_id=body["plan_id"],
+                wallet=body["wallet"],
+            )
+        except Exception as e:
+            logger.warning("Intent execution failed: %s", e)
+            result = {"status": "error", "message": str(e)}
+        return self._ok(result)
+
+    async def _handle_intent_summary(self, request: web.Request) -> web.Response:
+        plan_id = request.match_info["plan_id"]
+        try:
+            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
+            resolver = IntentResolver(self._config)
+            result = await resolver.get_summary(plan_id=plan_id)
+        except Exception as e:
+            logger.warning("Intent summary failed: %s", e)
+            result = {"plan_id": plan_id, "status": "unavailable", "message": str(e)}
+        return self._ok(result)
+
+    # -- Legal --
+
+    async def _handle_license_grant(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "licensor", "licensee", "ip_id", "terms")
+        result = await self._call(
+            "legal", "grant_license",
+            licensor=body["licensor"],
+            licensee=body["licensee"],
+            ip_id=body["ip_id"],
+            terms=body["terms"],
+        )
+        return self._ok(result)
+
+    async def _handle_agreement_execute(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "parties", "agreement_type", "terms")
+        result = await self._call(
+            "legal", "execute_agreement",
+            parties=body["parties"],
+            agreement_type=body["agreement_type"],
+            terms=body["terms"],
+        )
+        return self._ok(result)
+
+    async def _handle_legal_dispute_file(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "complainant", "respondent", "dispute_type", "description")
+        result = await self._call(
+            "legal", "file_dispute",
+            complainant=body["complainant"],
+            respondent=body["respondent"],
+            dispute_type=body["dispute_type"],
+            description=body["description"],
+        )
+        return self._ok(result)
+
+    # -- AI --
+
+    async def _handle_ai_agent_register(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "agent_name", "capabilities")
+        result = await self._call(
+            "ai", "register_agent",
+            owner=body["owner"],
+            agent_name=body["agent_name"],
+            capabilities=body["capabilities"],
+            model=body.get("model", ""),
+        )
+        return self._ok(result)
+
+    async def _handle_ai_model_trade(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "seller", "buyer", "model_id", "price")
+        result = await self._call(
+            "ai", "trade_model",
+            seller=body["seller"],
+            buyer=body["buyer"],
+            model_id=body["model_id"],
+            price=float(body["price"]),
+        )
+        return self._ok(result)
+
+    # -- Supply Chain Expanded --
+
+    async def _handle_provenance_log(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "product_id", "event_type", "data")
+        result = await self._call(
+            "supply_chain", "log_provenance",
+            product_id=body["product_id"],
+            event_type=body["event_type"],
+            data=body["data"],
+        )
+        return self._ok(result)
+
+    async def _handle_authenticity_verify(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "product_id")
+        result = await self._call(
+            "supply_chain", "verify_authenticity",
+            product_id=body["product_id"],
+        )
+        return self._ok(result)
+
+    async def _handle_custody_transfer(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "product_id", "from_holder", "to_holder")
+        result = await self._call(
+            "supply_chain", "transfer_custody",
+            product_id=body["product_id"],
+            from_holder=body["from_holder"],
+            to_holder=body["to_holder"],
+        )
+        return self._ok(result)
+
+    # -- Insurance Expanded --
+
+    async def _handle_parametric_policy(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "holder", "trigger_type", "trigger_params", "coverage_amount", "premium")
+        result = await self._call(
+            "insurance", "create_parametric_policy",
+            holder=body["holder"],
+            trigger_type=body["trigger_type"],
+            trigger_params=body["trigger_params"],
+            coverage_amount=float(body["coverage_amount"]),
+            premium=float(body["premium"]),
+        )
+        return self._ok(result)
+
+    async def _handle_claim_settle(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "claim_id", "settlement_amount")
+        result = await self._call(
+            "insurance", "settle_claim",
+            claim_id=body["claim_id"],
+            settlement_amount=float(body["settlement_amount"]),
+        )
+        return self._ok(result)
+
+    # -- Privacy Expanded --
+
+    async def _handle_private_transfer(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "sender", "recipient", "amount", "token")
+        result = await self._call(
+            "privacy", "private_transfer",
+            sender=body["sender"],
+            recipient=body["recipient"],
+            amount=float(body["amount"]),
+            token=body["token"],
+        )
+        return self._ok(result)
+
+    async def _handle_stealth_address(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner")
+        result = await self._call(
+            "privacy", "generate_stealth_address",
+            owner=body["owner"],
         )
         return self._ok(result)
 

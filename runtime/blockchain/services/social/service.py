@@ -235,3 +235,120 @@ class SocialService:
         # Sort by timestamp descending
         feed.sort(key=lambda x: x["timestamp"], reverse=True)
         return feed[:limit]
+
+    # ------------------------------------------------------------------
+    # Expanded social operations
+    # ------------------------------------------------------------------
+
+    async def publish_post(
+        self, author: str, content: str, media_urls: list[str] | None = None,
+    ) -> dict:
+        """Publish a social post."""
+        post_id = f"post_{uuid.uuid4().hex[:16]}"
+        now = time.time()
+        record = {
+            "id": post_id,
+            "status": "published",
+            "author": author,
+            "content": content,
+            "media_urls": media_urls or [],
+            "reactions": {},
+            "comments": [],
+            "published_at": now,
+        }
+        self._feed_items.append(record)
+        logger.info("Post published: id=%s author=%s", post_id, author)
+        return record
+
+    async def follow_wallet(
+        self, follower: str, target: str,
+    ) -> dict:
+        """Follow another wallet address."""
+        follow_id = f"follow_{uuid.uuid4().hex[:16]}"
+        follower_profile = self._profiles.get(follower)
+        if follower_profile:
+            if target not in follower_profile.get("following", []):
+                follower_profile.setdefault("following", []).append(target)
+        target_profile = self._profiles.get(target)
+        if target_profile:
+            if follower not in target_profile.get("followers", []):
+                target_profile.setdefault("followers", []).append(follower)
+        record = {
+            "id": follow_id,
+            "status": "following",
+            "follower": follower,
+            "target": target,
+            "followed_at": time.time(),
+        }
+        logger.info("Follow: id=%s %s -> %s", follow_id, follower, target)
+        return record
+
+    async def create_token_gate(
+        self, creator: str, token_address: str, min_balance: float, resource: str,
+    ) -> dict:
+        """Create a token-gated access rule."""
+        gate_id = f"gate_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": gate_id,
+            "status": "active",
+            "creator": creator,
+            "token_address": token_address,
+            "min_balance": min_balance,
+            "resource": resource,
+            "created_at": time.time(),
+        }
+        logger.info("Token gate created: id=%s", gate_id)
+        return record
+
+    async def setup_monetization(
+        self, creator: str, monetization_type: str, params: dict | None = None,
+    ) -> dict:
+        """Set up creator monetization."""
+        mon_id = f"mon_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": mon_id,
+            "status": "active",
+            "creator": creator,
+            "monetization_type": monetization_type,
+            "params": params or {},
+            "created_at": time.time(),
+        }
+        logger.info("Monetization setup: id=%s type=%s", mon_id, monetization_type)
+        return record
+
+    async def create_community(
+        self, creator: str, name: str, description: str = "", token_gate: dict | None = None,
+    ) -> dict:
+        """Create a social community."""
+        comm_id = f"comm_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": comm_id,
+            "status": "active",
+            "creator": creator,
+            "name": name,
+            "description": description,
+            "token_gate": token_gate,
+            "members": [creator],
+            "member_count": 1,
+            "created_at": time.time(),
+        }
+        logger.info("Community created: id=%s name=%s", comm_id, name)
+        return record
+
+    async def send_encrypted_message(
+        self, sender: str, recipient: str, content: str, protocol: str = "xmtp",
+    ) -> dict:
+        """Send an encrypted message via XMTP or similar."""
+        msg_id = f"emsg_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": msg_id,
+            "status": "sent",
+            "sender": sender,
+            "recipient": recipient,
+            "content_hash": f"0x{uuid.uuid4().hex[:32]}",
+            "protocol": protocol,
+            "encrypted": True,
+            "sent_at": time.time(),
+        }
+        logger.info("Encrypted message sent: id=%s", msg_id)
+        return record

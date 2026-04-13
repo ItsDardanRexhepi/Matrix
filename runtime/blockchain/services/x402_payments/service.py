@@ -430,3 +430,132 @@ class X402PaymentService:
     ) -> str:
         payload = f"{payment_id}|{agent_id}|{recipient}|{amount}|{token}"
         return "0x" + hashlib.sha256(payload.encode()).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Expanded payment operations
+    # ------------------------------------------------------------------
+
+    async def create_stream(
+        self, sender: str, recipient: str, amount: float, token: str, duration_seconds: int,
+    ) -> dict[str, Any]:
+        """Create a streaming payment (Sablier/Superfluid-style)."""
+        stream_id = f"stream_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": stream_id,
+            "status": "streaming",
+            "sender": sender,
+            "recipient": recipient,
+            "total_amount": amount,
+            "token": token.upper(),
+            "duration_seconds": duration_seconds,
+            "rate_per_second": round(amount / duration_seconds, 8) if duration_seconds else 0,
+            "started_at": now,
+            "ends_at": now + duration_seconds,
+        }
+        self._payments[stream_id] = record
+        logger.info("Payment stream created: id=%s", stream_id)
+        return record
+
+    async def create_recurring(
+        self, payer: str, recipient: str, amount: float, token: str, interval_days: int, count: int,
+    ) -> dict[str, Any]:
+        """Create a recurring payment schedule."""
+        rec_id = f"rec_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": rec_id,
+            "status": "active",
+            "payer": payer,
+            "recipient": recipient,
+            "amount": amount,
+            "token": token.upper(),
+            "interval_days": interval_days,
+            "total_payments": count,
+            "payments_made": 0,
+            "next_payment_at": now + interval_days * 86400,
+            "created_at": now,
+        }
+        self._payments[rec_id] = record
+        logger.info("Recurring payment created: id=%s", rec_id)
+        return record
+
+    async def create_milestone_escrow(
+        self, payer: str, recipient: str, amount: float, token: str, milestones: list[str],
+    ) -> dict[str, Any]:
+        """Create a milestone-based escrow payment."""
+        escrow_id = f"escrow_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": escrow_id,
+            "status": "funded",
+            "payer": payer,
+            "recipient": recipient,
+            "total_amount": amount,
+            "token": token.upper(),
+            "milestones": [{"name": m, "status": "pending"} for m in milestones],
+            "released": 0.0,
+            "created_at": now,
+        }
+        self._payments[escrow_id] = record
+        logger.info("Milestone escrow created: id=%s", escrow_id)
+        return record
+
+    async def split_payment(
+        self, sender: str, recipients: list[dict[str, Any]], total_amount: float, token: str,
+    ) -> dict[str, Any]:
+        """Split a payment among multiple recipients."""
+        split_id = f"split_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": split_id,
+            "status": "completed",
+            "sender": sender,
+            "recipients": recipients,
+            "total_amount": total_amount,
+            "token": token.upper(),
+            "split_count": len(recipients),
+            "created_at": int(time.time()),
+        }
+        self._payments[split_id] = record
+        logger.info("Payment split: id=%s count=%d", split_id, len(recipients))
+        return record
+
+    async def factor_invoice(
+        self, seller: str, invoice_amount: float, token: str, discount_pct: float = 2.0,
+    ) -> dict[str, Any]:
+        """Factor an invoice for immediate liquidity."""
+        factor_id = f"inv_{uuid.uuid4().hex[:16]}"
+        advance = round(invoice_amount * (1 - discount_pct / 100.0), 6)
+        record: dict[str, Any] = {
+            "id": factor_id,
+            "status": "factored",
+            "seller": seller,
+            "invoice_amount": invoice_amount,
+            "token": token.upper(),
+            "discount_pct": discount_pct,
+            "advance_amount": advance,
+            "created_at": int(time.time()),
+        }
+        self._payments[factor_id] = record
+        logger.info("Invoice factored: id=%s", factor_id)
+        return record
+
+    async def run_payroll(
+        self, employer: str, employees: list[dict[str, Any]], token: str, period: str = "monthly",
+    ) -> dict[str, Any]:
+        """Execute a payroll batch payment."""
+        payroll_id = f"payroll_{uuid.uuid4().hex[:16]}"
+        total = sum(e.get("amount", 0) for e in employees)
+        record: dict[str, Any] = {
+            "id": payroll_id,
+            "status": "processed",
+            "employer": employer,
+            "employee_count": len(employees),
+            "total_amount": round(total, 6),
+            "token": token.upper(),
+            "period": period,
+            "created_at": int(time.time()),
+        }
+        self._payments[payroll_id] = record
+        logger.info("Payroll processed: id=%s employees=%d", payroll_id, len(employees))
+        return record

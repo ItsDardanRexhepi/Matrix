@@ -8,6 +8,7 @@ and ConversionWizard sub-components.
 
 import logging
 import time
+import uuid
 from typing import Any
 
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
@@ -279,3 +280,33 @@ class DAOService:
             "stake_returned": member_record.get("stake", 0.0),
             "member_count": dao["member_count"],
         }
+
+    # ------------------------------------------------------------------
+    # Expanded DAO operations
+    # ------------------------------------------------------------------
+
+    async def treasury_transfer(
+        self, dao_id: str, recipient: str, amount: float, token: str = "native", reason: str = "",
+    ) -> dict:
+        """Transfer funds from a DAO treasury."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._dao_factory_address)
+        ):
+            return not_deployed_response("dao_management", {
+                "operation": "treasury_transfer",
+                "requested": {"dao_id": dao_id, "recipient": recipient, "amount": amount},
+            })
+        transfer_id = f"tt_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": transfer_id,
+            "status": "transferred",
+            "dao_id": dao_id,
+            "recipient": recipient,
+            "amount": amount,
+            "token": token,
+            "reason": reason,
+            "transferred_at": int(time.time()),
+        }
+        logger.info("Treasury transfer: id=%s dao=%s", transfer_id, dao_id)
+        return record

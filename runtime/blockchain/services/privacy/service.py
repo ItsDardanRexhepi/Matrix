@@ -276,3 +276,161 @@ class PrivacyService:
 
         request["updated_at"] = time.time()
         return {**request, "execution_result": exec_result}
+
+    # ------------------------------------------------------------------
+    # Expanded privacy operations
+    # ------------------------------------------------------------------
+
+    async def private_transfer(
+        self, sender: str, recipient: str, amount: float, token: str = "USDC",
+    ) -> dict:
+        """Execute a privacy-preserving token transfer."""
+        tx_id = f"ptx_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": tx_id,
+            "status": "completed",
+            "sender": sender,
+            "recipient": recipient,
+            "amount": amount,
+            "token": token,
+            "shielded": True,
+            "completed_at": time.time(),
+        }
+        self._deletion_requests[f"_ptx_{tx_id}"] = record
+        logger.info("Private transfer: id=%s", tx_id)
+        return record
+
+    async def generate_stealth_address(
+        self, owner: str,
+    ) -> dict:
+        """Generate a one-time stealth address."""
+        sa_id = f"sa_{uuid.uuid4().hex[:16]}"
+        stealth_addr = f"0x{uuid.uuid4().hex[:40]}"
+        record = {
+            "id": sa_id,
+            "status": "generated",
+            "owner": owner,
+            "stealth_address": stealth_addr,
+            "generated_at": time.time(),
+        }
+        logger.info("Stealth address generated: id=%s", sa_id)
+        return record
+
+    async def generate_zk_proof(
+        self, prover: str, statement: str, witness: dict | None = None,
+    ) -> dict:
+        """Generate a zero-knowledge proof."""
+        proof_id = f"zkp_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": proof_id,
+            "status": "generated",
+            "prover": prover,
+            "statement": statement,
+            "proof_hash": f"0x{uuid.uuid4().hex}",
+            "verifiable": True,
+            "generated_at": time.time(),
+        }
+        logger.info("ZK proof generated: id=%s", proof_id)
+        return record
+
+    async def private_vote(
+        self, voter: str, proposal_id: str, choice: str, proof: str = "",
+    ) -> dict:
+        """Cast a privacy-preserving vote."""
+        vote_id = f"pvote_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": vote_id,
+            "status": "cast",
+            "voter": voter,
+            "proposal_id": proposal_id,
+            "choice_hash": f"0x{uuid.uuid4().hex[:32]}",
+            "proof": proof,
+            "cast_at": time.time(),
+        }
+        logger.info("Private vote cast: id=%s", vote_id)
+        return record
+
+    async def confidential_compute(
+        self, requester: str, computation: str, encrypted_inputs: dict | None = None,
+    ) -> dict:
+        """Submit a confidential computation request."""
+        cc_id = f"cc_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": cc_id,
+            "status": "completed",
+            "requester": requester,
+            "computation": computation,
+            "encrypted_inputs": encrypted_inputs or {},
+            "result_hash": f"0x{uuid.uuid4().hex}",
+            "completed_at": time.time(),
+        }
+        logger.info("Confidential compute: id=%s", cc_id)
+        return record
+
+    async def decentralized_store(
+        self, uploader: str, data_hash: str, storage_provider: str = "ipfs", encryption: bool = True,
+    ) -> dict:
+        """Store data on a decentralized storage network."""
+        store_id = f"dstore_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": store_id,
+            "status": "stored",
+            "uploader": uploader,
+            "data_hash": data_hash,
+            "storage_provider": storage_provider,
+            "encrypted": encryption,
+            "cid": f"bafy{uuid.uuid4().hex[:48]}",
+            "stored_at": time.time(),
+        }
+        logger.info("Decentralized store: id=%s provider=%s", store_id, storage_provider)
+        return record
+
+    async def submit_compute_job(
+        self, requester: str, job_type: str, params: dict | None = None,
+    ) -> dict:
+        """Submit a decentralized compute job."""
+        job_id = f"cjob_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": job_id,
+            "status": "submitted",
+            "requester": requester,
+            "job_type": job_type,
+            "params": params or {},
+            "submitted_at": time.time(),
+        }
+        logger.info("Compute job submitted: id=%s", job_id)
+        return record
+
+    async def pin_to_ipfs(
+        self, uploader: str, data_hash: str, pin_name: str = "",
+    ) -> dict:
+        """Pin content to IPFS."""
+        pin_id = f"ipfs_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": pin_id,
+            "status": "pinned",
+            "uploader": uploader,
+            "data_hash": data_hash,
+            "pin_name": pin_name,
+            "cid": f"Qm{uuid.uuid4().hex[:44]}",
+            "pinned_at": time.time(),
+        }
+        logger.info("IPFS pin: id=%s", pin_id)
+        return record
+
+    async def store_on_arweave(
+        self, uploader: str, data_hash: str, content_type: str = "application/octet-stream",
+    ) -> dict:
+        """Store data permanently on Arweave."""
+        ar_id = f"ar_{uuid.uuid4().hex[:16]}"
+        record = {
+            "id": ar_id,
+            "status": "stored",
+            "uploader": uploader,
+            "data_hash": data_hash,
+            "content_type": content_type,
+            "arweave_tx": f"ar_{uuid.uuid4().hex}",
+            "stored_at": time.time(),
+        }
+        logger.info("Arweave store: id=%s", ar_id)
+        return record

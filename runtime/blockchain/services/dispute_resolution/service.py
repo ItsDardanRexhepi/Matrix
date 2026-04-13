@@ -337,6 +337,34 @@ class DisputeResolution:
     # Internals
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Expanded dispute operations
+    # ------------------------------------------------------------------
+
+    async def request_arbitration(
+        self, claimant: str, respondent: str, category: str, description: str, stake_amount: float = 0,
+    ) -> dict:
+        """Request formal arbitration for a dispute."""
+        arb_id = f"arb_{uuid.uuid4().hex[:16]}"
+        now = time.time()
+        record: dict[str, Any] = {
+            "id": arb_id,
+            "status": "requested",
+            "claimant": claimant,
+            "respondent": respondent,
+            "category": category,
+            "description": description,
+            "stake_amount": stake_amount or self._base_stake,
+            "requested_at": now,
+        }
+        self._disputes[arb_id] = record
+        logger.info("Arbitration requested: id=%s", arb_id)
+        return record
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
     def _get_dispute_or_raise(self, dispute_id: str) -> dict:
         if dispute_id not in self._disputes:
             raise KeyError(f"Dispute not found: {dispute_id}")

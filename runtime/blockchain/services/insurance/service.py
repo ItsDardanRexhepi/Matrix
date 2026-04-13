@@ -351,3 +351,113 @@ class InsuranceService:
             conditions["loss_threshold"] = coverage.get("loss_threshold", 0)
 
         return conditions
+
+    # ------------------------------------------------------------------
+    # Expanded insurance operations
+    # ------------------------------------------------------------------
+
+    async def create_parametric_policy(
+        self, holder: str, trigger_type: str, trigger_params: dict, coverage_amount: float, premium: float,
+    ) -> dict:
+        """Create a parametric insurance policy with automated triggers."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._policy_contract)
+        ):
+            return not_deployed_response("insurance", {
+                "operation": "create_parametric_policy",
+                "requested": {"holder": holder, "trigger_type": trigger_type, "coverage_amount": coverage_amount},
+            })
+        policy_id = f"ppol_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": policy_id,
+            "status": "active",
+            "holder": holder,
+            "trigger_type": trigger_type,
+            "trigger_params": trigger_params,
+            "coverage_amount": coverage_amount,
+            "premium": premium,
+            "created_at": now,
+        }
+        self._policies[policy_id] = record
+        logger.info("Parametric policy created: id=%s", policy_id)
+        return record
+
+    async def auto_settle_claim(
+        self, policy_id: str, oracle_data: dict,
+    ) -> dict:
+        """Auto-settle a claim based on oracle data."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._policy_contract)
+        ):
+            return not_deployed_response("insurance", {
+                "operation": "auto_settle_claim",
+                "requested": {"policy_id": policy_id},
+            })
+        settle_id = f"asc_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": settle_id,
+            "status": "settled",
+            "policy_id": policy_id,
+            "oracle_data": oracle_data,
+            "payout_amount": 0.0,
+            "settled_at": now,
+        }
+        self._claims[settle_id] = record
+        logger.info("Claim auto-settled: id=%s", settle_id)
+        return record
+
+    async def renew_coverage(
+        self, policy_id: str, additional_premium: float, extension_days: int = 365,
+    ) -> dict:
+        """Renew an existing insurance policy."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._policy_contract)
+        ):
+            return not_deployed_response("insurance", {
+                "operation": "renew_coverage",
+                "requested": {"policy_id": policy_id, "extension_days": extension_days},
+            })
+        renew_id = f"ren_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": renew_id,
+            "status": "renewed",
+            "policy_id": policy_id,
+            "additional_premium": additional_premium,
+            "extension_days": extension_days,
+            "new_expiry": now + extension_days * 86400,
+            "renewed_at": now,
+        }
+        logger.info("Coverage renewed: id=%s", renew_id)
+        return record
+
+    async def assess_risk(
+        self, holder: str, policy_type: str, parameters: dict | None = None,
+    ) -> dict:
+        """Assess risk for a potential policy."""
+        if (
+            not self._web3.available
+            or self._web3.is_placeholder(self._policy_contract)
+        ):
+            return not_deployed_response("insurance", {
+                "operation": "assess_risk",
+                "requested": {"holder": holder, "policy_type": policy_type},
+            })
+        assess_id = f"risk_{uuid.uuid4().hex[:16]}"
+        record: dict[str, Any] = {
+            "id": assess_id,
+            "status": "assessed",
+            "holder": holder,
+            "policy_type": policy_type,
+            "parameters": parameters or {},
+            "risk_score": 50,
+            "premium_estimate": 0.0,
+            "assessed_at": int(time.time()),
+        }
+        logger.info("Risk assessed: id=%s", assess_id)
+        return record

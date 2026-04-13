@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "platform": "0pnMatrx",
-  "description": "Component registry for all 30 blockchain services. Used by the MTRX iOS app and web interface to discover available features and tier requirements.",
+  "description": "Component registry for all blockchain services. Used by the MTRX iOS app and web interface to discover available features and tier requirements.",
   "components": [
     {
       "id": "contract_conversion",
@@ -463,6 +463,299 @@
       },
       "gateway_actions": ["get_social_feed"],
       "icon": "antenna.radiowaves.left.and.right",
+      "available": true
+    },
+    {
+      "id": "yield_optimization",
+      "name": "Yield Optimization",
+      "description": "Automated yield farming strategies and vault deposits across DeFi protocols",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"optimizations_per_month": 5},
+        "pro": {"optimizations_per_month": 100},
+        "enterprise": {"optimizations_per_month": -1}
+      },
+      "gateway_actions": ["yield_optimize", "vault_deposit"],
+      "icon": "chart.line.uptrend.xyaxis",
+      "available": true
+    },
+    {
+      "id": "cross_chain_bridge",
+      "name": "Cross-Chain Bridge",
+      "description": "Bridge tokens and NFTs across blockchains with best-route selection",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"bridges_per_month": 5},
+        "pro": {"bridges_per_month": 50},
+        "enterprise": {"bridges_per_month": -1}
+      },
+      "gateway_actions": ["cross_chain_bridge", "nft_bridge"],
+      "icon": "arrow.left.arrow.right",
+      "available": true
+    },
+    {
+      "id": "flash_loans",
+      "name": "Flash Loans",
+      "description": "Execute atomic flash loans for arbitrage and liquidation strategies",
+      "category": "finance",
+      "min_tier": "enterprise",
+      "limits": {
+        "enterprise": {"loans_per_month": -1}
+      },
+      "gateway_actions": ["flash_loan"],
+      "icon": "bolt.fill",
+      "available": true
+    },
+    {
+      "id": "perpetual_trading",
+      "name": "Perpetual Trading",
+      "description": "Trade perpetual futures, options, and leveraged positions on-chain",
+      "category": "finance",
+      "min_tier": "enterprise",
+      "limits": {
+        "enterprise": {"trades_per_month": -1}
+      },
+      "gateway_actions": ["perp_trade", "options_trade", "leverage_position"],
+      "icon": "chart.bar.fill",
+      "available": true
+    },
+    {
+      "id": "streaming_payments",
+      "name": "Streaming Payments",
+      "description": "Create continuous token streams, recurring payments, and payroll runs",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"active_streams": 3},
+        "pro": {"active_streams": 25},
+        "enterprise": {"active_streams": -1}
+      },
+      "gateway_actions": ["stream_payment", "recurring_create", "payment_split", "payroll_run"],
+      "icon": "waveform",
+      "available": true
+    },
+    {
+      "id": "prediction_markets",
+      "name": "Prediction Markets",
+      "description": "Create, bet on, and resolve prediction markets for real-world events",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"bets_per_month": 10},
+        "pro": {"bets_per_month": 200},
+        "enterprise": {"bets_per_month": -1}
+      },
+      "gateway_actions": ["market_create", "market_bet", "market_resolve", "market_query"],
+      "icon": "chart.pie.fill",
+      "available": true
+    },
+    {
+      "id": "privacy_services",
+      "name": "Privacy Services",
+      "description": "Private transfers, stealth addresses, and zero-knowledge proof generation",
+      "category": "security",
+      "min_tier": "free",
+      "limits": {
+        "free": {"private_transfers_per_month": 3, "zk_proofs_per_month": 5},
+        "pro": {"private_transfers_per_month": 25, "zk_proofs_per_month": 50},
+        "enterprise": {"private_transfers_per_month": -1, "zk_proofs_per_month": -1}
+      },
+      "gateway_actions": ["private_transfer", "stealth_address", "zk_proof_generate", "private_vote", "confidential_compute"],
+      "icon": "lock.shield.fill",
+      "available": true
+    },
+    {
+      "id": "decentralized_storage",
+      "name": "Decentralized Storage & Compute",
+      "description": "Store data on IPFS and Arweave, and submit decentralized compute jobs",
+      "category": "data",
+      "min_tier": "free",
+      "limits": {
+        "free": {"storage_gb": 0.1, "compute_jobs_per_month": 3},
+        "pro": {"storage_gb": 10, "compute_jobs_per_month": 25},
+        "enterprise": {"storage_gb": -1, "compute_jobs_per_month": -1}
+      },
+      "gateway_actions": ["decentralized_store", "ipfs_pin", "arweave_store", "compute_job_submit"],
+      "icon": "externaldrive.fill",
+      "available": true
+    },
+    {
+      "id": "ai_services",
+      "name": "AI Services",
+      "description": "Register AI agents, trade models, verify inference, and sell training data on-chain",
+      "category": "data",
+      "min_tier": "pro",
+      "limits": {
+        "pro": {"operations_per_month": 25},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["ai_agent_register", "ai_model_trade", "ai_inference_verify", "training_data_sell"],
+      "icon": "brain.head.profile",
+      "available": true
+    },
+    {
+      "id": "carbon_energy",
+      "name": "Carbon & Energy Markets",
+      "description": "Buy and retire carbon credits, purchase renewable energy certificates, and invest in green bonds",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"credits_per_month": 5},
+        "pro": {"credits_per_month": 50},
+        "enterprise": {"credits_per_month": -1}
+      },
+      "gateway_actions": ["carbon_credit_buy", "carbon_credit_retire", "renewable_cert_buy", "green_bond_invest"],
+      "icon": "leaf.fill",
+      "available": true
+    },
+    {
+      "id": "rwa_expanded",
+      "name": "RWA Expanded Services",
+      "description": "Tokenize, fractionalize, and manage income from real-world assets with on-chain verification",
+      "category": "finance",
+      "min_tier": "pro",
+      "limits": {
+        "pro": {"purchases_per_month": 20},
+        "enterprise": {"purchases_per_month": -1}
+      },
+      "gateway_actions": ["rwa_tokenize", "rwa_fractional_buy", "rwa_income_claim", "rwa_verify"],
+      "icon": "building.2.fill",
+      "available": true
+    },
+    {
+      "id": "nft_expanded",
+      "name": "NFT Expanded Services",
+      "description": "Fractionalize, rent, dynamically update, batch mint, and claim royalties on NFTs",
+      "category": "creative",
+      "min_tier": "free",
+      "limits": {
+        "free": {"operations_per_month": 3},
+        "pro": {"operations_per_month": 50},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["nft_fractionalize", "nft_rent", "nft_dynamic_update", "nft_batch_mint", "nft_royalty_claim"],
+      "icon": "square.stack.3d.up.fill",
+      "available": true
+    },
+    {
+      "id": "identity_expanded",
+      "name": "Identity Expanded Services",
+      "description": "Create DIDs, issue and verify credentials, selective disclosure, reputation queries, and soulbound tokens",
+      "category": "identity",
+      "min_tier": "free",
+      "limits": {
+        "free": {"operations_per_month": 5},
+        "pro": {"operations_per_month": 50},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["did_create", "credential_issue", "credential_verify", "selective_disclose", "reputation_query", "soulbound_mint"],
+      "icon": "person.badge.key.fill",
+      "available": true
+    },
+    {
+      "id": "governance_expanded",
+      "name": "Governance Expanded Services",
+      "description": "Timelock queuing, multisig proposals, snapshot voting, treasury transfers, and parameter changes",
+      "category": "governance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"operations_per_month": 10},
+        "pro": {"operations_per_month": 200},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["timelock_queue", "multisig_propose", "multisig_approve", "snapshot_vote", "treasury_transfer", "parameter_change"],
+      "icon": "building.columns.fill",
+      "available": true
+    },
+    {
+      "id": "social_expanded",
+      "name": "On-Chain Social",
+      "description": "Post, follow, gate content, monetize as a creator, create communities, and send encrypted messages",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"posts_per_month": 20},
+        "pro": {"posts_per_month": 200},
+        "enterprise": {"posts_per_month": -1}
+      },
+      "gateway_actions": ["social_post", "social_follow", "social_gate", "creator_monetize", "community_create", "message_encrypt"],
+      "icon": "bubble.left.and.bubble.right.fill",
+      "available": true
+    },
+    {
+      "id": "gaming_expanded",
+      "name": "Gaming Expanded Services",
+      "description": "Mint game assets, enter tournaments, trade items, and attest achievements on-chain",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"tournaments_per_month": 3},
+        "pro": {"tournaments_per_month": 25},
+        "enterprise": {"tournaments_per_month": -1}
+      },
+      "gateway_actions": ["game_asset_mint", "tournament_enter", "game_item_trade", "achievement_attest"],
+      "icon": "gamecontroller.fill",
+      "available": true
+    },
+    {
+      "id": "insurance_expanded",
+      "name": "Insurance Expanded Services",
+      "description": "Parametric policies, automatic claim settlement, coverage renewal, and risk assessment",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"policies_per_month": 2},
+        "pro": {"policies_per_month": 25},
+        "enterprise": {"policies_per_month": -1}
+      },
+      "gateway_actions": ["parametric_policy", "claim_auto_settle", "cover_renew", "risk_assess"],
+      "icon": "shield.checkered",
+      "available": true
+    },
+    {
+      "id": "supply_chain_expanded",
+      "name": "Supply Chain Expanded Services",
+      "description": "Log provenance, track batches, verify authenticity, and manage custody transfers on-chain",
+      "category": "commerce",
+      "min_tier": "free",
+      "limits": {
+        "free": {"events_per_month": 10},
+        "pro": {"events_per_month": 200},
+        "enterprise": {"events_per_month": -1}
+      },
+      "gateway_actions": ["provenance_log", "batch_track", "authenticity_verify", "custody_transfer"],
+      "icon": "shippingbox.fill",
+      "available": true
+    },
+    {
+      "id": "legal_services",
+      "name": "Legal Services",
+      "description": "Grant and verify IP licenses, execute agreements, file disputes, and request arbitration on-chain",
+      "category": "legal",
+      "min_tier": "pro",
+      "limits": {
+        "pro": {"operations_per_month": 25},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["ip_license_grant", "ip_license_verify", "agreement_execute", "dispute_file", "arbitration_request"],
+      "icon": "doc.text.fill",
+      "available": true
+    },
+    {
+      "id": "escrow_services",
+      "name": "Escrow & Invoice Services",
+      "description": "Milestone-based escrow, invoice factoring, and cross-border remittance services",
+      "category": "finance",
+      "min_tier": "free",
+      "limits": {
+        "free": {"operations_per_month": 3},
+        "pro": {"operations_per_month": 25},
+        "enterprise": {"operations_per_month": -1}
+      },
+      "gateway_actions": ["escrow_milestone", "invoice_factor", "cross_border_remit"],
+      "icon": "lock.doc.fill",
       "available": true
     }
   ]

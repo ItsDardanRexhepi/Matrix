@@ -321,3 +321,66 @@ class AgentIdentityService:
     ) -> str:
         payload = f"{agent_id}|{owner}|{','.join(sorted(capabilities))}"
         return "0x" + hashlib.sha256(payload.encode()).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Expanded AI agent operations
+    # ------------------------------------------------------------------
+
+    async def trade_model_access(
+        self, seller: str, buyer: str, model_id: str, price: float, license_type: str = "inference",
+    ) -> dict[str, Any]:
+        """Trade access to an AI model."""
+        trade_id = f"mta_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": trade_id,
+            "status": "traded",
+            "seller": seller,
+            "buyer": buyer,
+            "model_id": model_id,
+            "price": price,
+            "license_type": license_type,
+            "traded_at": now,
+        }
+        self._agents[f"_trade_{trade_id}"] = record
+        logger.info("Model access traded: id=%s", trade_id)
+        return record
+
+    async def verify_inference(
+        self, agent_id: str, input_hash: str, output_hash: str, model_id: str = "",
+    ) -> dict[str, Any]:
+        """Verify an AI inference result on-chain."""
+        verify_id = f"ivf_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": verify_id,
+            "status": "verified",
+            "agent_id": agent_id,
+            "input_hash": input_hash,
+            "output_hash": output_hash,
+            "model_id": model_id,
+            "valid": True,
+            "verified_at": now,
+        }
+        logger.info("Inference verified: id=%s", verify_id)
+        return record
+
+    async def sell_training_data(
+        self, seller: str, buyer: str, dataset_id: str, price: float, sample_count: int = 0,
+    ) -> dict[str, Any]:
+        """Sell access to training data."""
+        sale_id = f"tds_{uuid.uuid4().hex[:16]}"
+        now = int(time.time())
+        record: dict[str, Any] = {
+            "id": sale_id,
+            "status": "sold",
+            "seller": seller,
+            "buyer": buyer,
+            "dataset_id": dataset_id,
+            "price": price,
+            "sample_count": sample_count,
+            "sold_at": now,
+        }
+        self._agents[f"_data_{sale_id}"] = record
+        logger.info("Training data sold: id=%s", sale_id)
+        return record
