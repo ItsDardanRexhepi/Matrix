@@ -110,16 +110,18 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 
 ## Current Status
 
-0pnMatrx is **build-complete and offline-ready**. Every one of the 30
-blockchain services is wired through `ServiceDispatcher` and exercised
-by automated tests in `tests/test_e2e_flows.py` and
-`tests/test_dispatch_integration.py`.
+0pnMatrx is **build-complete and offline-ready**. The complete Web3
+surface — 50+ blockchain services spanning DeFi, NFT, identity,
+governance, payments, privacy, prediction markets, supply chain,
+insurance, compute, AI, energy, legal, and social — is wired through
+`ServiceDispatcher` and exercised by automated tests in
+`tests/test_e2e_flows.py` and `tests/test_dispatch_integration.py`.
 
 What works today, no chain required:
 
 - **Trinity / Morpheus / Neo agents** — full ReAct loop, tool use, session memory
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
-- **All 30 blockchain services** — return a standardised
+- **All 50+ blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
   fabricated transaction hashes
@@ -149,7 +151,7 @@ Every decision made by every agent on 0pnMatrx passes through the Unified Rexhep
 
 ## Blockchain Infrastructure
 
-30 core blockchain services run natively on Base (Ethereum L2) and
+50+ blockchain services run natively on Base (Ethereum L2) and
 return a well-formed `{"status": "not_deployed", ...}` envelope
 whenever a chain is not configured, so every flow is safe to exercise
 offline. All transaction fees are covered by the platform paymaster
@@ -203,8 +205,8 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                               Vision · Trajectory · Morpheus
                                                               Rexhepi · Glasswing · Omega
                                                                          ↓
-                                                              30 Blockchain Services
-                                                              136 Platform Actions
+                                                              50+ Blockchain Services
+                                                              200+ Platform Actions
 ```
 
 ---
@@ -333,8 +335,8 @@ See `SPONSORS.md` for the full sponsor list and `docs/SPONSORSHIP.md` for detail
 
 ## Subscription Tiers
 
-| Feature | Free | Pro ($4.99/mo) | Enterprise ($19.99/mo) |
-|---------|------|----------------|----------------------|
+| Feature | Free | Pro | Enterprise |
+|---------|------|-----|------------|
 | Contract conversions | 5/month | 100/month | Unlimited |
 | NFT mints | 3/month | 50/month | Unlimited |
 | DeFi loan volume | $5,000/month | $500,000/month | Unlimited |
@@ -343,7 +345,7 @@ See `SPONSORS.md` for the full sponsor list and `docs/SPONSORSHIP.md` for detail
 | Team accounts | — | — | ✓ |
 | Priority support | — | — | ✓ |
 
-All tiers include a 3-day free trial. See `/pricing` for full details.
+Subscription pricing available in the MTRX app. All tiers include a 3-day free trial.
 
 ---
 

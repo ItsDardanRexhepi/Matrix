@@ -93,11 +93,13 @@ Both methods are equivalent. Use whichever fits your HTTP client or framework. A
 
 API keys are tied to subscription tiers:
 
-| Tier | Price | Rate Limit | Features |
-|------|-------|------------|----------|
-| Free | $0/mo | Base tier | Core services, community support |
-| Pro | $4.99/mo | Elevated | All services, priority processing |
-| Enterprise | $19.99/mo | Highest | All services, dedicated support, custom plugins |
+| Tier | Rate Limit | Features |
+|------|------------|----------|
+| Free | Base tier | Core services, community support |
+| Pro | Elevated | All services, priority processing |
+| Enterprise | Highest | All services, dedicated support, custom plugins |
+
+Subscription pricing available in the MTRX app.
 
 ## Rate Limiting
 

@@ -53,11 +53,13 @@ Returns a single component entry by ID.
 
 ## Tier Requirements
 
-| Tier | Price | Description |
-|------|-------|-------------|
-| `free` | $0/month | Generous limits for personal use |
-| `pro` | $4.99/month | Higher limits, priority responses, early access |
-| `enterprise` | $19.99/month | Unlimited usage, team accounts, API access |
+| Tier | Description |
+|------|-------------|
+| `free` | Generous limits for personal use |
+| `pro` | Higher limits, priority responses, early access |
+| `enterprise` | Unlimited usage, team accounts, API access |
+
+Subscription pricing is defined in the MTRX iOS app.
 
 A limit of `-1` means unlimited. Boolean limits (`true`/`false`) indicate
 feature availability rather than count-based limits.
