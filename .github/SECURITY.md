@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in 0pnMatrx, do not open a public GitHub issue.
 
-Email: security@openmatrix.io
+Email: security@openmatrix-ai.com
 
 Include:
 - A description of the vulnerability

@@ -48,7 +48,7 @@ For organizations that rely on 0pnMatrx at scale and want a direct line to the t
 
 **What you get:**
 - Everything in Builder
-- Your logo featured on the 0pnMatrx landing page at openmatrix.io
+- Your logo featured on the 0pnMatrx landing page at openmatrix-ai.com
 - A dedicated Slack channel with the core development team for real-time support and collaboration
 - A quarterly roadmap call where you review upcoming features, provide input, and align our priorities with yours
 - Attribution in release announcements and changelogs
@@ -73,6 +73,6 @@ For visionary organizations that want to be permanently woven into the story of 
 
 - **GitHub Sponsors:** [github.com/sponsors/ItsDardanRexhepi](https://github.com/sponsors/ItsDardanRexhepi)
 - **Open Collective:** [opencollective.com/openmatrix](https://opencollective.com/openmatrix)
-- **Custom arrangements:** [openmatrix.io/sponsor](https://openmatrix.io/sponsor)
+- **Custom arrangements:** [openmatrix-ai.com/sponsor](https://openmatrix-ai.com/sponsor)
 
-For questions about sponsorship, reach out at sponsor@openmatrix.io or open a discussion on GitHub.
+For questions about sponsorship, reach out at sponsor@openmatrix-ai.com or open a discussion on GitHub.

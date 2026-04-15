@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 _BADGE_VALIDITY_SECONDS = 365 * 86400  # 1 year
 _PASSING_STATUSES = ("passed", "pass", "clean")
-_VERIFICATION_BASE = "https://openmatrix.io/badge"
-_API_BASE = "https://api.openmatrix.io"
+_VERIFICATION_BASE = "https://openmatrix-ai.com/badge"
+_API_BASE = "https://api.openmatrix-ai.com"
 
 
 class BadgeManager:

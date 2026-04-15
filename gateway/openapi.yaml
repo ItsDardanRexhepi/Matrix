@@ -22,14 +22,14 @@ info:
   version: "1.0.0"
   contact:
     name: 0pnMatrx engineering
-    url: https://openmatrix.io
+    url: https://openmatrix-ai.com
   license:
     name: Proprietary
 
 servers:
   - url: http://localhost:8000
     description: Local development
-  - url: https://api.openmatrix.io
+  - url: https://api.openmatrix-ai.com
     description: Production gateway
 
 # ---------------------------------------------------------------------------
