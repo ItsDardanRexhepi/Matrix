@@ -48,8 +48,11 @@ Returns a single component entry by ID.
 ```
 
 4. Validate against `schema.json`
-5. Add gate entries to `runtime/subscriptions/feature_gate.py`
-6. Add intent mappings to `runtime/chat/intent_actions.py`
+5. Add intent mappings to `runtime/chat/intent_actions.py`
+
+Note: Feature gating (free/pro/enterprise tiers) is enforced client-side
+in the MTRX iOS app via StoreKit and Apple IAP. The backend exposes all
+extensions uniformly; the app decides which are available per tier.
 
 ## Tier Requirements
 

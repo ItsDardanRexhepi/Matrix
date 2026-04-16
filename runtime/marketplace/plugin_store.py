@@ -107,7 +107,7 @@ class PluginMarketplace:
     Manages plugin listings, purchases, downloads, and submissions.
     """
 
-    def __init__(self, config: dict | None = None, db=None, stripe_client=None):
+    def __init__(self, config: dict | None = None, db=None, **_unused):
         """Initialise the marketplace.
 
         Parameters
@@ -116,12 +116,13 @@ class PluginMarketplace:
             Platform configuration.
         db : Database, optional
             SQLite database for persistence.
-        stripe_client : StripeClient, optional
-            Stripe client for processing paid plugin purchases.
+
+        Paid plugin purchases are handled client-side in the MTRX iOS app
+        via Apple IAP. The backend records ownership after the app reports
+        a successful purchase.
         """
         self.config = config or {}
         self.db = db
-        self.stripe = stripe_client
         self.listings: dict[str, PluginListing] = {}
         self.purchases: dict[str, set[str]] = {}  # wallet -> set of plugin_ids
         self._initialised = False
@@ -259,30 +260,16 @@ class PluginMarketplace:
                 "price_paid": 0.0,
             }
 
-        # Paid plugins — create Stripe session
-        if self.stripe and self.stripe.available:
-            base_url = self.config.get("gateway", {}).get(
-                "public_url", "http://localhost:18790"
-            )
-            result = await self.stripe.create_checkout_session(
-                tier=f"plugin_{plugin_id}",
-                wallet_address=wallet_address,
-                success_url=f"{base_url}/marketplace/plugins/{plugin_id}?status=purchased",
-                cancel_url=f"{base_url}/marketplace",
-            )
-            if result.get("status") == "ok":
-                return {
-                    "status": "checkout",
-                    "plugin_id": plugin_id,
-                    "price_usd": listing.price_usd,
-                    "platform_fee": round(listing.price_usd * PLATFORM_COMMISSION, 2),
-                    "developer_revenue": round(listing.price_usd * (1 - PLATFORM_COMMISSION), 2),
-                    "checkout_url": result["url"],
-                }
-
+        # Paid plugins — purchase flow lives in the MTRX iOS app (Apple IAP).
+        # Clients should initiate the purchase via StoreKit and then call
+        # `record_purchase` with the verified transaction.
         return {
-            "status": "not_configured",
-            "message": "Payment processing not available. Contact support.",
+            "status": "requires_iap",
+            "plugin_id": plugin_id,
+            "price_usd": listing.price_usd,
+            "platform_fee": round(listing.price_usd * PLATFORM_COMMISSION, 2),
+            "developer_revenue": round(listing.price_usd * (1 - PLATFORM_COMMISSION), 2),
+            "message": "Complete the purchase in the MTRX iOS app.",
         }
 
     async def has_purchased(self, wallet_address: str, plugin_id: str) -> bool:

@@ -1312,7 +1312,7 @@ class GatewayServer:
             from runtime.social.manager import SocialManager
 
             db = self.react_loop.memory.db
-            self.plugin_marketplace = PluginMarketplace(self.config, db, None)
+            self.plugin_marketplace = PluginMarketplace(self.config, db)
             await self.plugin_marketplace.initialize()
             self.a2a_marketplace = A2AMarketplace(self.config, db)
             await self.a2a_marketplace.initialize()

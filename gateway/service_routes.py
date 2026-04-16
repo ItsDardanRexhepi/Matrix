@@ -525,7 +525,6 @@ class ServiceRoutes:
                 ("GET",  "/bridge/v1/wallet/status", br.wallet_status),
                 ("GET",  "/bridge/v1/config", br.get_config),
                 ("GET",  "/bridge/v1/services", br.get_services),
-                ("POST", "/bridge/v1/push/register", br.register_push),
                 ("GET",  "/bridge/v1/dashboard", br.get_dashboard),
                 ("GET",  "/bridge/v1/components", br.get_components),
                 ("GET",  "/bridge/v1/components/manifest", br.get_components_manifest),
