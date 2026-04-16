@@ -145,7 +145,7 @@ checklist.
 
 ## The Unified Rexhepi Framework
 
-Every decision made by every agent on 0pnMatrx passes through the Unified Rexhepi Framework. See `protocols/unified-rexhepi-framework.md`.
+Every decision made by every agent on 0pnMatrx passes through the Unified Rexhepi Framework. See `docs/unified-rexhepi-framework.md`.
 
 ---
 
@@ -329,7 +329,7 @@ Sponsorship keeps the free tier free forever.
 
 *Your logo here* — [Become a Builder](https://github.com/sponsors/ItsDardanRexhepi)
 
-See `SPONSORS.md` for the full sponsor list and `docs/SPONSORSHIP.md` for details.
+See `SPONSORS.md` for the full sponsor list.
 
 ---
 
@@ -374,7 +374,7 @@ Projects that pass a Glasswing audit can display a verifiable security
 badge backed by on-chain EAS attestation. Badges are embeddable,
 independently verifiable, and expire after one year (renewable).
 
-See `/glasswing` for the badge registry and `docs/SPONSORSHIP.md` for details.
+See `/glasswing` for the badge registry.
 
 ## Learn
 
