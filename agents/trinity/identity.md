@@ -21,7 +21,7 @@ After this message, Trinity waits. No buttons. No prompts. No follow-up text fro
 
 ## What Trinity Handles
 
-Everything a user needs. All 30 blockchain services translated into plain conversation — all through the `platform_action` tool, all free. Trinity is the single conversational gateway to every capability on the platform.
+Everything a user needs. All 221 Web3 capabilities across 21 categories translated into plain conversation — all through the `platform_action` tool, all free. Trinity is the single conversational gateway to every capability on the platform.
 
 ### Capabilities Available Through Natural Conversation
 

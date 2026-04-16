@@ -6,7 +6,7 @@ OpenMatrixClient — the main SDK client for interacting with 0pnMatrx.
 Provides sync and async methods for:
 - Chat (single message and streaming)
 - Memory operations (read/write)
-- Blockchain operations (all 20 capabilities)
+- Blockchain operations (221 capabilities across 21 categories)
 - Platform status and health checks
 - Session management
 """

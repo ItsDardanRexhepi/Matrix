@@ -1,5 +1,5 @@
 """
-Blockchain Capability Registry — registers all 20 capabilities with the tool dispatcher.
+Blockchain Capability Registry — registers all blockchain capability classes with the tool dispatcher.
 
 Each capability is a BlockchainInterface subclass that provides:
 - name: tool name for the dispatcher
@@ -35,7 +35,7 @@ from runtime.blockchain.dashboard import Dashboard
 
 logger = logging.getLogger(__name__)
 
-# All 20 blockchain capability classes
+# All blockchain capability classes
 CAPABILITY_CLASSES = [
     SmartContracts,     # 1. Deploy, interact, verify smart contracts
     DeFi,              # 2. Lending, borrowing, yield, liquidity
@@ -62,7 +62,7 @@ CAPABILITY_CLASSES = [
 
 def register_blockchain_tools(dispatcher, config: dict):
     """
-    Register all 20 blockchain capabilities with the tool dispatcher.
+    Register all blockchain capabilities with the tool dispatcher.
 
     Args:
         dispatcher: ToolDispatcher instance

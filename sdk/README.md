@@ -34,7 +34,7 @@ print(health.status)
 
 - **Chat**: Send messages to any agent (sync and async)
 - **Sessions**: Maintain conversation context across messages
-- **Blockchain**: Access all 20 blockchain capabilities
+- **Blockchain**: Access all 221 Web3 capabilities across 21 categories
 - **Memory**: Read/write agent memory
 - **Health & Status**: Full platform monitoring
 - **Async**: Full async support with `achat()`, `ahealth()`, etc.

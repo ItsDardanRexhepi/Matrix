@@ -11,7 +11,7 @@ Demonstrates how 0pnMatrx routes revenue to the NeoSafe multisig wallet:
   4. An EAS attestation is created for the payment
   5. Revenue totals are queried from the ledger
 
-Every fee-generating action across all 30 services follows this pattern.
+Every fee-generating action across all 44 services / 221 capabilities follows this pattern.
 The platform wallet (NeoSafe) is the single point of revenue collection.
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
@@ -190,7 +190,7 @@ contract SimpleToken {
     print(f"""
   {BOLD}Fee Flow:{RESET}
 
-  User Action (any of 30 services)
+  User Action (any of 44 services)
        |
        v
   ServiceDispatcher.execute()

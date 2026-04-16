@@ -12,7 +12,7 @@ MTRX iOS app. Generates:
     - ERC-4337 smart account wallet bindings
     - XMTP messaging channel config
 
-Guard: ALL 30 components must be deployed before iOS packaging proceeds.
+Guard: Verifies configured components are deployed before packaging
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ class IOSPackageResult:
         }
 
 
-# All 30 component names that must be present before packaging
+# All configured component names that must be present before packaging
 REQUIRED_COMPONENTS = [
     "contract_conversion", "defi", "nft_services", "rwa_tokenization",
     "did_identity", "dao_management", "stablecoin", "attestation",
@@ -134,16 +134,16 @@ class MobileConverter:
         self.config = config or IOSPackageConfig()
 
     async def package_all(self) -> IOSPackageResult:
-        """Package all 30 components for iOS.
+        """Package all configured components for iOS.
 
-        Guard: Will only proceed if all 30 required components are deployed.
+        Guard: Will only proceed if all required components are deployed.
 
         Returns:
             IOSPackageResult with packaging status and manifest.
         """
         result = IOSPackageResult()
 
-        # Check all 30 components are deployed
+        # Check all configured components are deployed
         missing = self._check_required_components()
         if missing:
             result.errors.append(

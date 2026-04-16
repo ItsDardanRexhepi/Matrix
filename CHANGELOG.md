@@ -4,6 +4,28 @@ All notable changes to 0pnMatrx are documented here.
 
 ---
 
+## [0.6.0] — Full Web3 Capability Surface
+
+### Added
+- Capability catalog: 221 discrete Web3 capabilities across 21 categories, data-driven from `runtime/capabilities/catalog.py`
+- 14 new backing services: restaking, mpc, tba, auctions, nft_lending, compute, storage (Filecoin/Ceramic/OrbitDB), ccip, creator_platforms, social_protocols, advanced_governance, oracles_plus, kyc, payment_channels
+- Unified notifications (runtime/notifications/): 9-channel dispatcher (Telegram, Discord, Slack, Email, SMS, WhatsApp, Web chat, iOS push, Webhook)
+- Modular setup wizard (setup/): one re-runnable configurator per notification channel, driven by setup_communications.py
+- Gateway capability endpoints: GET /api/v1/capabilities, /categories, /{id}; POST /api/v1/capabilities/{id}/invoke
+
+### Changed
+- Extensions registry (extensions/registry.json) regenerated from the catalog (v2.0.0)
+- Platform paymaster unchanged — every new capability routes through existing GasSponsor
+- Communications config now lives under config["notifications"] (legacy config["communications"] auto-migrated)
+
+### Removed
+- Stripe subscription code (subscriptions handled in MTRX iOS via Apple IAP)
+- Legacy referrals and metered billing modules
+- Dead top-level plugins/ module (old Stripe tier manifest registry)
+- Internal-only content (launch/, grants/, gumroad/, dedication/)
+
+---
+
 ## [0.5.0] — 2026-04-09
 
 ### Production hardening — round 3 (mainnet-ready)
@@ -118,8 +140,7 @@ All notable changes to 0pnMatrx are documented here.
   envelope.
 - README updated with a "Production Deployment" section pointing at
   the new Caddy / k8s / Foundry plumbing, and the blockchain
-  capability count corrected to match the 30 services exposed by
-  `ServiceDispatcher`.
+  capability count corrected.
 
 ---
 
@@ -242,7 +263,7 @@ All notable changes to 0pnMatrx are documented here.
 - HTTP gateway on configurable port
 - 36 skills loaded via skills loader
 - HiveMind shared state across all agents
-- 20 blockchain capabilities on Base (Ethereum L2)
+- 221 capabilities across 21 categories on Base (Ethereum L2)
 - Unified Rexhepi Framework governing all agent decisions
 - Full SDK for external integrations
 - Migration system for upgrading between versions

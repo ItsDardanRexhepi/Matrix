@@ -46,7 +46,7 @@ Stablecoins are the bridge between volatile crypto prices and predictable dollar
 
 ## The Services
 
-0pnMatrx provides 30 blockchain services, many of which are DeFi services. Here are the main categories:
+0pnMatrx provides 221 capabilities across 21 categories. The DeFi and DeFi-advanced categories alone cover perps, options, synthetics, lending, swaps, liquid staking, restaking (EigenLayer), orderbook DEX, and more. Here are the main categories:
 
 **Lending and Borrowing**: Deposit collateral, borrow stablecoins, earn interest on deposits.
 

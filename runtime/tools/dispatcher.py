@@ -42,7 +42,7 @@ class ToolDispatcher:
             self.register(tool.name, tool.execute, tool.schema)
 
     def _register_blockchain_tools(self, config: dict):
-        """Register all 20 blockchain capabilities as tools."""
+        """Register all blockchain capabilities as tools."""
         try:
             from runtime.blockchain.registry import register_blockchain_tools
             register_blockchain_tools(self, config)

@@ -1504,7 +1504,7 @@ class GatewayServer:
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
 
-        # Register all 30 blockchain service REST endpoints
+        # Register all blockchain service REST endpoints (44 services, 221 capabilities)
         service_routes = None
         try:
             from gateway.service_routes import ServiceRoutes

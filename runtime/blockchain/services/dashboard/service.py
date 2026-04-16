@@ -1,5 +1,5 @@
 """
-DashboardService — unified dashboard aggregating all 30 components of the
+DashboardService — unified dashboard aggregating data across all 44 services / 221 capabilities of the
 0pnMatrx platform.
 
 Activity-based visibility: only shows components the user has interacted with.
@@ -17,7 +17,7 @@ from runtime.blockchain.services.dashboard.formatters import PlainEnglishFormatt
 
 logger = logging.getLogger(__name__)
 
-# All 30 platform components
+# All platform components
 _ALL_COMPONENTS = [
     "did_identity", "agent_identity", "attestation", "contract_conversion",
     "cross_border", "dao_management", "defi", "stablecoin",

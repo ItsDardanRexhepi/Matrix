@@ -126,7 +126,7 @@ Message 1:
 
 Message 2:
   Request ID: req_...
-  Response: There are 30 blockchain services currently available on 0pnMatrx, covering token dep...
+  Response: There are 221 capabilities across 21 categories in the registry. Browse them with `GET /api/v1/capabilities`.
   Tools used: 0
 
 Message 3:

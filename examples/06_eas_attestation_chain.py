@@ -12,8 +12,7 @@ create permanent, verifiable on-chain records for every platform action:
   4. Query all attestations for an address
   5. Verify a specific attestation on-chain
 
-This is the trust layer of 0pnMatrx: every state-modifying action across
-all 30 services is attested on-chain automatically.
+This is the trust layer of 0pnMatrx: every state-modifying capability is attested on-chain automatically.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -298,7 +297,7 @@ async def main():
     6. verify_attestation  - Verify attestation on-chain
 
   {BOLD}Key insight:{RESET}
-    Every state-modifying action across all 30 services
+    Every state-modifying action across all 221 capabilities
     automatically creates an EAS attestation. The ServiceDispatcher
     handles this transparently — no extra code needed.
 

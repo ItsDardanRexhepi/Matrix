@@ -167,6 +167,79 @@ Prometheus server.
 
 ---
 
+## Capability registry
+
+The gateway exposes a data-driven capability surface backed by
+`runtime/capabilities/catalog.py` — the canonical inventory of 221
+capabilities across 21 categories, served by 44 underlying services.
+Every capability has an `id`, `category`, `service`, `method`, and
+`params_schema`; see `docs/COMPLETE_CAPABILITY_MAP.md` for the full
+catalog.
+
+### `GET /api/v1/capabilities`
+
+List capabilities. All filters are optional query parameters.
+
+| Param       | Type   | Description                                                    |
+|-------------|--------|----------------------------------------------------------------|
+| `category`  | string | Restrict to a category id (e.g. `defi`, `staking`)             |
+| `min_tier`  | string | `free`, `pro`, or `enterprise`                                 |
+| `available` | `1`/`0`| When `1`, only capabilities with deployed backends are returned |
+
+**Response `200`**
+
+```json
+{
+  "capabilities": [
+    {
+      "id": "swap_tokens",
+      "name": "Swap Tokens",
+      "category": "defi",
+      "service": "dex",
+      "method": "swap",
+      "min_tier": "free",
+      "uses_paymaster": true,
+      "available": true,
+      "params_schema": { "type": "object", "properties": {} }
+    }
+  ],
+  "count": 1
+}
+```
+
+### `GET /api/v1/capabilities/categories`
+
+Return the 21 categories with per-category capability counts.
+
+```json
+{
+  "categories": [
+    { "id": "defi", "name": "DeFi", "icon": "chart.line.uptrend.xyaxis", "count": 10 },
+    { "id": "staking", "name": "Staking & Restake", "icon": "lock.square.stack", "count": 11 }
+  ]
+}
+```
+
+### `GET /api/v1/capabilities/{id}`
+
+Full descriptor for a single capability. Returns `404 not_found` for
+unknown ids.
+
+### `POST /api/v1/capabilities/{id}/invoke`
+
+Execute a capability. The body's `params` object is validated against
+the capability's `params_schema` before dispatch.
+
+```json
+{ "params": { "token_in": "USDC", "token_out": "WETH", "amount": "1000" } }
+```
+
+The platform sponsors gas via paymaster for every capability with
+`uses_paymaster: true`, so the wallet submitting the request does not
+need a native-token balance.
+
+---
+
 ## MTRX bridge endpoints (`/bridge/v1/`)
 
 These endpoints power the MTRX iOS app. They share the same auth and

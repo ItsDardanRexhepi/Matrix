@@ -58,7 +58,7 @@ Community members are encouraged to run workshops for their teams, meetup groups
 | Time | Activity | Description |
 |------|----------|-------------|
 | 0:00-0:10 | Welcome and Setup | Verify all attendees have Python and git. Help with any installation issues. |
-| 0:10-0:25 | What is 0pnMatrx? | Present Module 01 content. Cover the three agents, the architecture, and the 30 services. |
+| 0:10-0:25 | What is 0pnMatrx? | Present Module 01 content. Cover the three agents, the architecture, and the 221-capability catalog organized by category. |
 | 0:25-0:45 | Live Setup | Everyone clones the repo, runs setup, and starts the gateway. Troubleshoot together. |
 | 0:45-1:00 | First Interaction | Attendees send their first /chat request via curl. Discuss the response format. |
 | 1:00-1:10 | Break | |

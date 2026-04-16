@@ -20,7 +20,7 @@ NEOSAFE_DEFAULT_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 class NeoSafeRouter:
     """Route all platform fees to the NeoSafe wallet.
 
-    Every fee-generating action across the 30 blockchain services calls
+    Every fee-generating action across the 44 services calls
     :meth:`route_fee` to record and forward fees. An EAS attestation is
     created for each payment so there is a permanent on-chain receipt.
 

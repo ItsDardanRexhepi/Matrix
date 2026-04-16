@@ -2,8 +2,8 @@
 0pnMatrx Capability Framework.
 
 A thin, data-driven layer on top of the ServiceRegistry + ServiceDispatcher
-that turns the platform from "30 blockchain services" into "~200 discrete
-Web3 capabilities" without file sprawl.
+that turns the platform from a flat service list into 221 discrete Web3
+capabilities across 21 categories, without file sprawl.
 
 Public API:
     from runtime.capabilities import CapabilityRegistry, catalog

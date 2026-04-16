@@ -53,7 +53,7 @@ You should see output indicating the server has started:
 [INFO] 0pnMatrx Gateway starting...
 [INFO] Loading middleware chain...
 [INFO] Agents initialized: Neo, Trinity, Morpheus
-[INFO] 30 blockchain services loaded
+[INFO] 221 capabilities across 21 categories loaded
 [INFO] Gateway listening on port 18790
 ```
 
@@ -97,15 +97,16 @@ Expected response:
     "trinity": {"status": "active", "role": "conversation"},
     "morpheus": {"status": "active", "role": "confirmation"}
   },
-  "services": {
-    "total": 30,
-    "active": 30
+  "capabilities": {
+    "total": 221,
+    "categories": 21,
+    "available_now": 150
   },
   "uptime_seconds": 45
 }
 ```
 
-This tells you all three agents are loaded and all 30 blockchain services are available.
+This tells you all three agents are loaded and the 221-capability catalog is ready. Capabilities for protocols you haven't configured return a clean not_deployed response rather than failing.
 
 ## Step 6: Your First Chat with Trinity
 

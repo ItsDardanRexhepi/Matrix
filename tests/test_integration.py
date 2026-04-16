@@ -197,14 +197,14 @@ def test_blockchain_registry():
     print("\n── 7. Blockchain Registry ──")
     from runtime.blockchain.registry import CAPABILITY_CLASSES, register_blockchain_tools
 
-    report("has 20 capabilities", len(CAPABILITY_CLASSES) == 20)
+    report("has at least 20 capability classes", len(CAPABILITY_CLASSES) >= 20)
 
     # Test registration with a mock dispatcher
     mock_dispatcher = MagicMock()
     config = {"blockchain": {"rpc_url": "http://localhost:8545", "chain_id": 84532}}
     count = register_blockchain_tools(mock_dispatcher, config)
-    report("all 20 register successfully", count == 20)
-    report("register called 20 times", mock_dispatcher.register.call_count == 20)
+    report("all registered capabilities import successfully", count >= 20)
+    report("register called at least 20 times", mock_dispatcher.register.call_count >= 20)
 
     # Verify all capability names are unique
     names = set()

@@ -381,7 +381,7 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
   # -------------------------------------------------------------------
-  # Blockchain services (Component 1-30). Each follows the same
+  # Blockchain services (44 services across 21 categories). Each follows the same
   # ServiceEnvelope pattern, so we describe request/response shapes
   # inline and skip repeating the envelope for every route.
   # -------------------------------------------------------------------
@@ -944,7 +944,7 @@ paths:
 
   /bridge/v1/services:
     get:
-      summary: Enumerate all 30 blockchain services
+      summary: Enumerate all 221 capabilities
       responses:
         "200":
           description: Service catalog
@@ -974,7 +974,7 @@ paths:
 
   /bridge/v1/components:
     get:
-      summary: List all 30 iOS component schemas
+      summary: List all iOS component schemas
       responses:
         "200":
           description: Component list

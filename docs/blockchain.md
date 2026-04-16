@@ -1,29 +1,32 @@
 # Blockchain
 
-## 20 Capabilities
+## 221 Capabilities Across 21 Categories
 
-0pnMatrx provides 20 blockchain capabilities, all accessible through conversation:
+0pnMatrx provides 221 discrete Web3 capabilities organised into 21 categories, all accessible through conversation:
 
-1. **Smart Contracts** — Deploy and interact with custom contracts
-2. **DeFi Loans** — Borrow and lend without intermediaries
-3. **NFTs** — Create, buy, sell, and manage non-fungible tokens
-4. **Transfers** — Send and receive any token or cryptocurrency
-5. **Staking** — Stake tokens to earn rewards
-6. **Identity** — On-chain identity with verifiable credentials
-7. **Apps** — Deploy decentralized applications
-8. **Payments** — Free instant payments between users
-9. **Insurance** — Decentralized insurance pools
-10. **DAOs** — Create and participate in decentralized organizations
-11. **IP Protection** — Register and protect intellectual property on-chain
-12. **Royalties** — Automated royalty distribution
-13. **Governance** — Create proposals, vote, execute decisions
-14. **Token Creation** — Launch custom tokens
-15. **Multi-sig Wallets** — Shared wallets requiring multiple approvals
-16. **Attestations** — Verifiable on-chain attestations via EAS
-17. **Cross-chain Bridges** — Move assets between networks
-18. **Yield Strategies** — Automated yield optimization
-19. **On-chain Records** — Permanent, verifiable record keeping
-20. **Credential Verification** — Verify credentials and certifications
+1. **Smart Contracts** — deploy, convert, templates
+2. **DeFi** — swaps, lending, yield, LP, vaults, flash loans
+3. **DeFi Advanced** — perpetuals, options, synthetics, orderbook, Pyth feeds
+4. **NFTs** — mint, transfer, collections, royalties, fractionalization, rentals, dynamic, soulbound
+5. **NFT Finance** — NFT-backed lending, ERC-6551 token-bound accounts, breeding
+6. **Identity** — DIDs, verifiable credentials, reputation, KYC/AML, agent identity, attestations
+7. **Governance** — DAOs, proposals, voting, Snapshot, timelock, multisig, veToken, quadratic, RetroPGF, bribes, delegation
+8. **Social** — profiles, gating, communities, XMTP messaging, Lens, Farcaster, Push Protocol
+9. **Creator Economy** — monetization, Sound.xyz, Mirror, Paragraph, IP registry, creator coins
+10. **Payments** — streaming, escrow, recurring, splits, invoicing, payroll, state channels, cross-border
+11. **Cross-chain** — CCIP, Hyperlane, Wormhole, Axelar, Stargate, remote chain queries
+12. **Staking & Restaking** — staking, unstaking, liquid staking (Lido, Rocket Pool), restaking (EigenLayer, Symbiotic, Karak), delegation
+13. **Privacy & ZK** — private transfers, stealth addresses, ZK proofs, MPC, threshold sigs, social recovery, session keys
+14. **Oracles** — Chainlink price feeds, VRF randomness, Pyth, RedStone, API3, Keepers automation
+15. **Storage** — IPFS, Arweave, Filecoin, Ceramic, OrbitDB
+16. **Compute & DePIN** — Akash, Gensyn, Render, IoT device rentals, physical infrastructure
+17. **Real-world Assets** — RWA tokenization, supply chain provenance, carbon credits, green bonds
+18. **Markets** — prediction markets, auctions (Dutch/English/sealed-bid), fundraising, securities, marketplaces
+19. **Security & Wallets** — MPC, session keys, social recovery, multisig, attestations
+20. **Gaming** — games, assets, tournaments, achievements, in-game economies
+21. **Infrastructure** — AI agents, ML models, training data
+
+Every capability routes through the platform paymaster — users never pay gas.
 
 ## How It Works
 
@@ -35,4 +38,4 @@ The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-val
 
 ## Fees
 
-There are none. The platform covers all blockchain transaction fees for every capability — smart contracts, DeFi loans, NFTs, transfers, staking, identity, payments, insurance, DAOs, governance, attestations, token creation, and everything else. Users never pay gas on 0pnMatrx. No exceptions. No conditions. Ever.
+There are none. The platform covers all blockchain transaction fees for every capability across all 21 categories — smart contracts, DeFi, NFTs, staking, restaking, identity, governance, payments, cross-chain, privacy, oracles, storage, compute, real-world assets, markets, gaming, infrastructure, and everything else. Users never pay gas on 0pnMatrx. No exceptions. No conditions. Ever.
