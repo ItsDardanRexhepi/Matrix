@@ -1,43 +1,24 @@
 # 0pnMatrx Education Program
 
-Welcome to the official education program for **0pnMatrx** (OpenMatrix) -- the free AI agent platform that makes blockchain accessible to everyone.
+Welcome to the official education program for **0pnMatrx** (OpenMatrix) — the free AI agent platform that makes blockchain accessible to everyone.
 
 ## Available Courses
 
-| Course | Title | Level | Price |
-|--------|-------|-------|-------|
-| [Course 01](./course-01-intro-to-0pnmatrx/) | Introduction to 0pnMatrx | Beginner | $49 |
-| [Course 02](./course-02-smart-contract-security/) | Smart Contract Security with Glasswing | Intermediate | $79 |
-| [Course 03](./course-03-defi-from-scratch/) | DeFi from Scratch | Beginner | $49 |
-| **Bundle** | All Three Courses | All Levels | **$149** |
+| Course | Title | Level |
+|--------|-------|-------|
+| [Course 01](./course-01-intro-to-0pnmatrx/) | Introduction to 0pnMatrx | Beginner |
+| [Course 02](./course-02-smart-contract-security/) | Smart Contract Security with Glasswing | Intermediate |
+| [Course 03](./course-03-defi-from-scratch/) | DeFi from Scratch | Beginner |
 
-## How to Purchase
-
-All courses are available on **Gumroad**:
-
-- Individual courses can be purchased at the links above
-- The all-access bundle saves you $28 compared to buying individually
-- Purchasing supports continued development of 0pnMatrx as an open-source platform
+All course content is open source. Every tutorial, code example, and explanation in this directory is free to read and learn from. We believe education should be accessible.
 
 ## What You Get
-
-### Free (Open Source)
-
-All course content in this directory is open source under the project's license. You can read every tutorial, every code example, and every explanation for free. We believe education should be accessible.
-
-### Paid (Guided Experience)
-
-When you purchase a course on Gumroad, you get the guided experience that turns reading into learning:
 
 - **Hands-on exercises** with clear instructions and expected outputs
 - **Complete solutions** with detailed explanations of why each approach works
 - **Certification prep materials** to validate your knowledge
-- **Discord access** to the private course channels for Q&A and peer support
-- **Weekly office hours** with live screen-share walkthroughs
-- **Workshop invitations** for deeper dives into specific topics
+- **Discord access** for Q&A and peer support
 - **Completion certificate** issued upon finishing all exercises
-
-The course content teaches you what 0pnMatrx can do. The guided experience teaches you how to do it yourself.
 
 ## Course Progression
 
@@ -55,7 +36,7 @@ Course 01 is recommended before taking either Course 02 or Course 03, but Course
 
 - **Course 01**: Python 3.11+, basic terminal knowledge
 - **Course 02**: Solidity basics, Course 01 completion recommended
-- **Course 03**: None -- written for complete beginners
+- **Course 03**: None — written for complete beginners
 
 ## Community
 

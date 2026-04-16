@@ -47,7 +47,6 @@ Thumbs.db
 # Internal — launch materials, grant applications, ops scripts, business docs
 launch/
 grants/
-gumroad/
 dedication/
 ROADMAP.md
 scripts/generate_launch_pdf.py
@@ -60,6 +59,5 @@ docs/REVENUE_STREAMS.md
 docs/SPONSORSHIP.md
 docs/OPEN_COLLECTIVE.md
 docs/FINETUNING_GUIDE.md
-education/GUMROAD_LISTINGS.md
 web/revenue.html
 web/pricing.html
