@@ -83,10 +83,20 @@ The interactive setup walks you through everything — model provider, blockchai
 After setup:
 
 ```bash
-python -m gateway.server
+python -m gateway.server                  # starts on port 18790 (or $PORT)
+curl http://localhost:18790/health        # {"status": "ok", ...}
 ```
 
-Or use the install script:
+Need to add a notification channel later (Telegram, Discord, Slack, SMS,
+Email, WhatsApp, iOS push, webhook)?
+
+```bash
+python setup_communications.py            # interactive menu
+python setup_communications.py telegram   # jump to one channel
+python setup_communications.py --list     # show enabled channels
+```
+
+Or use the one-liner install script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/install.sh | bash
@@ -132,8 +142,9 @@ What works today, no chain required:
 
 What activates the moment a chain is configured: actual contract
 deployment, on-chain attestations, paymaster gas sponsorship, and the
-NeoSafe ETH transfer. See `ROADMAP.md` → "Blockchain Activation" for the
-checklist.
+NeoSafe ETH transfer. Populate `blockchain.*` in `openmatrix.config.json`
+and run `python -m contracts.deploy` to flip any "not_deployed" response
+into live on-chain behavior.
 
 ---
 
@@ -149,15 +160,32 @@ Every decision made by every agent on 0pnMatrx passes through the Unified Rexhep
 
 ---
 
-## Blockchain Infrastructure
+## Web3 Capability Surface
 
-50+ blockchain services run natively on Base (Ethereum L2) and
-return a well-formed `{"status": "not_deployed", ...}` envelope
-whenever a chain is not configured, so every flow is safe to exercise
-offline. All transaction fees are covered by the platform paymaster
-once deployed — users never pay gas. See
-`blockchain/docs/components.md` and `ROADMAP.md` for the activation
-checklist.
+**221 capabilities across 21 categories** — smart contracts, DeFi,
+DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
+finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
+governance (DAOs, veTokens, quadratic voting, RetroPGF), social
+(Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
+Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
+(CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
+(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK,
+oracles (Chainlink, Pyth, RedStone, API3, Keepers), storage (IPFS,
+Arweave, Filecoin, Ceramic, OrbitDB), compute & DePIN (Akash, Gensyn,
+Render), real-world assets, markets (prediction, auction), gaming,
+and security (MPC, social recovery, session keys).
+
+Every capability is catalogued in `runtime/capabilities/catalog.py`.
+Browse them at runtime:
+
+```bash
+curl http://localhost:18790/api/v1/capabilities            # list all
+curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
+```
+
+All transactions are sponsored by the platform paymaster — users never
+pay gas. Capabilities return `{"status": "not_deployed", ...}` until
+contracts are deployed, keeping every flow safe to exercise offline.
 
 ---
 
@@ -295,8 +323,7 @@ kubectl apply -f k8s/
 ./scripts/build-contracts.sh
 ```
 
-See `docs/RUNBOOK.md` for the full on-call playbook and
-`docs/api-reference.md` for the complete HTTP / WebSocket surface.
+See `docs/api-reference.md` for the complete HTTP / WebSocket surface.
 
 ---
 

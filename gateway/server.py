@@ -284,6 +284,28 @@ class GatewayServer:
         self.badge_manager = None
         self.certification_manager = None
 
+        # ── Notifications (unified 9-channel dispatcher) ────────────
+        # Available channels: telegram, discord, slack, email, sms,
+        # whatsapp, web_chat, ios_push, webhook. Configure with
+        # `python setup_communications.py`. Every channel is optional;
+        # the dispatcher is always instantiated so callers can rely on
+        # it without guarding imports.
+        try:
+            from runtime.notifications import NotificationDispatcher
+            self.notifier = NotificationDispatcher(config)
+            enabled = self.notifier.list_enabled_channels()
+            if enabled:
+                logger.info("Notifications ready: %s", ", ".join(enabled))
+            else:
+                logger.info(
+                    "Notifications: no channels configured. "
+                    "Run `python setup_communications.py` to add Telegram, "
+                    "Discord, Slack, SMS, Email, WhatsApp, iOS push, or webhooks."
+                )
+        except Exception as exc:
+            logger.warning("NotificationDispatcher init failed: %s", exc)
+            self.notifier = None
+
         # Rate limiting — three buckets:
         #   - ``rate_limiter_auth``   : API-key bearer auth (operator tokens)
         #   - ``rate_limiter_wallet`` : per-SIWE-address, keyed by wallet
@@ -1492,6 +1514,13 @@ class GatewayServer:
             # service dispatchers, metrics) can push live events into
             # /api/v1/events/stream.
             self.event_broadcaster = service_routes.broadcaster
+            # Connect the WebChatChannel so /api/v1/events/stream
+            # receives notifications broadcast by the NotificationDispatcher.
+            try:
+                from runtime.notifications.web_chat import WebChatChannel
+                WebChatChannel.set_broadcaster(self.event_broadcaster)
+            except Exception as _exc:
+                logger.debug("Web chat broadcaster not wired: %s", _exc)
             logger.info("Service routes registered successfully.")
         except Exception as e:
             logger.warning("Service routes registration skipped: %s", e)
