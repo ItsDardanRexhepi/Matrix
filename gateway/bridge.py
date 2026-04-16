@@ -494,7 +494,6 @@ class BridgeRoutes:
         self._config = config
         self._server = gateway_server
         self._linked_wallets: dict[str, dict] = {}  # session_id → wallet info
-        self._push_tokens: dict[str, str] = {}  # session_id → APNs token
         self._web3_manager = None  # lazy; built on first balance lookup
 
     def _get_web3_manager(self):
@@ -547,9 +546,6 @@ class BridgeRoutes:
         # App config
         app.router.add_get("/bridge/v1/config", self.get_config)
         app.router.add_get("/bridge/v1/services", self.get_services)
-
-        # Push notifications
-        app.router.add_post("/bridge/v1/push/register", self.register_push)
 
         # Dashboard (aggregated data for iOS home screen)
         app.router.add_get("/bridge/v1/dashboard", self.get_dashboard)
@@ -880,24 +876,6 @@ class BridgeRoutes:
         except Exception as e:
             logger.error(f"Bridge get_components_manifest error: {e}", exc_info=True)
             return MobileResponse.error(str(e), 500)
-
-    # ─── Push Notifications ───────────────────────────────────────────────
-
-    async def register_push(self, request: web.Request) -> web.Response:
-        """Register APNs push token for a session."""
-        try:
-            body = await request.json()
-        except Exception:
-            return MobileResponse.error("Invalid JSON")
-
-        session_id = body.get("session_id", "")
-        token = body.get("push_token", "")
-
-        if not session_id or not token:
-            return MobileResponse.error("session_id and push_token required")
-
-        self._push_tokens[session_id] = token
-        return MobileResponse.ok({"registered": True})
 
     # ─── Dashboard ────────────────────────────────────────────────────────
 

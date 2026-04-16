@@ -311,12 +311,6 @@
     "block_on_critical": true,
     "block_on_high": false
   },
-  "subscriptions": {
-    "trial_days": 3,
-    "stripe_webhook_secret": "YOUR_STRIPE_WEBHOOK_SECRET",
-    "stripe_pro_price_id": "YOUR_STRIPE_PRO_PRICE_ID",
-    "stripe_enterprise_price_id": "YOUR_STRIPE_ENTERPRISE_PRICE_ID"
-  },
   "social": {
     "twitter": {
       "api_key": "YOUR_TWITTER_API_KEY",

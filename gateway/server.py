@@ -119,9 +119,11 @@ def _apply_env_overrides(config: dict) -> dict:
     gw = config.setdefault("gateway", {})
     if os.environ.get("OPENMATRIX_API_KEY"):
         gw["api_key"] = os.environ["OPENMATRIX_API_KEY"]
-    if os.environ.get("OPENMATRIX_PORT"):
+    # PORT (Railway/Heroku convention) takes precedence, then OPENMATRIX_PORT.
+    port_val = os.environ.get("PORT") or os.environ.get("OPENMATRIX_PORT")
+    if port_val:
         try:
-            gw["port"] = int(os.environ["OPENMATRIX_PORT"])
+            gw["port"] = int(port_val)
         except ValueError:
             pass
     if os.environ.get("OPENMATRIX_HOST"):
@@ -233,10 +235,9 @@ class GatewayServer:
         # Endpoints that don't require auth
         self._public_paths = {
             "/health", "/auth/nonce", "/auth/verify",
-            "/", "/chat", "/pricing", "/audit", "/marketplace",
+            "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
-            "/subscription/webhook",
             "/a2a/services",
             "/sponsor", "/glasswing", "/learn",
             "/badges", "/privacy", "/terms",
@@ -270,23 +271,18 @@ class GatewayServer:
         # flag and the opentelemetry packages are present.
         self.otel_bridge = OTelMetricsBridge(self.metrics, self.config)
 
-        # ── Subscription system ──────────────────────────────────────
-        self.subscription_store = None
-        self.usage_tracker = None
-        self.feature_gate_instance = None
-        self.stripe_client = None
+        # ── Platform subsystems ──────────────────────────────────────
+        # Note: Stripe subscriptions moved to MTRX iOS (Apple IAP). This
+        # backend exposes the platform but does not handle user billing.
         self.audit_service = None
         self.conversion_service = None
         self.plugin_marketplace = None
         self.a2a_marketplace = None
         self.social_manager = None
         self.social_feed_engine = None
-        self.referral_manager = None
-        self.metered_billing = None
         self.protocol_referrals = None
         self.badge_manager = None
         self.certification_manager = None
-        self.revenue_reporter = None
 
         # Rate limiting — three buckets:
         #   - ``rate_limiter_auth``   : API-key bearer auth (operator tokens)
@@ -859,10 +855,6 @@ class GatewayServer:
         """GET /chat — serve the web chat interface."""
         return self._serve_html("web/index.html")
 
-    async def handle_pricing_page(self, request: web.Request) -> web.Response:
-        """GET /pricing — serve the pricing page."""
-        return self._serve_html("web/pricing.html")
-
     async def handle_audit_page(self, request: web.Request) -> web.Response:
         """GET /audit — serve the audit service page."""
         return self._serve_html("web/audit.html")
@@ -916,78 +908,6 @@ class GatewayServer:
             if comp.get("id") == component_id:
                 return web.json_response(comp)
         return web.json_response({"error": "Component not found"}, status=404)
-
-    # ─── Subscription Endpoints ──────────────────────────────────────
-
-    async def handle_subscription_checkout(self, request: web.Request) -> web.Response:
-        """POST /subscription/checkout — create a Stripe checkout session."""
-        if not self.stripe_client or not self.stripe_client.available:
-            return web.json_response({
-                "status": "not_configured",
-                "message": "Stripe is not configured. Contact support to upgrade.",
-            })
-        try:
-            body = await request.json()
-        except json.JSONDecodeError:
-            return web.json_response({"error": "invalid JSON"}, status=400)
-        tier = str(body.get("tier", "pro"))
-        wallet = str(body.get("wallet_address", ""))
-        success_url = str(body.get("success_url", "http://localhost:18790/pricing?status=success"))
-        cancel_url = str(body.get("cancel_url", "http://localhost:18790/pricing?status=cancelled"))
-        result = await self.stripe_client.create_checkout_session(tier, wallet, success_url, cancel_url)
-        return web.json_response(result)
-
-    async def handle_subscription_webhook(self, request: web.Request) -> web.Response:
-        """POST /subscription/webhook — receive Stripe webhook events."""
-        if not self.stripe_client:
-            return web.json_response({"status": "not_configured"}, status=503)
-        payload = await request.read()
-        sig = request.headers.get("Stripe-Signature", "")
-        result = await self.stripe_client.handle_webhook(payload, sig)
-        if result.get("status") == "error":
-            return web.json_response(result, status=400)
-        # Update subscription store on successful events
-        if self.subscription_store and result.get("wallet_address"):
-            tier = result.get("tier", "free")
-            if result.get("cancelled"):
-                tier = "free"
-            await self.subscription_store.upsert(
-                result["wallet_address"], tier,
-                {"customer_id": result.get("customer_id"),
-                 "subscription_id": result.get("subscription_id"),
-                 "status": result.get("status_value", "active"),
-                 "current_period_end": result.get("current_period_end"),
-                 "trial_end": result.get("trial_end")},
-            )
-        return web.json_response(result)
-
-    async def handle_subscription_status(self, request: web.Request) -> web.Response:
-        """GET /subscription/status — current tier and usage."""
-        wallet = request.headers.get("X-Wallet-Address", "")
-        if not wallet:
-            wallet_token = request.headers.get("X-Wallet-Session", "").strip()
-            if wallet_token:
-                try:
-                    session = self.wallet_sessions.get(wallet_token)
-                    if session:
-                        wallet = str(session.get("address", ""))
-                except Exception:
-                    pass
-        tier = "free"
-        usage = {}
-        is_trial = False
-        if self.subscription_store and wallet:
-            from runtime.subscriptions.tiers import SubscriptionTier
-            tier_enum = await self.subscription_store.get_tier(wallet)
-            tier = tier_enum.value
-            is_trial = await self.subscription_store.is_trial(wallet)
-        if self.usage_tracker and wallet:
-            usage = await self.usage_tracker.get_summary(wallet)
-        return web.json_response({
-            "tier": tier,
-            "usage": usage,
-            "is_trial": is_trial,
-        })
 
     # ─── Audit Endpoints ─────────────────────────────────────────────
 
@@ -1293,58 +1213,6 @@ class GatewayServer:
         )
         return web.json_response(result)
 
-    # ─── Referral Endpoints ──────────────────────────────────────
-
-    async def handle_referral_generate(self, request: web.Request) -> web.Response:
-        """POST /referral/generate — generate or return referral code."""
-        if not self.referral_manager:
-            return web.json_response({"status": "not_available"}, status=503)
-        try:
-            body = await request.json()
-        except json.JSONDecodeError:
-            return web.json_response({"error": "invalid JSON"}, status=400)
-        wallet = str(body.get("wallet_address", ""))
-        if not wallet:
-            return web.json_response({"error": "wallet_address required"}, status=400)
-        code = await self.referral_manager.generate_code(wallet)
-        return web.json_response({"code": code, "wallet_address": wallet})
-
-    async def handle_referral_stats(self, request: web.Request) -> web.Response:
-        """GET /referral/stats — referral stats for authenticated wallet."""
-        if not self.referral_manager:
-            return web.json_response({"status": "not_available"}, status=503)
-        wallet = request.headers.get("X-Wallet-Address", "")
-        if not wallet:
-            return web.json_response({"error": "wallet required"}, status=400)
-        stats = await self.referral_manager.get_referral_stats(wallet)
-        return web.json_response(stats)
-
-    async def handle_referral_apply(self, request: web.Request) -> web.Response:
-        """POST /referral/apply — apply a referral code."""
-        if not self.referral_manager:
-            return web.json_response({"status": "not_available"}, status=503)
-        try:
-            body = await request.json()
-        except json.JSONDecodeError:
-            return web.json_response({"error": "invalid JSON"}, status=400)
-        code = str(body.get("code", ""))
-        wallet = str(body.get("wallet_address", ""))
-        tier = str(body.get("tier", "pro"))
-        if not code or not wallet:
-            return web.json_response({"error": "code and wallet_address required"}, status=400)
-        result = await self.referral_manager.apply_referral(code, wallet, tier)
-        return web.json_response(result)
-
-    async def handle_referral_validate(self, request: web.Request) -> web.Response:
-        """GET /referral/{code} — validate a referral code (public)."""
-        if not self.referral_manager:
-            return web.json_response({"status": "not_available"}, status=503)
-        code = request.match_info.get("code", "")
-        result = await self.referral_manager.validate_code(code)
-        if not result:
-            return web.json_response({"valid": False}, status=404)
-        return web.json_response({"valid": True, "code": result["code"]})
-
     # ─── Learn & Certification ───────────────────────────────────
 
     async def handle_learn_page(self, request: web.Request) -> web.Response:
@@ -1399,30 +1267,6 @@ class GatewayServer:
         result = await self.certification_manager.verify_certification(cert_id)
         return web.json_response(result)
 
-    # ─── Metered API ─────────────────────────────────────────────
-
-    async def handle_metered_usage(self, request: web.Request) -> web.Response:
-        """GET /metered/usage — get metered API usage for an API key."""
-        if not self.metered_billing:
-            return web.json_response({"status": "not_available"}, status=503)
-        api_key = request.query.get("api_key", "")
-        month = request.query.get("month")
-        if not api_key:
-            return web.json_response({"error": "api_key required"}, status=400)
-        usage = await self.metered_billing.get_monthly_usage(api_key, month)
-        return web.json_response(usage)
-
-    async def handle_metered_invoice(self, request: web.Request) -> web.Response:
-        """GET /metered/invoice — calculate invoice for an API key."""
-        if not self.metered_billing:
-            return web.json_response({"status": "not_available"}, status=503)
-        api_key = request.query.get("api_key", "")
-        month = request.query.get("month", "")
-        if not api_key or not month:
-            return web.json_response({"error": "api_key and month required"}, status=400)
-        invoice = await self.metered_billing.calculate_invoice(api_key, month)
-        return web.json_response(invoice)
-
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
@@ -1458,61 +1302,39 @@ class GatewayServer:
             except Exception as exc:
                 logger.warning("Failed to start backup loop: %s", exc)
 
-        # ── Initialize subscription subsystems ───────────────────────
+        # ── Initialize platform subsystems ───────────────────────────
+        # Stripe subscriptions live in MTRX iOS (Apple IAP). This backend
+        # only initializes the plugin marketplace, A2A, social, badges,
+        # certification, and professional services.
         try:
-            from runtime.subscriptions.usage_tracker import UsageTracker
-            from runtime.subscriptions.feature_gate import FeatureGate as FeatureGateImpl
-            from runtime.subscriptions.subscription_store import SubscriptionStore
-            from runtime.subscriptions.stripe_client import StripeClient
-            from runtime.subscriptions.audit_service import ProfessionalAuditService
-            from runtime.subscriptions.conversion_service import ConversionService
             from runtime.marketplace.plugin_store import PluginMarketplace
             from runtime.a2a.marketplace import A2AMarketplace
             from runtime.social.manager import SocialManager
 
             db = self.react_loop.memory.db
-            self.usage_tracker = UsageTracker(db)
-            await self.usage_tracker.initialize()
-            self.feature_gate_instance = FeatureGateImpl(self.config, self.usage_tracker)
-            self.subscription_store = SubscriptionStore(db)
-            await self.subscription_store.initialize()
-            self.stripe_client = StripeClient(self.config)
-            self.audit_service = ProfessionalAuditService(self.config, self.stripe_client, db)
-            await self.audit_service.initialize()
-            self.conversion_service = ConversionService(self.config, self.stripe_client, db)
-            await self.conversion_service.initialize()
-            self.plugin_marketplace = PluginMarketplace(self.config, db, self.stripe_client)
+            self.plugin_marketplace = PluginMarketplace(self.config, db, None)
             await self.plugin_marketplace.initialize()
             self.a2a_marketplace = A2AMarketplace(self.config, db)
             await self.a2a_marketplace.initialize()
             self.social_manager = SocialManager(self.config)
-            logger.info("Subscription and marketplace subsystems initialized.")
+            logger.info("Marketplace and social subsystems initialized.")
         except Exception as exc:
-            logger.warning("Subscription subsystems init skipped: %s", exc)
+            logger.warning("Marketplace subsystems init skipped: %s", exc)
 
-        # ── Initialize referral, badge, certification, metered, revenue ──
+        # ── Initialize badges, certification, protocol referrals ─────
         try:
-            from runtime.referrals.referral_manager import ReferralManager
-            from runtime.subscriptions.metered_billing import MeteredBillingManager
             from runtime.blockchain.protocol_referrals import ProtocolReferralCollector
             from runtime.badges.badge_manager import BadgeManager
             from runtime.certification.assessments import CertificationManager
-            from runtime.subscriptions.revenue_reporter import RevenueReporter
 
             db = self.react_loop.memory.db
-            self.referral_manager = ReferralManager(db, self.config)
-            await self.referral_manager.initialize()
-            self.metered_billing = MeteredBillingManager(db, self.config)
-            await self.metered_billing.initialize()
             self.protocol_referrals = ProtocolReferralCollector(db, self.config)
             await self.protocol_referrals.initialize()
             self.badge_manager = BadgeManager(db, self.config)
             await self.badge_manager.initialize()
             self.certification_manager = CertificationManager(db, self.config)
             await self.certification_manager.initialize()
-            self.revenue_reporter = RevenueReporter(db, self.config)
-            await self.revenue_reporter.initialize()
-            logger.info("Referral, badge, certification, metered, and revenue subsystems initialized.")
+            logger.info("Badge, certification, and protocol referral subsystems initialized.")
         except Exception as exc:
             logger.warning("Extended subsystems init skipped: %s", exc)
 
@@ -1604,7 +1426,6 @@ class GatewayServer:
         # ── Web pages ─────────────────────────────────────────────────
         app.router.add_get("/", self.handle_landing)
         app.router.add_get("/chat", self.handle_chat_page)
-        app.router.add_get("/pricing", self.handle_pricing_page)
         app.router.add_get("/audit", self.handle_audit_page)
         app.router.add_get("/marketplace", self.handle_marketplace_page)
         app.router.add_get("/services/conversion", self.handle_conversion_page)
@@ -1614,11 +1435,6 @@ class GatewayServer:
         # ── Extensions registry ───────────────────────────────────────
         app.router.add_get("/extensions/registry", self.handle_extensions_registry)
         app.router.add_get("/extensions/registry/{component_id}", self.handle_extensions_component)
-
-        # ── Subscription ──────────────────────────────────────────────
-        app.router.add_post("/subscription/checkout", self.handle_subscription_checkout)
-        app.router.add_post("/subscription/webhook", self.handle_subscription_webhook)
-        app.router.add_get("/subscription/status", self.handle_subscription_status)
 
         # ── Audit service ─────────────────────────────────────────────
         app.router.add_post("/audit/request", self.handle_audit_request)
@@ -1659,22 +1475,12 @@ class GatewayServer:
         app.router.add_get("/badges", self.handle_badges_list)
         app.router.add_post("/badge/issue", self.handle_badge_issue)
 
-        # ── Referral program ─────────────────────────────────────────
-        app.router.add_post("/referral/generate", self.handle_referral_generate)
-        app.router.add_get("/referral/stats", self.handle_referral_stats)
-        app.router.add_post("/referral/apply", self.handle_referral_apply)
-        app.router.add_get("/referral/{code}", self.handle_referral_validate)
-
         # ── Learn & certification ─────────────────────────────────────
         app.router.add_get("/learn", self.handle_learn_page)
         app.router.add_get("/certification/tracks", self.handle_cert_tracks)
         app.router.add_post("/certification/start", self.handle_cert_start)
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
-
-        # ── Metered API ───────────────────────────────────────────────
-        app.router.add_get("/metered/usage", self.handle_metered_usage)
-        app.router.add_get("/metered/invoice", self.handle_metered_invoice)
 
         # Register all 30 blockchain service REST endpoints
         service_routes = None
