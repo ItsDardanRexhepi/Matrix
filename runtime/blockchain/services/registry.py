@@ -40,6 +40,21 @@ _SERVICE_MAP: dict[str, tuple[str, str]] = {
     "social": (".social", "SocialService"),
     "privacy": (".privacy", "PrivacyService"),
     "dispute_resolution": (".dispute_resolution", "DisputeResolution"),
+    # ── Expanded Web3 coverage (capability catalog) ──
+    "restaking":             (".restaking",            "RestakingService"),
+    "mpc":                   (".mpc",                  "MPCService"),
+    "tba":                   (".tba",                  "TokenBoundAccountService"),
+    "auctions":              (".auctions",             "AuctionService"),
+    "nft_lending":           (".nft_lending",          "NFTLendingService"),
+    "compute":               (".compute",              "DecentralizedComputeService"),
+    "storage":               (".storage",              "DecentralizedStorageService"),
+    "ccip":                  (".ccip",                 "CrossChainMessagingService"),
+    "creator_platforms":     (".creator_platforms",    "CreatorPlatformsService"),
+    "social_protocols":      (".social_protocols",     "SocialProtocolsService"),
+    "advanced_governance":   (".advanced_governance",  "AdvancedGovernanceService"),
+    "oracles_plus":          (".oracles_plus",         "OraclesPlusService"),
+    "kyc":                   (".kyc",                  "KYCService"),
+    "payment_channels":      (".payment_channels",     "PaymentChannelsService"),
 }
 
 _PACKAGE = __package__

@@ -368,12 +368,18 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/privacy/transfer", self._handle_private_transfer)
         app.router.add_post("/api/v1/privacy/stealth-address", self._handle_stealth_address)
 
+        # ── Capability Registry (data-driven Web3 capability surface) ──
+        app.router.add_get("/api/v1/capabilities",                    self._handle_capabilities_list)
+        app.router.add_get("/api/v1/capabilities/categories",         self._handle_capabilities_categories)
+        app.router.add_get("/api/v1/capabilities/{capability_id}",    self._handle_capability_detail)
+        app.router.add_post("/api/v1/capabilities/{capability_id}/invoke", self._handle_capability_invoke)
+
         # Batch dispatch and live event stream (used by MTRXPackager)
         app.router.add_post("/api/v1/batch", self._handle_batch)
         app.router.add_get("/api/v1/events/stream", self._handle_event_stream)
 
         self._build_batch_route_map()
-        logger.info("ServiceRoutes: registered %d endpoints", 118)
+        logger.info("ServiceRoutes: registered %d endpoints", 122)
 
     # ------------------------------------------------------------------
     # Batch route map — mirrors every non-batch route above so we can
@@ -1869,6 +1875,62 @@ class ServiceRoutes:
             owner=body["owner"],
         )
         return self._ok(result)
+
+    # ------------------------------------------------------------------
+    # Capability Registry (data-driven Web3 capability surface)
+    # ------------------------------------------------------------------
+
+    def _capability_registry(self):
+        """Lazy-load the CapabilityRegistry with the gateway's config."""
+        reg = getattr(self, "_cap_registry_cache", None)
+        if reg is None:
+            from runtime.capabilities import CapabilityRegistry
+            reg = CapabilityRegistry(self._config)
+            self._cap_registry_cache = reg
+        return reg
+
+    async def _handle_capabilities_list(self, request: web.Request) -> web.Response:
+        """``GET /api/v1/capabilities`` — enumerate all capabilities."""
+        reg = self._capability_registry()
+        category = request.query.get("category")
+        min_tier = request.query.get("min_tier")
+        available_only = request.query.get("available", "").lower() in {"1", "true", "yes"}
+        caps = reg.list_capabilities(
+            category=category,
+            available_only=available_only,
+            min_tier=min_tier,
+        )
+        return self._ok({"capabilities": caps, "count": len(caps)})
+
+    async def _handle_capabilities_categories(self, request: web.Request) -> web.Response:
+        """``GET /api/v1/capabilities/categories`` — list categories + counts."""
+        reg = self._capability_registry()
+        return self._ok({"categories": reg.list_categories()})
+
+    async def _handle_capability_detail(self, request: web.Request) -> web.Response:
+        """``GET /api/v1/capabilities/{id}`` — descriptor for one capability."""
+        capability_id = request.match_info["capability_id"]
+        reg = self._capability_registry()
+        cap = reg.describe(capability_id)
+        if cap is None:
+            return web.json_response(
+                {"ok": False, "error": "unknown_capability", "capability_id": capability_id},
+                status=404,
+            )
+        return self._ok({"capability": cap})
+
+    async def _handle_capability_invoke(self, request: web.Request) -> web.Response:
+        """``POST /api/v1/capabilities/{id}/invoke`` — execute a capability."""
+        capability_id = request.match_info["capability_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        params = body.get("params", {}) if isinstance(body, dict) else {}
+        reg = self._capability_registry()
+        result = await reg.invoke(capability_id, params)
+        status = 200 if result.get("status") == "ok" else 400
+        return web.json_response(result, status=status)
 
     # ------------------------------------------------------------------
     # Batch dispatch

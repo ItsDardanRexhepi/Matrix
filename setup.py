@@ -340,74 +340,57 @@ def configure_security(config):
 
 
 def configure_communications(config):
-    """Set up notification and communication channels."""
+    """Set up notification / communication channels.
+
+    Delegates each channel to its dedicated configurator in ``setup/``. All
+    nine channels (Telegram, Discord, Slack, Email, SMS, WhatsApp, Web chat,
+    iOS push, Webhook) can be added here at first boot — and any of them
+    can be added or updated later with:
+
+        python setup_communications.py
+    """
     print(f"""
   {BOLD}How should 0pnMatrx reach you?{RESET}
-  {DIM}Select your preferred notification channels.{RESET}
-  {DIM}You can configure multiple channels.{RESET}
+  {DIM}You can enable any combination of channels. Everything is optional.{RESET}
+  {DIM}Rerun `python setup_communications.py` anytime to add more.{RESET}
 """)
 
-    channels = {}
+    # Lazy imports so this works even before the repo is fully installed.
+    from setup import telegram as cfg_telegram
+    from setup import discord as cfg_discord
+    from setup import slack as cfg_slack
+    from setup import email as cfg_email
+    from setup import sms as cfg_sms
+    from setup import whatsapp as cfg_whatsapp
+    from setup import web_chat as cfg_web
+    from setup import ios_push as cfg_ios
+    from setup import webhook as cfg_webhook
 
-    # Telegram
-    use_telegram = ask("Enable Telegram notifications?", default="no", options=["yes", "no"])
-    if use_telegram.lower() == "yes":
-        bot_token = ask("Telegram Bot Token (from @BotFather)")
-        chat_id = ask("Telegram Chat ID")
-        if bot_token and chat_id:
-            channels["telegram"] = {
-                "enabled": True,
-                "bot_token": bot_token,
-                "chat_id": chat_id,
-            }
-            success("Telegram configured")
+    prompts = [
+        ("Telegram",   "yes", cfg_telegram.configure),
+        ("Discord",    "no",  cfg_discord.configure),
+        ("Slack",      "no",  cfg_slack.configure),
+        ("Email",      "no",  cfg_email.configure),
+        ("SMS",        "no",  cfg_sms.configure),
+        ("WhatsApp",   "no",  cfg_whatsapp.configure),
+        ("Web chat",   "yes", cfg_web.configure),
+        ("iOS push",   "no",  cfg_ios.configure),
+        ("Webhook",    "no",  cfg_webhook.configure),
+    ]
+    for label, default, fn in prompts:
+        pick = ask(f"Configure {label}?", default=default, options=["yes", "no"])
+        if pick.lower().startswith("y"):
+            try:
+                fn(config)
+            except KeyboardInterrupt:
+                info("Skipped.")
+            except Exception as exc:
+                info(f"{label} setup failed ({exc}); continuing.")
 
-    # Discord
-    use_discord = ask("Enable Discord notifications?", default="no", options=["yes", "no"])
-    if use_discord.lower() == "yes":
-        webhook_url = ask("Discord Webhook URL")
-        if webhook_url:
-            channels["discord"] = {
-                "enabled": True,
-                "webhook_url": webhook_url,
-            }
-            success("Discord configured")
-
-    # Email
-    use_email = ask("Enable email notifications?", default="no", options=["yes", "no"])
-    if use_email.lower() == "yes":
-        smtp_host = ask("SMTP host", default="smtp.gmail.com")
-        smtp_port = ask("SMTP port", default="587")
-        smtp_user = ask("SMTP username (email address)")
-        smtp_pass = ask("SMTP password or app password")
-        to_addr = ask("Send notifications to (email)", default=smtp_user)
-        if smtp_user:
-            channels["email"] = {
-                "enabled": True,
-                "smtp_host": smtp_host,
-                "smtp_port": int(smtp_port),
-                "smtp_user": smtp_user,
-                "smtp_pass": smtp_pass,
-                "to": to_addr,
-            }
-            success("Email configured")
-
-    # Webhooks
-    use_webhook = ask("Enable custom webhook notifications?", default="no", options=["yes", "no"])
-    if use_webhook.lower() == "yes":
-        url = ask("Webhook URL (POST)")
-        if url:
-            channels["webhook"] = {
-                "enabled": True,
-                "url": url,
-            }
-            success("Webhook configured")
-
-    if not channels:
-        info("No notification channels configured. You can add them later in openmatrix.config.json")
-        channels["none"] = True
-
-    config["communications"] = channels
+    # Ensure the unified "notifications" block exists even if empty.
+    config.setdefault("notifications", {})
+    if not config["notifications"]:
+        info("No channels configured. Add them later with: python setup_communications.py")
 
 
 def configure_extras(config):

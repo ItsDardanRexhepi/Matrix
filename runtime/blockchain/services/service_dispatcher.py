@@ -431,6 +431,32 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Capability catalog install — merges the expanded Web3 capability set into
+# ACTION_MAP / _STATE_MODIFYING_ACTIONS / ACTION_TO_FEED_EVENT so Trinity's
+# `platform_action` tool automatically exposes every catalogued action.
+# Safe: catalog.install_action_map() refuses to overwrite existing mappings.
+# ---------------------------------------------------------------------------
+try:
+    from runtime.capabilities import catalog as _capability_catalog
+
+    # _STATE_MODIFYING_ACTIONS is a frozenset; we must rebuild it.
+    _mutable_state = set(_STATE_MODIFYING_ACTIONS)
+    _skipped = _capability_catalog.install_action_map(
+        ACTION_MAP,
+        _mutable_state,
+        ACTION_TO_FEED_EVENT,
+    )
+    _STATE_MODIFYING_ACTIONS = frozenset(_mutable_state)
+    if _skipped:
+        logger.debug(
+            "Capability catalog install skipped %d entries (already mapped): %s",
+            len(_skipped), list(_skipped.keys())[:5],
+        )
+except Exception as _cap_exc:
+    logger.warning("Capability catalog merge failed (non-fatal): %s", _cap_exc)
+
+
 class ServiceDispatcher:
     """Bridge between Trinity's tool calls and the 30 blockchain services.
 

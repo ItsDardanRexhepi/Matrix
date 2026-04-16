@@ -91,8 +91,60 @@
   },
   "notifications": {
     "telegram": {
+      "enabled": false,
       "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "chat_id": "YOUR_TELEGRAM_CHAT_ID",
       "owner_id": "YOUR_TELEGRAM_USER_ID"
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": "YOUR_DISCORD_WEBHOOK_URL",
+      "username": "0pnMatrx"
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": "YOUR_SLACK_WEBHOOK_URL"
+    },
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "smtp_user": "YOUR_SMTP_USER",
+      "smtp_pass": "YOUR_SMTP_APP_PASSWORD",
+      "from": "YOUR_SMTP_USER",
+      "to": "YOUR_NOTIFICATION_EMAIL",
+      "use_ssl": false
+    },
+    "sms": {
+      "enabled": false,
+      "account_sid": "YOUR_TWILIO_ACCOUNT_SID",
+      "auth_token": "YOUR_TWILIO_AUTH_TOKEN",
+      "from_number": "+15551234567",
+      "to_number": "+15559876543"
+    },
+    "whatsapp": {
+      "enabled": false,
+      "account_sid": "YOUR_TWILIO_ACCOUNT_SID",
+      "auth_token": "YOUR_TWILIO_AUTH_TOKEN",
+      "from_number": "+14155238886",
+      "to_number": "+15551234567"
+    },
+    "web_chat": {
+      "enabled": true
+    },
+    "ios_push": {
+      "enabled": false,
+      "auth_key_p8": "",
+      "key_id": "YOUR_APNS_KEY_ID",
+      "team_id": "YOUR_APPLE_TEAM_ID",
+      "bundle_id": "com.opnmatrx.mtrx",
+      "sandbox": false,
+      "device_tokens": []
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "YOUR_WEBHOOK_URL",
+      "bearer_token": ""
     }
   },
   "services": {
@@ -284,15 +336,21 @@
       "enabled": true,
       "contract_address": "YOUR_X402_PAYMENTS_CONTRACT_ADDRESS",
       "supported_tokens": ["USDC", "ETH"]
-    }
-  },
-  "referrals": {
-    "enabled": true,
-    "pro_referral_months": 1,
-    "enterprise_referral_months": 2
-  },
-  "metered_api": {
-    "enabled": true
+    },
+    "restaking":            {"enabled": false},
+    "mpc":                  {"enabled": false},
+    "tba":                  {"enabled": false},
+    "auctions":             {"enabled": false},
+    "nft_lending":          {"enabled": false},
+    "compute":              {"enabled": false},
+    "storage":              {"enabled": false},
+    "ccip":                 {"enabled": false},
+    "creator_platforms":    {"enabled": false},
+    "social_protocols":     {"enabled": false},
+    "advanced_governance":  {"enabled": false},
+    "oracles_plus":         {"enabled": false},
+    "kyc":                  {"enabled": false},
+    "payment_channels":     {"enabled": false}
   },
   "protocol_referrals": {
     "enabled": true,

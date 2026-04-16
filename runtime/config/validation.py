@@ -64,8 +64,14 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("model.providers.nvidia.api_key", "NVIDIA_API_KEY", False),
     ("model.providers.gemini.api_key", "GOOGLE_API_KEY", False),
     ("model.providers.mythos.api_key", "ANTHROPIC_API_KEY", False),
-    # Notifications
-    ("notifications.telegram.bot_token", "TELEGRAM_BOT_TOKEN", False),
+    # Notifications (unified notifications tree — see runtime/notifications/)
+    ("notifications.telegram.bot_token",    "TELEGRAM_BOT_TOKEN",    False),
+    ("notifications.discord.webhook_url",   "DISCORD_WEBHOOK_URL",   False),
+    ("notifications.slack.webhook_url",     "SLACK_WEBHOOK_URL",     False),
+    ("notifications.email.smtp_pass",       "SMTP_PASS",             False),
+    ("notifications.sms.auth_token",        "TWILIO_AUTH_TOKEN",     False),
+    ("notifications.whatsapp.auth_token",   "TWILIO_AUTH_TOKEN",     False),
+    ("notifications.webhook.bearer_token",  "NOTIFY_WEBHOOK_BEARER", False),
     # Observability
     ("monitoring.sentry_dsn", "SENTRY_DSN", False),
     # Gateway auth
