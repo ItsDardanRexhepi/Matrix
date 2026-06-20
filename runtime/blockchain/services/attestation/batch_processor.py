@@ -44,10 +44,17 @@ class BatchProcessor:
         self.chain_id: int = bc.get("chain_id", 84532)
 
         self._queue: list[dict[str, Any]] = []
-        self._lock: asyncio.Lock = asyncio.Lock()
+        self._lock = None  # lazy: created on first async use (Py3.9 has no loop in __init__)
         self._flush_task: asyncio.Task | None = None
         self._running: bool = False
         self._web3 = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create the lock so __init__ doesn't need a running event loop
+        (asyncio.Lock() in __init__ raises 'no current event loop' on Python 3.9)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     @property
     def web3(self):
@@ -98,7 +105,7 @@ class BatchProcessor:
         Args:
             attestation: Dict containing schema_uid, data, and recipient.
         """
-        async with self._lock:
+        async with self._get_lock():
             entry = {
                 "id": str(uuid.uuid4()),
                 "queued_at": time.time(),
@@ -120,7 +127,7 @@ class BatchProcessor:
         Returns:
             List of result dicts, one per attestation in the batch.
         """
-        async with self._lock:
+        async with self._get_lock():
             if not self._queue:
                 return []
             batch = self._queue.copy()
@@ -135,7 +142,7 @@ class BatchProcessor:
         except Exception as exc:
             logger.error("Batch submission failed: %s", exc, exc_info=True)
             # Re-queue failed attestations for retry
-            async with self._lock:
+            async with self._get_lock():
                 self._queue = batch + self._queue
             logger.warning("Re-queued %d attestations after failure.", len(batch))
             return [

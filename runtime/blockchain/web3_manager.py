@@ -69,7 +69,7 @@ class Web3Manager:
         self.w3 = None
         self.available: bool = False
         self._account = None
-        self._nonce_lock = asyncio.Lock()
+        self._nonce_lock = None  # lazy: created on first async use (Py3.9 has no loop in __init__)
 
         if is_placeholder_value(self.rpc_url):
             logger.info("Web3Manager: rpc_url not configured — running in offline mode")
@@ -93,6 +93,13 @@ class Web3Manager:
             logger.warning("Web3Manager: failed to initialise web3 (%s) — offline mode", exc)
             self.w3 = None
             self.available = False
+
+    def _get_nonce_lock(self) -> asyncio.Lock:
+        """Lazily create the nonce lock so __init__ doesn't need a running event
+        loop (asyncio.Lock() in __init__ raises 'no current event loop' on Py 3.9)."""
+        if self._nonce_lock is None:
+            self._nonce_lock = asyncio.Lock()
+        return self._nonce_lock
 
     # ── Public helpers ────────────────────────────────────────────
 
@@ -158,7 +165,7 @@ class Web3Manager:
             raise RuntimeError("Web3Manager not available — cannot send transaction")
 
         account = self.get_account()
-        async with self._nonce_lock:
+        async with self._get_nonce_lock():
             try:
                 tx_to_sign = dict(tx)
                 tx_to_sign.setdefault("from", account.address)

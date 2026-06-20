@@ -60,9 +60,16 @@ class OracleCache:
         self._ttls: dict[str, int] = {**DEFAULT_TTLS, **(ttls or {})}
         self._max_entries = max_entries
         self._store: dict[str, _CacheEntry] = {}
-        self._lock = asyncio.Lock()
+        self._lock = None  # lazy: created on first async use (Py3.9 has no loop in __init__)
         self._hits = 0
         self._misses = 0
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create the lock so __init__ doesn't need a running event loop
+        (asyncio.Lock() in __init__ raises 'no current event loop' on Python 3.9)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     # ------------------------------------------------------------------
     # Public API
@@ -78,7 +85,7 @@ class OracleCache:
         """
         cache_key = self._make_key(oracle_type, key)
 
-        async with self._lock:
+        async with self._get_lock():
             entry = self._store.get(cache_key)
             if entry is None:
                 self._misses += 1
@@ -98,7 +105,7 @@ class OracleCache:
         as stale-cache fallbacks.
         """
         now = time.monotonic()
-        async with self._lock:
+        async with self._get_lock():
             stale_keys = [
                 k for k, v in self._store.items()
                 if now - v.expires_at > grace_seconds
@@ -119,7 +126,7 @@ class OracleCache:
         but a recently-cached value is still acceptable.
         """
         cache_key = self._make_key(oracle_type, key)
-        async with self._lock:
+        async with self._get_lock():
             entry = self._store.get(cache_key)
             if entry is None:
                 return None, None
@@ -140,7 +147,7 @@ class OracleCache:
         cache_key = self._make_key(oracle_type, key)
         now = time.monotonic()
 
-        async with self._lock:
+        async with self._get_lock():
             self._store[cache_key] = _CacheEntry(
                 value=value,
                 expires_at=now + ttl,
@@ -153,13 +160,13 @@ class OracleCache:
     async def invalidate(self, oracle_type: str, key: str) -> bool:
         """Remove a specific entry.  Returns ``True`` if it existed."""
         cache_key = self._make_key(oracle_type, key)
-        async with self._lock:
+        async with self._get_lock():
             return self._store.pop(cache_key, None) is not None
 
     async def invalidate_type(self, oracle_type: str) -> int:
         """Remove **all** entries for a given oracle type.  Returns count removed."""
         prefix = f"{oracle_type}:"
-        async with self._lock:
+        async with self._get_lock():
             keys = [k for k in self._store if k.startswith(prefix)]
             for k in keys:
                 del self._store[k]
@@ -167,7 +174,7 @@ class OracleCache:
 
     async def clear(self) -> None:
         """Remove every entry from the cache."""
-        async with self._lock:
+        async with self._get_lock():
             self._store.clear()
             self._hits = 0
             self._misses = 0

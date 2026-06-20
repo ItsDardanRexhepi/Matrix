@@ -175,7 +175,7 @@ class EventBroadcaster:
         metrics: Optional[Any] = None,
     ) -> None:
         self._subs: List[_Subscriber] = []
-        self._lock = asyncio.Lock()
+        self._lock = None  # lazy: created on first async use (Py3.9 has no loop in __init__)
         self._max_queue = max_queue_per_subscriber
         self._max_subscribers = max_subscribers
         self._max_subscribers_per_ip = max_subscribers_per_ip
@@ -184,6 +184,13 @@ class EventBroadcaster:
         #: order. Used to answer ``Last-Event-ID`` reconnect requests.
         self._replay: Deque[BroadcastEvent] = deque(maxlen=replay_buffer_size)
         self._metrics = metrics
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create the lock so __init__ doesn't need a running event loop
+        (asyncio.Lock() in __init__ raises 'no current event loop' on Python 3.9)."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     # -- metrics plumbing -----------------------------------------------
 
@@ -243,7 +250,7 @@ class EventBroadcaster:
             types=types,
             remote_ip=remote_ip,
         )
-        async with self._lock:
+        async with self._get_lock():
             if len(self._subs) >= self._max_subscribers:
                 self._metric_incr("sse.rejected.global")
                 raise BroadcasterCapacityError(
@@ -275,7 +282,7 @@ class EventBroadcaster:
         return sub
 
     async def unregister(self, sub: _Subscriber) -> None:
-        async with self._lock:
+        async with self._get_lock():
             try:
                 self._subs.remove(sub)
             except ValueError:
