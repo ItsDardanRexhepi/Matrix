@@ -149,8 +149,8 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("restake_karak",           "Restake on Karak",        "staking", "restaking",  "restake_karak",           subcategory="restaking", protocol="karak",       available=False),
     _cap("delegate_to_operator",    "Delegate to Operator",    "staking", "restaking",  "delegate_to_operator",    subcategory="restaking", available=False),
     _cap("withdraw_restake",        "Withdraw Restake",        "staking", "restaking",  "withdraw_restake",        subcategory="restaking", available=False),
-    _cap("liquid_stake_lido",       "Liquid Stake with Lido",  "staking", "staking",    "liquid_stake_lido",       subcategory="liquid", protocol="lido",   available=False),
-    _cap("liquid_stake_rocketpool", "Liquid Stake (Rocket)",   "staking", "staking",    "liquid_stake_rocketpool", subcategory="liquid", protocol="rocketpool", available=False),
+    _cap("liquid_stake_lido",       "Liquid Stake with Lido",  "staking", "restaking", "liquid_stake_lido",       subcategory="liquid", protocol="lido",   available=False),
+    _cap("liquid_stake_rocketpool", "Liquid Stake (Rocket)",   "staking", "restaking", "liquid_stake_rocketpool", subcategory="liquid", protocol="rocketpool", available=False),
 
     # ── Staking (core) ─────────────────────────────────────────────────────
     _cap("stake",                   "Stake Tokens",            "staking", "staking", "stake",                 feed_event="tokens_staked"),

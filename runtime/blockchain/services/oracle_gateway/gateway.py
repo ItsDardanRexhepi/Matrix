@@ -249,6 +249,25 @@ class OracleGateway:
             }
 
     # ------------------------------------------------------------------
+    # Named action wrappers — used by the capability catalog / ACTION_MAP.
+    # The dispatcher calls a bare method name with **params; these forward to
+    # the generic request() with the correct oracle_type so each catalogued
+    # oracle action resolves to a real method.
+    # ------------------------------------------------------------------
+
+    async def query_price(self, **params: Any) -> dict[str, Any]:
+        """ACTION ``oracle_price_query`` → a price-feed oracle request (read-only)."""
+        return await self.request_safe("price_feed", params)
+
+    async def request_vrf(self, **params: Any) -> dict[str, Any]:
+        """ACTION ``oracle_vrf_request`` → a Chainlink VRF randomness request."""
+        return await self.request("random_vrf", params)
+
+    async def query_weather(self, **params: Any) -> dict[str, Any]:
+        """ACTION ``oracle_weather_query`` → a weather oracle request (read-only)."""
+        return await self.request_safe("weather", params)
+
+    # ------------------------------------------------------------------
     # Dispatch & handlers
     # ------------------------------------------------------------------
 

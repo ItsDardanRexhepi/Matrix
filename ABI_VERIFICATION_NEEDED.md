@@ -71,7 +71,7 @@ Default network: **Base Sepolia (84532)**. Non-custodial invariant preserved
 ### 11. restaking (EigenLayer / Symbiotic / Karak / Lido / Rocket Pool)
 - **Config:** `services.restaking.strategy_manager_address`/`.strategy_address`/`.delegation_manager_address` (EigenLayer), `.symbiotic_vault_address`, `.karak_vault_address`, `.lido_steth_address`, `.rocketpool_deposit_address`.
 - **Verify ABI:** EigenLayer `StrategyManager.depositIntoStrategy(strategy,token,amount)`, `DelegationManager.delegateTo(...)`; Lido `submit(address)`; Rocket Pool deposit. **Verify each manager/strategy address + signature** against the live deployments (these differ per network and have changed across EigenLayer upgrades).
-- **DISPATCH WIRING BUG (separate, flagged):** `ACTION_MAP` routes `liquid_stake_lido` / `liquid_stake_rocketpool` to **`StakingService`**, which has no such methods — the real methods are on **`RestakingService`**. Fix `ACTION_MAP` (in the untouched `service_dispatcher.py`) to repoint these two actions. (See also FIX 2's note.)
+- **DISPATCH WIRING BUG — FIXED:** the capability catalog routed `liquid_stake_lido` / `liquid_stake_rocketpool` to `staking` (StakingService, no such methods); repointed to `restaking` (RestakingService, where the methods live). The three `oracle_*` actions named non-existent `OracleGateway` methods; added thin `query_price` / `request_vrf` / `query_weather` wrappers that forward to the generic `request()`. Full suite now 492 passed.
 
 ### 12. nft_lending (BendDAO / NFTfi / Arcade)
 - **Config:** `services.nft_lending.pool_address` (per protocol).
