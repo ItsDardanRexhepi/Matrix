@@ -27,8 +27,6 @@ info:
     name: Proprietary
 
 servers:
-  - url: http://localhost:8000
-    description: Local development
   - url: https://api.openmatrix-ai.com
     description: Production gateway
 

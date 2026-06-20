@@ -30,10 +30,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - gateway.example.com
+        - api.openmatrix-ai.com
       secretName: opnmatrx-gateway-tls
   rules:
-    - host: gateway.example.com
+    - host: api.openmatrix-ai.com
       http:
         paths:
           - path: /

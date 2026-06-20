@@ -32,7 +32,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Trinity's directly-callable tools (platform_action is further action-gated below).
-_TRINITY_TOOLS = frozenset({"web_search", "web", "platform_action"})
+# request_execution is the controlled Trinity→Morpheus→Neo hand-off channel — it is
+# NOT a raw execution tool; it gates through Morpheus and routes to Neo.
+_TRINITY_TOOLS = frozenset({"web_search", "web", "platform_action", "request_execution"})
 
 # Morpheus's directly-callable tools (platform_action is further action-gated below).
 _MORPHEUS_TOOLS = frozenset({"security_audit", "web_search", "web", "platform_action"})

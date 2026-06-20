@@ -84,7 +84,7 @@ DEFAULT_CHAINS: dict[int, ChainConfig] = {
         is_l2=True,
         avg_block_time=2.0,
         paymaster_enabled=True,
-        eas_contract="0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
+        eas_contract="0x4200000000000000000000000000000000000021",  # Base EAS (OP-stack predeploy), mainnet + sepolia
     ),
     ChainId.ETHEREUM: ChainConfig(
         chain_id=ChainId.ETHEREUM,
@@ -149,7 +149,7 @@ DEFAULT_CHAINS: dict[int, ChainConfig] = {
         is_l2=True,
         avg_block_time=2.0,
         paymaster_enabled=True,
-        eas_contract="0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
+        eas_contract="0x4200000000000000000000000000000000000021",  # Base EAS (OP-stack predeploy), mainnet + sepolia
     ),
     ChainId.ETHEREUM_SEPOLIA: ChainConfig(
         chain_id=ChainId.ETHEREUM_SEPOLIA,

@@ -27,6 +27,7 @@ class ToolDispatcher:
         self._register_builtin_tools()
         self._register_blockchain_tools(config)
         self._register_service_dispatcher(config)
+        self._register_handoff(config)
         self._register_skills(config)
         self._register_security_tools(config)
 
@@ -64,6 +65,20 @@ class ToolDispatcher:
             logger.info("ServiceDispatcher registered as tool: %s", dispatcher.name)
         except Exception as e:
             logger.debug(f"ServiceDispatcher loading skipped: {e}")
+
+    def _register_handoff(self, config: dict):
+        """Register the Trinity → Morpheus → Neo hand-off as the 'request_execution'
+        tool. Trinity calls this to escalate an execution request; it gates through
+        Morpheus and routes to Neo (the service dispatcher). She never holds Neo's
+        raw execution tools — only this single controlled channel."""
+        try:
+            from runtime.agents.handoff import AgentHandoff
+            self.handoff = AgentHandoff(config, getattr(self, "service_dispatcher", None))
+            self.register("request_execution", self.handoff.as_tool, self.handoff.schema)
+            logger.info("Agent hand-off registered as tool: request_execution")
+        except Exception as e:
+            self.handoff = None
+            logger.debug(f"Agent hand-off loading skipped: {e}")
 
     async def prune_caches(self, grace_seconds: float = 0.0) -> int:
         """Prune caches across every downstream service. Returns the
