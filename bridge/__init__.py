@@ -33,8 +33,11 @@ NEOSAFE_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 # Owner approval is OTP-based (runtime/security/owner.py). The old Telegram owner
 # ID is removed — Telegram is no longer in the approval/security path.
 
-# EAS contract on Base mainnet
-EAS_CONTRACT = "0xA1207F3BBa224E2c9c3c6D5aF63D816e64D54892"
+# EAS contract on Base (mainnet + sepolia share the OP-stack predeploy address).
+# Verified against the official eas-contracts deployment artifacts. The previous
+# value (0xA1207F3BBa224E2c9c3c6D5aF63D816e64D54892) was neither Base's EAS nor
+# Ethereum-mainnet's EAS (0xA1207...0eb1582Ce587) — it was wrong.
+EAS_CONTRACT = "0x4200000000000000000000000000000000000021"
 
 # Schema UID for bridge attestations
 EAS_SCHEMA_UID = 348
