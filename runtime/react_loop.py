@@ -295,7 +295,9 @@ class ReActLoop:
                         logger.exception("Protocol pre-action failed for tool=%s", tool_name)
 
                 logger.info(f"[{context.agent_name}] calling tool: {tool_name}({list(arguments.keys())})")
-                result = await self.dispatcher.dispatch(tool_name, arguments)
+                # Pass the TRUSTED agent identity (gateway-validated context) so the
+                # dispatcher enforces the per-agent tool boundary regardless of prompt.
+                result = await self.dispatcher.dispatch(tool_name, arguments, agent_name=context.agent_name)
 
                 tool_result_str = str(result)
                 display_result = morpheus_prefix + tool_result_str if morpheus_prefix else tool_result_str

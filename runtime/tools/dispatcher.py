@@ -5,9 +5,13 @@ Maintains a registry of all available tools. Validates arguments,
 enforces timeouts, catches exceptions, logs every tool call and result.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any, Callable, Awaitable
+
+from runtime.security import agent_access_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -123,11 +127,22 @@ class ToolDispatcher:
     def get_tool_schemas(self) -> list[dict]:
         return self._schemas.copy()
 
-    async def dispatch(self, tool_name: str, arguments: dict) -> str:
+    async def dispatch(self, tool_name: str, arguments: dict, agent_name: str | None = None) -> str:
         handler = self._tools.get(tool_name)
         if not handler:
             logger.warning(f"Unknown tool requested: {tool_name}")
             return f"Error: unknown tool '{tool_name}'. Available tools: {', '.join(self._tools.keys())}"
+
+        # Per-agent tool boundary — code-enforced, prompt-independent. Keyed on the
+        # trusted agent_name from the request context (NOT on tool arguments), so a
+        # subverted agent cannot reach another agent's tools. For the platform_action
+        # mega-tool the specific action is checked too.
+        action = arguments.get("action") if tool_name == "platform_action" else None
+        allowed, reason = agent_access_allowed(agent_name, tool_name, action)
+        if not allowed:
+            logger.warning("Agent '%s' DENIED tool '%s'%s: %s", agent_name, tool_name,
+                           f" action '{action}'" if action else "", reason)
+            return f"[DENIED] {reason}"
 
         logger.info(f"Tool call: {tool_name}({list(arguments.keys())})")
 

@@ -38,6 +38,7 @@ try:
         OwnerVerification,
         get_morpheus_security,
         reset_morpheus_security,
+        evaluate_agent_access as _private_agent_access,
     )
 
     SECURITY_BACKEND = "matrix_security"
@@ -45,6 +46,7 @@ try:
 
 except Exception:  # ImportError, or any load error → inert OBSERVE no-op.
     SECURITY_BACKEND = "noop"
+    _private_agent_access = None
     logger.warning(
         "Security backend: noop. The private matrix_security package is not "
         "installed; the platform runs with security in OBSERVE (no enforcement). "
@@ -121,6 +123,33 @@ except Exception:  # ImportError, or any load error → inert OBSERVE no-op.
         _noop_singleton = None
 
 
+def agent_access_allowed(
+    agent: str | None,
+    tool: str,
+    action: str | None = None,
+    context: dict | None = None,
+) -> tuple[bool, str]:
+    """Per-agent tool-access decision, bound through the security seam.
+
+    The ToolDispatcher calls this on EVERY tool call, keyed on the trusted
+    ``agent`` from the request context. The authoritative policy lives in the
+    private ``matrix_security`` package when installed; otherwise the public
+    coarse default (``runtime.access_policy``) applies. Either way the per-agent
+    boundary is enforced — a subverted agent cannot reach another agent's tools.
+
+    On any internal error, falls back to the public default (the boundary still
+    holds — it never fails open).
+    """
+    if _private_agent_access is not None:
+        try:
+            verdict = _private_agent_access(agent, tool, action, context)
+            return bool(verdict.get("allowed", False)), str(verdict.get("reason", ""))
+        except Exception:
+            logger.exception("Private agent-access policy failed; using public default")
+    from runtime.access_policy import default_agent_access
+    return default_agent_access(agent, tool, action)
+
+
 __all__ = [
     "MorpheusSecurity",
     "MorpheusMode",
@@ -129,4 +158,5 @@ __all__ = [
     "OTPService",
     "OwnerVerification",
     "SECURITY_BACKEND",
+    "agent_access_allowed",
 ]
