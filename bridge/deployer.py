@@ -70,10 +70,10 @@ class ComponentDeployer:
     def __init__(
         self,
         runtime_dir: str = "runtime/blockchain/services",
-        telegram_notifier=None,
+        notifier=None,
     ):
         self.runtime_dir = Path(runtime_dir)
-        self.notifier = telegram_notifier
+        self.notifier = notifier
 
     async def deploy(
         self,
@@ -160,19 +160,22 @@ class ComponentDeployer:
                 bundle.component_name, exc,
             )
 
-        # Notify Dardan
+        # Notify the owner (SMS, best-effort) — Telegram is gone.
         if self.notifier:
-            from bridge import DARDAN_TELEGRAM_ID
-            await self.notifier.send_message(
-                chat_id=DARDAN_TELEGRAM_ID,
-                message=(
-                    f"Component deployed successfully\n"
-                    f"Name: {bundle.component_name}\n"
-                    f"Version: {bundle.version}\n"
-                    f"Deployment ID: {deployment_id}\n"
-                    f"EAS Attested: {result.attested}"
-                ),
-            )
+            try:
+                await self.notifier.broadcast(
+                    (
+                        f"Component deployed successfully\n"
+                        f"Name: {bundle.component_name}\n"
+                        f"Version: {bundle.version}\n"
+                        f"Deployment ID: {deployment_id}\n"
+                        f"EAS Attested: {result.attested}"
+                    ),
+                    level="info",
+                    channels=["sms"],
+                )
+            except Exception:
+                logger.exception("Owner deploy notification failed (non-blocking)")
 
         logger.info(
             "Deployed %s v%s -> %s (id=%s, attested=%s)",

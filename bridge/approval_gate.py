@@ -1,16 +1,19 @@
 """
-Approval Gate — blocks all component deployments until Dardan approves.
+Approval Gate — blocks all component deployments until the OWNER approves.
 
-No component can be deployed to the public 0pnMatrx runtime without explicit
-approval from Dardan via Telegram. This module:
+No component crosses the private->public bridge into the 0pnMatrx runtime without
+the OTP-verified owner's explicit approval. Telegram is gone; approval is now the
+same phone-OTP owner-verification used everywhere else (runtime/security/owner.py).
 
-    1. Sends a formatted approval request to Dardan's Telegram
-    2. Polls for a response (approve / reject)
+This module:
+    1. Delivers a formatted approval request to the owner (SMS, best-effort)
+    2. Waits for the owner to approve by submitting a valid OTP code
     3. Records the decision in the manifest
 
-The approval gate is NON-OPTIONAL. There is no bypass, no auto-approve,
-and no timeout-to-approve. If approval is not received, the component
-stays in staging indefinitely.
+The approval gate is NON-OPTIONAL. There is no bypass, no auto-approve, and no
+timeout-to-approve: if approval is not received, the component stays in staging.
+Approving is an owner-gated action ("approve_component") — it requires the bound
+owner identity (Apple ID + wallet) AND a fresh OTP. Rejecting is always allowed.
 """
 
 from __future__ import annotations
@@ -22,7 +25,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from bridge import DARDAN_TELEGRAM_ID
 from bridge.exporter import ExportBundle
 from bridge.sanitizer import SanitizationResult
 
@@ -38,7 +40,7 @@ class ApprovalStatus(str, Enum):
 
 @dataclass
 class ApprovalDecision:
-    """Records Dardan's approval or rejection."""
+    """Records the owner's approval or rejection."""
     component_name: str
     version: str
     status: ApprovalStatus
@@ -58,46 +60,41 @@ class ApprovalDecision:
 
 
 class ApprovalGate:
-    """Blocks deployment until Dardan explicitly approves via Telegram.
+    """Blocks deployment until the OTP-verified owner explicitly approves.
 
     Usage::
 
-        gate = ApprovalGate(telegram_notifier=notifier)
-        decision = await gate.request_approval(bundle, sanitizer_result)
-        if decision.status == ApprovalStatus.APPROVED:
-            # proceed to deploy
-            ...
+        gate = ApprovalGate(owner_verification=owner, notifier=dispatcher)
+        decision = await gate.request_approval(bundle, result,
+                                               owner_apple_id=aid, owner_wallet=w)
+        # owner submits an OTP code out-of-band:
+        await gate.approve(decision.request_id, aid, w, otp_code)
     """
 
-    POLL_INTERVAL = 10          # seconds between Telegram polls
+    POLL_INTERVAL = 5           # seconds between decision checks
     MAX_WAIT = 3600             # 1 hour max wait (then mark as expired)
 
-    def __init__(self, telegram_notifier=None):
-        """Initialize with an optional TelegramNotifier instance.
-
-        If no notifier is provided, approval requests are logged but
-        cannot be delivered. Manual approval via set_decision() is
-        still supported.
+    def __init__(self, owner_verification=None, notifier=None):
+        """Args:
+            owner_verification: an ``OwnerVerification`` (OTP gating). Without it,
+                ``approve`` cannot authorize — the gate is effectively sealed.
+            notifier: optional notification dispatcher to deliver the summary to
+                the owner (SMS). If absent, the request is logged only.
         """
-        self.notifier = telegram_notifier
+        self.owner = owner_verification
+        self.notifier = notifier
         self._pending: dict[str, ApprovalDecision] = {}
 
     async def request_approval(
         self,
         bundle: ExportBundle,
         sanitizer_result: SanitizationResult,
+        *,
+        owner_apple_id: str | None = None,
+        owner_wallet: str | None = None,
     ) -> ApprovalDecision:
-        """Send approval request and wait for a decision.
-
-        Args:
-            bundle: The component bundle awaiting approval.
-            sanitizer_result: Result from the sanitizer stage.
-
-        Returns:
-            ApprovalDecision with the final status.
-        """
+        """Deliver an approval request to the owner and wait for a decision."""
         request_id = f"approval_{bundle.component_name}_{bundle.version}_{int(time.time())}"
-
         decision = ApprovalDecision(
             component_name=bundle.component_name,
             version=bundle.version,
@@ -106,28 +103,29 @@ class ApprovalGate:
         )
         self._pending[request_id] = decision
 
-        # Build human-readable summary
         summary = self._build_summary(bundle, sanitizer_result)
 
-        # Send to Dardan via Telegram
-        if self.notifier:
-            await self.notifier.send_approval_request(
-                chat_id=DARDAN_TELEGRAM_ID,
-                message=summary,
-                request_id=request_id,
-            )
-            logger.info("Approval request sent to Dardan: %s", request_id)
+        # Deliver the summary to the owner (SMS), best-effort.
+        if self.notifier is not None:
+            try:
+                await self.notifier.broadcast(summary, level="critical", channels=["sms"])
+            except Exception:
+                logger.exception("Failed to deliver approval summary to owner")
         else:
-            logger.warning(
-                "No Telegram notifier configured. Approval request logged "
-                "but not delivered: %s\n%s", request_id, summary,
-            )
+            logger.warning("No notifier configured. Approval request logged only:\n%s", summary)
 
-        # Poll for response
+        # Start an owner OTP so the owner can approve with a code.
+        if self.owner is not None and owner_apple_id and owner_wallet:
+            try:
+                await self.owner.start_owner_otp(owner_apple_id, owner_wallet)
+            except Exception:
+                logger.exception("Failed to start owner OTP for approval")
+
+        logger.info("Approval request pending owner OTP: %s", request_id)
+
         start = time.time()
         while decision.status == ApprovalStatus.PENDING:
-            elapsed = time.time() - start
-            if elapsed >= self.MAX_WAIT:
+            if time.time() - start >= self.MAX_WAIT:
                 decision.status = ApprovalStatus.EXPIRED
                 decision.reason = f"No response after {self.MAX_WAIT}s"
                 logger.warning("Approval request expired: %s", request_id)
@@ -136,39 +134,53 @@ class ApprovalGate:
 
         return decision
 
-    def set_decision(
+    async def approve(
         self,
         request_id: str,
-        approved: bool,
-        reason: str = "",
+        apple_id: str | None,
+        wallet: str | None,
+        otp_code: str | None,
     ) -> ApprovalDecision | None:
-        """Manually set a decision (called from Telegram callback or API).
+        """Approve a pending request — OTP-verified owner only.
 
-        Args:
-            request_id: The approval request ID.
-            approved: True to approve, False to reject.
-            reason: Optional reason for the decision.
-
-        Returns:
-            The updated ApprovalDecision, or None if request_id not found.
+        Requires the bound owner identity AND a fresh OTP. Returns the updated
+        decision on success, or the still-PENDING decision (unchanged) if
+        authorization fails.
         """
         decision = self._pending.get(request_id)
         if not decision:
             logger.warning("Unknown approval request: %s", request_id)
             return None
+        if self.owner is None:
+            logger.error("No OwnerVerification configured — cannot approve.")
+            return decision
 
-        decision.status = ApprovalStatus.APPROVED if approved else ApprovalStatus.REJECTED
-        decision.decided_at = time.time()
-        decision.reason = reason
-
-        logger.info(
-            "Approval decision for %s: %s (reason: %s)",
-            decision.component_name, decision.status.value, reason or "none",
+        auth = await self.owner.authorize_owner_action(
+            "approve_component", apple_id, wallet, otp_code
         )
+        if not auth.get("authorized"):
+            logger.warning("Approval denied for %s: %s", request_id, auth.get("reason"))
+            decision.reason = auth.get("reason", "Owner authorization failed.")
+            return decision  # stays PENDING
+
+        decision.status = ApprovalStatus.APPROVED
+        decision.decided_at = time.time()
+        decision.reason = "Approved by OTP-verified owner."
+        logger.info("Approved by owner: %s", decision.component_name)
+        return decision
+
+    def reject(self, request_id: str, reason: str = "") -> ApprovalDecision | None:
+        """Reject a pending request. Always allowed (rejecting is the safe path)."""
+        decision = self._pending.get(request_id)
+        if not decision:
+            return None
+        decision.status = ApprovalStatus.REJECTED
+        decision.decided_at = time.time()
+        decision.reason = reason or "Rejected."
+        logger.info("Rejected: %s (%s)", decision.component_name, decision.reason)
         return decision
 
     def get_pending(self) -> list[ApprovalDecision]:
-        """Return all pending approval requests."""
         return [d for d in self._pending.values() if d.status == ApprovalStatus.PENDING]
 
     def _build_summary(
@@ -176,7 +188,6 @@ class ApprovalGate:
         bundle: ExportBundle,
         sanitizer_result: SanitizationResult,
     ) -> str:
-        """Build a human-readable summary for the Telegram message."""
         sanitizer_status = "CLEAN" if sanitizer_result.is_clean else "VIOLATIONS FOUND"
         violation_text = ""
         if not sanitizer_result.is_clean:
@@ -195,5 +206,5 @@ class ApprovalGate:
             f"Hash:      {bundle.content_hash[:16]}...\n"
             f"Sanitizer: {sanitizer_status}\n"
             f"{violation_text}\n"
-            f"Reply /approve or /reject to this message."
+            f"To APPROVE, submit your owner OTP code. To reject, decline."
         )

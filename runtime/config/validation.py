@@ -70,8 +70,14 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("notifications.slack.webhook_url",     "SLACK_WEBHOOK_URL",     False),
     ("notifications.email.smtp_pass",       "SMTP_PASS",             False),
     ("notifications.sms.auth_token",        "TWILIO_AUTH_TOKEN",     False),
+    ("notifications.sms.account_sid",       "TWILIO_ACCOUNT_SID",    False),
+    ("notifications.sms.from_number",       "TWILIO_FROM_NUMBER",    False),
     ("notifications.whatsapp.auth_token",   "TWILIO_AUTH_TOKEN",     False),
     ("notifications.webhook.bearer_token",  "NOTIFY_WEBHOOK_BEARER", False),
+    # NOTE: owner-verification secrets (OWNER_APPLE_ID / OWNER_WALLET /
+    # OWNER_PHONE_NUMBER) are declared and validated by the private security
+    # package (matrix_security), not here — the public platform never references
+    # the owner-auth factors. All env-only; never committed.
     # Observability
     ("monitoring.sentry_dsn", "SENTRY_DSN", False),
     # Gateway auth

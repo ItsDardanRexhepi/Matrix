@@ -235,6 +235,7 @@ class GatewayServer:
         # Endpoints that don't require auth
         self._public_paths = {
             "/health", "/auth/nonce", "/auth/verify",
+            "/security/phone/request", "/security/phone/verify",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
@@ -251,6 +252,18 @@ class GatewayServer:
         self.wallet_nonces = NonceStore(self.react_loop.memory.db)
         self._wallet_session_ttl = gw.get("wallet_session_ttl_seconds", 86400)
         self._auth_cleanup_task: asyncio.Task | None = None
+        # Morpheus security layer (the process-wide gate) + its durable-state flusher.
+        self._morpheus = None
+        self._security_flush_task: asyncio.Task | None = None
+        # Security OTP services — phone verification (owner + consumer phone connect).
+        try:
+            from runtime.security import OTPService, OwnerVerification  # seam → matrix_security or no-op
+            self._otp = OTPService(self.config)
+            self._owner = OwnerVerification(self.config, otp_service=self._otp)
+        except Exception:
+            logger.exception("Failed to initialise security OTP services")
+            self._otp = None
+            self._owner = None
 
         # Daily SQLite backup. Disabled when ``backup.enabled`` is false.
         backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
@@ -1289,12 +1302,38 @@ class GatewayServer:
         result = await self.certification_manager.verify_certification(cert_id)
         return web.json_response(result)
 
+    async def _security_flush_loop(self, interval: float = 30.0) -> None:
+        """Periodically persist the security layer's durable state (bans -> DB +
+        on-chain, breach alerts -> SMS + on-chain)."""
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                if self._morpheus is not None:
+                    await self._morpheus.persist_security_state()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Security flush loop iteration failed")
+
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
         await self.react_loop.memory.initialize()
         await self.wallet_sessions.initialize()
         await self.wallet_nonces.initialize()
+        # Security layer — create the process-wide Morpheus gate WITH the DB handle
+        # and load durable bans before serving; then flush its durable state
+        # (bans -> DB/on-chain, breach alerts -> SMS/on-chain) on a short timer.
+        try:
+            from runtime.security import get_morpheus_security  # seam → matrix_security or no-op
+            self._morpheus = get_morpheus_security(
+                {**self.config, "db": self.react_loop.memory.db}
+            )
+            await self._morpheus.initialize()
+            self._security_flush_task = asyncio.create_task(self._security_flush_loop())
+            logger.info("Morpheus security layer initialised (mode=%s)", self._morpheus.mode.value)
+        except Exception:
+            logger.exception("Failed to initialise the Morpheus security layer")
         # Optional OTel push exporter (no-op unless configured + installed)
         try:
             self.otel_bridge.start()
@@ -1397,9 +1436,60 @@ class GatewayServer:
             except Exception as exc:
                 logger.warning("Rate limiter cleanup failed: %s", exc)
 
+    # ── Security: phone OTP + owner verification ──────────────────────
+
+    async def handle_otp_request(self, request: web.Request) -> web.Response:
+        """POST /security/phone/request — {phone} -> {sent}. Consumer phone-connect OTP."""
+        if self._otp is None:
+            return web.json_response({"error": "OTP unavailable"}, status=503)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        phone = str(body.get("phone", "")).strip()
+        if not phone:
+            return web.json_response({"error": "phone is required"}, status=400)
+        result = await self._otp.request(phone, purpose="phone_connect")
+        return web.json_response(result)  # body carries sent/reason; 200 always
+
+    async def handle_otp_verify(self, request: web.Request) -> web.Response:
+        """POST /security/phone/verify — {phone, code} -> {verified}."""
+        if self._otp is None:
+            return web.json_response({"error": "OTP unavailable"}, status=503)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        phone = str(body.get("phone", "")).strip()
+        code = str(body.get("code", "")).strip()
+        if not (phone and code):
+            return web.json_response({"error": "phone and code are required"}, status=400)
+        result = await self._otp.verify(phone, code, purpose="phone_connect")
+        return web.json_response(result)  # body carries verified/reason; 200 always
+
+    async def handle_owner_otp_request(self, request: web.Request) -> web.Response:
+        """POST /security/owner/request — {apple_id, wallet} -> {sent}. Owner OTP,
+        sent only if the bound owner identity matches (never leaks to a non-owner)."""
+        if self._owner is None:
+            return web.json_response({"error": "owner verification unavailable"}, status=503)
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        apple_id = str(body.get("apple_id", "")).strip()
+        wallet = str(body.get("wallet", "")).strip()
+        result = await self._owner.start_owner_otp(apple_id, wallet)
+        return web.json_response(result)  # body carries sent/reason; never leaks owner state
+
     async def _on_cleanup(self, app: web.Application) -> None:
         """Run on aiohttp shutdown to cancel background tasks and log shutdown."""
-        for attr in ("_cleanup_task", "_auth_cleanup_task", "_backup_task"):
+        # Final flush of durable security state before shutting down.
+        try:
+            if self._morpheus is not None:
+                await self._morpheus.persist_security_state()
+        except Exception:
+            logger.debug("Final security persist failed during shutdown")
+        for attr in ("_cleanup_task", "_auth_cleanup_task", "_backup_task", "_security_flush_task"):
             task = getattr(self, attr, None)
             if task is not None:
                 task.cancel()
@@ -1442,6 +1532,9 @@ class GatewayServer:
         app.router.add_post("/memory/write", self.handle_memory_write)
         app.router.add_post("/auth/nonce", self.handle_auth_nonce)
         app.router.add_post("/auth/verify", self.handle_auth_verify)
+        app.router.add_post("/security/phone/request", self.handle_otp_request)
+        app.router.add_post("/security/phone/verify", self.handle_otp_verify)
+        app.router.add_post("/security/owner/request", self.handle_owner_otp_request)
         app.router.add_get("/metrics", self.handle_metrics)
         app.router.add_get("/metrics/prom", self.handle_metrics_prometheus)
 

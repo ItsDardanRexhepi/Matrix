@@ -44,6 +44,7 @@ class ProtocolStack:
         self._rexhepi_gate = None
         self._omega = None
         self._auditor = None
+        self._morpheus_security = None
 
         self._init_protocols()
 
@@ -112,14 +113,25 @@ class ProtocolStack:
         except Exception:
             logger.exception("Failed to initialise ContractAuditor")
 
+        # Morpheus — the authoritative server-side security gate (the spine).
+        # Consulted first in pre_action, ahead of RexhepiGate. Uses the process-wide
+        # singleton so bans/freezes are GLOBAL across agents and requests. The full
+        # config is passed so the layer resolves owner/blockchain/db subtrees (the
+        # gateway creates the singleton first, at startup, with the DB handle).
+        try:
+            from runtime.security import get_morpheus_security  # seam → matrix_security or no-op
+            self._morpheus_security = get_morpheus_security(self.config)
+        except Exception:
+            logger.exception("Failed to initialise MorpheusSecurity")
+
         logger.info(
-            "ProtocolStack initialised for agent=%s (protocols loaded: %d/10)",
+            "ProtocolStack initialised for agent=%s (protocols loaded: %d/11)",
             self.agent_name,
             sum(1 for p in [
                 self._jarvis, self._ultron, self._friday, self._vision,
                 self._trajectory, self._outcome_learning,
                 self._morpheus_triggers, self._rexhepi_gate, self._omega,
-                self._auditor,
+                self._auditor, self._morpheus_security,
             ] if p is not None),
         )
 
@@ -325,6 +337,23 @@ class ProtocolStack:
             "type": tool_name,
             "parameters": arguments,
         }
+
+        # Morpheus — the security spine. Runs FIRST, so every execution path
+        # passes him. Authoritative server-side allow/deny (binding only in
+        # ENFORCE mode; OBSERVE logs without blocking while the layer is
+        # unverified). App-side Morpheus is UX only; THIS is the boundary.
+        if self._morpheus_security is not None:
+            try:
+                decision = await self._morpheus_security.evaluate(action, context)
+                result["morpheus_security"] = decision
+                if not decision.get("allow", True):
+                    result["approved"] = False
+                    result["denial_reason"] = decision.get(
+                        "reason", "Blocked by Morpheus security."
+                    )
+                    return result
+            except Exception:
+                logger.exception("MorpheusSecurity pre-action failed")
 
         # Rexhepi gate evaluation
         if self._rexhepi_gate is not None:
