@@ -60,6 +60,44 @@ def _is_state_modifying(action: str | None) -> bool:
         return True
 
 
+# ── Coarse fail-direction (used only when the security gate is unreachable) ──────
+#
+# Generic read verbs — the ONLY labels treated as safe to observe-allow when the
+# security gate can't be reached / faults. EVERYTHING ELSE (anything value-moving,
+# owner-gated, or simply unrecognised) FAILS CLOSED. This is a deliberately
+# conservative PUBLIC default for one decision — the fail DIRECTION — and is NOT the
+# authoritative classification (that lives in the private gate). It is intentionally
+# independent of any value-moving list so a fund-moving action can never be *missed*
+# and wrongly allowed: we allow only what is clearly a benign read, and deny the rest.
+_BENIGN_READ_LABELS = frozenset({
+    "get", "list", "read", "view", "info", "status", "health", "ping", "ready",
+    "quote", "quotes", "balance", "balances", "price", "prices", "rate", "rates",
+    "history", "feed", "search", "lookup", "metrics", "dashboard", "manifest",
+    "config", "weather", "preview", "estimate", "simulate", "positions", "portfolio",
+    "profile",
+})
+_BENIGN_READ_PREFIXES = ("get_", "list_", "read_", "fetch_", "view_", "quote_", "status_")
+
+
+def could_move_value(action_type: str | None) -> bool:
+    """Coarse PUBLIC fail-direction guess: could this action move value or change
+    security/owner state?
+
+    Used for ONE purpose only — choosing which way to fail when the security gate is
+    unreachable: ``True`` → fail CLOSED (deny), ``False`` → safe to observe-allow.
+    Anything that is not CLEARLY a benign read (incl. unknown/empty labels) is treated
+    as value-moving and fails closed. No thresholds, no allowlists, no private action
+    sets — just generic read verbs. The authoritative classification still lives in
+    the private gate; this only decides the safe direction on a gateway fault.
+    """
+    a = (action_type or "").strip().lower()
+    if not a:
+        return True  # unknown → safest direction: treat as value-moving
+    if a in _BENIGN_READ_LABELS or a.startswith(_BENIGN_READ_PREFIXES):
+        return False  # clearly a benign read → a transient fault may observe-allow it
+    return True       # value-moving / owner-gated / unrecognised → fail closed
+
+
 def default_agent_access(agent: str | None, tool: str, action: str | None = None) -> tuple[bool, str]:
     """Coarse PUBLIC per-agent access decision. Returns ``(allowed, reason)``.
 

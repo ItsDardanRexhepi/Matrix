@@ -113,8 +113,19 @@ async def gate_action(
         gate = get_morpheus_security()
         return await gate.evaluate(action, ctx)
     except Exception:
-        logger.exception("security gate call failed; allowing (observe)")
-        return {"allow": True, "would_block": False, "route": "observe", "reason": ""}
+        # The gate is unreachable / faulted. Fail by ACTION TYPE, not blanket-allow:
+        # a value-moving (or unknown) action must NOT proceed ungated — fail CLOSED
+        # (deny) so nothing moves value when we can't reach the gate. A clearly-benign
+        # read observe-allows so a transient gateway fault doesn't break it. The coarse
+        # public label is the only input; the authoritative classification still lives
+        # in the private gate.
+        from runtime.access_policy import could_move_value
+        if could_move_value(action_type):
+            logger.exception("security gate unreachable; FAIL-CLOSED deny (action=%s)", action_type)
+            return {"allow": False, "would_block": True, "route": "fail-closed",
+                    "reason": _GENERIC_DENY}
+        logger.warning("security gate unreachable; observe-allow (benign read=%s)", action_type)
+        return {"allow": True, "would_block": False, "route": "observe-read-failopen", "reason": ""}
 
 
 def is_blocked(decision: dict) -> bool:

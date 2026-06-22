@@ -354,6 +354,21 @@ class ProtocolStack:
                     return result
             except Exception:
                 logger.exception("MorpheusSecurity pre-action failed")
+                # Fail-direction on a gate fault: a value-moving / owner-gated action
+                # must NOT proceed ungated — fail CLOSED (deny). A benign read may
+                # continue so a transient fault doesn't break it. Coarse public label
+                # only; for the platform_action mega-tool the real action is in the
+                # arguments. The authoritative classification lives in the private gate.
+                gated_label = tool_name
+                if tool_name == "platform_action" and isinstance(arguments, dict):
+                    gated_label = arguments.get("action") or tool_name
+                from runtime.access_policy import could_move_value
+                if could_move_value(gated_label):
+                    result["approved"] = False
+                    result["denial_reason"] = (
+                        "This action couldn't be authorized right now. Please try again."
+                    )
+                    return result
 
         # Rexhepi gate evaluation
         if self._rexhepi_gate is not None:
