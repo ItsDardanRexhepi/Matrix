@@ -68,33 +68,38 @@ class AgentIdentity(BlockchainInterface):
         return json.dumps(result, indent=2, default=str)
 
     async def _verify(self, params: dict) -> str:
-        """Verify an agent's on-chain identity by checking the platform wallet on-chain."""
+        """Verify an agent's on-chain identity.
+
+        HONEST FAILURE (fail-closed): there is no per-agent attestation/registration
+        lookup yet, so this CANNOT confirm a specific agent's identity. It must NOT
+        report ``verified`` based on an unrelated condition — the previous version set
+        ``verified = tx_count > 0`` on the SHARED platform wallet, so ANY agent name
+        passed once that one wallet had a single transaction. A check that passes for
+        the wrong reason is the same danger class as a fake success. Until the real
+        per-agent attestation check is built, this returns ``verified: False`` with an
+        honest reason. The wallet figures below are CONTEXT ONLY and are explicitly not
+        the basis for verification.
+        """
         agent_name = params.get("agent_name", "neo")
         try:
-            # Verify the platform wallet exists on-chain with a real balance check
             balance_wei = self.web3.eth.get_balance(self.platform_wallet) if self.platform_wallet else 0
             tx_count = self.web3.eth.get_transaction_count(self.platform_wallet) if self.platform_wallet else 0
+        except Exception:
+            balance_wei, tx_count = 0, 0
 
-            return json.dumps({
-                "agent": agent_name,
-                "platform": "0pnMatrx",
-                "verified": tx_count > 0,
-                "platform_wallet": self.platform_wallet,
-                "wallet_tx_count": tx_count,
-                "wallet_has_balance": balance_wei > 0,
-                "capabilities": self._get_capabilities(agent_name),
-                "network": self.network,
-            }, indent=2)
-        except Exception as e:
-            return json.dumps({
-                "agent": agent_name,
-                "platform": "0pnMatrx",
-                "verified": False,
-                "error": str(e),
-                "hint": "Ensure blockchain.rpc_url and blockchain.platform_wallet are configured.",
-                "capabilities": self._get_capabilities(agent_name),
-                "network": self.network,
-            }, indent=2)
+        return json.dumps({
+            "agent": agent_name,
+            "platform": "0pnMatrx",
+            "verified": False,
+            "reason": ("Per-agent on-chain attestation verification is not available yet; "
+                       "this agent's identity cannot be confirmed. (Platform-wallet "
+                       "activity is shown for context only and does NOT verify any agent.)"),
+            "platform_wallet": self.platform_wallet,
+            "wallet_tx_count": tx_count,
+            "wallet_has_balance": balance_wei > 0,
+            "capabilities": self._get_capabilities(agent_name),
+            "network": self.network,
+        }, indent=2)
 
     async def _attest_action(self, params: dict) -> str:
         """Attest an action performed by an agent."""
