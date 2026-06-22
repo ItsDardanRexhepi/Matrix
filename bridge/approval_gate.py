@@ -140,10 +140,15 @@ class ApprovalGate:
         apple_id: str | None,
         wallet: str | None,
         otp_code: str | None,
+        *,
+        device_assertion: dict | None = None,
     ) -> ApprovalDecision | None:
-        """Approve a pending request — OTP-verified owner only.
+        """Approve a pending request — verified owner only.
 
-        Requires the bound owner identity AND a fresh OTP. Returns the updated
+        Requires the bound owner identity AND a fresh THIRD factor. The third factor
+        is biometric-preferred: a Secure-Enclave **device assertion** (App Attest)
+        when present, else the SMS **OTP** fallback. The private OwnerVerification
+        decides which applies; this gate just forwards both. Returns the updated
         decision on success, or the still-PENDING decision (unchanged) if
         authorization fails.
         """
@@ -156,7 +161,8 @@ class ApprovalGate:
             return decision
 
         auth = await self.owner.authorize_owner_action(
-            "approve_component", apple_id, wallet, otp_code
+            "approve_component", apple_id, wallet, otp_code,
+            device_assertion=device_assertion,
         )
         if not auth.get("authorized"):
             logger.warning("Approval denied for %s: %s", request_id, auth.get("reason"))

@@ -401,7 +401,9 @@ class GatewayServer:
 
         logger.info(f"[{agent}] session={session_id} message={message[:100]}")
 
-        # Inject user context metadata so protocols can access it
+        # Inject user context metadata so protocols can access it. The identity and
+        # client App Attest assertion are threaded so the Morpheus gate consulted in
+        # ProtocolStack.pre_action can attribute and verify each tool call.
         context.metadata["user_context"] = {
             "session_id": session_id,
             "agent": agent,
@@ -410,6 +412,9 @@ class GatewayServer:
             "balance": body.get("balance"),
             "jurisdiction": body.get("jurisdiction", ""),
             "total_transactions": body.get("total_transactions"),
+            "wallet_address": body.get("wallet") or body.get("wallet_address") or "",
+            "apple_id": body.get("apple_id", ""),
+            "app_attest": body.get("app_attest"),
         }
 
         try:
@@ -1515,6 +1520,7 @@ class GatewayServer:
                 self._request_id_middleware,
                 self._cors_middleware,
                 self._auth_middleware,
+                self._security_context_middleware,
                 self._rate_limit_middleware,
                 self._timeout_middleware,
                 self._logging_middleware,
@@ -1653,6 +1659,45 @@ class GatewayServer:
             return web.json_response(
                 {"error": "unauthorized", "message": "Valid API key required. Set Authorization: Bearer <key>"},
                 status=401,
+            )
+        return await handler(request)
+
+    @web.middleware
+    async def _security_context_middleware(self, request: web.Request, handler):
+        """Bind the per-request security context (identity + client App Attest
+        assertion) for privileged ``/api/v1/*`` actions, so the Morpheus gate at the
+        service funnel can attribute and verify the request. Pass-through otherwise.
+
+        This middleware makes NO security decision — it only carries context. It
+        reads the JSON body once (aiohttp caches it for the handler). Identity comes
+        from the ``X-Wallet-Address`` header or the body; the App Attest assertion
+        rides in the request body (``app_attest``) per the client contract.
+        """
+        if request.method == "POST" and request.path.startswith("/api/v1/"):
+            identity = request.headers.get("X-Wallet-Address", "") or ""
+            apple_id = request.headers.get("X-Apple-Id", "") or ""
+            app_attest = None
+            try:
+                body = await request.json()
+            except Exception:
+                body = None
+            if isinstance(body, dict):
+                params = body.get("params") if isinstance(body.get("params"), dict) else body
+                if not identity:
+                    identity = (
+                        body.get("wallet") or body.get("from") or body.get("sender")
+                        or body.get("account")
+                        or (params.get("from") if isinstance(params, dict) else "")
+                        or ""
+                    )
+                apple_id = apple_id or body.get("apple_id", "") or ""
+                app_attest = body.get("app_attest")
+                if app_attest is None and isinstance(params, dict):
+                    app_attest = params.get("app_attest")
+            from gateway.security_gate import bind_request_security
+            bind_request_security(
+                identity=identity, app_attest=app_attest, apple_id=apple_id,
+                session_id=request.headers.get("X-Session-Id", ""),
             )
         return await handler(request)
 

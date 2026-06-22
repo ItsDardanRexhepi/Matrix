@@ -589,7 +589,28 @@ class ServiceRoutes:
         return web.json_response({"status": "ok", "data": data})
 
     async def _call(self, service_name: str, method_name: str, **kwargs) -> Any:
-        """Resolve a service and call its method."""
+        """Resolve a service and call its method.
+
+        Security gate (boundary call): every service invocation that reaches this
+        funnel — direct ``/api/v1/*`` endpoints AND batch sub-calls — is routed
+        through the Morpheus contract first, with the per-request identity + App
+        Attest context bound at the HTTP entry. A blocked action returns a GENERIC
+        denial; the internal reason stays server-side. Inert (allows) when the
+        private security package isn't installed.
+        """
+        from gateway.security_gate import (
+            action_type_for, current_request_security, gate_action,
+            generic_denial, is_blocked,
+        )
+        decision = await gate_action(
+            action_type_for(service_name, method_name), kwargs, current_request_security()
+        )
+        if is_blocked(decision):
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": generic_denial(decision)}),
+                content_type="application/json",
+            )
+
         try:
             svc = self._get_registry().get(service_name)
         except KeyError:

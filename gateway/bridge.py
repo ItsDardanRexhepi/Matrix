@@ -667,6 +667,9 @@ class BridgeRoutes:
             "wallet_connected": body.get("wallet_connected", False),
             "network": body.get("network"),
             "platform": "ios",
+            # Threaded so the Morpheus gate in pre_action can verify the request.
+            "apple_id": body.get("apple_id", ""),
+            "app_attest": body.get("app_attest"),
         }
 
         # Inject linked wallet if available
@@ -714,6 +717,25 @@ class BridgeRoutes:
 
         if not action:
             return MobileResponse.error("action required")
+
+        # Security gate (boundary call): this direct action path skips the ReAct
+        # loop, so it must consult the Morpheus contract itself before executing.
+        # Identity comes from the session's linked wallet; the App Attest assertion
+        # (if any) rides in the request body. Generic denial — no internal reason.
+        from gateway.security_gate import (
+            bind_request_security, current_request_security, gate_action,
+            generic_denial, is_blocked,
+        )
+        linked = self._linked_wallets.get(session_id) or {}
+        bind_request_security(
+            identity=linked.get("address", ""),
+            app_attest=body.get("app_attest"),
+            session_id=session_id,
+        )
+        decision = await gate_action(action, params if isinstance(params, dict) else {},
+                                     current_request_security())
+        if is_blocked(decision):
+            return MobileResponse.error(generic_denial(decision), 403)
 
         try:
             from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
