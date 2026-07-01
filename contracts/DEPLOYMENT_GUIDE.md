@@ -11,6 +11,14 @@ into `openmatrix.config.json`.
 - A funded deployer wallet
   - Sepolia ETH faucet: <https://www.alchemy.com/faucets/base-sepolia>
 - `solc` 0.8.20 (auto-installed by `py-solc-x` on first run)
+- Solidity dependencies (forge-std + OpenZeppelin v5.0.2) live under `contracts/lib/`
+  as git submodules. On a fresh checkout, fetch them before `forge build`:
+
+  ```bash
+  git submodule update --init --recursive   # forge-std + openzeppelin-contracts
+  # or, without submodules:
+  # forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
+  ```
 
 ## 1. Configure environment
 

@@ -9,7 +9,7 @@ import "../OpenMatrixPaymaster.sol";
 contract OpenMatrixPaymasterTest is Test {
     OpenMatrixPaymaster internal paymaster;
 
-    address internal constant PLATFORM = address(0xP1A7);
+    address internal constant PLATFORM = address(0x1A7) /* was invalid literal 0xP1A7 — "P" is not hex (P0-3 adjacent fix) */;
     address internal owner;
     address internal agent;
     address internal stranger;

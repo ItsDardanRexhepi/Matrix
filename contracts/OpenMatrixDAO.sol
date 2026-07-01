@@ -137,7 +137,13 @@ contract OpenMatrixDAO is ReentrancyGuard, Ownable {
         p.endBlock = block.number + VOTING_DELAY + VOTING_PERIOD;
         p.targets = targets;
         p.values = values;
-        p.calldatas = calldatas;
+        // Element-wise copy: the legacy code generator (via_ir=false, foundry.toml)
+        // cannot copy a nested calldata dynamic array (bytes[]) straight into
+        // storage — it raises UnimplementedFeatureError. targets/values are
+        // value-type arrays and copy fine; only calldatas needs the loop (P0-3).
+        for (uint256 i = 0; i < calldatas.length; i++) {
+            p.calldatas.push(calldatas[i]);
+        }
 
         emit ProposalCreated(proposalId, msg.sender, votingModel, p.startBlock, p.endBlock, description);
     }

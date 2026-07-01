@@ -206,6 +206,20 @@ def load_config() -> dict:
     return config
 
 
+def attach_social_feed(react_loop, engine):
+    """Attach the social feed engine to the ServiceDispatcher nested inside
+    the ReAct ToolDispatcher (``react_loop.dispatcher.service_dispatcher``).
+
+    The ToolDispatcher itself has no ``attach_feed_engine`` — the publisher
+    lives on the nested ServiceDispatcher. Returns the ServiceDispatcher the
+    engine was attached to, or ``None`` if unavailable (P0-1).
+    """
+    sd = getattr(getattr(react_loop, "dispatcher", None), "service_dispatcher", None)
+    if sd is not None:
+        sd.attach_feed_engine(engine)
+    return sd
+
+
 class GatewayServer:
     """
     The main HTTP server for 0pnMatrx.
@@ -236,6 +250,8 @@ class GatewayServer:
         self._public_paths = {
             "/health", "/auth/nonce", "/auth/verify",
             "/security/phone/request", "/security/phone/verify",
+            "/security/appattest/challenge", "/security/appattest/attest",
+            "/api/v1/auth/apple", "/api/v1/auth/account",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
@@ -265,6 +281,21 @@ class GatewayServer:
             self._otp = None
             self._owner = None
 
+        # App Attest verifier — seam-backed (real when morpheus_security is
+        # installed, inert no-op otherwise). Reached only through runtime.security.
+        try:
+            from runtime.security import get_app_attest_verifier, SECURITY_BACKEND
+            self._app_attest = get_app_attest_verifier(self.config)
+            self._security_backend = SECURITY_BACKEND
+        except Exception:
+            logger.exception("Failed to initialise App Attest verifier")
+            self._app_attest = None
+            self._security_backend = "noop"
+
+        # Sign in with Apple — JWKS cache for identity-token verification (P1-8).
+        from gateway.apple_auth import AppleJWKSCache
+        self._apple_jwks = AppleJWKSCache()
+
         # Daily SQLite backup. Disabled when ``backup.enabled`` is false.
         backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
         self._backup_enabled = bool(backup_cfg.get("enabled", True))
@@ -293,6 +324,10 @@ class GatewayServer:
         self.a2a_marketplace = None
         self.social_manager = None
         self.social_feed_engine = None
+        # Shared ServiceDispatcher (set at startup once the feed engine is
+        # attached) — the mobile bridge reuses this instance so iOS direct
+        # actions publish to the feed too (P0-1).
+        self.service_dispatcher = None
         self.protocol_referrals = None
         self.badge_manager = None
         self.certification_manager = None
@@ -675,6 +710,149 @@ class GatewayServer:
             "token": token,
             "address": address,
             "expires_at": expires_at,
+        })
+
+    # ─── Social follow graph (P2-10) ──────────────────────────────────────
+
+    def _follow_store(self):
+        from runtime.social.follows import FollowStore
+        return FollowStore(self.react_loop.memory.db)
+
+    async def handle_social_follow(self, request: web.Request) -> web.Response:
+        """POST /social/follow — {address}. Follower = X-Wallet-Address."""
+        follower = request.headers.get("X-Wallet-Address", "").strip()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        followee = str(body.get("address", "")).strip()
+        if not follower or not followee:
+            return web.json_response({"error": "address required"}, status=400)
+        await self._follow_store().follow(follower, followee)
+        return web.json_response({"success": True, "following": followee})
+
+    async def handle_social_unfollow(self, request: web.Request) -> web.Response:
+        follower = request.headers.get("X-Wallet-Address", "").strip()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        followee = str(body.get("address", "")).strip()
+        if not follower or not followee:
+            return web.json_response({"error": "address required"}, status=400)
+        await self._follow_store().unfollow(follower, followee)
+        return web.json_response({"success": True, "unfollowed": followee})
+
+    async def handle_social_followers(self, request: web.Request) -> web.Response:
+        address = request.match_info.get("address", "").strip()
+        followers = await self._follow_store().followers(address)
+        return web.json_response({"address": address, "followers": followers,
+                                  "count": len(followers)})
+
+    async def handle_social_following(self, request: web.Request) -> web.Response:
+        address = request.match_info.get("address", "").strip()
+        following = await self._follow_store().following(address)
+        return web.json_response({"address": address, "following": following,
+                                  "count": len(following)})
+
+    # ─── Sign in with Apple (P1-8) ────────────────────────────────────────
+
+    async def handle_apple_auth(self, request: web.Request) -> web.Response:
+        """POST /api/v1/auth/apple — verify Apple's identityToken and issue a
+        session. Response is camelCase to match the client's AuthResponse.
+
+        Fail-closed: if auth.apple.bundle_id is unconfigured -> 503 (never
+        verifies against a wildcard audience)."""
+        from gateway.apple_auth import (
+            verify_apple_identity_token, AppleAuthError, AppleAuthNotConfigured,
+        )
+        from runtime.auth.siwe import create_session_token
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        identity_token = str(body.get("identityToken", "")).strip()
+        if not identity_token:
+            return web.json_response({"error": "identityToken required"}, status=400)
+
+        try:
+            claims = await verify_apple_identity_token(
+                identity_token, config=self.config, jwks_cache=self._apple_jwks)
+        except AppleAuthNotConfigured:
+            return web.json_response({"error": "apple auth not configured"}, status=503)
+        except AppleAuthError:
+            return web.json_response({"error": "invalid Apple identity token"}, status=401)
+
+        sub = str(claims.get("sub", "")).strip()
+        if not sub:
+            return web.json_response({"error": "invalid Apple identity token"}, status=401)
+
+        # Session bound to a stable Apple user id (surrogate address "apple:<sub>").
+        # A linked wallet, if any, is looked up from the wallet-link table; the
+        # client's AuthResponse.walletAddress is non-optional so return "" when
+        # none exists yet.
+        user_key = f"apple:{sub}"
+        wallet_address = ""
+        try:
+            existing = self.wallet_sessions.get_by_address(user_key) \
+                if hasattr(self.wallet_sessions, "get_by_address") else None
+            is_new_user = existing is None
+        except Exception:
+            is_new_user = True
+
+        token = create_session_token()
+        now = time.time()
+        expires_at = now + self._wallet_session_ttl
+        await self.wallet_sessions.add(
+            token=token, address=user_key, issued_at=now, expires_at=expires_at)
+
+        return web.json_response({
+            "token": token,
+            "userId": sub,
+            "walletAddress": wallet_address,
+            "expiresAt": expires_at,
+            "isNewUser": is_new_user,
+        })
+
+    async def handle_account_delete(self, request: web.Request) -> web.Response:
+        """DELETE /api/v1/auth/account — delete the caller's server-side data and
+        (credential-gated) revoke the Apple token.
+
+        Deleted here: the caller's wallet session (X-Wallet-Session) and every push
+        token registered under that session. Apple token revocation runs only when
+        auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
+        deletion still succeeds and revocation is skipped with a WARNING."""
+        from gateway.apple_auth import apple_revocation_configured
+        token = request.headers.get("X-Wallet-Session", "").strip()
+        session = self.wallet_sessions.get(token) if token else None
+
+        # Push tokens registered under this session.
+        try:
+            from runtime.notifications.token_store import PushTokenStore
+            store = PushTokenStore(self.react_loop.memory.db)
+            if session is not None:
+                for dev in await store.tokens_for(session_id=token):
+                    await store.remove(dev)
+        except Exception:
+            logger.debug("account delete: push-token cleanup skipped")
+
+        # The wallet session itself.
+        if token:
+            try:
+                await self.wallet_sessions.remove(token)
+            except Exception:
+                logger.debug("account delete: session removal skipped")
+
+        if not apple_revocation_configured(self.config):
+            logger.warning(
+                "Account deleted locally; Apple token revocation SKIPPED "
+                "(auth.apple.team_id/key_id/private_key_p8 not configured).")
+
+        import datetime
+        return web.json_response({
+            "success": True,
+            "deletedAt": datetime.datetime.utcnow().isoformat() + "Z",
         })
 
     # ─── Streaming ────────────────────────────────────────────────────────
@@ -1409,14 +1587,29 @@ class GatewayServer:
             from runtime.social.feed_engine import SocialFeedEngine
             db = self.react_loop.memory.db
             self.social_feed_engine = SocialFeedEngine(db)
-            # Attach to the service dispatcher so state-modifying actions
-            # are automatically published to the feed.
-            dispatcher = getattr(self.react_loop, "dispatcher", None)
-            if dispatcher is not None:
-                dispatcher.attach_feed_engine(self.social_feed_engine)
+            # Attach to the ServiceDispatcher nested inside the ReAct
+            # ToolDispatcher so state-modifying actions are automatically
+            # published to the feed.
+            service_dispatcher = attach_social_feed(self.react_loop, self.social_feed_engine)
+            if service_dispatcher is not None:
+                # Shared instance — the mobile bridge reuses this so iOS direct
+                # actions publish to the feed too (see gateway/bridge.py
+                # execute_action).
+                self.service_dispatcher = service_dispatcher
+            else:
+                logger.warning("Social feed: no ServiceDispatcher available to attach to.")
             logger.info("Social feed engine initialized.")
         except Exception as exc:
             logger.warning("Social feed engine init skipped: %s", exc)
+
+        # ── Push token store (P1-6) — give the notifier live device tokens ──
+        try:
+            from runtime.notifications.token_store import PushTokenStore
+            if getattr(self, "notifier", None) is not None:
+                self.notifier.set_token_store(PushTokenStore(self.react_loop.memory.db))
+                logger.info("Push token store attached to notifier.")
+        except Exception as exc:
+            logger.warning("Push token store init skipped: %s", exc)
 
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets and service caches."""
@@ -1486,6 +1679,67 @@ class GatewayServer:
         result = await self._owner.start_owner_otp(apple_id, wallet)
         return web.json_response(result)  # body carries sent/reason; never leaks owner state
 
+    # ── Security: App Attest (device attestation) ─────────────────────
+    #
+    # Server half of the iOS App Attest client (P1-4). The verifier is reached
+    # only through the seam (runtime.security), so this code has no direct
+    # dependency on the private package. Under the noop backend the challenge
+    # route reports 503 (unavailable) and attest returns verified:false with a
+    # generic reason — never a 4xx that would break the client's decode path.
+
+    async def handle_appattest_challenge(self, request: web.Request) -> web.Response:
+        """GET /security/appattest/challenge?identity=… -> {"challenge": "<hex>"}."""
+        if self._app_attest is None or self._security_backend == "noop":
+            return web.json_response(
+                {"error": "security backend not installed"}, status=503)
+        identity = str(request.query.get("identity", "")).strip()
+        try:
+            challenge = await self._app_attest.new_challenge(identity)
+        except Exception:
+            # Real backend refused (e.g. store unavailable) — honest 503.
+            logger.exception("App Attest challenge failed")
+            return web.json_response(
+                {"error": "challenge unavailable"}, status=503)
+        return web.json_response({"challenge": challenge})
+
+    async def handle_appattest_attest(self, request: web.Request) -> web.Response:
+        """POST /security/appattest/attest — {key_id, attestation_obj_b64, challenge}
+        -> {"verified": bool, "reason": str|null}. 200 on a clean rejection so the
+        client's decode path works; 400 only on a malformed body."""
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        key_id = str(body.get("key_id", "")).strip()
+        attestation_obj_b64 = str(body.get("attestation_obj_b64", "")).strip()
+        challenge = str(body.get("challenge", "")).strip()
+        if not (key_id and attestation_obj_b64 and challenge):
+            return web.json_response(
+                {"error": "key_id, attestation_obj_b64, challenge are required"},
+                status=400)
+        if self._app_attest is None or self._security_backend == "noop":
+            return web.json_response(
+                {"verified": False, "reason": "security backend not installed"})
+        # Identity that the challenge was bound to — the authenticated wallet
+        # header (mirrors the challenge request's identity), else a body field.
+        identity = (request.headers.get("X-Wallet-Address")
+                    or str(body.get("identity", ""))).strip()
+        try:
+            result = await self._app_attest.verify_attestation(
+                identity=identity,
+                key_id=key_id,
+                attestation_obj_b64=attestation_obj_b64,
+                challenge=challenge,
+            )
+        except Exception:
+            logger.exception("App Attest attestation verification error")
+            return web.json_response(
+                {"verified": False, "reason": "verification_error"})
+        return web.json_response({
+            "verified": bool(result.get("verified", False)),
+            "reason": result.get("reason") or None,
+        })
+
     async def _on_cleanup(self, app: web.Application) -> None:
         """Run on aiohttp shutdown to cancel background tasks and log shutdown."""
         # Final flush of durable security state before shutting down.
@@ -1538,9 +1792,13 @@ class GatewayServer:
         app.router.add_post("/memory/write", self.handle_memory_write)
         app.router.add_post("/auth/nonce", self.handle_auth_nonce)
         app.router.add_post("/auth/verify", self.handle_auth_verify)
+        app.router.add_post("/api/v1/auth/apple", self.handle_apple_auth)
+        app.router.add_delete("/api/v1/auth/account", self.handle_account_delete)
         app.router.add_post("/security/phone/request", self.handle_otp_request)
         app.router.add_post("/security/phone/verify", self.handle_otp_verify)
         app.router.add_post("/security/owner/request", self.handle_owner_otp_request)
+        app.router.add_get("/security/appattest/challenge", self.handle_appattest_challenge)
+        app.router.add_post("/security/appattest/attest", self.handle_appattest_attest)
         app.router.add_get("/metrics", self.handle_metrics)
         app.router.add_get("/metrics/prom", self.handle_metrics_prometheus)
 
@@ -1571,6 +1829,11 @@ class GatewayServer:
         app.router.add_get("/social/trending", self.handle_social_trending)
         app.router.add_get("/social/actor/{wallet}", self.handle_social_actor)
         app.router.add_get("/social/stats", self.handle_social_stats)
+        # Follow graph (P2-10)
+        app.router.add_post("/social/follow", self.handle_social_follow)
+        app.router.add_post("/social/unfollow", self.handle_social_unfollow)
+        app.router.add_get("/social/{address}/followers", self.handle_social_followers)
+        app.router.add_get("/social/{address}/following", self.handle_social_following)
 
         # ── A2A commerce ──────────────────────────────────────────────
         app.router.add_get("/a2a/services", self.handle_a2a_services)

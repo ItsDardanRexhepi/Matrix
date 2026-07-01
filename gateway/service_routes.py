@@ -178,6 +178,9 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/defi/loan/create", self._handle_defi_loan_create)
         app.router.add_post("/api/v1/defi/loan/repay", self._handle_defi_loan_repay)
 
+        # Security preflight (the send-path gate consult; P1-5)
+        app.router.add_post("/api/v1/security/preflight", self._handle_security_preflight)
+
         # NFT (Component 3)
         app.router.add_post("/api/v1/nft/mint", self._handle_nft_mint)
         app.router.add_post("/api/v1/nft/collection/create", self._handle_nft_collection_create)
@@ -642,6 +645,47 @@ class ServiceRoutes:
     # ------------------------------------------------------------------
     # Endpoint handlers
     # ------------------------------------------------------------------
+
+    # -- Security preflight (P1-5) --
+
+    async def _handle_security_preflight(self, request: web.Request) -> web.Response:
+        """POST /api/v1/security/preflight — consult the Morpheus gate for a
+        fund-moving transfer WITHOUT executing anything. Returns the exact
+        status/shape the iOS client maps to .securityBlocked so a deny can
+        finally be delivered (before this route, the 404 always fail-opened).
+
+          allowed  -> 200 {"allow": true, "mode": "<gate mode>"}
+          blocked  -> 403 {"error": "<generic denial>"}  (mirrors _call)
+
+        Under the noop backend the gate allows, so the route still returns
+        {"allow": true} — never 404 — so the client's deny path becomes
+        reachable the moment a real backend is deployed.
+        """
+        body = await self._parse_body(request)
+        from gateway.security_gate import (
+            current_request_security, gate_action, generic_denial, is_blocked,
+        )
+        to = str(body.get("to", ""))
+        try:
+            value_usd = float(body.get("value_usd", 0) or 0)
+        except (TypeError, ValueError):
+            value_usd = 0.0
+        try:
+            chain_id = int(body.get("chain_id", 0) or 0)
+        except (TypeError, ValueError):
+            chain_id = 0
+        decision = await gate_action(
+            "transfer",
+            {"to": to, "value_usd": value_usd, "chain_id": chain_id,
+             "app_attest": body.get("app_attest")},
+            current_request_security(),
+        )
+        if is_blocked(decision):
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": generic_denial(decision)}),
+                content_type="application/json",
+            )
+        return web.json_response({"allow": True, "mode": decision.get("mode", "observe")})
 
     # -- Contracts --
 

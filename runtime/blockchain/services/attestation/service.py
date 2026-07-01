@@ -403,18 +403,29 @@ class AttestationService:
         """
         Resolve a schema UID, handling component names and defaults.
 
-        Accepts a raw hex UID, a component name (e.g. "payments"), or
-        "primary"/empty string to get Schema 348.
+        Accepts a raw bytes32 UID, a component name (e.g. "payments"), or
+        "primary"/empty string (the configured primary schema).
+
+        FAILS CLOSED (P2-9): the resolved UID must be a 66-char 0x+64-hex
+        bytes32; an empty/malformed value (e.g. no schema registered/configured
+        for the target chain) raises ValueError rather than attesting against a
+        nonexistent placeholder schema.
         """
+        from runtime.blockchain.services.attestation.schemas import _UID_RE
         if not schema_uid or schema_uid == "primary":
-            return self.primary_schema
-
-        # If it looks like a hex UID, use it directly
-        if schema_uid.startswith("0x") and len(schema_uid) >= 10:
-            return schema_uid
-
-        # Otherwise treat it as a component name
-        return get_schema_uid(schema_uid, self.config)
+            uid = self.primary_schema
+        elif schema_uid.startswith("0x"):
+            uid = schema_uid
+        else:
+            # Component name — get_schema_uid already validates/raises.
+            uid = get_schema_uid(schema_uid, self.config)
+        if not _UID_RE.match(str(uid or "")):
+            raise ValueError(
+                "EAS schema is not configured — set blockchain.eas_schema (or "
+                "blockchain.schemas.<component>) to the registered bytes32 UID "
+                "for your target chain (see scripts/register_eas_schemas.py)."
+            )
+        return uid
 
     @staticmethod
     def _infer_category(data: dict[str, Any]) -> str:
