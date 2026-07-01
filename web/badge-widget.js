@@ -3,7 +3,7 @@
  *
  * Self-contained, zero-dependency embeddable widget.
  * Projects include:
- *   <script src="https://api.openmatrix.io/badge/widget.js"
+ *   <script src="https://api.openmatrix-ai.com/badge/widget.js"
  *           data-badge="GLASSWING-2026-0001"></script>
  *
  * The widget renders an inline badge that links to the full
@@ -30,10 +30,10 @@
 
   var apiBase =
     currentScript.getAttribute("data-api-base") ||
-    "https://api.openmatrix.io";
+    "https://api.openmatrix-ai.com";
   var verifyBase =
     currentScript.getAttribute("data-verify-base") ||
-    "https://openmatrix.io";
+    "https://openmatrix-ai.com";
 
   // ── Create a scoped container ────────────────────────────────
 
