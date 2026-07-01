@@ -712,6 +712,49 @@ class GatewayServer:
             "expires_at": expires_at,
         })
 
+    # ─── Social follow graph (P2-10) ──────────────────────────────────────
+
+    def _follow_store(self):
+        from runtime.social.follows import FollowStore
+        return FollowStore(self.react_loop.memory.db)
+
+    async def handle_social_follow(self, request: web.Request) -> web.Response:
+        """POST /social/follow — {address}. Follower = X-Wallet-Address."""
+        follower = request.headers.get("X-Wallet-Address", "").strip()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        followee = str(body.get("address", "")).strip()
+        if not follower or not followee:
+            return web.json_response({"error": "address required"}, status=400)
+        await self._follow_store().follow(follower, followee)
+        return web.json_response({"success": True, "following": followee})
+
+    async def handle_social_unfollow(self, request: web.Request) -> web.Response:
+        follower = request.headers.get("X-Wallet-Address", "").strip()
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        followee = str(body.get("address", "")).strip()
+        if not follower or not followee:
+            return web.json_response({"error": "address required"}, status=400)
+        await self._follow_store().unfollow(follower, followee)
+        return web.json_response({"success": True, "unfollowed": followee})
+
+    async def handle_social_followers(self, request: web.Request) -> web.Response:
+        address = request.match_info.get("address", "").strip()
+        followers = await self._follow_store().followers(address)
+        return web.json_response({"address": address, "followers": followers,
+                                  "count": len(followers)})
+
+    async def handle_social_following(self, request: web.Request) -> web.Response:
+        address = request.match_info.get("address", "").strip()
+        following = await self._follow_store().following(address)
+        return web.json_response({"address": address, "following": following,
+                                  "count": len(following)})
+
     # ─── Sign in with Apple (P1-8) ────────────────────────────────────────
 
     async def handle_apple_auth(self, request: web.Request) -> web.Response:
@@ -1786,6 +1829,11 @@ class GatewayServer:
         app.router.add_get("/social/trending", self.handle_social_trending)
         app.router.add_get("/social/actor/{wallet}", self.handle_social_actor)
         app.router.add_get("/social/stats", self.handle_social_stats)
+        # Follow graph (P2-10)
+        app.router.add_post("/social/follow", self.handle_social_follow)
+        app.router.add_post("/social/unfollow", self.handle_social_unfollow)
+        app.router.add_get("/social/{address}/followers", self.handle_social_followers)
+        app.router.add_get("/social/{address}/following", self.handle_social_following)
 
         # ── A2A commerce ──────────────────────────────────────────────
         app.router.add_get("/a2a/services", self.handle_a2a_services)
