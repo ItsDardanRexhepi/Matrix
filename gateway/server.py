@@ -250,6 +250,7 @@ class GatewayServer:
         self._public_paths = {
             "/health", "/auth/nonce", "/auth/verify",
             "/security/phone/request", "/security/phone/verify",
+            "/security/appattest/challenge", "/security/appattest/attest",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
@@ -278,6 +279,17 @@ class GatewayServer:
             logger.exception("Failed to initialise security OTP services")
             self._otp = None
             self._owner = None
+
+        # App Attest verifier — seam-backed (real when morpheus_security is
+        # installed, inert no-op otherwise). Reached only through runtime.security.
+        try:
+            from runtime.security import get_app_attest_verifier, SECURITY_BACKEND
+            self._app_attest = get_app_attest_verifier(self.config)
+            self._security_backend = SECURITY_BACKEND
+        except Exception:
+            logger.exception("Failed to initialise App Attest verifier")
+            self._app_attest = None
+            self._security_backend = "noop"
 
         # Daily SQLite backup. Disabled when ``backup.enabled`` is false.
         backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
@@ -1510,6 +1522,67 @@ class GatewayServer:
         result = await self._owner.start_owner_otp(apple_id, wallet)
         return web.json_response(result)  # body carries sent/reason; never leaks owner state
 
+    # ── Security: App Attest (device attestation) ─────────────────────
+    #
+    # Server half of the iOS App Attest client (P1-4). The verifier is reached
+    # only through the seam (runtime.security), so this code has no direct
+    # dependency on the private package. Under the noop backend the challenge
+    # route reports 503 (unavailable) and attest returns verified:false with a
+    # generic reason — never a 4xx that would break the client's decode path.
+
+    async def handle_appattest_challenge(self, request: web.Request) -> web.Response:
+        """GET /security/appattest/challenge?identity=… -> {"challenge": "<hex>"}."""
+        if self._app_attest is None or self._security_backend == "noop":
+            return web.json_response(
+                {"error": "security backend not installed"}, status=503)
+        identity = str(request.query.get("identity", "")).strip()
+        try:
+            challenge = await self._app_attest.new_challenge(identity)
+        except Exception:
+            # Real backend refused (e.g. store unavailable) — honest 503.
+            logger.exception("App Attest challenge failed")
+            return web.json_response(
+                {"error": "challenge unavailable"}, status=503)
+        return web.json_response({"challenge": challenge})
+
+    async def handle_appattest_attest(self, request: web.Request) -> web.Response:
+        """POST /security/appattest/attest — {key_id, attestation_obj_b64, challenge}
+        -> {"verified": bool, "reason": str|null}. 200 on a clean rejection so the
+        client's decode path works; 400 only on a malformed body."""
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        key_id = str(body.get("key_id", "")).strip()
+        attestation_obj_b64 = str(body.get("attestation_obj_b64", "")).strip()
+        challenge = str(body.get("challenge", "")).strip()
+        if not (key_id and attestation_obj_b64 and challenge):
+            return web.json_response(
+                {"error": "key_id, attestation_obj_b64, challenge are required"},
+                status=400)
+        if self._app_attest is None or self._security_backend == "noop":
+            return web.json_response(
+                {"verified": False, "reason": "security backend not installed"})
+        # Identity that the challenge was bound to — the authenticated wallet
+        # header (mirrors the challenge request's identity), else a body field.
+        identity = (request.headers.get("X-Wallet-Address")
+                    or str(body.get("identity", ""))).strip()
+        try:
+            result = await self._app_attest.verify_attestation(
+                identity=identity,
+                key_id=key_id,
+                attestation_obj_b64=attestation_obj_b64,
+                challenge=challenge,
+            )
+        except Exception:
+            logger.exception("App Attest attestation verification error")
+            return web.json_response(
+                {"verified": False, "reason": "verification_error"})
+        return web.json_response({
+            "verified": bool(result.get("verified", False)),
+            "reason": result.get("reason") or None,
+        })
+
     async def _on_cleanup(self, app: web.Application) -> None:
         """Run on aiohttp shutdown to cancel background tasks and log shutdown."""
         # Final flush of durable security state before shutting down.
@@ -1565,6 +1638,8 @@ class GatewayServer:
         app.router.add_post("/security/phone/request", self.handle_otp_request)
         app.router.add_post("/security/phone/verify", self.handle_otp_verify)
         app.router.add_post("/security/owner/request", self.handle_owner_otp_request)
+        app.router.add_get("/security/appattest/challenge", self.handle_appattest_challenge)
+        app.router.add_post("/security/appattest/attest", self.handle_appattest_attest)
         app.router.add_get("/metrics", self.handle_metrics)
         app.router.add_get("/metrics/prom", self.handle_metrics_prometheus)
 

@@ -39,6 +39,7 @@ try:
         get_morpheus_security,
         reset_morpheus_security,
         evaluate_agent_access as _private_agent_access,
+        get_app_attest_verifier,
     )
 
     SECURITY_BACKEND = "morpheus_security"
@@ -122,6 +123,28 @@ except Exception:  # ImportError, or any load error → inert OBSERVE no-op.
         global _noop_singleton
         _noop_singleton = None
 
+    class _NoopAppAttestVerifier:
+        """Inert App Attest verifier: no challenges, no verification (no backend)."""
+
+        enforce = False
+
+        async def new_challenge(self, identity: str) -> str:
+            raise RuntimeError("security backend not installed")
+
+        async def verify_attestation(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"verified": False, "reason": "security backend not installed"}
+
+        async def verify_assertion(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            return {"verified": False, "reason": "security backend not installed"}
+
+    _noop_attest_singleton: _NoopAppAttestVerifier | None = None
+
+    def get_app_attest_verifier(config: dict[str, Any] | None = None):
+        global _noop_attest_singleton
+        if _noop_attest_singleton is None:
+            _noop_attest_singleton = _NoopAppAttestVerifier()
+        return _noop_attest_singleton
+
 
 def agent_access_allowed(
     agent: str | None,
@@ -157,6 +180,7 @@ __all__ = [
     "reset_morpheus_security",
     "OTPService",
     "OwnerVerification",
+    "get_app_attest_verifier",
     "SECURITY_BACKEND",
     "agent_access_allowed",
 ]
