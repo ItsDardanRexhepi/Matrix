@@ -1675,7 +1675,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             {"name": "amount_b", "type": "number", "description": "Amount of second token.", "example": 3000},
         ],
         "optional_params": [],
-        "keywords": ["add liquidity", "provide liquidity", "LP", "liquidity pool", "become LP"],
+        # Legacy alias — overlapping keywords ("add liquidity", "provide liquidity",
+        # "liquidity pool") consolidated into liquidity_provide (P3-12), which is the
+        # canonical entry (richer params: price ranges, protocol). Kept reachable by
+        # direct action-name calls and its own non-overlapping keywords.
+        "keywords": ["LP", "become LP"],
         "follow_up": "Which pair and how much of each token?",
         "example_conversation": (
             "User: Add liquidity to ETH/USDC pool\n"
