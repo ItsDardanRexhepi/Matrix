@@ -72,6 +72,14 @@ class NotificationDispatcher:
         self._channels: dict[str, Channel] = {
             cls.name: cls(config) for cls in CHANNEL_CLASSES
         }
+        # Optional runtime-registered iOS push token store (P1-6). Attached by
+        # the gateway once the DB is available; None otherwise.
+        self._token_store = None
+
+    def set_token_store(self, store) -> None:
+        """Attach the PushTokenStore so broadcasts can fill in registered iOS
+        device tokens when the caller didn't provide explicit ones."""
+        self._token_store = store
 
     # ── Introspection ────────────────────────────────────────────────────
 
@@ -113,6 +121,18 @@ class NotificationDispatcher:
 
         if not targets:
             return {}
+
+        # If the iOS push channel is a target and the caller didn't pass explicit
+        # device_tokens, fill them from the registered-token store (P1-6).
+        if self._token_store is not None and any(c.name == "ios_push" for c in targets):
+            has_tokens = bool((metadata or {}).get("device_tokens"))
+            if not has_tokens:
+                try:
+                    tokens = await self._token_store.all_tokens()
+                    if tokens:
+                        metadata = {**(metadata or {}), "device_tokens": tokens}
+                except Exception as exc:
+                    logger.warning("Push token lookup failed: %s", exc)
 
         results = await asyncio.gather(
             *(self._send_safe(c, message, level, metadata) for c in targets),

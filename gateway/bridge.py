@@ -543,6 +543,9 @@ class BridgeRoutes:
         app.router.add_post("/bridge/v1/wallet/link", self.link_wallet)
         app.router.add_get("/bridge/v1/wallet/status", self.wallet_status)
 
+        # Push notification registration (P1-6)
+        app.router.add_post("/bridge/v1/push/register", self.register_push)
+
         # App config
         app.router.add_get("/bridge/v1/config", self.get_config)
         app.router.add_get("/bridge/v1/services", self.get_services)
@@ -753,6 +756,39 @@ class BridgeRoutes:
         except Exception as e:
             logger.error(f"Bridge action error: {e}", exc_info=True)
             return MobileResponse.error(str(e), 500)
+
+    # ─── Push notifications ─────────────────────────────────────────────────
+
+    async def register_push(self, request: web.Request) -> web.Response:
+        """POST /bridge/v1/push/register — {session_id, push_token} ->
+        {registered: bool}. Persists the APNs device token so iOSPushChannel can
+        fan out pushes. Actually SENDING pushes stays credential-gated (APNs
+        .p8/key_id/team_id/bundle_id) — see HUMAN_ACTIONS.md."""
+        try:
+            body = await request.json()
+        except Exception:
+            return MobileResponse.error("invalid JSON")
+        push_token = str(body.get("push_token", "")).strip()
+        session_id = str(body.get("session_id", "")).strip()
+        if not push_token:
+            return MobileResponse.error("push_token required")
+        linked = self._linked_wallets.get(session_id) or {}
+        wallet = linked.get("address", "")
+        try:
+            from runtime.notifications.token_store import PushTokenStore
+            db = self._server.react_loop.memory.db
+            store = PushTokenStore(db)
+            await store.register(
+                push_token,
+                session_id=session_id,
+                wallet=wallet,
+                platform="ios",
+                bundle_id=str(body.get("bundle_id", "")),
+            )
+        except Exception as exc:
+            logger.error("push token registration failed: %s", exc)
+            return MobileResponse.error("registration failed", 500)
+        return MobileResponse.ok({"registered": True})
 
     # ─── Wallet ───────────────────────────────────────────────────────────
 

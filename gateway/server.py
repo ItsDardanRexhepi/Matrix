@@ -1454,6 +1454,15 @@ class GatewayServer:
         except Exception as exc:
             logger.warning("Social feed engine init skipped: %s", exc)
 
+        # ── Push token store (P1-6) — give the notifier live device tokens ──
+        try:
+            from runtime.notifications.token_store import PushTokenStore
+            if getattr(self, "notifier", None) is not None:
+                self.notifier.set_token_store(PushTokenStore(self.react_loop.memory.db))
+                logger.info("Push token store attached to notifier.")
+        except Exception as exc:
+            logger.warning("Push token store init skipped: %s", exc)
+
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets and service caches."""
         while True:
