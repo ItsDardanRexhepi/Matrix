@@ -206,6 +206,20 @@ def load_config() -> dict:
     return config
 
 
+def attach_social_feed(react_loop, engine):
+    """Attach the social feed engine to the ServiceDispatcher nested inside
+    the ReAct ToolDispatcher (``react_loop.dispatcher.service_dispatcher``).
+
+    The ToolDispatcher itself has no ``attach_feed_engine`` — the publisher
+    lives on the nested ServiceDispatcher. Returns the ServiceDispatcher the
+    engine was attached to, or ``None`` if unavailable (P0-1).
+    """
+    sd = getattr(getattr(react_loop, "dispatcher", None), "service_dispatcher", None)
+    if sd is not None:
+        sd.attach_feed_engine(engine)
+    return sd
+
+
 class GatewayServer:
     """
     The main HTTP server for 0pnMatrx.
@@ -293,6 +307,10 @@ class GatewayServer:
         self.a2a_marketplace = None
         self.social_manager = None
         self.social_feed_engine = None
+        # Shared ServiceDispatcher (set at startup once the feed engine is
+        # attached) — the mobile bridge reuses this instance so iOS direct
+        # actions publish to the feed too (P0-1).
+        self.service_dispatcher = None
         self.protocol_referrals = None
         self.badge_manager = None
         self.certification_manager = None
@@ -1409,11 +1427,17 @@ class GatewayServer:
             from runtime.social.feed_engine import SocialFeedEngine
             db = self.react_loop.memory.db
             self.social_feed_engine = SocialFeedEngine(db)
-            # Attach to the service dispatcher so state-modifying actions
-            # are automatically published to the feed.
-            dispatcher = getattr(self.react_loop, "dispatcher", None)
-            if dispatcher is not None:
-                dispatcher.attach_feed_engine(self.social_feed_engine)
+            # Attach to the ServiceDispatcher nested inside the ReAct
+            # ToolDispatcher so state-modifying actions are automatically
+            # published to the feed.
+            service_dispatcher = attach_social_feed(self.react_loop, self.social_feed_engine)
+            if service_dispatcher is not None:
+                # Shared instance — the mobile bridge reuses this so iOS direct
+                # actions publish to the feed too (see gateway/bridge.py
+                # execute_action).
+                self.service_dispatcher = service_dispatcher
+            else:
+                logger.warning("Social feed: no ServiceDispatcher available to attach to.")
             logger.info("Social feed engine initialized.")
         except Exception as exc:
             logger.warning("Social feed engine init skipped: %s", exc)

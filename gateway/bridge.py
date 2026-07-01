@@ -738,8 +738,12 @@ class BridgeRoutes:
             return MobileResponse.error(generic_denial(decision), 403)
 
         try:
-            from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
-            dispatcher = ServiceDispatcher(self._config)
+            # Reuse the server's shared ServiceDispatcher (feed engine attached
+            # at startup) so direct iOS actions publish to the social feed too.
+            dispatcher = getattr(self._server, "service_dispatcher", None)
+            if dispatcher is None:
+                from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+                dispatcher = ServiceDispatcher(self._config)   # cold fallback: works, but no feed
             result = await dispatcher.execute(action, params)
             return MobileResponse.ok(result)
         except KeyError as e:
