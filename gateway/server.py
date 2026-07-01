@@ -251,6 +251,7 @@ class GatewayServer:
             "/health", "/auth/nonce", "/auth/verify",
             "/security/phone/request", "/security/phone/verify",
             "/security/appattest/challenge", "/security/appattest/attest",
+            "/api/v1/auth/apple", "/api/v1/auth/account",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
@@ -290,6 +291,10 @@ class GatewayServer:
             logger.exception("Failed to initialise App Attest verifier")
             self._app_attest = None
             self._security_backend = "noop"
+
+        # Sign in with Apple — JWKS cache for identity-token verification (P1-8).
+        from gateway.apple_auth import AppleJWKSCache
+        self._apple_jwks = AppleJWKSCache()
 
         # Daily SQLite backup. Disabled when ``backup.enabled`` is false.
         backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
@@ -705,6 +710,106 @@ class GatewayServer:
             "token": token,
             "address": address,
             "expires_at": expires_at,
+        })
+
+    # ─── Sign in with Apple (P1-8) ────────────────────────────────────────
+
+    async def handle_apple_auth(self, request: web.Request) -> web.Response:
+        """POST /api/v1/auth/apple — verify Apple's identityToken and issue a
+        session. Response is camelCase to match the client's AuthResponse.
+
+        Fail-closed: if auth.apple.bundle_id is unconfigured -> 503 (never
+        verifies against a wildcard audience)."""
+        from gateway.apple_auth import (
+            verify_apple_identity_token, AppleAuthError, AppleAuthNotConfigured,
+        )
+        from runtime.auth.siwe import create_session_token
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        identity_token = str(body.get("identityToken", "")).strip()
+        if not identity_token:
+            return web.json_response({"error": "identityToken required"}, status=400)
+
+        try:
+            claims = await verify_apple_identity_token(
+                identity_token, config=self.config, jwks_cache=self._apple_jwks)
+        except AppleAuthNotConfigured:
+            return web.json_response({"error": "apple auth not configured"}, status=503)
+        except AppleAuthError:
+            return web.json_response({"error": "invalid Apple identity token"}, status=401)
+
+        sub = str(claims.get("sub", "")).strip()
+        if not sub:
+            return web.json_response({"error": "invalid Apple identity token"}, status=401)
+
+        # Session bound to a stable Apple user id (surrogate address "apple:<sub>").
+        # A linked wallet, if any, is looked up from the wallet-link table; the
+        # client's AuthResponse.walletAddress is non-optional so return "" when
+        # none exists yet.
+        user_key = f"apple:{sub}"
+        wallet_address = ""
+        try:
+            existing = self.wallet_sessions.get_by_address(user_key) \
+                if hasattr(self.wallet_sessions, "get_by_address") else None
+            is_new_user = existing is None
+        except Exception:
+            is_new_user = True
+
+        token = create_session_token()
+        now = time.time()
+        expires_at = now + self._wallet_session_ttl
+        await self.wallet_sessions.add(
+            token=token, address=user_key, issued_at=now, expires_at=expires_at)
+
+        return web.json_response({
+            "token": token,
+            "userId": sub,
+            "walletAddress": wallet_address,
+            "expiresAt": expires_at,
+            "isNewUser": is_new_user,
+        })
+
+    async def handle_account_delete(self, request: web.Request) -> web.Response:
+        """DELETE /api/v1/auth/account — delete the caller's server-side data and
+        (credential-gated) revoke the Apple token.
+
+        Deleted here: the caller's wallet session (X-Wallet-Session) and every push
+        token registered under that session. Apple token revocation runs only when
+        auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
+        deletion still succeeds and revocation is skipped with a WARNING."""
+        from gateway.apple_auth import apple_revocation_configured
+        token = request.headers.get("X-Wallet-Session", "").strip()
+        session = self.wallet_sessions.get(token) if token else None
+
+        # Push tokens registered under this session.
+        try:
+            from runtime.notifications.token_store import PushTokenStore
+            store = PushTokenStore(self.react_loop.memory.db)
+            if session is not None:
+                for dev in await store.tokens_for(session_id=token):
+                    await store.remove(dev)
+        except Exception:
+            logger.debug("account delete: push-token cleanup skipped")
+
+        # The wallet session itself.
+        if token:
+            try:
+                await self.wallet_sessions.remove(token)
+            except Exception:
+                logger.debug("account delete: session removal skipped")
+
+        if not apple_revocation_configured(self.config):
+            logger.warning(
+                "Account deleted locally; Apple token revocation SKIPPED "
+                "(auth.apple.team_id/key_id/private_key_p8 not configured).")
+
+        import datetime
+        return web.json_response({
+            "success": True,
+            "deletedAt": datetime.datetime.utcnow().isoformat() + "Z",
         })
 
     # ─── Streaming ────────────────────────────────────────────────────────
@@ -1644,6 +1749,8 @@ class GatewayServer:
         app.router.add_post("/memory/write", self.handle_memory_write)
         app.router.add_post("/auth/nonce", self.handle_auth_nonce)
         app.router.add_post("/auth/verify", self.handle_auth_verify)
+        app.router.add_post("/api/v1/auth/apple", self.handle_apple_auth)
+        app.router.add_delete("/api/v1/auth/account", self.handle_account_delete)
         app.router.add_post("/security/phone/request", self.handle_otp_request)
         app.router.add_post("/security/phone/verify", self.handle_otp_verify)
         app.router.add_post("/security/owner/request", self.handle_owner_otp_request)

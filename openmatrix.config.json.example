@@ -147,6 +147,15 @@
       "bearer_token": ""
     }
   },
+  "auth": {
+    "apple": {
+      "//": "Sign in with Apple (P1-8). bundle_id is REQUIRED for /api/v1/auth/apple to verify the identity token's audience; without it the route fails closed (503). team_id/key_id/private_key_p8 are ONLY needed for token revocation on account deletion — App Review requires working deletion once server accounts are live.",
+      "bundle_id": "com.opnmatrx.mtrx",
+      "team_id": "",
+      "key_id": "",
+      "private_key_p8": ""
+    }
+  },
   "services": {
     "agent_identity": {
       "enabled": true,

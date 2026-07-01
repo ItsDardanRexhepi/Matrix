@@ -16,3 +16,6 @@ python-dotenv>=1.0.0
 cryptography>=42.0.0
 qrcode>=7.4
 requests-oauthlib>=1.3.0
+
+# Sign in with Apple identity-token verification (P1-8)
+PyJWT[crypto]>=2.8

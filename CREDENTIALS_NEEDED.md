@@ -46,3 +46,10 @@ Set under `services.<name>.*` in `openmatrix.config.json`. Each service returns 
 | nft_lending | `services.nft_lending.pool_address` (BendDAO/NFTfi/Arcade) | NFT-backed loans |
 | ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + per-bridge addresses | CCIP/Hyperlane/Wormhole/Axelar/Stargate |
 | auctions | `services.auctions.auction_address` + `.orderbook_address` | Dutch/English/sealed-bid + orderbook |
+
+## 8. Sign in with Apple — server credentials (P1-8)
+
+| Credential | Where | Unlocks |
+|---|---|---|
+| `auth.apple.bundle_id` (`com.opnmatrx.mtrx`) | `openmatrix.config.json` | **Required** for `POST /api/v1/auth/apple` — the identity-token audience check. Unset → route fails closed (503). |
+| `auth.apple.team_id` + `key_id` + `private_key_p8` (Sign in with Apple key) | `openmatrix.config.json` / secret | Token **revocation** on account deletion (`DELETE /api/v1/auth/account`). App Review requires working deletion once server accounts are live. Unconfigured → local data still deleted, Apple revocation skipped with a WARNING. |
