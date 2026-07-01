@@ -257,7 +257,7 @@ class GatewayServer:
         self._security_flush_task: asyncio.Task | None = None
         # Security OTP services — phone verification (owner + consumer phone connect).
         try:
-            from runtime.security import OTPService, OwnerVerification  # seam → matrix_security or no-op
+            from runtime.security import OTPService, OwnerVerification  # seam → morpheus_security or no-op
             self._otp = OTPService(self.config)
             self._owner = OwnerVerification(self.config, otp_service=self._otp)
         except Exception:
@@ -1330,7 +1330,7 @@ class GatewayServer:
         # and load durable bans before serving; then flush its durable state
         # (bans -> DB/on-chain, breach alerts -> SMS/on-chain) on a short timer.
         try:
-            from runtime.security import get_morpheus_security  # seam → matrix_security or no-op
+            from runtime.security import get_morpheus_security  # seam → morpheus_security or no-op
             self._morpheus = get_morpheus_security(
                 {**self.config, "db": self.react_loop.memory.db}
             )

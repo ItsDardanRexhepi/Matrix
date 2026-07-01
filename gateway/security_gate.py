@@ -11,7 +11,7 @@ sanitizer patterns, no owner/OTP internals. It only:
      security seam (``runtime.security``).
 
 The decision — allow / deny / classification — is made entirely inside the private
-``matrix_security`` package. When that package is not installed the seam is an inert
+``morpheus_security`` package. When that package is not installed the seam is an inert
 OBSERVE no-op and this gate allows everything (the platform still boots).
 
 The one piece of routing metadata here, ``action_type_for``, maps a public service

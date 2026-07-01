@@ -9,7 +9,7 @@ the caller IS, regardless of what the prompt says.
 
 This module is the coarse PUBLIC floor. The authoritative, finer-grained policy
 (exact per-agent sets, ban/freeze integration, the closed-source nuance) lives in
-the private ``matrix_security.agent_access`` package and supersedes this when it
+the private ``morpheus_security.agent_access`` package and supersedes this when it
 is installed. The security seam (``runtime.security.agent_access_allowed``) binds
 the two: private if present, else this default. Either way the boundary holds.
 

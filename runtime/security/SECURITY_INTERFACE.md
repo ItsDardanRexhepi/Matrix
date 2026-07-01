@@ -20,13 +20,13 @@ owners, or sanitizes — are **not in this repository** and never will be.
 
 ## Two backends
 
-- **`matrix_security` installed** → real enforcement (the private package,
+- **`morpheus_security` installed** → real enforcement (the private package,
   co-installed at deploy).
 - **not installed** (open-source clone, local dev) → an inert **OBSERVE no-op**:
   every action is allowed and logged, nothing is enforced. The platform boots
   and runs normally; it simply has no real security layer.
 
-`SECURITY_BACKEND` (`"matrix_security"` or `"noop"`) reports which is active.
+`SECURITY_BACKEND` (`"morpheus_security"` or `"noop"`) reports which is active.
 
 ## Status
 

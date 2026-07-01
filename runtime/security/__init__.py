@@ -2,7 +2,7 @@
 
 This package is a BOUNDARY, not an implementation. It exposes the security
 contract the open platform calls (the Morpheus gate, OTP, owner verification)
-and binds it to the private ``matrix_security`` package **if that package is
+and binds it to the private ``morpheus_security`` package **if that package is
 installed**. If it is not — an open-source clone, or local dev — the seam falls
 back to an inert OBSERVE no-op: every action is allowed and logged, nothing is
 enforced. The platform boots either way.
@@ -11,7 +11,7 @@ A developer reading this repo can see that security IS invoked and where; the
 rules for HOW it decides (detection, classification, bans, owner/OTP internals,
 sanitizer patterns) live only in the private package and never appear here.
 
-  - Real enforcement  → install ``matrix_security`` (private), co-located at deploy.
+  - Real enforcement  → install ``morpheus_security`` (private), co-located at deploy.
   - No private package → OBSERVE no-op (safe, non-blocking, no enforcement).
 
 The Glasswing contract auditor (``audit.py``) is a separate, open feature and is
@@ -29,9 +29,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    # Real enforcement core (private repo: Matrix-Security-System). Present only
+    # Real enforcement core (private repo: Morpheus-Security-System). Present only
     # when co-installed at deploy. The seam imports names, never logic.
-    from matrix_security import (  # type: ignore
+    from morpheus_security import (  # type: ignore
         MorpheusMode,
         MorpheusSecurity,
         OTPService,
@@ -41,16 +41,16 @@ try:
         evaluate_agent_access as _private_agent_access,
     )
 
-    SECURITY_BACKEND = "matrix_security"
-    logger.info("Security backend: matrix_security (real enforcement available)")
+    SECURITY_BACKEND = "morpheus_security"
+    logger.info("Security backend: morpheus_security (real enforcement available)")
 
 except Exception:  # ImportError, or any load error → inert OBSERVE no-op.
     SECURITY_BACKEND = "noop"
     _private_agent_access = None
     logger.warning(
-        "Security backend: noop. The private matrix_security package is not "
+        "Security backend: noop. The private morpheus_security package is not "
         "installed; the platform runs with security in OBSERVE (no enforcement). "
-        "Install matrix_security for real enforcement (see SECURITY_INTERFACE.md)."
+        "Install morpheus_security for real enforcement (see SECURITY_INTERFACE.md)."
     )
 
     class MorpheusMode(str, Enum):  # type: ignore[no-redef]
@@ -133,7 +133,7 @@ def agent_access_allowed(
 
     The ToolDispatcher calls this on EVERY tool call, keyed on the trusted
     ``agent`` from the request context. The authoritative policy lives in the
-    private ``matrix_security`` package when installed; otherwise the public
+    private ``morpheus_security`` package when installed; otherwise the public
     coarse default (``runtime.access_policy``) applies. Either way the per-agent
     boundary is enforced — a subverted agent cannot reach another agent's tools.
 

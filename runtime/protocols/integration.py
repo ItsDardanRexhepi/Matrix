@@ -119,7 +119,7 @@ class ProtocolStack:
         # config is passed so the layer resolves owner/blockchain/db subtrees (the
         # gateway creates the singleton first, at startup, with the DB handle).
         try:
-            from runtime.security import get_morpheus_security  # seam → matrix_security or no-op
+            from runtime.security import get_morpheus_security  # seam → morpheus_security or no-op
             self._morpheus_security = get_morpheus_security(self.config)
         except Exception:
             logger.exception("Failed to initialise MorpheusSecurity")

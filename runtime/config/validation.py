@@ -76,7 +76,7 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("notifications.webhook.bearer_token",  "NOTIFY_WEBHOOK_BEARER", False),
     # NOTE: owner-verification secrets (OWNER_APPLE_ID / OWNER_WALLET /
     # OWNER_PHONE_NUMBER) are declared and validated by the private security
-    # package (matrix_security), not here — the public platform never references
+    # package (morpheus_security), not here — the public platform never references
     # the owner-auth factors. All env-only; never committed.
     # Observability
     ("monitoring.sentry_dsn", "SENTRY_DSN", False),
