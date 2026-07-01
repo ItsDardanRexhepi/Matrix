@@ -17,6 +17,13 @@ logger = logging.getLogger(__name__)
 
 class AgentIdentity(BlockchainInterface):
 
+    def __init__(self, config: dict):
+        super().__init__(config)
+        # agent_name -> its registration attestation UID, captured on register so
+        # verify can resolve it without the caller re-supplying it (best-effort
+        # in-process cache; callers may also pass attestation_uid explicitly).
+        self._registrations: dict[str, str] = {}
+
     @property
     def name(self) -> str:
         return "agent_identity"
@@ -65,41 +72,58 @@ class AgentIdentity(BlockchainInterface):
                 "capabilities": self._get_capabilities(agent_name),
             },
         )
+        # Cache the real attestation UID (only when the attest actually produced
+        # one) so verify() can resolve this agent later. Never fabricate.
+        uid = result.get("uid") or result.get("attestation_uid") if isinstance(result, dict) else None
+        if uid and str(uid).startswith("0x") and len(str(uid)) == 66:
+            self._registrations[agent_name] = uid
         return json.dumps(result, indent=2, default=str)
 
     async def _verify(self, params: dict) -> str:
-        """Verify an agent's on-chain identity.
+        """Verify an agent's on-chain identity (M2, real per-agent check).
 
-        HONEST FAILURE (fail-closed): there is no per-agent attestation/registration
-        lookup yet, so this CANNOT confirm a specific agent's identity. It must NOT
-        report ``verified`` based on an unrelated condition — the previous version set
-        ``verified = tx_count > 0`` on the SHARED platform wallet, so ANY agent name
-        passed once that one wallet had a single transaction. A check that passes for
-        the wrong reason is the same danger class as a fake success. Until the real
-        per-agent attestation check is built, this returns ``verified: False`` with an
-        honest reason. The wallet figures below are CONTEXT ONLY and are explicitly not
-        the basis for verification.
+        Resolves THIS agent's own registration attestation UID (from an explicit
+        ``attestation_uid`` param, else the register-time cache) and checks THAT
+        attestation on-chain via ``EASClient.verify`` (EAS ``getAttestation``:
+        exists + not revoked). ``verified`` is derived only from the agent's own
+        attestation — never from unrelated platform-wallet activity (the previous
+        ``tx_count > 0`` trap). Fail-closed:
+          • no registration resolved   -> verified False ("no registration")
+          • RPC/EAS unconfigured        -> verified False ("lookup unconfigured")
+          • attestation absent/revoked  -> verified False (honest reason)
         """
         agent_name = params.get("agent_name", "neo")
-        try:
-            balance_wei = self.web3.eth.get_balance(self.platform_wallet) if self.platform_wallet else 0
-            tx_count = self.web3.eth.get_transaction_count(self.platform_wallet) if self.platform_wallet else 0
-        except Exception:
-            balance_wei, tx_count = 0, 0
+        uid = params.get("attestation_uid") or self._registrations.get(agent_name)
 
-        return json.dumps({
-            "agent": agent_name,
-            "platform": "0pnMatrx",
-            "verified": False,
-            "reason": ("Per-agent on-chain attestation verification is not available yet; "
-                       "this agent's identity cannot be confirmed. (Platform-wallet "
-                       "activity is shown for context only and does NOT verify any agent.)"),
-            "platform_wallet": self.platform_wallet,
-            "wallet_tx_count": tx_count,
-            "wallet_has_balance": balance_wei > 0,
-            "capabilities": self._get_capabilities(agent_name),
-            "network": self.network,
-        }, indent=2)
+        base = {"agent": agent_name, "platform": "0pnMatrx", "network": self.network,
+                "capabilities": self._get_capabilities(agent_name)}
+
+        if not (uid and str(uid).startswith("0x")):
+            return json.dumps({**base, "verified": False,
+                               "reason": f"No registration attestation found for agent '{agent_name}'. "
+                                         "Register the agent first (action=register)."}, indent=2)
+
+        from runtime.blockchain.eas_client import EASClient
+        result = await EASClient(self.config).verify(str(uid))
+
+        if result.get("error"):
+            # RPC / EAS contract not configured — cannot confirm; never say true.
+            return json.dumps({**base, "verified": False, "attestation_uid": uid,
+                               "reason": "Attestation lookup unconfigured (RPC / EAS contract "
+                                         "not configured); this agent's identity cannot be confirmed."},
+                              indent=2)
+        if result.get("verified"):
+            return json.dumps({**base, "verified": True, "attestation_uid": uid,
+                               "attester": result.get("attester"),
+                               "verified_via": "eas:getAttestation"}, indent=2)
+        if not result.get("exists"):
+            reason = "No such attestation exists on-chain for this agent."
+        elif result.get("revoked"):
+            reason = "This agent's attestation has been revoked."
+        else:
+            reason = "This agent's attestation is invalid."
+        return json.dumps({**base, "verified": False, "attestation_uid": uid,
+                           "reason": reason}, indent=2)
 
     async def _attest_action(self, params: dict) -> str:
         """Attest an action performed by an agent."""
