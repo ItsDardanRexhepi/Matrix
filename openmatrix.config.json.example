@@ -83,6 +83,12 @@
     "chain_id": 84532,
     "eas_contract": "0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
     "eas_schema": "YOUR_EAS_SCHEMA_UID",
+    "schemas": {
+      "//": "EAS schema UIDs are chain-specific keccak256 SchemaRegistry hashes (bytes32), NOT easscan display numbers like '348'. Register per chain with scripts/register_eas_schemas.py and paste the resulting UIDs here. Empty/malformed values fail closed (no attestation against a placeholder). 'primary' overrides blockchain.eas_schema for the core schema.",
+      "primary": "",
+      "identity": "",
+      "payments": ""
+    },
     "paymaster_address": "YOUR_PAYMASTER_ADDRESS",
     "paymaster_private_key": "YOUR_PAYMASTER_PRIVATE_KEY",
     "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS",
