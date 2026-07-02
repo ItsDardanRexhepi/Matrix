@@ -53,3 +53,11 @@ Set under `services.<name>.*` in `openmatrix.config.json`. Each service returns 
 |---|---|---|
 | `auth.apple.bundle_id` (`com.opnmatrx.mtrx`) | `openmatrix.config.json` | **Required** for `POST /api/v1/auth/apple` — the identity-token audience check. Unset → route fails closed (503). |
 | `auth.apple.team_id` + `key_id` + `private_key_p8` (Sign in with Apple key) | `openmatrix.config.json` / secret | Token **revocation** on account deletion (`DELETE /api/v1/auth/account`). App Review requires working deletion once server accounts are live. Unconfigured → local data still deleted, Apple revocation skipped with a WARNING. |
+
+## 9. IAP verification — monetization server (Phase 3)
+
+| Credential | Where | Unlocks |
+|---|---|---|
+| `iap.bundle_id` (`com.opnmatrx.mtrx`) | `openmatrix.config.json` | **Required** for `POST /api/v1/iap/verify` + `POST /api/v1/iap/asn` — the signed-transaction bundle check. Unset → both routes fail closed (503). |
+| `iap.environment` (`Production` or `Sandbox`) | `openmatrix.config.json` | Optional: restricts accepted payloads to one App Store environment. Unset → both accepted (each row records its environment). |
+| ASN V2 webhook URL registered in App Store Connect → `https://<gateway>/api/v1/iap/asn` | App Store Connect → App Information | Renewal/expiry/refund/revoke flips reaching the server. No shared secret — the webhook authenticates by its Apple-signed JWS chain (pinned root at `gateway/certs/AppleRootCA-G3.pem`). |
