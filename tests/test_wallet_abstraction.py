@@ -36,26 +36,12 @@ class TestAccountManager:
     """Verify AccountManager session wallets, balances, gas, batching, and display helpers."""
 
     @pytest.mark.asyncio
-    async def test_get_or_create_session_wallet(self):
+    async def test_session_wallet_is_fenced(self):
+        # M3/M4 (Resolution C): the hash-derived fake "keyless wallet" is retired
+        # and must raise rather than fabricate an address.
         mgr = AccountManager(config={})
-        wallet = await mgr.get_or_create_session_wallet("test-session-1")
-        assert isinstance(wallet, str)
-        assert wallet.startswith("0x")
-        assert len(wallet) == 42  # 0x + 40 hex chars
-
-    @pytest.mark.asyncio
-    async def test_session_wallet_deterministic(self):
-        mgr = AccountManager(config={})
-        wallet_a = await mgr.get_or_create_session_wallet("determinism-check")
-        wallet_b = await mgr.get_or_create_session_wallet("determinism-check")
-        assert wallet_a == wallet_b
-
-    @pytest.mark.asyncio
-    async def test_different_sessions_different_wallets(self):
-        mgr = AccountManager(config={})
-        wallet_x = await mgr.get_or_create_session_wallet("session-x")
-        wallet_y = await mgr.get_or_create_session_wallet("session-y")
-        assert wallet_x != wallet_y
+        with pytest.raises(NotImplementedError):
+            await mgr.get_or_create_session_wallet("test-session-1")
 
     @pytest.mark.asyncio
     async def test_get_balance_offline(self):
@@ -88,11 +74,12 @@ class TestAccountManager:
         assert result["gas_units"] > 0
 
     @pytest.mark.asyncio
-    async def test_sponsor_gas_not_configured(self):
+    async def test_sponsor_gas_is_fenced(self):
+        # M3/M4 (Resolution C): the fabricated "sponsored: True" path is retired;
+        # sponsorship comes from the real verifying-paymaster sign route.
         mgr = AccountManager(config={})
-        result = await mgr.sponsor_gas(tx={"action": "transfer", "chain": "base"})
-        assert isinstance(result, dict)
-        assert result["sponsored"] is False
+        with pytest.raises(NotImplementedError):
+            await mgr.sponsor_gas(tx={"action": "transfer", "chain": "base"})
 
     @pytest.mark.asyncio
     async def test_batch_transactions(self):

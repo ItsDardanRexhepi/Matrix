@@ -181,6 +181,12 @@ class ServiceRoutes:
         # Security preflight (the send-path gate consult; P1-5)
         app.router.add_post("/api/v1/security/preflight", self._handle_security_preflight)
 
+        # Verifying-paymaster gas-sponsorship signature (P4)
+        app.router.add_post("/api/v1/paymaster/sign", self._handle_paymaster_sign)
+
+        # ETH/USD price (P4) — Chainlink primary, Coinbase fallback, honest 503
+        app.router.add_get("/api/v1/price/eth-usd", self._handle_eth_usd_price)
+
         # NFT (Component 3)
         app.router.add_post("/api/v1/nft/mint", self._handle_nft_mint)
         app.router.add_post("/api/v1/nft/collection/create", self._handle_nft_collection_create)
@@ -645,6 +651,95 @@ class ServiceRoutes:
     # ------------------------------------------------------------------
     # Endpoint handlers
     # ------------------------------------------------------------------
+
+    # -- ETH/USD price (P4) --
+
+    def _price_feed(self):
+        from runtime.blockchain.price_feed import PriceFeed
+        if getattr(self, "_price_feed_inst", None) is None:
+            self._price_feed_inst = PriceFeed(getattr(self, "_config", {}) or {})
+        return self._price_feed_inst
+
+    async def _handle_eth_usd_price(self, request: web.Request) -> web.Response:
+        """GET /api/v1/price/eth-usd -> {pair, price, source, decimals, updated_at}.
+        Chainlink primary, Coinbase fallback, 30s cache. If no source is reachable
+        -> 503 (never a stale/invented number)."""
+        from runtime.blockchain.price_feed import PriceUnavailable
+        try:
+            data = await self._price_feed().eth_usd()
+        except PriceUnavailable as exc:
+            return web.json_response({"error": str(exc)}, status=503)
+        except Exception as exc:
+            logger.exception("eth-usd price failed")
+            return web.json_response({"error": "price unavailable"}, status=503)
+        return web.json_response(data)
+
+    # -- Verifying paymaster sign (P4) --
+
+    async def _handle_paymaster_sign(self, request: web.Request) -> web.Response:
+        """POST /api/v1/paymaster/sign — sign a gas-sponsorship approval for a
+        UserOperation. Returns {"paymasterAndData": "0x..."} the client splices
+        into the userOp. Non-custodial: signs ONLY a gas-sponsorship digest with a
+        platform key; never the account's own signature, never moves user funds.
+
+        Sponsorship policy (allowlisted action types + per-identity daily USD cap)
+        is checked before signing; unconfigured signer/paymaster -> 503; a denied
+        policy -> 403 with an honest reason.
+        """
+        from gateway.paymaster import (
+            compute_paymaster_digest, sign_digest, build_paymaster_and_data,
+            paymaster_config, signer_configured,
+        )
+        body = await self._parse_body(request)
+        cfg = getattr(self, "_config", {}) or {}
+        pcfg = paymaster_config(cfg)
+
+        if not signer_configured(cfg) or not pcfg.get("address"):
+            return web.json_response(
+                {"error": "paymaster not configured"}, status=503)
+
+        # Sponsorship policy (honest deny, never a silent allow).
+        action_type = str(body.get("action_type", "transfer"))
+        allow = pcfg.get("policy", {}).get("allowed_actions")
+        if allow is not None and action_type not in allow:
+            return web.json_response(
+                {"error": f"gas sponsorship not available for action '{action_type}'"},
+                status=403)
+
+        def _int(key, default=0):
+            try:
+                return int(body.get(key, default) or default)
+            except (TypeError, ValueError):
+                return default
+
+        def _bytes(key):
+            v = str(body.get(key, "") or "")
+            return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
+
+        try:
+            digest = compute_paymaster_digest(
+                sender=str(body.get("sender", "")),
+                nonce=_int("nonce"),
+                init_code=_bytes("init_code"),
+                call_data=_bytes("call_data"),
+                call_gas_limit=_int("call_gas_limit"),
+                verification_gas_limit=_int("verification_gas_limit"),
+                pre_verification_gas=_int("pre_verification_gas"),
+                max_fee_per_gas=_int("max_fee_per_gas"),
+                max_priority_fee_per_gas=_int("max_priority_fee_per_gas"),
+                chain_id=_int("chain_id", int(cfg.get("blockchain", {}).get("chain_id", 84532))),
+                paymaster=str(pcfg.get("address")),
+                valid_until=_int("valid_until"),
+                valid_after=_int("valid_after"),
+            )
+            sig = sign_digest(digest, str(pcfg.get("signer_key")))
+            pnd = build_paymaster_and_data(
+                str(pcfg.get("address")), _int("valid_until"), _int("valid_after"), sig)
+        except Exception as exc:
+            logger.exception("paymaster sign failed")
+            return web.json_response({"error": f"sign failed: {exc}"}, status=400)
+
+        return web.json_response({"paymasterAndData": pnd})
 
     # -- Security preflight (P1-5) --
 
@@ -1188,6 +1283,16 @@ class ServiceRoutes:
 
     async def _handle_oracle_price(self, request: web.Request) -> web.Response:
         pair = request.match_info["pair"]
+        # ETH/USD is backed by the real price feed (P4); other pairs keep the
+        # existing oracle_gateway path.
+        if pair.lower().replace("_", "-") in ("eth-usd", "ethusd"):
+            from runtime.blockchain.price_feed import PriceUnavailable
+            try:
+                return web.json_response(await self._price_feed().eth_usd())
+            except PriceUnavailable as exc:
+                return web.json_response({"error": str(exc)}, status=503)
+            except Exception:
+                return web.json_response({"error": "price unavailable"}, status=503)
         result = await self._call(
             "oracle_gateway", "request",
             oracle_type="price",

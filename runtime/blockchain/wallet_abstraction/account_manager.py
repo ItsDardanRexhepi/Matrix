@@ -55,26 +55,20 @@ class AccountManager:
     # ── Session wallets ──────────────────────────────────────────────
 
     async def get_or_create_session_wallet(self, session_id: str) -> str:
-        """Return a deterministic wallet address for *session_id*, creating one if needed."""
-        try:
-            cached = self._session_wallets.get(session_id)
-            if cached is not None:
-                return cached
+        """DEAD / fenced (M3/M4, Resolution C).
 
-            # Derive a deterministic 20-byte address from the session ID.
-            digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-            address = "0x" + digest[:40]
-
-            # Store and return the checksummed-style address.
-            self._session_wallets[session_id] = address
-            self._logger.info("Created session wallet %s for session %s", self.get_display_address(address), session_id)
-            return address
-        except Exception as exc:
-            self._logger.error("get_or_create_session_wallet failed: %s", exc, exc_info=True)
-            # Fallback — generate from uuid so the caller always gets an address.
-            fallback = "0x" + hashlib.md5(session_id.encode("utf-8")).hexdigest()[:40]
-            self._session_wallets[session_id] = fallback
-            return fallback
+        This derived a deterministic pseudo-address from a hash of the session id
+        — a fake "keyless wallet" that holds no key and can sign nothing. It has no
+        live callers and is superseded by the real ERC-4337 smart-account flow
+        (client ``WalletCreation``/``ERC4337Manager`` + the paymaster sign route).
+        Raise rather than hand back a fabricated address so it can never be wired
+        into a real path by accident.
+        """
+        raise NotImplementedError(
+            "get_or_create_session_wallet is retired — superseded by the ERC-4337 "
+            "smart-account flow (client-side counterfactual account + gas_sponsor.py "
+            "/ the paymaster sign route). Do not hand back a hash-derived address."
+        )
 
     # ── Balance queries ──────────────────────────────────────────────
 
@@ -195,31 +189,19 @@ class AccountManager:
     # ── Gas sponsorship ──────────────────────────────────────────────
 
     async def sponsor_gas(self, tx: dict) -> dict:
-        """Route *tx* through the paymaster for gas sponsorship if configured."""
-        try:
-            paymaster_cfg = self._config.get("blockchain", {}).get("paymaster_private_key", "")
-            if not paymaster_cfg or paymaster_cfg.startswith("YOUR_"):
-                return {
-                    "sponsored": False,
-                    "message": "Gas sponsorship not configured. Set paymaster_private_key in config.",
-                }
+        """DEAD / fenced (M3/M4, Resolution C).
 
-            # Estimate the original cost so the user can see the savings.
-            chain = tx.get("chain", "base")
-            action = tx.get("action", "transfer")
-            gas_est = await self.estimate_gas(action, tx, chain)
-            original_cost = gas_est.get("cost_usd", 0.0)
-
-            return {
-                "sponsored": True,
-                "original_cost_usd": original_cost,
-                "user_pays": 0.0,
-                "paymaster": "platform",
-                "tx": tx,
-            }
-        except Exception as exc:
-            self._logger.error("sponsor_gas failed: %s", exc, exc_info=True)
-            return {"sponsored": False, "message": str(exc)}
+        This returned ``sponsored: True`` while only echoing the tx back — it never
+        signed a paymaster approval or submitted anything on-chain, so the "success"
+        was fabricated. No live callers; superseded by the real verifying-paymaster
+        path (``POST /api/v1/paymaster/sign`` + ``gas_sponsor.py``). Raise rather
+        than claim a sponsorship that did not happen.
+        """
+        raise NotImplementedError(
+            "sponsor_gas is retired — superseded by the real verifying-paymaster "
+            "flow (POST /api/v1/paymaster/sign + gas_sponsor.py). Never report "
+            "sponsored=True without an actual signed paymaster approval."
+        )
 
     # ── Transaction batching ─────────────────────────────────────────
 
