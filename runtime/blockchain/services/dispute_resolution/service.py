@@ -211,6 +211,100 @@ class DisputeResolution:
         return self._get_dispute_or_raise(dispute_id)
 
     # ------------------------------------------------------------------
+    # Juror voting (commit via SchellingPoint)
+    # ------------------------------------------------------------------
+
+    async def vote(
+        self, dispute_id: str, juror: str, vote: str, justification: str = ""
+    ) -> dict:
+        """Record a juror's vote commitment on an open dispute.
+
+        Only addresses selected into the dispute's juror panel may vote;
+        parties to the dispute never can. Delegates the commit to the
+        SchellingPoint (hash-committed, plaintext hidden until reveal).
+
+        Raises:
+            KeyError: If the dispute does not exist.
+            ValueError: If the dispute is resolved, the caller is not a
+                selected juror, or the juror already committed.
+        """
+        dispute = self._get_dispute_or_raise(dispute_id)
+
+        if dispute["status"] in ("resolved", "dismissed"):
+            raise ValueError(f"Voting is closed — dispute {dispute_id} is {dispute['status']}")
+
+        if juror in (dispute["claimant"], dispute["respondent"]):
+            raise ValueError("Parties to a dispute cannot sit on its jury")
+
+        if not dispute["jurors"]:
+            raise ValueError(
+                f"No juror panel selected yet for dispute {dispute_id}"
+            )
+        if juror not in dispute["jurors"]:
+            raise ValueError(f"Address {juror} is not on the juror panel for {dispute_id}")
+
+        return await self.schelling.submit_vote(dispute_id, juror, vote, justification)
+
+    # ------------------------------------------------------------------
+    # Reward claims (post-resolution, idempotent, no funds held here)
+    # ------------------------------------------------------------------
+
+    async def claim(self, dispute_id: str, claimant: str) -> dict:
+        """Record a post-resolution claim for a winning party or rewarded juror.
+
+        The platform never holds funds — this records entitlement against the
+        resolved outcome (stake return for the winning party, reward share for
+        majority jurors); settlement is executed on-chain separately. A second
+        claim by the same address raises instead of double-recording.
+
+        Raises:
+            KeyError: If the dispute does not exist.
+            ValueError: If the dispute is unresolved, the address has no
+                entitlement, or it has already claimed.
+        """
+        dispute = self._get_dispute_or_raise(dispute_id)
+
+        if dispute["status"] != "resolved" or not dispute.get("outcome"):
+            raise ValueError(f"Dispute {dispute_id} is not resolved — nothing to claim")
+
+        outcome = dispute["outcome"]
+        winner_role = outcome.get("winner")  # "claimant" | "respondent"
+        winning_party = dispute.get(winner_role) if winner_role else None
+        juror_results = outcome.get("juror_results", {}) or {}
+
+        entitlement: dict[str, Any] | None = None
+        if claimant == winning_party:
+            entitlement = {
+                "type": "stake_return",
+                "amount": dispute["claimant_stake"] if winner_role == "claimant"
+                          else dispute["respondent_stake"],
+            }
+        elif juror_results.get(claimant, {}).get("voted_with_majority"):
+            entitlement = {
+                "type": "juror_reward",
+                "amount": juror_results[claimant].get("reward"),
+            }
+
+        if entitlement is None:
+            raise ValueError(f"Address {claimant} has no claim on dispute {dispute_id}")
+
+        claims: dict[str, Any] = dispute.setdefault("claims", {})
+        if claimant in claims:
+            raise ValueError(f"Address {claimant} already claimed for dispute {dispute_id}")
+
+        claims[claimant] = {
+            **entitlement,
+            "claimed_at": time.time(),
+            "settlement": "on-chain settlement pending — the platform holds no funds",
+        }
+
+        logger.info(
+            "Dispute claim recorded — id=%s claimant=%s type=%s",
+            dispute_id, claimant, entitlement["type"],
+        )
+        return {"dispute_id": dispute_id, "claimant": claimant, **claims[claimant]}
+
+    # ------------------------------------------------------------------
     # Resolution
     # ------------------------------------------------------------------
 
