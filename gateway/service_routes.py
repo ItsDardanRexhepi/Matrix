@@ -184,6 +184,9 @@ class ServiceRoutes:
         # Verifying-paymaster gas-sponsorship signature (P4)
         app.router.add_post("/api/v1/paymaster/sign", self._handle_paymaster_sign)
 
+        # ETH/USD price (P4) — Chainlink primary, Coinbase fallback, honest 503
+        app.router.add_get("/api/v1/price/eth-usd", self._handle_eth_usd_price)
+
         # NFT (Component 3)
         app.router.add_post("/api/v1/nft/mint", self._handle_nft_mint)
         app.router.add_post("/api/v1/nft/collection/create", self._handle_nft_collection_create)
@@ -648,6 +651,28 @@ class ServiceRoutes:
     # ------------------------------------------------------------------
     # Endpoint handlers
     # ------------------------------------------------------------------
+
+    # -- ETH/USD price (P4) --
+
+    def _price_feed(self):
+        from runtime.blockchain.price_feed import PriceFeed
+        if getattr(self, "_price_feed_inst", None) is None:
+            self._price_feed_inst = PriceFeed(getattr(self, "_config", {}) or {})
+        return self._price_feed_inst
+
+    async def _handle_eth_usd_price(self, request: web.Request) -> web.Response:
+        """GET /api/v1/price/eth-usd -> {pair, price, source, decimals, updated_at}.
+        Chainlink primary, Coinbase fallback, 30s cache. If no source is reachable
+        -> 503 (never a stale/invented number)."""
+        from runtime.blockchain.price_feed import PriceUnavailable
+        try:
+            data = await self._price_feed().eth_usd()
+        except PriceUnavailable as exc:
+            return web.json_response({"error": str(exc)}, status=503)
+        except Exception as exc:
+            logger.exception("eth-usd price failed")
+            return web.json_response({"error": "price unavailable"}, status=503)
+        return web.json_response(data)
 
     # -- Verifying paymaster sign (P4) --
 
@@ -1258,6 +1283,16 @@ class ServiceRoutes:
 
     async def _handle_oracle_price(self, request: web.Request) -> web.Response:
         pair = request.match_info["pair"]
+        # ETH/USD is backed by the real price feed (P4); other pairs keep the
+        # existing oracle_gateway path.
+        if pair.lower().replace("_", "-") in ("eth-usd", "ethusd"):
+            from runtime.blockchain.price_feed import PriceUnavailable
+            try:
+                return web.json_response(await self._price_feed().eth_usd())
+            except PriceUnavailable as exc:
+                return web.json_response({"error": str(exc)}, status=503)
+            except Exception:
+                return web.json_response({"error": "price unavailable"}, status=503)
         result = await self._call(
             "oracle_gateway", "request",
             oracle_type="price",

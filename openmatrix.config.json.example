@@ -83,6 +83,10 @@
     "chain_id": 84532,
     "eas_contract": "0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
     "eas_schema": "YOUR_EAS_SCHEMA_UID",
+    "price_feeds": {
+      "//": "Chainlink AggregatorV3 feed addresses per chain — VERIFY against https://docs.chain.link/data-feeds/price-feeds/addresses before trusting. eth_usd example is Base Sepolia ETH/USD; empty -> the price route falls back to Coinbase, and if that is also unreachable returns 503 (never a stale number).",
+      "eth_usd": ""
+    },
     "paymaster": {
       "//": "P4 verifying-paymaster gas sponsorship. address = deployed OpenMatrixVerifyingPaymaster; signer_key = the platform signing key (env/secret, never user funds); policy.allowed_actions gates which action types get sponsored (omit = allow all). Unset signer/address -> /api/v1/paymaster/sign returns 503.",
       "address": "",
