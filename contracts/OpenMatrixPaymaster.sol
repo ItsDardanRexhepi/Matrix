@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 /**
  * @title OpenMatrixPaymaster
  * @notice Gas sponsorship contract for the 0pnMatrx platform.
  *         The platform covers all gas fees for users — users never pay gas.
  *         This contract holds ETH and sponsors transactions on behalf of users.
+ * @dev All ETH-moving functions are nonReentrant, matching every sibling
+ *      contract. This matters because withdraw/sponsoredCall* now use `.call`
+ *      (which forwards all gas) instead of `.transfer` (2300-gas stipend):
+ *      the guard closes the reentrancy surface that the gas-forwarding opens.
  */
-contract OpenMatrixPaymaster {
+contract OpenMatrixPaymaster is ReentrancyGuard {
     address public owner;
     address public platform;
 
@@ -54,7 +60,7 @@ contract OpenMatrixPaymaster {
     /// @notice Execute a sponsored call to a target contract
     /// @param target Contract to call
     /// @param data Calldata to send
-    function sponsoredCall(address target, bytes calldata data) external onlyAuthorized returns (bytes memory) {
+    function sponsoredCall(address target, bytes calldata data) external onlyAuthorized nonReentrant returns (bytes memory) {
         totalTransactions++;
         totalSponsored += tx.gasprice * gasleft();
         (bool success, bytes memory result) = target.call(data);
@@ -63,7 +69,7 @@ contract OpenMatrixPaymaster {
     }
 
     /// @notice Execute a sponsored call with ETH value
-    function sponsoredCallWithValue(address target, bytes calldata data, uint256 value) external onlyAuthorized returns (bytes memory) {
+    function sponsoredCallWithValue(address target, bytes calldata data, uint256 value) external onlyAuthorized nonReentrant returns (bytes memory) {
         require(address(this).balance >= value, "Insufficient balance");
         totalTransactions++;
         totalSponsored += tx.gasprice * gasleft();
@@ -85,9 +91,13 @@ contract OpenMatrixPaymaster {
     }
 
     /// @notice Withdraw funds (owner only)
-    function withdraw(uint256 amount) external onlyOwner {
+    /// @dev Uses call, not transfer: the 2300-gas stipend would permanently
+    ///      strand funds if ownership moves to a smart-contract wallet
+    ///      (multisig / ERC-4337 account) whose receive needs more gas.
+    function withdraw(uint256 amount) external onlyOwner nonReentrant {
         require(address(this).balance >= amount, "Insufficient balance");
-        payable(owner).transfer(amount);
+        (bool ok, ) = payable(owner).call{value: amount}("");
+        require(ok, "Withdraw failed");
         emit FundsWithdrawn(owner, amount);
     }
 

@@ -81,7 +81,8 @@
     "network": "base-sepolia",
     "rpc_url": "YOUR_BASE_RPC_URL",
     "chain_id": 84532,
-    "eas_contract": "0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
+    "eas_contract//": "EAS address is CHAIN-SPECIFIC — verify against https://docs.attest.org before trusting. For chain_id 84532 (Base Sepolia) and Base mainnet the OP-stack predeploys are EAS 0x4200...0021 / SchemaRegistry 0x4200...0020 (what the iOS client hardcodes). The previous example value 0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587 is ETHEREUM Sepolia — pasting it with a Base chain_id attests against the wrong contract.",
+    "eas_contract": "0x4200000000000000000000000000000000000021",
     "eas_schema": "YOUR_EAS_SCHEMA_UID",
     "price_feeds": {
       "//": "Chainlink AggregatorV3 feed addresses per chain — VERIFY against https://docs.chain.link/data-feeds/price-feeds/addresses before trusting. eth_usd example is Base Sepolia ETH/USD; empty -> the price route falls back to Coinbase, and if that is also unreachable returns 503 (never a stale number).",

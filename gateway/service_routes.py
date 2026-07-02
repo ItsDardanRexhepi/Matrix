@@ -225,6 +225,8 @@ class ServiceRoutes:
 
         # Dispute Resolution (Component 30)
         app.router.add_post("/api/v1/dispute/file", self._handle_dispute_file)
+        app.router.add_post("/api/v1/dispute/vote", self._handle_dispute_vote)
+        app.router.add_post("/api/v1/dispute/claim", self._handle_dispute_claim)
 
         # Social (Component 28)
         app.router.add_post("/api/v1/social/message", self._handle_social_message)
@@ -439,6 +441,8 @@ class ServiceRoutes:
             ("POST", "/api/v1/governance/proposal/create", self._handle_governance_create),
             ("POST", "/api/v1/governance/vote", self._handle_governance_vote),
             ("POST", "/api/v1/dispute/file", self._handle_dispute_file),
+            ("POST", "/api/v1/dispute/vote", self._handle_dispute_vote),
+            ("POST", "/api/v1/dispute/claim", self._handle_dispute_claim),
             ("POST", "/api/v1/social/message", self._handle_social_message),
             ("POST", "/api/v1/social/profile", self._handle_social_profile),
             ("POST", "/api/v1/fundraising/campaign/create", self._handle_fundraising_create),
@@ -1025,11 +1029,13 @@ class ServiceRoutes:
     async def _handle_governance_vote(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
         self._require(body, "proposal_id", "voter", "support")
+        # governance.vote's parameter is `choice`, not `support` — passing
+        # support= raised TypeError (500) on every live vote. Map it here.
         result = await self._call(
             "governance", "vote",
             proposal_id=body["proposal_id"],
             voter=body["voter"],
-            support=body["support"],
+            choice=body["support"],
         )
         return self._ok(result)
 
@@ -1038,12 +1044,40 @@ class ServiceRoutes:
     async def _handle_dispute_file(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
         self._require(body, "complainant", "respondent", "dispute_type", "description")
+        # Kwargs must match DisputeResolution.file_dispute(claimant, respondent,
+        # category, evidence, stake_amount) — the old complainant/dispute_type/
+        # description kwargs made every call a TypeError 500.
         result = await self._call(
             "dispute_resolution", "file_dispute",
-            complainant=body["complainant"],
+            claimant=body["complainant"],
             respondent=body["respondent"],
-            dispute_type=body["dispute_type"],
-            description=body["description"],
+            category=body["dispute_type"],
+            evidence={"description": body["description"], **(body.get("evidence") or {})},
+            stake_amount=float(body.get("stake_amount", 0) or 0),
+        )
+        return self._ok(result)
+
+    async def _handle_dispute_vote(self, request: web.Request) -> web.Response:
+        """Juror vote commitment — panel-membership enforced by the service."""
+        body = await self._parse_body(request)
+        self._require(body, "dispute_id", "juror", "vote")
+        result = await self._call(
+            "dispute_resolution", "vote",
+            dispute_id=body["dispute_id"],
+            juror=body["juror"],
+            vote=body["vote"],
+            justification=body.get("justification", ""),
+        )
+        return self._ok(result)
+
+    async def _handle_dispute_claim(self, request: web.Request) -> web.Response:
+        """Post-resolution entitlement claim — idempotent, no funds held here."""
+        body = await self._parse_body(request)
+        self._require(body, "dispute_id", "claimant")
+        result = await self._call(
+            "dispute_resolution", "claim",
+            dispute_id=body["dispute_id"],
+            claimant=body["claimant"],
         )
         return self._ok(result)
 
