@@ -255,6 +255,10 @@ class GatewayServer:
             # IAP routes authenticate via the signed JWS chain itself (Apple's
             # webhook cannot send our API key; the app sends a session token).
             "/api/v1/iap/verify", "/api/v1/iap/asn",
+            # Realtime (Phase 6): /ws serves the SAME public chat as POST /chat
+            # (already public below); the SSE event stream carries feed/price
+            # broadcasts and enforces its own per-IP capacity caps.
+            "/ws", "/api/v1/events/stream",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
@@ -1217,6 +1221,12 @@ class GatewayServer:
             system_prompt = self.react_loop.get_agent_prompt(agent)
             time_context = self.temporal.get_context_string()
             full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
+            # Optional client context (Phase 6 realtime client): the iOS app
+            # sends the same temporal/language-mirroring context its REST path
+            # sends, so a streamed reply is never lower-fidelity than /chat.
+            client_context = str(payload.get("context", ""))[:8000].strip()
+            if client_context:
+                full_prompt = f"{full_prompt}\n\n{client_context}"
 
             context = ReActContext(
                 agent_name=agent,

@@ -675,3 +675,43 @@ async def test_batch_sub_request_json_defaults_empty():
         body=None, match_info={}, method="POST", path="/x",
     )
     assert await sub.json() == {}
+
+
+@pytest.mark.asyncio
+async def test_social_post_publishes_sse_event(aiohttp_client):
+    """Phase 6: creating a post pushes a ``social.post`` event to SSE
+    subscribers — the iOS realtime feed listens for exactly this type."""
+    services = {"social": _FakeService({"post_id": "p1", "status": "created"})}
+    routes = ServiceRoutes(OFFLINE_CONFIG)
+    routes._registry = _FakeRegistry(services)
+
+    app = web.Application()
+    routes.register_routes(app)
+    client = await aiohttp_client(app)
+
+    sub = await routes.broadcaster.register(types={"social.post"})
+    resp = await client.post("/api/v1/social/post",
+                             json={"author": "0xabc", "content": "gm"})
+    assert resp.status == 200
+    assert sub.queue.qsize() == 1
+    event = sub.queue.get_nowait()
+    assert event.type == "social.post"
+    assert event.payload["author"] == "0xabc"
+    assert event.payload["post"]["post_id"] == "p1"
+
+
+@pytest.mark.asyncio
+async def test_social_post_survives_broadcaster_failure(aiohttp_client):
+    """A publish failure must never break the post itself."""
+    services = {"social": _FakeService({"post_id": "p2"})}
+    routes = ServiceRoutes(OFFLINE_CONFIG)
+    routes._registry = _FakeRegistry(services)
+    routes._broadcaster.publish_dict = None  # type: ignore  # force TypeError
+
+    app = web.Application()
+    routes.register_routes(app)
+    client = await aiohttp_client(app)
+
+    resp = await client.post("/api/v1/social/post",
+                             json={"author": "0xabc", "content": "gm"})
+    assert resp.status == 200

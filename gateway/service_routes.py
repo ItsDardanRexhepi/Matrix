@@ -1586,6 +1586,20 @@ class ServiceRoutes:
             content=body["content"],
             media=body.get("media", []),
         )
+        # Live-feed push: SSE subscribers (Phase 6 realtime client) receive
+        # new posts without polling. Mirrors the batch.completed pattern —
+        # a publish failure can never break the post itself.
+        try:
+            self._broadcaster.publish_dict(
+                "social.post",
+                {
+                    "author": str(body["author"]),
+                    "content": str(body["content"]),
+                    "post": result if isinstance(result, dict) else {},
+                },
+            )
+        except Exception:  # pragma: no cover — telemetry must not break posts
+            logger.debug("social.post SSE publish failed", exc_info=True)
         return self._ok(result)
 
     async def _handle_social_message_send(self, request: web.Request) -> web.Response:

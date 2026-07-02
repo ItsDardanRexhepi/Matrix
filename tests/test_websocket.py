@@ -290,3 +290,50 @@ class TestWebSocketErrorHandling:
 
         assert payload["type"] == "error"
         assert "model unavailable" in payload["error"]
+
+
+class TestWebSocketClientContext:
+    """Phase 6: the iOS realtime client sends the same temporal/language
+    context its REST path sends — /ws must fold it into the system prompt."""
+
+    @pytest.mark.asyncio
+    async def test_context_field_reaches_the_prompt(self, ws_client):
+        server = ws_client.server_under_test
+        async with ws_client.ws_connect("/ws") as ws:
+            await ws.send_json({
+                "type": "chat",
+                "message": "hola",
+                "agent": "trinity",
+                "session_id": "ws-ctx",
+                "context": "Reply in the user's language: Spanish.",
+            })
+            await _drain_until_done(ws)
+            await ws.close()
+
+        ctx = server.react_loop.run.call_args.args[0]
+        assert "Reply in the user's language: Spanish." in ctx.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_context_is_bounded_and_optional(self, ws_client):
+        server = ws_client.server_under_test
+        async with ws_client.ws_connect("/ws") as ws:
+            # No context — prompt unchanged (no trailing garbage).
+            await ws.send_json({
+                "type": "chat", "message": "hi",
+                "agent": "trinity", "session_id": "ws-noctx",
+            })
+            await _drain_until_done(ws)
+            no_ctx_prompt = server.react_loop.run.call_args.args[0].system_prompt
+
+            # Oversized context is truncated to 8000 chars, never rejected.
+            await ws.send_json({
+                "type": "chat", "message": "hi again",
+                "agent": "trinity", "session_id": "ws-noctx",
+                "context": "x" * 20000,
+            })
+            await _drain_until_done(ws)
+            big_ctx_prompt = server.react_loop.run.call_args.args[0].system_prompt
+            await ws.close()
+
+        assert not no_ctx_prompt.endswith("\n\n")
+        assert len(big_ctx_prompt) <= len(no_ctx_prompt) + 8000 + 2
