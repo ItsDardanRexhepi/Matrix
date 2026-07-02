@@ -1032,6 +1032,15 @@ class GatewayServer:
                 await self._entitlements.set_status(original_id, "revoked")
                 await self._entitlements.mark_transaction(
                     tx["transaction_id"], "revoked")
+            elif notification_type == "REFUND_REVERSED":
+                # Deliberately NOT auto-reactivated: terminal states are
+                # sticky (a replayed reversal after a second refund must not
+                # re-entitle). Rare enough to be a human decision — the
+                # operator flips it with set_status(allow_terminal_override).
+                logger.warning(
+                    "iap asn: REFUND_REVERSED for lineage %s — terminal "
+                    "state kept; manual review required to reactivate.",
+                    original_id)
             else:
                 logger.info("iap asn: %s acknowledged without a state flip",
                             notification_type or "<missing type>")

@@ -299,6 +299,39 @@ class TestEntitlementStore:
     async def test_unknown_lineage_flip_returns_false(self, store):
         assert await store.set_status("missing", "refunded") is False
 
+    @pytest.mark.asyncio
+    async def test_refund_is_terminal_against_late_upsert(self, store):
+        """Adversarial-pass P1: a renewal upsert arriving AFTER a refund
+        (out-of-order ASN, or the client's post-refund /verify report) must
+        NOT re-activate the lineage. Refund wins regardless of order."""
+        now = time.time()
+        await store.upsert_entitlement(
+            original_transaction_id="o1", product_id=PRO, tier="pro",
+            user_key="apple:victim", expires_date=now + 86400)
+        await store.set_status("o1", "refunded")
+        # The late renewal: blanket upsert with status='active' + fresh expiry.
+        await store.upsert_entitlement(
+            original_transaction_id="o1", product_id=PRO, tier="pro",
+            status="active", expires_date=now + 30 * 86400)
+        assert (await store.entitlement("o1"))["status"] == "refunded"
+        assert await store.active_tier_for("apple:victim") is None
+
+    @pytest.mark.asyncio
+    async def test_terminal_sticky_in_set_status(self, store):
+        now = time.time()
+        await store.upsert_entitlement(
+            original_transaction_id="o1", product_id=PRO, tier="pro",
+            user_key="apple:u1", expires_date=now + 86400)
+        await store.set_status("o1", "revoked")
+        # A later EXPIRED (or anything non-terminal) cannot soften revoked...
+        assert await store.set_status("o1", "expired") is False
+        assert await store.set_status("o1", "active") is False
+        assert (await store.entitlement("o1"))["status"] == "revoked"
+        # ...but a deliberate, human-reviewed override can.
+        assert await store.set_status(
+            "o1", "active", allow_terminal_override=True) is True
+        assert (await store.entitlement("o1"))["status"] == "active"
+
 
 # ── Routes ──────────────────────────────────────────────────────────
 
@@ -429,6 +462,44 @@ class TestIAPRoutes:
         assert resp.status == 200
         ent = await iap_client._iap_store.entitlement("1000000000000001")
         assert ent["status"] == "expired"
+
+    @pytest.mark.asyncio
+    async def test_refund_then_renew_stays_refunded(self, iap_client, chain):
+        """End-to-end lock on the adversarial-pass P1: REFUND, then an
+        out-of-order DID_RENEW, then a post-refund client /verify report —
+        the lineage must stay refunded through all three."""
+        await iap_client.post("/api/v1/iap/verify",
+                              json={"signedTransaction": chain.sign(_tx_payload())})
+        r = await iap_client.post(
+            "/api/v1/iap/asn", json=_asn(chain, "REFUND", _tx_payload()))
+        assert r.status == 200
+        # Vector 1: stale DID_RENEW delivered after the refund.
+        renewed = _tx_payload(
+            transactionId="t-late-renew",
+            expiresDate=int(time.time() * 1000) + 60 * 86400 * 1000)
+        r = await iap_client.post(
+            "/api/v1/iap/asn", json=_asn(chain, "DID_RENEW", renewed))
+        assert r.status == 200
+        ent = await iap_client._iap_store.entitlement("1000000000000001")
+        assert ent["status"] == "refunded"
+        # Vector 2: the client's updates listener reports the renewal JWS.
+        r = await iap_client.post(
+            "/api/v1/iap/verify", json={"signedTransaction": chain.sign(renewed)})
+        assert r.status == 200
+        ent = await iap_client._iap_store.entitlement("1000000000000001")
+        assert ent["status"] == "refunded"
+
+    @pytest.mark.asyncio
+    async def test_asn_refund_reversed_does_not_reactivate(self, iap_client, chain):
+        await iap_client.post("/api/v1/iap/verify",
+                              json={"signedTransaction": chain.sign(_tx_payload())})
+        await iap_client.post(
+            "/api/v1/iap/asn", json=_asn(chain, "REFUND", _tx_payload()))
+        r = await iap_client.post(
+            "/api/v1/iap/asn", json=_asn(chain, "REFUND_REVERSED", _tx_payload()))
+        assert r.status == 200  # acknowledged, logged for manual review
+        ent = await iap_client._iap_store.entitlement("1000000000000001")
+        assert ent["status"] == "refunded"
 
     @pytest.mark.asyncio
     async def test_asn_spoof_untrusted_chain_401(self, iap_client):

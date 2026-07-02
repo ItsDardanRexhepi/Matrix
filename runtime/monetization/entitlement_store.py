@@ -12,6 +12,15 @@ Two tables, async sqlite (house style of ``runtime.notifications.token_store``):
   flips the row to ``refunded``, revoke to ``revoked``, expiry to
   ``expired``; a renewal writes the fresh ``expires_date`` back to ``active``.
 
+``refunded``/``revoked`` are TERMINAL: Apple delivers notifications with no
+ordering guarantee, and after a refund the client still (correctly) reports
+the next renewal JWS to /iap/verify — so the blanket upsert refuses to lift a
+terminal status, and ``set_status`` refuses to leave one without an explicit
+``allow_terminal_override``. Refund wins regardless of arrival order.
+(A rare REFUND_REVERSED is deliberately NOT auto-reactivated — the ASN
+handler logs it for manual review; fail-closed means toward less
+entitlement, never more.)
+
 This is the server-side entitlement PRIMITIVE — a queryable fact table.
 Nothing here gates existing routes; adopting it as a gate is a later,
 deliberate decision. Writes happen only from routes that verified the JWS
@@ -57,6 +66,9 @@ CREATE TABLE IF NOT EXISTS iap_entitlements (
 
 #: statuses an entitlement row can hold.
 STATUSES = ("active", "expired", "refunded", "revoked")
+
+#: terminal statuses — once set, only an explicit override can leave them.
+TERMINAL_STATUSES = ("refunded", "revoked")
 
 
 class EntitlementStore:
@@ -145,7 +157,10 @@ class EntitlementStore:
         environment: str = "",
     ) -> None:
         """Create/refresh a subscription lineage row. A blank ``user_key``
-        never overwrites a known one (webhooks carry no session)."""
+        never overwrites a known one (webhooks carry no session), and a
+        TERMINAL status (refunded/revoked) is sticky: a late-arriving renewal
+        or a post-refund client /verify report can update dates but can NEVER
+        lift the row back to active. Refund wins regardless of order."""
         await self._ensure_tables()
         if not original_transaction_id:
             raise ValueError("original_transaction_id required")
@@ -163,7 +178,9 @@ class EntitlementStore:
                                 ELSE iap_entitlements.user_key END,
                 product_id = excluded.product_id,
                 tier = excluded.tier,
-                status = excluded.status,
+                status = CASE WHEN iap_entitlements.status IN ('refunded', 'revoked')
+                              THEN iap_entitlements.status
+                              ELSE excluded.status END,
                 purchase_date = excluded.purchase_date,
                 expires_date = excluded.expires_date,
                 environment = excluded.environment,
@@ -174,16 +191,28 @@ class EntitlementStore:
         )
 
     async def set_status(self, original_transaction_id: str, status: str,
-                         *, expires_date: float | None = None) -> bool:
-        """Flip an entitlement row's status (ASN: refund/revoke/expire/renew).
-        Returns False when no such lineage exists."""
+                         *, expires_date: float | None = None,
+                         allow_terminal_override: bool = False) -> bool:
+        """Flip an entitlement row's status (ASN: refund/revoke/expire).
+        Returns False when no such lineage exists — or when the row sits in a
+        TERMINAL state (refunded/revoked) and the new status would leave it;
+        only an explicit ``allow_terminal_override=True`` (a deliberate,
+        human-reviewed reversal) may do that."""
         await self._ensure_tables()
         if status not in STATUSES:
             raise ValueError(f"invalid status {status!r}")
         rows = await self._db.fetchall(
-            "SELECT 1 FROM iap_entitlements WHERE original_transaction_id = ?",
+            "SELECT status FROM iap_entitlements WHERE original_transaction_id = ?",
             (original_transaction_id,))
         if not rows:
+            return False
+        current = str(rows[0]["status"] if not isinstance(rows[0], tuple)
+                      else rows[0][0])
+        if current in TERMINAL_STATUSES and status not in TERMINAL_STATUSES \
+                and not allow_terminal_override:
+            logger.warning(
+                "iap: refused %s -> %s for lineage %s (terminal state is sticky)",
+                current, status, original_transaction_id)
             return False
         if expires_date is None:
             await self._db.execute(
