@@ -105,7 +105,8 @@ class JurorPool:
     # ------------------------------------------------------------------
 
     async def select_jurors(
-        self, dispute_id: str, count: int = 5, category: str | None = None
+        self, dispute_id: str, count: int = 5, category: str | None = None,
+        exclude: set[str] | None = None,
     ) -> list[dict]:
         """Select *count* jurors for a dispute using Chainlink VRF.
 
@@ -117,6 +118,10 @@ class JurorPool:
             dispute_id: Identifier of the dispute requiring jurors.
             count: Number of jurors to select (default 5).
             category: Optional dispute category for expertise weighting.
+            exclude: Addresses barred from the panel (the dispute's own
+                parties) so a party cannot occupy a juror slot on their own
+                case — which would dilute the effective quorum even though
+                the vote() layer separately blocks them from casting.
 
         Returns:
             List of selected juror records.
@@ -124,7 +129,10 @@ class JurorPool:
         Raises:
             RuntimeError: If there are fewer eligible jurors than *count*.
         """
-        eligible = [j for j in self._jurors.values() if j["active"]]
+        barred = exclude or set()
+        eligible = [
+            j for j in self._jurors.values() if j["active"] and j["address"] not in barred
+        ]
         if len(eligible) < count:
             raise RuntimeError(
                 f"Not enough eligible jurors: need {count}, have {len(eligible)}"

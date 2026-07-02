@@ -106,6 +106,49 @@ async def test_majority_juror_claims_minority_and_stranger_rejected():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["nan", "inf", "-inf", "Infinity", "NaN", float("nan"), float("inf")])
+async def test_nonfinite_stake_rejected(bad):
+    """NaN/Infinity must not slip past the base-stake floor (all NaN/inf
+    comparisons against the floor are False)."""
+    svc = DisputeResolution(config={})
+    stake = float(bad) if isinstance(bad, str) else bad
+    with pytest.raises(ValueError, match="finite"):
+        await svc.file_dispute(
+            claimant="0xa", respondent="0xb", category="fraud",
+            evidence={"description": "x"}, stake_amount=stake)
+
+
+@pytest.mark.asyncio
+async def test_appeal_clears_stale_claims():
+    """A recorded entitlement must not survive re-adjudication."""
+    svc = DisputeResolution(config={})
+    d = await _filed_dispute(svc)
+    d["status"] = "resolved"
+    d["outcome"] = {"winner": "claimant", "juror_results": {}}
+    await svc.claim(d["dispute_id"], "0xclaimant")
+    assert d.get("claims")  # recorded
+    # Respondent must have staked before appeal is allowed.
+    d["respondent_stake"] = 100.0
+    await svc.appeal(d["dispute_id"], appellant="0xrespondent", new_evidence={})
+    assert d["claims"] == {}   # cleared — no stale entitlement into round 2
+    assert d["outcome"] is None and d["status"] == "appealed"
+
+
+@pytest.mark.asyncio
+async def test_juror_pool_excludes_parties():
+    """A dispute party cannot occupy a juror slot on their own case."""
+    from runtime.blockchain.services.dispute_resolution.juror_pool import JurorPool
+    pool = JurorPool(config={})
+    for addr in ("0xclaimant", "0xj1", "0xj2", "0xj3", "0xj4", "0xj5"):
+        await pool.register_juror(addr, expertise=["fraud"], stake=pool._min_stake)
+    selected = await pool.select_jurors("d1", count=5, category="fraud",
+                                        exclude={"0xclaimant", "0xrespondent"})
+    addrs = {j["address"] for j in selected}
+    assert "0xclaimant" not in addrs
+    assert len(addrs) == 5
+
+
+@pytest.mark.asyncio
 async def test_routes_registered_and_validate(aiohttp_client, tmp_path):
     """400 (required-field validation), never 404 — proves registration."""
     from tests.test_gateway import _build_mock_server

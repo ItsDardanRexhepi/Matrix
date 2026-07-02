@@ -1029,11 +1029,13 @@ class ServiceRoutes:
     async def _handle_governance_vote(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
         self._require(body, "proposal_id", "voter", "support")
+        # governance.vote's parameter is `choice`, not `support` — passing
+        # support= raised TypeError (500) on every live vote. Map it here.
         result = await self._call(
             "governance", "vote",
             proposal_id=body["proposal_id"],
             voter=body["voter"],
-            support=body["support"],
+            choice=body["support"],
         )
         return self._ok(result)
 

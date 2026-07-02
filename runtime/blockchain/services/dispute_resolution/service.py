@@ -15,6 +15,7 @@ Both parties must stake to participate.
 """
 
 import logging
+import math
 import time
 import uuid
 from typing import Any
@@ -102,6 +103,12 @@ class DisputeResolution:
             raise ValueError(
                 f"Invalid category '{category}'. Must be one of: {sorted(VALID_CATEGORIES)}"
             )
+
+        # Reject NaN/Infinity BEFORE the floor check: every comparison against
+        # NaN is False and inf<floor is False, so a non-finite stake would slip
+        # past `stake_amount < base_stake` and defeat the anti-spam economic guard.
+        if not math.isfinite(stake_amount):
+            raise ValueError(f"Stake amount must be a finite number, got {stake_amount}")
 
         if stake_amount < self._base_stake:
             raise ValueError(
@@ -342,7 +349,8 @@ class DisputeResolution:
                 juror_count = latest["juror_count"]
 
             jurors = await self.juror_pool.select_jurors(
-                dispute_id, count=juror_count, category=dispute["category"]
+                dispute_id, count=juror_count, category=dispute["category"],
+                exclude={dispute["claimant"], dispute["respondent"]},
             )
             dispute["jurors"] = [j["address"] for j in jurors]
 
@@ -413,11 +421,15 @@ class DisputeResolution:
             new_evidence=new_evidence,
         )
 
-        # Reset dispute for re-adjudication
+        # Reset dispute for re-adjudication. Clearing claims is REQUIRED: any
+        # stake_return / juror_reward recorded against the now-overturned round
+        # must not survive into settlement, or both the round-1 and round-2
+        # "winners" would hold a valid entitlement against the same dispute.
         dispute["status"] = "appealed"
         dispute["appeal_count"] += 1
         dispute["jurors"] = []  # will be re-selected with larger panel
         dispute["outcome"] = None
+        dispute["claims"] = {}
 
         logger.info(
             "Dispute appealed — id=%s appellant=%s level=%d",
