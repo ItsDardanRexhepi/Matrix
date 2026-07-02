@@ -29,6 +29,10 @@ contract OpenMatrixPaymasterTest is Test {
         paymaster = new OpenMatrixPaymaster(PLATFORM);
     }
 
+    /// The test contract is the paymaster owner (deployer); without this it
+    /// cannot accept ETH and every withdraw reverts at the value transfer.
+    receive() external payable {}
+
     function test_Constructor_SetsOwnerAndPlatform() public view {
         assertEq(paymaster.owner(), owner);
         assertEq(paymaster.platform(), PLATFORM);
@@ -101,6 +105,29 @@ contract OpenMatrixPaymasterTest is Test {
         paymaster.withdraw(0.1 ether);
     }
 
+    /// Proof for the .transfer -> .call fix: a smart-contract owner whose
+    /// receive() needs more than the 2300-gas stipend can still withdraw.
+    /// Under the old payable(owner).transfer(...) this test fails.
+    function test_Withdraw_WorksForContractWalletOwner() public {
+        GasHungryWallet wallet = new GasHungryWallet();
+        paymaster.transferOwnership(address(wallet));
+        vm.deal(address(paymaster), 1 ether);
+        wallet.pullFromPaymaster(paymaster, 0.25 ether);
+        assertEq(address(wallet).balance, 0.25 ether);
+        assertEq(paymaster.balance(), 0.75 ether);
+    }
+
+    /// Honest failure: if the owner cannot accept ETH the withdraw reverts
+    /// ("Withdraw failed") — funds stay in the paymaster, no silent loss.
+    function test_Withdraw_RevertsWhenOwnerRejectsEth() public {
+        RejectingWallet wallet = new RejectingWallet();
+        paymaster.transferOwnership(address(wallet));
+        vm.deal(address(paymaster), 1 ether);
+        vm.expectRevert("Withdraw failed");
+        wallet.pullFromPaymaster(paymaster, 0.25 ether);
+        assertEq(paymaster.balance(), 1 ether);
+    }
+
     function test_TransferOwnership_UpdatesOwner() public {
         address newOwner = makeAddr("newOwner");
         paymaster.transferOwnership(newOwner);
@@ -118,5 +145,30 @@ contract OpenMatrixPaymasterTest is Test {
         assertEq(sponsored, 0);
         assertEq(txs, 0);
         assertEq(bal, 2 ether);
+    }
+}
+
+/// Owner stand-in whose receive() costs more than the 2300-gas transfer
+/// stipend (SSTORE) — models a multisig / ERC-4337 smart-contract wallet.
+contract GasHungryWallet {
+    uint256 public received;
+
+    receive() external payable {
+        received += msg.value; // SSTORE: > 2300 gas, breaks .transfer()
+    }
+
+    function pullFromPaymaster(OpenMatrixPaymaster paymaster, uint256 amount) external {
+        paymaster.withdraw(amount);
+    }
+}
+
+/// Owner stand-in that refuses ETH entirely.
+contract RejectingWallet {
+    receive() external payable {
+        revert("no ETH");
+    }
+
+    function pullFromPaymaster(OpenMatrixPaymaster paymaster, uint256 amount) external {
+        paymaster.withdraw(amount);
     }
 }

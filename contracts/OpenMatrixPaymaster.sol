@@ -85,9 +85,13 @@ contract OpenMatrixPaymaster {
     }
 
     /// @notice Withdraw funds (owner only)
+    /// @dev Uses call, not transfer: the 2300-gas stipend would permanently
+    ///      strand funds if ownership moves to a smart-contract wallet
+    ///      (multisig / ERC-4337 account) whose receive needs more gas.
     function withdraw(uint256 amount) external onlyOwner {
         require(address(this).balance >= amount, "Insufficient balance");
-        payable(owner).transfer(amount);
+        (bool ok, ) = payable(owner).call{value: amount}("");
+        require(ok, "Withdraw failed");
         emit FundsWithdrawn(owner, amount);
     }
 
