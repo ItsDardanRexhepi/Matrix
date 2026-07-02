@@ -252,6 +252,9 @@ class GatewayServer:
             "/security/phone/request", "/security/phone/verify",
             "/security/appattest/challenge", "/security/appattest/attest",
             "/api/v1/auth/apple", "/api/v1/auth/account",
+            # IAP routes authenticate via the signed JWS chain itself (Apple's
+            # webhook cannot send our API key; the app sends a session token).
+            "/api/v1/iap/verify", "/api/v1/iap/asn",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
@@ -295,6 +298,10 @@ class GatewayServer:
         # Sign in with Apple — JWKS cache for identity-token verification (P1-8).
         from gateway.apple_auth import AppleJWKSCache
         self._apple_jwks = AppleJWKSCache()
+
+        # Phase 3: verified-IAP store (idempotency ledger + entitlements).
+        from runtime.monetization.entitlement_store import EntitlementStore
+        self._entitlements = EntitlementStore(self.react_loop.memory.db)
 
         # Daily SQLite backup. Disabled when ``backup.enabled`` is false.
         backup_cfg = self.config.get("backup", {}) if isinstance(self.config, dict) else {}
@@ -854,6 +861,186 @@ class GatewayServer:
             "success": True,
             "deletedAt": datetime.datetime.utcnow().isoformat() + "Z",
         })
+
+    # ─── IAP verification (Phase 3 monetization server) ──────────────────
+
+    def _iap_user_key(self, request: web.Request) -> str:
+        """Optional user binding: a valid wallet-session token (X-Wallet-Session,
+        or the Authorization Bearer token the iOS client stores from
+        /api/v1/auth/apple) maps the verified purchase to that session's user
+        key; absent/invalid -> '' (recorded unbound — verification never
+        depends on a session)."""
+        candidates = [request.headers.get("X-Wallet-Session", "").strip()]
+        auth = request.headers.get("Authorization", "").strip()
+        if auth.startswith("Bearer "):
+            candidates.append(auth[len("Bearer "):].strip())
+        for token in candidates:
+            session = self.wallet_sessions.get(token) if token else None
+            if session:
+                return str(session.get("address", ""))
+        return ""
+
+    async def handle_iap_verify(self, request: web.Request) -> web.Response:
+        """POST /api/v1/iap/verify — verify a StoreKit ``signedTransaction``
+        JWS (full x5c chain to the pinned Apple root + bundle-id check) and
+        record it. Subscriptions upsert an entitlement row; the redos
+        Consumable is recorded in the transaction ledger (never a tier).
+
+        Idempotent on transactionId: replaying the same signed transaction
+        returns 200 with replay=true and records nothing new. Fail-closed:
+        unconfigured -> 503; any verification failure -> 401 (generic)."""
+        from gateway.iap import (
+            IAPError, IAPNotConfigured, check_bundle, check_environment,
+            classify_product, transaction_fields, verify_signed_payload,
+        )
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        jws = str(body.get("signedTransaction", "")).strip()
+        if not jws:
+            return web.json_response(
+                {"error": "signedTransaction required"}, status=400)
+
+        try:
+            payload = verify_signed_payload(jws, config=self.config)
+            check_bundle(payload.get("bundleId"), self.config)
+            check_environment(payload.get("environment"), self.config)
+        except IAPNotConfigured:
+            return web.json_response({"error": "iap not configured"}, status=503)
+        except IAPError:
+            return web.json_response(
+                {"error": "invalid signed transaction"}, status=401)
+
+        tx = transaction_fields(payload)
+        if not tx["transaction_id"]:
+            return web.json_response(
+                {"error": "invalid signed transaction"}, status=401)
+        product_type, tier = classify_product(tx["product_id"], self.config)
+        user_key = self._iap_user_key(request)
+
+        try:
+            fresh = await self._entitlements.record_transaction(
+                transaction_id=tx["transaction_id"],
+                original_transaction_id=tx["original_transaction_id"],
+                product_id=tx["product_id"],
+                product_type=product_type,
+                user_key=user_key,
+                quantity=tx["quantity"],
+                purchase_date=tx["purchase_date"],
+                environment=tx["environment"],
+            )
+            if product_type == "subscription" and tier:
+                await self._entitlements.upsert_entitlement(
+                    original_transaction_id=tx["original_transaction_id"],
+                    product_id=tx["product_id"],
+                    tier=tier,
+                    user_key=user_key,
+                    status="active",
+                    purchase_date=tx["purchase_date"],
+                    expires_date=tx["expires_date"],
+                    environment=tx["environment"],
+                )
+        except Exception:
+            logger.exception("iap verify: store write failed")
+            return web.json_response({"error": "storage failure"}, status=503)
+
+        return web.json_response({
+            "status": "recorded",
+            "replay": not fresh,
+            "transactionId": tx["transaction_id"],
+            "originalTransactionId": tx["original_transaction_id"],
+            "productId": tx["product_id"],
+            "productType": product_type,
+            "tier": tier or "",
+        })
+
+    async def handle_iap_asn(self, request: web.Request) -> web.Response:
+        """POST /api/v1/iap/asn — App Store Server Notifications V2 webhook.
+
+        The whole request's authority is the ``signedPayload`` JWS: same
+        pinned-root chain validation as /iap/verify, then the NESTED
+        ``signedTransactionInfo`` is verified independently before any store
+        write (a valid envelope cannot smuggle an unverified transaction).
+        DID_RENEW extends, EXPIRED expires, REFUND flips to refunded (and
+        marks consumable ledger rows), REVOKE revokes. Unverifiable -> 401
+        so a spoofer learns nothing and real Apple retries surface."""
+        from gateway.iap import (
+            IAPError, IAPNotConfigured, check_bundle, classify_product,
+            transaction_fields, verify_signed_payload,
+        )
+        try:
+            body = await request.json()
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        signed_payload = str(body.get("signedPayload", "")).strip()
+        if not signed_payload:
+            return web.json_response(
+                {"error": "signedPayload required"}, status=400)
+
+        try:
+            envelope = verify_signed_payload(signed_payload, config=self.config)
+            data = envelope.get("data") or {}
+            check_bundle(data.get("bundleId"), self.config)
+            tx_jws = str(data.get("signedTransactionInfo", "")).strip()
+            if not tx_jws:
+                raise IAPError("notification lacks signedTransactionInfo")
+            tx_payload = verify_signed_payload(tx_jws, config=self.config)
+            check_bundle(tx_payload.get("bundleId"), self.config)
+        except IAPNotConfigured:
+            return web.json_response({"error": "iap not configured"}, status=503)
+        except IAPError:
+            return web.json_response({"error": "invalid notification"}, status=401)
+
+        notification_type = str(envelope.get("notificationType", ""))
+        tx = transaction_fields(tx_payload)
+        if not tx["transaction_id"]:
+            return web.json_response({"error": "invalid notification"}, status=401)
+        product_type, tier = classify_product(tx["product_id"], self.config)
+        original_id = tx["original_transaction_id"]
+
+        try:
+            await self._entitlements.record_transaction(
+                transaction_id=tx["transaction_id"],
+                original_transaction_id=original_id,
+                product_id=tx["product_id"],
+                product_type=product_type,
+                quantity=tx["quantity"],
+                purchase_date=tx["purchase_date"],
+                environment=tx["environment"],
+            )
+            if notification_type in ("SUBSCRIBED", "DID_RENEW") and \
+                    product_type == "subscription" and tier:
+                await self._entitlements.upsert_entitlement(
+                    original_transaction_id=original_id,
+                    product_id=tx["product_id"],
+                    tier=tier,
+                    status="active",
+                    purchase_date=tx["purchase_date"],
+                    expires_date=tx["expires_date"],
+                    environment=tx["environment"],
+                )
+            elif notification_type == "EXPIRED":
+                await self._entitlements.set_status(original_id, "expired")
+            elif notification_type == "REFUND":
+                await self._entitlements.set_status(original_id, "refunded")
+                await self._entitlements.mark_transaction(
+                    tx["transaction_id"], "refunded")
+            elif notification_type == "REVOKE":
+                await self._entitlements.set_status(original_id, "revoked")
+                await self._entitlements.mark_transaction(
+                    tx["transaction_id"], "revoked")
+            else:
+                logger.info("iap asn: %s acknowledged without a state flip",
+                            notification_type or "<missing type>")
+        except Exception:
+            logger.exception("iap asn: store write failed")
+            return web.json_response({"error": "storage failure"}, status=503)
+
+        return web.json_response({"status": "ok",
+                                  "notificationType": notification_type})
 
     # ─── Streaming ────────────────────────────────────────────────────────
 
@@ -1794,6 +1981,8 @@ class GatewayServer:
         app.router.add_post("/auth/verify", self.handle_auth_verify)
         app.router.add_post("/api/v1/auth/apple", self.handle_apple_auth)
         app.router.add_delete("/api/v1/auth/account", self.handle_account_delete)
+        app.router.add_post("/api/v1/iap/verify", self.handle_iap_verify)
+        app.router.add_post("/api/v1/iap/asn", self.handle_iap_asn)
         app.router.add_post("/security/phone/request", self.handle_otp_request)
         app.router.add_post("/security/phone/verify", self.handle_otp_verify)
         app.router.add_post("/security/owner/request", self.handle_owner_otp_request)
