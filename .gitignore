@@ -61,3 +61,6 @@ docs/OPEN_COLLECTIVE.md
 docs/FINETUNING_GUIDE.md
 web/revenue.html
 web/pricing.html
+AUDIT_BASELINE*.txt
+contracts/out/
+contracts/cache/
