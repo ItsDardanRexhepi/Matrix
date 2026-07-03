@@ -653,7 +653,7 @@ class ServiceRoutes:
                 content_type="application/json",
             )
         try:
-            return await method(**kwargs)
+            result = await method(**kwargs)
         except TypeError as exc:
             logger.error("Bad params for %s.%s: %s", service_name, method_name, exc)
             raise web.HTTPBadRequest(
@@ -674,6 +674,67 @@ class ServiceRoutes:
                 text=json.dumps({"error": str(exc)}),
                 content_type="application/json",
             )
+
+        # Step 13 of the loop — ripple out. A successfully executed action
+        # publishes to the live feed. Reached ONLY after a real result, so an
+        # honest failure (which raised above) never ripples.
+        self._maybe_ripple(service_name, method_name, kwargs, result)
+        return result
+
+    # Only UNAMBIGUOUS read verbs skip the ripple. Prefixes like request_ /
+    # resolve_ / verify_ / snapshot_ are deliberately NOT here: each also names a
+    # consequential write (request_arbitration, resolve, resolve_market,
+    # verify_milestone, snapshot_vote) that MUST ripple. Read-shaped calls that
+    # slip past these prefixes are caught by the list-result guard below.
+    _READ_PREFIXES: Tuple[str, ...] = (
+        "get_", "list_", "fetch_", "iter_", "is_", "has_", "read_", "query_", "query",
+    )
+
+    def _maybe_ripple(self, service_name: str, method_name: str, kwargs: dict, result: Any) -> None:
+        """Publish a ``feed.ripple`` event for an executed consequential action.
+
+        Privacy actions NEVER ripple (private_transfer / stealth / private_vote /
+        confidential_compute and the privacy-backed storage legs all live on the
+        ``privacy`` service). Reads never ripple. A publish failure can never
+        break the action itself.
+        """
+        if service_name == "privacy":
+            return
+        # A collection result is a read/lookup, never a single consequential action.
+        if isinstance(result, list):
+            return
+        m = method_name.lower()
+        if any(m == p or m.startswith(p) for p in self._READ_PREFIXES):
+            return
+        # create_post already emits a richer ``social.post`` event — don't double.
+        if service_name == "social" and method_name == "create_post":
+            return
+        actor = ""
+        for k in ("owner", "creator", "author", "sender", "from_", "from",
+                  "uploader", "requester", "employer", "holder", "minter",
+                  "user", "voter", "address", "delegator"):
+            v = kwargs.get(k)
+            if isinstance(v, str) and v:
+                actor = v
+                break
+        from gateway.security_gate import action_type_for
+        payload: Dict[str, Any] = {
+            "action": action_type_for(service_name, method_name),
+            "service": service_name,
+            "method": method_name,
+            "actor": actor,
+        }
+        if isinstance(result, dict):
+            ref = result.get("id") or result.get("tx_hash") or result.get("hash")
+            if ref:
+                payload["ref"] = str(ref)
+            status = result.get("status")
+            if isinstance(status, str):
+                payload["status"] = status
+        try:
+            self._broadcaster.publish_dict("feed.ripple", payload)
+        except Exception:  # pragma: no cover — a ripple failure must not break the action
+            logger.debug("ripple publish failed for %s.%s", service_name, method_name)
 
     # ------------------------------------------------------------------
     # Endpoint handlers
