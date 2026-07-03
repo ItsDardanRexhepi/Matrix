@@ -184,14 +184,17 @@ class PriceFeedProvider:
 
     def _get_contract(self, pair: str) -> Any:
         """Resolve pair to a Web3 contract instance."""
-        from web3 import Web3
-
+        # Validate the pair BEFORE importing web3: an unsupported pair is an
+        # honest client error (-> 400) whether or not the chain backend is
+        # installed, so the check must not depend on the web3 import.
         address = self._feeds.get(pair)
         if address is None:
             raise ValueError(
                 f"Unsupported pair '{pair}'. "
                 f"Available: {', '.join(self.list_supported_pairs())}"
             )
+
+        from web3 import Web3
 
         return self.web3.eth.contract(
             address=Web3.to_checksum_address(address),

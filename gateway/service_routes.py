@@ -645,6 +645,14 @@ class ServiceRoutes:
                 text=json.dumps({"error": f"Invalid parameters: {exc}"}),
                 content_type="application/json",
             )
+        except ValueError as exc:
+            # Invalid parameter *value* (e.g. an unsupported oracle pair) is an
+            # honest client error, not a server fault — surface a 400, never a 500.
+            logger.info("Rejected %s.%s: %s", service_name, method_name, exc)
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": str(exc)}),
+                content_type="application/json",
+            )
         except Exception as exc:
             logger.exception("Error in %s.%s", service_name, method_name)
             raise web.HTTPInternalServerError(
@@ -1327,11 +1335,20 @@ class ServiceRoutes:
                 return web.json_response({"error": str(exc)}, status=503)
             except Exception:
                 return web.json_response({"error": "price unavailable"}, status=503)
-        result = await self._call(
-            "oracle_gateway", "request",
-            oracle_type="price",
-            params={"pair": pair},
-        )
+        try:
+            result = await self._call(
+                "oracle_gateway", "request",
+                oracle_type="price_feed",
+                params={"pair": pair},
+            )
+        except web.HTTPException as exc:
+            # An unsupported pair is an honest 400 (raised by _call from the
+            # service's ValueError); a security denial is a 403. Any 5xx here
+            # means the price-feed backend is unreachable (e.g. no RPC / web3)
+            # — surface that honestly as 503, never a bare 500 masquerade.
+            if exc.status >= 500:
+                return web.json_response({"error": "price unavailable"}, status=503)
+            raise
         return self._ok(result)
 
     # -- Attestation (GET) --
@@ -1713,10 +1730,10 @@ class ServiceRoutes:
         body = await self._parse_body(request)
         self._require(body, "owner", "data", "storage_type")
         result = await self._call(
-            "compute", "store",
-            owner=body["owner"],
-            data=body["data"],
-            storage_type=body["storage_type"],
+            "privacy", "decentralized_store",
+            uploader=body["owner"],
+            data_hash=body["data"],
+            storage_provider=body["storage_type"],
         )
         return self._ok(result)
 
@@ -1724,9 +1741,10 @@ class ServiceRoutes:
         body = await self._parse_body(request)
         self._require(body, "cid")
         result = await self._call(
-            "compute", "ipfs_pin",
-            cid=body["cid"],
-            name=body.get("name", ""),
+            "privacy", "pin_to_ipfs",
+            uploader=body.get("owner", ""),
+            data_hash=body["cid"],
+            pin_name=body.get("name", ""),
         )
         return self._ok(result)
 
@@ -1734,9 +1752,9 @@ class ServiceRoutes:
         body = await self._parse_body(request)
         self._require(body, "owner", "data")
         result = await self._call(
-            "compute", "arweave_store",
-            owner=body["owner"],
-            data=body["data"],
+            "privacy", "store_on_arweave",
+            uploader=body["owner"],
+            data_hash=body["data"],
             content_type=body.get("content_type", "application/octet-stream"),
         )
         return self._ok(result)
