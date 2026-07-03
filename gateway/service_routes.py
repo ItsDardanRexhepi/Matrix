@@ -1952,6 +1952,15 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
+    async def _handle_dao_proposals(self, request: web.Request) -> web.Response:
+        # DAO proposals live-read (was blocked: no route emitted the client's
+        # Proposal shape). list_proposals_detailed returns exactly the client's
+        # DAO tab shape (proposal_id/title/description/status/votes_for/
+        # votes_against/quorum/end_time) through the _call seam.
+        dao_id = request.match_info.get("daoId", "")
+        result = await self._call("governance", "list_proposals_detailed", dao_id=dao_id)
+        return self._ok(result)
+
     def _p2_route_specs(self) -> List[Tuple[str, str, Callable[..., Awaitable[web.Response]]]]:
         """The P2 route-completion table (built once, shared by both routers).
 
@@ -1990,6 +1999,8 @@ class ServiceRoutes:
             ("POST", "/api/v1/licensing/licenses", self._handle_licensing_create_license),
             ("POST", "/api/v1/licensing/licenses/purchase", NI("licensing.purchase_license")),
             ("GET",  "/api/v1/licensing/marketplace", NI("licensing.marketplace")),
+            # ── DAO proposals live-read (WIRE → governance.list_proposals_detailed) ──
+            ("GET",  "/api/v1/governance/daos/{daoId}/proposals", self._handle_dao_proposals),
             # ── events (no backing service yet → honest 501) ──
             ("GET",  "/api/v1/events", NI("events.list")),
             ("GET",  "/api/v1/events/tickets", NI("events.user_tickets")),

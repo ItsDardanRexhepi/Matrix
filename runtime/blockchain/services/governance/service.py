@@ -341,6 +341,71 @@ class GovernanceService:
         results.sort(key=lambda p: p["created_at"], reverse=True)
         return results
 
+    async def list_proposals_detailed(self, dao_id: str | None = None) -> list:
+        """List proposals in the MTRX client's ``Proposal`` shape.
+
+        The client's DAO tab needs ``proposal_id, title, description, status,
+        votes_for, votes_against, quorum, end_time`` (end_time as an ISO-8601
+        string). The tally + quorum are extracted HERE — the voting-model
+        knowledge lives on the server, never the client. Unknown tallies are an
+        honest 0.0, never fabricated. ``dao_id`` is accepted for the route shape
+        (proposals are global today) and reserved for per-DAO scoping.
+        """
+        from datetime import datetime, timezone
+
+        out: list = []
+        now = int(time.time())
+        for pid, proposal in self._proposals.items():
+            if proposal["status"] == "active" and now > proposal["ends_at"]:
+                proposal["status"] = "expired"
+
+            votes = self._votes.get(pid, [])
+            model = get_voting_model(proposal["voting_model"])
+            totals = (model.tally(votes) or {}).get("totals", {})
+
+            def _pick(*keys: str) -> float:
+                for k in keys:
+                    if k in totals:
+                        return float(totals[k])
+                return 0.0
+
+            votes_for = _pick("for", "yes", "approve", "aye")
+            votes_against = _pick("against", "no", "reject", "nay")
+
+            quorum_val = 0.0
+            try:
+                q = await self._quorum.check_quorum(
+                    pid, votes=votes,
+                    proposal_type=proposal.get("proposal_type", "standard"),
+                    voting_model=model,
+                )
+                if isinstance(q, dict):
+                    quorum_val = float(
+                        q.get("required")
+                        or q.get("threshold")
+                        or q.get("quorum_required")
+                        or q.get("total_required")
+                        or 0.0
+                    )
+            except Exception:  # pragma: no cover — quorum is best-effort here
+                quorum_val = 0.0
+
+            out.append({
+                "proposal_id": pid,
+                "title": proposal.get("title", ""),
+                "description": proposal.get("description", ""),
+                "status": proposal["status"],
+                "votes_for": votes_for,
+                "votes_against": votes_against,
+                "quorum": quorum_val,
+                "end_time": datetime.fromtimestamp(
+                    proposal.get("ends_at", now), tz=timezone.utc
+                ).isoformat(),
+            })
+
+        out.sort(key=lambda p: p["end_time"], reverse=True)
+        return out
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
