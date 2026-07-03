@@ -89,7 +89,30 @@ def build_paymaster_and_data(paymaster: str, valid_until: int, valid_after: int,
 
 
 def paymaster_config(config: dict) -> dict:
-    return ((config or {}).get("paymaster") or {})
+    """Resolve the paymaster block from any of its documented homes, without
+    mutating the source. Precedence:
+
+      1. top-level ``paymaster``            (test/legacy shape)
+      2. ``blockchain.paymaster``           (openmatrix.config.json.example + DEPLOYMENT_GUIDE)
+
+    Then, if ``signer_key`` is still absent, fall back to the env-bridged
+    ``blockchain.paymaster_private_key`` (runtime/config/validation.py
+    SECRET_FIELDS, fed by ``OPENMATRIX_PAYMASTER_KEY``). ``address``/``policy``
+    come from the resolved block. This is why an operator who fills the
+    *documented* location no longer gets a permanent 503 on /paymaster/sign.
+    """
+    cfg = config if isinstance(config, dict) else {}
+    blockchain = cfg.get("blockchain")
+    blockchain = blockchain if isinstance(blockchain, dict) else {}
+    block = cfg.get("paymaster") or blockchain.get("paymaster") or {}
+    if not isinstance(block, dict):
+        block = {}
+    resolved = dict(block)  # copy — never mutate the source config
+    if not resolved.get("signer_key"):
+        flat = blockchain.get("paymaster_private_key")
+        if flat:
+            resolved["signer_key"] = flat
+    return resolved
 
 
 def signer_configured(config: dict) -> bool:
