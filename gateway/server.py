@@ -151,6 +151,30 @@ def _apply_env_overrides(config: dict) -> dict:
             os.environ["TELEGRAM_BOT_TOKEN"]
         )
 
+    # APNs push (Matrix deploy): the .p8 is MOUNTED as a file (never an env
+    # value) at APNS_AUTH_KEY_P8_PATH; read its contents into the ios_push
+    # channel config so the mounted secret is actually consumed. Absent path /
+    # unreadable file leaves the channel unconfigured (push stays a no-op) —
+    # fail-safe, never a crash.
+    apns_path = os.environ.get("APNS_AUTH_KEY_P8_PATH")
+    if apns_path:
+        ios = (config.setdefault("notifications", {})
+               .setdefault("channels", {}).setdefault("ios_push", {}))
+        try:
+            with open(apns_path, "r", encoding="utf-8") as fh:
+                ios["auth_key_p8"] = fh.read()
+        except (OSError, ValueError):
+            # OSError: missing / a directory (bind-mount footgun) / no perm.
+            # ValueError (incl. UnicodeDecodeError): a binary/DER .p8 or garbage
+            # file. Either way push stays unconfigured — never crash config load.
+            logger.warning("APNS_AUTH_KEY_P8_PATH set (%s) but not a readable "
+                           "UTF-8 key — push stays unconfigured.", apns_path)
+        for env_var, key in (("APNS_KEY_ID", "key_id"),
+                             ("APNS_TEAM_ID", "team_id"),
+                             ("APNS_BUNDLE_ID", "bundle_id")):
+            if os.environ.get(env_var):
+                ios[key] = os.environ[env_var]
+
     return config
 
 
@@ -170,8 +194,12 @@ def load_config() -> dict:
     """
     _load_dotenv()
     path = Path(CONFIG_PATH)
-    if not path.exists():
-        logger.error("Config file not found: %s", CONFIG_PATH)
+    # is_file() (not exists()) — a Docker bind-mount of a MISSING source file
+    # auto-creates a DIRECTORY at the path; exists() is True for it, but
+    # read_text() would then raise IsADirectoryError. Treat a non-regular-file
+    # path as the same clean, documented hard-exit as a missing file.
+    if not path.is_file():
+        logger.error("Config file not found or not a regular file: %s", CONFIG_PATH)
         sys.exit(1)
 
     try:
@@ -184,6 +212,10 @@ def load_config() -> dict:
             exc.lineno,
             exc.colno,
         )
+        sys.exit(1)
+    except OSError as exc:
+        # Unreadable / permission / racing directory swap — clean exit, no traceback.
+        logger.error("Config file %s could not be read: %s", CONFIG_PATH, exc)
         sys.exit(1)
 
     config = _apply_env_overrides(config)

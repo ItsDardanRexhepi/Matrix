@@ -135,6 +135,61 @@ jobs:
         run: |
           grep -rn "YOUR_" --include="*.json" . | grep -v ".example" | grep -v "node_modules" && echo "WARNING: Possible non-example config with placeholder keys" || echo "No hardcoded secrets found"
 
+  # ------------------------------------------------------ noop / boundary posture
+  # The PUBLIC repo must prove it ships the OBSERVE no-op security posture and
+  # leaks no private rules: morpheus_security is NOT vendored, the seam
+  # degrades to a noop, and the Phase-7 operator tools stay green. This is the
+  # public-repo contract from INVARIANTS I-12 (public/private boundary).
+  noop-posture:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Assert the private security package is NOT vendored
+        run: |
+          if [ -d morpheus_security ] || find . -path ./.git -prune -o -name 'morpheus.py' -path '*morpheus_security*' -print | grep -q .; then
+            echo "FAIL: morpheus_security appears vendored into the PUBLIC repo — boundary I-12 violated."
+            exit 1
+          fi
+          echo "OK: morpheus_security is not vendored (seam-only)."
+
+      - name: Assert the security seam degrades to OBSERVE no-op
+        env:
+          PYTHONPATH: .
+        run: |
+          python -c "
+          from runtime.security import SECURITY_BACKEND, get_app_attest_verifier
+          assert SECURITY_BACKEND == 'noop', f'expected noop backend, got {SECURITY_BACKEND!r}'
+          v = get_app_attest_verifier({})
+          print('OK: security backend =', SECURITY_BACKEND, '(inert OBSERVE no-op)')
+          "
+
+      - name: Route table is not stale (Phase-7 generator)
+        env:
+          PYTHONPATH: .
+        run: python scripts/generate_route_table.py --check
+
+      - name: ABI verification audit has no doc/source drift
+        env:
+          PYTHONPATH: .
+        run: python scripts/verify_abis.py --strict
+
+      - name: gateway.doctor reports a consistent posture (read-only)
+        env:
+          PYTHONPATH: .
+        run: python -m gateway.doctor
+
   docker:
     runs-on: ubuntu-latest
     needs: [lint, test]
