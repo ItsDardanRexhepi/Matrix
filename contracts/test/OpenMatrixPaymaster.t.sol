@@ -146,6 +146,79 @@ contract OpenMatrixPaymasterTest is Test {
         assertEq(txs, 0);
         assertEq(bal, 2 ether);
     }
+
+    // ── sponsoredCallWithValue agent policy (per-agent daily cap + allowlist) ──
+
+    function test_AgentValueCall_BlockedByDefault() public {
+        // Default cap is 0 → a compromised/authorized agent cannot move value.
+        vm.deal(address(paymaster), 1 ether);
+        paymaster.authorizeAgent(agent);
+        address target = makeAddr("target");
+        vm.prank(agent);
+        vm.expectRevert("Agent daily cap exceeded");
+        paymaster.sponsoredCallWithValue(target, "", 0.1 ether);
+    }
+
+    function test_AgentValueCall_WithinCapSucceeds_ThenCumulativeCapReverts() public {
+        vm.deal(address(paymaster), 2 ether);
+        paymaster.authorizeAgent(agent);
+        paymaster.setAgentDailyCap(1 ether);
+        address target = makeAddr("target");
+        vm.prank(agent);
+        paymaster.sponsoredCallWithValue(target, "", 0.6 ether); // ok
+        assertEq(paymaster.agentSpentToday(agent), 0.6 ether);
+        vm.prank(agent);
+        vm.expectRevert("Agent daily cap exceeded"); // 0.6 + 0.6 > 1.0
+        paymaster.sponsoredCallWithValue(target, "", 0.6 ether);
+    }
+
+    function test_AgentValueCall_DailyCapResetsNextDay() public {
+        vm.deal(address(paymaster), 3 ether);
+        paymaster.authorizeAgent(agent);
+        paymaster.setAgentDailyCap(1 ether);
+        address target = makeAddr("target");
+        vm.prank(agent);
+        paymaster.sponsoredCallWithValue(target, "", 1 ether); // fills the cap
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(agent);
+        paymaster.sponsoredCallWithValue(target, "", 1 ether); // new day, ok
+        assertEq(paymaster.agentSpentToday(agent), 1 ether);
+    }
+
+    function test_AgentValueCall_TargetAllowlistEnforced() public {
+        vm.deal(address(paymaster), 2 ether);
+        paymaster.authorizeAgent(agent);
+        paymaster.setAgentDailyCap(1 ether);
+        paymaster.setTargetAllowlistEnabled(true);
+        address bad = makeAddr("bad");
+        address good = makeAddr("good");
+        vm.prank(agent);
+        vm.expectRevert("Target not allowlisted");
+        paymaster.sponsoredCallWithValue(bad, "", 0.1 ether);
+        paymaster.setTargetAllowed(good, true);
+        vm.prank(agent);
+        paymaster.sponsoredCallWithValue(good, "", 0.1 ether); // ok
+    }
+
+    function test_OwnerValueCall_IsUnrestricted() public {
+        // The owner is trusted: no cap, no allowlist — even with defaults.
+        vm.deal(address(paymaster), 1 ether);
+        address target = makeAddr("target");
+        paymaster.sponsoredCallWithValue(target, "", 0.5 ether); // owner, ok
+        assertEq(target.balance, 0.5 ether);
+    }
+
+    function test_PolicySetters_OnlyOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert("Only owner");
+        paymaster.setAgentDailyCap(1 ether);
+        vm.prank(stranger);
+        vm.expectRevert("Only owner");
+        paymaster.setTargetAllowlistEnabled(true);
+        vm.prank(stranger);
+        vm.expectRevert("Only owner");
+        paymaster.setTargetAllowed(makeAddr("t"), true);
+    }
 }
 
 /// Owner stand-in whose receive() costs more than the 2300-gas transfer
