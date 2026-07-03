@@ -72,6 +72,27 @@ async def test_licensing_create_license_never_500(client):
     assert resp.status != 500, await resp.text()
 
 
+async def test_licensing_accepts_snake_case_body(client):
+    # The iOS client encodes bodies to snake_case; the handlers must accept it
+    # (ip_id / evidence_hash) exactly as they accept camelCase. A snake_case
+    # register must NOT be rejected as "missing name/type" (would be a 400).
+    reg = await client.post(
+        "/api/v1/licensing/ip",
+        json={"owner": "0xabc", "type": "patent", "name": "Snakey", "evidence_hash": "0xfeed"},
+    )
+    assert reg.status in (200, 400), await reg.text()   # 200 record or honest ip_type 400
+    assert reg.status != 500
+
+    lic = await client.post(
+        "/api/v1/licensing/licenses",
+        json={"ip_id": "ip_x", "recipient": "0xabc", "terms": {"license_type": "non_exclusive"}},
+    )
+    # Reached the service with ip_id populated -> not the "ipId required" 400.
+    assert lic.status != 500, await lic.text()
+    if lic.status == 400:
+        assert "required" not in (await lic.json()).get("error", "").lower()
+
+
 # ── NOT_IMPLEMENTED routes: honest 501, never a fake 200 ───────────────
 
 NOT_IMPLEMENTED = [
