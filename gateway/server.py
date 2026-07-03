@@ -88,6 +88,22 @@ class RateLimiter:
             del self._buckets[ip]
 
 
+def _body_key(body: dict, *keys: str) -> str:
+    """Return the first present key's value as a stripped string.
+
+    The MTRX iOS client encodes EVERY request body with
+    ``keyEncodingStrategy = .convertToSnakeCase``, so a camelCase field like
+    ``signedTransaction`` reaches the server as ``signed_transaction``. The
+    SDK and Apple's own webhook payloads, by contrast, are camelCase. Routes
+    that take a client-supplied key therefore accept BOTH spellings — pass the
+    canonical camelCase first, then the snake_case fallback."""
+    for k in keys:
+        v = body.get(k)
+        if v:
+            return str(v).strip()
+    return ""
+
+
 def _load_dotenv() -> None:
     """Load environment variables from .env if python-dotenv is available."""
     try:
@@ -815,7 +831,9 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        identity_token = str(body.get("identityToken", "")).strip()
+        # The MTRX client's snake_case encoder sends identity_token; the SDK
+        # sends identityToken. Accept either.
+        identity_token = _body_key(body, "identityToken", "identity_token")
         if not identity_token:
             return web.json_response({"error": "identityToken required"}, status=400)
 
@@ -934,7 +952,9 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        jws = str(body.get("signedTransaction", "")).strip()
+        # The MTRX client's snake_case encoder sends signed_transaction; the
+        # SDK sends signedTransaction. Accept either.
+        jws = _body_key(body, "signedTransaction", "signed_transaction")
         if not jws:
             return web.json_response(
                 {"error": "signedTransaction required"}, status=400)

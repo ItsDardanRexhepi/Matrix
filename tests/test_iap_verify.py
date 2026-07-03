@@ -211,6 +211,26 @@ class TestVerifySignedPayload:
                 verify_signed_payload(bad, config=iap_cfg)
 
 
+class TestBodyKeyReconciliation:
+    """The shared _body_key helper reconciles the MTRX client's snake_case
+    encoder with the camelCase server/SDK contract (used by /iap/verify AND
+    /auth/apple)."""
+
+    def test_prefers_camel_then_snake(self):
+        from gateway.server import _body_key
+        assert _body_key({"signedTransaction": "A"}, "signedTransaction", "signed_transaction") == "A"
+        assert _body_key({"signed_transaction": "B"}, "signedTransaction", "signed_transaction") == "B"
+        # camelCase wins when both present (canonical first).
+        assert _body_key({"signedTransaction": "A", "signed_transaction": "B"},
+                         "signedTransaction", "signed_transaction") == "A"
+
+    def test_absent_and_blank_yield_empty(self):
+        from gateway.server import _body_key
+        assert _body_key({}, "signedTransaction", "signed_transaction") == ""
+        assert _body_key({"signed_transaction": ""}, "signedTransaction", "signed_transaction") == ""
+        assert _body_key({"signed_transaction": "  x "}, "signedTransaction", "signed_transaction") == "x"
+
+
 class TestBundleAndProducts:
     def test_wrong_bundle_rejected(self, iap_cfg):
         with pytest.raises(IAPError):
@@ -416,6 +436,18 @@ class TestIAPRoutes:
         assert (body["productType"], body["tier"]) == ("consumable", "")
         assert await iap_client._iap_store.transaction("t-redo-1") is not None
         assert await iap_client._iap_store.entitlement("t-redo-1") is None
+
+    @pytest.mark.asyncio
+    async def test_verify_accepts_snake_case_body_key(self, iap_client, chain):
+        # The MTRX iOS client's global snake_case encoder sends
+        # `signed_transaction`; the route must accept it as well as the
+        # camelCase `signedTransaction` the SDK sends. (Reconciliation P1.)
+        jws = chain.sign(_tx_payload(transactionId="t-snake-1",
+                                     originalTransactionId="o-snake-1"))
+        resp = await iap_client.post("/api/v1/iap/verify",
+                                     json={"signed_transaction": jws})
+        assert resp.status == 200
+        assert (await resp.json())["tier"] == "pro"
 
     @pytest.mark.asyncio
     async def test_verify_wrong_bundle_401(self, iap_client, chain):
