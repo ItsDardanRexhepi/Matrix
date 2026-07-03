@@ -78,7 +78,11 @@ def check_chain(config: dict) -> tuple:
 
 
 def check_paymaster(config: dict) -> tuple:
-    pk = ((config.get("paymaster") or {}).get("signer_key", ""))
+    # Use the same resolver the /paymaster/sign route uses, so the doctor and the
+    # route agree on where the signer key lives (top-level `paymaster`,
+    # `blockchain.paymaster`, or the env-bridged `blockchain.paymaster_private_key`).
+    from gateway.paymaster import paymaster_config
+    pk = (paymaster_config(config).get("signer_key", "") or "")
     if not _filled(pk):
         return ("paymaster signer", UNCONFIGURED,
                 "no signer_key — /api/v1/paymaster/sign returns 503")
