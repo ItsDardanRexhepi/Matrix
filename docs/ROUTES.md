@@ -4,7 +4,7 @@
 > Run `python scripts/generate_route_table.py` after adding a route;
 > CI runs it with `--check` and fails if this file is stale.
 
-**196 routes.** A **public** route requires no API key (its own auth applies — e.g. a signed JWS, SIWE, or per-IP caps).
+**197 routes.** A **public** route requires no API key (its own auth applies — e.g. a signed JWS, SIWE, or per-IP caps).
 
 | Method | Path | Handler | Source | Public |
 |---|---|---|---|---|
@@ -57,13 +57,14 @@
 | POST | `/api/v1/fundraising/campaign/create` | `_handle_fundraising_create` | service_routes.py:239 |  |
 | POST | `/api/v1/fundraising/contribute` | `_handle_fundraising_contribute` | service_routes.py:240 |  |
 | POST | `/api/v1/gaming/register` | `_handle_gaming_register` | service_routes.py:268 |  |
+| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2003 |  |
 | POST | `/api/v1/governance/multisig/approve` | `_handle_multisig_approve` | service_routes.py:349 |  |
 | POST | `/api/v1/governance/multisig/propose` | `_handle_multisig_propose` | service_routes.py:348 |  |
 | POST | `/api/v1/governance/proposal/create` | `_handle_governance_create` | service_routes.py:226 |  |
 | POST | `/api/v1/governance/snapshot/vote` | `_handle_snapshot_vote` | service_routes.py:350 |  |
 | POST | `/api/v1/governance/treasury/transfer` | `_handle_treasury_transfer` | service_routes.py:351 |  |
 | POST | `/api/v1/governance/vote` | `_handle_governance_vote` | service_routes.py:227 |  |
-| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:1984 |  |
+| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:1993 |  |
 | POST | `/api/v1/iap/asn` | `handle_iap_asn` | server.py:2056 | ✅ |
 | POST | `/api/v1/iap/verify` | `handle_iap_verify` | server.py:2055 | ✅ |
 | POST | `/api/v1/identity/create` | `_handle_did_create` | service_routes.py:201 |  |
@@ -83,14 +84,14 @@
 | POST | `/api/v1/legal/agreement/execute` | `_handle_agreement_execute` | service_routes.py:365 |  |
 | POST | `/api/v1/legal/dispute/file` | `_handle_legal_dispute_file` | service_routes.py:366 |  |
 | POST | `/api/v1/legal/license/grant` | `_handle_license_grant` | service_routes.py:364 |  |
-| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:1988 |  |
-| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:1990 |  |
+| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:1997 |  |
+| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:1999 |  |
 | POST | `/api/v1/loyalty/earn` | `_handle_loyalty_earn` | service_routes.py:246 |  |
 | POST | `/api/v1/loyalty/redeem` | `_handle_loyalty_redeem` | service_routes.py:247 |  |
 | POST | `/api/v1/marketplace/buy` | `_handle_marketplace_buy` | service_routes.py:223 |  |
 | POST | `/api/v1/marketplace/list` | `_handle_marketplace_list` | service_routes.py:222 |  |
-| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:1974 |  |
-| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:1975 |  |
+| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:1983 |  |
+| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:1984 |  |
 | POST | `/api/v1/nft/batch-mint` | `_handle_nft_batch_mint` | service_routes.py:303 |  |
 | POST | `/api/v1/nft/bridge` | `_handle_nft_bridge` | service_routes.py:305 |  |
 | POST | `/api/v1/nft/collection/create` | `_handle_nft_collection_create` | service_routes.py:195 |  |
