@@ -1112,13 +1112,28 @@ class ServiceRoutes:
 
     async def _handle_governance_vote(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "proposal_id", "voter", "support")
+        self._require(body, "proposal_id", "support")
+        # P5-1: bind the vote to the wallet the security middleware authenticated
+        # for THIS request — not a spoofable body field. An authenticated identity
+        # always wins, so a mismatched body ``voter`` is simply ignored (the vote
+        # is recorded under the real wallet). The body voter is a testnet/dev
+        # fallback only, used when no identity was bound. The 400 for a
+        # fully-absent voter just mirrors the prior _require("voter") — no gate
+        # stricter than before, and the Morpheus OBSERVE gate itself is untouched.
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
+        voter = authed or str(body.get("voter") or "")
+        if not voter:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": "voter identity required"}),
+                content_type="application/json",
+            )
         # governance.vote's parameter is `choice`, not `support` — passing
         # support= raised TypeError (500) on every live vote. Map it here.
         result = await self._call(
             "governance", "vote",
             proposal_id=body["proposal_id"],
-            voter=body["voter"],
+            voter=voter,
             choice=body["support"],
         )
         return self._ok(result)
