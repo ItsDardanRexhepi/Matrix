@@ -1823,29 +1823,56 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
+    @staticmethod
+    def _first(body: dict, *keys: str):
+        """First present, non-empty value among *keys*.
+
+        The iOS client encodes every body to snake_case, so a client-supplied
+        camelCase key (``ipId``) arrives as ``ip_id``. Accept both forms.
+        """
+        for k in keys:
+            v = body.get(k)
+            if v not in (None, ""):
+                return v
+        return None
+
     async def _handle_licensing_register_ip(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "owner", "type", "name")
+        owner = self._first(body, "owner")
+        ip_type = self._first(body, "type", "ip_type")
+        name = self._first(body, "name")
+        if not owner or not ip_type or not name:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": "owner, type and name are required"}),
+                content_type="application/json",
+            )
         result = await self._call(
             "ip_royalties", "register_ip",
-            owner=body["owner"],
-            ip_type=body["type"],
+            owner=owner,
+            ip_type=ip_type,
             metadata={
-                "title": body["name"],
-                "description": body.get("description", ""),
-                "content_hash": body.get("evidenceHash", ""),
+                "title": name,
+                "description": self._first(body, "description") or "",
+                "content_hash": self._first(body, "evidenceHash", "evidence_hash") or "",
             },
         )
         return self._ok(result)
 
     async def _handle_licensing_create_license(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "ipId", "recipient", "terms")
+        ip_id = self._first(body, "ipId", "ip_id")
+        recipient = self._first(body, "recipient")
+        terms = self._first(body, "terms")
+        if not ip_id or not recipient or terms is None:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": "ipId, recipient and terms are required"}),
+                content_type="application/json",
+            )
         result = await self._call(
             "ip_royalties", "license_ip",
-            ip_id=body["ipId"],
-            licensee=body["recipient"],
-            terms=body["terms"],
+            ip_id=ip_id,
+            licensee=recipient,
+            terms=terms,
         )
         return self._ok(result)
 
