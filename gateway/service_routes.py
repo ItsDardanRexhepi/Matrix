@@ -105,6 +105,9 @@ class ServiceRoutes:
         self._batch_routes: List[
             Tuple[str, re.Pattern, List[str], Callable[..., Awaitable[web.Response]], str]
         ] = []
+        #: Cached P2 route-completion table (built once, shared by the live
+        #: router and the batch dispatcher). See :meth:`_p2_route_specs`.
+        self._p2_specs_cache: Optional[list] = None
 
     # -- post-construction wiring --------------------------------------
 
@@ -389,8 +392,16 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/batch", self._handle_batch)
         app.router.add_get("/api/v1/events/stream", self._handle_event_stream)
 
+        # ── P2: route completion ─────────────────────────────────────
+        # storage / messaging / groups / licensing / events / indexer /
+        # oracle-feeds / compute-jobs / portfolio-performance. Each is a real
+        # leg of the client skeleton: WIRE routes run through the _call() seam;
+        # the rest return an honest 501 (never a fabricated 200).
+        for method, path, handler in self._p2_route_specs():
+            app.router.add_route(method, path, handler)
+
         self._build_batch_route_map()
-        logger.info("ServiceRoutes: registered %d endpoints", 122)
+        logger.info("ServiceRoutes: registered %d endpoints", 122 + len(self._p2_route_specs()))
 
     # ------------------------------------------------------------------
     # Batch route map — mirrors every non-batch route above so we can
@@ -550,6 +561,10 @@ class ServiceRoutes:
                 ("GET",  "/bridge/v1/components/{component_id}", br.get_component),
             ]
             specs.extend(bridge_specs)
+
+        # P2 completion routes participate in batch dispatch too, so
+        # /api/v1/batch sub-calls resolve them identically to the live router.
+        specs.extend(self._p2_route_specs())
 
         routes = []
         for method, path, handler in specs:
@@ -1758,6 +1773,148 @@ class ServiceRoutes:
             content_type=body.get("content_type", "application/octet-stream"),
         )
         return self._ok(result)
+
+    # ------------------------------------------------------------------
+    # P2 — Route completion
+    #
+    # Register every leg the client skeleton expects so it reaches a real
+    # gateway endpoint instead of a 404. Routes with a genuine backing service
+    # method run through the universal _call() seam (gate_action first); the
+    # rest return an HONEST 501 not-implemented — never a fabricated 200.
+    # ------------------------------------------------------------------
+
+    def _not_impl(self, feature: str) -> Callable[..., Awaitable[web.Response]]:
+        """Build a handler that honestly reports a not-yet-implemented route."""
+        async def handler(request: web.Request) -> web.Response:
+            return web.json_response(
+                {"error": f"{feature} is not implemented yet",
+                 "status": "not_implemented"},
+                status=501,
+            )
+        return handler
+
+    # -- WIRE handlers (real service, through _call) --
+
+    async def _handle_messaging_conversations(self, request: web.Request) -> web.Response:
+        address = request.query.get("address", "")
+        result = await self._call("social", "get_conversations", address=address)
+        return self._ok(result)
+
+    async def _handle_messaging_messages(self, request: web.Request) -> web.Response:
+        conversation_id = request.match_info["conversationId"]
+        try:
+            limit = int(request.query.get("limit", 50))
+        except (TypeError, ValueError):
+            limit = 50
+        result = await self._call(
+            "social", "get_messages", conversation_id=conversation_id, limit=limit
+        )
+        return self._ok(result)
+
+    async def _handle_groups_create(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "creator", "name")
+        result = await self._call(
+            "social", "create_community",
+            creator=body["creator"],
+            name=body["name"],
+            description=body.get("description", ""),
+            token_gate=body.get("tokenGate") or body.get("token_gate"),
+        )
+        return self._ok(result)
+
+    async def _handle_licensing_register_ip(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "owner", "type", "name")
+        result = await self._call(
+            "ip_royalties", "register_ip",
+            owner=body["owner"],
+            ip_type=body["type"],
+            metadata={
+                "title": body["name"],
+                "description": body.get("description", ""),
+                "content_hash": body.get("evidenceHash", ""),
+            },
+        )
+        return self._ok(result)
+
+    async def _handle_licensing_create_license(self, request: web.Request) -> web.Response:
+        body = await self._parse_body(request)
+        self._require(body, "ipId", "recipient", "terms")
+        result = await self._call(
+            "ip_royalties", "license_ip",
+            ip_id=body["ipId"],
+            licensee=body["recipient"],
+            terms=body["terms"],
+        )
+        return self._ok(result)
+
+    def _p2_route_specs(self) -> List[Tuple[str, str, Callable[..., Awaitable[web.Response]]]]:
+        """The P2 route-completion table (built once, shared by both routers).
+
+        WIRE routes point at a real ``_handle_*`` above; every other route is an
+        honest 501. Routes that already exist elsewhere (oracle/price,
+        portfolio/complete·positions·history, compute/store·ipfs·arweave,
+        events/stream) are deliberately NOT included here.
+        """
+        if self._p2_specs_cache is not None:
+            return self._p2_specs_cache
+        NI = self._not_impl
+        specs: List[Tuple[str, str, Callable[..., Awaitable[web.Response]]]] = [
+            # ── storage ──
+            ("GET",  "/api/v1/storage/files", NI("storage.list_files")),
+            ("POST", "/api/v1/storage/files", NI("storage.upload_file")),
+            ("GET",  "/api/v1/storage/files/{cid}", NI("storage.get_file")),
+            ("POST", "/api/v1/storage/files/{cid}/pin", NI("storage.pin_file")),
+            ("POST", "/api/v1/storage/files/{cid}/unpin", NI("storage.unpin_file")),
+            # ── messaging (reads WIRE to social; writes honest 501) ──
+            ("GET",  "/api/v1/messaging/conversations", self._handle_messaging_conversations),
+            ("GET",  "/api/v1/messaging/conversations/{conversationId}/messages", self._handle_messaging_messages),
+            ("POST", "/api/v1/messaging/conversations/{conversationId}/messages", NI("messaging.send_message")),
+            ("POST", "/api/v1/messaging/conversations", NI("messaging.start_conversation")),
+            # ── groups (create WIRE to social.create_community; rest 501) ──
+            ("GET",  "/api/v1/groups", NI("groups.list_user_groups")),
+            ("GET",  "/api/v1/groups/discover", NI("groups.discover")),
+            ("GET",  "/api/v1/groups/{groupId}/feed", NI("groups.feed")),
+            ("POST", "/api/v1/groups/{groupId}/join", NI("groups.join")),
+            ("POST", "/api/v1/groups/{groupId}/leave", NI("groups.leave")),
+            ("POST", "/api/v1/groups", self._handle_groups_create),
+            ("POST", "/api/v1/groups/{groupId}/posts", NI("groups.post")),
+            # ── licensing (register/license WIRE to ip_royalties; rest 501) ──
+            ("GET",  "/api/v1/licensing/ip", NI("licensing.list_ip")),
+            ("POST", "/api/v1/licensing/ip", self._handle_licensing_register_ip),
+            ("GET",  "/api/v1/licensing/licenses", NI("licensing.list_licenses")),
+            ("POST", "/api/v1/licensing/licenses", self._handle_licensing_create_license),
+            ("POST", "/api/v1/licensing/licenses/purchase", NI("licensing.purchase_license")),
+            ("GET",  "/api/v1/licensing/marketplace", NI("licensing.marketplace")),
+            # ── events (no backing service yet → honest 501) ──
+            ("GET",  "/api/v1/events", NI("events.list")),
+            ("GET",  "/api/v1/events/tickets", NI("events.user_tickets")),
+            ("POST", "/api/v1/events", NI("events.create")),
+            ("POST", "/api/v1/events/{eventId}/purchase", NI("events.purchase_ticket")),
+            ("GET",  "/api/v1/events/tickets/{ticketId}/verify", NI("events.verify_ticket")),
+            # ── indexer (no backing service yet → honest 501) ──
+            ("GET",  "/api/v1/indexer/subgraphs", NI("indexer.list_subgraphs")),
+            ("POST", "/api/v1/indexer/subgraphs/{subgraphId}/query", NI("indexer.query")),
+            ("POST", "/api/v1/indexer/subgraphs/{subgraphId}/translate", NI("indexer.translate")),
+            ("GET",  "/api/v1/indexer/queries", NI("indexer.saved_queries")),
+            ("POST", "/api/v1/indexer/queries", NI("indexer.save_query")),
+            # ── oracle feeds (catalog/subscription; /oracle/price already exists) ──
+            ("GET",  "/api/v1/oracle/feeds", NI("oracle.list_feeds")),
+            ("POST", "/api/v1/oracle/feeds/{feedId}/subscribe", NI("oracle.subscribe_feed")),
+            ("POST", "/api/v1/oracle/feeds/{feedId}/unsubscribe", NI("oracle.unsubscribe_feed")),
+            ("GET",  "/api/v1/oracle/feeds/{feedId}/history", NI("oracle.feed_history")),
+            # ── compute jobs (/compute/store·ipfs·arweave already exist) ──
+            ("GET",  "/api/v1/compute/providers", NI("compute.providers")),
+            ("POST", "/api/v1/compute/jobs", NI("compute.submit_job")),
+            ("GET",  "/api/v1/compute/jobs", NI("compute.list_jobs")),
+            ("GET",  "/api/v1/compute/jobs/{jobId}", NI("compute.job_status")),
+            ("GET",  "/api/v1/compute/jobs/{jobId}/result", NI("compute.job_result")),
+            # ── portfolio performance (complete/positions/history already exist) ──
+            ("GET",  "/api/v1/portfolio/performance/{wallet}", NI("portfolio.performance")),
+        ]
+        self._p2_specs_cache = specs
+        return specs
 
     # -- RWA Expanded --
 

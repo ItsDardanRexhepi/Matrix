@@ -335,6 +335,19 @@ class SocialService:
         logger.info("Community created: id=%s name=%s", comm_id, name)
         return record
 
+    # -- Messaging read delegators -------------------------------------
+    # The gateway seam (_call) resolves a service method by a flat getattr on
+    # the service, so the nested XMTP messaging reads are exposed flatly here.
+    # These are honest reads: an address/conversation with no history returns [].
+
+    async def get_conversations(self, address: str) -> list:
+        """List conversations for *address* (delegates to XMTP messaging)."""
+        return await self.messaging.get_conversations(address)
+
+    async def get_messages(self, conversation_id: str, limit: int = 50) -> list:
+        """List messages in a conversation (delegates to XMTP messaging)."""
+        return await self.messaging.get_messages(conversation_id, limit)
+
     async def send_encrypted_message(
         self, sender: str, recipient: str, content: str, protocol: str = "xmtp",
     ) -> dict:
