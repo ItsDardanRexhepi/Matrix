@@ -256,6 +256,24 @@ class OpenMatrixClient:
         """Create an EAS attestation. Gas covered by platform."""
         return await self.ablockchain("eas", action="attest", data={"action": action, "agent": agent, **details})
 
+    async def averify_iap(self, signed_transaction: str) -> dict:
+        """Report a StoreKit-signed transaction JWS to POST /api/v1/iap/verify.
+
+        The server verifies the full x5c chain to Apple's pinned root and
+        records the transaction (subscriptions and the consumable). Fail-closed
+        server-side: unconfigured -> 503, any verification failure -> 401.
+
+        Note: there is deliberately NO SDK method for /api/v1/iap/asn — that is
+        the App Store Server Notifications webhook, called by Apple's servers,
+        never by a client.
+        """
+        return await self._post("/api/v1/iap/verify",
+                                {"signedTransaction": signed_transaction})
+
+    def verify_iap(self, signed_transaction: str) -> dict:
+        """Sync wrapper for :meth:`averify_iap`."""
+        return self._run(self.averify_iap(signed_transaction))
+
     # ─── Session Management ────────────────────────────────────────────────
 
     def new_session(self) -> str:

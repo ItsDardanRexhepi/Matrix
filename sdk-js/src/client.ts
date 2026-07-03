@@ -234,6 +234,34 @@ export class OpenMatrixClient {
   }
 
   /**
+   * Report a StoreKit-signed transaction JWS to POST /api/v1/iap/verify.
+   * The server verifies the full x5c chain to Apple's pinned root and records
+   * the transaction (subscriptions and the consumable). Fail-closed
+   * server-side: unconfigured -> 503, any verification failure -> 401.
+   *
+   * There is deliberately no method for /api/v1/iap/asn — that webhook is
+   * called by Apple's servers (App Store Server Notifications), not by a client.
+   */
+  async verifyIap(
+    signedTransaction: string
+  ): Promise<{
+    status: string;
+    replay: boolean;
+    transactionId: string;
+    originalTransactionId: string;
+    productId: string;
+    productType: string;
+    tier: string;
+  }> {
+    const resp = await fetch(`${this.baseUrl}/api/v1/iap/verify`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ signedTransaction }),
+    });
+    return resp.json();
+  }
+
+  /**
    * Set the wallet session token (from SIWE auth).
    */
   setWalletSession(token: string): void {
