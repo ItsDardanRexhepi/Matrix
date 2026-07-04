@@ -63,10 +63,21 @@ class AnthropicClient(ModelInterface):
         if system_text.strip():
             payload["system"] = system_text.strip()
         if tools:
-            payload["tools"] = [
-                {"name": t["name"], "description": t.get("description", ""), "input_schema": t.get("parameters", {})}
-                for t in tools
-            ]
+            # Tools arrive in OpenAI function-calling shape
+            # ({"type":"function","function":{"name","description","parameters"}}).
+            # Convert to Anthropic's flat {name, description, input_schema}; tolerate
+            # an already-flat tool too. Without this the direct t["name"] raised
+            # KeyError 'name', making every tool-enabled chat fall through to the
+            # offline fallback instead of reaching Anthropic.
+            converted = []
+            for t in tools:
+                fn = t.get("function", t)
+                converted.append({
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+                })
+            payload["tools"] = converted
 
         headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
         async with aiohttp.ClientSession() as session:
