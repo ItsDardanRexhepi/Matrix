@@ -307,6 +307,12 @@ class GatewayServer:
             # (already public below); the SSE event stream carries feed/price
             # broadcasts and enforces its own per-IP capacity caps.
             "/ws", "/api/v1/events/stream",
+            # The iOS app's REST chat fallback — the SAME public chat as /chat
+            # and /ws, so it must match their auth posture. Without this, a
+            # hosted gateway with OPENMATRIX_API_KEY set 401s the app whenever
+            # the WebSocket path degrades to REST (the app doesn't carry the
+            # operator key — clients are anonymous; rate limiting caps abuse).
+            "/bridge/v1/chat",
             "/", "/chat", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
