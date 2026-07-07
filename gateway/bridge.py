@@ -656,6 +656,12 @@ class BridgeRoutes:
         system_prompt = self._server.react_loop.get_agent_prompt(agent)
         time_context = self._server.temporal.get_context_string()
         full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
+        # Honor the client's per-turn context exactly like the WS handler does
+        # (language mirroring, conversation recap, portfolio line) — the REST
+        # fallback must not be lower-fidelity than /ws for the same chat.
+        client_context = str(body.get("context", ""))[:8000].strip()
+        if client_context:
+            full_prompt = f"{full_prompt}\n\n{client_context}"
 
         from runtime.react_loop import ReActContext
         context = ReActContext(
