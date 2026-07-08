@@ -1746,11 +1746,29 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_social_feed(self, request: web.Request) -> web.Response:
+        # NOTE: SocialService.get_feed takes `address` (this route historically
+        # passed `wallet=`, which the method never accepted → 400). Fixed here.
         wallet = request.match_info["wallet"]
-        result = await self._call(
-            "social", "get_feed",
-            wallet=wallet,
-        )
+        mode = request.query.get("mode", "latest")
+        kwargs: dict = {"address": wallet, "mode": mode}
+        limit_raw = request.query.get("limit")
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise web.HTTPBadRequest(
+                    text=json.dumps({"error": "limit must be an integer"}),
+                    content_type="application/json",
+                )
+            if limit <= 0:
+                raise web.HTTPBadRequest(
+                    text=json.dumps({"error": "limit must be a positive integer"}),
+                    content_type="application/json",
+                )
+            kwargs["limit"] = limit
+        # get_feed_view wraps get_feed (same privacy + ranking) and returns the
+        # {"posts": [...]} shape the iOS FeedResponse decodes.
+        result = await self._call("social", "get_feed_view", **kwargs)
         return self._ok(result)
 
     # -- Payments Expanded --

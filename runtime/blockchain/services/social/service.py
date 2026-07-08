@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from .messaging import XMTPMessaging
@@ -25,6 +26,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "allowed_proof_types": [
         "attestation", "achievement", "credential", "badge", "verification",
     ],
+    # Transparent, operator-tunable "For You" ranking weights (v1 — NO ML, NO
+    # per-user learning). Every knob lives here; see runtime/social/feed_ranker.py
+    # and FEED_ALGORITHM.md. Change a number → the feed changes, explainably.
+    "feed_ranker": {
+        "recency": 1.0,
+        "engagement": 0.6,
+        "affinity": 0.9,
+        "discovery": 0.4,
+        "recency_halflife_hours": 6.0,
+        "comment_weight": 2.0,
+        "engagement_ceiling": 4.0,
+        "discovery_cap_fraction": 0.20,
+        "max_posts_per_author": 3,
+    },
 }
 
 
@@ -201,40 +216,204 @@ class SocialService:
         logger.info("Proof shared by %s (type=%s, id=%s)", sharer, proof_type, feed_item_id)
         return feed_item
 
-    async def get_feed(self, address: str, limit: int = 50) -> list:
+    # ------------------------------------------------------------------
+    # Feed normalization — `_feed_items` holds two record shapes (proof-shares
+    # from share_proof: sharer/timestamp/proof_data.visibility; and posts from
+    # publish_post: author/published_at). These read either shape defensively so
+    # the feed never KeyErrors and a new record type can't crash ranking.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _item_actor(item: dict) -> str:
+        return item.get("sharer") or item.get("author") or ""
+
+    @staticmethod
+    def _item_ts(item: dict) -> float:
+        return float(item.get("timestamp") or item.get("published_at") or 0.0)
+
+    @staticmethod
+    def _item_id(item: dict) -> str:
+        return item.get("id") or item.get("feed_item_id") or ""
+
+    @staticmethod
+    def _item_likes(item: dict) -> int:
+        return len(item.get("reactions") or {})
+
+    @staticmethod
+    def _item_comments(item: dict) -> int:
+        return len(item.get("comments") or [])
+
+    @staticmethod
+    def _is_public_item(item: dict) -> bool:
+        """Privacy gate for feeds. Only publicly-visible items may enter ANY feed.
+        Proof-shares carry visibility in proof_data; plain posts have none and are
+        public by default. Anything not explicitly 'public' is treated as private
+        and never surfaced — the strict reading of 'never enters anyone's feed'."""
+        vis = item.get("visibility")
+        if vis is None:
+            vis = (item.get("proof_data") or {}).get("visibility", "public")
+        return str(vis).lower() == "public"
+
+    async def get_feed(self, address: str, limit: int = 50, mode: str = "latest") -> list:
         """Get the social feed for a user.
 
-        Returns items from followed users and the user's own posts,
-        sorted by most recent first.
+        Two modes, both server-side and both privacy-filtered:
+          • ``latest`` (default): chronological — items from followed users and the
+            viewer's own posts, newest first. Also the honest fallback if ranking
+            cannot run. Never dressed up as "For You".
+          • ``for_you``: transparent weighted ranking (runtime/social/feed_ranker.py)
+            over all publicly-visible posts, boosting followed authors (affinity),
+            mixing in a capped slice of discovery (non-followed) posts, with an
+            engagement ceiling so one viral post can't dominate. NO ML, NO per-user
+            model — only the viewer's own follow set personalizes the order.
+
+        Privacy is absolute in BOTH modes: private/confidential items never enter
+        the candidate set (:meth:`_is_public_item`). The ranker reads only the
+        already-stored signals normalized here (author, created_at, like count,
+        comment count) — never message bodies, private flags, or DMs.
 
         Args:
-            address: Wallet address.
+            address: Viewer wallet address.
             limit: Maximum items to return.
+            mode: ``"latest"`` or ``"for_you"``.
 
         Returns:
-            List of feed items.
+            List of feed-item dicts (same shape as stored), in the mode's order.
+            ``for_you`` items are annotated with a transparent ``_rank_score`` and
+            ``_rank_breakdown`` so the ordering is explainable, never fabricated.
         """
         if not address:
             raise ValueError("address is required")
 
+        # A non-positive limit would silently mis-shape the response (Latest would
+        # slice feed[:-n], for_you would page_size<=0). Clamp to the configured
+        # default so every entry path is safe, not just the HTTP route's 400.
+        if limit is None or limit <= 0:
+            limit = self.config.get("default_feed_limit", 50)
         limit = min(limit, self.config["max_feed_limit"])
 
         profile = self._profiles.get(address)
         if not profile:
             raise ValueError(f"Profile not found for address '{address}'")
 
-        # Collect from followed users and self
-        visible_addresses = set(profile.get("following", []))
-        visible_addresses.add(address)
+        following = set(profile.get("following", []))
 
-        feed = [
-            item for item in self._feed_items
-            if item["sharer"] in visible_addresses
-        ]
+        # Privacy absolute — filter to publicly-visible items BEFORE anything else.
+        public_items = [it for it in self._feed_items if self._is_public_item(it)]
 
-        # Sort by timestamp descending
-        feed.sort(key=lambda x: x["timestamp"], reverse=True)
+        if str(mode).lower().replace("-", "_") in ("for_you", "foryou"):
+            try:
+                return self._rank_for_you(
+                    public_items, following=following, limit=limit,
+                )
+            except Exception:  # pragma: no cover - defensive; honest fallback below
+                logger.warning(
+                    "feed ranker failed; honest fallback to Latest", exc_info=True,
+                )
+                # fall through to chronological — never fabricate a ranked feed
+
+        # Latest (default + honest fallback): followed authors + self, newest first.
+        visible = following | {address}
+        feed = [it for it in public_items if self._item_actor(it) in visible]
+        feed.sort(key=lambda x: self._item_ts(x), reverse=True)
         return feed[:limit]
+
+    def _rank_for_you(
+        self, public_items: list[dict], *, following: set[str], limit: int,
+    ) -> list[dict]:
+        """Rank publicly-visible items via the transparent feed_ranker, then return
+        the ORIGINAL feed-item dicts in ranked order (shape unchanged), each
+        annotated with its score + per-signal breakdown for full explainability."""
+        from dataclasses import fields as dataclass_fields, replace
+
+        from runtime.social.feed_ranker import (
+            FeedCandidate,
+            FeedWeights,
+            rank_for_you,
+        )
+
+        # Build weights by overlaying the operator config onto FeedWeights defaults.
+        # FeedWeights is the SINGLE source of default truth — no duplicated literals
+        # here (which would silently drift from the dataclass / the doc).
+        rc = dict(self.config.get("feed_ranker") or {})
+        valid = {f.name for f in dataclass_fields(FeedWeights)}
+        overrides = {k: v for k, v in rc.items() if k in valid}
+        weights = replace(FeedWeights(), **overrides)
+
+        by_id: dict[str, dict] = {}
+        candidates: list[FeedCandidate] = []
+        for it in public_items:
+            cid = self._item_id(it)
+            if not cid:
+                continue
+            by_id[cid] = it
+            candidates.append(
+                FeedCandidate(
+                    id=cid,
+                    author_id=self._item_actor(it),
+                    created_at=self._item_ts(it),
+                    likes=self._item_likes(it),
+                    comments=self._item_comments(it),
+                )
+            )
+
+        ranked = rank_for_you(
+            candidates,
+            followed_author_ids=following,
+            now=time.time(),
+            weights=weights,
+            page_size=limit,
+        )
+
+        out: list[dict] = []
+        for r in ranked[:limit]:
+            item = dict(by_id[r.id])
+            item["_rank_score"] = round(r.score, 4)
+            item["_rank_breakdown"] = r.breakdown
+            out.append(item)
+        return out
+
+    # ------------------------------------------------------------------
+    # Client render view — the iOS FeedResponse contract
+    # ------------------------------------------------------------------
+    async def get_feed_view(
+        self, address: str, limit: int = 50, mode: str = "latest",
+    ) -> dict:
+        """Client-facing feed: rank/assemble via :meth:`get_feed` (privacy + ranking
+        unchanged) and format each item into the ``{"posts": [...]}`` shape the iOS
+        ``FeedResponse`` decodes. Keys are snake_case (the client converts them). Only
+        already-public, already-ranked items reach this formatter, so it cannot leak
+        anything private — it merely renders what get_feed already vetted."""
+        items = await self.get_feed(address, limit=limit, mode=mode)
+        return {"posts": [self._format_post(it) for it in items]}
+
+    def _format_post(self, item: dict) -> dict:
+        """Map an internal feed-item dict → the FeedPost JSON shape (snake_case)."""
+        author = self._item_actor(item)
+        profile = self._profiles.get(author) or {}
+        display_name = (
+            item.get("display_name")
+            or profile.get("display_name")
+            or (author[:10] if author else "Unknown")
+        )
+        body = item.get("content") or (item.get("proof_data") or {}).get("description", "") or ""
+        proof = item.get("proof_data") or {}
+        return {
+            "id": self._item_id(item),
+            "display_name": display_name,
+            "handle": "@" + (author or "unknown"),
+            "avatar_initials": "".join(w[0] for w in display_name.split()[:2]).upper()
+            or display_name[:2].upper(),
+            "body": body,
+            "timestamp": datetime.fromtimestamp(
+                self._item_ts(item), tz=timezone.utc,
+            ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "is_verified": bool(profile.get("verified", False)),
+            "proof_hash": proof.get("attestation_uid"),
+            "governance_tag": item.get("governance_tag"),
+            "like_count": self._item_likes(item),
+            "repost_count": 0,
+            "comment_count": self._item_comments(item),
+        }
 
     # ------------------------------------------------------------------
     # Expanded social operations
