@@ -69,6 +69,22 @@ CONTRACTS: list[dict[str, Any]] = [
         "source": "contracts/OpenMatrixDID.sol",
         "constructor_args": lambda cfg: [cfg["neosafe_address"]],
     },
+    # Real-Estate Escrow Engine (Component 46). Deed first — the escrow is
+    # deed-agnostic (address passed per settlement) but keeping the pair
+    # adjacent makes the post-deploy config step one motion:
+    # services.real_estate.deed_contract + .escrow_contract.
+    {
+        "name": "PropertyDeed",
+        "source": "contracts/PropertyDeed.sol",
+        "constructor_args": lambda cfg: [],
+    },
+    {
+        "name": "PropertyEscrow",
+        "source": "contracts/PropertyEscrow.sol",
+        # lock timeout: how long locked funds wait before the buyer can
+        # reclaim them (immutable after deploy). 7 days.
+        "constructor_args": lambda cfg: [int(cfg.get("escrow_lock_timeout_seconds", 604800))],
+    },
 ]
 
 

@@ -15,6 +15,23 @@ out = "contracts/out"
 cache_path = "contracts/cache"
 libs = ["contracts/lib"]
 
+# libs is NESTED inside src, so without these skips forge globs ~350 vendored
+# .sol files as project sources — OZ's own test/certora trees and the
+# account-abstraction v0.6 EntryPoint/samples (which import OZ-v4 paths that
+# no longer exist in the vendored OZ v5) — and `forge build`/`forge test`
+# fail from clean on lib code the project never compiles. Skip the vendored
+# trees; our contracts still import from lib normally (imports are resolved
+# via remappings, not this source glob).
+skip = [
+  "contracts/lib/openzeppelin-contracts/test/**",
+  "contracts/lib/openzeppelin-contracts/certora/**",
+  "contracts/lib/openzeppelin-contracts/scripts/**",
+  "contracts/lib/account-abstraction/contracts/core/**",
+  "contracts/lib/account-abstraction/contracts/samples/**",
+  "contracts/lib/account-abstraction/contracts/test/**",
+  "contracts/lib/forge-std/test/**",
+]
+
 # Pin the compiler to the version every .sol file declares, to make
 # CI builds reproducible.
 solc = "0.8.20"

@@ -55,6 +55,7 @@ _SERVICE_MAP: dict[str, tuple[str, str]] = {
     "oracles_plus":          (".oracles_plus",         "OraclesPlusService"),
     "kyc":                   (".kyc",                  "KYCService"),
     "payment_channels":      (".payment_channels",     "PaymentChannelsService"),
+    "real_estate":           (".real_estate",          "RealEstateService"),
 }
 
 _PACKAGE = __package__

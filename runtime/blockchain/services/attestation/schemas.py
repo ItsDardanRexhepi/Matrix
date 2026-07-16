@@ -47,6 +47,7 @@ PLATFORM_SCHEMAS: dict[str, str] = {
     "ban_record": "",
     "rights_reversion": "",
     "emergency_freeze": "",
+    "document_verification": "",
 }
 
 # Schema field definitions for each component type
@@ -70,6 +71,7 @@ SCHEMA_DEFINITIONS: dict[str, str] = {
     "ban_record": "address subject, string reason, uint256 duration, address issuedBy, uint256 timestamp",
     "rights_reversion": "address rightsHolder, bytes32 contentId, string reason, uint256 effectiveAt, uint256 timestamp",
     "emergency_freeze": "address target, string reason, address frozenBy, uint256 timestamp",
+    "document_verification": "address subject, bytes32 documentHash, string docType, string propertyId, uint256 timestamp",
 }
 
 

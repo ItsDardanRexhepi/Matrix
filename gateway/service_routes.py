@@ -392,6 +392,25 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/batch", self._handle_batch)
         app.router.add_get("/api/v1/events/stream", self._handle_event_stream)
 
+        # ── Real-Estate Escrow Engine (Component 46; feature-gated) ──
+        # Every route crosses the _call → gate_action seam; the whole group
+        # additionally 403s honestly while services.real_estate.enabled=false.
+        app.router.add_post("/api/v1/realestate/properties", self._handle_re_property_create)
+        app.router.add_get("/api/v1/realestate/properties", self._handle_re_property_list)
+        app.router.add_get("/api/v1/realestate/properties/{id}", self._handle_re_property_get)
+        app.router.add_post("/api/v1/realestate/properties/{id}/status", self._handle_re_property_status)
+        app.router.add_post("/api/v1/realestate/properties/{id}/documents", self._handle_re_document_upload)
+        app.router.add_get("/api/v1/realestate/properties/{id}/documents", self._handle_re_documents_get)
+        app.router.add_get("/api/v1/realestate/properties/{id}/readiness", self._handle_re_readiness)
+        app.router.add_get("/api/v1/realestate/documents/expiring", self._handle_re_docs_expiring)
+        app.router.add_post("/api/v1/realestate/buyers/verify", self._handle_re_buyer_verify)
+        app.router.add_get("/api/v1/realestate/buyers/{wallet}/verification", self._handle_re_buyer_verification_get)
+        app.router.add_post("/api/v1/realestate/purchase", self._handle_re_purchase)
+        app.router.add_post("/api/v1/realestate/escrow/{id}/confirm", self._handle_re_escrow_confirm)
+        app.router.add_post("/api/v1/realestate/escrow/{id}/recording-complete", self._handle_re_recording_complete)
+        app.router.add_post("/api/v1/realestate/escrow/{id}/refund", self._handle_re_escrow_refund)
+        app.router.add_get("/api/v1/realestate/escrow/{id}", self._handle_re_escrow_get)
+
         # ── P2: route completion ─────────────────────────────────────
         # storage / messaging / groups / licensing / events / indexer /
         # oracle-feeds / compute-jobs / portfolio-performance. Each is a real
@@ -538,6 +557,21 @@ class ServiceRoutes:
             ("POST", "/api/v1/insurance/claim/settle", self._handle_claim_settle),
             ("POST", "/api/v1/privacy/transfer", self._handle_private_transfer),
             ("POST", "/api/v1/privacy/stealth-address", self._handle_stealth_address),
+            ("POST", "/api/v1/realestate/properties", self._handle_re_property_create),
+            ("GET",  "/api/v1/realestate/properties", self._handle_re_property_list),
+            ("GET",  "/api/v1/realestate/properties/{id}", self._handle_re_property_get),
+            ("POST", "/api/v1/realestate/properties/{id}/status", self._handle_re_property_status),
+            ("POST", "/api/v1/realestate/properties/{id}/documents", self._handle_re_document_upload),
+            ("GET",  "/api/v1/realestate/properties/{id}/documents", self._handle_re_documents_get),
+            ("GET",  "/api/v1/realestate/properties/{id}/readiness", self._handle_re_readiness),
+            ("GET",  "/api/v1/realestate/documents/expiring", self._handle_re_docs_expiring),
+            ("POST", "/api/v1/realestate/buyers/verify", self._handle_re_buyer_verify),
+            ("GET",  "/api/v1/realestate/buyers/{wallet}/verification", self._handle_re_buyer_verification_get),
+            ("POST", "/api/v1/realestate/purchase", self._handle_re_purchase),
+            ("POST", "/api/v1/realestate/escrow/{id}/confirm", self._handle_re_escrow_confirm),
+            ("POST", "/api/v1/realestate/escrow/{id}/recording-complete", self._handle_re_recording_complete),
+            ("POST", "/api/v1/realestate/escrow/{id}/refund", self._handle_re_escrow_refund),
+            ("GET",  "/api/v1/realestate/escrow/{id}", self._handle_re_escrow_get),
         ]
 
         # Bridge endpoints — only registered if the gateway server has
@@ -1769,6 +1803,170 @@ class ServiceRoutes:
         # get_feed_view wraps get_feed (same privacy + ranking) and returns the
         # {"posts": [...]} shape the iOS FeedResponse decodes.
         result = await self._call("social", "get_feed_view", **kwargs)
+        return self._ok(result)
+
+    # -- Real-Estate Escrow Engine (Component 46; feature-gated) --
+
+    def _re_guard(self) -> None:
+        """Honest 403 while services.real_estate.enabled=false (the server-side
+        mvpMode analogue for this regulated feature). The service ALSO refuses
+        internally, so non-HTTP paths (batch, dispatcher) stay gated too."""
+        cfg = (self._config.get("services", {}) or {}).get("real_estate", {}) or {}
+        if not cfg.get("enabled", False):
+            raise web.HTTPForbidden(
+                text=json.dumps({
+                    "error": "real_estate is disabled",
+                    "detail": "services.real_estate.enabled=false — this"
+                              " regulated feature ships dark until explicitly"
+                              " enabled server-side.",
+                }),
+                content_type="application/json",
+            )
+
+    async def _handle_re_property_create(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        self._require(body, "seller", "address", "price_wei")
+        result = await self._call(
+            "real_estate", "create_property",
+            seller=body["seller"], address=body["address"],
+            price_wei=str(body["price_wei"]),
+        )
+        return self._ok(result)
+
+    async def _handle_re_property_list(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        result = await self._call(
+            "real_estate", "list_properties",
+            status=request.query.get("status"),
+        )
+        return self._ok(result)
+
+    async def _handle_re_property_get(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        result = await self._call(
+            "real_estate", "get_property", property_id=request.match_info["id"])
+        return self._ok(result)
+
+    async def _handle_re_property_status(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        self._require(body, "status")
+        result = await self._call(
+            "real_estate", "update_listing_status",
+            property_id=request.match_info["id"], status=body["status"])
+        return self._ok(result)
+
+    async def _handle_re_document_upload(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        self._require(body, "doc_type")
+        result = await self._call(
+            "real_estate", "upload_document",
+            property_id=request.match_info["id"],
+            doc_type=body["doc_type"],
+            content_b64=body.get("content_b64"),
+            content_hash=body.get("content_hash"),
+            filename=body.get("filename", ""),
+        )
+        return self._ok(result)
+
+    async def _handle_re_documents_get(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        result = await self._call(
+            "real_estate", "get_documents",
+            property_id=request.match_info["id"],
+            include_history=request.query.get("history", "") in ("1", "true"),
+        )
+        return self._ok(result)
+
+    async def _handle_re_readiness(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        result = await self._call(
+            "real_estate", "get_readiness",
+            property_id=request.match_info["id"],
+            buyer=request.query.get("buyer", ""),
+        )
+        return self._ok(result)
+
+    async def _handle_re_docs_expiring(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        try:
+            days = int(request.query.get("days", "14"))
+        except ValueError:
+            raise web.HTTPBadRequest(
+                text=json.dumps({"error": "days must be an integer"}),
+                content_type="application/json")
+        result = await self._call(
+            "real_estate", "query_expiring_documents", days=days)
+        return self._ok(result)
+
+    async def _handle_re_buyer_verify(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        self._require(body, "buyer")
+        method = body.get("method", "wallet_balance")
+        if method == "external":
+            # Honest 501 — the bank-integration path does not exist yet and is
+            # never faked (the service ALSO raises NotImplementedError).
+            return web.json_response(
+                {"error": "external proof-of-funds verification is not"
+                          " implemented yet", "status": "not_implemented"},
+                status=501)
+        result = await self._call(
+            "real_estate", "verify_buyer",
+            buyer=body["buyer"], method=method,
+            threshold_wei=body.get("threshold_wei"),
+        )
+        return self._ok(result)
+
+    async def _handle_re_buyer_verification_get(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        result = await self._call(
+            "real_estate", "get_buyer_verification",
+            buyer=request.match_info["wallet"])
+        return self._ok(result)
+
+    async def _handle_re_purchase(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        self._require(body, "buyer", "property_id")
+        result = await self._call(
+            "real_estate", "execute_purchase",
+            buyer=body["buyer"], property_id=body["property_id"])
+        return self._ok(result)
+
+    async def _handle_re_escrow_confirm(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        self._require(body, "tx_hash")
+        result = await self._call(
+            "real_estate", "confirm_settlement",
+            escrow_id=request.match_info["id"], tx_hash=body["tx_hash"])
+        return self._ok(result)
+
+    async def _handle_re_recording_complete(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        result = await self._call(
+            "real_estate", "mark_recording_complete",
+            escrow_id=request.match_info["id"],
+            recording_reference=body.get("recording_reference", ""))
+        return self._ok(result)
+
+    async def _handle_re_escrow_refund(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        body = await self._parse_body(request)
+        result = await self._call(
+            "real_estate", "refund_escrow",
+            escrow_id=request.match_info["id"],
+            reason=body.get("reason", ""))
+        return self._ok(result)
+
+    async def _handle_re_escrow_get(self, request: web.Request) -> web.Response:
+        self._re_guard()
+        result = await self._call(
+            "real_estate", "get_escrow", escrow_id=request.match_info["id"])
         return self._ok(result)
 
     # -- Payments Expanded --
