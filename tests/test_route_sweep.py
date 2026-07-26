@@ -1,0 +1,303 @@
+"""D1 — Route sweep detector.
+
+Walks EVERY route the gateway registers and fails on two families of defect
+that no unit test was catching, because no unit test called these routes at all:
+
+  1. **Error-shaped bodies.** A response whose body contains ``has no attribute``,
+     ``object is not``, ``Traceback`` or ``NoneType`` is a Python exception that
+     leaked to the client (RUN-5, RUN-6). It is never a legitimate payload.
+
+  2. **Envelope inversion.** An HTTP 200 whose *inner* payload carries
+     ``status: error`` / ``status: unavailable`` (RUN-4). The transport says
+     "fine", the payload says "broken", and every SDK believes the transport.
+
+The route list is taken from ``docs/ROUTES.md`` — the generated table that CI
+already keeps in sync — so a route added without a doc regen is a separate,
+already-detected failure, and a route added *with* one is swept automatically.
+
+This sweep is deliberately shallow: it proves a route does not *explode*, not
+that it is correct. Its job is to make a whole class of bug impossible to ship
+unnoticed.
+
+Note on coverage asymmetry: the external audit swept the 72 GET routes by hand.
+The ~140 POST routes were entirely unswept and are the larger surface. GET and
+POST results are reported separately (see ``test_report_sweep_coverage``) so
+that number stays visible rather than being averaged away.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import warnings
+from pathlib import Path
+
+import pytest
+from aiohttp.test_utils import TestClient, TestServer
+
+from gateway.server import GatewayServer
+
+warnings.filterwarnings("ignore")
+
+ROOT = Path(__file__).resolve().parent.parent
+ROUTES_MD = ROOT / "docs" / "ROUTES.md"
+
+# The sweep makes ~200 calls from one client in a few seconds, which trips the
+# production rate limiter and turns every response into a 429. A 429 is not a
+# result: it means the request never reached the handler, so a "green" sweep
+# under rate limiting proves nothing at all. Raise the ceilings for the harness
+# only — this configures the test server, it does not change product defaults.
+SWEEP_CONFIG = {
+    "gateway": {
+        "rate_limit_rpm": 100_000,
+        "rate_limit_burst": 100_000,
+        "rate_limit_rpm_authenticated": 100_000,
+        "rate_limit_burst_authenticated": 100_000,
+        "rate_limit_rpm_wallet": 100_000,
+        "rate_limit_burst_wallet": 100_000,
+        "rate_limit_rpm_anonymous": 100_000,
+        "rate_limit_burst_anonymous": 100_000,
+    }
+}
+
+# Substrings that can only be an escaped internal error. Matched case-sensitively
+# on the raw body: these are Python-runtime spellings, not prose a handler writes.
+ERROR_SHAPES = (
+    "has no attribute",
+    "object is not",
+    "Traceback",
+    "NoneType",
+)
+
+# Plausible values for path templates. A route that 404s or 400s on a made-up id
+# is fine — the sweep is looking for explosions, not for business success.
+PARAM_VALUES = {
+    "wallet": "0x1111111111111111111111111111111111111111",
+    "address": "0x1111111111111111111111111111111111111111",
+    "owner": "0x1111111111111111111111111111111111111111",
+    "uid": "0x" + "ab" * 32,
+    "job_id": "job_1",
+    "plan_id": "plan_1",
+    "id": "1",
+    "capability_id": "send_payment",
+    "token_id": "1",
+    "chain_id": "84532",
+}
+DEFAULT_PARAM = "test-id-1"
+
+# Bodies for POST/PUT/PATCH. Handlers that require specific keys should answer
+# 400 (an honest refusal); that is a pass. Only an explosion is a failure.
+GENERIC_BODY = {
+    "address": "0x1111111111111111111111111111111111111111",
+    "wallet": "0x1111111111111111111111111111111111111111",
+    "sender": "0x1111111111111111111111111111111111111111",
+    "recipient": "0x2222222222222222222222222222222222222222",
+    "amount": "1",
+    "name": "sweep-probe",
+    "description": "route sweep probe",
+    "source_code": "contract Probe\nstate owner: address",
+    "source_lang": "pseudocode",
+    "message": "hello",
+    "text": "hello",
+    "query": "hello",
+}
+
+
+def _parse_routes_md() -> list[tuple[str, str, str]]:
+    """Return [(method, path, handler)] from the generated route table."""
+    if not ROUTES_MD.is_file():
+        pytest.skip(f"{ROUTES_MD} missing — run scripts/generate_route_table.py")
+    rows: list[tuple[str, str, str]] = []
+    for line in ROUTES_MD.read_text().splitlines():
+        if not line.startswith("| "):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 3 or cells[0] in ("Method", "---"):
+            continue
+        method, path, handler = cells[0], cells[1].strip("`"), cells[2].strip("`")
+        if not path.startswith("/"):
+            continue
+        rows.append((method.upper(), path, handler))
+    assert rows, "parsed zero routes out of ROUTES.md — parser or table shape changed"
+    return rows
+
+
+def _fill(path: str) -> str:
+    """Substitute {placeholders} with plausible values."""
+    def sub(m: re.Match) -> str:
+        name = m.group(1).split(":")[0]
+        return PARAM_VALUES.get(name, DEFAULT_PARAM)
+
+    return re.sub(r"\{([^}]+)\}", sub, path)
+
+
+ROUTES = _parse_routes_md()
+# Routes excluded from the sweep, each with a reason. Keep this list SHORT and
+# justified — every entry is a hole in the detector.
+SKIP_PATHS = {
+    "/ws": "websocket upgrade, not a request/response route",
+    "/bridge/v1/ws": "websocket upgrade",
+}
+SWEEPABLE = [r for r in ROUTES if r[1] not in SKIP_PATHS and r[0] != "HEAD"]
+
+
+@pytest.fixture
+async def client():
+    server = GatewayServer({})
+    app = server.create_app()
+    async with TestClient(TestServer(app)) as c:
+        yield c
+
+
+@pytest.fixture(scope="module")
+def sweep_results():
+    """Call every route ONCE and cache (status, body) for all assertions.
+
+    Sweeping once rather than per-assertion halves the wall-clock and, more
+    importantly, keeps the status-code census below consistent with the bodies
+    the leak/envelope tests judge.
+    """
+    import asyncio
+
+    async def run() -> dict[tuple[str, str], tuple[int, str]]:
+        out: dict[tuple[str, str], tuple[int, str]] = {}
+        server = GatewayServer(SWEEP_CONFIG)
+        app = server.create_app()
+        async with TestClient(TestServer(app)) as c:
+            for method, path, _ in SWEEPABLE:
+                try:
+                    resp = await _call(c, method, path)
+                    out[(method, path)] = (resp.status, await resp.text())
+                except Exception as exc:  # a raised exception IS a finding
+                    out[(method, path)] = (-1, f"RAISED {type(exc).__name__}: {exc}")
+        return out
+
+    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run())
+
+
+async def _call(client: TestClient, method: str, path: str):
+    url = _fill(path)
+    headers = {"Authorization": "Bearer sweep-test-key"}
+    if method == "GET":
+        return await client.get(url, headers=headers)
+    if method == "DELETE":
+        return await client.delete(url, headers=headers)
+    return await client.request(method, url, json=dict(GENERIC_BODY), headers=headers)
+
+
+def _inner_status(body: str) -> str | None:
+    """Return the inner payload's status, if the body is an {ok, data} envelope."""
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    data = parsed.get("data")
+    if isinstance(data, dict) and isinstance(data.get("status"), str):
+        return data["status"]
+    return None
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [(m, p) for m, p, _ in SWEEPABLE],
+    ids=[f"{m}:{p}" for m, p, _ in SWEEPABLE],
+)
+def test_route_does_not_leak_internal_errors(sweep_results, method, path):
+    """No route may return a body containing an escaped Python error."""
+    status, body = sweep_results[(method, path)]
+    leaked = [s for s in ERROR_SHAPES if s in body]
+    assert not leaked, (
+        f"{method} {_fill(path)} -> HTTP {status} leaked {leaked}\n"
+        f"body: {body[:400]}"
+    )
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [(m, p) for m, p, _ in SWEEPABLE],
+    ids=[f"{m}:{p}" for m, p, _ in SWEEPABLE],
+)
+def test_route_does_not_invert_envelope(sweep_results, method, path):
+    """No route may answer HTTP 200 while its payload reports failure (RUN-4)."""
+    status, body = sweep_results[(method, path)]
+    if status != 200:
+        return  # an honest non-200 is exactly what we want
+    inner = _inner_status(body)
+    assert inner not in ("error", "unavailable"), (
+        f"{method} {_fill(path)} -> HTTP 200 with inner status={inner!r}. "
+        "The transport says success and the payload says failure; "
+        "every SDK believes the transport."
+    )
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [(m, p) for m, p, _ in SWEEPABLE],
+    ids=[f"{m}:{p}" for m, p, _ in SWEEPABLE],
+)
+def test_route_does_not_raise_or_500(sweep_results, method, path):
+    """No route may raise, or answer 500, on a plausible request.
+
+    String-matching on the body is not enough on its own: a handler that blows
+    up *before* writing a body (e.g. mid-stream) produces a transport error with
+    none of the ERROR_SHAPES in it. `/social/feed/stream` is exactly that case —
+    it raises `TypeError: EventBroadcaster.register() got an unexpected keyword
+    argument 'ip'` server-side and the client only sees a truncated payload.
+    """
+    status, body = sweep_results[(method, path)]
+    assert status != -1, (
+        f"{method} {_fill(path)} raised instead of responding: {body[:300]}"
+    )
+    assert status != 500, (
+        f"{method} {_fill(path)} -> HTTP 500. An unhandled server error on a "
+        f"plausible request is a defect, not a valid answer.\nbody: {body[:300]}"
+    )
+
+
+def test_report_sweep_coverage(sweep_results):
+    """Emit GET/POST coverage and the status census separately.
+
+    The census matters as much as the pass/fail: if every POST answered 400,
+    the sweep would be bouncing off argument validation without ever reaching
+    handler logic, and a green POST column would mean nothing. Printing the
+    distribution keeps that self-deception visible.
+    """
+    by_method: dict[str, int] = {}
+    census: dict[str, dict[int, int]] = {}
+    for (method, path), (status, _) in sweep_results.items():
+        by_method[method] = by_method.get(method, 0) + 1
+        census.setdefault(method, {})[status] = census.setdefault(method, {}).get(status, 0) + 1
+
+    print(f"\nRoute sweep coverage: {sum(by_method.values())} routes")
+    for method in sorted(by_method):
+        dist = ", ".join(f"{s}:{n}" for s, n in sorted(census[method].items()))
+        print(f"  {method:<7} {by_method[method]:>3} routes   status census -> {dist}")
+    print(f"  skipped {len(SKIP_PATHS)}: {', '.join(SKIP_PATHS)}")
+
+    assert by_method.get("POST", 0) > 100, (
+        "expected the POST surface to dominate; if this drops, the sweep has "
+        "silently stopped covering POSTs"
+    )
+    # Guard against a VACUOUS sweep. A 429 means the request never reached the
+    # handler at all, and 400/401/422 mean it bounced off argument or auth
+    # validation. If those dominate, this detector is not exercising handler
+    # logic and a green result is self-deception, not evidence.
+    #
+    # This guard is not hypothetical: the first version of this sweep shared one
+    # client across ~200 calls, tripped the rate limiter, and reported 205/211
+    # routes "clean" on the strength of 429s.
+    for method, dist in census.items():
+        total = sum(dist.values())
+        throttled = dist.get(429, 0)
+        assert throttled == 0, (
+            f"{throttled}/{total} {method} routes returned 429 — the sweep is "
+            "rate-limited and never reached the handlers. Raise SWEEP_CONFIG."
+        )
+        bounced = dist.get(400, 0) + dist.get(401, 0) + dist.get(422, 0)
+        assert bounced < total, (
+            f"every {method} bounced off validation/auth — the sweep never "
+            "reached handler logic, so a passing result proves nothing. "
+            "Enrich GENERIC_BODY until some requests execute."
+        )
