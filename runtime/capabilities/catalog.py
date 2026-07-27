@@ -113,10 +113,20 @@ CATEGORIES: list[dict[str, str]] = [
 CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Smart Contracts ────────────────────────────────────────────────────
-    _cap("deploy_contract",        "Deploy Contract",          "contracts", "contract_conversion", "convert",
-         "Convert any description into a deployed smart contract", feed_event="contract_deployed"),
+    # NEW-4: `deploy_contract` used to be declared here as a separate capability
+    # bound to contract_conversion.convert, described as producing "a deployed
+    # smart contract", and emitting a `contract_deployed` feed event. Nothing in
+    # that path deploys anything (auto_deploy defaults False and is set nowhere),
+    # so a successful conversion was broadcast to the social feed as a
+    # deployment. The fake success did not stop at the API.
+    #
+    # The capability is removed rather than renamed: there is exactly one thing
+    # this method does, and `convert_contract` already advertises it honestly.
+    # Deployment gets a capability entry when deployment exists (see RUN-2 —
+    # /api/v1/contracts/deploy now returns 501).
     _cap("convert_contract",       "Convert to Solidity",      "contracts", "contract_conversion", "convert",
-         "Convert natural language to Solidity", feed_event="contract_converted"),
+         "Convert structured declarations (pseudocode, Solidity, Vyper) into Solidity scaffolding",
+         feed_event="contract_converted"),
     _cap("estimate_contract_cost", "Estimate Deployment Cost", "contracts", "contract_conversion", "estimate_cost",
          state_modifying=False, uses_paymaster=False),
     _cap("list_templates",         "List Contract Templates",  "contracts", "contract_conversion", "get_available_templates",

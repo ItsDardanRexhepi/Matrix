@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 ACTION_MAP: dict[str, tuple[str, str]] = {
     # --- Contract Conversion (Component 1) ---
-    "deploy_contract": ("contract_conversion", "convert"),
     "convert_contract": ("contract_conversion", "convert"),
     "estimate_contract_cost": ("contract_conversion", "estimate_cost"),
     "list_templates": ("contract_conversion", "get_available_templates"),
@@ -322,7 +321,7 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 
 # Actions that modify state and should be attested via EAS
 _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
-    "deploy_contract", "convert_contract", "create_loan", "repay_loan",
+    "convert_contract", "create_loan", "repay_loan",
     "mint_nft", "create_nft_collection", "transfer_nft", "list_nft_for_sale",
     "buy_nft", "set_nft_rights", "configure_nft_royalty",
     "tokenize_asset", "transfer_rwa_ownership",
@@ -377,7 +376,10 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
 
 ACTION_TO_FEED_EVENT: dict[str, str] = {
     # Existing actions
-    "deploy_contract": "contract_deployed",
+    # NEW-4: `deploy_contract` mapped to a `contract_deployed` feed event
+    # while dispatching to contract_conversion.convert, which deploys
+    # nothing. A conversion was announced to the social feed as a
+    # deployment. Removed with the capability itself.
     "convert_contract": "contract_converted",
     "create_loan": "loan_created",
     "repay_loan": "loan_repaid",
@@ -478,8 +480,6 @@ class ServiceDispatcher:
 
                 "SMART CONTRACTS:\n"
                 "  convert_contract — Convert a contract between chains. "
-                    "params: {source_code, source_lang, target_chain}\n"
-                "  deploy_contract — Deploy a contract to a blockchain. "
                     "params: {source_code, source_lang, target_chain}\n"
                 "  estimate_contract_cost — Estimate deployment cost. "
                     "params: {source_code, target_chain}\n"
