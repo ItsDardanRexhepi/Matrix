@@ -918,15 +918,34 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_contract_deploy(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "source_code", "source_lang")
-        result = await self._call(
-            "contract_conversion", "convert",
-            source_code=body["source_code"],
-            source_lang=body["source_lang"],
-            target_chain=body.get("target_chain", "base"),
+        """RUN-2: deployment is not implemented. Say so, in the status line.
+
+        This handler used to be byte-identical to _handle_contract_convert and
+        dispatched to the same contract_conversion.convert. The service has no
+        deploy method at all — nothing in the path touched a chain, a wallet or
+        a signer. A client POSTing here got HTTP 200 with status ok and
+        concluded a contract had been deployed. That was wrong 100% of the time.
+
+        501 is the honest answer: the route is recognised, the capability is not
+        built. Implementing real deployment is a feature with real risk (key
+        custody, gas, chain selection, failure semantics) and needs its own
+        design pass — deliberately NOT smuggled in behind a bug fix.
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Contract deployment is not implemented.",
+                "detail": (
+                    "This endpoint previously returned a converted contract and "
+                    "reported success, which read as a completed deployment. It "
+                    "never deployed anything. Use POST /api/v1/contracts/convert "
+                    "to generate Solidity; deploying it is a separate step you "
+                    "currently perform with your own tooling and signer."
+                ),
+                "see": "/api/v1/contracts/convert",
+            },
+            status=501,
         )
-        return self._ok(result)
 
     # -- DeFi --
 

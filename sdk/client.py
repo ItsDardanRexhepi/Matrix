@@ -235,8 +235,22 @@ class OpenMatrixClient:
     # ─── Convenience Methods ───────────────────────────────────────────────
 
     async def deploy_contract(self, source_code: str, **kwargs) -> dict:
-        """Deploy a smart contract. Gas covered by platform."""
-        return await self.ablockchain("smart_contract", action="deploy", source_code=source_code, **kwargs)
+        """NOT IMPLEMENTED — deployment does not exist yet (RUN-2).
+
+        This wrapper's old docstring said "Deploy a smart contract. Gas covered
+        by platform." Nothing behind it deployed anything: the action routed to
+        contract_conversion.convert, which generates Solidity and returns. The
+        docstring was the most convincing part of the illusion, so it is the
+        part that most needed correcting.
+
+        Use :meth:`convert_contract` to generate Solidity. Deploying it is a
+        separate step you perform with your own tooling and signer.
+        """
+        raise NotImplementedError(
+            "Contract deployment is not implemented. The gateway returns HTTP 501 "
+            "for /api/v1/contracts/deploy. Use convert_contract() to generate "
+            "Solidity, then deploy it with your own tooling and signer."
+        )
 
     async def send_payment(self, to: str, amount: str, token: str = "ETH") -> dict:
         """Send a payment. Gas covered by platform."""
