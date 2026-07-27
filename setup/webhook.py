@@ -10,7 +10,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("Generic Webhook Setup")
     existing = config.get("notifications", {}).get("webhook", {})
     url = ask("Webhook URL (POST endpoint that accepts JSON)",
@@ -25,7 +25,7 @@ def configure(config: dict) -> dict:
                   default=existing.get("bearer_token", ""))
     channel_cfg = {"url": url, "bearer_token": bearer}
     update_channel(config, "webhook", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({"NOTIFY_WEBHOOK_URL": url})
     result = test_channel_via_dispatcher(config, "webhook")
     if result.get("status") == "ok":

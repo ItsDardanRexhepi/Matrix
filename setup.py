@@ -381,7 +381,11 @@ def configure_communications(config):
         pick = ask(f"Configure {label}?", default=default, options=["yes", "no"])
         if pick.lower().startswith("y"):
             try:
-                fn(config)
+                # persist=False: the wizard owns the write. Channel modules
+                # mutate the dict and return it; only write_config() touches
+                # disk, and only after the operator has agreed to overwrite.
+                # RUN-1 was these nine calls each writing immediately.
+                fn(config, persist=False)
             except KeyboardInterrupt:
                 info("Skipped.")
             except Exception as exc:
@@ -445,8 +449,35 @@ def verify_setup(config):
     return True
 
 
+def confirm_overwrite_upfront():
+    """Ask about overwriting BEFORE the wizard does any work.
+
+    Ordering is the point. As long as the only overwrite check sat at the end,
+    every step before it was an opportunity for some writer to reach disk first
+    — which is exactly what RUN-1 was. Asking at the top makes the safe path
+    structural rather than a property of who happens to call what.
+
+    Returns True to proceed, False if the operator wants their config left alone.
+    """
+    path = Path("openmatrix.config.json")
+    if not path.exists():
+        return True
+    overwrite = ask(
+        "openmatrix.config.json already exists. Overwrite it when setup finishes?",
+        default="no", options=["yes", "no"],
+    )
+    if overwrite.lower() != "yes":
+        warn("Setup cancelled. Existing config preserved — nothing was written.")
+        return False
+    return True
+
+
 def write_config(config):
-    """Write the config file."""
+    """Write the config file. The ONLY writer in the wizard.
+
+    Still re-checks rather than trusting confirm_overwrite_upfront(), so this
+    stays safe if it is ever called from somewhere else.
+    """
     path = Path("openmatrix.config.json")
     if path.exists():
         overwrite = ask("openmatrix.config.json already exists. Overwrite?", default="no", options=["yes", "no"])
@@ -454,7 +485,9 @@ def write_config(config):
             warn("Setup cancelled. Existing config preserved.")
             return False
 
-    path.write_text(json.dumps(config, indent=2) + "\n")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(config, indent=2) + "\n")
+    os.replace(tmp, path)
     success(f"Config written to {path}")
     return True
 
@@ -482,6 +515,12 @@ def main():
     print(f"  {DIM}This setup will guide you through configuring 0pnMatrx.{RESET}")
     print(f"  {DIM}Press Enter to accept defaults shown in [brackets].{RESET}")
     print(f"  {DIM}You can re-run this anytime to change settings.{RESET}")
+
+    # RUN-1: ask before doing any work, not after. Declining nine steps in is
+    # both a waste of the operator's time and — until the channel modules
+    # stopped writing directly — a promise the wizard could not keep.
+    if not confirm_overwrite_upfront():
+        return 1
 
     total = 9
     config = {

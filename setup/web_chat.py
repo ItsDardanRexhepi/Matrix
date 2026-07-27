@@ -10,14 +10,14 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("Web Chat Setup")
     info("The web chat UI at /chat is served by the gateway itself — no external credentials.")
     info("Notifications to the web chat appear in real time via Server-Sent Events.")
     enable = yes_no("Enable web chat notifications?", default=True)
     channel_cfg = {"enabled": enable}
     update_channel(config, "web_chat", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     success("Web chat " + ("enabled." if enable else "disabled."))
     return channel_cfg
 
