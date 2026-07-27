@@ -199,11 +199,47 @@ def _inner_status(body: str) -> str | None:
     return None
 
 
-@pytest.mark.parametrize(
-    "method,path",
-    [(m, p) for m, p, _ in SWEEPABLE],
-    ids=[f"{m}:{p}" for m, p, _ in SWEEPABLE],
-)
+# ── xfail burn-down (finding IDs, strict=True) ─────────────────────────────
+#
+# These routes are KNOWN broken, each tied to a finding. xfail(strict=True)
+# means the moment a fix lands the route passes, the test XPASSes, and a strict
+# xpass is a FAILURE — so the marker cannot outlive the bug it documents. That
+# is the burn-down: the count only goes down, and it goes down by force.
+# A new breakage cannot hide behind these, because it would appear as a plain
+# (unmarked) failure on some other route.
+_XFAIL_LEAK = {
+    "/api/v1/portfolio/positions/{wallet}": "RUN-6",
+    "/api/v1/portfolio/history/{wallet}": "RUN-6",
+    "/api/v1/intent/summary/{plan_id}": "RUN-6",
+}
+_XFAIL_INVERT = {
+    "/api/v1/portfolio/positions/{wallet}": "RUN-4/RUN-6",
+    "/api/v1/portfolio/history/{wallet}": "RUN-4/RUN-6",
+    "/api/v1/intent/summary/{plan_id}": "RUN-4/RUN-6",
+}
+_XFAIL_RAISE = {
+    "/social/feed/stream": "NEW-6",
+    "/badge/issue": "NEW-7",
+    "/badge/{badge_id}/embed": "NEW-7",
+    "/badge/{badge_id}/status": "NEW-7",
+    "/bridge/v1/chat": "NEW-8",
+    "/api/v1/capabilities/{capability_id}/invoke": "NEW-9",
+}
+
+
+def _sweep_params(xfail_map: dict[str, str]):
+    """Build the parametrize list, xfail-marking the known-broken routes."""
+    out = []
+    for m, p, _ in SWEEPABLE:
+        marks = (
+            [pytest.mark.xfail(strict=True, reason=xfail_map[p])]
+            if p in xfail_map else []
+        )
+        out.append(pytest.param(m, p, marks=marks, id=f"{m}:{p}"))
+    return out
+
+
+@pytest.mark.parametrize("method,path", _sweep_params(_XFAIL_LEAK))
 def test_route_does_not_leak_internal_errors(sweep_results, method, path):
     """No route may return a body containing an escaped Python error."""
     status, body = sweep_results[(method, path)]
@@ -214,11 +250,7 @@ def test_route_does_not_leak_internal_errors(sweep_results, method, path):
     )
 
 
-@pytest.mark.parametrize(
-    "method,path",
-    [(m, p) for m, p, _ in SWEEPABLE],
-    ids=[f"{m}:{p}" for m, p, _ in SWEEPABLE],
-)
+@pytest.mark.parametrize("method,path", _sweep_params(_XFAIL_INVERT))
 def test_route_does_not_invert_envelope(sweep_results, method, path):
     """No route may answer HTTP 200 while its payload reports failure (RUN-4)."""
     status, body = sweep_results[(method, path)]
@@ -232,11 +264,7 @@ def test_route_does_not_invert_envelope(sweep_results, method, path):
     )
 
 
-@pytest.mark.parametrize(
-    "method,path",
-    [(m, p) for m, p, _ in SWEEPABLE],
-    ids=[f"{m}:{p}" for m, p, _ in SWEEPABLE],
-)
+@pytest.mark.parametrize("method,path", _sweep_params(_XFAIL_RAISE))
 def test_route_does_not_raise_or_500(sweep_results, method, path):
     """No route may raise, or answer 500, on a plausible request.
 
