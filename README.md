@@ -19,7 +19,7 @@ On 0pnMatrx, if you can think it, you can achieve it.
 
 What you can do on 0pnMatrx:
 
-- Convert any traditional contract into a self-executing smart contract, no lawyers, no delays, no broken promises
+- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic and deploy
 - Access DeFi loans starting at $10,000 with no bank, no credit check, and no gatekeeping
 - Create NFTs and register your creative work with automatic royalty enforcement on every future sale, forever
 - Co-own property, vehicles, and real-world assets with anyone in the world through legally enforceable smart contracts

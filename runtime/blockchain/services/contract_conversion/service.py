@@ -237,17 +237,68 @@ class ContractConversionService:
             # 6. Security audit
             audit_report = self._auditor.audit(generated, ir.get("contract_name", ""))
 
+            # RUN-3 parts 2 & 3: honesty about what was actually produced.
+            #
+            # The regex pipeline recovers names, state variables, and function
+            # signatures, but does NOT synthesise function bodies. A pseudocode
+            # declaration therefore yields a syntactically valid but behaviorally
+            # inert contract: the functions exist and do nothing.
+            #
+            # Two consequences the old code reported dishonestly:
+            #   part 2 — a conversion with unimplemented (empty-body) functions
+            #            is not a "success"; it is "partial", and the caller is
+            #            owed the explicit list of what was left empty.
+            #   part 3 — the Glasswing auditor finds nothing to flag in a
+            #            contract with no statements, so it returned passed=True.
+            #            A green security verdict on a contract that cannot
+            #            function is the actual hazard: the false all-clear. When
+            #            there is no executable logic there is nothing to audit,
+            #            so the verdict is "not_applicable", never passed=True.
+            functions = ir.get("functions", [])
+            unimplemented = [
+                f.get("name", "<anonymous>")
+                for f in functions
+                if not (f.get("body") or "").strip()
+            ]
+            has_executable_logic = any(
+                (f.get("body") or "").strip() for f in functions
+            )
+
+            if not has_executable_logic:
+                # No statements anywhere — the audit cannot render a verdict.
+                audit_dict = {
+                    "verdict": "not_applicable",
+                    "reason": (
+                        "contract has no executable logic — every function body "
+                        "is empty, so there is nothing to audit. An empty "
+                        "contract has no vulnerabilities, which is not the same "
+                        "as being safe."
+                    ),
+                }
+                audit_passed = False
+            else:
+                audit_dict = audit_report.to_dict()
+                audit_passed = audit_report.passed
+
+            # status: "success" ONLY when there is real executable logic and
+            # nothing was left empty. A stub (empty bodies) is "partial", and so
+            # is a name-only contract with no functions at all — prose fed as
+            # pseudocode yields `contract X {}`, which is not a success just
+            # because it has no empty *functions* to list.
+            status = "success" if (has_executable_logic and not unimplemented) else "partial"
+
             elapsed_ms = round((time.monotonic() - start) * 1000, 2)
 
             result: dict[str, Any] = {
-                "status": "success",
+                "status": status,
                 "generated_source": generated,
                 "contract_name": ir.get("contract_name", ""),
                 "target_chain": target_chain,
                 "tier": tier_info,
                 "artist_info": artist_info,
-                "audit": audit_report.to_dict(),
-                "audit_passed": audit_report.passed,
+                "audit": audit_dict,
+                "audit_passed": audit_passed,
+                "unimplemented": unimplemented,
                 "ir": {
                     "functions": len(ir.get("functions", [])),
                     "state_variables": len(ir.get("state_variables", [])),
@@ -260,13 +311,22 @@ class ContractConversionService:
                 "template_used": template_used,
             }
 
-            # 7. On-chain deployment (only when explicitly enabled and audit passed)
+            # 7. On-chain deployment (only when explicitly enabled and audit
+            #    passed). Gated on the COMPUTED audit_passed, not
+            #    audit_report.passed: a bodyless contract passes the raw auditor
+            #    (nothing to flag) but has no logic to deploy, and audit_passed
+            #    is False for it — so an empty contract can never reach the
+            #    deploy path.
             if self._auto_deploy:
-                if not audit_report.passed:
+                if not audit_passed:
                     result["deployment"] = {
                         "status": "blocked",
-                        "reason": "Glasswing audit blocked deployment",
-                        "audit": audit_report.to_dict(),
+                        "reason": (
+                            "no executable logic — nothing to deploy"
+                            if not has_executable_logic
+                            else "Glasswing audit blocked deployment"
+                        ),
+                        "audit": audit_dict,
                     }
                 else:
                     deployment = await self._compile_and_deploy(
@@ -291,9 +351,12 @@ class ContractConversionService:
                             logger.warning("EAS attestation skipped: %s", exc)
 
             logger.info(
-                "Conversion complete: contract=%s tier=%s chain=%s time=%.1fms audit=%s",
-                ir.get("contract_name"), tier_info["tier"],
-                target_chain, elapsed_ms, "PASS" if audit_report.passed else "FAIL",
+                "Conversion complete: contract=%s tier=%s chain=%s time=%.1fms "
+                "status=%s audit=%s unimplemented=%d",
+                ir.get("contract_name"), tier_info["tier"], target_chain, elapsed_ms,
+                status,
+                "N/A" if not has_executable_logic else ("PASS" if audit_passed else "FAIL"),
+                len(unimplemented),
             )
             return result
 

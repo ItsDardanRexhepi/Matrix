@@ -362,16 +362,29 @@ class SourceParser:
             params = self._parse_pseudo_params(m.group(2).strip())
             returns = self._pseudo_type_to_solidity(m.group(3)) if m.group(3) else None
 
-            # Guess visibility from keywords
-            line_start = source.rfind("\n", 0, m.start()) + 1
-            line = source[line_start:m.end()]
+            # RUN-3 part 1: modifiers (payable/view/pure/visibility) are written
+            # AFTER the parameter list — "function payRent() payable". The sniff
+            # used to search source[line_start:m.end()], and m.end() is the
+            # closing paren, so every qualifier written the normal way was
+            # invisible and every function silently came out nonpayable/public.
+            #
+            # Search only the region AFTER the parens, up to end-of-line. This
+            # both sees trailing qualifiers AND stops a function merely NAMED
+            # e.g. "viewBalance" or "privateSale" from being misread as
+            # view/internal — the substring match over the whole line did that.
+            line_end = source.find("\n", m.end())
+            if line_end == -1:
+                line_end = len(source)
+            qualifiers = source[m.end():line_end].lower()
             visibility = "public"
-            if "private" in line.lower() or "internal" in line.lower():
+            if "private" in qualifiers or "internal" in qualifiers:
                 visibility = "internal"
             mutability = "nonpayable"
-            if "view" in line.lower() or "readonly" in line.lower():
+            if "view" in qualifiers or "readonly" in qualifiers:
                 mutability = "view"
-            if "payable" in line.lower():
+            if "pure" in qualifiers:
+                mutability = "pure"
+            if "payable" in qualifiers:
                 mutability = "payable"
 
             # Extract body as everything indented after the function line
