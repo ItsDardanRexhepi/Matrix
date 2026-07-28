@@ -36,7 +36,69 @@ ROUTES_MD = ROOT / "docs" / "ROUTES.md"
 # Deliberate aliases: (service, method) -> why more than one name is correct.
 # Adding an entry here is an assertion that a caller cannot be misled by the
 # difference between the names. Keep it empty unless that is really true.
-ALLOWED_ALIASES: dict[tuple[str, str], str] = {}
+ALLOWED_ALIASES: dict[tuple[str, str], str] = {
+    # NEW-10. Six adjudicated aliases. Each carries WHY, not just "alias" — a
+    # bare name list is a mute button; the reason is what lets the next reviewer
+    # tell a deliberate alias from one silenced to green the build.
+    #
+    # Triage record: 11 collisions were adjudicated. FIVE were bugs, not aliases,
+    # and were fixed rather than listed here — `get_price` pointed at the generic
+    # `oracle_gateway.request` and returned a validation error on every call
+    # (repointed to `query_price`), and four pairs published a feed event under
+    # one name and nothing under the other (both names now publish). Judging by
+    # name shape — "verb_noun vs noun_verb is just a naming variant" — would have
+    # filed all five here and closed them.
+    ("did_identity", "create_did"):
+        "create_did / did_create are naming-convention variants of one call: "
+        "identical target, identical params, identical feed event. The two "
+        "routes /identity/create and /identity/did/create are path variants "
+        "onto the same handler.",
+    ("dispute_resolution", "file_dispute"):
+        "dispute_file / file_dispute — same call, same params, same feed event. "
+        "Verb-first and noun-first spellings of one operation.",
+    ("oracles_plus", "pyth_pull"):
+        "pyth_pull / pyth_pull_price — one Pyth pull. Both eventless by design "
+        "(a pull is a read), so there is no divergence of the kind that made "
+        "the four register/mint/tokenize/custody pairs bugs.",
+    ("ip_royalties", "register_ip"):
+        "POST /api/v1/ip/register and POST /api/v1/licensing/ip both REGISTER "
+        "IP — verified by reading the handler, which takes owner/type/name and "
+        "calls register_ip. Registration is the licensing prerequisite, so the "
+        "licensing surface exposes it. Licensing ITSELF is the separate "
+        "`license_ip` action, which does not collide.",
+    ("social", "create_community"):
+        "POST /api/v1/groups and POST /api/v1/social/community/create — group "
+        "and community are one entity under two product names; the handlers "
+        "take identical params (creator, name, description, token_gate).",
+    ("oracle_gateway", "query_price"):
+        "get_price / oracle_price_query — a genuine alias only AFTER the NEW-10 "
+        "fix. get_price previously pointed at the generic `request`, which "
+        "requires an oracle_type a price caller never sends, so every call "
+        "failed validation. Repointed to `query_price`, which is what "
+        "oracle_price_query already used.",
+
+    # The four feed-divergence pairs. They remain collisions — the fix did not
+    # remove the second name (deleting a live action breaks callers, and NEW-20
+    # already showed client and server disagree about which names exist). What
+    # the fix removed was the DIVERGENCE: both names now publish the same event,
+    # so which name a caller uses no longer decides whether the state change is
+    # recorded. They are aliases now; they were bugs before, and the entry says
+    # so, so nobody reads this list as "these were always fine".
+    ("agent_identity", "register_agent"):
+        "ai_agent_register / register_agent — one registration. WAS A BUG: only "
+        "ai_agent_register emitted `ai_agent_registered`; register_agent "
+        "recorded nothing. Both now publish (NEW-10).",
+    ("gaming", "mint_game_asset"):
+        "game_asset_mint / mint_game_asset — one mint. WAS A BUG: only "
+        "game_asset_mint emitted `game_asset_minted`. Both now publish (NEW-10).",
+    ("rwa_tokenization", "tokenize_asset"):
+        "rwa_tokenize / tokenize_asset — one tokenization. WAS A BUG: only "
+        "rwa_tokenize emitted `rwa_tokenized`. Both now publish (NEW-10).",
+    ("supply_chain", "transfer_custody"):
+        "custody_transfer / transfer_custody — one custody transfer. WAS A BUG: "
+        "only custody_transfer emitted `custody_transferred`. Both now publish "
+        "(NEW-10).",
+}
 
 
 def _service_method_by_handler() -> dict[str, set[tuple[str, str]]]:

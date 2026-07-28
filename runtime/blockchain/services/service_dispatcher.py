@@ -90,7 +90,13 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 
     # --- Oracle Gateway (Component 11) ---
     "oracle_request": ("oracle_gateway", "request"),
-    "get_price": ("oracle_gateway", "request"),
+    # NEW-10 bug 1 (RUN-2 class): `get_price` pointed at the GENERIC
+    # `request(oracle_type, params, ...)`, which requires an oracle_type a
+    # price-lookup caller has no reason to send — so every `get_price` call
+    # returned a validation error. `oracle_price_query` already used the
+    # dedicated `query_price` correctly; `get_price` now does too, making the
+    # two a genuine alias rather than a collapse that broke one of them.
+    "get_price": ("oracle_gateway", "query_price"),
 
     # --- Supply Chain (Component 12) ---
     "register_product": ("supply_chain", "register_product"),
@@ -401,6 +407,10 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "nft_batch_mint": "nft_batch_minted",
     "nft_bridge": "nft_bridged",
     "rwa_tokenize": "rwa_tokenized",
+    # NEW-10: `tokenize_asset` routes to the SAME service method as
+    # `rwa_tokenize` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "tokenize_asset": "rwa_tokenized",
     "rwa_fractional_buy": "rwa_purchased",
     "did_create": "did_created",
     "credential_issue": "credential_issued",
@@ -416,14 +426,26 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "social_post": "social_post_published",
     "community_create": "community_created",
     "ai_agent_register": "ai_agent_registered",
+    # NEW-10: `register_agent` routes to the SAME service method as
+    # `ai_agent_register` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "register_agent": "ai_agent_registered",
     "decentralized_store": "file_stored",
     "ipfs_pin": "ipfs_content_pinned",
     "arweave_store": "arweave_content_stored",
     "game_asset_mint": "game_asset_minted",
+    # NEW-10: `mint_game_asset` routes to the SAME service method as
+    # `game_asset_mint` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "mint_game_asset": "game_asset_minted",
     "tournament_enter": "tournament_entered",
     "achievement_attest": "achievement_attested",
     "provenance_log": "provenance_logged",
     "custody_transfer": "custody_transferred",
+    # NEW-10: `transfer_custody` routes to the SAME service method as
+    # `custody_transfer` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "transfer_custody": "custody_transferred",
     "parametric_policy": "insurance_policy_created",
     "claim_auto_settle": "insurance_claim_settled",
     "ip_license_grant": "ip_license_granted",
