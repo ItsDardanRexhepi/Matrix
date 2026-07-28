@@ -17,6 +17,7 @@ the backend's internal formats. All responses are JSON with consistent
 envelope: {"ok": true, "data": {...}} or {"ok": false, "error": "..."}.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -637,8 +638,30 @@ class BridgeRoutes:
             result = await self._handle_chat_internal(message, agent, session_id, body)
             return MobileResponse.ok(result)
         except Exception as e:
-            logger.error(f"Bridge chat error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
+            # exception text WAS the response body, so a model-provider failure
+            # shipped internal hostnames, ports, and model names to the client.
+            # It also answered 500 where /chat answers 503 for the identical
+            # condition, so two channels disagreed on the same event.
+            #
+            # Now: one contract. An unreachable provider is 503 (the dependency
+            # is down, not the request), anything else is 500, and neither
+            # returns the exception. The detail is logged against the request id.
+            req_id = request.get("request_id", "-")
+            logger.error("Bridge chat error [req=%s]: %s", req_id, e, exc_info=True)
+
+            unreachable = isinstance(e, (ConnectionError, OSError, asyncio.TimeoutError)) or (
+                "model providers failed" in str(e).lower()
+            )
+            if unreachable:
+                return MobileResponse.error(
+                    "The language model is unreachable right now. "
+                    f"Please try again shortly. (ref: {req_id})",
+                    503,
+                )
+            return MobileResponse.error(
+                f"That request could not be completed. (ref: {req_id})", 500
+            )
 
     async def _handle_chat_internal(
         self, message: str, agent: str, session_id: str, body: dict,

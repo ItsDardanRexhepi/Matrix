@@ -137,6 +137,15 @@ ROUTES = _parse_routes_md()
 SKIP_PATHS = {
     "/ws": "websocket upgrade, not a request/response route",
     "/bridge/v1/ws": "websocket upgrade",
+    # NEW-6 is FIXED (see tests/test_route_500_fixes.py) — the handler no longer
+    # raises. This route is skipped because the SWEEP cannot judge it, not
+    # because it is broken: an SSE stream never completes, so a request/response
+    # client always ends in ClientPayloadError regardless of correctness. Judging
+    # it here would mean either a permanent false positive or an assertion so
+    # loose it proves nothing. Its correctness is asserted directly against
+    # EventBroadcaster.register instead, including a guard on the handler's call
+    # shape so the signature cannot drift again.
+    "/social/feed/stream": "server-sent events; a request/response sweep cannot consume a stream that never ends",
 }
 SWEEPABLE = [r for r in ROUTES if r[1] not in SKIP_PATHS and r[0] != "HEAD"]
 
@@ -213,14 +222,11 @@ def _inner_status(body: str) -> str | None:
 # the burn-down working: the marker could not outlive the bug.
 _XFAIL_LEAK: dict[str, str] = {}
 _XFAIL_INVERT: dict[str, str] = {}
-_XFAIL_RAISE = {
-    "/social/feed/stream": "NEW-6",
-    "/badge/issue": "NEW-7",
-    "/badge/{badge_id}/embed": "NEW-7",
-    "/badge/{badge_id}/status": "NEW-7",
-    "/bridge/v1/chat": "NEW-8",
-    "/api/v1/capabilities/{capability_id}/invoke": "NEW-9",
-}
+# NEW-6..9 all CLOSED. Every one turned out to be code failing at something it
+# was trying to do — signature drift (NEW-6, NEW-9), missing error handling
+# (NEW-7), a wrong status plus a leaked exception (NEW-8). None warranted a 501.
+# Their markers XPASSed strictly and were removed.
+_XFAIL_RAISE: dict[str, str] = {}
 
 
 def _sweep_params(xfail_map: dict[str, str]):

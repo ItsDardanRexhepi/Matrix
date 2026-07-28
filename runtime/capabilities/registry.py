@@ -88,25 +88,35 @@ class CapabilityRegistry:
             from runtime.blockchain.services.service_dispatcher import (
                 ServiceDispatcher,
             )
-            from runtime.blockchain.services.registry import ServiceRegistry
 
-            service_registry = ServiceRegistry(self._config)
-            dispatcher = ServiceDispatcher(self._config, service_registry)
+            # NEW-9: this passed a freshly-built ServiceRegistry as a second
+            # positional argument. ServiceDispatcher.__init__ takes only
+            # (self, config) and resolves its own registry lazily, so every
+            # capability invocation raised
+            #   TypeError: ServiceDispatcher.__init__() takes 2 positional
+            #   arguments but 3 were given
+            # and POST /api/v1/capabilities/{id}/invoke answered 500 — the whole
+            # capability-invoke surface was dead. Signature drift, not a missing
+            # feature: the dispatcher works, the call site was wrong.
+            dispatcher = ServiceDispatcher(self._config)
             self._dispatcher = dispatcher
 
         action = cap["action"]
-        payload = {"action": action, "params": params or {}}
 
-        try:
-            result = await dispatcher.execute(payload)
-        except AttributeError:
-            # Fall back to the lower-level dispatch method if execute()
-            # isn't present under that name in older builds.
-            raw = await dispatcher.dispatch_tool(
-                tool_name="platform_action",
-                arguments={"action": action, "params": params or {}},
-            )
-            result = raw
+        # NEW-9 (second fault in the same call): execute() is
+        # `execute(action: str, service=None, params=None)`, but this passed a
+        # single {"action":..., "params":...} dict as the first positional arg.
+        # `action` was therefore a dict, and the `action not in ACTION_MAP`
+        # membership test raised `TypeError: unhashable type: 'dict'`. Fixing
+        # the constructor arity above only moved the failure here; both had to
+        # go for the capability-invoke surface to work at all.
+        #
+        # The old `except AttributeError` fallback to dispatch_tool is removed:
+        # execute() exists, the fallback never fired for the real fault (a
+        # TypeError), and a silent fallback around a broken call is exactly the
+        # shape that let this survive unnoticed. If execute() ever disappears,
+        # an AttributeError should be loud.
+        result = await dispatcher.execute(action=action, params=params or {})
         return {
             "status": "ok",
             "capability_id": capability_id,

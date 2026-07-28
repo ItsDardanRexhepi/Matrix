@@ -1491,11 +1491,34 @@ class GatewayServer:
             await response.write(b"event: error\ndata: {\"error\":\"broadcaster not available\"}\n\n")
             return response
 
+        # NEW-6: this called broadcaster.register(ip=...) synchronously. Three
+        # faults in one line: the parameter is `remote_ip`, not `ip`; register
+        # is `async` and was never awaited; and BroadcasterCapacityError — which
+        # the method's own docstring tells callers to translate — was unhandled.
+        # The TypeError fired after response.prepare(), so the client saw a
+        # truncated SSE stream rather than an error. A real bug, not a missing
+        # feature: the broadcaster works, the call site had drifted.
+        from gateway.event_broadcaster import BroadcasterCapacityError
+
         peer = request.remote or "unknown"
-        sub = broadcaster.register(
-            ip=peer,
-            types={"feed.new_event"},
-        )
+        try:
+            sub = await broadcaster.register(
+                remote_ip=peer,
+                types={"feed.new_event"},
+            )
+        except BroadcasterCapacityError as exc:
+            # Per the broadcaster's contract: global cap -> 503, per-IP -> 429.
+            code = 429 if exc.scope == "per_ip" else 503
+            await response.write(
+                b'event: error\ndata: '
+                + json.dumps({
+                    "error": "Feed stream is at capacity. Try again shortly.",
+                    "retry_after_s": 30,
+                    "code": code,
+                }).encode()
+                + b"\n\n"
+            )
+            return response
 
         try:
             async for event in broadcaster.iter_events(sub):
@@ -1644,19 +1667,57 @@ class GatewayServer:
         return self._serve_html("web/badge.html")
 
     async def handle_badge_status(self, request: web.Request) -> web.Response:
-        """GET /badge/{badge_id}/status — JSON badge status."""
+        """GET /badge/{badge_id}/status — JSON badge status.
+
+        NEW-7: an unknown badge id produced HTTP 500. The badge subsystem is
+        not broken and nothing is missing — verify_badge() correctly raises
+        ValueError("Badge '<id>' not found"), which is the right domain
+        behaviour. The handler simply never caught it, so a legitimate
+        not-found escaped as an unhandled server error. 404 is the answer;
+        the reason stays server-side (RUN-5 shape).
+        """
         if not self.badge_manager:
             return web.json_response({"status": "not_available"}, status=503)
         badge_id = request.match_info.get("badge_id", "")
-        result = await self.badge_manager.verify_badge(badge_id)
+        try:
+            result = await self.badge_manager.verify_badge(badge_id)
+        except ValueError:
+            return web.json_response(
+                {"status": "not_found", "badge_id": badge_id,
+                 "error": "No badge with that id."},
+                status=404,
+            )
+        except Exception:
+            logger.exception("Badge status failed for %s", badge_id)
+            return web.json_response(
+                {"status": "error", "error": "Badge status is unavailable."},
+                status=503,
+            )
         return web.json_response(result)
 
     async def handle_badge_embed(self, request: web.Request) -> web.Response:
-        """GET /badge/{badge_id}/embed — return embed code."""
+        """GET /badge/{badge_id}/embed — return embed code.
+
+        NEW-7: same shape as handle_badge_status — an unknown id raised out of
+        the handler as a 500 instead of an honest 404.
+        """
         if not self.badge_manager:
             return web.json_response({"status": "not_available"}, status=503)
         badge_id = request.match_info.get("badge_id", "")
-        code = await self.badge_manager.get_badge_embed_code(badge_id)
+        try:
+            code = await self.badge_manager.get_badge_embed_code(badge_id)
+        except ValueError:
+            return web.json_response(
+                {"status": "not_found", "badge_id": badge_id,
+                 "error": "No badge with that id."},
+                status=404,
+            )
+        except Exception:
+            logger.exception("Badge embed failed for %s", badge_id)
+            return web.json_response(
+                {"status": "error", "error": "Badge embed is unavailable."},
+                status=503,
+            )
         return web.json_response({"badge_id": badge_id, "embed_code": code})
 
     async def handle_badge_widget_js(self, request: web.Request) -> web.Response:
@@ -1686,13 +1747,29 @@ class GatewayServer:
             body = await request.json()
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
-        result = await self.badge_manager.issue_badge(
-            contract_address=str(body.get("contract_address", "")),
-            contract_name=str(body.get("contract_name", "")),
-            audit_report=body.get("audit_report", {}),
-            contact_email=str(body.get("contact_email", "")),
-            project_url=str(body.get("project_url", "")),
-        )
+        # NEW-7: issue_badge raises ValueError on a rejected/invalid request
+        # (e.g. a missing contract address or an audit report that does not
+        # qualify). Uncaught, that surfaced as HTTP 500 — the server blaming
+        # itself for the caller's bad input. 400 is the honest code.
+        try:
+            result = await self.badge_manager.issue_badge(
+                contract_address=str(body.get("contract_address", "")),
+                contract_name=str(body.get("contract_name", "")),
+                audit_report=body.get("audit_report", {}),
+                contact_email=str(body.get("contact_email", "")),
+                project_url=str(body.get("project_url", "")),
+            )
+        except ValueError as exc:
+            # The message here describes the CALLER's input, not our internals.
+            return web.json_response(
+                {"status": "rejected", "error": str(exc)}, status=400
+            )
+        except Exception:
+            logger.exception("Badge issue failed")
+            return web.json_response(
+                {"status": "error", "error": "Badge issuance is unavailable."},
+                status=503,
+            )
         return web.json_response(result)
 
     # ─── Learn & Certification ───────────────────────────────────
