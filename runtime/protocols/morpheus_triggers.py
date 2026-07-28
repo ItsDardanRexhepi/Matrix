@@ -508,7 +508,8 @@ class MorpheusTriggerSystem:
         action_type = action.get("action_type", action.get("type", "this action"))
 
         irreversible_notes: dict[str, str] = {
-            "deploy_contract": "Once deployed, this contract will exist on-chain permanently. It cannot be deleted (only disabled if designed to be).",
+            # NEW-12: removed — warned about the consequences of a deployment
+            # the platform cannot perform.
             "burn_nft": "Burning this NFT will destroy it permanently. It cannot be recovered.",
             "transfer_ownership": "Transferring ownership is permanent. You will lose control of this contract.",
             "self_destruct": "Self-destructing this contract will remove its code from the blockchain permanently.",

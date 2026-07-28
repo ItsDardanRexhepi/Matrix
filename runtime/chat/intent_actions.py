@@ -45,25 +45,43 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
     },
 
+    # NEW-12: deployment is NOT implemented (see RUN-2 —
+    # /api/v1/contracts/deploy returns 501, and `deploy_contract` was removed
+    # from ACTION_MAP). This entry is deliberately KEPT rather than deleted, but
+    # it no longer offers a capability:
+    #
+    #   * It has no `action_name`, so nothing can dispatch it. An agent reading
+    #     this table cannot call platform_action(action='deploy_contract') —
+    #     there is no action to call.
+    #   * `unavailable: True` and the description say plainly that it does not
+    #     work, so the model is never told it can deploy.
+    #   * The keywords stay so "deploy my contract" is still RECOGNISED.
+    #     Deleting the entry would make the request match nothing, and a silent
+    #     non-match is its own dead-end — the user asks and gets a shrug.
+    #   * `follow_up` is the honest answer, and it points at what does work.
+    #
+    # This is product copy, flagged for revision.
     "deploy_contract": {
-        "action_name": "deploy_contract",
-        "description": "Deploy a smart contract to a blockchain.",
-        "required_params": [
-            {"name": "source_code", "type": "string", "description": "The source code of the contract to deploy.", "example": "pragma solidity ^0.8.0; contract MyToken { ... }"},
-            {"name": "source_lang", "type": "string", "description": "Language of the contract (solidity, vyper, rust, move, etc.).", "example": "solidity"},
-            {"name": "target_chain", "type": "string", "description": "Blockchain to deploy to.", "example": "ethereum"},
-        ],
-        "optional_params": [
-            {"name": "constructor_args", "type": "array", "description": "Arguments for the contract constructor.", "default": []},
-            {"name": "optimize", "type": "boolean", "description": "Apply gas optimizations.", "default": True},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — 0pnMatrx does not deploy contracts. It generates "
+            "Solidity scaffolding from a structured declaration; deploying it is "
+            "a separate step the user performs with their own tooling and signer."
+        ),
+        "required_params": [],
+        "optional_params": [],
         "keywords": ["deploy contract", "deploy smart contract", "publish contract", "launch contract", "put contract on chain", "deploy to ethereum", "deploy to solana"],
-        "follow_up": "I can deploy your contract. Please share the source code, what language it's in, and which blockchain you'd like to deploy to.",
+        "follow_up": (
+            "I can't deploy contracts — that isn't supported yet, and I won't "
+            "pretend otherwise. What I can do is convert your contract into "
+            "Solidity for you, which you can then deploy with your own wallet "
+            "and tooling. Want me to do that?"
+        ),
         "example_conversation": (
             "User: Deploy my token contract to Ethereum\n"
-            "Trinity: Got it! Please share the contract source code and I'll deploy it to Ethereum for you.\n"
-            "User: [pastes Solidity code]\n"
-            "Trinity: [calls platform_action with action='deploy_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'ethereum'}]"
+            "Trinity: I can't deploy contracts yet — that isn't supported. "
+            "I can convert your contract to Solidity so you can deploy it "
+            "yourself. Want me to do that?"
         ),
     },
 

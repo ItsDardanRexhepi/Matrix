@@ -53,7 +53,8 @@ RECENCY_HALF_LIFE = 3600.0
 
 # ── Human-readable action labels ─────────────────────────────────────
 ACTION_LABELS: Dict[str, str] = {
-    "deploy_contract": "deployed a smart contract",
+    # NEW-12: no "deployed a smart contract" label — the platform cannot
+    # deploy, so no feed row may ever narrate one.
     "swap_tokens": "swapped tokens",
     "add_liquidity": "added liquidity",
     "remove_liquidity": "removed liquidity",

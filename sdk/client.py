@@ -234,6 +234,28 @@ class OpenMatrixClient:
 
     # ─── Convenience Methods ───────────────────────────────────────────────
 
+    async def convert_contract(
+        self, source_code: str, source_lang: str = "pseudocode", **kwargs
+    ) -> dict:
+        """Convert a structured declaration into Solidity scaffolding.
+
+        This is the real capability behind the contract surface. It returns the
+        generated interface, state, and function signatures; deploying the
+        result is a separate step you perform with your own tooling and signer.
+
+        A conversion whose function bodies come back empty is reported as
+        ``status: "partial"`` with an ``unimplemented`` list, and its audit
+        block carries ``verdict: "not_applicable"`` rather than a pass — an
+        empty contract has no vulnerabilities, which is not the same as safe.
+        """
+        return await self.ablockchain(
+            "contract_conversion",
+            action="convert_contract",
+            source_code=source_code,
+            source_lang=source_lang,
+            **kwargs,
+        )
+
     async def deploy_contract(self, source_code: str, **kwargs) -> dict:
         """NOT IMPLEMENTED — deployment does not exist yet (RUN-2).
 

@@ -22,7 +22,8 @@ from runtime.social.feed_engine import FeedEvent
 # ── Icon mapping ─────────────────────────────────────────────────────
 
 ICONS: Dict[str, str] = {
-    "deploy_contract": "📜",
+    # NEW-12: no deploy_contract icon — the feed can never render a
+    # deployment, because the platform cannot perform one.
     "swap_tokens": "🔄",
     "add_liquidity": "💧",
     "remove_liquidity": "💧",
@@ -85,7 +86,7 @@ CATEGORIES: Dict[str, List[str]] = {
         "create_proposal", "vote", "execute_proposal", "create_dao",
     ],
     "Contracts": [
-        "deploy_contract", "convert_contract", "deploy_token",
+        "convert_contract", "deploy_token",
     ],
     "Identity": [
         "verify_social", "create_social_profile", "issue_badge",

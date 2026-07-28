@@ -354,7 +354,8 @@ class TrajectoryEngine:
         descriptions: dict[str, str] = {
             "transfer": "Tokens transferred to recipient address.",
             "swap": "Source token exchanged for target token at market rate.",
-            "deploy_contract": "Smart contract deployed and verified on-chain.",
+            # NEW-12: removed — asserted an on-chain deployment AND a
+            # verification, neither of which the platform performs.
             "stake": "Tokens staked with selected validator.",
             "unstake": "Tokens unstaked; cooldown period initiated.",
             "vote": "Governance vote recorded on-chain.",

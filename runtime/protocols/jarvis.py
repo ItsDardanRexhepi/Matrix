@@ -266,7 +266,7 @@ class JarvisProtocol:
         "deploy": [
             {"action": "audit", "description": "Audit contract source", "priority": 1},
             {"action": "estimate_gas", "description": "Estimate deployment gas", "priority": 2},
-            {"action": "deploy_contract", "description": "Deploy contract", "priority": 3},
+            # NEW-12: removed — suggesting an action the platform cannot perform.
             {"action": "verify", "description": "Verify deployment on explorer", "priority": 4},
         ],
         "claim": [

@@ -53,7 +53,8 @@ SERVICE_CATALOG = [
         "icon": "doc.text.magnifyingglass",
         "description": "Convert any agreement into a self-executing smart contract.",
         "category": "core",
-        "actions": ["convert_contract", "deploy_contract", "estimate_contract_cost", "list_templates"],
+        # NEW-12: deploy_contract removed — the platform does not deploy.
+        "actions": ["convert_contract", "estimate_contract_cost", "list_templates"],
     },
     {
         "id": "defi",
