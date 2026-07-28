@@ -133,7 +133,6 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "invoice_factor": "streaming_payment",
     # Privacy
     "private_transfer": "privacy",
-    "stealth_address": "privacy",
     "zk_proof_generate": "privacy",
     "private_vote": "privacy",
     "confidential_compute": "privacy",

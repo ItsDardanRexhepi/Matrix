@@ -285,7 +285,6 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Privacy & ZK ───────────────────────────────────────────────────────
     _cap("private_transfer",        "Private Transfer",        "privacy", "privacy", "private_transfer"),
-    _cap("stealth_address",         "Stealth Address",         "privacy", "privacy", "stealth_address"),
     _cap("zk_proof_generate",       "Generate ZK Proof",       "privacy", "privacy", "zk_proof_generate"),
     _cap("private_vote",            "Private Vote",            "privacy", "privacy", "private_vote"),
     _cap("confidential_compute",    "Confidential Compute",    "privacy", "privacy", "confidential_compute"),

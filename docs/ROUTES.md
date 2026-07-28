@@ -4,7 +4,7 @@
 > Run `python scripts/generate_route_table.py` after adding a route;
 > CI runs it with `--check` and fails if this file is stale.
 
-**213 routes.** A **public** route requires no API key (its own auth applies — e.g. a signed JWS, SIWE, or per-IP caps).
+**212 routes.** A **public** route requires no API key (its own auth applies — e.g. a signed JWS, SIWE, or per-IP caps).
 
 | Method | Path | Handler | Source | Public |
 |---|---|---|---|---|
@@ -18,12 +18,12 @@
 | GET | `/api/v1/attestation/verify/{uid}` | `_handle_attestation_verify` | service_routes.py:288 |  |
 | DELETE | `/api/v1/auth/account` | `handle_account_delete` | server.py:2305 | ✅ |
 | POST | `/api/v1/auth/apple` | `handle_apple_auth` | server.py:2304 | ✅ |
-| POST | `/api/v1/batch` | `_handle_batch` | service_routes.py:394 |  |
+| POST | `/api/v1/batch` | `_handle_batch` | service_routes.py:393 |  |
 | POST | `/api/v1/brand/campaign/create` | `_handle_brand_campaign_create` | service_routes.py:255 |  |
-| GET | `/api/v1/capabilities` | `_handle_capabilities_list` | service_routes.py:388 |  |
-| GET | `/api/v1/capabilities/categories` | `_handle_capabilities_categories` | service_routes.py:389 |  |
-| GET | `/api/v1/capabilities/{capability_id}` | `_handle_capability_detail` | service_routes.py:390 |  |
-| POST | `/api/v1/capabilities/{capability_id}/invoke` | `_handle_capability_invoke` | service_routes.py:391 |  |
+| GET | `/api/v1/capabilities` | `_handle_capabilities_list` | service_routes.py:387 |  |
+| GET | `/api/v1/capabilities/categories` | `_handle_capabilities_categories` | service_routes.py:388 |  |
+| GET | `/api/v1/capabilities/{capability_id}` | `_handle_capability_detail` | service_routes.py:389 |  |
+| POST | `/api/v1/capabilities/{capability_id}/invoke` | `_handle_capability_invoke` | service_routes.py:390 |  |
 | POST | `/api/v1/cashback/track` | `_handle_cashback_track` | service_routes.py:252 |  |
 | POST | `/api/v1/compute/arweave/store` | `_handle_arweave_store` | service_routes.py:333 |  |
 | POST | `/api/v1/compute/ipfs/pin` | `_handle_ipfs_pin` | service_routes.py:332 |  |
@@ -53,18 +53,18 @@
 | POST | `/api/v1/energy/carbon/buy` | `_handle_carbon_buy` | service_routes.py:345 |  |
 | GET | `/api/v1/energy/carbon/prices` | `_handle_carbon_prices` | service_routes.py:347 |  |
 | POST | `/api/v1/energy/carbon/retire` | `_handle_carbon_retire` | service_routes.py:346 |  |
-| GET | `/api/v1/events/stream` | `_handle_event_stream` | service_routes.py:395 | ✅ |
+| GET | `/api/v1/events/stream` | `_handle_event_stream` | service_routes.py:394 | ✅ |
 | POST | `/api/v1/fundraising/campaign/create` | `_handle_fundraising_create` | service_routes.py:241 |  |
 | POST | `/api/v1/fundraising/contribute` | `_handle_fundraising_contribute` | service_routes.py:242 |  |
 | POST | `/api/v1/gaming/register` | `_handle_gaming_register` | service_routes.py:270 |  |
-| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2329 |  |
+| GET | `/api/v1/governance/daos/{daoId}/proposals` | `_handle_dao_proposals` | service_routes.py:2327 |  |
 | POST | `/api/v1/governance/multisig/approve` | `_handle_multisig_approve` | service_routes.py:351 |  |
 | POST | `/api/v1/governance/multisig/propose` | `_handle_multisig_propose` | service_routes.py:350 |  |
 | POST | `/api/v1/governance/proposal/create` | `_handle_governance_create` | service_routes.py:228 |  |
 | POST | `/api/v1/governance/snapshot/vote` | `_handle_snapshot_vote` | service_routes.py:352 |  |
 | POST | `/api/v1/governance/treasury/transfer` | `_handle_treasury_transfer` | service_routes.py:353 |  |
 | POST | `/api/v1/governance/vote` | `_handle_governance_vote` | service_routes.py:229 |  |
-| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2319 |  |
+| POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2317 |  |
 | POST | `/api/v1/iap/asn` | `handle_iap_asn` | server.py:2307 | ✅ |
 | POST | `/api/v1/iap/verify` | `handle_iap_verify` | server.py:2306 | ✅ |
 | POST | `/api/v1/identity/create` | `_handle_did_create` | service_routes.py:203 |  |
@@ -84,14 +84,14 @@
 | POST | `/api/v1/legal/agreement/execute` | `_handle_agreement_execute` | service_routes.py:367 |  |
 | POST | `/api/v1/legal/dispute/file` | `_handle_legal_dispute_file` | service_routes.py:368 |  |
 | POST | `/api/v1/legal/license/grant` | `_handle_license_grant` | service_routes.py:366 |  |
-| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:2323 |  |
-| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:2325 |  |
+| POST | `/api/v1/licensing/ip` | `_handle_licensing_register_ip` | service_routes.py:2321 |  |
+| POST | `/api/v1/licensing/licenses` | `_handle_licensing_create_license` | service_routes.py:2323 |  |
 | POST | `/api/v1/loyalty/earn` | `_handle_loyalty_earn` | service_routes.py:248 |  |
 | POST | `/api/v1/loyalty/redeem` | `_handle_loyalty_redeem` | service_routes.py:249 |  |
 | POST | `/api/v1/marketplace/buy` | `_handle_marketplace_buy` | service_routes.py:225 |  |
 | POST | `/api/v1/marketplace/list` | `_handle_marketplace_list` | service_routes.py:224 |  |
-| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:2309 |  |
-| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:2310 |  |
+| GET | `/api/v1/messaging/conversations` | `_handle_messaging_conversations` | service_routes.py:2307 |  |
+| GET | `/api/v1/messaging/conversations/{conversationId}/messages` | `_handle_messaging_messages` | service_routes.py:2308 |  |
 | POST | `/api/v1/nft/batch-mint` | `_handle_nft_batch_mint` | service_routes.py:305 |  |
 | POST | `/api/v1/nft/bridge` | `_handle_nft_bridge` | service_routes.py:307 |  |
 | POST | `/api/v1/nft/collection/create` | `_handle_nft_collection_create` | service_routes.py:197 |  |
@@ -115,23 +115,22 @@
 | GET | `/api/v1/prediction/market/list` | `_handle_market_list` | service_routes.py:342 |  |
 | GET | `/api/v1/price/eth-usd` | `_handle_eth_usd_price` | service_routes.py:193 |  |
 | POST | `/api/v1/privacy/delete` | `_handle_privacy_delete` | service_routes.py:258 |  |
-| POST | `/api/v1/privacy/stealth-address` | `_handle_stealth_address` | service_routes.py:385 |  |
 | POST | `/api/v1/privacy/transfer` | `_handle_private_transfer` | service_routes.py:384 |  |
-| POST | `/api/v1/realestate/buyers/verify` | `_handle_re_buyer_verify` | service_routes.py:408 |  |
-| GET | `/api/v1/realestate/buyers/{wallet}/verification` | `_handle_re_buyer_verification_get` | service_routes.py:409 |  |
-| GET | `/api/v1/realestate/documents/expiring` | `_handle_re_docs_expiring` | service_routes.py:407 |  |
-| GET | `/api/v1/realestate/escrow/{id}` | `_handle_re_escrow_get` | service_routes.py:414 |  |
-| POST | `/api/v1/realestate/escrow/{id}/confirm` | `_handle_re_escrow_confirm` | service_routes.py:411 |  |
-| POST | `/api/v1/realestate/escrow/{id}/recording-complete` | `_handle_re_recording_complete` | service_routes.py:412 |  |
-| POST | `/api/v1/realestate/escrow/{id}/refund` | `_handle_re_escrow_refund` | service_routes.py:413 |  |
-| GET | `/api/v1/realestate/properties` | `_handle_re_property_list` | service_routes.py:401 |  |
-| POST | `/api/v1/realestate/properties` | `_handle_re_property_create` | service_routes.py:400 |  |
-| GET | `/api/v1/realestate/properties/{id}` | `_handle_re_property_get` | service_routes.py:402 |  |
-| GET | `/api/v1/realestate/properties/{id}/documents` | `_handle_re_documents_get` | service_routes.py:405 |  |
-| POST | `/api/v1/realestate/properties/{id}/documents` | `_handle_re_document_upload` | service_routes.py:404 |  |
-| GET | `/api/v1/realestate/properties/{id}/readiness` | `_handle_re_readiness` | service_routes.py:406 |  |
-| POST | `/api/v1/realestate/properties/{id}/status` | `_handle_re_property_status` | service_routes.py:403 |  |
-| POST | `/api/v1/realestate/purchase` | `_handle_re_purchase` | service_routes.py:410 |  |
+| POST | `/api/v1/realestate/buyers/verify` | `_handle_re_buyer_verify` | service_routes.py:407 |  |
+| GET | `/api/v1/realestate/buyers/{wallet}/verification` | `_handle_re_buyer_verification_get` | service_routes.py:408 |  |
+| GET | `/api/v1/realestate/documents/expiring` | `_handle_re_docs_expiring` | service_routes.py:406 |  |
+| GET | `/api/v1/realestate/escrow/{id}` | `_handle_re_escrow_get` | service_routes.py:413 |  |
+| POST | `/api/v1/realestate/escrow/{id}/confirm` | `_handle_re_escrow_confirm` | service_routes.py:410 |  |
+| POST | `/api/v1/realestate/escrow/{id}/recording-complete` | `_handle_re_recording_complete` | service_routes.py:411 |  |
+| POST | `/api/v1/realestate/escrow/{id}/refund` | `_handle_re_escrow_refund` | service_routes.py:412 |  |
+| GET | `/api/v1/realestate/properties` | `_handle_re_property_list` | service_routes.py:400 |  |
+| POST | `/api/v1/realestate/properties` | `_handle_re_property_create` | service_routes.py:399 |  |
+| GET | `/api/v1/realestate/properties/{id}` | `_handle_re_property_get` | service_routes.py:401 |  |
+| GET | `/api/v1/realestate/properties/{id}/documents` | `_handle_re_documents_get` | service_routes.py:404 |  |
+| POST | `/api/v1/realestate/properties/{id}/documents` | `_handle_re_document_upload` | service_routes.py:403 |  |
+| GET | `/api/v1/realestate/properties/{id}/readiness` | `_handle_re_readiness` | service_routes.py:405 |  |
+| POST | `/api/v1/realestate/properties/{id}/status` | `_handle_re_property_status` | service_routes.py:402 |  |
+| POST | `/api/v1/realestate/purchase` | `_handle_re_purchase` | service_routes.py:409 |  |
 | POST | `/api/v1/rwa/fractional/buy` | `_handle_rwa_fractional_buy` | service_routes.py:336 |  |
 | GET | `/api/v1/rwa/listings` | `_handle_rwa_listings` | service_routes.py:337 |  |
 | POST | `/api/v1/rwa/tokenize` | `_handle_rwa_tokenize` | service_routes.py:200 |  |

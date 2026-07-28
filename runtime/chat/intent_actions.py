@@ -3365,26 +3365,6 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
     },
 
-    "stealth_address": {
-        "action_name": "stealth_address",
-        "description": "Generate a one-time stealth address for private receiving.",
-        "required_params": [
-            {"name": "base_address", "type": "string", "description": "Your base wallet address to derive the stealth address from.", "example": "0xmywallet..."},
-        ],
-        "optional_params": [
-            {"name": "label", "type": "string", "description": "Optional label for this stealth address.", "default": None},
-        ],
-        "keywords": ["stealth address", "private receive", "one-time address", "anonymous address"],
-        "follow_up": "What's your base wallet address? I'll generate a fresh one-time stealth address for you.",
-        "example_conversation": (
-            "User: I need a stealth address to receive a payment privately\n"
-            "Trinity: Smart move. Give me your base wallet address and I'll derive a fresh one-time address that can't be linked back to you publicly.\n"
-            "User: 0xmywallet\n"
-            "Trinity: Generating a one-time stealth address from 0xmywallet. Share this with the sender — only you can access funds sent to it.\n"
-            "Trinity: [calls platform_action with action='stealth_address', params={base_address: '0xmywallet'}]"
-        ),
-    },
-
     "zk_proof_generate": {
         "action_name": "zk_proof_generate",
         "description": "Generate a zero-knowledge proof for verification without revealing data.",

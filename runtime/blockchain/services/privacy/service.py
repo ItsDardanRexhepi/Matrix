@@ -300,21 +300,28 @@ class PrivacyService:
         logger.info("Private transfer: id=%s", tx_id)
         return record
 
-    async def generate_stealth_address(
-        self, owner: str,
-    ) -> dict:
-        """Generate a one-time stealth address."""
-        sa_id = f"sa_{uuid.uuid4().hex[:16]}"
-        stealth_addr = f"0x{uuid.uuid4().hex[:40]}"
-        record = {
-            "id": sa_id,
-            "status": "generated",
-            "owner": owner,
-            "stealth_address": stealth_addr,
-            "generated_at": time.time(),
-        }
-        logger.info("Stealth address generated: id=%s", sa_id)
-        return record
+    # REMOVED — `generate_stealth_address`.
+    #
+    # It returned `f"0x{uuid.uuid4().hex[:40]}"`: a random 40-hex string shaped
+    # like an Ethereum address, with `status: "generated"`. No key derivation,
+    # no ERC-5564 (which docs/COMPLETE_CAPABILITY_MAP.md declared as its
+    # protocol), no cryptography of any kind. NO PRIVATE KEY FOR THAT ADDRESS
+    # EXISTS ANYWHERE — spending requires a key that was never created and
+    # cannot be reconstructed, so anything sent there is destroyed, not at risk.
+    #
+    # It was removed rather than repaired, and the reason is the important part:
+    # the action was BROKEN, and the broken-ness was the only thing protecting
+    # users. A signature mismatch made it error out instead of executing, and
+    # the NEW-13 classification filed it as `fix-the-spec` — a one-word rename
+    # of `base_address` to `owner`. That "fix" would have turned a dead endpoint
+    # into a working funds-destroyer.
+    #
+    # A signature bug in front of a fabrication is load-bearing safety. The
+    # honest answer to "I cannot do this safely" is to say so, not to ship a
+    # broken version of it. Every surface is gone — intent action, ACTION_MAP,
+    # capability catalog, morpheus trigger, HTTP route — so a request for a
+    # stealth address is now unrecognised rather than answered with a fiction.
+    # Pinned by tests/test_fabrication_removal.py.
 
     async def generate_zk_proof(
         self, prover: str, statement: str, witness: dict | None = None,

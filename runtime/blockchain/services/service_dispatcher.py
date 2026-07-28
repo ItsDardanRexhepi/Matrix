@@ -271,7 +271,6 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "payroll_run": ("x402_payments", "run_payroll"),
     # ── Privacy ──────────────────────────────────────────────────
     "private_transfer": ("privacy", "private_transfer"),
-    "stealth_address": ("privacy", "generate_stealth_address"),
     "zk_proof_generate": ("privacy", "generate_zk_proof"),
     "private_vote": ("privacy", "private_vote"),
     "confidential_compute": ("privacy", "confidential_compute"),
@@ -367,7 +366,7 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "rwa_tokenize", "rwa_fractional_buy", "rwa_income_claim",
     "stream_payment", "recurring_create", "escrow_milestone", "payment_split",
     "cross_border_remit", "invoice_factor", "payroll_run",
-    "private_transfer", "stealth_address", "zk_proof_generate", "private_vote",
+    "private_transfer", "zk_proof_generate", "private_vote",
     "confidential_compute", "social_post", "social_gate", "creator_monetize",
     "community_create", "message_encrypt",
     "game_asset_mint", "tournament_enter", "game_item_trade", "achievement_attest",
