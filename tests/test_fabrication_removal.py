@@ -109,3 +109,96 @@ def test_trinity_is_no_longer_scripted_to_promise_recoverable_funds():
     src = (ROOT / "runtime" / "chat" / "intent_actions.py").read_text()
     assert "only you can access funds sent to it" not in src
     assert "stealth address" not in src.lower()
+
+
+# ── the LIVE fabrication: a security verdict with no failing input ─────────
+
+class TestCredentialSubsystemWasTheater:
+    """`credential_verify` was worse than `stealth_address`, for one reason.
+
+    Every other fabrication found in this phase sat behind a signature mismatch
+    that errored the call out before the fabrication could run — accidental
+    safety. `did_identity.verify_credential`'s declared parameters MATCHED, so
+    it was never in the NEW-13 broken set and was live and callable all along.
+    It returned `{"valid": True, "status": "verified"}` for any string:
+    no vault lookup, no expiry check, no revocation check, no proof comparison.
+    THERE WAS NO INPUT THAT COULD FAIL IT.
+
+    `issue_credential` was the other half — same signature as the vault's real
+    issuer, but writing a proofless record straight into the vault's private
+    dict. Together they were a complete fake credential system: issue something
+    unverifiable, verify something unissued, nothing real in between.
+
+    The load-bearing property of these tests is the inverse of the bug: SOME
+    INPUT MUST FAIL.
+    """
+
+    def _service(self):
+        import sys
+
+        sys.path.insert(0, "tests")
+        from test_route_sweep import SWEEP_CONFIG
+
+        from runtime.blockchain.services.did_identity.service import DIDService
+
+        return DIDService(SWEEP_CONFIG)
+
+    async def test_a_credential_that_was_never_issued_does_not_verify(self):
+        """The single most important assertion: an input that fails."""
+        result = await self._service().verify_credential("vc_never_issued_anywhere")
+        assert result.get("valid") is False, (
+            f"a credential that does not exist verified as valid: {result}"
+        )
+
+    async def test_a_revoked_credential_does_not_verify(self):
+        svc = self._service()
+        issued = await svc.issue_credential(
+            issuer_did="did:key:issuer", subject_did="did:key:subject",
+            credential_type="TestCredential", claims={"role": "admin"},
+        )
+        cred_id = issued["id"]
+        assert (await svc.verify_credential(cred_id))["valid"] is True, (
+            "a freshly issued credential must verify — fail-closed must not "
+            "become fail-always"
+        )
+
+        await svc.credential_vault.revoke_credential(cred_id)
+        after = await svc.verify_credential(cred_id)
+        assert after.get("valid") is False, f"a REVOKED credential verified: {after}"
+
+    async def test_issuance_produces_a_credential_the_real_verifier_accepts(self):
+        """The shadow broke the real verifier for anything it wrote: that code
+        reads `stored["proof"]["proofValue"]`, which KeyErrors on the proofless
+        records the fake issuer created."""
+        svc = self._service()
+        issued = await svc.issue_credential(
+            issuer_did="did:key:issuer", subject_did="did:key:subject",
+            credential_type="TestCredential", claims={"role": "admin"},
+        )
+        assert issued.get("proof", {}).get("proofValue"), (
+            f"issued credential carries no proof: {issued}"
+        )
+        assert "@context" in issued and "VerifiableCredential" in issued.get("type", [])
+
+    async def test_issuance_is_visible_to_the_holder_index(self):
+        """The fake wrote past `_holder_index`, so `list_credentials` would
+        never return what it issued."""
+        svc = self._service()
+        issued = await svc.issue_credential(
+            issuer_did="did:key:issuer", subject_did="did:key:holder",
+            credential_type="TestCredential", claims={"role": "member"},
+        )
+        listed = await svc.credential_vault.list_credentials("did:key:holder")
+        ids = [c["id"] if isinstance(c, dict) else c for c in listed]
+        assert issued["id"] in ids, f"issued credential is invisible: {listed}"
+
+    async def test_selective_disclosure_does_not_claim_a_proof_it_cannot_make(self):
+        """It returned `"status": "disclosed"` with the field names echoed and
+        no proof of any kind — a claim with nothing behind it."""
+        result = await self._service().selective_disclose(
+            did="did:key:subject", credential_id="vc_x", fields=["age"],
+        )
+        assert result.get("status") != "disclosed", (
+            f"selective disclosure still claims success: {result}"
+        )
+        assert "not available" in result.get("error", "").lower()
