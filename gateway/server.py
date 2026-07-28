@@ -21,6 +21,8 @@ from pathlib import Path
 
 from aiohttp import web
 
+from gateway.error_contract import client_error, sse_error_frame
+
 from runtime.react_loop import ReActLoop, ReActContext, Message
 from runtime.time.temporal_context import TemporalContext
 from runtime.auth.session_store import (
@@ -521,14 +523,22 @@ class GatewayServer:
             with self.metrics.timer("chat.latency"):
                 result = await self.react_loop.run(context)
         except RuntimeError as e:
+            # RUN-5: `"error": str(e)` shipped the whole provider failure chain
+            # to the caller — host, port, model names, retry structure. In the
+            # sandbox that was localhost:11434; with Anthropic or OpenAI
+            # configured the same field carries endpoint URLs, org ids, key
+            # prefixes and quota detail. The graceful `response` string was
+            # always fine; the field beside it was the leak.
             self.metrics.incr("chat.errors.model")
-            logger.error(f"[{agent}] model error: {e}")
+            status, err = client_error(
+                e, request.get("request_id"), what=f"Chat[{agent}]"
+            )
             return web.json_response({
                 "response": "I'm having trouble connecting to my language model right now. Please try again shortly.",
-                "error": str(e),
+                **err,
                 "agent": agent,
                 "session_id": session_id,
-            }, status=503)
+            }, status=status)
 
         response_text = result.response
         if first_boot:

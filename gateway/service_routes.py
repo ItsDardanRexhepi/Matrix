@@ -23,6 +23,8 @@ from typing import Any, Awaitable, Callable, List, Optional, Tuple
 
 from aiohttp import web
 
+from gateway.error_contract import client_error
+
 from gateway.event_broadcaster import (
     BroadcastEvent,
     BroadcasterCapacityError,
@@ -840,7 +842,8 @@ class ServiceRoutes:
         try:
             data = await self._price_feed().eth_usd()
         except PriceUnavailable as exc:
-            return web.json_response({"error": str(exc)}, status=503)
+            _st, _err = client_error(exc, request.get("request_id"), what="Service")
+            return web.json_response(_err, status=_st)
         except Exception as exc:
             logger.exception("eth-usd price failed")
             return web.json_response({"error": "price unavailable"}, status=503)
@@ -1526,9 +1529,15 @@ class ServiceRoutes:
             try:
                 return web.json_response(await self._price_feed().eth_usd())
             except PriceUnavailable as exc:
-                return web.json_response({"error": str(exc)}, status=503)
-            except Exception:
-                return web.json_response({"error": "price unavailable"}, status=503)
+                _st, _err = client_error(
+                    exc, request.get("request_id"), what="PriceFeed"
+                )
+                return web.json_response(_err, status=_st)
+            except Exception as exc:
+                _st, _err = client_error(
+                    exc, request.get("request_id"), what="PriceFeed"
+                )
+                return web.json_response(_err, status=_st)
         try:
             result = await self._call(
                 "oracle_gateway", "request",

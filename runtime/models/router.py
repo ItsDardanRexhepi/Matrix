@@ -31,6 +31,25 @@ _COMPLEXITY_MODEL_MAP = {
 }
 
 
+def _is_unreachable(exc: Exception) -> bool:
+    """True when *exc* means the provider cannot be reached at all.
+
+    RUN-5: a connection refusal does not heal between two attempts a
+    millisecond apart, so retrying one is pure latency — and it is why a single
+    failed chat produced the SAME provider error three times over. A 5xx or a
+    malformed reply is worth a retry; "nothing is listening on that port" is
+    not.
+    """
+    if isinstance(exc, (ConnectionError, ConnectionRefusedError, OSError)):
+        return True
+    text = str(exc).lower()
+    return any(
+        m in text
+        for m in ("cannot connect to host", "connection refused",
+                  "connect call failed", "name or service not known")
+    )
+
+
 class ModelRouter:
     """
     Routes model requests to the configured provider.
@@ -191,6 +210,9 @@ class ModelRouter:
                 except Exception as e:
                     logger.warning(f"[{agent_name}] {self.primary_name} attempt {attempt}/{MAX_RETRIES} failed: {e}")
                     errors.append(f"{self.primary_name}: {e}")
+                    if _is_unreachable(e):
+                        # RUN-5: unreachable does not heal between attempts.
+                        break
 
         # Fall through remaining providers
         for name, provider in self.providers.items():
@@ -204,6 +226,8 @@ class ModelRouter:
                 except Exception as e:
                     logger.warning(f"[{agent_name}] {name} attempt {attempt}/{MAX_RETRIES} failed: {e}")
                     errors.append(f"{name}: {e}")
+                    if _is_unreachable(e):
+                        break
 
         raise RuntimeError(f"All model providers failed: {'; '.join(errors)}")
 

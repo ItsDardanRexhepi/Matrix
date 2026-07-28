@@ -27,6 +27,8 @@ from typing import Any
 
 from aiohttp import web
 
+from gateway.error_contract import client_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -785,7 +787,9 @@ class BridgeRoutes:
             return MobileResponse.error(f"Invalid parameters: {e}", 422)
         except Exception as e:
             logger.error(f"Bridge action error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
+            return MobileResponse.error(_err['error'], _st)
 
     # ─── Push notifications ─────────────────────────────────────────────────
 
@@ -919,7 +923,9 @@ class BridgeRoutes:
             return MobileResponse.ok({"components": components})
         except Exception as e:
             logger.error(f"Bridge get_components error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
+            return MobileResponse.error(_err['error'], _st)
 
     async def get_component(self, request: web.Request) -> web.Response:
         """Return a single component by ID with its full UI schema."""
@@ -946,7 +952,9 @@ class BridgeRoutes:
             return MobileResponse.ok({"component": component})
         except Exception as e:
             logger.error(f"Bridge get_component error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
+            return MobileResponse.error(_err['error'], _st)
 
     async def get_components_manifest(self, request: web.Request) -> web.Response:
         """
@@ -967,7 +975,9 @@ class BridgeRoutes:
             return MobileResponse.ok({"manifest": manifest})
         except Exception as e:
             logger.error(f"Bridge get_components_manifest error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
+            return MobileResponse.error(_err['error'], _st)
 
     # ─── Dashboard ────────────────────────────────────────────────────────
 
