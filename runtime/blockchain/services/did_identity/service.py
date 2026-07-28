@@ -269,9 +269,18 @@ class DIDService:
         a credential that was not verifiable and verify a credential that was
         not issued, with nothing real in between.
 
-        It also broke the real verifier for anything it wrote: that code reads
-        ``stored["proof"]["proofValue"]``, which KeyErrors on a proofless
-        record.
+        And it POISONED THE SHARED STORE. It did not merely fail to do its job —
+        it injected malformed records into the real vault's `_credentials`, and
+        the real verifier rejects every one of them (missing `@context`, `type`,
+        `proof.proofValue`). It does NOT crash on them: the proof read is
+        guarded by `proof.get("proofValue")`, so it degrades to an error list.
+        That is worse than a crash, because a crash is loud. Instead a user who
+        "issued" a credential held a vault record that every honest verification
+        rejects, with nothing at issuance time to say so.
+
+        Which is what made the pair coherent rather than merely broken: the fake
+        verifier's unconditional `valid: True` would "rescue" exactly the poison
+        records the real verifier rejects. The two fakes covered for each other.
         """
         return await self.credential_vault.issue_credential(
             issuer_did=issuer_did,
@@ -324,33 +333,47 @@ class DIDService:
     async def selective_disclose(
         self, did: str, credential_id: str, fields: list[str], verifier_did: str = "",
     ) -> dict:
-        """Selective disclosure — NOT IMPLEMENTED, and it must not pretend.
+        """Build a real selective-disclosure presentation via SelectiveDisclosure.
 
-        The sibling of the shadowed verifier, same shape: it minted
+        THE THIRD SHADOW, and the one I initially got wrong. This method minted
         ``sd_<uuid4>``, returned ``"status": "disclosed"`` with the requested
-        field names echoed back, and produced NO PROOF of any kind. It read no
-        credential, verified nothing, and stored nothing. A verifier handed one
-        of these records has been given a claim with nothing backing it.
+        field names echoed back, and produced NO PROOF: it read no credential,
+        verified nothing, stored nothing. Like the shadowed verifier its
+        parameters MATCHED, so nothing was holding it inert — it was live.
 
-        Selective disclosure needs a real cryptographic scheme (BBS+ signatures
-        or an equivalent), and none exists in this codebase. So the honest
-        answer is to say so. Like the shadowed verifier this one's parameters
-        MATCHED its declaration, meaning no signature bug was holding it
-        inert — it was live.
+        My first repair marked it unavailable, on the reasoning that selective
+        disclosure needs BBS+ or equivalent and none was implemented. That was
+        wrong, and starting the Phase 3.8 census is what caught it: this package
+        contains ``selective_disclosure.py``, a real ``SelectiveDisclosure``
+        already instantiated at ``self.selective_disclosure``, which validates
+        its inputs, raises on an unknown credential, and replaces undisclosed
+        field values with salted sha256 commitments. It even documents that its
+        credential store is "populated externally by DIDService" — the wiring
+        this shadow was standing in for and never did.
+
+        So this is a delegation, not a removal: the capability is real, only the
+        wiring was fake. The credential is fetched from the vault and registered
+        with the disclosure module first, which is the step the shadow skipped.
         """
-        return {
-            "status": "unavailable",
-            "error_category": "not_implemented",
-            "error": (
-                "Selective disclosure is not available: it requires a "
-                "cryptographic scheme (e.g. BBS+ signatures) that is not "
-                "implemented. No disclosure proof was produced."
-            ),
-            "did": did,
-            "credential_id": credential_id,
-            "requested_fields": fields,
-            "verifier": verifier_did,
-        }
+        credential = self.credential_vault._credentials.get(credential_id)
+        if credential is None:
+            return {
+                "status": "error",
+                "error_category": "not_found",
+                "error": f"Credential {credential_id} not found",
+                "did": did,
+                "credential_id": credential_id,
+            }
+
+        self.selective_disclosure.register_credential(credential)
+        presentation = await self.selective_disclosure.create_presentation(
+            holder_did=did,
+            credential_ids=[credential_id],
+            disclosed_fields={credential_id: list(fields)},
+        )
+        if isinstance(presentation, dict):
+            presentation.setdefault("verifier", verifier_did)
+        return presentation
 
     async def query_reputation(self, did: str) -> dict:
         """Query the on-chain reputation score for a DID."""

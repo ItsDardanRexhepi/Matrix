@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 import pytest
 
@@ -192,13 +193,48 @@ class TestCredentialSubsystemWasTheater:
         ids = [c["id"] if isinstance(c, dict) else c for c in listed]
         assert issued["id"] in ids, f"issued credential is invisible: {listed}"
 
-    async def test_selective_disclosure_does_not_claim_a_proof_it_cannot_make(self):
-        """It returned `"status": "disclosed"` with the field names echoed and
-        no proof of any kind — a claim with nothing behind it."""
+    async def test_selective_disclosure_produces_a_real_commitment(self):
+        """The third shadow, delegated rather than removed.
+
+        It returned `"status": "disclosed"` with the field names echoed and NO
+        PROOF. The real `SelectiveDisclosure` was in the same package, already
+        instantiated, replacing undisclosed values with salted sha256
+        commitments — and documenting that its store is "populated externally by
+        DIDService", the wiring the shadow stood in for and never did.
+
+        An earlier version of this test asserted only that the undisclosed value
+        was absent, which the shadow ALSO satisfied (it echoed field names and
+        never touched the credential). It passed against the bug. These
+        assertions are on the structure the real implementation produces and
+        the shadow cannot.
+        """
+        svc = self._service()
+        issued = await svc.issue_credential(
+            issuer_did="did:key:issuer", subject_did="did:key:holder",
+            credential_type="TestCredential",
+            claims={"age": 30, "salary": 100000},
+        )
+        vp = await svc.selective_disclose(
+            did="did:key:holder", credential_id=issued["id"], fields=["age"],
+        )
+
+        assert "VerifiablePresentation" in vp.get("type", []), (
+            f"not a verifiable presentation: {vp}"
+        )
+        assert vp.get("proof"), "presentation carries no proof"
+
+        subject = vp["verifiableCredential"][0]["credentialSubject"]
+        assert subject.get("age") == 30, "the disclosed field is missing"
+        assert "salary" not in subject, "an undisclosed field was revealed"
+
+        commitments = vp["verifiableCredential"][0]["_undisclosedCommitments"]
+        assert re.fullmatch(r"[0-9a-f]{64}", commitments["salary"]), (
+            f"undisclosed field has no sha256 commitment: {commitments}"
+        )
+
+    async def test_selective_disclosure_rejects_an_unknown_credential(self):
+        """Some input must fail here too."""
         result = await self._service().selective_disclose(
-            did="did:key:subject", credential_id="vc_x", fields=["age"],
+            did="did:key:holder", credential_id="vc_nonexistent", fields=["age"],
         )
-        assert result.get("status") != "disclosed", (
-            f"selective disclosure still claims success: {result}"
-        )
-        assert "not available" in result.get("error", "").lower()
+        assert result.get("status") == "error", f"unknown credential accepted: {result}"
