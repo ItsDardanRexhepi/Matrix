@@ -45,7 +45,23 @@ try:
     SECURITY_BACKEND = "morpheus_security"
     logger.info("Security backend: morpheus_security (real enforcement available)")
 
-except Exception:  # ImportError, or any load error → inert OBSERVE no-op.
+except (ImportError, ModuleNotFoundError):
+    # H2/RUN-11: this was `except Exception`, which conflated two completely
+    # different situations:
+    #
+    #   "the private package is not installed"  — legitimate. Local dev, CI,
+    #       and the open-source checkout all run this way, and degrading to an
+    #       inert OBSERVE no-op is the correct, documented behaviour.
+    #
+    #   "the package IS installed and blew up while loading" — a broken
+    #       security core. Swallowing that silently turned a loud failure into
+    #       a silent disarming: the gateway came up reporting itself fine, with
+    #       nothing enforcing. That is the NEW-18 silent-fallback shape sitting
+    #       on the security boundary.
+    #
+    # Only the first is caught now. Anything else propagates, because a
+    # security core that cannot load should stop the process, not quietly
+    # remove itself.
     SECURITY_BACKEND = "noop"
     _private_agent_access = None
     logger.warning(

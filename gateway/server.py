@@ -355,6 +355,24 @@ class GatewayServer:
             self._app_attest = None
             self._security_backend = "noop"
 
+        # H2/RUN-11: production must not BOOT with no enforcement.
+        #
+        # /ready (RUN-7) takes such an instance out of rotation, but that is a
+        # second line of defence — it depends on an orchestrator actually
+        # probing it, and a process that is running is a process something can
+        # reach. If the deployment is declared production and the security core
+        # is not live, the honest outcome is refusing to start: loud, at the
+        # earliest possible moment, and impossible to route around.
+        from runtime.config.validation import is_production_mode
+
+        if is_production_mode() and self._security_backend == "noop":
+            raise RuntimeError(
+                "OPNMATRX_ENV=production but the security backend is 'noop' — "
+                "morpheus_security is not installed or failed to load, so nothing "
+                "is enforcing. Refusing to start. Install the private security "
+                "package, or unset OPNMATRX_ENV for a non-production run."
+            )
+
         # Sign in with Apple — JWKS cache for identity-token verification (P1-8).
         from gateway.apple_auth import AppleJWKSCache
         self._apple_jwks = AppleJWKSCache()
