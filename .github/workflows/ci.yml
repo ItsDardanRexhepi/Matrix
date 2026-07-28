@@ -101,9 +101,10 @@ jobs:
       # deselected, and so a red build says WHICH control tripped. Both are
       # ordinary pytest files and also run in the step above; this step exists
       # to make them a visible, required gate rather than two tests among 800.
-      - name: Audit detectors (D1 route sweep, D2 handler collapse)
+      - name: Audit detectors (D1 route sweep, D2 handler collapse, D5 action contract)
         run: |
           python -m pytest tests/test_route_sweep.py tests/test_handler_collapse.py \
+            tests/test_intent_action_contract.py \
             -v --tb=short -p no:cacheprovider
         env:
           PYTHONPATH: .
