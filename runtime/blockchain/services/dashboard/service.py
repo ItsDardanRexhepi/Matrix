@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Any
 
-from runtime.blockchain.services.dashboard.aggregator import DataAggregator
+from runtime.blockchain.services.dashboard.aggregator import DashboardAggregator
 from runtime.blockchain.services.dashboard.formatters import PlainEnglishFormatter
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class DashboardService:
 
         self._max_activity: int = int(d_cfg.get("max_activity", 50))
 
-        self._aggregator = DataAggregator(config, services)
+        self._aggregator = DashboardAggregator(config, services)
         self._formatter = PlainEnglishFormatter()
 
         # Track which components each user has interacted with
@@ -56,7 +56,7 @@ class DashboardService:
         logger.info("DashboardService initialised.")
 
     @property
-    def aggregator(self) -> DataAggregator:
+    def aggregator(self) -> DashboardAggregator:
         return self._aggregator
 
     @property

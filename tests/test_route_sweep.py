@@ -207,16 +207,12 @@ def _inner_status(body: str) -> str | None:
 # is the burn-down: the count only goes down, and it goes down by force.
 # A new breakage cannot hide behind these, because it would appear as a plain
 # (unmarked) failure on some other route.
-_XFAIL_LEAK = {
-    "/api/v1/portfolio/positions/{wallet}": "RUN-6",
-    "/api/v1/portfolio/history/{wallet}": "RUN-6",
-    "/api/v1/intent/summary/{plan_id}": "RUN-6",
-}
-_XFAIL_INVERT = {
-    "/api/v1/portfolio/positions/{wallet}": "RUN-4/RUN-6",
-    "/api/v1/portfolio/history/{wallet}": "RUN-4/RUN-6",
-    "/api/v1/intent/summary/{plan_id}": "RUN-4/RUN-6",
-}
+# RUN-6 CLOSED: positions repointed to the real method, history and
+# intent/summary now 501 (neither is derivable from anything the platform has).
+# Their 6 markers XPASSed strictly — a failure — and were removed here. That is
+# the burn-down working: the marker could not outlive the bug.
+_XFAIL_LEAK: dict[str, str] = {}
+_XFAIL_INVERT: dict[str, str] = {}
 _XFAIL_RAISE = {
     "/social/feed/stream": "NEW-6",
     "/badge/issue": "NEW-7",

@@ -1,5 +1,5 @@
 """
-DataAggregator — collects and aggregates data from all 0pnMatrx services
+DashboardAggregator — collects and aggregates data from all 0pnMatrx services
 for the unified dashboard.
 
 For staking APY: uses Component 16's canonical APY calculator exclusively.
@@ -14,8 +14,14 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class DataAggregator:
+class DashboardAggregator:
     """Aggregates portfolio and activity data across all platform components.
+
+    RUN-6: renamed from ``DataAggregator``. Two unrelated classes shared
+    that name — this one and
+    ``runtime.blockchain.protocol_abstraction.data_aggregator.DataAggregator``
+    — with different methods. Three gateway handlers called methods that
+    existed on neither, and the collision is what made that look plausible.
 
     Config keys (under ``config["dashboard"]``):
         activity_limit (int): Default activity items to return (default 50).
@@ -37,7 +43,7 @@ class DataAggregator:
         self._cache: dict[str, tuple[int, Any]] = {}
 
         logger.info(
-            "DataAggregator initialised (services=%d, cache_ttl=%ds).",
+            "DashboardAggregator initialised (services=%d, cache_ttl=%ds).",
             len(self._services), self._cache_ttl,
         )
 

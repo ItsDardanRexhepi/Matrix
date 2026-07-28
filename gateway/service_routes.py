@@ -2408,26 +2408,72 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_portfolio_positions(self, request: web.Request) -> web.Response:
+        """RUN-6: was calling DataAggregator.get_positions(), which does not exist.
+
+        The class it reached has no such method — the call raised AttributeError
+        every time and the handler returned HTTP 200 with the Python error text
+        as the payload. Positions ARE genuinely derivable: get_user_portfolio()
+        computes them from a real chain balance, so this is a repoint to the
+        real method plus a projection of the position-bearing fields, not a
+        fabricated answer.
+        """
         wallet = request.match_info["wallet"]
         try:
-            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
+            from runtime.blockchain.protocol_abstraction.data_aggregator import (
+                DataAggregator,
+            )
             aggregator = DataAggregator(self._config)
-            result = await aggregator.get_positions(wallet)
+            portfolio = await aggregator.get_user_portfolio(wallet)
         except Exception as e:
-            logger.warning("Portfolio positions failed: %s", e)
-            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
-        return self._ok(result)
+            # RUN-5 shape: the reason is logged server-side, never returned.
+            logger.warning("Portfolio positions failed for %s: %s", wallet, e)
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({
+                    "status": "unavailable",
+                    "error": "Portfolio positions are unavailable right now.",
+                }),
+                content_type="application/json",
+            )
+
+        return self._ok({
+            "wallet": wallet,
+            "total_value_usd": portfolio.get("total_value_usd", 0.0),
+            "positions": {
+                "tokens": portfolio.get("tokens", []),
+                "nfts": portfolio.get("nfts", []),
+                "defi": portfolio.get("defi_positions", []),
+                "staking": portfolio.get("staking_positions", []),
+                "streams": portfolio.get("streams", []),
+                "rwa": portfolio.get("rwa_positions", []),
+            },
+            "cached": portfolio.get("cached", False),
+        })
 
     async def _handle_portfolio_history(self, request: web.Request) -> web.Response:
-        wallet = request.match_info["wallet"]
-        try:
-            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
-            aggregator = DataAggregator(self._config)
-            result = await aggregator.get_history(wallet)
-        except Exception as e:
-            logger.warning("Portfolio history failed: %s", e)
-            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
-        return self._ok(result)
+        """RUN-6: historical portfolio data does not exist to serve.
+
+        This called DataAggregator.get_history(), which was never implemented on
+        either class of that name. Unlike positions, history cannot be derived
+        from what the platform has: every aggregator method returns a CURRENT
+        snapshot, and nothing records time-series. Serving it needs an indexer —
+        a feature, not a bug fix — so the honest answer is 501, the same shape
+        as /contracts/deploy (RUN-2).
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Portfolio history is not implemented.",
+                "detail": (
+                    "This endpoint previously returned HTTP 200 with an internal "
+                    "error as its payload. No time-series portfolio data is "
+                    "recorded anywhere in the platform; serving history requires "
+                    "an indexer that does not exist yet. Use "
+                    "/api/v1/portfolio/positions/{wallet} for the current snapshot."
+                ),
+                "see": "/api/v1/portfolio/positions/{wallet}",
+            },
+            status=501,
+        )
 
     # -- Intent Resolution --
 
@@ -2464,15 +2510,35 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_intent_summary(self, request: web.Request) -> web.Response:
-        plan_id = request.match_info["plan_id"]
-        try:
-            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
-            resolver = IntentResolver(self._config)
-            result = await resolver.get_summary(plan_id=plan_id)
-        except Exception as e:
-            logger.warning("Intent summary failed: %s", e)
-            result = {"plan_id": plan_id, "status": "unavailable", "message": str(e)}
-        return self._ok(result)
+        """RUN-6: summary-by-plan-id cannot be served, and never could.
+
+        This called IntentResolver.get_summary(plan_id=...), which does not
+        exist, so every request returned HTTP 200 carrying the AttributeError.
+
+        Repointing it is not possible: the real method is
+        get_plan_summary(plan: dict) — it takes the plan OBJECT — and
+        IntentResolver is stateless. resolve() mints a plan_id with uuid4() and
+        never persists the plan, so there is nothing anywhere to look a plan_id
+        up in. Serving this needs a plan store, which is a feature, not a repair.
+
+        501 rather than a repoint, because the alternative would be inventing
+        persistence behind a bug fix. Callers that hold the plan from
+        /intent/resolve already have everything the summary would describe.
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Intent summary by plan id is not implemented.",
+                "detail": (
+                    "Plans are not persisted: /api/v1/intent/resolve returns the "
+                    "full plan and the resolver keeps no store, so a plan_id "
+                    "cannot be looked up. Keep the plan object from the resolve "
+                    "response rather than re-fetching it by id."
+                ),
+                "see": "/api/v1/intent/resolve",
+            },
+            status=501,
+        )
 
     # -- Legal --
 

@@ -236,7 +236,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("update_social_profile",   "Update Social Profile",   "social", "social", "update_social_profile"),
     _cap("social_post",             "Social Post",             "social", "social", "social_post"),
     _cap("social_gate",             "Gated Social Content",    "social", "social", "social_gate"),
-    _cap("community_create",        "Create Community",        "social", "social", "community_create"),
+    _cap("community_create",        "Create Community",        "social", "social", "create_community"),
     _cap("send_message",            "Send Message (XMTP)",     "social", "social", "send_message",       protocol="xmtp"),
     _cap("message_encrypt",         "Encrypted Message",       "social", "social", "message_encrypt"),
     _cap("create_lens_profile",     "Create Lens Profile",     "social", "social_protocols", "create_lens_profile",     protocol="lens",    available=False),
