@@ -82,6 +82,102 @@ def test_classification_is_stable(exc, expected_code, expected_status):
     assert body["code"] == expected_code
 
 
+def test_a_flattened_timeout_is_still_a_timeout():
+    """The same condition must not answer differently by how far it travelled.
+
+    A typed asyncio.TimeoutError gets 504 from the isinstance branch. Once the
+    provider aggregator flattens it into `RuntimeError("All model providers
+    failed: ... timed out")`, only the text survives — and the text markers
+    used to classify it as `upstream_unavailable` (503), so one real condition
+    produced two different answers depending on the depth it was raised at.
+    That is the channel disagreement this module exists to remove.
+    """
+    typed = classify(asyncio.TimeoutError())
+    flattened = classify(
+        RuntimeError("All model providers failed: ollama: request timed out")
+    )
+    assert typed == flattened == "upstream_timeout", (
+        f"typed timeout -> {typed}, flattened -> {flattened}"
+    )
+
+
+# ── retryability: the over-correction guard ────────────────────────────────
+
+@pytest.mark.parametrize(
+    "exc,retryable,why",
+    [
+        (asyncio.TimeoutError(), True, "a slow provider may answer next attempt"),
+        (TimeoutError("timed out"), True, "same, raised as the builtin"),
+        (ConnectionRefusedError("refused"), False, "nothing is listening; it will not heal"),
+        (OSError("no route to host"), False, "no path exists; retrying is pure latency"),
+        (RuntimeError("500 from provider"), True, "a 5xx is worth another attempt"),
+    ],
+)
+def test_unreachable_does_not_swallow_retryable_failures(exc, retryable, why):
+    """RUN-5 stopped retrying unreachable providers. It must NOT have stopped
+    retrying transient ones.
+
+    The trap is real and silent: TimeoutError subclasses OSError, and since
+    Python 3.11 asyncio.TimeoutError IS TimeoutError. A bare
+    `isinstance(exc, OSError)` therefore classes every timeout — including
+    aiohttp.ServerTimeoutError — as unreachable, and the fix for a latency bug
+    becomes a reliability bug that no existing test would notice.
+    """
+    from runtime.models.router import _is_unreachable
+
+    assert _is_unreachable(exc) is not retryable, why
+
+
+def test_aiohttp_server_timeout_is_retryable():
+    """The concrete type this actually arrives as in production."""
+    import aiohttp
+
+    from runtime.models.router import _is_unreachable
+
+    assert issubclass(aiohttp.ServerTimeoutError, TimeoutError), (
+        "assumption changed upstream — re-check the classification"
+    )
+    assert _is_unreachable(aiohttp.ServerTimeoutError("timed out")) is False
+
+
+@pytest.mark.parametrize(
+    "label,exc,retried",
+    [
+        ("timeout", asyncio.TimeoutError(), True),
+        ("5xx", RuntimeError("500 upstream"), True),
+        ("refused", ConnectionRefusedError("refused"), False),
+        ("no route", OSError("no route to host"), False),
+    ],
+)
+async def test_the_retry_loop_actually_honours_the_distinction(label, exc, retried):
+    """Behaviour, not just the predicate — count real attempts through complete().
+
+    A correct `_is_unreachable` still proves nothing if the loop consults it
+    wrongly, so this drives the actual provider chain with a failing stub.
+    """
+    from runtime.models.router import MAX_RETRIES, ModelRouter
+
+    class Flaky:
+        def __init__(self): self.attempts = 0
+        async def complete(self, *a, **k):
+            self.attempts += 1
+            raise exc
+
+    provider = Flaky()
+    router = ModelRouter.__new__(ModelRouter)
+    router.providers, router.primary_name = {"p": provider}, "p"
+    router._classify_and_get_kwargs = lambda *a, **k: {}
+
+    with pytest.raises(RuntimeError):
+        await router.complete([{"role": "user", "content": "x"}], agent_name="t")
+
+    expected = MAX_RETRIES if retried else 1
+    assert provider.attempts == expected, (
+        f"{label}: {provider.attempts} attempt(s), expected {expected} — "
+        "a transient failure must still get its retries"
+    )
+
+
 def test_missing_correlation_id_still_yields_the_same_shape():
     """A client parses one shape; it must not vary because a ref was absent."""
     _, body = client_error(RuntimeError("x"), None)
@@ -91,18 +187,44 @@ def test_missing_correlation_id_still_yields_the_same_shape():
 
 # ── one contract across channels ───────────────────────────────────────────
 
-def test_all_channels_agree_on_the_same_condition():
+async def test_all_channels_agree_on_the_same_condition():
     """/chat and /bridge/v1/chat disagreed: 503 vs 500 for one event.
 
-    Both now derive their status from the same function, so the disagreement
-    cannot recur without changing the contract itself.
+    This drives BOTH ROUTES for real. An earlier version of this test called
+    `client_error` twice and compared the two results, which is vacuous against
+    the bug that matters: a channel that never calls the contract at all. The
+    bridge did exactly that — it hand-rolled its own classification, so it
+    agreed on status while diverging on shape (no `code`, ref always "-"), and
+    a function-level test could not see it. Only a live request can.
     """
-    exc = RuntimeError("All model providers failed: cannot connect to host x:1")
-    chat_status, chat_body = client_error(exc, "r", what="Chat")
-    bridge_status, bridge_body = client_error(exc, "r", what="Bridge")
+    import sys
+    sys.path.insert(0, "tests")
+    from aiohttp.test_utils import TestClient, TestServer
 
-    assert chat_status == bridge_status == 503
-    assert chat_body["code"] == bridge_body["code"]
+    from gateway.server import GatewayServer
+    from test_route_sweep import SWEEP_CONFIG
+
+    server = GatewayServer(SWEEP_CONFIG)
+    seen = []
+    async with TestClient(TestServer(server.create_app())) as client:
+        for path in ("/chat", "/bridge/v1/chat"):
+            resp = await client.post(
+                path,
+                json={"message": "hi", "agent": "neo"},
+                headers={"Authorization": "Bearer k"},
+            )
+            raw = await resp.text()
+            body = json.loads(raw)
+            assert not _leaks(raw), f"{path} leaked {_leaks(raw)}"
+            assert body.get("ref") == resp.headers.get("X-Request-ID"), (
+                f"{path}: ref does not correlate with the log line"
+            )
+            seen.append((path, resp.status, body.get("code")))
+
+    statuses = {s for _, s, _ in seen}
+    codes = {c for _, _, c in seen}
+    assert statuses == {503}, f"channels disagree on status: {seen}"
+    assert codes == {"upstream_unavailable"}, f"channels disagree on code: {seen}"
 
 
 def test_sse_error_frame_carries_the_contract_in_the_payload():

@@ -59,6 +59,15 @@ _UNREACHABLE_MARKERS = (
     "cannot connect to host",
     "connection refused",
     "connect call failed",
+    "name or service not known",
+)
+
+# Checked BEFORE the unreachable markers. A timeout that arrives typed gets 504
+# from the isinstance branch; a timeout that has been flattened into a generic
+# Exception on the way up must get 504 too, or the same real condition answers
+# differently depending on how far it travelled — which is the exact
+# channel-disagreement this module exists to remove.
+_TIMEOUT_MARKERS = (
     "timed out",
     "timeout",
 )
@@ -93,6 +102,8 @@ def classify(exc: BaseException) -> str:
         return "internal_error"
 
     text = str(exc).lower()
+    if any(marker in text for marker in _TIMEOUT_MARKERS):
+        return "upstream_timeout"
     if any(marker in text for marker in _UNREACHABLE_MARKERS):
         return "upstream_unavailable"
     return "internal_error"

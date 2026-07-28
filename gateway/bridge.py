@@ -41,9 +41,36 @@ class MobileResponse:
         return web.json_response(body)
 
     @staticmethod
-    def error(message: str, code: int = 400) -> web.Response:
+    def error(
+        message: str,
+        code: int = 400,
+        *,
+        error_code: str | None = None,
+        ref: str | None = None,
+    ) -> web.Response:
         body = {"ok": False, "error": message, "timestamp": time.time()}
+        # RUN-5: `code` and `ref` are part of the error contract. Passing only
+        # the sentence made the bridge agree on STATUS while diverging on
+        # SHAPE — a client could not read a machine code or a correlation id
+        # here, though it could on every other channel.
+        if error_code:
+            body["code"] = error_code
+        if ref:
+            body["ref"] = ref
         return web.json_response(body, status=code)
+
+    @staticmethod
+    def from_exception(exc: BaseException, *, what: str = "Bridge") -> web.Response:
+        """The one way this channel turns an exception into a response.
+
+        Every bridge failure goes through `client_error`, so classification,
+        redaction and the correlation id are decided in exactly one place
+        rather than re-derived per call site.
+        """
+        status, err = client_error(exc, None, what=what)
+        return MobileResponse.error(
+            err["error"], status, error_code=err["code"], ref=err["ref"]
+        )
 
 
 # ─── Service Catalog for iOS ────────────────────────────────────────────────
@@ -647,24 +674,16 @@ class BridgeRoutes:
             # It also answered 500 where /chat answers 503 for the identical
             # condition, so two channels disagreed on the same event.
             #
-            # Now: one contract. An unreachable provider is 503 (the dependency
-            # is down, not the request), anything else is 500, and neither
-            # returns the exception. The detail is logged against the request id.
-            req_id = request.get("request_id", "-")
-            logger.error("Bridge chat error [req=%s]: %s", req_id, e, exc_info=True)
-
-            unreachable = isinstance(e, (ConnectionError, OSError, asyncio.TimeoutError)) or (
-                "model providers failed" in str(e).lower()
-            )
-            if unreachable:
-                return MobileResponse.error(
-                    "The language model is unreachable right now. "
-                    f"Please try again shortly. (ref: {req_id})",
-                    503,
-                )
-            return MobileResponse.error(
-                f"That request could not be completed. (ref: {req_id})", 500
-            )
+            # Now: one contract — and it must be USED, not re-derived. The first
+            # version of this fix hand-rolled the classification here, which
+            # reproduced three defects the contract module exists to remove:
+            # it read `request.get("request_id")` (the middleware stores the id
+            # in a contextvar, so the ref was always "-"); it classed timeouts
+            # as unreachable via `isinstance(e, OSError)` (TimeoutError
+            # subclasses OSError) so a 504 condition answered 503; and it
+            # returned no machine code at all. Status agreed with /chat while
+            # the SHAPE did not.
+            return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
         self, message: str, agent: str, session_id: str, body: dict,
@@ -788,8 +807,7 @@ class BridgeRoutes:
         except Exception as e:
             logger.error(f"Bridge action error: {e}", exc_info=True)
             # RUN-5: was the raw exception as the response body.
-            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
-            return MobileResponse.error(_err['error'], _st)
+            return MobileResponse.from_exception(e, what='Bridge')
 
     # ─── Push notifications ─────────────────────────────────────────────────
 
@@ -924,8 +942,7 @@ class BridgeRoutes:
         except Exception as e:
             logger.error(f"Bridge get_components error: {e}", exc_info=True)
             # RUN-5: was the raw exception as the response body.
-            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
-            return MobileResponse.error(_err['error'], _st)
+            return MobileResponse.from_exception(e, what='Bridge')
 
     async def get_component(self, request: web.Request) -> web.Response:
         """Return a single component by ID with its full UI schema."""
@@ -953,8 +970,7 @@ class BridgeRoutes:
         except Exception as e:
             logger.error(f"Bridge get_component error: {e}", exc_info=True)
             # RUN-5: was the raw exception as the response body.
-            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
-            return MobileResponse.error(_err['error'], _st)
+            return MobileResponse.from_exception(e, what='Bridge')
 
     async def get_components_manifest(self, request: web.Request) -> web.Response:
         """
@@ -976,8 +992,7 @@ class BridgeRoutes:
         except Exception as e:
             logger.error(f"Bridge get_components_manifest error: {e}", exc_info=True)
             # RUN-5: was the raw exception as the response body.
-            _st, _err = client_error(e, request.get('request_id'), what='Bridge')
-            return MobileResponse.error(_err['error'], _st)
+            return MobileResponse.from_exception(e, what='Bridge')
 
     # ─── Dashboard ────────────────────────────────────────────────────────
 

@@ -13,6 +13,7 @@ complex tasks to the most capable, and critical tasks always route to
 the best model regardless of cost.
 """
 
+import asyncio
 import logging
 
 from runtime.models.model_interface import ModelInterface, ModelResponse
@@ -40,6 +41,14 @@ def _is_unreachable(exc: Exception) -> bool:
     malformed reply is worth a retry; "nothing is listening on that port" is
     not.
     """
+    # A timeout is NOT unreachable, and the distinction is easy to lose:
+    # TimeoutError subclasses OSError, and since 3.11 asyncio.TimeoutError IS
+    # TimeoutError — so a bare `isinstance(exc, OSError)` silently swallows
+    # every timeout and makes genuinely transient failures non-retryable. A
+    # slow provider may well answer on the second attempt; a refused
+    # connection will not. Check timeouts first and keep them retryable.
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return False
     if isinstance(exc, (ConnectionError, ConnectionRefusedError, OSError)):
         return True
     text = str(exc).lower()
