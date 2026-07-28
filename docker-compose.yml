@@ -33,7 +33,12 @@ services:
       # Persistent SQLite + backups + tool workspace
       - opnmatrx_data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18790/health', timeout=3).status==200 else 1)"]
+      # RUN-7: /ready, not /health. This healthcheck gates Caddy's
+      # `depends_on: condition: service_healthy`, which is a ROUTING decision —
+      # and /health returns 200 whenever the process is up, even with every
+      # model provider unreachable. A 503 raises in urlopen and an unhandled
+      # exception exits 1, which is exactly the "unhealthy" signal wanted.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18790/ready', timeout=3).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3

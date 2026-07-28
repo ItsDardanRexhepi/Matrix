@@ -65,9 +65,15 @@ RUN mkdir -p /app/data /app/data/backups \
 USER opnmatrx
 EXPOSE 18790
 
+# RUN-7: probes /ready, not /health. /health is liveness and answers 200 as long
+# as the process is up — including when every model provider is unreachable — so
+# an orchestrator using it as a routing signal sends traffic to an instance that
+# cannot serve. Container health IS a routing signal, so it asks /ready.
+# A 503 raises HTTPError here, and an unhandled exception exits 1, which is
+# exactly the "unhealthy" the check wants — no wrapper needed.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request,sys; \
-sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18790/health', timeout=3).status==200 else 1)" \
+sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:18790/ready', timeout=3).status==200 else 1)" \
     || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]

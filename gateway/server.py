@@ -568,7 +568,20 @@ class GatewayServer:
         })
 
     async def handle_health(self, request: web.Request) -> web.Response:
-        """GET /health — health check"""
+        """GET /health — LIVENESS only. 200 whenever the process can serve.
+
+        Deliberately unconditional: liveness answers "should I restart this
+        process?", and restarting will not make an unreachable model provider
+        reachable. Whether this instance should receive TRAFFIC is a different
+        question, answered by ``/ready``.
+
+        RUN-7: before that split existed, this route was the only health
+        surface and every Kubernetes probe — liveness, readiness AND startup —
+        pointed at it. Because it returns a literal ``"status": "ok"`` no matter
+        what ``model_health`` says, readiness could never fail, so traffic was
+        routed to instances with zero working providers. The reported model
+        health was right there in the body and nothing consulted it.
+        """
         model_health = await self.react_loop.router.health_check()
         agents_config = self.config.get("agents", {})
         active = [name for name, cfg in agents_config.items() if cfg.get("enabled")]
@@ -580,6 +593,62 @@ class GatewayServer:
             "model_provider": provider,
             "models": model_health,
         })
+
+    async def handle_ready(self, request: web.Request) -> web.Response:
+        """GET /ready — READINESS. 503 when this instance must not take traffic.
+
+        RUN-7. The audit described ``/ready`` as returning 200 when it should
+        not; in fact **no readiness endpoint existed at all** — the symptom was
+        real and worse than the diagnosis, because every probe shared the
+        always-ok liveness route. This is the missing half.
+
+        Two conditions fail closed:
+
+        * **No model provider reachable.** Every chat path terminates at the
+          router; an instance whose providers are all down cannot serve its
+          primary function and should be taken out of rotation, not restarted.
+        * **``SECURITY_BACKEND == "noop"`` in production.** The no-op backend
+          means the private ``morpheus_security`` package failed to load and
+          the platform is running with security in OBSERVE — no enforcement.
+          That is a legitimate local/dev state and a NON-STARTER in production,
+          so it is only fatal when ``OPNMATRX_ENV=production``.
+
+        The body always lists each check and its result, so an operator reading
+        a 503 can tell immediately which one tripped.
+        """
+        from runtime.config.validation import is_production_mode
+
+        checks: dict[str, Any] = {}
+
+        model_health = await self.react_loop.router.health_check()
+        providers_up = [name for name, ok in model_health.items() if ok]
+        checks["model_providers"] = {
+            "ok": bool(providers_up),
+            "reachable": providers_up,
+            "probed": sorted(model_health),
+        }
+
+        backend = getattr(self, "_security_backend", None)
+        if backend is None:
+            try:
+                from runtime.security import SECURITY_BACKEND
+
+                backend = SECURITY_BACKEND
+            except Exception:  # the import failing IS the noop condition
+                backend = "noop"
+        production = is_production_mode()
+        security_ok = not (production and backend == "noop")
+        checks["security_backend"] = {
+            "ok": security_ok,
+            "backend": backend,
+            "production": production,
+        }
+
+        ready = all(c["ok"] for c in checks.values())
+        return web.json_response(
+            {"status": "ready" if ready else "not_ready", "checks": checks},
+            status=200 if ready else 503,
+        )
 
     async def handle_status(self, request: web.Request) -> web.Response:
         """GET /status — full platform status"""
@@ -2158,6 +2227,7 @@ class GatewayServer:
         app.router.add_post("/chat/stream", self.handle_chat_stream)
         app.router.add_get("/ws", self.handle_websocket)
         app.router.add_get("/health", self.handle_health)
+        app.router.add_get("/ready", self.handle_ready)
         app.router.add_get("/status", self.handle_status)
         app.router.add_post("/memory/read", self.handle_memory_read)
         app.router.add_post("/memory/write", self.handle_memory_write)
