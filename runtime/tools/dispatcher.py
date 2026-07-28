@@ -9,13 +9,101 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable, Awaitable
 
+# NEW-27: the contract module is where "what may a client see" is decided. It is
+# a pure leaf (stdlib imports only), so using it here creates no cycle even
+# though the usual direction is gateway -> runtime. Re-deriving its rules here
+# instead would be NEW-25 — a caller reimplementing a shared contract inline —
+# which is the exact defect this engagement keeps finding.
+from gateway.error_contract import classify as _classify_exception
 from runtime.security import agent_access_allowed
 
 logger = logging.getLogger(__name__)
 
 TOOL_TIMEOUT = 30
+
+# The one sentence a client may see about a failed tool call. Deliberately
+# uninformative: which tool failed and why is an internal detail.
+_TOOL_FAILURE_SENTENCE = "A step in this request could not be completed."
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    """One tool call's result, with its three audiences separated.
+
+    NEW-27. `dispatch()` used to return a bare ``str`` for both success and
+    failure, and its single caller then used that one string for three purposes
+    with three DIFFERENT requirements:
+
+      1. ``result_preview`` — shipped to a CLIENT, on /chat, /chat/stream, /ws,
+         the bridge and the A2A coordinator.
+      2. the ``role="tool"`` message — shipped to the MODEL, which legitimately
+         needs the failure detail in order to recover and try something else.
+      3. ``tool_succeeded`` — computed as ``"error" not in text.lower()[:100]``.
+
+    Because (1) and (2) were the same string, they could not both be satisfied:
+    giving the agent enough to recover meant handing the client raw exception
+    text. And because the dispatcher CAUGHT the exception and RETURNED it as a
+    normal result, the ReAct loop never raised, the gateway's ``except`` never
+    fired, and the error contract was never consulted — the failure travelled
+    out on the SUCCESS path. That is why no grep for ``str(e)`` in the gateway
+    could ever have found it.
+
+    Splitting the string into typed fields is the fix:
+
+      ``model_text``     — detail, for the agent's recovery. Server-side plus
+                           the model provider.
+      ``client_preview`` — the redacted sentence plus a correlation id.
+      ``ok``             — set explicitly by whoever knows, never sniffed.
+
+    KNOWN RESIDUAL, stated rather than papered over: ``model_text`` reaches the
+    model, and the model's prose reaches the client, so an agent could still
+    quote a detail back to the user. That path is logged separately (the
+    token-frame finding at gateway/server.py:1337) and is NOT closed by this
+    change. This fix closes the structured channel, not the model's mouth.
+    """
+
+    ok: bool
+    model_text: str
+    client_preview: str
+    code: str | None = None
+
+    def __repr__(self) -> str:  # never let detail reach a log or a repr by accident
+        return f"ToolOutcome(ok={self.ok}, code={self.code!r})"
+
+    @classmethod
+    def success(cls, text: str) -> "ToolOutcome":
+        # A successful tool's output is what the caller asked for, so it is
+        # previewed as before. Whether successful output (file contents, shell
+        # stdout) should itself be truncated or gated is a SEPARATE question
+        # from this leak class and is deliberately not decided here.
+        return cls(ok=True, model_text=text, client_preview=text[:200])
+
+    @classmethod
+    def failure(cls, model_text: str, *, code: str, ref: str | None = None) -> "ToolOutcome":
+        suffix = f" (ref: {ref})" if ref else ""
+        return cls(
+            ok=False,
+            model_text=model_text,
+            client_preview=f"{_TOOL_FAILURE_SENTENCE}{suffix}",
+            code=code,
+        )
+
+
+def _ref() -> str | None:
+    """The request-scoped correlation id, so a redacted preview stays greppable.
+
+    Same handle RUN-5 uses; an earlier draft of that fix proved that a redaction
+    without a working ref trades a security problem for an operability one.
+    """
+    try:
+        from runtime.logging.json_formatter import get_request_id
+
+        return get_request_id()
+    except Exception:  # logging must never break tool dispatch
+        return None
 
 
 class ToolDispatcher:
@@ -142,11 +230,29 @@ class ToolDispatcher:
     def get_tool_schemas(self) -> list[dict]:
         return self._schemas.copy()
 
-    async def dispatch(self, tool_name: str, arguments: dict, agent_name: str | None = None) -> str:
+    async def dispatch(
+        self, tool_name: str, arguments: dict, agent_name: str | None = None
+    ) -> ToolOutcome:
+        """Run one tool. Returns a typed outcome — see ToolOutcome for why.
+
+        NEW-27: every return path below used to be a bare string, so a failure
+        was indistinguishable from a result and travelled out on the success
+        path. Each now says explicitly whether it succeeded, what the agent may
+        read, and what a client may read.
+        """
+        ref = _ref()
+
         handler = self._tools.get(tool_name)
         if not handler:
             logger.warning(f"Unknown tool requested: {tool_name}")
-            return f"Error: unknown tool '{tool_name}'. Available tools: {', '.join(self._tools.keys())}"
+            # The available-tool list is genuinely useful to the AGENT and is a
+            # map of our internals to anyone else — it stays in model_text.
+            return ToolOutcome.failure(
+                f"Error: unknown tool '{tool_name}'. "
+                f"Available tools: {', '.join(self._tools.keys())}",
+                code="unknown_tool",
+                ref=ref,
+            )
 
         # Per-agent tool boundary — code-enforced, prompt-independent. Keyed on the
         # trusted agent_name from the request context (NOT on tool arguments), so a
@@ -157,7 +263,11 @@ class ToolDispatcher:
         if not allowed:
             logger.warning("Agent '%s' DENIED tool '%s'%s: %s", agent_name, tool_name,
                            f" action '{action}'" if action else "", reason)
-            return f"[DENIED] {reason}"
+            # A denial is a real, deliberate outcome — not an internal error —
+            # but it is still not a success, and it must not read as one.
+            return ToolOutcome.failure(
+                f"[DENIED] {reason}", code="denied", ref=ref
+            )
 
         logger.info(f"Tool call: {tool_name}({list(arguments.keys())})")
 
@@ -165,16 +275,20 @@ class ToolDispatcher:
             result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
             result_str = str(result)
             logger.info(f"Tool result: {tool_name} -> {result_str[:200]}{'...' if len(result_str) > 200 else ''}")
-            return result_str
+            return ToolOutcome.success(result_str)
         except asyncio.TimeoutError:
             msg = f"Error: tool '{tool_name}' timed out after {TOOL_TIMEOUT}s"
-            logger.warning(msg)
-            return msg
+            logger.warning("%s [ref=%s]", msg, ref)
+            return ToolOutcome.failure(msg, code="tool_timeout", ref=ref)
         except TypeError as e:
+            # Python's binding error names the handler's parameters — an
+            # internal signature. The agent may see it to correct its call.
             msg = f"Error: invalid arguments for '{tool_name}': {e}"
-            logger.error(msg)
-            return msg
+            logger.error("%s [ref=%s]", msg, ref)
+            return ToolOutcome.failure(msg, code="invalid_arguments", ref=ref)
         except Exception as e:
             msg = f"Error executing '{tool_name}': {e}"
-            logger.error(msg, exc_info=True)
-            return msg
+            logger.error("%s [ref=%s]", msg, ref, exc_info=True)
+            return ToolOutcome.failure(
+                msg, code=_classify_exception(e), ref=ref
+            )

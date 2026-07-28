@@ -144,13 +144,22 @@ async def test_dispatcher():
     report("file_ops tool registered", "file_ops" in tool_names)
     report("web_search tool registered", "web_search" in tool_names)
 
-    # Test bash tool
-    result = await dispatcher.dispatch("bash", {"command": "echo hello"})
-    report("bash tool executes", "hello" in result)
+    # NEW-27: dispatch() now returns a typed ToolOutcome rather than a bare
+    # string. These assertions move with the contract and get STRICTER, not
+    # looser: the old ones could only sniff substrings, which is the very bug
+    # NEW-27 removes — "Error" in result cannot tell a failed tool from a
+    # successful one whose output mentions the word.
+    outcome = await dispatcher.dispatch("bash", {"command": "echo hello"})
+    report("bash tool executes", "hello" in outcome.model_text)
+    report("bash success is stated, not sniffed", outcome.ok is True)
 
     # Test unknown tool
-    result = await dispatcher.dispatch("nonexistent_tool", {})
-    report("unknown tool returns error", "Error" in result or "unknown" in result.lower())
+    outcome = await dispatcher.dispatch("nonexistent_tool", {})
+    report("unknown tool is an explicit failure", outcome.ok is False)
+    report("unknown tool names the cause to the agent",
+           "unknown" in outcome.model_text.lower())
+    report("unknown tool does not leak the registry to a client",
+           "bash" not in outcome.client_preview)
 
 
 # ─── 6. Blockchain Interface ────────────────────────────────────────────────
