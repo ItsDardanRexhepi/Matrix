@@ -1201,8 +1201,22 @@ class GatewayServer:
 
         try:
             result = await self.react_loop.run(context)
-        except RuntimeError as e:
-            await emit("error", {"error": str(e)})
+        except Exception as e:
+            # NEW-17 / RUN-5b: this was `emit("error", {"error": str(e)})` — the
+            # raw exception went straight into the stream. RUN-5 missed it
+            # because it grepped for str(e) in json_response call shapes and an
+            # SSE frame is neither.
+            #
+            # A stream cannot set a status once its headers are out, so the
+            # contract travels IN the frame: same redaction, same ref, plus the
+            # status the request would have carried.
+            #
+            # Widened from `except RuntimeError` deliberately. A non-RuntimeError
+            # escaping here aborted the stream with NO error frame at all,
+            # leaving the client on a truncated response with nothing to show —
+            # the streaming equivalent of a silent failure.
+            _status, _err = client_error(e, None, what="Chat stream")
+            await emit("error", {**_err, "status": _status})
             await emit("done", {})
             await response.write_eof()
             return response
@@ -1308,8 +1322,14 @@ class GatewayServer:
 
             try:
                 result = await self.react_loop.run(context)
-            except RuntimeError as e:
-                await ws.send_json({"type": "error", "error": str(e)})
+            except Exception as e:
+                # NEW-17 / RUN-5b: same leak as /chat/stream, on the channel
+                # RUN-5 never looked at. A WebSocket has no status after the
+                # handshake, so — as with SSE — the contract travels in the
+                # payload. Widened from RuntimeError for the same reason: an
+                # unexpected exception here killed the socket silently.
+                _status, _err = client_error(e, None, what="WebSocket chat")
+                await ws.send_json({"type": "error", **_err, "status": _status})
                 continue
 
             text = result.response

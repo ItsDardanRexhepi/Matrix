@@ -741,9 +741,18 @@ class ServiceRoutes:
         try:
             result = await method(**kwargs)
         except TypeError as exc:
+            # RUN-5b: was `f"Invalid parameters: {exc}"`. A TypeError from
+            # `method(**kwargs)` quotes the INTERNAL Python signature back at
+            # the caller ("...got an unexpected keyword argument 'x'",
+            # "missing 1 required positional argument: 'user_id'"), which maps
+            # the service layer for anyone probing the seam. Still a 400 — it
+            # genuinely is a caller error — but the signature stays server-side
+            # against the ref.
             logger.error("Bad params for %s.%s: %s", service_name, method_name, exc)
+            _st, _err = client_error(
+                exc, None, what=f"{service_name}.{method_name}", code="invalid_request")
             raise web.HTTPBadRequest(
-                text=json.dumps({"error": f"Invalid parameters: {exc}"}),
+                text=json.dumps(_err),
                 content_type="application/json",
             )
         except ValueError as exc:
@@ -891,6 +900,20 @@ class ServiceRoutes:
             v = str(body.get(key, "") or "")
             return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
 
+        # RUN-5b: this was ONE `try` around both halves, ending in
+        # `{"error": f"sign failed: {exc}"}` at 400. Two separate defects.
+        #
+        # (a) The exception text was the response body, and the second half
+        #     calls `sign_digest(digest, str(pcfg.get("signer_key")))` — a
+        #     malformed key raises with THE KEY VALUE in its message. That is
+        #     signing-key material on a client-visible money path.
+        #
+        # (b) The blanket 400 told the caller their request was bad when the
+        #     real fault was our own signer configuration, which both misleads
+        #     the client and hides an operational problem behind a 4xx.
+        #
+        # Split: caller-supplied input is a 400, our signing is a 5xx, and
+        # neither returns the exception.
         try:
             digest = compute_paymaster_digest(
                 sender=str(body.get("sender", "")),
@@ -907,12 +930,21 @@ class ServiceRoutes:
                 valid_until=_int("valid_until"),
                 valid_after=_int("valid_after"),
             )
+        except Exception as exc:
+            logger.exception("paymaster digest rejected caller input")
+            _st, _err = client_error(
+                exc, None, what="Paymaster sign", code="invalid_request")
+            return web.json_response(_err, status=_st)
+
+        try:
             sig = sign_digest(digest, str(pcfg.get("signer_key")))
             pnd = build_paymaster_and_data(
                 str(pcfg.get("address")), _int("valid_until"), _int("valid_after"), sig)
         except Exception as exc:
-            logger.exception("paymaster sign failed")
-            return web.json_response({"error": f"sign failed: {exc}"}, status=400)
+            logger.exception("paymaster signing failed — check the configured signer key")
+            _st, _err = client_error(
+                exc, None, what="Paymaster sign", code="internal_error")
+            return web.json_response(_err, status=_st)
 
         return web.json_response({"paymasterAndData": pnd})
 
