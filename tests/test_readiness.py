@@ -30,6 +30,13 @@ from aiohttp.test_utils import TestClient, TestServer  # noqa: E402
 from gateway.server import GatewayServer  # noqa: E402
 from test_route_sweep import SWEEP_CONFIG  # noqa: E402
 
+# NEW-26 makes a production boot with no API key a refusal. Tests below that
+# exercise PRODUCTION READINESS (not the auth wall) must therefore configure a
+# key — otherwise they would fail on the wall before reaching the thing under
+# test. The refusal itself is covered by
+# test_production_refuses_to_start_with_authentication_disabled.
+PROD_CONFIG = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "test-key"}}
+
 
 async def _get(server: GatewayServer, path: str):
     async with TestClient(TestServer(server.create_app())) as client:
@@ -57,9 +64,7 @@ async def test_ready_is_503_when_no_model_provider_is_reachable():
     status, body = await _get(server, "/ready")
 
     assert status == 503, f"ready with zero providers: {body}"
-    assert body["status"] == "not_ready"
-    assert body["checks"]["model_providers"]["ok"] is False
-    assert body["checks"]["model_providers"]["reachable"] == []
+    assert body["ready"] is False
 
 
 async def test_ready_is_200_when_at_least_one_provider_is_reachable():
@@ -72,7 +77,7 @@ async def test_ready_is_200_when_at_least_one_provider_is_reachable():
     status, body = await _get(server, "/ready")
 
     assert status == 200, f"ready refused with a working provider: {body}"
-    assert body["checks"]["model_providers"]["reachable"] == ["anthropic"]
+    assert body["ready"] is True
 
 
 # ── condition 2: no-op security backend in production ──────────────────────
@@ -84,15 +89,14 @@ async def test_ready_is_503_when_security_backend_is_noop_in_production(monkeypa
     fatal only under OPNMATRX_ENV=production.
     """
     monkeypatch.setenv("OPNMATRX_ENV", "production")
-    server = GatewayServer(SWEEP_CONFIG)
+    server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
     server._security_backend = "noop"
 
     status, body = await _get(server, "/ready")
 
     assert status == 503, f"production + noop security was reported ready: {body}"
-    assert body["checks"]["security_backend"]["ok"] is False
-    assert body["checks"]["security_backend"]["production"] is True
+    assert body["ready"] is False
 
 
 async def test_noop_security_is_not_fatal_outside_production(monkeypatch):
@@ -105,12 +109,12 @@ async def test_noop_security_is_not_fatal_outside_production(monkeypatch):
     status, body = await _get(server, "/ready")
 
     assert status == 200, f"dev refused readiness for a dev-normal state: {body}"
-    assert body["checks"]["security_backend"]["ok"] is True
+    assert body["ready"] is True
 
 
 async def test_real_security_backend_is_ready_in_production(monkeypatch):
     monkeypatch.setenv("OPNMATRX_ENV", "production")
-    server = GatewayServer(SWEEP_CONFIG)
+    server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
     server._security_backend = "morpheus_security"
 
@@ -135,7 +139,7 @@ async def test_health_stays_200_when_providers_are_down():
     ready_status, _ = await _get(server, "/ready")
 
     assert health_status == 200, "liveness must not fail on a dependency outage"
-    assert health_body["status"] == "ok"
+    assert health_body["status"] == "ok"  # noqa: liveness keeps its own shape
     assert ready_status == 503
     assert health_status != ready_status, (
         "the endpoints answer identically — the split is decorative"
@@ -190,3 +194,125 @@ def test_container_healthchecks_gate_on_readiness():
 
     dockerfile = (root / "Dockerfile").read_text()
     assert "18790/ready" in dockerfile, "Dockerfile HEALTHCHECK still probes /health"
+
+
+# ── /ready must not leak posture (the critic finding against RUN-7 itself) ──
+
+async def test_ready_body_carries_no_operator_detail(monkeypatch):
+    """A readiness probe answers ready-or-not, never why.
+
+    RUN-7's first version returned each check with its values. An adversarial
+    review of that very fix caught the problem: `"backend": "noop"` tells the
+    caller that NOTHING IS ENFORCING, and `"probed"` hands over the full
+    model-provider inventory. That is a targeting signal wearing a health
+    signal's clothes — and per NEW-26 the caller need not be authenticated.
+
+    The detail is not destroyed; it is logged against the same ref, exactly as
+    RUN-5 relocates error detail rather than deleting it.
+    """
+    import json as _json
+
+    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    server = GatewayServer(PROD_CONFIG)
+    server.react_loop.router.health_check = AsyncMock(
+        return_value={"ollama": False, "anthropic": False}
+    )
+    server._security_backend = "noop"
+
+    status, body = await _get(server, "/ready")
+    assert status == 503
+
+    rendered = _json.dumps(body)
+    for forbidden in ("noop", "morpheus_security", "ollama", "anthropic",
+                      "production", "backend", "probed", "reachable", "checks"):
+        assert forbidden not in rendered, (
+            f"/ready disclosed {forbidden!r} in {rendered}"
+        )
+    assert set(body) == {"ready", "ref"}, f"unexpected keys: {sorted(body)}"
+
+
+async def test_ready_failure_still_gives_the_operator_a_handle():
+    """Redaction that destroys the operator's ability to debug is not a win —
+    the same correction RUN-5 needed when its ref was a placeholder."""
+    server = GatewayServer(SWEEP_CONFIG)
+    server.react_loop.router.health_check = AsyncMock(return_value={"ollama": False})
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        resp = await client.get("/ready", headers={"Authorization": "Bearer k"})
+        body = await resp.json()
+        assert resp.status == 503
+        assert body["ref"] == resp.headers.get("X-Request-ID"), (
+            f"ref {body['ref']!r} does not correlate with the log line"
+        )
+
+
+# ── NEW-26: production must not boot with the credential wall down ─────────
+
+def test_production_refuses_to_start_with_authentication_disabled(monkeypatch):
+    """`auth_enabled = bool(api_key)`, and `_auth_middleware` opens with
+    `if not self.auth_enabled: return await handler(request)` — it waves EVERY
+    protected route through. The shipped openmatrix.config.json carries
+    `"api_key": ""`, so an operator who copies the example and starts without
+    OPENMATRIX_API_KEY serves the whole surface anonymously, having chosen
+    nothing. Same fail-open shape as H2, one layer up.
+    """
+    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.delenv("OPENMATRIX_API_KEY", raising=False)
+    config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": ""}}
+
+    # Match text only NEW-26 can produce. `match="Refusing to start"` passed
+    # against pre-fix code because H2's security-backend guard raises first with
+    # the same phrase — the test would have been green without the fix existing.
+    with pytest.raises(RuntimeError, match="no gateway API key is configured"):
+        GatewayServer(config)
+
+
+def test_production_starts_when_a_key_is_configured(monkeypatch):
+    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}}
+    server = GatewayServer(config)
+    assert server.auth_enabled is True
+
+
+def test_development_still_runs_open(monkeypatch):
+    """Anonymous in dev is useful and intended; anonymous in production that
+    nobody selected is the bug. Fail-closed must not become fail-always."""
+    monkeypatch.delenv("OPNMATRX_ENV", raising=False)
+    monkeypatch.delenv("OPENMATRIX_API_KEY", raising=False)
+    config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": ""}}
+    server = GatewayServer(config)
+    assert server.auth_enabled is False
+
+
+def test_the_shipped_example_config_still_has_no_key():
+    """Deliberate non-fix, pinned so nobody 'helpfully' adds one.
+
+    Putting a key in a public example config is its own vulnerability — a
+    published credential — and would trade one hole for another. The example
+    stays empty; production refuses to boot instead.
+    """
+    import json as _json
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    cfg = _json.loads((root / "openmatrix.config.json").read_text())
+    assert not cfg.get("gateway", {}).get("api_key"), (
+        "a credential was committed to the example config"
+    )
+
+
+def test_ready_is_reachable_without_credentials():
+    """A kubelet probe carries no Authorization header.
+
+    Found by RUN-7's own tests once NEW-26 forced a key into the production
+    config: with auth enabled and /ready NOT public, every readiness probe would
+    get 401 and no pod would ever become ready — the fix would have silently
+    broken the deployment it was written to protect. /ready is therefore public,
+    which is exactly why its body must disclose nothing.
+    """
+    server = GatewayServer(PROD_CONFIG)
+    assert server.auth_enabled is True
+    assert "/ready" in server._public_paths, (
+        "/ready sits behind auth; probes cannot authenticate and the pod would "
+        "never become ready"
+    )

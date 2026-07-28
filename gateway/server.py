@@ -298,6 +298,13 @@ class GatewayServer:
         self.auth_enabled = bool(self.api_key)
         # Endpoints that don't require auth
         self._public_paths = {
+            # RUN-7: /ready must be public for the same reason /health is — a
+            # kubelet probe sends no Authorization header, so a /ready behind
+            # auth would 401 every readiness check and NO POD WOULD EVER BECOME
+            # READY once a key is configured. That is precisely why its body
+            # carries no detail (see handle_ready): the endpoint has to be
+            # reachable anonymously, so it must disclose nothing.
+            "/ready",
             "/health", "/auth/nonce", "/auth/verify",
             "/security/phone/request", "/security/phone/verify",
             "/security/appattest/challenge", "/security/appattest/attest",
@@ -371,6 +378,33 @@ class GatewayServer:
                 "morpheus_security is not installed or failed to load, so nothing "
                 "is enforcing. Refusing to start. Install the private security "
                 "package, or unset OPNMATRX_ENV for a non-production run."
+            )
+
+        # NEW-26: production must not BOOT with the credential wall down.
+        #
+        # `auth_enabled = bool(self.api_key)`, and `_auth_middleware` opens with
+        # `if not self.auth_enabled: return await handler(request)` — it waves
+        # EVERY protected route through when no key is configured. The shipped
+        # openmatrix.config.json carries `"api_key": ""`, so an operator who
+        # copies the example and starts the gateway without OPENMATRIX_API_KEY
+        # serves the entire surface anonymously, having chosen nothing.
+        #
+        # This is H2's disease one layer up: a fail-open where nothing refuses
+        # to serve. The fix is the same shape and uses the same
+        # is_production_mode() convention as RUN-7 and H2 rather than inventing
+        # a new one. Anonymous in dev is useful; anonymous in production that
+        # nobody selected is the bug.
+        #
+        # Note the deliberate non-fix: shipping a key in the example config
+        # would be its own vulnerability — a public credential — and would trade
+        # one hole for another. The example stays empty; production refuses.
+        if is_production_mode() and not self.auth_enabled:
+            raise RuntimeError(
+                "OPNMATRX_ENV=production but no gateway API key is configured, so "
+                "authentication is DISABLED and every protected route would serve "
+                "anonymously. Refusing to start. Set OPENMATRIX_API_KEY (or "
+                "gateway.api_key in the config), or unset OPNMATRX_ENV for a "
+                "non-production run."
             )
 
         # Sign in with Apple — JWKS cache for identity-token verification (P1-8).
@@ -631,20 +665,30 @@ class GatewayServer:
           That is a legitimate local/dev state and a NON-STARTER in production,
           so it is only fatal when ``OPNMATRX_ENV=production``.
 
-        The body always lists each check and its result, so an operator reading
-        a 503 can tell immediately which one tripped.
+        THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
+        endpoint returned each check with its values — `"backend": "noop"`,
+        the full model-provider inventory, whether the instance considers
+        itself production. A review of that first version
+        caught it: a readiness probe that announces `backend: "noop"` is telling
+        any caller that NOTHING IS ENFORCING, which is a targeting signal, not a
+        health signal. Combined with NEW-26 (auth disabled whenever no key is
+        set) that caller need not be authenticated at all.
+
+        So `/ready` answers the question it exists to answer — ready or not —
+        and nothing else. The reason a probe failed is logged server-side
+        against the correlation id, exactly as RUN-5 relocates error detail:
+        the information is not destroyed, it moves to where only the operator
+        can reach it.
         """
         from runtime.config.validation import is_production_mode
+        from runtime.logging.json_formatter import get_request_id
 
-        checks: dict[str, Any] = {}
+        failed: list[str] = []
 
         model_health = await self.react_loop.router.health_check()
         providers_up = [name for name, ok in model_health.items() if ok]
-        checks["model_providers"] = {
-            "ok": bool(providers_up),
-            "reachable": providers_up,
-            "probed": sorted(model_health),
-        }
+        if not providers_up:
+            failed.append("model_providers")
 
         backend = getattr(self, "_security_backend", None)
         if backend is None:
@@ -652,19 +696,25 @@ class GatewayServer:
                 from runtime.security import SECURITY_BACKEND
 
                 backend = SECURITY_BACKEND
-            except Exception:  # the import failing IS the noop condition
+            except (ImportError, ModuleNotFoundError):
                 backend = "noop"
         production = is_production_mode()
-        security_ok = not (production and backend == "noop")
-        checks["security_backend"] = {
-            "ok": security_ok,
-            "backend": backend,
-            "production": production,
-        }
+        if production and backend == "noop":
+            failed.append("security_backend")
 
-        ready = all(c["ok"] for c in checks.values())
+        ready = not failed
+        ref = get_request_id() or "-"
+        if not ready:
+            # Full detail, server-side only, correlated by the same ref the
+            # client can quote.
+            logger.error(
+                "Readiness FAILED [ref=%s] checks=%s | providers_reachable=%s "
+                "probed=%s | security_backend=%s production=%s",
+                ref, failed, providers_up, sorted(model_health), backend, production,
+            )
+
         return web.json_response(
-            {"status": "ready" if ready else "not_ready", "checks": checks},
+            {"ready": ready, "ref": ref},
             status=200 if ready else 503,
         )
 
