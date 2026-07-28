@@ -647,7 +647,57 @@ class ServiceRoutes:
                 content_type="application/json",
             )
 
+    # RUN-4: inner status -> HTTP status. Only the two values that mean "the
+    # operation did not happen" are failures.
+    #
+    # Deliberately NOT in this set: submitted, active, pending, completed,
+    # verified, registered, updated, rejected, failed. Those are legitimate
+    # DOMAIN outcomes the caller asked about — a rejected claim or a failed
+    # transaction is a real answer, not a transport error. Treating them as
+    # HTTP failures would break working flows and is the opposite mistake to
+    # the one RUN-4 fixes.
+    _FAILURE_STATUSES = frozenset({"error", "unavailable"})
+
+    # When the service says WHY, honour it; otherwise 422 — the request was
+    # well-formed but the operation could not be completed.
+    _ERROR_CATEGORY_HTTP = {
+        "validation": 400,
+        "bad_request": 400,
+        "not_found": 404,
+        "forbidden": 403,
+        "not_implemented": 501,
+        "service_unavailable": 503,
+        "service_error": 502,
+        "timeout": 504,
+    }
+
     def _ok(self, data: Any) -> web.Response:
+        """Wrap a service result — but never dress a failure as a success.
+
+        RUN-4: this used to return HTTP 200 with {"status":"ok","data":...}
+        unconditionally, including when `data` itself said
+        {"status":"error"}. The transport claimed success while the payload
+        reported failure, and every SDK believes the transport: the Python
+        client checks only `resp.status != 200`, the Swift client decodes the
+        outer envelope and discards its status, and 9 sdk-js methods check
+        nothing at all. A caller therefore received an error dictionary and
+        proceeded as though the call had worked — which on the iOS side meant
+        a failed transfer closed the send sheet and cleared the form (NEW-21).
+
+        A failing payload now gets a real HTTP status so the failure is
+        impossible to miss, and the body keeps the service's own detail so
+        callers lose nothing they had before.
+        """
+        status = data.get("status") if isinstance(data, dict) else None
+        if isinstance(status, str) and status in self._FAILURE_STATUSES:
+            category = data.get("error_category")
+            if status == "unavailable":
+                http_status = 503
+            else:
+                http_status = self._ERROR_CATEGORY_HTTP.get(category, 422)
+            return web.json_response(
+                {"status": status, "data": data}, status=http_status
+            )
         return web.json_response({"status": "ok", "data": data})
 
     async def _call(self, service_name: str, method_name: str, **kwargs) -> Any:
