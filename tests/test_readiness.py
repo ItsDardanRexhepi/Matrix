@@ -38,6 +38,21 @@ from test_route_sweep import SWEEP_CONFIG  # noqa: E402
 PROD_CONFIG = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "test-key"}}
 
 
+def _with_live_security(monkeypatch):
+    """Force SECURITY_BACKEND to the real value for construction.
+
+    Without this, these tests are green ONLY when the private
+    `morpheus_security` package happens to be importable. In a checkout without
+    it — the documented normal state for dev and CI — H2's production guard
+    fires during `GatewayServer.__init__` and the test never reaches the thing
+    it means to exercise. That made the tests depend on an ambient condition
+    they do not control, which is the same class of defect this engagement is
+    about: a result that reflects the environment rather than the code.
+    """
+    monkeypatch.setattr("runtime.security.SECURITY_BACKEND", "morpheus_security",
+                        raising=False)
+
+
 async def _get(server: GatewayServer, path: str):
     async with TestClient(TestServer(server.create_app())) as client:
         resp = await client.get(path, headers={"Authorization": "Bearer k"})
@@ -89,6 +104,7 @@ async def test_ready_is_503_when_security_backend_is_noop_in_production(monkeypa
     fatal only under OPNMATRX_ENV=production.
     """
     monkeypatch.setenv("OPNMATRX_ENV", "production")
+    _with_live_security(monkeypatch)
     server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
     server._security_backend = "noop"
@@ -114,6 +130,7 @@ async def test_noop_security_is_not_fatal_outside_production(monkeypatch):
 
 async def test_real_security_backend_is_ready_in_production(monkeypatch):
     monkeypatch.setenv("OPNMATRX_ENV", "production")
+    _with_live_security(monkeypatch)
     server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
     server._security_backend = "morpheus_security"
@@ -213,6 +230,7 @@ async def test_ready_body_carries_no_operator_detail(monkeypatch):
     import json as _json
 
     monkeypatch.setenv("OPNMATRX_ENV", "production")
+    _with_live_security(monkeypatch)
     server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(
         return_value={"ollama": False, "anthropic": False}
@@ -258,6 +276,9 @@ def test_production_refuses_to_start_with_authentication_disabled(monkeypatch):
     """
     monkeypatch.setenv("OPNMATRX_ENV", "production")
     monkeypatch.delenv("OPENMATRIX_API_KEY", raising=False)
+    # Isolate NEW-26 from H2: with a noop backend, H2's guard would raise first
+    # and this test would pass for the wrong reason.
+    _with_live_security(monkeypatch)
     config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": ""}}
 
     # Match text only NEW-26 can produce. `match="Refusing to start"` passed
@@ -269,6 +290,7 @@ def test_production_refuses_to_start_with_authentication_disabled(monkeypatch):
 
 def test_production_starts_when_a_key_is_configured(monkeypatch):
     monkeypatch.setenv("OPNMATRX_ENV", "production")
+    _with_live_security(monkeypatch)
     config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}}
     server = GatewayServer(config)
     assert server.auth_enabled is True
