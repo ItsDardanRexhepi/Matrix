@@ -284,7 +284,6 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("query_remote_chain",      "Query Remote Chain",      "bridging", "ccip",         "query_remote_chain",      state_modifying=False, uses_paymaster=False, available=False),
 
     # ── Privacy & ZK ───────────────────────────────────────────────────────
-    _cap("private_transfer",        "Private Transfer",        "privacy", "privacy", "private_transfer"),
     _cap("zk_proof_generate",       "Generate ZK Proof",       "privacy", "privacy", "zk_proof_generate"),
     _cap("private_vote",            "Private Vote",            "privacy", "privacy", "private_vote"),
     _cap("confidential_compute",    "Confidential Compute",    "privacy", "privacy", "confidential_compute"),

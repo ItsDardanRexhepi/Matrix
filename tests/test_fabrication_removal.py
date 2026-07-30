@@ -28,7 +28,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Actions confirmed as fabrications and removed rather than repaired.
-REMOVED_FABRICATIONS = ["stealth_address"]
+REMOVED_FABRICATIONS = ["stealth_address", "private_transfer"]
 
 
 @pytest.mark.parametrize("action", REMOVED_FABRICATIONS)
@@ -238,3 +238,89 @@ class TestCredentialSubsystemWasTheater:
             did="did:key:holder", credential_id="vc_nonexistent", fields=["age"],
         )
         assert result.get("status") == "error", f"unknown credential accepted: {result}"
+
+
+# ── NEW-36: private_transfer was a receipt printer, and it was LIVE ────────
+
+class TestPrivateTransferWasAReceiptPrinter:
+    """A method named `transfer` that transferred nothing, reachable over HTTP.
+
+    It took sender/recipient/amount/token, minted a uuid, hardcoded
+    `"status": "completed"` and `"shielded": True`, and returned — no
+    `transferFrom`, no pool, no balance mutation, no chain call. It filed the
+    record into `_deletion_requests`, the GDPR store, so the fake was orphaned
+    too.
+
+    SEVERITY IS FALSE SETTLEMENT, NOT FUNDS LOSS. It never took custody, so
+    nothing was swallowed and nothing destroyed — the money stayed in the
+    caller's wallet. What it produced was a completed-transfer confirmation for
+    a transfer that never happened, which is how goods get released against a
+    fake "paid".
+
+    AND IT WAS LIVE VIA HTTP while inert via `platform_action`: the tool
+    declaration mismatched, but `POST /api/v1/privacy/transfer` bound exactly the
+    four parameters the method accepted. Live-vs-inert is per-surface.
+    """
+
+    def test_the_method_is_gone(self):
+        from runtime.blockchain.services.privacy.service import PrivacyService
+
+        assert not hasattr(PrivacyService, "private_transfer"), (
+            "the receipt printer is still callable"
+        )
+
+    def test_the_http_route_is_gone(self):
+        """The surface that made it live. An action-level removal that left the
+        route would have changed nothing for a caller using HTTP."""
+        import sys
+
+        sys.path.insert(0, "tests")
+        from test_route_sweep import SWEEP_CONFIG
+
+        from gateway.server import GatewayServer
+
+        app = GatewayServer(SWEEP_CONFIG).create_app()
+        paths = {getattr(r, "canonical", "") for r in app.router.resources()}
+        assert "/api/v1/privacy/transfer" not in paths
+
+    def test_the_security_layer_no_longer_reviews_a_fabrication(self):
+        """A Morpheus trigger escalated private transfers over $1000 for review.
+        The security layer was doing diligence on an operation that did not
+        exist; the trigger goes with the action."""
+        from runtime.protocols.morpheus_triggers import (
+            _ACTION_CATEGORY_MAP, _IRREVERSIBLE_ACTIONS)
+
+        src = (ROOT / "runtime" / "protocols" / "morpheus_triggers.py").read_text()
+        assert 'action_type == "private_transfer"' not in src, "the branch remains"
+        # Asserted on the REAL symbols. An earlier draft used
+        # getattr(mt, "SIGNIFICANT_ACTIONS", ()) — which defaults to empty and
+        # would have passed even if the name were wrong. Same vacuous shape this
+        # file exists to catch.
+        assert "private_transfer" not in _IRREVERSIBLE_ACTIONS
+        assert "private_transfer" not in _ACTION_CATEGORY_MAP
+
+    async def test_no_completed_shielded_receipt_can_be_obtained(self):
+        """The load-bearing assertion: whatever a caller now gets, it is not a
+        confirmation that a private transfer completed."""
+        import json
+        import sys
+
+        sys.path.insert(0, "tests")
+        from test_route_sweep import SWEEP_CONFIG
+
+        from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+
+        raw = await ServiceDispatcher(SWEEP_CONFIG).execute(
+            action="private_transfer",
+            params={"sender": "0xa", "recipient": "0xb", "amount": 5000, "token": "USDC"},
+        )
+        body = json.loads(raw) if isinstance(raw, str) else raw
+        rendered = json.dumps(body)
+
+        assert body.get("status") != "ok", f"the fabrication still answers: {body}"
+        assert '"shielded": true' not in rendered.lower(), (
+            f"a shielding claim was returned: {rendered}"
+        )
+        assert '"completed"' not in rendered, (
+            f"a completed-transfer confirmation was returned: {rendered}"
+        )

@@ -49,7 +49,7 @@ _IRREVERSIBLE_ACTIONS: set[str] = {
     "deploy_contract", "burn_nft", "transfer_ownership", "self_destruct",
     "upgrade_proxy", "set_implementation", "renounce_ownership",
     "burn_tokens", "delete_account",
-    "flash_loan", "leverage_position", "perp_trade", "private_transfer",
+    "flash_loan", "leverage_position", "perp_trade",
     "carbon_credit_retire", "soulbound_mint", "agreement_execute",
 }
 
@@ -132,7 +132,6 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "cross_border_remit": "streaming_payment",
     "invoice_factor": "streaming_payment",
     # Privacy
-    "private_transfer": "privacy",
     "zk_proof_generate": "privacy",
     "private_vote": "privacy",
     "confidential_compute": "privacy",
@@ -261,11 +260,8 @@ class MorpheusTriggerSystem:
             if amount > 5000 or "bridge" not in self._seen_categories:
                 return await self._trigger("significant_event", action, user_context, "bridge")
 
-        # 8. Private transfer > $1000
-        if action_type == "private_transfer":
-            amount = action.get("params", {}).get("amount", 0)
-            if amount > 1000 or "privacy" not in self._seen_categories:
-                return await self._trigger("significant_event", action, user_context, "privacy")
+        # 8. Private transfer > $1000 — REMOVED with the action (NEW-36). The
+        #    security layer was escalating a fabricated operation for review.
 
         # 9. RWA purchase — always (regulatory)
         if action_type in ("rwa_tokenize", "rwa_fractional_buy"):

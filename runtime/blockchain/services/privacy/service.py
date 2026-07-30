@@ -281,24 +281,38 @@ class PrivacyService:
     # Expanded privacy operations
     # ------------------------------------------------------------------
 
-    async def private_transfer(
-        self, sender: str, recipient: str, amount: float, token: str = "USDC",
-    ) -> dict:
-        """Execute a privacy-preserving token transfer."""
-        tx_id = f"ptx_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": tx_id,
-            "status": "completed",
-            "sender": sender,
-            "recipient": recipient,
-            "amount": amount,
-            "token": token,
-            "shielded": True,
-            "completed_at": time.time(),
-        }
-        self._deletion_requests[f"_ptx_{tx_id}"] = record
-        logger.info("Private transfer: id=%s", tx_id)
-        return record
+    # REMOVED — `private_transfer` (NEW-36). It was a RECEIPT PRINTER, not a
+    # transfer.
+    #
+    # It took sender/recipient/amount/token, minted a uuid, hardcoded
+    # `"status": "completed"` and `"shielded": True`, and returned. No
+    # `transferFrom`, no pool, no balance mutation, no chain call. It also filed
+    # its record into `self._deletion_requests` — the GDPR deletion-tracking
+    # dict — so the fake record was orphaned in an unrelated store.
+    #
+    # THE SEVERITY IS FALSE SETTLEMENT, NOT FUNDS LOSS, and the distinction is
+    # the whole reason for reading the body. It never took custody either: no
+    # tokens were pulled in, so nothing was swallowed and nothing destroyed.
+    # The money stayed in the caller's wallet. What was produced was a
+    # completed-transfer confirmation for a transfer that never happened — the
+    # downstream harm is goods released against a fake "paid", debts believed
+    # cleared, a recipient who thinks they were paid and was not.
+    #
+    # Contrast `stealth_address`, removed earlier in this phase: that one
+    # generated unspendable addresses, so funds sent there were destroyed. Both
+    # are fabrications; they are different severity classes, and the method name
+    # ("transfer") told you neither.
+    #
+    # AND IT WAS LIVE. Its `platform_action` declaration mismatched
+    # (asset/memo/privacy_level vs sender/recipient/amount/token) so that surface
+    # errored out — but `POST /api/v1/privacy/transfer` bound exactly the four
+    # parameters the method accepts. Live-vs-inert is PER SURFACE: a route
+    # supplies its own binding, so an action inert via the tool can be live via
+    # HTTP.
+    #
+    # Removed across every surface, including the Morpheus trigger that was
+    # escalating transfers over $1000 for security review — the security layer
+    # was reviewing a fabrication.
 
     # REMOVED — `generate_stealth_address`.
     #

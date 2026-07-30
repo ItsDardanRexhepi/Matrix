@@ -3342,29 +3342,6 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # Privacy
     # ===================================================================
 
-    "private_transfer": {
-        "action_name": "private_transfer",
-        "description": "Send a private transfer hidden by zero-knowledge cryptography.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient address or shielded address.", "example": "0xrecipient..."},
-            {"name": "amount", "type": "number", "description": "Amount to send.", "example": 100.0},
-            {"name": "asset", "type": "string", "description": "Token to send.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "privacy_level", "type": "string", "description": "Level of privacy (standard, maximum).", "default": "standard"},
-            {"name": "memo", "type": "string", "description": "Encrypted memo visible only to the recipient.", "default": None},
-        ],
-        "keywords": ["private transfer", "anonymous send", "zk transfer", "hidden transfer", "confidential send", "private payment"],
-        "follow_up": "Who are you sending to, how much, and in which token?",
-        "example_conversation": (
-            "User: I want to send funds privately\n"
-            "Trinity: Understood — I'll use zero-knowledge cryptography so the transfer details stay hidden. Who's the recipient, how much, and which token?\n"
-            "User: 500 USDC to 0xrecipient\n"
-            "Trinity: Sending 500 USDC to 0xrecipient via a private ZK transfer. The amount and recipient are shielded from public view.\n"
-            "Trinity: [calls platform_action with action='private_transfer', params={recipient: '0xrecipient', amount: 500.0, asset: 'USDC'}]"
-        ),
-    },
-
     "zk_proof_generate": {
         "action_name": "zk_proof_generate",
         "description": "Generate a zero-knowledge proof for verification without revealing data.",

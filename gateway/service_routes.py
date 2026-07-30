@@ -381,7 +381,6 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/insurance/claim/settle", self._handle_claim_settle)
 
         # ── Privacy ──────────────────────────────────────────────────
-        app.router.add_post("/api/v1/privacy/transfer", self._handle_private_transfer)
 
         # ── Capability Registry (data-driven Web3 capability surface) ──
         app.router.add_get("/api/v1/capabilities",                    self._handle_capabilities_list)
@@ -556,7 +555,6 @@ class ServiceRoutes:
             ("POST", "/api/v1/supply-chain/custody/transfer", self._handle_custody_transfer),
             ("POST", "/api/v1/insurance/parametric/create", self._handle_parametric_policy),
             ("POST", "/api/v1/insurance/claim/settle", self._handle_claim_settle),
-            ("POST", "/api/v1/privacy/transfer", self._handle_private_transfer),
             ("POST", "/api/v1/realestate/properties", self._handle_re_property_create),
             ("GET",  "/api/v1/realestate/properties", self._handle_re_property_list),
             ("GET",  "/api/v1/realestate/properties/{id}", self._handle_re_property_get),
@@ -2751,18 +2749,6 @@ class ServiceRoutes:
         return self._ok(result)
 
     # -- Privacy Expanded --
-
-    async def _handle_private_transfer(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "sender", "recipient", "amount", "token")
-        result = await self._call(
-            "privacy", "private_transfer",
-            sender=body["sender"],
-            recipient=body["recipient"],
-            amount=float(body["amount"]),
-            token=body["token"],
-        )
-        return self._ok(result)
 
     # ------------------------------------------------------------------
     # Capability Registry (data-driven Web3 capability surface)
