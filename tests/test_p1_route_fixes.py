@@ -34,56 +34,64 @@ async def client():
         yield c
 
 
-# ── (a) compute/storage routes reach the real privacy service ──────────
+# ── (a) compute/storage routes reach the REAL external clients ─────────
+#
+# NEW-48: these four tests used to assert on the fabrications' output —
+# record["status"] == "stored"/"pinned", record["cid"], record["arweave_tx"].
+# They were green because the fake was reliable, which is the worst reason for
+# a test to pass: it pinned the lie in place, and any honest fix would have
+# looked like a regression.
+#
+# Rewritten to assert the honest post-delegation behaviour. The storage legs
+# now reach DecentralizedStorageService, which is credential-gated; with no key
+# configured it names the exact missing config key. That string is producible
+# ONLY by the real client, so it is positive proof control reached it.
 
-async def test_decentralized_store_reaches_privacy_service(client):
+async def test_decentralized_store_reaches_the_real_storage_client(client):
     resp = await client.post(
         "/api/v1/compute/store",
-        json={"owner": "0xabc", "data": "0xdeadbeef", "storage_type": "ipfs"},
+        json={"owner": "0xabc", "data": "0xdeadbeef", "storage_type": "ipfs",
+              "content": "hello"},
     )
-    assert resp.status == 200, await resp.text()
     body = await resp.json()
-    record = body["data"]
-    assert record["status"] == "stored"
-    assert record["uploader"] == "0xabc"
-    assert record["data_hash"] == "0xdeadbeef"
-    assert record["storage_provider"] == "ipfs"
-    assert record["cid"]  # real synthetic content id, not fabricated success
+    blob = json.dumps(body)
+    assert "bafy" not in blob, f"fabricated CID still returned: {blob[:200]}"
+    assert "filecoin_api_key" in blob or "not_deployed" in blob, (
+        f"no evidence the real storage client ran: {blob[:300]}"
+    )
 
 
-async def test_ipfs_pin_reaches_privacy_service(client):
+async def test_ipfs_pin_reaches_the_real_storage_client(client):
     resp = await client.post(
         "/api/v1/compute/ipfs/pin",
-        json={"cid": "0xhash", "name": "my-pin", "owner": "0xabc"},
+        json={"cid": "0xhash", "name": "my-pin", "owner": "0xabc", "content": "hello"},
     )
-    assert resp.status == 200, await resp.text()
-    record = (await resp.json())["data"]
-    assert record["status"] == "pinned"
-    assert record["data_hash"] == "0xhash"
-    assert record["pin_name"] == "my-pin"
-    assert record["uploader"] == "0xabc"
+    body = await resp.json()
+    blob = json.dumps(body)
+    assert '"cid": "Qm' not in blob, f"fabricated CID still returned: {blob[:200]}"
+    assert "filecoin_api_key" in blob or "not_deployed" in blob
 
 
 async def test_ipfs_pin_owner_is_optional(client):
-    # The route only requires ``cid``; a missing owner maps to an empty
-    # uploader rather than raising, so the leg never 500s on a valid pin.
+    """The route still only REQUIRES ``cid`` — a missing owner must not 500.
+
+    This half of the original test was about route robustness, not about the
+    fabrication, so it survives. It no longer asserts uploader == "" (a field
+    of the fake); it asserts the leg does not blow up.
+    """
     resp = await client.post("/api/v1/compute/ipfs/pin", json={"cid": "0xhash"})
-    assert resp.status == 200, await resp.text()
-    assert (await resp.json())["data"]["uploader"] == ""
+    assert resp.status != 500, await resp.text()
 
 
-async def test_arweave_store_reaches_privacy_service(client):
+async def test_arweave_store_is_honestly_unavailable(client):
+    """Was: asserted record["arweave_tx"] — a random string for data never
+    uploaded. No Arweave client exists on the platform (NEW-48)."""
     resp = await client.post(
         "/api/v1/compute/arweave/store",
         json={"owner": "0xabc", "data": "0xpayload", "content_type": "image/png"},
     )
-    assert resp.status == 200, await resp.text()
-    record = (await resp.json())["data"]
-    assert record["status"] == "stored"
-    assert record["uploader"] == "0xabc"
-    assert record["data_hash"] == "0xpayload"
-    assert record["content_type"] == "image/png"
-    assert record["arweave_tx"]
+    assert resp.status == 501, await resp.text()
+    assert "arweave_tx" not in json.dumps(await resp.json())
 
 
 # ── (b) oracle price route: never a 500 for a non-eth-usd pair ──────────

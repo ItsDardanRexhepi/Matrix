@@ -282,8 +282,6 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "payroll_run": ("x402_payments", "run_payroll"),
     # ── Privacy ──────────────────────────────────────────────────
     "zk_proof_generate": ("privacy", "generate_zk_proof"),
-    "private_vote": ("privacy", "private_vote"),
-    "confidential_compute": ("privacy", "confidential_compute"),
     # ── Social Expanded ──────────────────────────────────────────
     "social_post": ("social", "publish_post"),
     "social_follow": ("social", "follow_wallet"),
@@ -312,10 +310,12 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "cover_renew": ("insurance", "renew_coverage"),
     "risk_assess": ("insurance", "assess_risk"),
     # ── Compute and Storage ──────────────────────────────────────
+    # NEW-48: private_vote / confidential_compute / arweave_store REMOVED —
+    # their methods are gone (no twin to delegate to; see privacy/service.py).
+    # The three below are KEPT and now delegate to real external clients.
     "decentralized_store": ("privacy", "decentralized_store"),
     "compute_job_submit": ("privacy", "submit_compute_job"),
     "ipfs_pin": ("privacy", "pin_to_ipfs"),
-    "arweave_store": ("privacy", "store_on_arweave"),
     # ── AI Capabilities ──────────────────────────────────────────
     "ai_agent_register": ("agent_identity", "register_agent"),
     "ai_model_trade": ("agent_identity", "trade_model_access"),
@@ -380,14 +380,14 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "rwa_tokenize", "rwa_fractional_buy", "rwa_income_claim",
     "stream_payment", "recurring_create", "escrow_milestone", "payment_split",
     "cross_border_remit", "invoice_factor", "payroll_run",
-    "zk_proof_generate", "private_vote",
-    "confidential_compute", "social_post", "social_gate", "creator_monetize",
+    "zk_proof_generate",  # NEW-48: private_vote + confidential_compute removed
+    "social_post", "social_gate", "creator_monetize",
     "community_create", "message_encrypt",
     "game_asset_mint", "tournament_enter", "game_item_trade", "achievement_attest",
     "market_create", "market_bet", "market_resolve",
     "provenance_log", "batch_track", "custody_transfer",
     "parametric_policy", "claim_auto_settle", "cover_renew",
-    "decentralized_store", "compute_job_submit", "ipfs_pin", "arweave_store",
+    "decentralized_store", "compute_job_submit", "ipfs_pin",  # NEW-48: arweave_store removed
     "ai_agent_register", "ai_model_trade", "training_data_sell",
     "carbon_credit_buy", "carbon_credit_retire", "renewable_cert_buy", "green_bond_invest",
     "ip_license_grant", "agreement_execute", "dispute_file", "arbitration_request",
@@ -445,7 +445,6 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "register_agent": "ai_agent_registered",
     "decentralized_store": "file_stored",
     "ipfs_pin": "ipfs_content_pinned",
-    "arweave_store": "arweave_content_stored",
     "game_asset_mint": "game_asset_minted",
     # NEW-10: `mint_game_asset` routes to the SAME service method as
     # `game_asset_mint` but published nothing, so whether this state change

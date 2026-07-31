@@ -2156,6 +2156,14 @@ class ServiceRoutes:
     # -- Compute & Storage --
 
     async def _handle_decentralized_store(self, request: web.Request) -> web.Response:
+        """POST /api/v1/compute/store — now reaches the real Filecoin client.
+
+        NEW-48: `content` is forwarded. The service method delegates to
+        `storage.store_filecoin`, which uploads BYTES; forwarding only
+        `data_hash` (as this handler used to) would make the delegation
+        permanently unsatisfiable from HTTP — a route wired to a real client it
+        can never feed is half a fix.
+        """
         body = await self._parse_body(request)
         self._require(body, "owner", "data", "storage_type")
         result = await self._call(
@@ -2163,10 +2171,13 @@ class ServiceRoutes:
             uploader=body["owner"],
             data_hash=body["data"],
             storage_provider=body["storage_type"],
+            content=body.get("content"),
+            filename=body.get("filename", "upload.bin"),
         )
         return self._ok(result)
 
     async def _handle_ipfs_pin(self, request: web.Request) -> web.Response:
+        """POST /api/v1/compute/ipfs/pin — now reaches the real pinning client."""
         body = await self._parse_body(request)
         self._require(body, "cid")
         result = await self._call(
@@ -2174,19 +2185,39 @@ class ServiceRoutes:
             uploader=body.get("owner", ""),
             data_hash=body["cid"],
             pin_name=body.get("name", ""),
+            content=body.get("content"),
         )
         return self._ok(result)
 
     async def _handle_arweave_store(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner", "data")
-        result = await self._call(
-            "privacy", "store_on_arweave",
-            uploader=body["owner"],
-            data_hash=body["data"],
-            content_type=body.get("content_type", "application/octet-stream"),
+        """POST /api/v1/compute/arweave/store — 501, uploads nothing (NEW-48).
+
+        The backing method minted `arweave_tx = f"ar_{uuid4().hex}"` for data
+        it never uploaded. No real Arweave blob-storage client exists anywhere
+        in the platform — `creator_platforms.publish_mirror_post` writes to
+        Arweave but publishes a titled Mirror ENTRY, which is a different act
+        with different visibility, so it is not a valid delegation target.
+
+        The route is kept and answers honestly rather than 404-ing, so a
+        caller learns the capability is absent instead of guessing the URL.
+        """
+        return web.json_response(
+            {
+                "status": "error",
+                "data": {
+                    "status": "error",
+                    "error_category": "not_implemented",
+                    "error": "arweave_storage_not_implemented",
+                    "message": (
+                        "Arweave storage is not available. The platform has no "
+                        "Arweave upload client; the previous implementation "
+                        "returned a random string as a transaction id for data "
+                        "it never uploaded. Nothing was stored by this call."
+                    ),
+                },
+            },
+            status=501,
         )
-        return self._ok(result)
 
     # ------------------------------------------------------------------
     # P2 — Route completion

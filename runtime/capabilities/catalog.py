@@ -285,8 +285,6 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Privacy & ZK ───────────────────────────────────────────────────────
     _cap("zk_proof_generate",       "Generate ZK Proof",       "privacy", "privacy", "zk_proof_generate"),
-    _cap("private_vote",            "Private Vote",            "privacy", "privacy", "private_vote"),
-    _cap("confidential_compute",    "Confidential Compute",    "privacy", "privacy", "confidential_compute"),
     _cap("mpc_sign",                "MPC Sign",                "privacy", "mpc", "mpc_sign",           subcategory="mpc", available=False),
     _cap("recover_wallet",          "Social Recovery",         "privacy", "mpc", "recover_wallet",     subcategory="recovery", available=False),
     _cap("create_session_key",      "Create Session Key",      "privacy", "mpc", "create_session_key", subcategory="session_keys", available=False),
@@ -310,7 +308,6 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Storage ────────────────────────────────────────────────────────────
     _cap("ipfs_pin",                "Pin to IPFS",             "storage", "privacy", "ipfs_pin"),
-    _cap("arweave_store",           "Store on Arweave",        "storage", "privacy", "arweave_store"),
     _cap("store_filecoin",          "Store on Filecoin",       "storage", "storage", "store_filecoin",   protocol="filecoin", available=False),
     _cap("ceramic_stream_create",   "Create Ceramic Stream",   "storage", "storage", "ceramic_stream_create", protocol="ceramic", available=False),
     _cap("orbit_db_write",          "Write to OrbitDB",        "storage", "storage", "orbit_db_write",   protocol="orbitdb", available=False),

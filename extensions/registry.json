@@ -371,7 +371,7 @@
     {
       "id": "privacy",
       "name": "Privacy & ZK",
-      "description": "7 capabilities in the Privacy & ZK category",
+      "description": "5 capabilities in the Privacy & ZK category",
       "category": "privacy",
       "min_tier": "free",
       "limits": {
@@ -382,17 +382,15 @@
         }
       },
       "gateway_actions": [
-        "confidential_compute",
         "create_session_key",
         "mpc_sign",
-        "private_vote",
         "recover_wallet",
         "request_deletion",
         "zk_proof_generate"
       ],
       "icon": "lock.shield",
       "available": true,
-      "capability_count": 7
+      "capability_count": 5
     },
     {
       "id": "oracles",
@@ -423,7 +421,7 @@
     {
       "id": "storage",
       "name": "Storage",
-      "description": "6 capabilities in the Storage category",
+      "description": "5 capabilities in the Storage category",
       "category": "storage",
       "min_tier": "free",
       "limits": {
@@ -434,7 +432,6 @@
         }
       },
       "gateway_actions": [
-        "arweave_store",
         "ceramic_stream_create",
         "decentralized_store",
         "ipfs_pin",
@@ -443,7 +440,7 @@
       ],
       "icon": "externaldrive",
       "available": true,
-      "capability_count": 6
+      "capability_count": 5
     },
     {
       "id": "compute",

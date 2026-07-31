@@ -3388,45 +3388,24 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "private_vote": {
-        "action_name": "private_vote",
-        "description": "Cast a private on-chain vote where your choice is hidden but verifiable.",
-        "required_params": [
-            {"name": "proposal_id", "type": "string", "description": "The proposal to vote on.", "example": "prop_xyz"},
-            {"name": "choice", "type": "integer", "description": "Your choice (option number).", "example": 1},
-        ],
-        "optional_params": [
-            {"name": "weight", "type": "number", "description": "Voting weight to apply.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-48). It discarded the vote `choice` entirely, set `choice_hash` to a random value that was not a commitment to anything, never persisted the vote, and never touched any tally. A user who 'voted privately' had not voted."
+        ),
         "keywords": ["private vote", "anonymous vote", "secret ballot", "hidden vote"],
-        "follow_up": "Which proposal do you want to vote on, and which option?",
-        "example_conversation": (
-            "User: I want to vote on a proposal but keep my choice private\n"
-            "Trinity: No problem — I'll cast a private vote using cryptographic commitments. Nobody can see your choice until voting ends. Which proposal and which option?\n"
-            "User: Proposal prop_xyz, option 1\n"
-            "Trinity: Casting a private vote for option 1 on proposal prop_xyz. Your vote is committed on-chain but your choice stays encrypted until the reveal phase.\n"
-            "Trinity: [calls platform_action with action='private_vote', params={proposal_id: 'prop_xyz', choice: 1}]"
+        "follow_up": (
+            "I can't cast a private vote — 0pnMatrx has no private-ballot implementation, and the previous one recorded nothing. Use the ordinary governance vote, which is real."
         ),
     },
 
     "confidential_compute": {
-        "action_name": "confidential_compute",
-        "description": "Execute computation on encrypted data without revealing the data.",
-        "required_params": [
-            {"name": "computation", "type": "string", "description": "The computation to run (e.g. 'sum', 'average', custom function).", "example": "average_salary"},
-            {"name": "encrypted_inputs", "type": "object", "description": "Encrypted data inputs for the computation.", "example": {"dataset_ref": "enc_data_001"}},
-        ],
-        "optional_params": [
-            {"name": "output_format", "type": "string", "description": "Format for the result (encrypted, plaintext, proof).", "default": "plaintext"},
-            {"name": "compute_network", "type": "string", "description": "Which confidential compute network to use.", "default": "auto"},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-48). It returned status 'completed' and a random result hash without performing, scheduling, or dispatching any computation."
+        ),
         "keywords": ["confidential compute", "private computation", "encrypted execution", "secure compute"],
-        "follow_up": "What computation do you want to run, and on which encrypted data?",
-        "example_conversation": (
-            "User: I need to compute an average across sensitive data without exposing it\n"
-            "Trinity: Confidential compute is built for exactly this. What computation are you running, and where is the encrypted data stored?\n"
-            "User: Average salary computation on dataset enc_data_001\n"
-            "Trinity: Running the average salary computation on encrypted dataset enc_data_001. The data stays encrypted throughout — only the result is revealed.\n"
-            "Trinity: [calls platform_action with action='confidential_compute', params={computation: 'average_salary', encrypted_inputs: {dataset_ref: 'enc_data_001'}}]"
+        "follow_up": (
+            "I can't run confidential compute — there's no TEE/MPC/FHE implementation on the platform. Ordinary (non-confidential) compute jobs do reach a real provider."
         ),
     },
 
@@ -3994,23 +3973,13 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "arweave_store": {
-        "action_name": "arweave_store",
-        "description": "Store data permanently on Arweave — pay once, stored forever.",
-        "required_params": [
-            {"name": "data", "type": "string", "description": "Data or file reference to store permanently.", "example": "Important document content..."},
-        ],
-        "optional_params": [
-            {"name": "tags", "type": "object", "description": "Key-value tags to associate with the data.", "default": {}},
-            {"name": "content_type", "type": "string", "description": "MIME type of the content.", "default": "text/plain"},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-48). It returned a random string as an Arweave transaction id for data it never uploaded. No Arweave upload client exists on the platform."
+        ),
         "keywords": ["arweave", "permanent storage", "store forever", "arweave upload"],
-        "follow_up": "What data do you want to store permanently on Arweave?",
-        "example_conversation": (
-            "User: I want to store a document permanently\n"
-            "Trinity: Arweave is perfect for that — you pay once and it's stored forever. What's the document or data?\n"
-            "User: My research paper\n"
-            "Trinity: Uploading your research paper to Arweave for permanent storage. It's immutable once stored — nobody can alter or delete it.\n"
-            "Trinity: [calls platform_action with action='arweave_store', params={data: 'research_paper_content'}]"
+        "follow_up": (
+            "I can't store to Arweave — there's no Arweave client here. Filecoin/IPFS storage does reach a real provider if you have storage credentials configured."
         ),
     },
 
