@@ -48,18 +48,42 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gateway.service_routes import ServiceRoutes
+from runtime.blockchain.services.privacy import deletion_executor as deletion_executor_module
 from runtime.blockchain.services.privacy.deletion_executor import DeletionExecutor
 from runtime.blockchain.services.privacy.service import PrivacyService
 
-_EXECUTOR_SRC = Path(
-    "runtime/blockchain/services/privacy/deletion_executor.py"
-)
+# Anchored to the imported module, not the CWD. A relative Path() here made
+# the source scan error spuriously when pytest ran from anywhere but the repo
+# root — and, worse, from a directory containing a second checkout it would
+# have scanned THAT file while the assertions spoke about the imported one.
+_EXECUTOR_SRC = Path(inspect.getsourcefile(deletion_executor_module))
 
 # Keys a caller might read as "the work was done". Checked as a set rather
 # than one field: the old payload said success=True AND total_deleted=9 AND
 # on_chain_status="marked_deleted", and a partial fix that flipped only
 # `success` would still hand a caller two other reasons to believe it.
-_SUCCESS_CLAIM_KEYS = ("success", "all_verified", "attestation_uid")
+_SUCCESS_CLAIM_KEYS = (
+    "success",
+    "all_verified",
+    "attestation_uid",
+    # Verify-side claims. Both appeared in the pre-fix verify_deletion payload
+    # and both assert a deletion was confirmed, independently of
+    # attestation_uid — an adversarial pass showed a payload carrying
+    # verification_results=[9 x verified=True] with attestation_uid=None read
+    # as fully honest.
+    "verification_results",
+    "attested_via",
+    "verified_at",
+    "executed",
+)
+
+# Status values that assert the work happened. "executed"/"verified" were the
+# pre-fix get_execution_status vocabulary and were missing from the first
+# version of this list, which is what let a resurrected _executions record
+# relay through as honest.
+_SUCCESS_STATUSES = (
+    "ok", "completed", "deleted", "verified", "executed", "success", "done",
+)
 
 
 def _claims_success(payload: object) -> list[str]:
@@ -79,17 +103,42 @@ def _claims_success(payload: object) -> list[str]:
         )
 
     claims = []
-    for key in _SUCCESS_CLAIM_KEYS:
-        if payload.get(key):
-            claims.append(f"{key}={payload[key]!r}")
-    if payload.get("status") in ("ok", "completed", "deleted", "verified"):
-        claims.append(f"status={payload['status']!r}")
-    if payload.get("total_deleted"):
-        claims.append(f"total_deleted={payload['total_deleted']!r}")
-    if payload.get("deleted_items"):
-        claims.append(f"deleted_items={len(payload['deleted_items'])} items")
-    if payload.get("on_chain_status") not in (None, "none"):
-        claims.append(f"on_chain_status={payload.get('on_chain_status')!r}")
+
+    def scan(node: object, path: str) -> None:
+        """Walk nested payloads too.
+
+        The first version checked only top-level keys. An adversarial pass
+        showed `{"status": "executed", "execution": {"success": True,
+        "total_deleted": 9}}` reading as entirely honest — the fabrication had
+        simply moved one level down, which is exactly where a status-relay
+        method puts it.
+        """
+        if isinstance(node, list):
+            for i, item in enumerate(node):
+                scan(item, f"{path}[{i}]")
+            return
+        if not isinstance(node, dict):
+            return
+
+        for key in _SUCCESS_CLAIM_KEYS:
+            if node.get(key):
+                claims.append(f"{path}{key}={node[key]!r}")
+        if node.get("status") in _SUCCESS_STATUSES:
+            claims.append(f"{path}status={node['status']!r}")
+        if node.get("total_deleted"):
+            claims.append(f"{path}total_deleted={node['total_deleted']!r}")
+        if node.get("deleted_items"):
+            claims.append(f"{path}deleted_items={len(node['deleted_items'])} items")
+        if node.get("on_chain_status") not in (None, "none"):
+            claims.append(f"{path}on_chain_status={node.get('on_chain_status')!r}")
+        if node.get("verified") is True:
+            claims.append(f"{path}verified=True")
+
+        for key, value in node.items():
+            if isinstance(value, (dict, list)):
+                scan(value, f"{path}{key}.")
+
+    scan(payload, "")
     return claims
 
 
@@ -97,19 +146,24 @@ def _claims_success(payload: object) -> list[str]:
 
 
 async def test_no_public_entry_point_can_report_success():
-    """No public async method of DeletionExecutor reports a deletion.
+    """No public method of DeletionExecutor reports a deletion.
 
     Reflection over the class, not a hand-list of callers. A new method that
     fabricates a deletion fails this test without anyone remembering to add
     it here.
+
+    Enumerates SYNC callables as well as coroutines. The first version filtered
+    on `inspect.iscoroutinefunction` while its docstring promised "a method
+    added later is covered the day it is added" — an adversarial pass added a
+    plain `def execute_deletion_immediate(...)` returning
+    `{"status": "completed", "success": True, "total_deleted": 9}` and all 16
+    tests still passed. The predicate was narrower than the claim.
     """
     executor = DeletionExecutor({})
 
     entry_points = [
         (name, member)
-        for name, member in inspect.getmembers(
-            executor, predicate=inspect.iscoroutinefunction
-        )
+        for name, member in inspect.getmembers(executor, callable)
         if not name.startswith("_")
     ]
 
@@ -140,7 +194,11 @@ async def test_no_public_entry_point_can_report_success():
             "extend the test; do not leave the entry point unchecked"
         )
 
-        result = await method(**kwargs)
+        result = method(**kwargs)
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, dict):
+            continue
         claims = _claims_success(result)
         if claims:
             offenders.append(f"{name} -> {', '.join(claims)}")
@@ -177,6 +235,64 @@ async def test_verify_deletion_mints_no_attestation():
     assert result["attestation_uid"] is None
     assert result.get("all_verified") is not True
     assert result["status"] == "error"
+
+
+async def test_execute_deletion_records_nothing():
+    """The refusal leaves no state behind for another method to serve.
+
+    The module docstring claimed "Nothing is recorded in self._executions" and
+    no test checked it. An adversarial pass built an execute_deletion that
+    returned the honest refusal AND quietly wrote a success record into
+    `_executions`; `get_execution_status` then relayed
+    {"status": "executed", "execution": {"success": True}} — and all 16 tests
+    passed. A refusal that leaves a fabricated record behind is not a refusal,
+    it is a delayed fabrication.
+    """
+    executor = DeletionExecutor({})
+
+    await executor.execute_deletion("del_probe")
+    await executor.verify_deletion("del_probe")
+
+    assert executor._executions == {}, (
+        f"execute_deletion wrote state: {executor._executions!r}"
+    )
+    assert executor._verifications == {}, (
+        f"verify_deletion wrote state: {executor._verifications!r}"
+    )
+
+    # And the reader built on those dicts still says nothing happened.
+    status = await executor.get_execution_status("del_probe")
+    assert status["status"] == "not_started"
+    assert not _claims_success(status)
+
+
+async def test_get_execution_status_does_not_relay_a_forged_record():
+    """A record that should not exist is flagged, never reproduced as status.
+
+    Same fail-closed rule as verify_deletion: the honest answer cannot rest on
+    `_executions` happening to be empty, because a bug or a resurrection
+    attempt is exactly the case where it is not.
+    """
+    executor = DeletionExecutor({})
+    executor._executions["del_probe"] = {
+        "execution_id": "exec_forged",
+        "success": True,
+        "total_deleted": 9,
+        "deleted_items": [{"category": "profile_data", "status": "deleted"}],
+        "on_chain_status": "marked_deleted",
+    }
+    executor._verifications["del_probe"] = {
+        "all_verified": True,
+        "attestation_uid": "attest_forged",
+    }
+
+    status = await executor.get_execution_status("del_probe")
+
+    assert not _claims_success(status), (
+        f"a forged record was relayed as status: {status!r}"
+    )
+    assert status["unexpected_execution_record"] is True
+    assert status["status"] == "error"
 
 
 async def test_verify_deletion_refuses_even_with_a_prepopulated_execution():

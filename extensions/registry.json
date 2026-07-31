@@ -9,7 +9,7 @@
     {
       "id": "contracts",
       "name": "Smart Contracts",
-      "description": "4 capabilities in the Smart Contracts category",
+      "description": "3 capabilities in the Smart Contracts category",
       "category": "contracts",
       "min_tier": "free",
       "limits": {
@@ -21,13 +21,12 @@
       },
       "gateway_actions": [
         "convert_contract",
-        "deploy_contract",
         "estimate_contract_cost",
         "list_templates"
       ],
       "icon": "doc.text.fill",
       "available": true,
-      "capability_count": 4
+      "capability_count": 3
     },
     {
       "id": "defi",
@@ -372,7 +371,7 @@
     {
       "id": "privacy",
       "name": "Privacy & ZK",
-      "description": "10 capabilities in the Privacy & ZK category",
+      "description": "7 capabilities in the Privacy & ZK category",
       "category": "privacy",
       "min_tier": "free",
       "limits": {
@@ -385,18 +384,15 @@
       "gateway_actions": [
         "confidential_compute",
         "create_session_key",
-        "execute_deletion",
         "mpc_sign",
-        "private_transfer",
         "private_vote",
         "recover_wallet",
         "request_deletion",
-        "stealth_address",
         "zk_proof_generate"
       ],
       "icon": "lock.shield",
       "available": true,
-      "capability_count": 10
+      "capability_count": 7
     },
     {
       "id": "oracles",

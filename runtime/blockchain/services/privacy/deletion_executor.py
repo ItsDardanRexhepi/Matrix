@@ -173,9 +173,25 @@ class DeletionExecutor:
     async def get_execution_status(self, request_id: str) -> dict:
         """Report that no execution exists — which is now always the truth.
 
-        Kept as a real read rather than a refusal: it never claimed to delete
-        anything, and `_executions` can no longer be populated by this class,
-        so "not_started" is accurate for every request_id.
+        The first version of this kept the old relay branch, reasoning that
+        "`_executions` can no longer be populated by this class, so
+        'not_started' is accurate for every request_id."
+
+        That is absence-based reasoning — the exact argument this module
+        rejects two methods above for `verify_deletion`, applied here without
+        noticing. An adversarial pass demonstrated the cost: give
+        `execute_deletion` a body that returns the honest refusal but ALSO
+        writes `{"success": True, "total_deleted": 2}` into `self._executions`,
+        and this method relays `{"status": "executed", "execution": {"success":
+        True, ...}}` to any caller — a fabricated deletion, served by the
+        module that refuses to fabricate deletions, with the pin test still
+        green.
+
+        So it no longer relays. A stored record is reported as PRESENT without
+        reproducing its claims, and flagged, because under NEW-38 nothing
+        legitimate writes that dict: anything in there is a bug or a
+        resurrection attempt, and the honest response is to say so rather than
+        to pass its contents along as status.
         """
         execution = self._executions.get(request_id)
         if not execution:
@@ -186,10 +202,22 @@ class DeletionExecutor:
                 "message": _OFFLINE_MESSAGE,
             }
 
-        verification = self._verifications.get(request_id)
+        logger.error(
+            "get_execution_status found a stored execution record for %s while "
+            "deletion is OFFLINE (NEW-38). Nothing should populate _executions; "
+            "its contents are NOT being reported as a deletion.",
+            request_id,
+        )
         return {
             "request_id": request_id,
-            "status": "verified" if verification else "executed",
-            "execution": execution,
-            "verification": verification,
+            "status": "error",
+            "error_category": "not_implemented",
+            "success": False,
+            "deletion_available": False,
+            "unexpected_execution_record": True,
+            "message": (
+                "An execution record exists for this request, but data deletion "
+                "is not available and no deletion was performed. The record is "
+                "not evidence of a deletion. " + _OFFLINE_MESSAGE
+            ),
         }
