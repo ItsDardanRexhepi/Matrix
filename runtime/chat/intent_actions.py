@@ -2278,18 +2278,35 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # Component 29 — Privacy
     # ===================================================================
 
+    # NEW-38: data deletion is OFFLINE. Both entries follow the NEW-12 idiom —
+    # `unavailable: True`, no `action_name` (so nothing can dispatch them),
+    # keywords KEPT so "delete my data" is still recognised rather than
+    # matching nothing, and the honest answer in `follow_up`.
+    #
+    # Deleting these entries outright would be the worse failure: a user
+    # invoking their erasure rights would match no intent at all, and the model
+    # would improvise an answer about data deletion with nothing grounding it.
     "request_deletion": {
-        "action_name": "request_deletion",
-        "description": "Request deletion of your data.",
-        "required_params": [],
-        "optional_params": [
-            {"name": "scope", "type": "string", "description": "Deletion scope (all, profile, transactions, etc.).", "default": "all"},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — 0pnMatrx cannot delete user data. There is no "
+            "verified erasure path across its data stores. Requests are not "
+            "accepted, not queued, and no deletion can be reported as done. Do "
+            "not offer to delete data, and do not describe deletion as pending "
+            "or in progress."
+        ),
         "keywords": ["delete my data", "data deletion", "GDPR", "right to be forgotten", "erase data", "delete account"],
-        "follow_up": "What data would you like deleted? All data or specific categories?",
+        "follow_up": (
+            "I can't delete your data — 0pnMatrx doesn't have a working erasure "
+            "path yet, and I won't tell you it's been deleted when it hasn't. If "
+            "you're exercising a legal right to erasure, contact the operator "
+            "directly so it's handled by a person and on the record."
+        ),
         "example_conversation": (
             "User: I want to delete all my data\n"
-            "Trinity: [calls platform_action with action='request_deletion', params={scope: 'all'}]"
+            "Trinity: I can't do that, and I don't want to pretend otherwise — "
+            "0pnMatrx has no working data-deletion path right now. For a formal "
+            "erasure request, contact the operator directly."
         ),
     },
 
@@ -2333,17 +2350,24 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "execute_deletion": {
-        "action_name": "execute_deletion",
-        "description": "Execute a pending data deletion (irreversible).",
-        "required_params": [
-            {"name": "confirmation", "type": "boolean", "description": "Explicit confirmation.", "example": True},
-        ],
-        "optional_params": [],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed from ACTION_MAP (NEW-38). This used to "
+            "trigger a deletion executor that deleted nothing and reported "
+            "success for nine data categories it never opened, then issued a "
+            "random identifier as an on-chain attestation of the deletion. "
+            "There is nothing to execute and nothing to confirm."
+        ),
         "keywords": ["execute deletion", "confirm deletion", "proceed with deletion", "finalize deletion"],
-        "follow_up": "Are you sure? This action is irreversible.",
+        "follow_up": (
+            "There's no deletion to execute — 0pnMatrx can't delete user data "
+            "yet, so nothing was queued in the first place. It won't confirm a "
+            "deletion it didn't perform."
+        ),
         "example_conversation": (
             "User: Yes, proceed with deleting my data\n"
-            "Trinity: [calls platform_action with action='execute_deletion', params={confirmation: true}]"
+            "Trinity: There's nothing queued to proceed with. 0pnMatrx has no "
+            "working data-deletion path, so I can't start one or confirm one."
         ),
     },
 

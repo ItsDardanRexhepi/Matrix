@@ -214,7 +214,18 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "get_privacy_commitment": ("privacy", "get_privacy_commitment"),
     "check_privacy_dependencies": ("privacy", "check_dependencies"),
     "get_deletion_status": ("privacy", "get_deletion_status"),
-    "execute_deletion": ("privacy", "execute_pending_deletion"),
+    # NEW-38: `execute_deletion` -> privacy.execute_pending_deletion is REMOVED.
+    # It was the trigger for a deletion executor that deleted nothing and
+    # reported success=True with total_deleted=9 for users whose data it never
+    # looked for, then minted a random hex string as an EAS "attestation" of
+    # the deletion. No HTTP route pointed here, which is why it read as inert
+    # — but four call sites reach ACTION_MAP (gateway/bridge.py's tool surface,
+    # capabilities/registry.invoke, agents/handoff, tools/dispatcher), so the
+    # action WAS live and reproducibly returned status=ok.
+    #
+    # `request_deletion` below is deliberately KEPT: the ruling is that it
+    # answers "not available" rather than accepting-and-queuing, so it has to
+    # stay reachable to give that answer. The service method now refuses.
 
     # --- Dispute Resolution (Component 30) ---
     "file_dispute": ("dispute_resolution", "file_dispute"),
@@ -352,7 +363,11 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "create_brand_campaign", "distribute_brand_reward",
     "create_subscription_plan", "subscribe", "cancel_subscription",
     "create_social_profile", "update_social_profile", "send_message",
-    "request_deletion", "execute_deletion",
+    # NEW-38: "execute_deletion" removed — no longer an action. "request_deletion"
+    # stays in the state-modifying set even though it now modifies nothing:
+    # over-classifying is the safe direction here, and if a real erasure path is
+    # ever built this is the entry that must already be gated.
+    "request_deletion",
     "file_dispute", "submit_dispute_evidence", "resolve_dispute", "appeal_dispute",
     # ── Expanded state-modifying actions ─────────────────────────
     "flash_loan", "yield_optimize", "liquidity_provide", "liquidity_remove",
@@ -611,8 +626,11 @@ class ServiceDispatcher:
                 "sell_security), loyalty (earn_loyalty, redeem_loyalty), "
                 "cashback (track_spending, claim_cashback), brand rewards "
                 "(create_brand_campaign), social (create_social_profile), "
-                "privacy (request_deletion), disputes (file_dispute, "
-                "resolve_dispute)."
+                # NEW-38: "privacy (request_deletion)" removed from what the
+                # model is told it can do. The action still exists and still
+                # answers, but the answer is "not available" — advertising it
+                # here would have the agent offer erasure and then dead-end.
+                "disputes (file_dispute, resolve_dispute)."
             ),
             "parameters": {
                 "type": "object",

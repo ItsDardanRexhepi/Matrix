@@ -290,8 +290,14 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("mpc_sign",                "MPC Sign",                "privacy", "mpc", "mpc_sign",           subcategory="mpc", available=False),
     _cap("recover_wallet",          "Social Recovery",         "privacy", "mpc", "recover_wallet",     subcategory="recovery", available=False),
     _cap("create_session_key",      "Create Session Key",      "privacy", "mpc", "create_session_key", subcategory="session_keys", available=False),
-    _cap("request_deletion",        "Request Deletion",        "privacy", "privacy", "request_deletion"),
-    _cap("execute_deletion",        "Execute Deletion",        "privacy", "privacy", "execute_deletion"),
+    # NEW-38: data deletion is OFFLINE. `request_deletion` stays listed but
+    # available=False — it is reachable and answers, and the answer is "not
+    # available". The `execute_deletion` capability is REMOVED outright: its
+    # ACTION_MAP entry is gone, so a descriptor for it would be a broken
+    # pointer, and `available=False` is only metadata (registry.list filters on
+    # it; `invoke` does not consult it) so it could not have disabled anything
+    # on its own.
+    _cap("request_deletion",        "Request Deletion",        "privacy", "privacy", "request_deletion", available=False),
 
     # ── Oracles & Data ─────────────────────────────────────────────────────
     _cap("oracle_price_query",      "Query Oracle Price",      "oracles", "oracle_gateway", "query_price",  state_modifying=False, uses_paymaster=False),

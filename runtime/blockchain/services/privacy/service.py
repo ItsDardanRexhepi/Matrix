@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import Any
 
-from .deletion_executor import DeletionExecutor
+from .deletion_executor import _OFFLINE_MESSAGE, DeletionExecutor
 from .dependency_checker import DependencyChecker
 
 logger = logging.getLogger(__name__)
@@ -49,85 +49,73 @@ class PrivacyService:
         logger.info("PrivacyService initialised")
 
     async def request_deletion(self, user: str, data_types: list) -> dict:
-        """Request deletion of user data.
+        """OFFLINE (NEW-38) — answers "not available" and queues nothing.
 
-        Args:
-            user: User's wallet address (links to Component 5 DID).
-            data_types: List of data types to delete. Use ['all'] for everything.
+        This used to accept the request, run a real dependency check, mint a
+        `del_*` id, set a 24-hour cooldown, and return `status: "pending"`.
+        Every part of that was real except the part that mattered: the
+        executor at the end of the pipeline deleted nothing (see
+        deletion_executor.py). So the honest description of the old
+        behaviour is that it took a user's erasure request, told them it was
+        pending, and dropped it in a dict that nothing ever drained — no
+        cron, no scheduler, no internal caller of
+        `execute_pending_deletion`.
 
-        Returns:
-            Deletion request record with dependency check results.
+        Accepting-and-queuing is worse than refusing. A refusal tells the
+        user to go elsewhere with their request; a pending id tells them it is
+        being handled, and under GDPR/CCPA the clock they think is running is
+        not running. So the request is no longer accepted at all.
+
+        No input validation runs first, deliberately. Validating the data
+        types of an operation that cannot happen is its own small theatre,
+        and it would answer "invalid data type" — a claim about the request —
+        when the truth is a fact about the platform.
+
+        The pre-existing `raise ValueError` on missing args is dropped for
+        the same reason: callers get one answer, and it is the true one.
         """
-        if not user:
-            raise ValueError("user is required")
-        if not data_types:
-            raise ValueError("data_types is required (at least one type)")
-
-        # Validate data types
-        if "all" in data_types:
-            resolved_types = list(VALID_DATA_TYPES - {"all"})
-        else:
-            invalid = set(data_types) - VALID_DATA_TYPES
-            if invalid:
-                raise ValueError(f"Invalid data types: {invalid}. Valid types: {VALID_DATA_TYPES}")
-            resolved_types = list(data_types)
-
-        # Check for pending requests
-        for req in self._deletion_requests.values():
-            if req["user"] == user and req["status"] in ("pending", "in_progress"):
-                raise ValueError(
-                    f"User already has a pending deletion request (id={req['request_id']}). "
-                    "Please wait for it to complete."
-                )
-
-        # Run dependency check
-        dep_result = await self.check_dependencies(user)
-        blocking = dep_result.get("blocking_dependencies", [])
-
-        request_id = f"del_{uuid.uuid4().hex[:12]}"
-        now = time.time()
-
-        request = {
-            "request_id": request_id,
+        logger.warning(
+            "request_deletion refused for user %s — deletion is OFFLINE "
+            "(NEW-38); nothing was queued",
+            user,
+        )
+        return {
+            "status": "error",
+            "error_category": "not_implemented",
+            "error": "deletion_not_implemented",
+            "message": _OFFLINE_MESSAGE,
             "user": user,
-            "data_types": resolved_types,
-            "status": "blocked" if blocking else "pending",
-            "blocking_dependencies": blocking,
-            "dependency_check": dep_result,
-            "created_at": now,
-            "updated_at": now,
-            "cooldown_until": now + self.config["cooldown_period_hours"] * 3600 if not blocking else None,
-            "executed_at": None,
-            "verified_at": None,
-            "attestation_uid": None,
+            "data_types": list(data_types) if data_types else [],
+            "request_id": None,
+            "queued": False,
         }
 
-        self._deletion_requests[request_id] = request
-
-        if blocking:
-            logger.warning(
-                "Deletion request %s for user %s BLOCKED: %d dependencies",
-                request_id, user, len(blocking),
-            )
-        else:
-            logger.info(
-                "Deletion request %s created for user %s (%d data types, cooldown=%dh)",
-                request_id, user, len(resolved_types), self.config["cooldown_period_hours"],
-            )
-
-        return request
-
     async def get_privacy_commitment(self, user: str) -> dict:
-        """Get the irrevocable privacy commitment for a user.
+        """Return the platform's recorded privacy statement for a user.
 
-        The commitment is an on-chain record that the platform will honour
-        all valid deletion requests for this user.
+        NEW-38: the record-keeping here is real — an in-memory commitment
+        entry per user, enriched with that user's actual request history. The
+        SENTENCE it returned was not. It read:
+
+            "The platform irrevocably commits to honouring all valid data
+             deletion requests for this user, subject to legal and
+             operational constraints. This commitment is recorded on-chain
+             and cannot be revoked."
+
+        Three false claims in two sentences. The platform cannot honour a
+        deletion request at all (the executor deleted nothing, and is now
+        offline). The record is a dict in this process, not on-chain. And
+        being in-process, it is revoked by a restart.
+
+        Corrected here rather than deferred because taking deletion offline
+        in the same commit would otherwise leave a neighbouring method
+        telling users their erasure rights are guaranteed on-chain.
 
         Args:
             user: User's wallet address.
 
         Returns:
-            Privacy commitment record.
+            Privacy statement record with this user's request history.
         """
         if not user:
             raise ValueError("user is required")
@@ -139,9 +127,16 @@ class PrivacyService:
                 "commitment_id": commitment_id,
                 "user": user,
                 "commitment": (
-                    "The platform irrevocably commits to honouring all valid data deletion "
-                    "requests for this user, subject to legal and operational constraints. "
-                    "This commitment is recorded on-chain and cannot be revoked."
+                    "Data deletion is not currently available on this platform. "
+                    "No verified erasure path across the platform's data stores "
+                    "has been built, so deletion requests cannot be accepted and "
+                    "no deletion can be reported as completed."
+                ),
+                "deletion_available": False,
+                "recorded_on_chain": False,
+                "record_scope": (
+                    "In-memory record held by the running gateway process. It is "
+                    "not an on-chain commitment and does not survive a restart."
                 ),
                 "did_reference": f"did:0pnmatrx:{user}",  # Component 5 DID
                 "created_at": now,
@@ -223,59 +218,40 @@ class PrivacyService:
         return result
 
     async def execute_pending_deletion(self, request_id: str) -> dict:
-        """Execute a pending deletion request that has passed its cooldown.
+        """OFFLINE (NEW-38) — refuses. Never reaches the executor.
 
-        Args:
-            request_id: The deletion request to execute.
+        This was the orchestration around the fake: it checked the request
+        existed, checked the status was pending, enforced the cooldown,
+        re-ran the dependency check, then called
+        `self.executor.execute_deletion(request_id)` and — because that call
+        could not fail — took the success branch every time, marked the
+        request "completed", called `verify_deletion`, and stored the minted
+        attestation UID on the request.
 
-        Returns:
-            Execution result.
+        The orchestration was real; its subject was not. The cooldown was
+        the only gate between a request and a `completed` record, and
+        elapsing it is a matter of waiting.
+
+        Kept as a refusing method rather than deleted so callers reaching it
+        by any surface get the true answer. `execute_deletion` has been
+        removed from ACTION_MAP, so the action surface can no longer route
+        here at all; this covers everything else.
         """
-        request = self._deletion_requests.get(request_id)
-        if not request:
-            raise ValueError(f"Deletion request '{request_id}' not found")
-        if request["status"] != "pending":
-            raise ValueError(f"Request is not pending (status={request['status']})")
-
-        now = time.time()
-        if request.get("cooldown_until") and now < request["cooldown_until"]:
-            remaining = round(request["cooldown_until"] - now, 0)
-            raise ValueError(f"Cooldown period has not elapsed. {remaining}s remaining.")
-
-        # Re-check dependencies
-        blocking = await self.dependency_checker.get_blocking_dependencies(request["user"])
-        if blocking:
-            request["status"] = "blocked"
-            request["blocking_dependencies"] = blocking
-            request["updated_at"] = now
-            raise ValueError(f"New blocking dependencies found: {len(blocking)} items")
-
-        request["status"] = "in_progress"
-        request["updated_at"] = now
-
-        # Execute deletion
-        exec_result = await self.executor.execute_deletion(request_id)
-
-        if exec_result.get("success"):
-            request["status"] = "completed"
-            request["executed_at"] = now
-
-            # Verify deletion
-            verification = await self.executor.verify_deletion(request_id)
-            request["verified_at"] = time.time()
-            request["attestation_uid"] = verification.get("attestation_uid")
-
-            logger.info(
-                "Deletion request %s completed and verified for user %s",
-                request_id, request["user"],
-            )
-        else:
-            request["status"] = "failed"
-            request["error"] = exec_result.get("error", "Unknown error")
-            logger.error("Deletion request %s failed: %s", request_id, request.get("error"))
-
-        request["updated_at"] = time.time()
-        return {**request, "execution_result": exec_result}
+        logger.warning(
+            "execute_pending_deletion refused for request %s — deletion is "
+            "OFFLINE (NEW-38); the executor was not called",
+            request_id,
+        )
+        return {
+            "status": "error",
+            "error_category": "not_implemented",
+            "error": "deletion_not_implemented",
+            "message": _OFFLINE_MESSAGE,
+            "request_id": request_id,
+            "success": False,
+            "executed": False,
+            "attestation_uid": None,
+        }
 
     # ------------------------------------------------------------------
     # Expanded privacy operations

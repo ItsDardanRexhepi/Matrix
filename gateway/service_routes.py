@@ -1433,12 +1433,28 @@ class ServiceRoutes:
     # -- Privacy --
 
     async def _handle_privacy_delete(self, request: web.Request) -> web.Response:
+        """POST /api/v1/privacy/delete — answers 501, queues nothing (NEW-38).
+
+        The route is deliberately KEPT rather than unregistered. An erasure
+        endpoint that 404s reads as "wrong URL"; this one states plainly that
+        the platform cannot delete data. `request_deletion` now refuses, and
+        its {"status": "error", "error_category": "not_implemented"} maps to
+        HTTP 501 through `_ok`'s RUN-4 failure branch — the same code
+        /api/v1/contracts/deploy returns.
+        """
         body = await self._parse_body(request)
-        self._require(body, "user", "data_types")
+        # `_require(body, "user", "data_types")` is dropped: it answered 400
+        # "missing field" — a claim about the request — when the truth is a
+        # fact about the platform, and it made the honest 501 conditional on
+        # the caller correctly filling in a form for an operation that cannot
+        # run. Defaults keep the call bindable so this cannot become a 500.
+        #
+        # Still routed through `_call` rather than short-circuited here, so the
+        # security seam continues to observe the attempt.
         result = await self._call(
             "privacy", "request_deletion",
-            user=body["user"],
-            data_types=body["data_types"],
+            user=body.get("user", ""),
+            data_types=body.get("data_types") or [],
         )
         return self._ok(result)
 
