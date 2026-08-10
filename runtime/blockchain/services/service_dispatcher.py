@@ -70,7 +70,8 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "create_attestation": ("attestation", "attest"),
     "verify_attestation": ("attestation", "verify"),
     "revoke_attestation": ("attestation", "revoke"),
-    "query_attestations": ("attestation", "query"),
+    # NEW-48b: "query_attestations" REMOVED — attestation.query returned the
+    # GraphQL query text as if it were results. No EAS subgraph reader exists.
     "batch_attest": ("attestation", "batch_attest"),
 
     # --- Agent Identity (Component 9) ---
@@ -883,8 +884,15 @@ class ServiceDispatcher:
         try:
             registry = self._get_registry()
             attestation_svc = registry.get("attestation")
+            # NEW-42 (instance 1 of 2): this passed `schema_name=`, but
+            # AttestationService.attest takes `schema_uid`. EVERY call raised
+            # TypeError and was swallowed by the `except` below as a WARNING,
+            # so NO state-modifying action on the platform has ever been
+            # attested. Signature drift plus a silent swallow — the NEW-9
+            # shape. "" resolves to the primary platform schema via
+            # `_resolve_schema`, which is what this call always meant.
             await attestation_svc.attest(
-                schema_name="platform_action",
+                schema_uid="",
                 data={
                     "action": action,
                     "service": service_name,

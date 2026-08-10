@@ -679,19 +679,18 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "query_attestations": {
-        "action_name": "query_attestations",
-        "description": "Query attestations by schema, attester, or recipient.",
-        "required_params": [],
-        "optional_params": [
-            {"name": "schema_uid", "type": "string", "description": "Filter by schema.", "default": None},
-            {"name": "attester", "type": "string", "description": "Filter by attester address.", "default": None},
-            {"name": "recipient", "type": "string", "description": "Filter by recipient address.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-48b). It returned the text of a GraphQL "
+            "query as if it were the query results, so any caller checking the "
+            "result length concluded attestations had been found. The platform has "
+            "no EAS subgraph reader."
+        ),
         "keywords": ["find attestations", "search attestations", "list attestations", "my attestations", "query attestations"],
-        "follow_up": "Would you like to filter by schema, attester, or recipient?",
-        "example_conversation": (
-            "User: Show me all my attestations\n"
-            "Trinity: [calls platform_action with action='query_attestations', params={}]"
+        "follow_up": (
+            "I can't search attestations — 0pnMatrx has no attestation index. "
+            "If you have a specific attestation UID I can verify it on-chain, "
+            "which is real."
         ),
     },
 
