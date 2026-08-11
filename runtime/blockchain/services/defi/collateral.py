@@ -129,23 +129,37 @@ class CollateralManager:
                 f"requested {amount:.6f}"
             )
 
-        # Simulate withdrawal and check health
+        # NEW-55c: compute health BEFORE mutating the balance, not after.
+        #
+        # The old code debited first (`user_balances[token] = current -
+        # amount`) and then health-checked inside a try whose except was a
+        # no-op that only LOOKED like a revert:
+        #     except Exception:
+        #         if user_balances.get(token, -1) == current - amount:
+        #             pass          # <- does nothing
+        #         raise
+        # So ANY exception from the health check — the old str/float TypeError,
+        # and now the fail-closed price ValueError this commit introduces —
+        # left the balance debited with no withdrawal performed. My own
+        # fail-closed price fix would have MOVED that destruction to a new
+        # trigger rather than removing it, so both halves must land together.
+        #
+        # The check now runs against a SIMULATED post-withdrawal balance
+        # without touching the real ledger; the real debit happens only after
+        # the position is proven safe. Any exception (including an
+        # unpriceable-token ValueError) propagates with the ledger untouched.
+        simulated = dict(user_balances)
+        simulated[token] = current - amount
+        health = await self._compute_health_factor(user, balances_override={user: simulated})
+        if health["health_factor"] < _DANGER_THRESHOLD and health["total_borrows_usd"] > 0:
+            raise ValueError(
+                f"Withdrawal would drop health factor to "
+                f"{health['health_factor']:.2f}, below minimum "
+                f"{_DANGER_THRESHOLD:.2f}"
+            )
+
+        # Safe: commit the debit.
         user_balances[token] = current - amount
-        try:
-            health = await self._compute_health_factor(user)
-            if health["health_factor"] < _DANGER_THRESHOLD and health["total_borrows_usd"] > 0:
-                # Revert withdrawal
-                user_balances[token] = current
-                raise ValueError(
-                    f"Withdrawal would drop health factor to "
-                    f"{health['health_factor']:.2f}, below minimum "
-                    f"{_DANGER_THRESHOLD:.2f}"
-                )
-        except Exception:
-            if user_balances.get(token, -1) == current - amount:
-                # Only revert if we haven't already
-                pass
-            raise
 
         logger.info(
             "Collateral withdrawn: user=%s token=%s amount=%.6f remaining=%.6f",
@@ -194,9 +208,20 @@ class CollateralManager:
 
     # ── Internal helpers ──────────────────────────────────────────────
 
-    async def _compute_health_factor(self, user: str) -> dict[str, Any]:
-        """Compute the health factor for a user."""
-        balances = self._balances.get(user, {})
+    async def _compute_health_factor(
+        self,
+        user: str,
+        balances_override: dict[str, dict[str, float]] | None = None,
+    ) -> dict[str, Any]:
+        """Compute the health factor for a user.
+
+        NEW-55c: ``balances_override`` lets a caller evaluate a HYPOTHETICAL
+        position (e.g. the post-withdrawal state) without mutating the real
+        ledger, so a pre-check can be done before committing any balance
+        change. When omitted, the real balances are used.
+        """
+        source = balances_override if balances_override is not None else self._balances
+        balances = source.get(user, {})
         borrows = self._borrows.get(user, {})
 
         total_collateral_usd = 0.0
@@ -230,7 +255,22 @@ class CollateralManager:
 
         return {
             "user": user,
-            "health_factor": round(health_factor, 4) if health_factor != float("inf") else "inf",
+            # NEW-55c: was `round(hf, 4) if hf != inf else "inf"` — the
+            # returned value was a STRING "inf" while the internal value was a
+            # float. `withdraw` reads this dict and does
+            # `health["health_factor"] < _DANGER_THRESHOLD`, so on any
+            # no-borrows position it compared str < float and raised TypeError
+            # BEFORE the `total_borrows_usd > 0` guard could run — and
+            # withdraw debits the balance before that comparison, so the
+            # TypeError left the collateral debited with no withdrawal
+            # performed (demonstrated: deposit 10, withdraw 4, balance -> 6).
+            #
+            # The returned type now matches what the comparison expects: a
+            # real float (float("inf") for the no-borrows case). A human-
+            # readable label lives in a SEPARATE key so no consumer has to
+            # special-case a string in a numeric field.
+            "health_factor": round(health_factor, 4) if health_factor != float("inf") else float("inf"),
+            "health_factor_display": "∞" if health_factor == float("inf") else f"{health_factor:.4f}",
             "status": status,
             "total_collateral_usd": round(total_collateral_usd, 2),
             "risk_adjusted_collateral_usd": round(risk_adjusted_usd, 2),
@@ -239,13 +279,40 @@ class CollateralManager:
             "borrows": dict(borrows),
         }
 
+    def _resolve_oracle(self) -> Any:
+        """Lazily resolve the OracleGateway (NEW-59).
+
+        DeFiService injects this in lockstep, but CollateralManager can also
+        be constructed standalone, so it resolves its own if none was passed —
+        the same registry-DI-gap fix, so this path is never left oracle-blind.
+        """
+        if self._oracle is None:
+            from runtime.blockchain.services.oracle_gateway import OracleGateway
+            self._oracle = OracleGateway(self._config)
+        return self._oracle
+
     async def _get_price(self, token: str) -> float:
-        """Get token price from oracle or fallback."""
-        # Try oracle gateway first
-        if self._oracle is not None:
+        """Get token price. FAILS CLOSED on a missing price (NEW-55b).
+
+        Was the fail-OPEN half of the price root: on an unpriceable token this
+        returned 0.0 (with a warning). Because this method feeds
+        _compute_health_factor, a 0.0 price on the DEBT side drove
+        total_borrows_usd to zero -> the "no_borrows" branch -> the "inf"
+        health factor -> withdraw's collateral-destruction path. Its sibling
+        DeFiService._get_token_price RAISED on the same condition; the two
+        files handled the identical missing input opposite ways, and only the
+        fail-open one touched a money path.
+
+        Now it raises, matching the sibling. Stablecoins still resolve to 1.0
+        (an accurate value, not a fabricated one); a genuinely configured
+        fallback still applies; but an UNKNOWN price stops the calculation
+        instead of silently valuing collateral or debt at zero.
+        """
+        oracle = self._resolve_oracle()
+        if oracle is not None:
             try:
                 pair = f"{token}/USD"
-                result = await self._oracle.request(
+                result = await oracle.request(
                     "price_feed",
                     {"pair": pair},
                     caller="collateral_manager",
@@ -255,18 +322,23 @@ class CollateralManager:
                     return float(price)
             except Exception as exc:
                 logger.warning(
-                    "Oracle price fetch failed for %s: %s, using fallback",
+                    "Oracle price fetch failed for %s: %s, trying fallback",
                     token, exc,
                 )
 
-        # Fallback prices
+        # Configured fallback (a real operator-set value).
         fallback = self._fallback_prices.get(token)
         if fallback is not None:
             return float(fallback)
 
-        # Default stablecoin assumption
+        # Stablecoin par is accurate, not fabricated.
         if token in ("USDC", "USDT", "DAI"):
             return 1.0
 
-        logger.warning("No price available for %s, defaulting to 0", token)
-        return 0.0
+        # FAIL CLOSED: an unknown price must stop the calculation, never
+        # value the position at zero on a money path.
+        raise ValueError(
+            f"No price available for {token}. Configure the oracle or set "
+            f"defi.fallback_prices.{token} in config. Refusing to value "
+            f"collateral or debt at zero."
+        )

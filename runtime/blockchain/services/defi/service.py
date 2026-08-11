@@ -331,11 +331,40 @@ class DeFiService:
 
     # ── Price helper ─────────────────────────────────────────────────
 
+    def _resolve_oracle(self) -> Any:
+        """Lazily resolve the OracleGateway (NEW-59).
+
+        The constructor accepts ``oracle_gateway=None``, but the ONLY
+        production construction path is ``ServiceRegistry.get()`` ->
+        ``cls(self._config)`` — a single positional arg, so an oracle can
+        never be injected. Every price therefore fell through to a config
+        constant or the hardcoded 1.0, making every downstream health-factor
+        and collateral valuation genuine-arithmetic-over-a-fabricated-input.
+
+        Fix is lazy resolution of the registry-resolvable OracleGateway, the
+        same pattern privacy uses to reach storage/compute. Constructed
+        directly from config (OracleGateway.__init__ takes only config); it is
+        itself credential-gated and returns errors when no feed is configured,
+        which the price methods below treat as "no price" and FAIL CLOSED.
+
+        This is a registry-level DI gap shared by fundraising and dashboard
+        (NEW-59); the same lazy-resolution template applies there.
+        """
+        if self._oracle is None:
+            from runtime.blockchain.services.oracle_gateway import OracleGateway
+            self._oracle = OracleGateway(self._config)
+            # Keep the collateral manager's oracle in lockstep so its
+            # health-factor prices come from the same live source.
+            if getattr(self._collateral_manager, "_oracle", None) is None:
+                self._collateral_manager._oracle = self._oracle
+        return self._oracle
+
     async def _get_token_price(self, token: str) -> float:
         """Fetch token price from oracle or config fallback."""
-        if self._oracle is not None:
+        oracle = self._resolve_oracle()
+        if oracle is not None:
             try:
-                result = await self._oracle.request(
+                result = await oracle.request(
                     "price_feed",
                     {"pair": f"{token}/USD"},
                     caller="defi_service",
