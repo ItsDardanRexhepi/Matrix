@@ -65,6 +65,47 @@ class FundraisingService:
             self._max_days, self._min_goal,
         )
 
+    async def _fail_campaign(self, campaign: dict[str, Any]) -> dict | None:
+        """Mark a campaign failed AND compute every contributor's refund.
+
+        NEW-74: the refund half of the release/refund pair.
+
+        Before this, failure detection set ``status = "failed"`` and stopped.
+        RefundManager.process_refunds — a complete, correct pro-rata engine
+        that reads each contribution, computes the share against
+        (raised - released) and deducts the fee — had NO caller on the failure
+        path. Refund was neither missing nor fake: it was an orphaned real
+        mechanism. Release, meanwhile, fired on verification. That asymmetry
+        is the fund-trap: an outflow path that triggers and an inflow-return
+        path that never does.
+
+        Wiring it here rather than at one call site is deliberate —
+        assume-multiplicity. Failure is detected in FOUR places (contribute,
+        get_campaign, list_campaigns, and trigger_refunds' own check), and a
+        contributor's entitlement to a refund computation must not depend on
+        which method happened to notice the deadline first. trigger_refunds
+        keeps its own explicit call because it must RETURN the bulk result;
+        process_refunds writes by (campaign_id, contributor) key, so a later
+        recomputation overwrites rather than duplicates.
+
+        STAYS DICT-CUSTODY. This computes and records refunds over the
+        in-process ledger; it initiates no transfer. Every record carries
+        settled=False / value_moved=False from the NEW-68 vocabulary fix, so
+        wiring the trigger does not silently upgrade a calculation into a
+        payment claim. Moving real funds is the deferred real-custody project
+        and is gated by the compound escrow condition.
+        """
+        campaign["status"] = "failed"
+        contribs = self._contributions.get(campaign["campaign_id"], {})
+        if not contribs:
+            return None
+        return await self._refunds.process_refunds(
+            campaign["campaign_id"],
+            contributions=contribs,
+            total_raised=campaign["raised"],
+            total_released=campaign["released"],
+        )
+
     def _resolve_oracle(self) -> Any:
         """Lazily resolve the OracleGateway (NEW-59, fundraising instance).
 
@@ -227,7 +268,7 @@ class FundraisingService:
         if now > campaign["deadline"]:
             # Check if goal was met
             if campaign["raised"] < campaign["goal"]:
-                campaign["status"] = "failed"
+                await self._fail_campaign(campaign)   # NEW-74
                 raise ValueError(
                     "Campaign deadline has passed without meeting goal"
                 )
@@ -283,8 +324,10 @@ class FundraisingService:
         if (campaign["status"] == "active"
                 and now > campaign["deadline"]
                 and campaign["raised"] < campaign["goal"]):
-            campaign["status"] = "failed"
-            logger.info("Campaign auto-failed: id=%s", campaign_id)
+            await self._fail_campaign(campaign)   # NEW-74
+            logger.info(
+                "Campaign auto-failed, refunds computed: id=%s", campaign_id
+            )
 
         result = dict(campaign)
         result["milestones"] = [dict(m) for m in campaign["milestones"]]
@@ -313,7 +356,7 @@ class FundraisingService:
             if (campaign["status"] == "active"
                     and now > campaign["deadline"]
                     and campaign["raised"] < campaign["goal"]):
-                campaign["status"] = "failed"
+                await self._fail_campaign(campaign)   # NEW-74
 
             if status is not None and campaign["status"] != status:
                 continue
