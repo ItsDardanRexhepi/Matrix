@@ -66,9 +66,14 @@ class RefundManager:
             raise ValueError("campaign_id and contributor are required")
 
         key = (campaign_id, contributor)
-        if key in self._refunds and self._refunds[key]["status"] == "completed":
+        # NEW-68: second instance of the same poisoning. This REFUSED a refund
+        # request outright when a prior record said "completed" — a status this
+        # module stamped without paying anyone. A contributor whose refund had
+        # been "processed" (calculated) could therefore never request a real
+        # one. Only a genuinely settled refund may block a new request.
+        if key in self._refunds and self._refunds[key].get("settled") is True:
             raise ValueError(
-                f"Refund already processed for {contributor} in campaign {campaign_id}"
+                f"Refund already settled for {contributor} in campaign {campaign_id}"
             )
 
         # Determine refund eligibility
@@ -164,7 +169,14 @@ class RefundManager:
             key = (campaign_id, contributor)
             existing = self._refunds.get(key)
 
-            if existing and existing["status"] == "completed":
+            # NEW-68: was `existing["status"] == "completed"`. Because this
+            # method STAMPED "completed" without paying anything, that skip
+            # meant a fabricated completion would cause a REAL refund run — if
+            # one is ever implemented — to pass the contributor over. The
+            # false record did not merely misreport; it poisoned the ledger
+            # against its own correction. Only a genuinely settled record may
+            # suppress a re-run, and none can exist yet.
+            if existing and existing.get("settled") is True:
                 continue
 
             # Pro-rata calculation
@@ -185,22 +197,50 @@ class RefundManager:
                 "refund_amount": refund_amount,
                 "fee_amount": (amount * self._fee_pct / 100),
                 "pro_rata_share": amount / total_raised if total_raised > 0 else 1.0,
-                "status": "completed",
+                # NEW-68: was `"status": "completed"` with a `processed_at`
+                # timestamp. The pro-rata arithmetic above is REAL — it reads
+                # each contribution, computes the share against the refundable
+                # pool and deducts the fee — but nothing is ever transferred.
+                # "completed" asserted that contributors had been refunded.
+                # Real-local-defective: genuine computation, false claim.
+                #
+                # Vocabulary changed rather than softened, in the
+                # RECORDED_UNSETTLED idiom already established in x402: a
+                # reader cannot mistake "calculated_unpaid" for money returned.
+                "status": "calculated_unpaid",
+                "settled": False,
+                "value_moved": False,
+                "disclosure": (
+                    "Refund amounts are CALCULATED only. No funds have been "
+                    "returned to this contributor and no transfer has been "
+                    "initiated."
+                ),
                 "requested_at": now,
-                "processed_at": now,
+                "calculated_at": now,
             }
 
             self._refunds[key] = record
             processed.append(record)
             total_refunded += refund_amount
 
+        # NEW-68: the summary carried the same false claim as the per-record
+        # status — `total_refunded` and `contributors_refunded` name money
+        # returned and people paid. Renamed to what actually happened, with
+        # the disclosure repeated at the summary level so a caller reading
+        # only the envelope is not misled.
         result = {
             "campaign_id": campaign_id,
             "refundable_pool": refundable_pool,
-            "total_refunded": total_refunded,
-            "contributors_refunded": len(processed),
+            "total_calculated": total_refunded,
+            "contributors_calculated": len(processed),
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "Pro-rata refund amounts calculated for this campaign. NO "
+                "refunds have been paid and no transfers have been initiated."
+            ),
             "refunds": processed,
-            "processed_at": int(time.time()),
+            "calculated_at": int(time.time()),
         }
 
         self._bulk_refunds[campaign_id] = result

@@ -15,8 +15,11 @@ Purely structural: a public method in a service class that
   * contains a hardcoded "status": "<literal>" in a dict, and
   * has ZERO await expressions.
 
-MEASURED: 50 instances (not the 11 a preliminary sweep reported — the ratchet
-takes the measured number, and this is it).
+MEASURED: 50 at introduction (not the 11 a preliminary sweep reported — the
+ratchet takes the measured number). NOW 49: NEW-67 delegated
+insurance.auto_settle_claim to the real claims processor, so it awaits and no
+longer matches the shape. That is the burn-down working — the entry was struck
+rather than left stale, and the ratchet tightened with it.
 
 The shape does NOT by itself mean "fabrication". Some hits are legitimate local
 record-keeping: a governance proposal, a filed appeal, a moderation report, a
@@ -109,7 +112,9 @@ def find_fabrication_shape() -> set[str]:
     return found
 
 
-# ── The frozen inventory (measured 2026-08-11, ratchet: may only shrink) ──
+# ── The frozen inventory (measured 2026-08-11; ratchet: may only shrink) ──
+#
+# 50 at introduction -> 49 after NEW-67 (auto_settle_claim delegated).
 
 KNOWN_FABRICATION_SHAPE = {
     "agent_identity/service.py::AgentIdentityService.trade_model_access",
@@ -143,7 +148,6 @@ KNOWN_FABRICATION_SHAPE = {
     "governance/service.py::GovernanceService.propose_multisig",
     "governance/service.py::GovernanceService.parameter_change",
     "insurance/service.py::InsuranceService.create_parametric_policy",
-    "insurance/service.py::InsuranceService.auto_settle_claim",
     "insurance/trigger_manager.py::TriggerManager.register_trigger",
     "ip_royalties/distribution.py::RoyaltyDistribution.claim",
     "ip_royalties/ip_registry.py::IPRegistry.register",
@@ -240,8 +244,8 @@ def test_the_measured_count_is_recorded():
     discrepancy is recorded here rather than smoothed over, because the ratchet
     is only as honest as the census behind it.
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 50
-    assert len(find_fabrication_shape()) == 50
+    assert len(KNOWN_FABRICATION_SHAPE) == 49
+    assert len(find_fabrication_shape()) == 49
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────

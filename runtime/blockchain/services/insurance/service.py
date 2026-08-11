@@ -396,19 +396,68 @@ class InsuranceService:
                 "operation": "auto_settle_claim",
                 "requested": {"policy_id": policy_id},
             })
-        settle_id = f"asc_{uuid.uuid4().hex[:16]}"
-        now = int(time.time())
-        record: dict[str, Any] = {
-            "id": settle_id,
-            "status": "settled",
+        # NEW-67: DELEGATED. This method used to be a shadow over the real
+        # claims processor:
+        #
+        #     record = {"status": "settled", "payout_amount": 0.0,
+        #               "oracle_data": oracle_data, ...}
+        #     self._claims[settle_id] = record
+        #     return record
+        #
+        # It accepted oracle_data and never read it, computed no payout, and
+        # returned "settled" with payout_amount hardcoded to 0.0 — closing a
+        # claim while paying nothing. A settled-for-zero claim is a DENIAL
+        # WEARING A PAYMENT'S NAME: the claimant is told their claim was
+        # settled, and what happened is the opposite of what they were told.
+        #
+        # The real twin was already here and already constructed in __init__ —
+        # self._claims_processor — and the sibling file_claim already used it.
+        # It verifies the parametric trigger against the policy, computes the
+        # payout from the policy's coverage amount, debits the reserve (which
+        # REFUSES on insufficiency), and DENIES with a stated reason when the
+        # trigger is not met. oracle_data is exactly its trigger_data.
+        policy = self._policies.get(policy_id)
+        if policy is None:
+            return {
+                "status": "error",
+                "error_category": "not_found",
+                "error": f"Policy '{policy_id}' not found",
+                "policy_id": policy_id,
+            }
+
+        claim_id = f"asc_{uuid.uuid4().hex[:16]}"
+        claim: dict[str, Any] = {
+            "claim_id": claim_id,
             "policy_id": policy_id,
-            "oracle_data": oracle_data,
-            "payout_amount": 0.0,
-            "settled_at": now,
+            "trigger_data": oracle_data,
+            "status": "pending",
+            "filed_at": int(time.time()),
         }
-        self._claims[settle_id] = record
-        logger.info("Claim auto-settled: id=%s", settle_id)
-        return record
+        self._claims[claim_id] = claim
+
+        result = await self._claims_processor.process_claim(
+            claim_id, claim, policy,
+        )
+        claim.update(result)
+        if claim.get("status") == "approved":
+            policy["status"] = "claimed"
+
+        # CUSTODY DISCLOSURE (NEW-64's standing rule, applied to the very next
+        # case). The delegate is real AS COMPUTATION — a genuine parametric
+        # decision plus reserve accounting with a real insufficiency guard —
+        # but ReserveFund.withdraw is `self._balance -= amount` and a ledger
+        # append. No transfer occurs. Approving a claim here debits a reserve
+        # ledger; it does not pay a claimant, and the response says so rather
+        # than letting "approved" be read as "paid".
+        return {
+            **claim,
+            "value_moved": False,
+            "disclosure": (
+                "Claim decision and reserve accounting are real; the payout is "
+                "a reserve-ledger entry, NOT a transfer to the claimant. No "
+                "funds have been sent."
+            ),
+        }
 
     async def renew_coverage(
         self, policy_id: str, additional_premium: float, extension_days: int = 365,

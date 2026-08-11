@@ -388,8 +388,8 @@ class FundraisingService:
         )
 
         logger.info(
-            "Refunds triggered: campaign=%s refunded=%d",
-            campaign_id, result["contributors_refunded"],
+            "Refund amounts calculated (NOT paid): campaign=%s contributors=%d",
+            campaign_id, result["contributors_calculated"],
         )
         return result
 
