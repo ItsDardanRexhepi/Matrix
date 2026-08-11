@@ -23,6 +23,60 @@ _VALID_STATUSES = (
     "completed", "failed", "refunding",
 )
 
+# ══════════════════════════════════════════════════════════════════════════
+# ESCROW GATING CONDITION — READ BEFORE WIRING ANY REAL CUSTODY (NEW-75)
+#
+# THIS SERVICE MOVES NO MONEY. contribute() records a number, release computes
+# a number, refund computes a number. Every "raised" / "released" / "refunded"
+# figure is an entry in an in-process dict that does not survive a restart.
+# That is the ONLY reason the defects below are latent instead of live.
+#
+# The moment any real custody is wired — an escrow contract, a payment
+# processor, a treasury transfer — three conditions must ALL hold. They are
+# coupled: satisfying two of three is not two-thirds safe, it is a specific
+# fund-trap, and each partial state has its own failure mode. This is a
+# checklist, not a list of suggestions.
+#
+#   [ ] 1. VERIFICATION IS AUTHORITY-GATED ON BOTH PATHS.               (NEW-73)
+#          Milestone verification is the release trigger. Both routes to
+#          "verified" were self-grantable by the beneficiary: the oracle path
+#          read the submitter's own proof dict, and the community path counted
+#          caller-supplied voter strings. Both now fail closed.
+#          PARTIAL-STATE FAILURE MODE: if this is not satisfied, a campaign
+#          creator self-approves a milestone and drains real contributor funds
+#          through a release path that LOOKS authority-gated.
+#
+#   [ ] 2. RELEASE STAYS GATED ON THAT REAL VERIFICATION, AND REFUND IS
+#          WIRED TO REAL FAILURE.                                       (NEW-74)
+#          Refund was a complete pro-rata engine with no caller on the failure
+#          path; it is now wired at all four failure-detection sites.
+#          PARTIAL-STATE FAILURE MODE: release-only wiring is a one-way door —
+#          money leaves on milestones and never returns on failure. Refund-only
+#          wiring is the mirror: a campaign refunds funds it already released.
+#
+#   [ ] 3. contribute, release AND refund MIGRATE TO REAL CUSTODY IN ONE
+#          CHANGE, OR NONE DO.                                          (NEW-75)
+#          PARTIAL-STATE FAILURE MODE, and this is the clause most likely to
+#          be violated by accident, because migrating one path at a time feels
+#          incremental and safe:
+#            * real contribute + dict refund  -> real money in, dict money out.
+#              Contributors cannot be repaid. This is the fund-trap in its
+#              purest form.
+#            * real release + dict contribute -> the service pays out against
+#              a balance nobody funded. This is a drain on the treasury.
+#            * real refund + dict contribute  -> the service repays money it
+#              never received.
+#          There is no safe ordering. All three, or none.
+#
+# Attach this checklist to the config key that turns custody on. As of this
+# writing no such key exists — config["fundraising"] has no escrow/contract
+# address — and that absence is load-bearing, not an oversight.
+#
+# Pinned by tests/test_escrow_gating_condition.py, which fails if this block
+# is removed or if any money path starts touching real value while the
+# clauses are unmet.
+# ══════════════════════════════════════════════════════════════════════════
+
 
 class FundraisingService:
     """Community fundraising service with milestone-based releases.
