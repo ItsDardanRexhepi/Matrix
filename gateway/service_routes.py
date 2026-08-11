@@ -321,11 +321,6 @@ class ServiceRoutes:
         app.router.add_get("/api/v1/social/feed/{wallet}", self._handle_social_feed)
 
         # ── Payments Expanded ────────────────────────────────────────
-        app.router.add_post("/api/v1/payments/stream/create", self._handle_stream_create)
-        app.router.add_post("/api/v1/payments/recurring/create", self._handle_recurring_create)
-        app.router.add_post("/api/v1/payments/escrow/milestone", self._handle_escrow_milestone)
-        app.router.add_post("/api/v1/payments/split", self._handle_payment_split)
-        app.router.add_post("/api/v1/payments/payroll", self._handle_payroll_run)
 
         # ── Compute & Storage ────────────────────────────────────────
         app.router.add_post("/api/v1/compute/store", self._handle_decentralized_store)
@@ -519,11 +514,6 @@ class ServiceRoutes:
             ("POST", "/api/v1/social/gate/create", self._handle_social_gate),
             ("POST", "/api/v1/social/community/create", self._handle_community_create),
             ("GET",  "/api/v1/social/feed/{wallet}", self._handle_social_feed),
-            ("POST", "/api/v1/payments/stream/create", self._handle_stream_create),
-            ("POST", "/api/v1/payments/recurring/create", self._handle_recurring_create),
-            ("POST", "/api/v1/payments/escrow/milestone", self._handle_escrow_milestone),
-            ("POST", "/api/v1/payments/split", self._handle_payment_split),
-            ("POST", "/api/v1/payments/payroll", self._handle_payroll_run),
             ("POST", "/api/v1/compute/store", self._handle_decentralized_store),
             ("POST", "/api/v1/compute/ipfs/pin", self._handle_ipfs_pin),
             ("POST", "/api/v1/compute/arweave/store", self._handle_arweave_store),
@@ -1541,14 +1531,27 @@ class ServiceRoutes:
     # -- x402 Payments --
 
     async def _handle_payment_create(self, request: web.Request) -> web.Response:
+        """POST /api/v1/payments/create — reconciled to the method (NEW-58).
+
+        This route was PERMANENTLY DEAD. It sent payer/payee/amount/token to
+        `create_payment(agent_id, recipient, amount, token, purpose)`, so every
+        call raised TypeError on the unexpected `payer`/`payee` and the
+        required `purpose` was never supplied. The x402 payment-creation
+        endpoint has never worked over HTTP; only the ACTION_MAP path did.
+
+        The body keys stay payer/payee for wire compatibility (nothing that
+        works today is broken by keeping them) and are mapped to the method's
+        real parameter names here.
+        """
         body = await self._parse_body(request)
         self._require(body, "payer", "payee", "amount", "token")
         result = await self._call(
             "x402_payments", "create_payment",
-            payer=body["payer"],
-            payee=body["payee"],
+            agent_id=body["payer"],
+            recipient=body["payee"],
             amount=float(body["amount"]),
             token=body["token"],
+            purpose=body.get("purpose", ""),
         )
         return self._ok(result)
 
@@ -2093,65 +2096,10 @@ class ServiceRoutes:
 
     # -- Payments Expanded --
 
-    async def _handle_stream_create(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "sender", "recipient", "token", "total_amount", "duration")
-        result = await self._call(
-            "x402_payments", "create_stream",
-            sender=body["sender"],
-            recipient=body["recipient"],
-            token=body["token"],
-            total_amount=float(body["total_amount"]),
-            duration=body["duration"],
-        )
-        return self._ok(result)
 
-    async def _handle_recurring_create(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "payer", "payee", "token", "amount", "interval")
-        result = await self._call(
-            "x402_payments", "create_recurring",
-            payer=body["payer"],
-            payee=body["payee"],
-            token=body["token"],
-            amount=float(body["amount"]),
-            interval=body["interval"],
-        )
-        return self._ok(result)
 
-    async def _handle_escrow_milestone(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "escrow_id", "milestone_id", "action")
-        result = await self._call(
-            "x402_payments", "escrow_milestone",
-            escrow_id=body["escrow_id"],
-            milestone_id=body["milestone_id"],
-            action=body["action"],
-        )
-        return self._ok(result)
 
-    async def _handle_payment_split(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "payer", "recipients", "token", "total_amount")
-        result = await self._call(
-            "x402_payments", "split_payment",
-            payer=body["payer"],
-            recipients=body["recipients"],
-            token=body["token"],
-            total_amount=float(body["total_amount"]),
-        )
-        return self._ok(result)
 
-    async def _handle_payroll_run(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "employer", "employees", "token")
-        result = await self._call(
-            "x402_payments", "run_payroll",
-            employer=body["employer"],
-            employees=body["employees"],
-            token=body["token"],
-        )
-        return self._ok(result)
 
     # -- Compute & Storage --
 

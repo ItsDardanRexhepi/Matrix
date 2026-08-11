@@ -3190,95 +3190,58 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # ===================================================================
 
     "stream_payment": {
-        "action_name": "stream_payment",
-        "description": "Start a payment stream that sends money continuously by the second.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient wallet address.", "example": "0xrecipient..."},
-            {"name": "rate_per_second", "type": "number", "description": "Amount sent per second.", "example": 0.0001},
-            {"name": "asset", "type": "string", "description": "Token to stream.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "duration_seconds", "type": "integer", "description": "Total stream duration in seconds (indefinite if omitted).", "default": None},
-            {"name": "start_time", "type": "string", "description": "When to start the stream (ISO datetime, defaults to now).", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
+            "no value at all: no transfer, no counterparty, no disbursement. "
+            "The platform has no implementation of this operation."
+        ),
         "keywords": ["stream payment", "streaming payment", "pay by second", "continuous payment", "real-time payment", "salary stream"],
-        "follow_up": "Who are you streaming to, at what rate per second, and in which token? Would you like a fixed duration or open-ended?",
-        "example_conversation": (
-            "User: I want to set up a salary stream for a contractor\n"
-            "Trinity: That's a great way to pay — real-time, by the second. Who's the recipient, what rate per second, and which token?\n"
-            "User: 0xcontractor, 0.001 USDC per second, for 30 days\n"
-            "Trinity: Starting a USDC payment stream to 0xcontractor at 0.001 per second for 30 days. That works out to about 2,592 USDC total. They can withdraw anytime.\n"
-            "Trinity: [calls platform_action with action='stream_payment', params={recipient: '0xcontractor', rate_per_second: 0.001, asset: 'USDC', duration_seconds: 2592000}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, and "
+            "the previous one reported success while paying no one."
         ),
     },
 
     "recurring_create": {
-        "action_name": "recurring_create",
-        "description": "Set up a recurring automatic payment on a schedule.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient wallet address.", "example": "0xlandlord..."},
-            {"name": "amount", "type": "number", "description": "Amount per payment.", "example": 1500.0},
-            {"name": "asset", "type": "string", "description": "Token to pay with.", "example": "USDC"},
-            {"name": "interval", "type": "string", "description": "Payment frequency (daily, weekly, monthly).", "example": "monthly"},
-        ],
-        "optional_params": [
-            {"name": "start_date", "type": "string", "description": "When to start the recurring payment (ISO date).", "default": None},
-            {"name": "end_date", "type": "string", "description": "When to stop the recurring payment.", "default": None},
-            {"name": "memo", "type": "string", "description": "Payment memo or note.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
+            "no value at all: no transfer, no counterparty, no disbursement. "
+            "The platform has no implementation of this operation."
+        ),
         "keywords": ["recurring payment", "automatic payment", "autopay", "scheduled payment", "monthly payment"],
-        "follow_up": "Who's the recipient, how much each time, which token, and how often — daily, weekly, or monthly?",
-        "example_conversation": (
-            "User: I want to set up an automatic monthly payment\n"
-            "Trinity: Easy. Who are you paying, how much, and in which token?\n"
-            "User: 1500 USDC to 0xlandlord every month\n"
-            "Trinity: Setting up a monthly recurring payment of 1,500 USDC to 0xlandlord. It'll go out automatically each month until you cancel.\n"
-            "Trinity: [calls platform_action with action='recurring_create', params={recipient: '0xlandlord', amount: 1500.0, asset: 'USDC', interval: 'monthly'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, and "
+            "the previous one reported success while paying no one."
         ),
     },
 
     "escrow_milestone": {
-        "action_name": "escrow_milestone",
-        "description": "Create a milestone-based escrow — funds release as milestones are completed.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient who receives funds on milestone completion.", "example": "0xfreelancer..."},
-            {"name": "total_amount", "type": "number", "description": "Total amount to escrow.", "example": 10000.0},
-            {"name": "milestones", "type": "array", "description": "List of milestones with descriptions and amounts.", "example": [{"name": "Design", "amount": 3000}, {"name": "Development", "amount": 5000}, {"name": "Testing", "amount": 2000}]},
-        ],
-        "optional_params": [
-            {"name": "asset", "type": "string", "description": "Token to use for escrow.", "default": "USDC"},
-            {"name": "arbiter", "type": "string", "description": "Optional arbiter address for dispute resolution.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
+            "no value at all: no transfer, no counterparty, no disbursement. "
+            "The platform has no implementation of this operation."
+        ),
         "keywords": ["escrow", "milestone payment", "escrow release", "project payment", "milestone escrow"],
-        "follow_up": "Who's the recipient, what's the total amount, and what are the milestones and their payment amounts?",
-        "example_conversation": (
-            "User: I want to set up a milestone escrow for a freelance project\n"
-            "Trinity: Great way to protect both sides. Who's the freelancer, what's the total budget, and what are the milestones?\n"
-            "User: 0xfreelancer, $10k total — $3k for design, $5k for development, $2k for testing\n"
-            "Trinity: Creating a milestone escrow with 10,000 USDC. Funds release as each milestone is completed — Design ($3k), Development ($5k), Testing ($2k).\n"
-            "Trinity: [calls platform_action with action='escrow_milestone', params={recipient: '0xfreelancer', total_amount: 10000.0, milestones: [{name: 'Design', amount: 3000}, {name: 'Development', amount: 5000}, {name: 'Testing', amount: 2000}]}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, and "
+            "the previous one reported success while paying no one."
         ),
     },
 
     "payment_split": {
-        "action_name": "payment_split",
-        "description": "Split a payment among multiple recipients.",
-        "required_params": [
-            {"name": "recipients", "type": "array", "description": "List of recipient addresses.", "example": ["0xalice...", "0xbob...", "0xcharlie..."]},
-            {"name": "amounts", "type": "array", "description": "List of amounts corresponding to each recipient.", "example": [100.0, 200.0, 300.0]},
-            {"name": "asset", "type": "string", "description": "Token to split.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Payment memo or reason.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
+            "no value at all: no transfer, no counterparty, no disbursement. "
+            "The platform has no implementation of this operation."
+        ),
         "keywords": ["split payment", "divide payment", "split bill", "pay multiple", "shared payment"],
-        "follow_up": "Who are the recipients, how much does each person get, and which token?",
-        "example_conversation": (
-            "User: I need to split a payment between three people\n"
-            "Trinity: Sure thing. Who are the recipients, how much does each one get, and which token?\n"
-            "User: Alice gets 100, Bob gets 200, Charlie gets 300 — all USDC\n"
-            "Trinity: Splitting the payment — 100 USDC to Alice, 200 to Bob, 300 to Charlie. All sent in a single transaction.\n"
-            "Trinity: [calls platform_action with action='payment_split', params={recipients: ['0xalice', '0xbob', '0xcharlie'], amounts: [100.0, 200.0, 300.0], asset: 'USDC'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, and "
+            "the previous one reported success while paying no one."
         ),
     },
 
@@ -3307,47 +3270,30 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "invoice_factor": {
-        "action_name": "invoice_factor",
-        "description": "Factor an invoice on-chain — get paid immediately against outstanding invoices.",
-        "required_params": [
-            {"name": "invoice_id", "type": "string", "description": "Identifier of the invoice to factor.", "example": "inv_2024_001"},
-            {"name": "amount", "type": "number", "description": "Invoice amount.", "example": 25000.0},
-            {"name": "due_date", "type": "string", "description": "When the invoice is due (ISO date).", "example": "2026-06-15"},
-        ],
-        "optional_params": [
-            {"name": "discount_rate", "type": "number", "description": "Acceptable discount rate for early payment.", "default": None},
-            {"name": "asset", "type": "string", "description": "Token to receive the advance in.", "default": "USDC"},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
+            "no value at all: no transfer, no counterparty, no disbursement. "
+            "The platform has no implementation of this operation."
+        ),
         "keywords": ["invoice factoring", "factor invoice", "early payment", "invoice financing"],
-        "follow_up": "Which invoice do you want to factor, what's the amount, and when is it due?",
-        "example_conversation": (
-            "User: I need cash now against an outstanding invoice\n"
-            "Trinity: Invoice factoring can help with that. What's the invoice ID, the amount, and when is it due?\n"
-            "User: Invoice inv_2024_001, $25,000, due June 15th\n"
-            "Trinity: Factoring invoice inv_2024_001 for $25,000 due 2026-06-15. You'll get paid upfront at a small discount, and the buyer pays the full amount on the due date.\n"
-            "Trinity: [calls platform_action with action='invoice_factor', params={invoice_id: 'inv_2024_001', amount: 25000.0, due_date: '2026-06-15'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, and "
+            "the previous one reported success while paying no one."
         ),
     },
 
     "payroll_run": {
-        "action_name": "payroll_run",
-        "description": "Execute a crypto payroll run for multiple recipients.",
-        "required_params": [
-            {"name": "payroll_list", "type": "array", "description": "List of payroll entries with recipient and amount.", "example": [{"address": "0xalice", "amount": 5000}, {"address": "0xbob", "amount": 4500}]},
-            {"name": "asset", "type": "string", "description": "Token to pay in.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Payroll memo (e.g. 'April 2026 salaries').", "default": None},
-            {"name": "tax_withholding", "type": "boolean", "description": "Whether to apply tax withholding calculations.", "default": False},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
+            "no value at all: no transfer, no counterparty, no disbursement. "
+            "The platform has no implementation of this operation."
+        ),
         "keywords": ["payroll", "pay employees", "salary distribution", "mass payment", "batch payroll"],
-        "follow_up": "Who's on the payroll, how much does each person get, and which token?",
-        "example_conversation": (
-            "User: I need to run payroll for my team\n"
-            "Trinity: Let's get everyone paid. How many people, how much each, and which token?\n"
-            "User: Alice gets 5000 USDC, Bob gets 4500 USDC\n"
-            "Trinity: Running payroll — 5,000 USDC to Alice, 4,500 USDC to Bob. All payments go out in a single batch transaction.\n"
-            "Trinity: [calls platform_action with action='payroll_run', params={payroll_list: [{address: '0xalice', amount: 5000}, {address: '0xbob', amount: 4500}], asset: 'USDC'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, and "
+            "the previous one reported success while paying no one."
         ),
     },
 

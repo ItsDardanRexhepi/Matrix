@@ -327,13 +327,7 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "rwa_income_claim": ("rwa_tokenization", "claim_income"),
     "rwa_verify": ("rwa_tokenization", "verify_provenance"),
     # ── Payments Expanded ────────────────────────────────────────
-    "stream_payment": ("x402_payments", "create_stream"),
-    "recurring_create": ("x402_payments", "create_recurring"),
-    "escrow_milestone": ("x402_payments", "create_milestone_escrow"),
-    "payment_split": ("x402_payments", "split_payment"),
     "cross_border_remit": ("cross_border", "remit"),
-    "invoice_factor": ("x402_payments", "factor_invoice"),
-    "payroll_run": ("x402_payments", "run_payroll"),
     # ── Privacy ──────────────────────────────────────────────────
     "zk_proof_generate": ("privacy", "generate_zk_proof"),
     # ── Social Expanded ──────────────────────────────────────────
@@ -367,6 +361,10 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     # NEW-48: private_vote / confidential_compute / arweave_store REMOVED —
     # their methods are gone (no twin to delegate to; see privacy/service.py).
     # The three below are KEPT and now delegate to real external clients.
+    # NEW-57: stream_payment / recurring_create / escrow_milestone /
+    # payment_split / invoice_factor / payroll_run REMOVED — all six were
+    # fabrication-live and moved nothing. No twin: payments.py is a
+    # single-transfer primitive, not a batch-disbursement engine.
     "decentralized_store": ("privacy", "decentralized_store"),
     "compute_job_submit": ("privacy", "submit_compute_job"),
     "ipfs_pin": ("privacy", "pin_to_ipfs"),
@@ -434,8 +432,7 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "soulbound_mint", "timelock_queue", "multisig_propose", "multisig_approve",
     "snapshot_vote", "treasury_transfer", "parameter_change",
     "rwa_tokenize", "rwa_fractional_buy", "rwa_income_claim",
-    "stream_payment", "recurring_create", "escrow_milestone", "payment_split",
-    "cross_border_remit", "invoice_factor", "payroll_run",
+    "cross_border_remit",
     "zk_proof_generate",  # NEW-48: private_vote + confidential_compute removed
     "social_post", "social_gate", "creator_monetize",
     "community_create", "message_encrypt",
@@ -489,9 +486,6 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "market_resolve": "prediction_market_resolved",
     "carbon_credit_buy": "carbon_credit_purchased",
     "carbon_credit_retire": "carbon_credit_retired",
-    "stream_payment": "payment_streamed",
-    "recurring_create": "recurring_payment_created",
-    "escrow_milestone": "escrow_created",
     "social_post": "social_post_published",
     "community_create": "community_created",
     "ai_agent_register": "ai_agent_registered",
