@@ -1,4 +1,26 @@
-"""D6 — repo-wide fabrication-shape detector (promoted from NEW-61).
+"""D6 — repo-wide UUID-MINT-NO-AWAIT shape detector (promoted from NEW-61).
+
+RENAMED 2026-08-11, and the rename is the point. This was called
+`test_fabrication_shape_detector.py` — "the fabrication shape detector" — a
+name that promises coverage of the whole fabrication class. It does not have
+it. The shape below requires ZERO awaits, so a fabrication that awaits local
+helpers is invisible to it. `CrossBorderService.send_payment` — the largest
+fabrication on the money path — awaits compliance, FX conversion and
+attestation, all in-process, and slips through.
+
+A control whose NAME overstates its SCOPE is the same defect as a method whose
+docstring overstates its behaviour, and this engagement has found seven of
+those. Green here means "no new uuid-mint-no-await instances", not "no new
+fabrications". The delivery-claim half is D7
+(`test_fake_delivery_detector.py`), which detects on a different axis: what a
+method CLAIMS rather than what it LACKS.
+
+Widening this shape to cover D7's class was tried and measured, and it is
+wrong in both directions — it drops 5 known instances and falsely flags
+`InsuranceService.file_claim`, which NEW-78 had just made genuinely real. Two
+detectors, two axes, is the honest structure. Do not merge them without
+re-running that measurement.
+
 
 NEW-61 culled ten methods from the defi service that shared one body shape:
 mint a uuid, set a hardcoded success status, write the dict into an in-process
