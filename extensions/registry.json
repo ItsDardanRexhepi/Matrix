@@ -3,7 +3,7 @@
   "platform": "0pnMatrx",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
-  "total_capabilities": 199,
+  "total_capabilities": 196,
   "total_categories": 20,
   "components": [
     {
@@ -31,7 +31,7 @@
     {
       "id": "defi",
       "name": "DeFi",
-      "description": "7 capabilities in the DeFi category",
+      "description": "4 capabilities in the DeFi category",
       "category": "defi",
       "min_tier": "free",
       "limits": {
@@ -43,16 +43,13 @@
       },
       "gateway_actions": [
         "create_loan",
-        "deposit_collateral",
-        "get_health_factor",
         "get_loan",
         "repay_loan",
-        "swap_tokens",
-        "withdraw_collateral"
+        "swap_tokens"
       ],
       "icon": "chart.line.uptrend.xyaxis",
       "available": true,
-      "capability_count": 7
+      "capability_count": 4
     },
     {
       "id": "defi_advanced",

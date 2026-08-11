@@ -241,22 +241,30 @@ def test_the_real_amm_actions_are_untouched():
     assert hasattr(LiquidityPoolManager, "remove_liquidity")
 
 
-def test_real_collateral_management_is_now_reachable():
-    """THE REPOINT. collateral_manage's twin was real but exposed nowhere,
-    while the fabrication was exposed everywhere — so deleting the fabrication
-    alone would have removed the only reachable path to a working capability.
-    The real methods take its place."""
+def test_the_repoint_was_reversed_by_new_64():
+    """THE REPOINT WAS WRONG AND IS GONE.
+
+    This test previously asserted that deposit_collateral /
+    withdraw_collateral / get_health_factor were registered in ACTION_MAP,
+    replacing the fabricated collateral_manage. NEW-64 reversed that: the twin
+    is real as COMPUTATION but false as CUSTODY (an in-process dict — no
+    escrow, no chain, no persistence), and registering it also enrolled it in
+    _STATE_MODIFYING_ACTIONS, which mints an attestation and publishes a
+    public feed event.
+
+    Inverted rather than deleted, so the reversal is visible at the exact spot
+    that once asserted the opposite. Full coverage lives in
+    tests/test_collateral_actions_unexposed.py.
+    """
     from runtime.blockchain.services.service_dispatcher import ACTION_MAP
 
-    for action, method in (
-        ("deposit_collateral", "deposit_collateral"),
-        ("withdraw_collateral", "withdraw_collateral"),
-        ("get_health_factor", "get_health_factor"),
-    ):
-        assert ACTION_MAP[action] == ("defi", method), (
-            f"{action} does not resolve to the real method"
+    for action in ("deposit_collateral", "withdraw_collateral",
+                   "get_health_factor"):
+        assert action not in ACTION_MAP, (
+            f"{action} is registered again — see the NEW-64 lifting condition"
         )
-        assert hasattr(DeFiService, method)
+        # the METHOD survives; only the public surface is withdrawn
+        assert hasattr(DeFiService, action)
 
 
 async def test_the_repointed_collateral_actions_actually_work():

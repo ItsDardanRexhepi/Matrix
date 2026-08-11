@@ -300,13 +300,38 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     #
     # collateral_manage was NOT simply dropped. Its twin is real
     # (CollateralManager.deposit / withdraw) but was exposed on no surface at
-    # all, so deleting the fabrication alone would have removed the only
-    # reachable path to a capability that genuinely works. The two real
-    # methods are registered here in its place — the health-factor check that
-    # guards withdrawal is the one fixed in NEW-55c.
-    "deposit_collateral": ("defi", "deposit_collateral"),
-    "withdraw_collateral": ("defi", "withdraw_collateral"),
-    "get_health_factor": ("defi", "get_health_factor"),
+    # all, so NEW-61 registered deposit_collateral / withdraw_collateral /
+    # get_health_factor here in its place.
+    #
+    # NEW-64: THAT REGISTRATION IS REVERSED. It was wrong, and this is the
+    # correction.
+    #
+    # The twin is real AS COMPUTATION and false AS CUSTODY. CollateralManager
+    # increments a Python dict: no escrow, no chain interaction, no
+    # persistence across a restart. Every other lending entry point on this
+    # service is deployment-gated (create_loan at service.py:94 and its sole
+    # writer LoanManager.create_loan at loans.py:128); these three carried NO
+    # gate, so they were the only live lending surface in the service.
+    #
+    # The aggravating factor: deposit_collateral / withdraw_collateral were
+    # placed in _STATE_MODIFYING_ACTIONS below, and membership in that set is
+    # exactly what triggers _attest_action() plus a fire-and-forget publish to
+    # the public social feed. So a dict increment minted an attestation and
+    # announced custody publicly — strictly worse than the fabrication it
+    # replaced, because the fabrication did not attest.
+    #
+    # LIFTING CONDITION — do not re-register any of these until BOTH hold:
+    #   1. the operation actually holds value (real escrow or a real on-chain
+    #      position), or the response discloses that it does not, in the
+    #      RECORDED_UNSETTLED idiom (settled=False / value_moved=False); AND
+    #   2. NEW-62 is fixed — service.py passes repaid_amount (principal plus
+    #      interest) into a principal-only ledger, collateral.py clamps the
+    #      overshoot with max(0, ...), and a zero ledger makes withdraw's
+    #      `total_borrows_usd > 0` conjunct False, disabling the health check
+    #      entirely. Reproduced: repay $10,000 of a $10,202 debt, loan stays
+    #      ACTIVE owing $202, guard reports no_borrows, all collateral
+    #      withdraws.
+    # Pinned by tests/test_collateral_actions_unexposed.py.
     "cross_chain_bridge": ("cross_border", "bridge_transfer"),
     # ── NFT Expanded ─────────────────────────────────────────────
     "nft_fractionalize": ("nft_services", "fractionalize"),
@@ -433,9 +458,14 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "file_dispute", "submit_dispute_evidence", "resolve_dispute", "appeal_dispute",
     # ── Expanded state-modifying actions ─────────────────────────
     # NEW-61: the ten removed defi fabrications are gone from here too.
-    # deposit_collateral / withdraw_collateral replace collateral_manage and
-    # ARE state-modifying (they mutate the real balance ledger).
-    "deposit_collateral", "withdraw_collateral",
+    #
+    # NEW-64: deposit_collateral / withdraw_collateral removed from this set
+    # as well, not only from ACTION_MAP. Membership here is what makes
+    # execute() call _attest_action() and publish to the social feed, so an
+    # unremoved entry would keep minting attestations for a dict increment
+    # even after the action itself was unregistered. Removing an action from
+    # one table and leaving it in the table that grants it authority is the
+    # same half-removal that left dangling handlers in domain 4.
     "cross_chain_bridge",
     "nft_fractionalize", "nft_rent", "nft_dynamic_update", "nft_batch_mint",
     "nft_royalty_claim", "nft_bridge", "did_create", "credential_issue",

@@ -244,10 +244,34 @@ class DeFiService:
 
     # ── Collateral Operations ────────────────────────────────────────
 
+    # ── Internal collateral bookkeeping — NOT a public surface (NEW-64) ──
+    #
+    # These three are kept as internal helpers and are DELIBERATELY exposed on
+    # no surface: not ACTION_MAP, not the capability catalog, not
+    # extensions/registry.json, and therefore not the model's tool-schema enum
+    # (which is derived from ACTION_MAP.keys()).
+    #
+    # NEW-61 registered them as public actions to replace the fabricated
+    # collateral_manage. That was wrong and NEW-64 reversed it. The reasoning
+    # that justified it — "the twin is REAL" — used the wrong standard:
+    # CollateralManager does genuine arithmetic over prior state, which makes
+    # it real AS COMPUTATION, but it increments a Python dict, which makes it
+    # false AS CUSTODY. "Not a uuid-minting stub" was the bar for culling
+    # fabrications; it is not clearance for a surface that says it holds
+    # someone's money.
+    #
+    # DO NOT re-expose without meeting the lifting condition recorded beside
+    # ACTION_MAP in service_dispatcher.py (real escrow or explicit
+    # value_moved=False disclosure, AND the NEW-62 ledger fix).
+
     async def deposit_collateral(
         self, user: str, token: str, amount: float
     ) -> dict[str, Any]:
-        """Deposit collateral for a user."""
+        """Deposit collateral for a user. INTERNAL — see NEW-64 note above.
+
+        Records the deposit in an in-process ledger. Escrows nothing, touches
+        no chain, and does not survive a restart.
+        """
         result = await self._collateral_manager.deposit(user, token, amount)
         self._loan_manager.update_pool_total(token, amount)
         return result

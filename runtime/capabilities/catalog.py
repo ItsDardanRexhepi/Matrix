@@ -143,10 +143,14 @@ CAPABILITIES: list[dict[str, Any]] = [
     # (add_liquidity / remove_liquidity) while ACTION_MAP dispatched them to
     # the defi fabrication, so this surface described a capability the
     # dispatcher never used. The real AMM is already catalogued through the
-    # dex actions. Real collateral management is catalogued below.
-    _cap("deposit_collateral",  "Deposit Collateral",  "defi", "defi", "deposit_collateral"),
-    _cap("withdraw_collateral", "Withdraw Collateral", "defi", "defi", "withdraw_collateral"),
-    _cap("get_health_factor",   "Position Health",     "defi", "defi", "get_health_factor", state_modifying=False, uses_paymaster=False),
+    # dex actions.
+    #
+    # NEW-64: the three collateral rows NEW-61 added here are removed. The
+    # catalog is served to clients as the list of available capabilities, and
+    # _cap defaults to available=True — so cataloguing them advertised custody
+    # the code does not perform (CollateralManager is an in-process dict: no
+    # escrow, no chain, no persistence). See the lifting condition in
+    # service_dispatcher.py's ACTION_MAP.
 
     # ── DeFi Advanced ──────────────────────────────────────────────────────
     # NEW-61: perp_trade / options_trade / synthetic_asset / leverage_position
