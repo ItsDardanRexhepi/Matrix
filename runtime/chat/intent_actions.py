@@ -1682,11 +1682,23 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             {"name": "amount_b", "type": "number", "description": "Amount of second token.", "example": 3000},
         ],
         "optional_params": [],
-        # Legacy alias — overlapping keywords ("add liquidity", "provide liquidity",
-        # "liquidity pool") consolidated into liquidity_provide (P3-12), which is the
-        # canonical entry (richer params: price ranges, protocol). Kept reachable by
-        # direct action-name calls and its own non-overlapping keywords.
-        "keywords": ["LP", "become LP"],
+        # NEW-61: canonical again. P3-12 resolved the add_liquidity /
+        # liquidity_provide keyword collision in favour of liquidity_provide,
+        # demoting THIS entry to a "legacy alias" with only ["LP", "become LP"]
+        # — and liquidity_provide was the FABRICATION (uuid + status, no pool,
+        # no shares). The stated reason was that it had "richer params: price
+        # ranges, protocol"; those params were exactly the invented ones, which
+        # the real dex method cannot accept and the fabrication never read. The
+        # collision was resolved toward the fake BECAUSE the fake looked
+        # richer — apparent richness was the tell, not the credential.
+        #
+        # With the fabrication removed, the natural-language keywords return to
+        # the entry backed by the real constant-product AMM
+        # (dex/service.py:217 -> dex/pools.py:151).
+        "keywords": [
+            "add liquidity", "provide liquidity", "liquidity pool",
+            "LP", "become LP",
+        ],
         "follow_up": "Which pair and how much of each token?",
         "example_conversation": (
             "User: Add liquidity to ETH/USDC pool\n"
@@ -2458,171 +2470,6 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # DeFi Expanded
     # ===================================================================
 
-    "flash_loan": {
-        "action_name": "flash_loan",
-        "description": "Execute a flash loan — borrow and repay in a single atomic transaction.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The token to borrow.", "example": "USDC"},
-            {"name": "amount", "type": "number", "description": "Amount to borrow.", "example": 50000.0},
-            {"name": "strategy", "type": "string", "description": "Strategy for the flash loan (arbitrage, liquidation, collateral_swap).", "example": "arbitrage"},
-        ],
-        "optional_params": [
-            {"name": "protocol", "type": "string", "description": "Which lending protocol to use (aave, dydx, etc.).", "default": "auto"},
-            {"name": "slippage_tolerance", "type": "number", "description": "Maximum slippage percentage allowed.", "default": 0.5},
-        ],
-        "keywords": ["flash loan", "flash borrow", "atomic loan", "instant borrow", "arbitrage loan", "flash lending"],
-        "follow_up": "Which asset would you like to flash-borrow, how much, and what strategy are you running — arbitrage, liquidation, or a collateral swap?",
-        "example_conversation": (
-            "User: I want to do a flash loan for arbitrage\n"
-            "Trinity: Absolutely. Which token do you want to borrow, and how much? I'll set it up as a single atomic transaction so everything settles in one block.\n"
-            "User: 100,000 USDC\n"
-            "Trinity: Got it — 100k USDC flash loan for arbitrage. Let me execute that for you.\n"
-            "Trinity: [calls platform_action with action='flash_loan', params={asset: 'USDC', amount: 100000.0, strategy: 'arbitrage'}]"
-        ),
-    },
-
-    "yield_optimize": {
-        "action_name": "yield_optimize",
-        "description": "Find and deposit into the best yield-earning opportunity across all protocols.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The token to earn yield on.", "example": "ETH"},
-            {"name": "amount", "type": "number", "description": "Amount to deposit.", "example": 10.0},
-        ],
-        "optional_params": [
-            {"name": "risk_tolerance", "type": "string", "description": "Your risk comfort level (low, medium, high).", "default": "medium"},
-            {"name": "min_apy", "type": "number", "description": "Minimum APY threshold to consider.", "default": 0.0},
-        ],
-        "keywords": ["best yield", "maximize yield", "yield optimize", "earn more", "best rate", "highest apy", "yield farming", "where to earn"],
-        "follow_up": "Which token do you want to earn yield on, and how much are you looking to deposit? I can also factor in your risk tolerance if you'd like.",
-        "example_conversation": (
-            "User: Where can I get the best yield on my ETH?\n"
-            "Trinity: Great question. How much ETH are you looking to put to work? And do you have a risk preference — low, medium, or high?\n"
-            "User: About 5 ETH, and keep it medium risk\n"
-            "Trinity: Perfect. I'll scan all the protocols and find you the best medium-risk opportunity for 5 ETH.\n"
-            "Trinity: [calls platform_action with action='yield_optimize', params={asset: 'ETH', amount: 5.0, risk_tolerance: 'medium'}]"
-        ),
-    },
-
-    "liquidity_provide": {
-        "action_name": "liquidity_provide",
-        "description": "Add liquidity to a trading pool and earn trading fees.",
-        "required_params": [
-            {"name": "token_a", "type": "string", "description": "First token in the pair.", "example": "ETH"},
-            {"name": "token_b", "type": "string", "description": "Second token in the pair.", "example": "USDC"},
-            {"name": "amount_a", "type": "number", "description": "Amount of the first token to provide.", "example": 2.0},
-        ],
-        "optional_params": [
-            {"name": "amount_b", "type": "number", "description": "Amount of the second token (auto-calculated if omitted).", "default": None},
-            {"name": "price_range_lower", "type": "number", "description": "Lower price bound for concentrated liquidity.", "default": None},
-            {"name": "price_range_upper", "type": "number", "description": "Upper price bound for concentrated liquidity.", "default": None},
-            {"name": "protocol", "type": "string", "description": "Which DEX to provide liquidity on.", "default": "auto"},
-        ],
-        "keywords": ["add liquidity", "provide liquidity", "liquidity pool", "LP position", "become liquidity provider", "earn trading fees"],
-        "follow_up": "Which token pair would you like to provide liquidity for, and how much of the first token are you putting in?",
-        "example_conversation": (
-            "User: I want to add liquidity to a pool\n"
-            "Trinity: Sure thing! Which two tokens do you want to pair up, and how much of the first token are you contributing?\n"
-            "User: ETH and USDC, putting in 3 ETH\n"
-            "Trinity: Nice — I'll set up your LP position with 3 ETH paired with USDC. The matching USDC amount will be calculated at the current market ratio.\n"
-            "Trinity: [calls platform_action with action='liquidity_provide', params={token_a: 'ETH', token_b: 'USDC', amount_a: 3.0}]"
-        ),
-    },
-
-    "perp_trade": {
-        "action_name": "perp_trade",
-        "description": "Open a perpetual futures position with leverage.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The asset to trade.", "example": "BTC"},
-            {"name": "direction", "type": "string", "description": "Trade direction (long or short).", "example": "long"},
-            {"name": "size", "type": "number", "description": "Position size in the asset.", "example": 0.5},
-            {"name": "leverage", "type": "number", "description": "Leverage multiplier.", "example": 5.0},
-        ],
-        "optional_params": [
-            {"name": "stop_loss", "type": "number", "description": "Stop-loss price.", "default": None},
-            {"name": "take_profit", "type": "number", "description": "Take-profit price.", "default": None},
-            {"name": "protocol", "type": "string", "description": "Which perps exchange to use.", "default": "auto"},
-        ],
-        "keywords": ["perpetual", "perp trade", "futures", "go long", "go short", "leveraged trade", "perpetual contract"],
-        "follow_up": "Which asset are you trading, do you want to go long or short, how big is the position, and what leverage?",
-        "example_conversation": (
-            "User: I want to go long on BTC with leverage\n"
-            "Trinity: Let's set that up. How much BTC do you want for your position size, and what leverage are you thinking?\n"
-            "User: 0.5 BTC at 10x\n"
-            "Trinity: Got it — opening a 10x long on 0.5 BTC. Would you like to set a stop-loss or take-profit, or just open it as is?\n"
-            "User: Just open it\n"
-            "Trinity: [calls platform_action with action='perp_trade', params={asset: 'BTC', direction: 'long', size: 0.5, leverage: 10.0}]"
-        ),
-    },
-
-    "options_trade": {
-        "action_name": "options_trade",
-        "description": "Trade on-chain options contracts.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The underlying asset.", "example": "ETH"},
-            {"name": "option_type", "type": "string", "description": "Type of option (call or put).", "example": "call"},
-            {"name": "strike_price", "type": "number", "description": "The strike price of the option.", "example": 3500.0},
-            {"name": "expiry", "type": "string", "description": "Expiration date in ISO format.", "example": "2026-05-15"},
-        ],
-        "optional_params": [
-            {"name": "quantity", "type": "number", "description": "Number of option contracts.", "default": 1},
-            {"name": "action", "type": "string", "description": "Whether to buy or sell the option.", "default": "buy"},
-            {"name": "protocol", "type": "string", "description": "Which options protocol to use.", "default": "auto"},
-        ],
-        "keywords": ["options", "call option", "put option", "options trade", "buy calls", "buy puts"],
-        "follow_up": "Which asset do you want options on, call or put, what strike price, and when should it expire?",
-        "example_conversation": (
-            "User: I want to buy some ETH calls\n"
-            "Trinity: Great — what strike price are you targeting, and when do you want them to expire?\n"
-            "User: Strike at 3500, expiring May 15th\n"
-            "Trinity: Perfect. Buying ETH call options with a 3500 strike, expiring 2026-05-15.\n"
-            "Trinity: [calls platform_action with action='options_trade', params={asset: 'ETH', option_type: 'call', strike_price: 3500.0, expiry: '2026-05-15'}]"
-        ),
-    },
-
-    "synthetic_asset": {
-        "action_name": "synthetic_asset",
-        "description": "Create a synthetic asset that tracks the price of any real-world asset.",
-        "required_params": [
-            {"name": "underlying", "type": "string", "description": "The real-world asset to track (e.g. gold, AAPL, oil).", "example": "gold"},
-            {"name": "amount", "type": "number", "description": "Amount of synthetic exposure to create.", "example": 1000.0},
-        ],
-        "optional_params": [
-            {"name": "collateral_asset", "type": "string", "description": "Token used as collateral to back the synthetic.", "default": "USDC"},
-            {"name": "collateral_ratio", "type": "number", "description": "Collateralization ratio as a percentage.", "default": 150.0},
-        ],
-        "keywords": ["synthetic", "synthetic asset", "price tracker", "mirror asset", "tokenized exposure"],
-        "follow_up": "Which real-world asset do you want to track, and how much synthetic exposure would you like to create?",
-        "example_conversation": (
-            "User: I want exposure to gold on-chain\n"
-            "Trinity: Nice choice. How much synthetic gold do you want to create? I'll mint you a token that tracks gold's price in real time.\n"
-            "User: About $5,000 worth\n"
-            "Trinity: Got it — creating $5,000 of synthetic gold exposure backed by collateral.\n"
-            "Trinity: [calls platform_action with action='synthetic_asset', params={underlying: 'gold', amount: 5000.0}]"
-        ),
-    },
-
-    "vault_deposit": {
-        "action_name": "vault_deposit",
-        "description": "Deposit into an automated yield vault that optimizes returns.",
-        "required_params": [
-            {"name": "vault_id", "type": "string", "description": "The identifier of the vault.", "example": "yearn-eth-v3"},
-            {"name": "amount", "type": "number", "description": "Amount to deposit.", "example": 5.0},
-        ],
-        "optional_params": [
-            {"name": "asset", "type": "string", "description": "The deposit token if the vault accepts multiple.", "default": None},
-            {"name": "auto_compound", "type": "boolean", "description": "Whether to auto-compound earnings.", "default": True},
-        ],
-        "keywords": ["vault", "yield vault", "auto compound", "vault deposit", "automated yield"],
-        "follow_up": "Which vault would you like to deposit into, and how much are you putting in?",
-        "example_conversation": (
-            "User: I want to deposit into a yield vault\n"
-            "Trinity: Sure! Which vault are you interested in, and how much do you want to deposit? I'll handle the rest — the vault auto-compounds your earnings.\n"
-            "User: The Yearn ETH v3 vault, 10 ETH\n"
-            "Trinity: Depositing 10 ETH into the Yearn ETH v3 vault with auto-compounding enabled.\n"
-            "Trinity: [calls platform_action with action='vault_deposit', params={vault_id: 'yearn-eth-v3', amount: 10.0}]"
-        ),
-    },
-
     "cross_chain_bridge": {
         "action_name": "cross_chain_bridge",
         "description": "Bridge assets safely from one blockchain network to another.",
@@ -2646,56 +2493,6 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             "Trinity: [calls platform_action with action='cross_chain_bridge', params={asset: 'USDC', amount: 2000.0, from_chain: 'ethereum', to_chain: 'polygon'}]"
         ),
     },
-
-    "leverage_position": {
-        "action_name": "leverage_position",
-        "description": "Open a leveraged position on an asset.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The asset to take a leveraged position on.", "example": "ETH"},
-            {"name": "amount", "type": "number", "description": "Base amount of collateral.", "example": 5.0},
-            {"name": "leverage", "type": "number", "description": "Leverage multiplier.", "example": 3.0},
-            {"name": "direction", "type": "string", "description": "Position direction (long or short).", "example": "long"},
-        ],
-        "optional_params": [
-            {"name": "stop_loss", "type": "number", "description": "Stop-loss price.", "default": None},
-            {"name": "protocol", "type": "string", "description": "Which protocol to open the position on.", "default": "auto"},
-        ],
-        "keywords": ["leverage", "leveraged position", "margin trade", "multiply exposure"],
-        "follow_up": "Which asset, how much collateral, what leverage, and are you going long or short?",
-        "example_conversation": (
-            "User: I want to open a leveraged position on ETH\n"
-            "Trinity: Sounds good. How much ETH are you putting up as collateral, what leverage do you want, and are you going long or short?\n"
-            "User: 3 ETH, 5x long\n"
-            "Trinity: Opening a 5x long on ETH with 3 ETH collateral — that gives you 15 ETH of exposure.\n"
-            "Trinity: [calls platform_action with action='leverage_position', params={asset: 'ETH', amount: 3.0, leverage: 5.0, direction: 'long'}]"
-        ),
-    },
-
-    "collateral_manage": {
-        "action_name": "collateral_manage",
-        "description": "Adjust collateral on an existing loan or leveraged position.",
-        "required_params": [
-            {"name": "position_id", "type": "string", "description": "The ID of the position to adjust.", "example": "pos_abc123"},
-            {"name": "action", "type": "string", "description": "Whether to add or remove collateral.", "example": "add"},
-            {"name": "amount", "type": "number", "description": "Amount of collateral to add or remove.", "example": 2.0},
-        ],
-        "optional_params": [
-            {"name": "asset", "type": "string", "description": "Collateral asset if the position accepts multiple types.", "default": None},
-        ],
-        "keywords": ["collateral", "add collateral", "remove collateral", "adjust collateral", "collateral ratio"],
-        "follow_up": "Which position do you want to adjust, and do you want to add or remove collateral? How much?",
-        "example_conversation": (
-            "User: I need to add collateral to my position\n"
-            "Trinity: Of course. Which position ID, and how much collateral do you want to add?\n"
-            "User: Position pos_abc123, add 2 ETH\n"
-            "Trinity: Adding 2 ETH collateral to position pos_abc123. That should bring your health factor up nicely.\n"
-            "Trinity: [calls platform_action with action='collateral_manage', params={position_id: 'pos_abc123', action: 'add', amount: 2.0}]"
-        ),
-    },
-
-    # ===================================================================
-    # NFT Expanded
-    # ===================================================================
 
     "nft_fractionalize": {
         "action_name": "nft_fractionalize",

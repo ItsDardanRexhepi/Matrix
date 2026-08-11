@@ -136,19 +136,23 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("create_loan",      "Borrow Against Collateral", "defi", "defi", "create_loan",  feed_event="loan_created"),
     _cap("repay_loan",       "Repay Loan",                "defi", "defi", "repay_loan",   feed_event="loan_repaid"),
     _cap("get_loan",         "Get Loan Details",          "defi", "defi", "get_loan",     state_modifying=False, uses_paymaster=False),
-    _cap("flash_loan",       "Flash Loan",                "defi", "defi", "flash_loan",   subcategory="flash"),
-    _cap("yield_optimize",   "Yield Optimization",        "defi", "defi", "yield_optimize"),
-    _cap("liquidity_provide","Provide Liquidity",         "defi", "dex",  "add_liquidity"),
-    _cap("liquidity_remove", "Remove Liquidity",          "defi", "dex",  "remove_liquidity"),
     _cap("swap_tokens",      "Swap Tokens",               "defi", "dex",  "swap",         feed_event="tokens_swapped"),
-    _cap("vault_deposit",    "Deposit to Vault",          "defi", "defi", "vault_deposit"),
-    _cap("collateral_manage","Manage Collateral",         "defi", "defi", "collateral_manage"),
+    # NEW-61: flash_loan / yield_optimize / vault_deposit / collateral_manage
+    # removed with their fabrications. liquidity_provide / liquidity_remove
+    # removed too — note their catalog rows named the REAL dex twin
+    # (add_liquidity / remove_liquidity) while ACTION_MAP dispatched them to
+    # the defi fabrication, so this surface described a capability the
+    # dispatcher never used. The real AMM is already catalogued through the
+    # dex actions. Real collateral management is catalogued below.
+    _cap("deposit_collateral",  "Deposit Collateral",  "defi", "defi", "deposit_collateral"),
+    _cap("withdraw_collateral", "Withdraw Collateral", "defi", "defi", "withdraw_collateral"),
+    _cap("get_health_factor",   "Position Health",     "defi", "defi", "get_health_factor", state_modifying=False, uses_paymaster=False),
 
     # ── DeFi Advanced ──────────────────────────────────────────────────────
-    _cap("perp_trade",              "Open Perpetual Position", "defi_advanced", "defi",       "perp_trade", protocol="gmx"),
-    _cap("options_trade",           "Trade Options",           "defi_advanced", "defi",       "options_trade", protocol="lyra"),
-    _cap("synthetic_asset",         "Mint Synthetic Asset",    "defi_advanced", "defi",       "synthetic_asset", protocol="synthetix"),
-    _cap("leverage_position",       "Leverage Position",       "defi_advanced", "defi",       "leverage_position"),
+    # NEW-61: perp_trade / options_trade / synthetic_asset / leverage_position
+    # removed. Their rows advertised venue protocols (gmx, lyra, synthetix)
+    # that no code in the repo integrates with — no ABI, no client, no URL.
+    # The protocol name was the only thing making them look implemented.
     _cap("place_limit_order",       "Place Limit Order",       "defi_advanced", "auctions",   "place_limit_order", subcategory="orderbook", available=False),
     _cap("cancel_limit_order",      "Cancel Limit Order",      "defi_advanced", "auctions",   "cancel_limit_order", subcategory="orderbook", available=False),
     _cap("pyth_pull_price",         "Pull Pyth Price",         "defi_advanced", "oracles_plus","pyth_pull", protocol="pyth", state_modifying=False, uses_paymaster=False, available=False),

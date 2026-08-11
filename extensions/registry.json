@@ -3,7 +3,7 @@
   "platform": "0pnMatrx",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
-  "total_capabilities": 221,
+  "total_capabilities": 199,
   "total_categories": 20,
   "components": [
     {
@@ -31,7 +31,7 @@
     {
       "id": "defi",
       "name": "DeFi",
-      "description": "10 capabilities in the DeFi category",
+      "description": "7 capabilities in the DeFi category",
       "category": "defi",
       "min_tier": "free",
       "limits": {
@@ -42,25 +42,22 @@
         }
       },
       "gateway_actions": [
-        "collateral_manage",
         "create_loan",
-        "flash_loan",
+        "deposit_collateral",
+        "get_health_factor",
         "get_loan",
-        "liquidity_provide",
-        "liquidity_remove",
         "repay_loan",
         "swap_tokens",
-        "vault_deposit",
-        "yield_optimize"
+        "withdraw_collateral"
       ],
       "icon": "chart.line.uptrend.xyaxis",
       "available": true,
-      "capability_count": 10
+      "capability_count": 7
     },
     {
       "id": "defi_advanced",
       "name": "DeFi (Advanced)",
-      "description": "7 capabilities in the DeFi (Advanced) category",
+      "description": "3 capabilities in the DeFi (Advanced) category",
       "category": "defi_advanced",
       "min_tier": "free",
       "limits": {
@@ -72,16 +69,12 @@
       },
       "gateway_actions": [
         "cancel_limit_order",
-        "leverage_position",
-        "options_trade",
-        "perp_trade",
         "place_limit_order",
-        "pyth_pull_price",
-        "synthetic_asset"
+        "pyth_pull_price"
       ],
       "icon": "chart.bar.xaxis",
       "available": true,
-      "capability_count": 7
+      "capability_count": 3
     },
     {
       "id": "nft",

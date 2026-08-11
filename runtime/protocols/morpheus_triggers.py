@@ -86,7 +86,25 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "transfer_ownership": "smart_contract",
     "renounce_ownership": "smart_contract",
     # DeFi expanded
-    "flash_loan": "defi",
+    #
+    # NEW-61: the defi ACTIONS below were removed (their implementations were
+    # fabrications). These RISK CLASSIFICATIONS are retained deliberately.
+    #
+    # This table is not a caller-facing surface — it advertises nothing and
+    # cannot make an action reachable. It is consulted when an action is
+    # already being executed, to decide whether Morpheus intervenes. Deleting
+    # a safety classification because its subject is currently absent is how a
+    # feature comes back later without its guard. Over-coverage in a guard
+    # list is safe; under-coverage is not. If any of these operations is ever
+    # implemented for real, it inherits the classification it should have had.
+    #
+    # Pinned by tests/test_defi_exotics_removed.py so a future "remove dead
+    # entries" cleanup cannot silently drop the guard.
+    #
+    # ("flash_loan": "defi" was ALSO listed above at the top of this map —
+    # a duplicate dict key, same value, harmless but evidence this block was
+    # appended without reading what was already here. Removed here, kept
+    # above.)
     "yield_optimize": "defi",
     "liquidity_provide": "defi",
     "perp_trade": "defi",

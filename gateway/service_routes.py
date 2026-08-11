@@ -293,11 +293,13 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/defi/swap/execute", self._handle_swap_execute)
         app.router.add_post("/api/v1/defi/bridge/quote", self._handle_bridge_quote)
         app.router.add_post("/api/v1/defi/bridge/execute", self._handle_bridge_execute)
-        app.router.add_post("/api/v1/defi/flash-loan/execute", self._handle_flash_loan)
-        app.router.add_post("/api/v1/defi/vault/deposit", self._handle_vault_deposit)
-        app.router.add_post("/api/v1/defi/liquidity/provide", self._handle_liquidity_provide)
-        app.router.add_post("/api/v1/defi/perp/trade", self._handle_perp_trade)
-        app.router.add_post("/api/v1/defi/collateral/manage", self._handle_collateral_manage)
+        # NEW-61: five defi routes unregistered with their fabrications
+        # (flash-loan/execute, vault/deposit, liquidity/provide, perp/trade,
+        # collateral/manage). flash-loan/execute was ALSO permanently dead: it
+        # dispatched to "flash_loan_execute", a method that never existed.
+        # Real liquidity lives on the dex routes; real collateral management is
+        # now reachable through the deposit_collateral / withdraw_collateral
+        # actions.
 
         # ── NFT Expanded ─────────────────────────────────────────────
         app.router.add_post("/api/v1/nft/fractionalize", self._handle_nft_fractionalize)
@@ -494,11 +496,7 @@ class ServiceRoutes:
             ("POST", "/api/v1/defi/swap/execute", self._handle_swap_execute),
             ("POST", "/api/v1/defi/bridge/quote", self._handle_bridge_quote),
             ("POST", "/api/v1/defi/bridge/execute", self._handle_bridge_execute),
-            ("POST", "/api/v1/defi/flash-loan/execute", self._handle_flash_loan),
-            ("POST", "/api/v1/defi/vault/deposit", self._handle_vault_deposit),
-            ("POST", "/api/v1/defi/liquidity/provide", self._handle_liquidity_provide),
-            ("POST", "/api/v1/defi/perp/trade", self._handle_perp_trade),
-            ("POST", "/api/v1/defi/collateral/manage", self._handle_collateral_manage),
+            # NEW-61: same five removed from the SECOND registration table.
             ("POST", "/api/v1/nft/fractionalize", self._handle_nft_fractionalize),
             ("POST", "/api/v1/nft/rent", self._handle_nft_rent),
             ("POST", "/api/v1/nft/batch-mint", self._handle_nft_batch_mint),
@@ -1669,65 +1667,23 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
-    async def _handle_flash_loan(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "token", "amount", "operations")
-        result = await self._call(
-            "defi", "flash_loan_execute",
-            token=body["token"],
-            amount=body["amount"],
-            operations=body["operations"],
-            wallet=body.get("wallet", ""),
-        )
-        return self._ok(result)
-
-    async def _handle_vault_deposit(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "vault_id", "amount")
-        result = await self._call(
-            "defi", "vault_deposit",
-            wallet=body["wallet"],
-            vault_id=body["vault_id"],
-            amount=body["amount"],
-        )
-        return self._ok(result)
-
-    async def _handle_liquidity_provide(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "pool_id", "token_a_amount", "token_b_amount")
-        result = await self._call(
-            "defi", "liquidity_provide",
-            wallet=body["wallet"],
-            pool_id=body["pool_id"],
-            token_a_amount=body["token_a_amount"],
-            token_b_amount=body["token_b_amount"],
-        )
-        return self._ok(result)
-
-    async def _handle_perp_trade(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "market", "side", "size")
-        result = await self._call(
-            "defi", "perp_trade",
-            wallet=body["wallet"],
-            market=body["market"],
-            side=body["side"],
-            size=body["size"],
-            leverage=body.get("leverage", 1),
-        )
-        return self._ok(result)
-
-    async def _handle_collateral_manage(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "action", "token", "amount")
-        result = await self._call(
-            "defi", "collateral_manage",
-            wallet=body["wallet"],
-            action=body["action"],
-            token=body["token"],
-            amount=body["amount"],
-        )
-        return self._ok(result)
+    # NEW-61: five handler bodies removed with their routes
+    # (_handle_flash_loan, _handle_vault_deposit, _handle_liquidity_provide,
+    # _handle_perp_trade, _handle_collateral_manage). An unregistered handler
+    # is still a callable path, so the bodies go with the registrations.
+    #
+    # ALL FIVE WERE PERMANENTLY DEAD, independently of the fabrications behind
+    # them — every one forwarded parameter names its target could not accept:
+    #   flash_loan        -> "flash_loan_execute" (no such method) with
+    #                        token/operations vs the method's asset/strategy
+    #   vault_deposit     -> wallet, vault_id     vs vault, asset
+    #   liquidity_provide -> wallet, pool_id, token_a_amount, token_b_amount
+    #                        vs token_a, token_b, amount_a, amount_b
+    #   perp_trade        -> wallet, market, side vs asset, direction
+    #   collateral_manage -> wallet, token        vs asset, position_id
+    # so every HTTP call raised TypeError at dispatch. Not one of these
+    # endpoints has ever completed a request. (Domain 4 found one dead route
+    # of this shape; this is five in a row, in one block.)
 
     # -- NFT Expanded --
 

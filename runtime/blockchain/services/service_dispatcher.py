@@ -289,17 +289,25 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "appeal_dispute": ("dispute_resolution", "appeal"),
 
     # ── DeFi Expanded ────────────────────────────────────────────
-    "flash_loan": ("defi", "flash_loan"),
-    "yield_optimize": ("defi", "yield_optimize"),
-    "liquidity_provide": ("defi", "liquidity_provide"),
-    "liquidity_remove": ("defi", "liquidity_remove"),
-    "perp_trade": ("defi", "perp_trade"),
-    "options_trade": ("defi", "options_trade"),
-    "synthetic_asset": ("defi", "synthetic_asset"),
-    "vault_deposit": ("defi", "vault_deposit"),
+    # NEW-61: ten fabricated defi actions removed here. Each pointed at a
+    # method that minted a uuid, set a success status and stored the dict —
+    # no chain call, no real arithmetic. Removed: flash_loan, yield_optimize,
+    # perp_trade, options_trade, synthetic_asset, vault_deposit,
+    # leverage_position (twin-path: NONE for all seven), plus
+    # liquidity_provide / liquidity_remove, which were DUPLICATE names
+    # shadowing the real AMM already registered above as add_liquidity /
+    # remove_liquidity -> ("dex", ...). The real capability is unaffected.
+    #
+    # collateral_manage was NOT simply dropped. Its twin is real
+    # (CollateralManager.deposit / withdraw) but was exposed on no surface at
+    # all, so deleting the fabrication alone would have removed the only
+    # reachable path to a capability that genuinely works. The two real
+    # methods are registered here in its place — the health-factor check that
+    # guards withdrawal is the one fixed in NEW-55c.
+    "deposit_collateral": ("defi", "deposit_collateral"),
+    "withdraw_collateral": ("defi", "withdraw_collateral"),
+    "get_health_factor": ("defi", "get_health_factor"),
     "cross_chain_bridge": ("cross_border", "bridge_transfer"),
-    "leverage_position": ("defi", "leverage_position"),
-    "collateral_manage": ("defi", "collateral_manage"),
     # ── NFT Expanded ─────────────────────────────────────────────
     "nft_fractionalize": ("nft_services", "fractionalize"),
     "nft_rent": ("nft_services", "rent"),
@@ -424,9 +432,11 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "request_deletion",
     "file_dispute", "submit_dispute_evidence", "resolve_dispute", "appeal_dispute",
     # ── Expanded state-modifying actions ─────────────────────────
-    "flash_loan", "yield_optimize", "liquidity_provide", "liquidity_remove",
-    "perp_trade", "options_trade", "synthetic_asset", "vault_deposit",
-    "cross_chain_bridge", "leverage_position", "collateral_manage",
+    # NEW-61: the ten removed defi fabrications are gone from here too.
+    # deposit_collateral / withdraw_collateral replace collateral_manage and
+    # ARE state-modifying (they mutate the real balance ledger).
+    "deposit_collateral", "withdraw_collateral",
+    "cross_chain_bridge",
     "nft_fractionalize", "nft_rent", "nft_dynamic_update", "nft_batch_mint",
     "nft_royalty_claim", "nft_bridge", "did_create", "credential_issue",
     "soulbound_mint", "timelock_queue", "multisig_propose", "multisig_approve",
@@ -463,12 +473,11 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "stake": "tokens_staked",
     "create_dao": "dao_created",
     # New expanded actions
-    "yield_optimize": "yield_deposited",
-    "flash_loan": "flash_loan_executed",
+    # NEW-61: yield_optimize / flash_loan / liquidity_provide / vault_deposit
+    # / perp_trade feed events removed with their fabrications. A feed event
+    # is a public claim that something happened; these announced events for
+    # operations that never occurred.
     "cross_chain_bridge": "bridge_completed",
-    "liquidity_provide": "liquidity_added",
-    "vault_deposit": "vault_deposited",
-    "perp_trade": "perp_trade_executed",
     "nft_fractionalize": "nft_fractionalized",
     "nft_batch_mint": "nft_batch_minted",
     "nft_bridge": "nft_bridged",
