@@ -44,7 +44,15 @@ class FundraisingService:
         self._max_milestones: int = int(f_cfg.get("max_milestones", 10))
 
         self._vesting = VestingManager(config)
-        self._milestones = MilestoneVerification(config, oracle_service)
+        # NEW-59 (fundraising instance): `oracle_service` is never supplied in
+        # production — ServiceRegistry.get() does `cls(self._config)`, one
+        # positional arg — so this was always None and MilestoneVerification
+        # always took its self-attesting fallback. Here that gap is
+        # SECURITY-load-bearing, not merely correctness-load-bearing: in defi
+        # the same gap made prices fake; here it made milestone verification
+        # self-granted, and milestone verification is the release trigger.
+        self._oracle_service = oracle_service
+        self._milestones = MilestoneVerification(config, self._resolve_oracle())
         self._refunds = RefundManager(config)
 
         # campaign_id -> campaign record
@@ -56,6 +64,37 @@ class FundraisingService:
             "FundraisingService initialised (max_days=%d, min_goal=%.2f).",
             self._max_days, self._min_goal,
         )
+
+    def _resolve_oracle(self) -> Any:
+        """Lazily resolve the OracleGateway (NEW-59, fundraising instance).
+
+        Same template as the defi fix: the registry cannot inject an oracle,
+        so resolve the registry-resolvable OracleGateway directly from config
+        (its __init__ takes only config). It is itself credential-gated and
+        returns errors when no feed is configured — which the verification
+        path treats as "no authority" and FAILS CLOSED, rather than falling
+        back to the submitter's own proof.
+
+        Resolved eagerly in __init__ rather than on first use, because unlike
+        a price lookup the dependency here decides whether an authority
+        EXISTS; deferring it would leave the security posture dependent on
+        call order.
+        """
+        if self._oracle_service is None:
+            try:
+                from runtime.blockchain.services.oracle_gateway import (
+                    OracleGateway,
+                )
+                self._oracle_service = OracleGateway(self._config)
+            except Exception as exc:  # noqa: BLE001 - resolution is best-effort
+                # Fail closed: no authority resolved means verification
+                # refuses, which is the safe direction.
+                logger.warning(
+                    "Oracle gateway could not be resolved (%s); milestone "
+                    "verification will refuse rather than self-attest.", exc,
+                )
+                return None
+        return self._oracle_service
 
     @property
     def vesting(self) -> VestingManager:

@@ -31,8 +31,20 @@ class MilestoneVerification:
         min_voters (int): Minimum voters for community verification (default 5).
     """
 
-    def __init__(self, config: dict, oracle_service: Any = None) -> None:
+    def __init__(
+        self,
+        config: dict,
+        oracle_service: Any = None,
+        voter_eligibility: Any = None,
+    ) -> None:
+        """
+        NEW-73: ``voter_eligibility`` is an optional callable
+        ``(campaign_id) -> set[str]`` returning the addresses entitled to vote
+        on that campaign's milestones. When it is None the community-vote path
+        FAILS CLOSED rather than tallying caller-supplied voter strings.
+        """
         self._config = config
+        self._voter_eligibility = voter_eligibility
         f_cfg: dict[str, Any] = config.get("fundraising", {})
 
         self._vote_threshold: float = float(
@@ -201,25 +213,42 @@ class MilestoneVerification:
     async def _verify_via_oracle(self, record: dict) -> dict:
         """Verify milestone using Component 11 (Oracle Gateway)."""
         if self._oracle_service is None:
+            # NEW-73: FAIL CLOSED. This was a self-attestation hole.
+            #
+            # The removed fallback read the SUBMITTER'S OWN proof dict and
+            # approved on `description and (documents or metrics)`:
+            #
+            #     if has_desc and (has_docs or has_metrics):
+            #         return {"approved": True, ...}
+            #
+            # The submitter writes that dict. So {"description": "done",
+            # "documents": ["x"]} self-approved the milestone — and this is
+            # the RELEASE TRIGGER: release_milestone_funds refuses unless
+            # status == "verified", so the gate looked like an authority
+            # check while the authority was the beneficiary. That is worse
+            # than an ungated release, because a reviewer sees the
+            # `!= "verified"` check and concludes the path is protected.
+            #
+            # It was also the DEFAULT path, not an edge case: the registry
+            # constructs FundraisingService as cls(config) (NEW-59), so
+            # oracle_service was never suppliable and the fallback was the
+            # only branch that ever ran.
+            #
+            # The honest behaviour with no verification authority available
+            # is "cannot verify", never "verify yourself".
             logger.warning(
-                "Oracle service not available, using proof-based verification."
+                "Milestone verification unavailable: no oracle authority "
+                "configured. Refusing to self-attest."
             )
-            # Fallback: check that proof has sufficient documentation
-            proof = record.get("proof", {})
-            has_docs = bool(proof.get("documents"))
-            has_metrics = bool(proof.get("metrics"))
-            has_desc = bool(proof.get("description"))
-
-            if has_desc and (has_docs or has_metrics):
-                return {
-                    "approved": True,
-                    "method": "oracle_fallback",
-                    "reason": "Sufficient proof documentation provided",
-                }
             return {
                 "approved": False,
-                "method": "oracle_fallback",
-                "reason": "Insufficient proof documentation",
+                "method": "oracle",
+                "authority_available": False,
+                "reason": (
+                    "Verification authority unavailable — no oracle service is "
+                    "configured. A milestone cannot be verified from the "
+                    "submitter's own proof."
+                ),
             }
 
         # Use oracle service for external verification
@@ -242,8 +271,56 @@ class MilestoneVerification:
     async def _verify_via_community_vote(
         self, key: tuple[str, int]
     ) -> dict:
-        """Verify milestone via community vote tally."""
-        votes = self._milestone_votes.get(key, [])
+        """Verify milestone via community vote tally.
+
+        NEW-73: also fails closed, because this path is self-grantable too.
+
+        cast_community_vote takes `voter` as a caller-supplied STRING. There
+        is no signature, no eligibility check against contributors, and no
+        exclusion of the campaign creator; double-voting is prevented only by
+        string equality. So a submitter clears the default quorum by invoking
+        it five times with five invented addresses — demonstrated: 5 votes,
+        100% approval, status "verified".
+
+        Both verification methods were therefore self-attestation, and a fix
+        covering only the oracle path would have left this one open.
+
+        The TALLY LOGIC BELOW IS REAL and is deliberately preserved rather
+        than deleted — quorum, approval rate and threshold are genuine
+        computations that a real voter set would need. What is missing is a
+        way to know a vote came from someone entitled to cast it, and that
+        cannot be decided at this layer: MilestoneVerification has no access
+        to the contributor set, and WHO is entitled to vote (contributors?
+        weighted by contribution? creator excluded?) is a governance design
+        decision, not a defect fix. Choosing one here would be inventing a
+        policy under cover of a security fix.
+
+        LIFTING CONDITION: supply `voter_eligibility` — a callable returning
+        the set of addresses entitled to vote on a given campaign — and this
+        path re-opens with the tally intact.
+        """
+        if self._voter_eligibility is None:
+            logger.warning(
+                "Community-vote verification unavailable: no voter "
+                "eligibility source configured. Refusing to count "
+                "unverifiable votes."
+            )
+            return {
+                "approved": False,
+                "method": "community_vote",
+                "authority_available": False,
+                "reason": (
+                    "Verification authority unavailable — voter identity "
+                    "cannot be established. Votes are caller-supplied strings "
+                    "with no eligibility check, so a tally over them would be "
+                    "self-attestation."
+                ),
+            }
+
+        votes = [
+            v for v in self._milestone_votes.get(key, [])
+            if v["voter"] in self._voter_eligibility(key[0])
+        ]
 
         if len(votes) < self._min_voters:
             return {
