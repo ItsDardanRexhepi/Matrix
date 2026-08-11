@@ -97,26 +97,46 @@ async def test_auto_settle_no_longer_settles_for_zero():
 async def test_auto_settle_delegates_to_the_real_processor():
     """Positive proof of delegation: the decision must come from the claims
     processor, not from a hardcoded record. Asserted by observing that the
-    processor is actually invoked."""
+    processor is actually invoked.
+
+    NEW-78 INVERTED THE SECOND ASSERTION OF THIS TEST, and that is worth
+    recording rather than quietly editing. It used to assert:
+
+        calls[0][1]["trigger_data"] == {"delay_minutes": 240}
+
+    i.e. that the CALLER'S dict reached the decision — filed as proof the
+    plumbing worked. It was proof the plumbing worked, and the plumbing was
+    the defect: whoever called auto_settle_claim decided whether the covered
+    event had occurred. A well-formed test can pin a real behaviour and still
+    be pinning the wrong one; correctly-wired is not the same as correct.
+
+    The property now asserted is the opposite one: the caller's payload does
+    NOT reach the decision, and the verdict the processor receives came from
+    the oracle path.
+    """
     svc = _armed(InsuranceService({}))
     pid = await _funded_policy(svc, "bob")
 
     calls = []
     real = svc._claims_processor.process_claim
 
-    async def spy(claim_id, claim, pol):
-        calls.append((claim_id, dict(claim), pol))
-        return await real(claim_id, claim, pol)
+    async def spy(claim_id, claim, pol, *, verified, reason=""):
+        calls.append({"claim": dict(claim), "verified": verified, "reason": reason})
+        return await real(claim_id, claim, pol, verified=verified, reason=reason)
 
     svc._claims_processor.process_claim = spy
     await svc.auto_settle_claim(pid, {"delay_minutes": 240})
 
     assert calls, "the real claims processor was never invoked"
-    # the oracle payload must actually reach the decision as trigger_data
-    assert calls[0][1]["trigger_data"] == {"delay_minutes": 240}, (
-        "oracle_data was accepted and not passed to the decision — the "
-        "original defect"
+    assert "verified" in calls[0], "no verdict was handed to the processor"
+    assert "trigger_data" not in calls[0]["claim"], (
+        "the caller's payload still reaches the decision — NEW-78 regressed"
     )
+    # No oracle is configured in this fixture, so the authority-gated path
+    # must return a NEGATIVE verdict. A True here would mean something other
+    # than the oracle decided.
+    assert calls[0]["verified"] is False
+    assert calls[0]["reason"], "denied without saying why"
 
 
 async def test_auto_settle_discloses_that_no_value_moved():

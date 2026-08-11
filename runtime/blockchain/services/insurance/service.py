@@ -13,6 +13,7 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.services.ownership import assert_owner
 from runtime.blockchain.services.insurance.eligibility import EligibilityTracker
 from runtime.blockchain.services.insurance.fee_engine import FeeEngine
 from runtime.blockchain.services.insurance.trigger_manager import TriggerManager
@@ -190,19 +191,56 @@ class InsuranceService:
         )
         return policy
 
-    async def file_claim(self, policy_id: str, trigger_data: dict) -> dict:
-        """File a claim against a policy.
+    async def file_claim(self, policy_id: str, caller: str | None = None) -> dict:
+        """File a claim against a policy. NEW-78.
 
-        Args:
-            policy_id: The policy to claim against.
-            trigger_data: Oracle / parametric data proving the event occurred.
+        TWO HOLES CLOSED HERE, and neither alone was sufficient.
 
-        Returns:
-            Claim record with processing status.
+        (1) OWNERSHIP. This took no caller identity at all — it read `holder`
+            from the STORED policy, so anyone who learned a policy id could
+            claim against a stranger's policy. Same shape as domain 4's
+            authorize_payment. `caller` is now required and asserted against
+            policy["holder"] through the shared primitive (NEW-77).
+
+        (2) SELF-ATTESTED TRIGGER. The `trigger_data` parameter is GONE, not
+            guarded. It was the claimant's own dict, and
+            ClaimsProcessor._verify_trigger compared it against the policy's
+            parametric condition — a condition the claimant can read and then
+            satisfy. The docstring called it "Oracle / parametric data proving
+            the event occurred"; it was proof the claimant wrote. Verification
+            now runs against data fetched from the OracleGateway through
+            TriggerManager, and FAILS CLOSED when no trigger or no oracle is
+            available.
+
+        Fixing ownership alone would still let the true holder self-approve a
+        fraudulent claim; fixing the trigger alone would still let anyone file
+        on a policy they do not hold. Both, or neither.
+
+        SURFACE CAVEAT — WHERE THIS CHECK IS REAL, AND WHERE IT IS NOT.
+        `assert_owner` can only compare the caller it is HANDED. It is a real
+        authorization control exactly as far as the identity reaching it is
+        authenticated, and that differs by surface:
+
+          gateway route  /api/v1/insurance/claim  ENFORCING. The handler binds
+                         `caller` from current_request_security(); a
+                         body-supplied `holder` cannot override it.
+          ServiceDispatcher  `file_insurance_claim` / `cancel_insurance`
+                         NOT ENFORCING. execute() does `await method(**params)`
+                         with caller-supplied params, so an attacker simply
+                         passes caller="<victim>". Verified live, not inferred.
+
+        This is filed as NEW-82: identity binding is missing at the dispatcher
+        seam, and it is NOT specific to insurance — every service method that
+        takes a caller/holder/creator argument has the same property there.
+        Recorded here rather than half-patched, because a per-method guard in
+        one service would make the seam look audited while leaving the general
+        case open, which is the failure NEW-77 exists to prevent.
         """
         policy = self._policies.get(policy_id)
         if not policy:
             raise ValueError(f"Policy {policy_id} not found")
+
+        assert_owner(caller, policy, owner_field="holder", what="policy")
 
         if policy["status"] != "active":
             return {
@@ -215,6 +253,9 @@ class InsuranceService:
             policy["status"] = "expired"
             return {"status": "rejected", "reason": "Policy has expired"}
 
+        # NEW-78: verification runs against ORACLE data, never caller data.
+        verified, reason = await self._verify_via_oracle(policy)
+
         claim_id = f"clm_{uuid.uuid4().hex[:16]}"
         claim: dict[str, Any] = {
             "claim_id": claim_id,
@@ -222,15 +263,13 @@ class InsuranceService:
             "holder": policy["holder"],
             "policy_type": policy["policy_type"],
             "coverage_amount": policy["coverage"]["amount"],
-            "trigger_data": trigger_data,
             "status": "pending",
             "filed_at": now,
         }
         self._claims[claim_id] = claim
 
-        # Attempt auto-processing via oracle verification
         result = await self._claims_processor.process_claim(
-            claim_id, claim, policy,
+            claim_id, claim, policy, verified=verified, reason=reason,
         )
         claim.update(result)
 
@@ -242,6 +281,71 @@ class InsuranceService:
             claim_id, policy_id, claim["status"],
         )
         return claim
+
+    async def _verify_via_oracle(self, policy: dict) -> tuple[bool, str]:
+        """Decide a parametric claim from ORACLE data. Fails closed. NEW-78.
+
+        The real verification path already existed and already worked:
+        TriggerManager.evaluate_condition fetches live data through
+        OracleGateway (_fetch_oracle_data resolves it directly). It was
+        reachable only from check_triggers, which has ZERO callers — so the
+        correct verifier sat unreachable while the self-attesting one served
+        every live claim. Third instance of that shape in this census
+        (fundraising's refund engine, fundraising's oracle path, now this).
+
+        The fix is ROUTING, not resolution: point the live path at the
+        verifier that already exists.
+
+        Fails closed on every unenumerated case — no trigger registered, no
+        trigger record, or an oracle error — because "cannot verify" must
+        never read as "verified".
+        """
+        trigger_id = policy.get("trigger_id")
+        if not trigger_id:
+            return False, (
+                "No parametric trigger is registered for this policy, so the "
+                "covered event cannot be verified."
+            )
+
+        trigger = self._trigger_manager.get_trigger(trigger_id)
+        if not trigger:
+            return False, "Registered trigger not found; cannot verify."
+
+        # Fetch explicitly so an UNAVAILABLE oracle is distinguishable from
+        # an oracle that answered "no". Both deny, but they are different
+        # facts and a claimant is owed the true one: "we could not check" must
+        # not be reported as "the event did not happen".
+        try:
+            oracle_data = await self._trigger_manager._fetch_oracle_data(trigger)
+        except Exception as exc:  # noqa: BLE001 - any oracle fault fails closed
+            logger.warning("Oracle fetch failed: %s", exc)
+            oracle_data = None
+
+        if not oracle_data:
+            return False, (
+                "Verification authority unavailable — oracle data could not "
+                "be obtained, so the covered event could not be checked. This "
+                "is not a determination that the event did not occur."
+            )
+
+        try:
+            met = await self._trigger_manager.evaluate_condition(
+                trigger, oracle_data=oracle_data,
+            )
+        except Exception as exc:  # noqa: BLE001 - any evaluation fault fails closed
+            logger.warning("Oracle evaluation failed: %s", exc)
+            return False, "Verification failed; the claim cannot be verified."
+
+        if not met:
+            return False, "Oracle data does not satisfy the policy trigger."
+        return True, "Oracle data satisfies the policy trigger."
+
+    def _already_settled(self, policy_id: str) -> bool:
+        """Has an approved claim already been paid on this policy? NEW-79."""
+        return any(
+            c.get("policy_id") == policy_id and c.get("status") == "approved"
+            for c in self._claims.values()
+        )
 
     async def get_policy(self, policy_id: str) -> dict:
         """Retrieve a policy by ID."""
@@ -256,14 +360,28 @@ class InsuranceService:
 
         return policy
 
-    async def cancel_policy(self, policy_id: str) -> dict:
+    async def cancel_policy(self, policy_id: str, caller: str | None = None) -> dict:
         """Cancel an active policy.
 
         Returns a pro-rated refund calculation.
+
+        NEW-78b: ownership asserted here for the same reason as `file_claim`,
+        and found by the same sweep. This method took no caller either, so
+        anyone who learned a policy id could cancel a stranger's coverage —
+        terminating protection they had paid for, and producing a refund
+        calculation against their premium. It is live on the ServiceDispatcher
+        as `cancel_insurance` and is in _STATE_MODIFYING_ACTIONS.
+
+        Fixed in the same commit as file_claim deliberately: a partial
+        authority fix is worse than a uniformly broken one, because it makes
+        the surface look audited. See the SURFACE CAVEAT on `file_claim` for
+        the boundary of what this check can enforce.
         """
         policy = self._policies.get(policy_id)
         if not policy:
             raise ValueError(f"Policy {policy_id} not found")
+
+        assert_owner(caller, policy, owner_field="holder", what="policy")
 
         if policy["status"] != "active":
             return {
@@ -305,8 +423,15 @@ class InsuranceService:
         for trigger in triggered:
             policy_id = trigger["policy_id"]
             if policy_id in self._policies:
+                # NEW-78: this used to pass the trigger's oracle_data as the
+                # second positional arg — which is now `caller`. The
+                # oracle-driven path is the AUTHORISED one, and it files on
+                # the holder's behalf, so it passes the policy's own holder as
+                # the caller. Verification still re-runs against live oracle
+                # data inside file_claim; nothing here is taken on trust.
+                policy = self._policies[policy_id]
                 claim = await self.file_claim(
-                    policy_id, trigger.get("oracle_data", {}),
+                    policy_id, caller=policy.get("holder"),
                 )
                 results.append(claim)
 
@@ -370,17 +495,41 @@ class InsuranceService:
             })
         policy_id = f"ppol_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
+        # NEW-80: SCHEMA RECONCILED WITH THE POLICY SHAPE THE CLAIM PATH
+        # READS. This wrote `trigger_type` / `coverage_amount` while
+        # ClaimsProcessor and _verify_via_oracle read `policy_type` /
+        # `coverage["amount"]` / `expires_at`. Every parametric policy was
+        # therefore DENIED unconditionally — verified before this fix — and no
+        # oracle data could ever change that. Two writers into one store with
+        # different shapes is the twin-path bug in miniature.
+        #
+        # The legacy keys are retained as aliases so any existing reader keeps
+        # working; the canonical keys are added, and a trigger is registered
+        # so the claim path has an oracle to consult.
+        duration_days = int(self._default_duration)
         record: dict[str, Any] = {
             "id": policy_id,
+            "policy_id": policy_id,
             "status": "active",
             "holder": holder,
+            "policy_type": trigger_type,
             "trigger_type": trigger_type,
             "trigger_params": trigger_params,
+            "coverage": {"amount": coverage_amount, "duration_days": duration_days,
+                         **(trigger_params or {})},
             "coverage_amount": coverage_amount,
             "premium": premium,
+            "premium_paid": premium,
             "created_at": now,
+            "expires_at": now + duration_days * 86400,
         }
         self._policies[policy_id] = record
+        conditions = self._build_trigger_conditions(trigger_type, record["coverage"])
+        if conditions:
+            trg = await self._trigger_manager.register_trigger(
+                policy_id, trigger_type, conditions,
+            )
+            record["trigger_id"] = trg.get("trigger_id")
         logger.info("Parametric policy created: id=%s", policy_id)
         return record
 
@@ -425,18 +574,46 @@ class InsuranceService:
                 "policy_id": policy_id,
             }
 
+        # NEW-79: THE PRECONDITIONS MY OWN NEW-67 DELEGATION OMITTED.
+        # I delegated the DECISION to the real processor without delegating
+        # file_claim's GUARDS, so a cancelled policy settled ($900 on a
+        # cancelled policy), and one policy settled repeatedly ($1,500 on a
+        # $500 policy, three times). Both reproduced before this fix. The
+        # original NEW-67 tests missed them because every scenario built a
+        # fresh policy via create_policy and settled it once — the defect was
+        # scenario breadth, not assertion strength.
+        if policy.get("status") != "active":
+            return {
+                "status": "rejected",
+                "reason": f"Policy status is '{policy.get('status')}', not active",
+                "policy_id": policy_id,
+            }
+        if int(time.time()) > policy.get("expires_at", 0):
+            policy["status"] = "expired"
+            return {"status": "rejected", "reason": "Policy has expired",
+                    "policy_id": policy_id}
+        if self._already_settled(policy_id):
+            return {
+                "status": "rejected",
+                "reason": "This policy has already been settled; coverage is exhausted.",
+                "policy_id": policy_id,
+            }
+
+        # NEW-78: the verdict comes from the ORACLE path, never from
+        # caller-supplied oracle_data.
+        verified, reason = await self._verify_via_oracle(policy)
+
         claim_id = f"asc_{uuid.uuid4().hex[:16]}"
         claim: dict[str, Any] = {
             "claim_id": claim_id,
             "policy_id": policy_id,
-            "trigger_data": oracle_data,
             "status": "pending",
             "filed_at": int(time.time()),
         }
         self._claims[claim_id] = claim
 
         result = await self._claims_processor.process_claim(
-            claim_id, claim, policy,
+            claim_id, claim, policy, verified=verified, reason=reason,
         )
         claim.update(result)
         if claim.get("status") == "approved":

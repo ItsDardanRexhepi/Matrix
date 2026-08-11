@@ -375,7 +375,12 @@ class ServiceRoutes:
 
         # ── Insurance Expanded ───────────────────────────────────────
         app.router.add_post("/api/v1/insurance/parametric/create", self._handle_parametric_policy)
-        app.router.add_post("/api/v1/insurance/claim/settle", self._handle_claim_settle)
+        # NEW-81: /api/v1/insurance/claim/settle removed from BOTH tables.
+        # Its handler called insurance.settle_claim — a method that has never
+        # existed (the real one is auto_settle_claim) — so the route returned
+        # 404 on every request since it was written. Its params were wrong
+        # twice over (claim_id/settlement_amount vs policy_id), and settlement
+        # now requires an owner and oracle verification it never supplied.
 
         # ── Privacy ──────────────────────────────────────────────────
 
@@ -542,7 +547,7 @@ class ServiceRoutes:
             ("POST", "/api/v1/supply-chain/verify", self._handle_authenticity_verify),
             ("POST", "/api/v1/supply-chain/custody/transfer", self._handle_custody_transfer),
             ("POST", "/api/v1/insurance/parametric/create", self._handle_parametric_policy),
-            ("POST", "/api/v1/insurance/claim/settle", self._handle_claim_settle),
+            # NEW-81: claim/settle route removed (see note above).
             ("POST", "/api/v1/realestate/properties", self._handle_re_property_create),
             ("GET",  "/api/v1/realestate/properties", self._handle_re_property_list),
             ("GET",  "/api/v1/realestate/properties/{id}", self._handle_re_property_get),
@@ -1185,12 +1190,22 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_insurance_claim(self, request: web.Request) -> web.Response:
+        # NEW-78: `trigger_data` is gone — it was the claimant's own "proof"
+        # of the covered event, and the claim decision now comes from oracle
+        # data instead. The caller is bound to the wallet the security
+        # middleware authenticated for THIS request, following the same idiom
+        # as _handle_governance_vote: an authenticated identity always wins,
+        # a body-supplied holder is a dev fallback only, and an absent caller
+        # is refused by assert_owner rather than silently skipped.
         body = await self._parse_body(request)
-        self._require(body, "policy_id", "trigger_data")
+        self._require(body, "policy_id")
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
+        caller = authed or str(body.get("holder") or "")
         result = await self._call(
             "insurance", "file_claim",
             policy_id=body["policy_id"],
-            trigger_data=body["trigger_data"],
+            caller=caller,
         )
         return self._ok(result)
 
@@ -2689,15 +2704,8 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
-    async def _handle_claim_settle(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "claim_id", "settlement_amount")
-        result = await self._call(
-            "insurance", "settle_claim",
-            claim_id=body["claim_id"],
-            settlement_amount=float(body["settlement_amount"]),
-        )
-        return self._ok(result)
+    # NEW-81: _handle_claim_settle removed with its route — an
+    # unregistered handler is still a callable path.
 
     # -- Privacy Expanded --
 

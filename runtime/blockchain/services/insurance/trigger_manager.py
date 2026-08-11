@@ -68,6 +68,11 @@ class TriggerManager:
         )
         return trigger
 
+    def get_trigger(self, trigger_id: str) -> dict | None:
+        """Look up a registered trigger. NEW-78 — lets the claim path reach
+        the ORACLE verifier instead of trusting caller-supplied data."""
+        return self._triggers.get(trigger_id)
+
     async def deregister_trigger(self, trigger_id: str) -> dict:
         """Deactivate a trigger."""
         trigger = self._triggers.get(trigger_id)

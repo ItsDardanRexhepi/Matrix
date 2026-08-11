@@ -147,7 +147,10 @@ KNOWN_FABRICATION_SHAPE = {
     "governance/service.py::GovernanceService.create_proposal",
     "governance/service.py::GovernanceService.propose_multisig",
     "governance/service.py::GovernanceService.parameter_change",
-    "insurance/service.py::InsuranceService.create_parametric_policy",
+    # NEW-80 (2026-08-11): create_parametric_policy left the shape. It now
+    # awaits TriggerManager.register_trigger, so the record it writes is
+    # bound to something a later claim can actually be checked against.
+    # 49 -> 48.
     "insurance/trigger_manager.py::TriggerManager.register_trigger",
     "ip_royalties/distribution.py::RoyaltyDistribution.claim",
     "ip_royalties/ip_registry.py::IPRegistry.register",
@@ -243,9 +246,11 @@ def test_the_measured_count_is_recorded():
     A preliminary sweep reported 11 instances; the detector measures 50. The
     discrepancy is recorded here rather than smoothed over, because the ratchet
     is only as honest as the census behind it.
+
+    BURN-DOWN: 50 at introduction -> 49 (NEW-67) -> 48 (NEW-80).
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 49
-    assert len(find_fabrication_shape()) == 49
+    assert len(KNOWN_FABRICATION_SHAPE) == 48
+    assert len(find_fabrication_shape()) == 48
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
