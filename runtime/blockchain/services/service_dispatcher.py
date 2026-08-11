@@ -83,9 +83,62 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 
     # --- x402 Payments (Component 10) ---
     "create_payment": ("x402_payments", "create_payment"),
-    "authorize_payment": ("x402_payments", "authorize_payment"),
+    # ── NEW-53: authorize_payment and refund_payment DISABLED ─────────────
+    #
+    # INTERIM DISABLE on an authorization vulnerability, not an honesty fix.
+    #
+    # Both methods take ONLY a payment_id:
+    #     async def authorize_payment(self, payment_id: str)
+    #     async def refund_payment(self, payment_id: str)
+    # No owner, no signature, no caller identity of any kind. The paying agent
+    # is read FROM THE STORED PAYMENT, not from the caller — so the caller is
+    # never compared against anything.
+    #
+    # Payment ids are handed out by create_payment, get_payment and
+    # list_payments. Anyone who reaches the dispatcher with an id could
+    # authorize a spend against ANOTHER agent's budget, or refund another
+    # agent's payment (which also silently restores that agent's spend
+    # headroom — a free budget-reset primitive).
+    #
+    # WHY THE SECURITY GATE DOES NOT COVER THIS — two independent reasons:
+    #
+    #   1. `ServiceDispatcher.execute` never calls `gate_action` at all. Of the
+    #      four entry points that reach it, only gateway/bridge.py:789 gates;
+    #      capabilities/registry.py, agents/handoff.py and tools/dispatcher.py
+    #      reach the dispatcher with no gate call (verified: 0 occurrences of
+    #      `gate_action` in each).
+    #   2. Even the gated path would not help. `gate_action(action_type,
+    #      parameters, context)` is an action-TYPE policy check. It asks "is
+    #      this kind of action allowed for this identity", never "does this
+    #      caller own payment X".
+    #
+    #      Ownership verification is not absent from the codebase — that claim
+    #      was too strong and a test caught it. It exists PER-SERVICE and
+    #      AD-HOC: ip_royalties.verify_ownership compares
+    #      `record["owner"] == claimant`, rwa_tokenization has _find_owner.
+    #      What does not exist is a SHARED primitive or any enforcement at the
+    #      seam, so whether an object is protected depends on whether that
+    #      service's author happened to write a check. x402_payments did not.
+    #      See NEW-54, the systemic finding.
+    #
+    # The real fix is a signature change + an ownership check + plumbing
+    # identity through ServiceDispatcher.execute into three currently-ungated
+    # call sites. That is not one commit, and an unauthenticated money-state
+    # transition does not stay live while it is built — the same reasoning
+    # that took execute_deletion offline (NEW-38).
+    #
+    # Disabling here rather than in the service body is deliberate: ACTION_MAP
+    # is the single choke point all four dispatch entry points share, and
+    # NEITHER method has an HTTP route (verified by router-table read — no
+    # `_call("x402_payments", "authorize_payment"|"refund_payment")` exists in
+    # gateway/service_routes.py). So removing the actions removes every live
+    # path, with no HTTP surface lost.
+    #
+    # The methods themselves are LEFT IN PLACE, unreachable. They are not
+    # fabrications — their expiry checks, state guards and spend accounting are
+    # real work (real-local-defective). They are the starting point for the
+    # authenticated versions, not something to delete.
     "complete_payment": ("x402_payments", "complete_payment"),
-    "refund_payment": ("x402_payments", "refund_payment"),
     "get_payment": ("x402_payments", "get_payment"),
     "list_payments": ("x402_payments", "list_payments"),
 
@@ -346,7 +399,9 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "transfer_stablecoin",
     "create_attestation", "revoke_attestation", "batch_attest",
     "register_agent", "update_agent", "deregister_agent",
-    "create_payment", "authorize_payment", "complete_payment", "refund_payment",
+    # NEW-53: authorize_payment / refund_payment removed — disabled at
+    # ACTION_MAP pending identity + ownership verification.
+    "create_payment", "complete_payment",
     "register_product", "update_product_status", "transfer_custody",
     "create_insurance", "file_insurance_claim", "cancel_insurance",
     "register_game", "mint_game_asset", "transfer_game_asset", "approve_game",
@@ -549,8 +604,7 @@ class ServiceDispatcher:
                     "params: {recipient, amount, currency}\n"
                 "  get_payment_quote — Get a cross-border payment quote. "
                     "params: {amount, currency, destination_country}\n"
-                "  create_payment, authorize_payment, complete_payment, "
-                    "refund_payment\n\n"
+                "  create_payment, complete_payment\n\n"
 
                 "STAKING:\n"
                 "  stake — Stake tokens in a pool. params: {amount, pool_id}\n"

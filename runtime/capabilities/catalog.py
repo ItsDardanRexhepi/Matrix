@@ -257,9 +257,9 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Payments ───────────────────────────────────────────────────────────
     _cap("create_payment",          "Create Payment",          "payments", "x402_payments", "create_payment", feed_event="payment_created"),
-    _cap("authorize_payment",       "Authorize Payment",       "payments", "x402_payments", "authorize"),
+    # NEW-53: authorize_payment / refund_payment capabilities removed — the
+    # actions are disabled pending identity + ownership verification.
     _cap("complete_payment",        "Complete Payment",        "payments", "x402_payments", "complete"),
-    _cap("refund_payment",          "Refund Payment",          "payments", "x402_payments", "refund"),
     _cap("send_payment",            "Send Payment",            "payments", "stablecoin",    "send_payment",  feed_event="payment_sent"),
     _cap("transfer_stablecoin",     "Transfer Stablecoin",     "payments", "stablecoin",    "transfer",      feed_event="stablecoin_sent"),
     _cap("stream_payment",          "Stream Payment",          "payments", "x402_payments", "stream_payment",   protocol="superfluid"),

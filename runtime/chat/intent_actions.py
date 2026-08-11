@@ -820,17 +820,13 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "authorize_payment": {
-        "action_name": "authorize_payment",
-        "description": "Authorize a pending x402 payment.",
-        "required_params": [
-            {"name": "payment_id", "type": "string", "description": "Payment ID to authorize.", "example": "pay_abc123"},
-        ],
-        "optional_params": [],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — disabled (NEW-53). The method took only a payment_id, with no caller identity, so anyone holding an id could authorize a spend against another agent's budget. Disabled until identity and ownership verification are wired. This is a security disable, not a missing feature."
+        ),
         "keywords": ["authorize payment", "approve payment", "confirm payment"],
-        "follow_up": "Which payment would you like to authorize?",
-        "example_conversation": (
-            "User: Authorize payment pay_abc123\n"
-            "Trinity: [calls platform_action with action='authorize_payment', params={payment_id: 'pay_abc123'}]"
+        "follow_up": (
+            "I can't authorize payments right now. That action is disabled because it couldn't verify who was asking — it accepted a payment id from anyone. It comes back once caller identity is checked."
         ),
     },
 
@@ -850,19 +846,13 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "refund_payment": {
-        "action_name": "refund_payment",
-        "description": "Refund an x402 payment.",
-        "required_params": [
-            {"name": "payment_id", "type": "string", "description": "Payment ID to refund.", "example": "pay_abc123"},
-        ],
-        "optional_params": [
-            {"name": "reason", "type": "string", "description": "Reason for refund.", "default": ""},
-        ],
+        "unavailable": True,
+        "description": (
+            "NOT AVAILABLE — disabled (NEW-53). Same defect as authorize_payment: only a payment_id, no caller identity, so anyone with an id could refund another agent's payment and silently restore that agent's spend headroom."
+        ),
         "keywords": ["refund payment", "reverse payment", "get refund", "cancel payment"],
-        "follow_up": "Which payment would you like to refund?",
-        "example_conversation": (
-            "User: Refund payment pay_abc123\n"
-            "Trinity: [calls platform_action with action='refund_payment', params={payment_id: 'pay_abc123'}]"
+        "follow_up": (
+            "I can't issue refunds right now. That action is disabled because it couldn't verify who was asking. It comes back once caller identity is checked."
         ),
     },
 

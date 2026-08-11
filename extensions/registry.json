@@ -279,7 +279,7 @@
     {
       "id": "payments",
       "name": "Payments",
-      "description": "16 capabilities in the Payments category",
+      "description": "14 capabilities in the Payments category",
       "category": "payments",
       "min_tier": "free",
       "limits": {
@@ -290,7 +290,6 @@
         }
       },
       "gateway_actions": [
-        "authorize_payment",
         "close_channel",
         "complete_payment",
         "create_payment",
@@ -301,7 +300,6 @@
         "payment_split",
         "payroll_run",
         "recurring_create",
-        "refund_payment",
         "route_payment",
         "send_payment",
         "stream_payment",
@@ -309,7 +307,7 @@
       ],
       "icon": "creditcard",
       "available": true,
-      "capability_count": 16
+      "capability_count": 14
     },
     {
       "id": "bridging",
