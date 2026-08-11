@@ -171,10 +171,12 @@ KNOWN_FAKE_DELIVERY = {
     # Its honest twin CCIPService.bridge_token_ccip is catalogued available=False
     # while this is catalogued available=True.
     "services/cross_border/service.py::CrossBorderService.bridge_transfer",
-    # THE ONE D6 MISSES. Real compliance, real FX, real fee maths, then
-    # "completed" over money that never moved. Category 6, not 4: strip the
-    # claim and a genuine engine remains — so the fix is vocabulary.
-    "services/cross_border/service.py::CrossBorderService.send_payment",
+    # send_payment was here and is STRUCK by NEW-85 (6 -> 5). It was the one
+    # D6 missed. Real compliance, real FX, real fee maths, then "completed"
+    # over money that never moved. Category 6, not 4: strip the claim and a
+    # genuine engine remained, so the fix was vocabulary — it now returns
+    # recorded_unsettled with settled/value_moved/disclosure. Struck rather
+    # than left stale: the ratchet tightens with the fix.
     # Writes _assets[trade_id] — keyed by the TRADE, so the item's owner is
     # never changed. Buyer and seller both keep what they had.
     "services/gaming/service.py::GamingService.trade_item",
@@ -205,27 +207,30 @@ def test_the_inventory_only_shrinks():
 
 
 def test_the_measured_count_is_recorded():
-    """BURN-DOWN: 6 at introduction (2026-08-11)."""
-    assert len(KNOWN_FAKE_DELIVERY) == 6
-    assert len(find_fake_delivery()) == 6
+    """BURN-DOWN: 6 at introduction (2026-08-11) -> 5 after NEW-85."""
+    assert len(KNOWN_FAKE_DELIVERY) == 5
+    assert len(find_fake_delivery()) == 5
 
 
-def test_it_catches_the_one_d6_misses():
-    """The reason D7 exists, asserted rather than asserted-in-a-comment.
+def test_the_axis_that_justifies_a_second_detector_still_holds():
+    """The reason D7 exists, kept executable after its founding instance was
+    fixed.
 
-    send_payment awaits compliance, conversion and attestation — all local —
-    so D6's `not awaits` clause excludes it. If this ever stops holding,
-    the two detectors have converged and one of them is redundant.
+    send_payment was caught by D7 and missed by D6 because D6 requires `not
+    awaits` and send_payment awaits compliance, conversion and attestation —
+    all in-process. NEW-85 fixed it, so it is now in NEITHER detector, and the
+    original demonstration is gone. What must remain true is the AXIS: D6 and
+    D7 must not converge onto the same set, or one is redundant.
     """
     from tests.test_uuid_mint_fabrication_shape import find_fabrication_shape
 
-    target = "services/cross_border/service.py::CrossBorderService.send_payment"
-    d6_name = "cross_border/service.py::CrossBorderService.send_payment"
+    d6 = {k.split("services/", 1)[-1] for k in find_fabrication_shape()}
+    d7 = {k.split("services/", 1)[-1] for k in find_fake_delivery()}
 
-    assert target in find_fake_delivery(), "D7 no longer catches send_payment"
-    assert d6_name not in find_fabrication_shape(), (
-        "D6 now catches send_payment too — the detectors have converged; "
-        "re-read whether D7 still earns its place"
+    assert d7, "D7 matches nothing — it has stopped detecting"
+    assert not d7 <= d6, (
+        "every D7 instance is now also a D6 instance — the detectors have "
+        "converged; re-read whether D7 still earns its place"
     )
 
 

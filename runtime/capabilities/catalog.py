@@ -268,7 +268,14 @@ CAPABILITIES: list[dict[str, Any]] = [
     # NEW-53: authorize_payment / refund_payment capabilities removed — the
     # actions are disabled pending identity + ownership verification.
     _cap("complete_payment",        "Complete Payment",        "payments", "x402_payments", "complete"),
-    _cap("send_payment",            "Send Payment",            "payments", "stablecoin",    "send_payment",  feed_event="payment_sent"),
+    # NEW-85: feed_event was "payment_sent". This action resolves through
+    # ACTION_MAP to cross_border.send_payment, which RECORDS a payment
+    # instruction and moves no value — so announcing "payment_sent" to the
+    # PUBLIC FEED was the loudest surface of the claim. Inert means inert on
+    # every surface. (The descriptor's service="stablecoin" is a separate,
+    # unfixed defect: ACTION_MAP wins and lands on cross_border. Left for the
+    # 49-binding work rather than silently corrected here.)
+    _cap("send_payment",            "Send Payment",            "payments", "stablecoin",    "send_payment",  feed_event="payment_recorded"),
     _cap("transfer_stablecoin",     "Transfer Stablecoin",     "payments", "stablecoin",    "transfer",      feed_event="stablecoin_sent"),
     _cap("cross_border_remit",      "Cross-border Remit",      "payments", "cross_border",  "cross_border_remit"),
     _cap("open_channel",            "Open Payment Channel",    "payments", "payment_channels", "open_channel",  subcategory="state_channels", available=False),

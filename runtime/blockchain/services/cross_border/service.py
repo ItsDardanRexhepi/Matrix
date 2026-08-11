@@ -68,7 +68,44 @@ class CrossBorderService:
         from_currency: str,
         to_currency: str,
     ) -> dict:
-        """Send a cross-border payment with automatic FX conversion.
+        """RECORD a cross-border payment. NO VALUE MOVES. NEW-85.
+
+        WHAT THIS METHOD ACTUALLY DOES, AND WHY THE FIX IS VOCABULARY.
+
+        It used to return ``"status": "completed"`` over money that never
+        moved. The test that settled the disposition is: STRIP THE OUTCOME
+        CLAIM — IS THERE WORK LEFT? Here there is, and a lot of it:
+
+            compliance        real corridor/threshold/sanctions evaluation
+                              that can and does halt the operation
+            exchange_rate     a real rate, oracle-first with a declared
+                              fallback table
+            converted_amount  a real conversion of the net amount
+            fee_amount        real tiered fee arithmetic
+            attestation       a real EAS call
+
+        So this is category 6 (real-local-defective), not category 4: the
+        guards and the arithmetic are genuine and the CUSTODY CLAIM was the
+        only fabricated part. Removing the method would destroy working
+        compliance and pricing. Renaming the outcome preserves them.
+
+        Contrast ``remit``, which has none of the above: strip its claim and
+        nothing is left, which is why its disposition is delegation, not
+        vocabulary.
+
+        WHAT DOES NOT HAPPEN HERE: no chain write, no signer, no tx_hash, no
+        debit of any sender balance, no credit of any recipient balance. This
+        service holds no ledger. The record written to ``self._payments`` is a
+        record OF a payment instruction, not the payment.
+
+        LIFTING CONDITION — what would license ``status: "completed"`` again:
+          1. a real settlement leg exists (on-chain transfer or a payment-
+             provider call) AND its result is what sets the status, and
+          2. that leg is credential-gated with an honest refusal when
+             unconfigured, in the ``not_deployed_response`` idiom, and
+          3. the recipient is verifiably credited — the status is derived from
+             the settlement result, never asserted alongside it.
+        Satisfying 1 without 3 reproduces this exact defect one layer down.
 
         Args:
             sender: Sender address.
@@ -78,7 +115,8 @@ class CrossBorderService:
             to_currency: Destination currency code.
 
         Returns:
-            Payment record.
+            The payment RECORD, carrying ``settled``/``value_moved``/
+            ``disclosure`` so no caller can read it as a completed transfer.
         """
         if amount <= 0:
             raise ValueError("Amount must be positive")
@@ -134,7 +172,19 @@ class CrossBorderService:
             "exchange_rate": conversion_result["rate"],
             "corridor": corridor,
             "compliance": compliance_result,
-            "status": "completed",
+            # NEW-85: was "completed". Borrowed verbatim from the x402 idiom —
+            # "recorded" alone could be read as "recorded on-chain"; this
+            # cannot be misread as money having moved.
+            "status": "recorded_unsettled",
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "NOT SETTLED. Compliance was evaluated, the FX rate and fee "
+                "are real, and this payment instruction has been RECORDED — "
+                "but no value was transferred. This service holds no ledger "
+                "and makes no on-chain or payment-provider call. The sender "
+                "has not been debited and the recipient has not been credited."
+            ),
             "created_at": now,
         }
         self._payments[payment_id] = payment
@@ -145,7 +195,10 @@ class CrossBorderService:
         await self._attest_payment(payment)
 
         logger.info(
-            "Payment sent: id=%s %s %.6f %s -> %.6f %s",
+            # NEW-85: was "Payment sent". An operator reading logs is a
+            # surface too — inert means inert on every surface.
+            "Payment RECORDED (NOT settled — no value moved): "
+            "id=%s %s %.6f %s -> %.6f %s",
             payment_id, sender, amount, from_currency,
             conversion_result["converted_amount"], to_currency,
         )
