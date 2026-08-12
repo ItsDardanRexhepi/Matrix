@@ -334,14 +334,8 @@ class ServiceRoutes:
         app.router.add_get("/api/v1/rwa/listings", self._handle_rwa_listings)
 
         # ── Prediction Markets ──────────────────────────────────────
-        app.router.add_post("/api/v1/prediction/market/create", self._handle_market_create)
-        app.router.add_post("/api/v1/prediction/market/bet", self._handle_market_bet)
-        app.router.add_get("/api/v1/prediction/market/list", self._handle_market_list)
 
         # ── Energy ───────────────────────────────────────────────────
-        app.router.add_post("/api/v1/energy/carbon/buy", self._handle_carbon_buy)
-        app.router.add_post("/api/v1/energy/carbon/retire", self._handle_carbon_retire)
-        app.router.add_get("/api/v1/energy/carbon/prices", self._handle_carbon_prices)
 
         # ── Governance Expanded ──────────────────────────────────────
         app.router.add_post("/api/v1/governance/multisig/propose", self._handle_multisig_propose)
@@ -360,13 +354,8 @@ class ServiceRoutes:
         app.router.add_get("/api/v1/intent/summary/{plan_id}", self._handle_intent_summary)
 
         # ── Legal ────────────────────────────────────────────────────
-        app.router.add_post("/api/v1/legal/license/grant", self._handle_license_grant)
-        app.router.add_post("/api/v1/legal/agreement/execute", self._handle_agreement_execute)
-        app.router.add_post("/api/v1/legal/dispute/file", self._handle_legal_dispute_file)
 
         # ── AI ───────────────────────────────────────────────────────
-        app.router.add_post("/api/v1/ai/agent/register", self._handle_ai_agent_register)
-        app.router.add_post("/api/v1/ai/model/trade", self._handle_ai_model_trade)
 
         # ── Supply Chain Expanded ────────────────────────────────────
         app.router.add_post("/api/v1/supply-chain/provenance/log", self._handle_provenance_log)
@@ -522,12 +511,6 @@ class ServiceRoutes:
             ("POST", "/api/v1/compute/arweave/store", self._handle_arweave_store),
             ("POST", "/api/v1/rwa/fractional/buy", self._handle_rwa_fractional_buy),
             ("GET",  "/api/v1/rwa/listings", self._handle_rwa_listings),
-            ("POST", "/api/v1/prediction/market/create", self._handle_market_create),
-            ("POST", "/api/v1/prediction/market/bet", self._handle_market_bet),
-            ("GET",  "/api/v1/prediction/market/list", self._handle_market_list),
-            ("POST", "/api/v1/energy/carbon/buy", self._handle_carbon_buy),
-            ("POST", "/api/v1/energy/carbon/retire", self._handle_carbon_retire),
-            ("GET",  "/api/v1/energy/carbon/prices", self._handle_carbon_prices),
             ("POST", "/api/v1/governance/multisig/propose", self._handle_multisig_propose),
             ("POST", "/api/v1/governance/multisig/approve", self._handle_multisig_approve),
             ("POST", "/api/v1/governance/snapshot/vote", self._handle_snapshot_vote),
@@ -538,11 +521,6 @@ class ServiceRoutes:
             ("POST", "/api/v1/intent/resolve", self._handle_intent_resolve),
             ("POST", "/api/v1/intent/execute", self._handle_intent_execute),
             ("GET",  "/api/v1/intent/summary/{plan_id}", self._handle_intent_summary),
-            ("POST", "/api/v1/legal/license/grant", self._handle_license_grant),
-            ("POST", "/api/v1/legal/agreement/execute", self._handle_agreement_execute),
-            ("POST", "/api/v1/legal/dispute/file", self._handle_legal_dispute_file),
-            ("POST", "/api/v1/ai/agent/register", self._handle_ai_agent_register),
-            ("POST", "/api/v1/ai/model/trade", self._handle_ai_model_trade),
             ("POST", "/api/v1/supply-chain/provenance/log", self._handle_provenance_log),
             ("POST", "/api/v1/supply-chain/verify", self._handle_authenticity_verify),
             ("POST", "/api/v1/supply-chain/custody/transfer", self._handle_custody_transfer),
@@ -2339,64 +2317,13 @@ class ServiceRoutes:
 
     # -- Prediction Markets --
 
-    async def _handle_market_create(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "creator", "question", "outcomes", "resolution_date")
-        result = await self._call(
-            "prediction", "create_market",
-            creator=body["creator"],
-            question=body["question"],
-            outcomes=body["outcomes"],
-            resolution_date=body["resolution_date"],
-        )
-        return self._ok(result)
 
-    async def _handle_market_bet(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "bettor", "market_id", "outcome", "amount")
-        result = await self._call(
-            "prediction", "place_bet",
-            bettor=body["bettor"],
-            market_id=body["market_id"],
-            outcome=body["outcome"],
-            amount=float(body["amount"]),
-        )
-        return self._ok(result)
 
-    async def _handle_market_list(self, request: web.Request) -> web.Response:
-        result = await self._call(
-            "prediction", "list_markets",
-        )
-        return self._ok(result)
 
     # -- Energy --
 
-    async def _handle_carbon_buy(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "buyer", "tonnes", "project_id")
-        result = await self._call(
-            "energy", "buy_carbon_credits",
-            buyer=body["buyer"],
-            tonnes=float(body["tonnes"]),
-            project_id=body["project_id"],
-        )
-        return self._ok(result)
 
-    async def _handle_carbon_retire(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner", "credit_ids")
-        result = await self._call(
-            "energy", "retire_carbon",
-            owner=body["owner"],
-            credit_ids=body["credit_ids"],
-        )
-        return self._ok(result)
 
-    async def _handle_carbon_prices(self, request: web.Request) -> web.Response:
-        result = await self._call(
-            "energy", "get_carbon_prices",
-        )
-        return self._ok(result)
 
     # -- Governance Expanded --
 
@@ -2595,66 +2522,12 @@ class ServiceRoutes:
 
     # -- Legal --
 
-    async def _handle_license_grant(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "licensor", "licensee", "ip_id", "terms")
-        result = await self._call(
-            "legal", "grant_license",
-            licensor=body["licensor"],
-            licensee=body["licensee"],
-            ip_id=body["ip_id"],
-            terms=body["terms"],
-        )
-        return self._ok(result)
 
-    async def _handle_agreement_execute(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "parties", "agreement_type", "terms")
-        result = await self._call(
-            "legal", "execute_agreement",
-            parties=body["parties"],
-            agreement_type=body["agreement_type"],
-            terms=body["terms"],
-        )
-        return self._ok(result)
 
-    async def _handle_legal_dispute_file(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "complainant", "respondent", "dispute_type", "description")
-        result = await self._call(
-            "legal", "file_dispute",
-            complainant=body["complainant"],
-            respondent=body["respondent"],
-            dispute_type=body["dispute_type"],
-            description=body["description"],
-        )
-        return self._ok(result)
 
     # -- AI --
 
-    async def _handle_ai_agent_register(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner", "agent_name", "capabilities")
-        result = await self._call(
-            "ai", "register_agent",
-            owner=body["owner"],
-            agent_name=body["agent_name"],
-            capabilities=body["capabilities"],
-            model=body.get("model", ""),
-        )
-        return self._ok(result)
 
-    async def _handle_ai_model_trade(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "seller", "buyer", "model_id", "price")
-        result = await self._call(
-            "ai", "trade_model",
-            seller=body["seller"],
-            buyer=body["buyer"],
-            model_id=body["model_id"],
-            price=float(body["price"]),
-        )
-        return self._ok(result)
 
     # -- Supply Chain Expanded --
 
