@@ -822,11 +822,32 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "authorize_payment": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — disabled (NEW-53). The method took only a payment_id, with no caller identity, so anyone holding an id could authorize a spend against another agent's budget. Disabled until identity and ownership verification are wired. This is a security disable, not a missing feature."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # This text was model-facing and user-elicitable, and it was not a
+            # leak of internal IDs — it was a working description of an
+            # exploitable pattern:
+            #
+            #   "disabled (NEW-53). The method took only a payment_id, with no
+            #    caller identity, so anyone holding an id could authorize a
+            #    spend against another agent's budget."
+            #
+            # KEPT because the reason must sit beside the code it protects.
+            # Three times this engagement a fix was undone or nearly undone
+            # because its reason lived only in commit history, which nobody
+            # greps before restoring a capability as a convenience. NEW-53 is
+            # a SECURITY disable: do not re-enable authorize_payment or
+            # refund_payment until the caller can be verified as entitled to
+            # the payment. Restoring it "because the method exists" reopens a
+            # cross-agent spend.
+            "NOT AVAILABLE — payment authorization is disabled pending caller-identity verification. This is a deliberate security hold, not a missing feature: it returns once a caller can be verified as entitled to the payment."
         ),
         "keywords": ["authorize payment", "approve payment", "confirm payment"],
         "follow_up": (
-            "I can't authorize payments right now. That action is disabled because it couldn't verify who was asking — it accepted a payment id from anyone. It comes back once caller identity is checked."
+            # WAS: "... it accepted a payment id from anyone." That is the
+            # exploit stated plainly, in the one field the model is explicitly
+            # told to relay to the user — the most reachable of the four
+            # strings on these two entries.
+            "I can't authorize payments right now. That action is on a deliberate security hold until the platform can verify that whoever is asking is entitled to the payment. It comes back once caller identity is checked."
         ),
     },
 
@@ -848,7 +869,18 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "refund_payment": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — disabled (NEW-53). Same defect as authorize_payment: only a payment_id, no caller identity, so anyone with an id could refund another agent's payment and silently restore that agent's spend headroom."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM:
+            #
+            #   "disabled (NEW-53). Same defect as authorize_payment: only a
+            #    payment_id, no caller identity, so anyone with an id could
+            #    refund another agent's payment and silently restore that
+            #    agent's spend headroom."
+            #
+            # The "silently restore that agent's spend headroom" clause is the
+            # part that made this a disclosure rather than a tidiness problem:
+            # it names the effect an attacker would want. Same re-enable bar as
+            # authorize_payment above.
+            "NOT AVAILABLE — refunds are disabled pending caller-identity verification, for the same reason as authorize_payment. This is a deliberate security hold, not a missing feature."
         ),
         "keywords": ["refund payment", "reverse payment", "get refund", "cancel payment"],
         "follow_up": (

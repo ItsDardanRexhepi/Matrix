@@ -281,3 +281,107 @@ async def test_the_rendered_text_carries_no_unscoped_negative(action):
         f"unscoped platform-wide negative: {hits}"
     )
 
+
+# ── DISCLOSURE: the rendered text must not teach the exploit ─────────────
+#
+# SEVERITY NOTE, kept because it decides the fix order. Eleven of the sixteen
+# descriptions leak internal issue IDs and defect post-mortems, which is untidy.
+# TWO of them leaked a METHOD: authorize_payment's said "anyone holding an id
+# could authorize a spend against another agent's budget", and refund_payment's
+# added that it "silently restore[s] that agent's spend headroom" — the effect an
+# attacker would want, named. authorize_payment's FOLLOW_UP carried it too
+# ("it accepted a payment id from anyone"), which is worse than the description,
+# because follow_up is the one field the model is told to say out loud.
+#
+# These are shipped ahead of the general rule for the same reason a live money
+# path jumps its queue: the other eleven cost embarrassment, these two cost a
+# user a working recipe.
+#
+# NOT INTRODUCED BY THE REPAIR. All sixteen strings predate it. What 9eb5c06 did
+# was make them REACHABLE — the purest form of the pre-repoint hazard: the text
+# was wrong for as long as it existed, and arming the path turned latent
+# wrongness into live disclosure without a single character of it changing.
+
+DISCLOSURE_SHAPES = (
+    # An attacker-usable statement of who could do what, not a boundary.
+    "anyone holding", "anyone with an id", "from anyone", "could authorize",
+    "could refund", "spend headroom", "another agent's budget",
+    "another agent's payment",
+)
+
+
+@pytest.mark.parametrize("action", ["authorize_payment", "refund_payment"])
+async def test_a_security_hold_does_not_describe_the_hole_it_is_holding(action):
+    """RENDERED OUTPUT, not fields — the lesson from the last guard being scoped
+    to the one field that had already been fixed.
+
+    A security disable must state the BOUNDARY ("this is on hold until callers
+    can be verified") and never the METHOD ("it accepted an id from anyone").
+    The first is what a user needs; the second is what an attacker needs.
+    """
+    rendered = "\n".join(
+        await _intent_enrichments(INTENT_ACTION_MAP[action]["keywords"][0])
+    ).lower()
+
+    hits = [s for s in DISCLOSURE_SHAPES if s in rendered]
+    assert not hits, (
+        f"{action}: the text delivered to the model describes the exploitable "
+        f"pattern rather than the capability boundary: {hits}"
+    )
+
+
+@pytest.mark.parametrize("action", ["authorize_payment", "refund_payment"])
+def test_neither_field_carries_it_either(action):
+    """BELT AND BRACES, and deliberately at the field layer too.
+
+    The rendered check above is the primary control; this one exists because
+    these two strings are a DISCLOSURE rather than a tidiness problem, and a
+    field that is not currently rendered can become rendered — which is exactly
+    how all sixteen of these became model-facing in the first place.
+    """
+    guide = INTENT_ACTION_MAP[action]
+    for field in ("description", "follow_up"):
+        text = (guide.get(field) or "").lower()
+        hits = [s for s in DISCLOSURE_SHAPES if s in text]
+        assert not hits, f"{action}.{field} carries {hits}"
+
+
+@pytest.mark.parametrize("action", ["authorize_payment", "refund_payment"])
+async def test_the_user_is_still_told_it_is_a_deliberate_hold(action):
+    """THE OTHER DIRECTION. Sanitising must not turn a security hold into a
+    vague "unavailable" — a user who is told nothing assumes it is broken and
+    retries. The honest boundary survives; only the method is gone."""
+    rendered = "\n".join(
+        await _intent_enrichments(INTENT_ACTION_MAP[action]["keywords"][0])
+    ).lower()
+
+    assert "not available" in rendered
+    assert "identity" in rendered or "who is asking" in rendered or "entitled" in rendered, (
+        f"{action}: the lifting condition was lost along with the exploit"
+    )
+
+
+def test_the_defect_history_survives_beside_the_code():
+    """MOVED, NOT DROPPED. The post-mortems are the protection against
+    re-introduction — three fixes this engagement were undone or nearly undone
+    because their reason lived only in commit history, which nobody greps before
+    restoring a capability. The text must be adjacent to the entry it guards."""
+    import pathlib
+
+    import re
+
+    source = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "runtime" / "chat" / "intent_actions.py"
+    ).read_text()
+    # The preserved text lives in a wrapped comment block, so the phrases are
+    # split across lines and `#` prefixes. Normalise before matching — asserting
+    # on raw source would fail for formatting reasons and read as "the history
+    # was dropped", which is the opposite of what happened.
+    flat = re.sub(r"\s*#\s*", " ", source)
+    flat = re.sub(r"\s+", " ", flat).lower()
+
+    assert "anyone holding an id could authorize a spend" in flat
+    assert "silently restore that agent's spend headroom" in flat
+    assert "do not re-enable authorize_payment" in flat
+
