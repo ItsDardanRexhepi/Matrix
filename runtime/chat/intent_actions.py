@@ -3102,7 +3102,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
+            "Stream a payment continuously over time. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["stream payment", "streaming payment", "pay by second", "continuous payment", "real-time payment", "salary stream"],
         "follow_up": (
@@ -3127,7 +3127,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
+            "Set up a recurring payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["recurring payment", "automatic payment", "autopay", "scheduled payment", "monthly payment"],
         "follow_up": (
@@ -3152,7 +3152,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
+            "Release an escrow milestone payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["escrow", "milestone payment", "escrow release", "project payment", "milestone escrow"],
         "follow_up": (
@@ -3177,7 +3177,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
+            "Split a payment across several recipients. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["split payment", "divide payment", "split bill", "pay multiple", "shared payment"],
         "follow_up": (
@@ -3226,7 +3226,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
+            "Factor an invoice for early payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["invoice factoring", "factor invoice", "early payment", "invoice financing"],
         "follow_up": (
@@ -3251,7 +3251,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
+            "Run a payroll disbursement. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["payroll", "pay employees", "salary distribution", "mass payment", "batch payroll"],
         "follow_up": (
@@ -4259,7 +4259,25 @@ def match_intent(user_message: str) -> list[dict[str, Any]]:
         if score > 0:
             scored.append((score, action_name))
 
-    scored.sort(key=lambda x: x[0], reverse=True)
+    # TIE-BREAK: score, then AVAILABILITY, then name.
+    #
+    # A plain score sort left ties to insertion order. `permanent storage`
+    # scores 3.0 for BOTH decentralized_store (works) and arweave_store
+    # (unavailable): today the working one happens to win, decided by dict
+    # order rather than by anything deliberate. One reordering and a working
+    # capability starts answering "NOT AVAILABLE — do not attempt this action".
+    #
+    # That risk is NEW as of the consumer repair. The mis-ranking always
+    # existed, but an unavailable winner used to be SILENT (its guide had no
+    # action_name, the consumer raised, the enrichment was discarded). Making
+    # those entries speak converted a harmless tie into a coin-flip between a
+    # working answer and a refusal. Ranking is the right place to fix it —
+    # accepting a degraded working path because the refusal is honest trades a
+    # feature for a sentence.
+    #
+    # Availability wins ties; the name is a final key so the order is total and
+    # does not depend on dict insertion at all.
+    scored.sort(key=lambda x: (-x[0], bool(INTENT_ACTION_MAP[x[1]].get("unavailable")), x[1]))
     results = []
     for score, action_name in scored[:5]:
         entry = dict(INTENT_ACTION_MAP[action_name])
