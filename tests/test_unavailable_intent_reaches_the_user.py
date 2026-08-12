@@ -216,20 +216,68 @@ def test_no_unavailable_string_asserts_a_bare_platform_wide_negative():
     This does not ban negatives — it bans the UNSCOPED form. "there is no X in
     this platform" must instead say which capability, or which layer, lacks it.
     """
+    # THIS GUARD FAILED TWICE ON ITS FIRST OUTING, and both failures are the
+    # same mistake in different clothes.
+    #
+    #   (1) IT SCANNED THE WRONG FIELD. It read `follow_up` only — while the
+    #       repair it shipped alongside had just started rendering
+    #       `description` verbatim to the model. The corrected claim and the
+    #       uncorrected one were delivered side by side in a single enrichment,
+    #       and the guard inspected only the corrected half.
+    #   (2) ITS PHRASE LIST WAS TOO LITERAL. "no execution path" does not
+    #       substring-match "no treasury execution path exists". A banned-phrase
+    #       list matched against prose will always be one wording behind.
+    #
+    # Both fixes below, and the stronger assertion is the one after this test:
+    # scan what is RENDERED, not the fields it is assembled from.
     banned = (
+        "execution path exists",
         "no execution path",
         "there is no executor",
-        "no tee/mpc/fhe implementation on the platform",
+        "implementation on the platform",
         "nothing executes",
+        "anywhere in this repo",
     )
     offenders = []
     for action in UNAVAILABLE:
-        text = (INTENT_ACTION_MAP[action].get("follow_up") or "").lower()
-        for phrase in banned:
-            if phrase in text:
-                offenders.append(f"{action}: {phrase!r}")
+        guide = INTENT_ACTION_MAP[action]
+        for field in ("description", "follow_up"):
+            text = (guide.get(field) or "").lower()
+            for phrase in banned:
+                if phrase in text:
+                    offenders.append(f"{action}.{field}: {phrase!r}")
 
     assert not offenders, (
         "unscoped platform-wide negative(s) in user-facing text — each needs a "
         f"grep or a narrower claim: {offenders}"
     )
+
+
+@pytest.mark.parametrize("action", UNAVAILABLE)
+async def test_the_rendered_text_carries_no_unscoped_negative(action):
+    """THE STRONGER FORM, and the lesson from the guard above failing.
+
+    Guarding the FIELDS is guarding the inputs. What reaches the user is the
+    assembled enrichment, and the previous version of this control inspected one
+    of the two fields that assembly draws from — the one that had already been
+    corrected. So this asserts on the RENDERED output, which cannot be scoped to
+    the wrong field because it is not scoped to a field at all.
+    """
+    banned = (
+        "execution path exists",
+        "no execution path",
+        "there is no executor",
+        "implementation on the platform",
+        "nothing executes",
+        "anywhere in this repo",
+    )
+    rendered = "\n".join(
+        await _intent_enrichments(INTENT_ACTION_MAP[action]["keywords"][0])
+    ).lower()
+
+    hits = [p for p in banned if p in rendered]
+    assert not hits, (
+        f"{action}: the text actually delivered to the model asserts an "
+        f"unscoped platform-wide negative: {hits}"
+    )
+

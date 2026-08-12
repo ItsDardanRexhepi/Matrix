@@ -2869,8 +2869,15 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "treasury_transfer": {
         "unavailable": True,
         "description": (
-            "Transfer funds from a DAO treasury. NOT AVAILABLE — no treasury "
-            "execution path exists. The former handler returned "
+            # THIRD INSTANCE OF THE SAME DEFECT, and the first two fixes are
+            # why this one is embarrassing: the follow_up beside this line was
+            # corrected for asserting a platform-wide negative, and this line
+            # kept it. It was invisible until the consumer repair began
+            # rendering `description` verbatim — a string that had been inert
+            # became user-facing in the same commit that corrected its twin.
+            "Transfer funds from a DAO treasury. NOT AVAILABLE — the platform "
+            "has no wired path to the DAO's on-chain treasury function. The "
+            "former handler returned "
             "status='transferred' without moving any value, without a signer, "
             "and without touching the treasury balance."
         ),
