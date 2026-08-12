@@ -14,8 +14,12 @@ import uuid
 from typing import Any
 
 from runtime.blockchain.services.staking.apy_calculator import APYCalculator
+from runtime.blockchain.services.staking.arming import (
+    resolve_staking_contract,
+    staking_not_deployed,
+)
 from runtime.blockchain.services.staking.pools import StakingPoolManager
-from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.blockchain.web3_manager import Web3Manager
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +50,10 @@ class StakingService:
             s_cfg.get("min_stake", _MIN_STAKE_ETH)
         )
         self._platform_wallet: str = bc_cfg.get("platform_wallet", "")
-        self._staking_contract: str = (
-            s_cfg.get("staking_contract", "")
-            or bc_cfg.get("staking_contract", "")
-            or ""
-        )
+        # NEW-94: resolution moved to arming.py so all three staking classes
+        # gate on the SAME address. Behaviour is unchanged — the helper is the
+        # former inline expression, extracted verbatim.
+        self._staking_contract: str = resolve_staking_contract(config)
         self._web3 = Web3Manager.get_shared(config)
 
         self._apy = APYCalculator(config)
@@ -97,26 +100,24 @@ class StakingService:
         if amount <= 0:
             raise ValueError("Stake amount must be positive")
 
-        if (
-            not self._web3.available
-            or self._web3.is_placeholder(self._staking_contract)
-        ):
-            logger.warning(
-                "Service %s called but contract not deployed",
-                self.__class__.__name__,
-            )
-            return not_deployed_response("staking", {
-                "operation": "stake",
-                "requested": {"staker": staker, "amount": amount, "pool_id": pool_id},
-            })
+        # NEW-94: the gate that used to be written out here is now the shared
+        # domain gate. Same web3, same contract, same polarity — the only
+        # change is that fourteen sibling methods now use it too.
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "stake",
+            {"staker": staker, "amount": amount, "pool_id": pool_id},
+        )
+        if refusal is not None:
+            return refusal
 
         pool = await self._pools.get_pool(pool_id)
         pool_min = float(pool.get("min_stake", self._min_stake))
 
         key = (staker, pool_id)
         position = self._positions.get(key)
+        is_new = position is None
 
-        if position is None:
+        if is_new:
             # New position: enforce minimum
             if amount < pool_min:
                 raise ValueError(
@@ -133,16 +134,27 @@ class StakingService:
                 "staked_at": now,
                 "last_reward_at": now,
             }
-            self._positions[key] = position
+            # NOT published to self._positions yet — see the ordering note below.
 
         # Accrue pending rewards before changing stake
         await self._accrue_rewards(position, pool)
 
+        # ORDERING, forced by NEW-94. `add_stake` can now refuse, so the pool
+        # accounting is attempted BEFORE the position is credited or published.
+        # The old order credited the position first and discarded whatever
+        # `add_stake` returned; with a refusable callee that would leave a
+        # staker holding a balance the pool never recorded — a partial state
+        # nothing downstream could detect. The refusal is bound and checked
+        # rather than discarded (D10).
+        pool_update = await self._pools.add_stake(pool_id, amount)
+        if pool_update is not None:
+            return pool_update
+
+        if is_new:
+            self._positions[key] = position
+
         position["staked_amount"] += amount
         position["last_staked_at"] = int(time.time())
-
-        # Update pool totals
-        await self._pools.add_stake(pool_id, amount)
 
         logger.info(
             "Staked: staker=%s pool=%s amount=%.6f total=%.6f",
@@ -164,8 +176,17 @@ class StakingService:
             pool_id: Pool to unstake from.
 
         Returns:
-            Updated position record.
+            Updated position record, or an honest refusal while undeployed.
         """
+        # NEW-94. Gated ahead of the position lookup, so an undeployed domain
+        # refuses without first disclosing whether a position exists.
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "unstake",
+            {"staker": staker, "amount": amount, "pool_id": pool_id},
+        )
+        if refusal is not None:
+            return refusal
+
         key = (staker, pool_id)
         position = self._positions.get(key)
         if not position:
@@ -192,10 +213,15 @@ class StakingService:
         # Accrue rewards before unstaking
         await self._accrue_rewards(position, pool)
 
+        # ORDERING, forced by NEW-94 — the mirror of the note in `stake`.
+        # `remove_stake` can now refuse, so the pool accounting is attempted
+        # before the position is debited. Bound and checked, not discarded (D10).
+        pool_update = await self._pools.remove_stake(pool_id, amount)
+        if pool_update is not None:
+            return pool_update
+
         position["staked_amount"] -= amount
         position["last_unstaked_at"] = int(time.time())
-
-        await self._pools.remove_stake(pool_id, amount)
 
         # Clean up empty positions
         if position["staked_amount"] <= 0 and position["pending_rewards"] <= 0:
@@ -222,8 +248,17 @@ class StakingService:
             pool_id: Pool to claim from.
 
         Returns:
-            Claim record with gross/net amounts.
+            Claim record with gross/net amounts, or an honest refusal while
+            undeployed.
         """
+        # NEW-94.
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "claim_rewards",
+            {"staker": staker, "pool_id": pool_id},
+        )
+        if refusal is not None:
+            return refusal
+
         key = (staker, pool_id)
         position = self._positions.get(key)
         if not position:
@@ -284,7 +319,36 @@ class StakingService:
         staker: str,
         pool_id: str = "default",
     ) -> dict:
-        """Get staking position for a staker in a pool."""
+        """Get staking position for a staker in a pool.
+
+        GATED, AND THIS IS THE COUNTEREXAMPLE THAT SHAPES THE WHOLE DOMAIN.
+
+        NEW-94 exempts five methods from the staking gate. The exemption is an
+        ENUMERATED LIST rather than the rule "reads are safe", and the reason is
+        this method: eight lines down it calls ``self._accrue_rewards``, which
+        credits ``pending_rewards`` from elapsed wall-clock time. A method whose
+        name promises a read MINTS BALANCE as a side effect of being called.
+        Poll it in a loop and the position grows, with no stake, no claim, and
+        no caller intent beyond "show me my position".
+
+        So the read/write distinction is not a safety boundary in this
+        codebase, and ``get_position`` is the proof. If you are adding
+        ``get_rewards_preview()`` and reasoning "it's a getter, getters are
+        safe" — that reasoning is what this docstring exists to stop. Put the
+        new method on ``STAKING_GATED`` or on ``STAKING_UNGATED_READS`` in
+        arming.py after reading its body; the structural test in
+        tests/test_staking_arming.py will not let you skip the choice.
+
+        Returns:
+            Position record, or an honest refusal while undeployed.
+        """
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "get_position",
+            {"staker": staker, "pool_id": pool_id},
+        )
+        if refusal is not None:
+            return refusal
+
         key = (staker, pool_id)
         position = self._positions.get(key)
         if not position:

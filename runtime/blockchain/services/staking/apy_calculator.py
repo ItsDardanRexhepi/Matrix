@@ -11,6 +11,12 @@ import logging
 import time
 from typing import Any
 
+from runtime.blockchain.services.staking.arming import (
+    resolve_staking_contract,
+    staking_not_deployed,
+)
+from runtime.blockchain.web3_manager import Web3Manager
+
 logger = logging.getLogger(__name__)
 
 # Annualisation constant
@@ -43,6 +49,10 @@ class APYCalculator:
         # Historical APY snapshots: pool_id -> [(timestamp, apy)]
         self._history: dict[str, list[tuple[int, float]]] = {}
 
+        # NEW-94: the whole staking domain arms on one switch. See arming.py.
+        self._web3 = Web3Manager.get_shared(config)
+        self._staking_contract: str = resolve_staking_contract(config)
+
     async def calculate_apy(self, pool_id: str) -> dict:
         """Calculate current APY for a staking pool.
 
@@ -55,6 +65,17 @@ class APYCalculator:
             Dict with ``current_apy``, ``7d_avg``, ``30d_avg``,
             ``pool_id``, ``validator_performance``.
         """
+        # NEW-94. Gated because it MUTATES: it appends a snapshot to
+        # ``self._history``, which is what ``get_historical_apy`` later serves.
+        # An undeployed domain that accumulates a history of yields it never
+        # earned is manufacturing evidence.
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "calculate_apy",
+            {"pool_id": pool_id},
+        )
+        if refusal is not None:
+            return refusal
+
         try:
             from runtime.blockchain.services.staking.pools import StakingPoolManager
             pm = StakingPoolManager(self._config)

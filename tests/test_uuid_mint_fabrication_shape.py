@@ -72,6 +72,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from tests.refusal_primitives import REFUSAL_PRIMITIVES, mentions_refusal
+
 SERVICES = pathlib.Path(__file__).resolve().parent.parent / (
     "runtime/blockchain/services"
 )
@@ -280,12 +282,20 @@ def test_the_measured_count_is_recorded():
 
 
 def _is_gated(fn: ast.AST) -> bool:
+    """True if this method can return an honest refusal.
+
+    Matches EVERY registered refusal primitive, not just the base one. See
+    tests/refusal_primitives.py: NEW-94 wrapped `not_deployed_response` in
+    `staking_not_deployed` and this detector, which matched one literal name,
+    stopped seeing the staking package entirely — while its count fell, which
+    read as progress.
+    """
     for node in ast.walk(fn):
         if isinstance(node, ast.Call):
             name = getattr(node.func, "attr", None) or getattr(
                 node.func, "id", None
             )
-            if name == "not_deployed_response":
+            if name in REFUSAL_PRIMITIVES:
                 return True
     return False
 
@@ -320,7 +330,11 @@ def find_gate_asymmetry() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for path in sorted(SERVICES.rglob("*.py")):
         text = path.read_text()
-        if "not_deployed_response" not in text:
+        # The file-level skip must ask about EVERY refusal primitive. When it
+        # asked only about the base name, NEW-94's wrapper made the whole
+        # staking package invisible here — and the resulting drop in the count
+        # looked exactly like a fix.
+        if not mentions_refusal(text):
             continue
         try:
             tree = ast.parse(text)
@@ -350,7 +364,11 @@ KNOWN_GATE_ASYMMETRY = {
     "ip_royalties/service.py::IPRoyaltyService": ["license_ip", "transfer_ip"],
     "privacy/service.py::PrivacyService": ["get_privacy_commitment"],
     "rwa_tokenization/service.py::RWAService": ["tokenize_asset"],
-    "staking/service.py::StakingService": ["claim_rewards"],
+    # staking/service.py::StakingService — REMOVED by NEW-94 (was:
+    # ["claim_rewards"]). The whole domain now gates on one switch, so the
+    # class has no asymmetry left to record. Kept as a comment rather than
+    # deleted: this was the exemplar the docstring below is written around,
+    # and a reader needs to see that the entry left because it was fixed.
 }
 
 
@@ -358,13 +376,43 @@ def test_no_new_gate_asymmetry():
     """NEW-65b — 'this service is gated' has never been a service-level
     property in this codebase, only a per-method accident.
 
-    MEASURED: 7 classes, 11 ungated state-modifying methods, each inside a
-    class whose author DID establish a deployment gate on a sibling. The gate
-    documents an intention the code does not enforce.
+    MEASURED at introduction: 7 classes, 11 ungated state-modifying methods,
+    each inside a class whose author DID establish a deployment gate on a
+    sibling. The gate documents an intention the code does not enforce.
+    BURN-DOWN: 7/11 -> 6/10 (NEW-94 closed staking).
 
-    The sharpest instance: staking.stake is gated while claim_rewards is not —
-    a user can be refused permission to OPEN a position and still 'claim'
-    rewards on the position they were never allowed to open.
+    The sharpest instance WAS staking: `stake` gated while `claim_rewards` was
+    not — a user could be refused permission to OPEN a position and still
+    'claim' rewards on the position they were never allowed to open. NEW-94
+    fixed it by arming the domain as a unit.
+
+    AND THE FIRST VERSION OF THIS NOTE GOT THE EVIDENCE WRONG, WHICH IS THE
+    MORE USEFUL LESSON. It claimed the 7/11 -> 6/10 drop was an INDEPENDENT
+    confirmation that the asymmetry was gone. It was not. NEW-94 wrapped
+    `not_deployed_response` in `staking_not_deployed`, and this detector both
+    matched that one literal name AND skipped whole files that never mention
+    it — so the staking package became INVISIBLE here. An adversarial verifier
+    disabled every staking gate and re-ran: still 6/10, still no staking entry.
+    The count had fallen because the instrument stopped looking.
+
+    A number that moves because the defect was fixed and a number that moves
+    because the detector went blind are indistinguishable from the outside.
+    The fix is tests/refusal_primitives.py — one shared registry of refusal
+    primitives, imported by every name-matching detector, so registering a
+    wrapper once restores all of them. With it registered, this detector reads
+    all three staking files, sees 8 gated methods, finds no ungated mutating
+    sibling, and the 6/10 is now evidence rather than an artefact. Proven by
+    mutation: remove `claim_rewards`' gate and this test fails.
+
+    Two things that domain taught, which this docstring now carries:
+
+      * The asymmetry was LOAD-BEARING. `stake` was the sole writer of
+        `_positions`, so gating it was the only reason the ungated siblings
+        were inert. The class was not partly protected — it was starved, and
+        a count of "1 gated" overstated what was actually enforced.
+      * "Reads are safe" is not a valid way to close one of these. Staking's
+        `get_position` accrues rewards as a side effect of being read, so the
+        remaining six must be closed by reading each body, not by category.
 
     This is the shape that produced NEW-64: DeFiService.create_loan gated, the
     collateral siblings not, so the service looked gated while exposing an
@@ -383,6 +431,19 @@ def test_no_new_gate_asymmetry():
 
 
 def test_the_gate_asymmetry_count_is_recorded():
+    """RATCHET: 7 classes / 11 methods -> 6 / 10 after NEW-94.
+
+    Tightened rather than relaxed. If a later change makes staking asymmetric
+    again, `test_no_new_gate_asymmetry` fails on it as a NEW finding, which is
+    the correct treatment — the domain gate is a control now, not a habit.
+    """
     current = find_gate_asymmetry()
-    assert len(current) == 7
-    assert sum(len(v) for v in current.values()) == 11
+    assert len(current) == 6
+    assert sum(len(v) for v in current.values()) == 10
+
+    assert not [k for k in current if k.startswith("staking/")], (
+        "staking has gate asymmetry again — NEW-94 armed the domain as a unit "
+        "via runtime/blockchain/services/staking/arming.py, so a partially "
+        "gated staking class means a method was added outside that scheme. "
+        "See tests/test_staking_arming.py."
+    )

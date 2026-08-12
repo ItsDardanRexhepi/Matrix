@@ -11,6 +11,12 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.services.staking.arming import (
+    resolve_staking_contract,
+    staking_not_deployed,
+)
+from runtime.blockchain.web3_manager import Web3Manager
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_POOL: dict[str, Any] = {
@@ -46,10 +52,18 @@ class StakingPoolManager:
         self._default_lock: int = int(s_cfg.get("default_lock_period", 0))
         self._min_stake: float = float(s_cfg.get("min_stake", 1.0))
 
+        # NEW-94: the whole staking domain arms on one switch. See arming.py.
+        self._web3 = Web3Manager.get_shared(config)
+        self._staking_contract: str = resolve_staking_contract(config)
+
         # pool_id -> pool record
         self._pools: dict[str, dict[str, Any]] = {}
 
-        # Ensure default pool exists
+        # Ensure default pool exists.
+        # NOT gated: this seeds an in-memory CONFIG record (rate, lock period,
+        # minimum) at construction. It claims no balance and asserts no
+        # outcome — `total_staked` and `staker_count` start at zero. The
+        # methods that would move those numbers are gated below.
         default = dict(_DEFAULT_POOL)
         default["reward_rate"] = self._default_reward_rate
         default["lock_period"] = self._default_lock
@@ -65,8 +79,19 @@ class StakingPoolManager:
                     ``lock_period``, ``min_stake``.
 
         Returns:
-            Created pool record.
+            Created pool record, or an honest refusal while undeployed.
         """
+        # NEW-94. This method is the staking domain's single D6 entry: mint a
+        # uuid, write it to a store, assert ``status: "active"``, await
+        # nothing. A pool that is "active" on no chain is the assertion D6
+        # exists to catch, and it was ungated.
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "create_pool",
+            {"requested_pool_id": config.get("pool_id")},
+        )
+        if refusal is not None:
+            return refusal
+
         pool_id = config.get("pool_id", f"pool_{uuid.uuid4().hex[:12]}")
         if pool_id in self._pools:
             raise ValueError(f"Pool {pool_id} already exists")
@@ -103,15 +128,39 @@ class StakingPoolManager:
         """List all staking pools."""
         return list(self._pools.values())
 
-    async def add_stake(self, pool_id: str, amount: float) -> None:
-        """Record additional stake in pool totals."""
+    async def add_stake(self, pool_id: str, amount: float) -> dict | None:
+        """Record additional stake in pool totals.
+
+        Returns ``None`` on success, or an honest refusal while undeployed.
+        The return type changed from ``None`` under NEW-94 so the refusal can
+        reach the caller; callers must bind and check it (D10).
+        """
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "add_stake",
+            {"pool_id": pool_id, "amount": amount},
+        )
+        if refusal is not None:
+            return refusal
+
         pool = self._pools.get(pool_id)
         if pool:
             pool["total_staked"] += amount
             pool["staker_count"] = pool.get("staker_count", 0) + 1
+        return None
 
-    async def remove_stake(self, pool_id: str, amount: float) -> None:
-        """Record removed stake in pool totals."""
+    async def remove_stake(self, pool_id: str, amount: float) -> dict | None:
+        """Record removed stake in pool totals.
+
+        Returns ``None`` on success, or an honest refusal while undeployed.
+        """
+        refusal = staking_not_deployed(
+            self._web3, self._staking_contract, "remove_stake",
+            {"pool_id": pool_id, "amount": amount},
+        )
+        if refusal is not None:
+            return refusal
+
         pool = self._pools.get(pool_id)
         if pool:
             pool["total_staked"] = max(0.0, pool["total_staked"] - amount)
+        return None

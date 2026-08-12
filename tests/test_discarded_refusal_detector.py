@@ -42,7 +42,19 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from tests.refusal_primitives import REFUSAL_PRIMITIVES, mentions_refusal
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "runtime/blockchain"
+
+# The registry lives in tests/refusal_primitives.py because a wrapper blinds
+# EVERY name-matching detector at once, not just this one — NEW-94's wrapper
+# silently blinded D6 as well, and D6's falling count read as progress. One
+# list, imported by all of them, is the only version of this that stays true.
+_REFUSAL_PRIMITIVES = REFUSAL_PRIMITIVES
+
+
+def _mentions_refusal(fn: ast.AST) -> bool:
+    return mentions_refusal(ast.unparse(fn))
 
 
 def _refusing_methods() -> set[str]:
@@ -57,9 +69,31 @@ def _refusing_methods() -> set[str]:
             for fn in cls.body:
                 if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
-                if "not_deployed_response" in ast.unparse(fn):
+                if _mentions_refusal(fn):
                     names.add(fn.name)
     return names
+
+
+def find_refusal_wrappers() -> set[str]:
+    """Module-level functions that return a refusal — i.e. new primitives.
+
+    A free function (as opposed to a method) whose body constructs a refusal is
+    by definition a wrapper other code will call in place of the primitive.
+    Each one must be registered in ``_REFUSAL_PRIMITIVES`` or it blinds this
+    detector to everything downstream of it.
+    """
+    found: set[str] = set()
+    for path in ROOT.rglob("*.py"):
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+        for node in tree.body:  # module level only — methods are not wrappers
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if _mentions_refusal(node):
+                found.add(node.name)
+    return found
 
 
 def find_discarded_refusals() -> set[str]:
@@ -89,6 +123,48 @@ def find_discarded_refusals() -> set[str]:
                     if callee in refusers:
                         found.add(f"{rel}::{cls.name}.{fn.name} -> {callee}")
     return found
+
+
+def test_every_refusal_wrapper_is_registered():
+    """THE DETECTOR'S OWN BLIND SPOT, made into a failing test.
+
+    D10 matches on a NAME. Any helper that returns a refusal on the primitive's
+    behalf silences D10 for all of that helper's callers — the detector keeps
+    reporting zero while an entire domain's refusals become invisible to it.
+
+    So every free function in runtime/blockchain that can produce a refusal
+    must appear in ``_REFUSAL_PRIMITIVES``. This test is what makes the
+    registration mandatory rather than remembered.
+    """
+    unregistered = find_refusal_wrappers() - set(_REFUSAL_PRIMITIVES)
+    assert not unregistered, (
+        "a new refusal wrapper exists but is not registered in "
+        f"_REFUSAL_PRIMITIVES: {sorted(unregistered)}. Every caller of it is "
+        "currently INVISIBLE to D10, so this file's green means less than it "
+        "did before the wrapper was added. Add the name to the tuple."
+    )
+
+
+def test_the_wrapper_registration_is_load_bearing():
+    """Proven in both directions (rule 35): the registration must actually
+    change what the detector sees, or it is decoration.
+
+    With `staking_not_deployed` registered, the staking methods that refuse
+    through it are recognised as refusers. Drop it and they vanish.
+    """
+    assert "staking_not_deployed" in _REFUSAL_PRIMITIVES
+
+    with_wrapper = _refusing_methods()
+    assert {"add_stake", "remove_stake", "create_pool"} <= with_wrapper, (
+        "the NEW-94 staking refusals are not being recognised"
+    )
+
+    # And the negative half: they are recognised ONLY because of the wrapper.
+    src = (ROOT / "services/staking/pools.py").read_text()
+    assert "not_deployed_response" not in src, (
+        "pools.py now names the primitive directly, so this test no longer "
+        "demonstrates that the wrapper registration is what makes D10 see it"
+    )
 
 
 # ── The frozen inventory (measured 2026-08-11; ratchet: may only shrink) ──
