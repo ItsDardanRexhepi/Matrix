@@ -245,7 +245,15 @@ class GovernanceService:
         # lifts it and nothing else has to be remembered.
         model_name = proposal["voting_model"]
         if model_name in _WEIGHT_DEPENDENT_MODELS and self._balance_source is None:
-            raise ValueError(
+            # NotImplementedError, NOT ValueError, and the type is a
+            # correctness property rather than a style choice. The dispatcher
+            # special-cases only TypeError and NotImplementedError; everything
+            # else lands in the generic handler as error_category
+            # "service_error", degraded=True, HTTP 502, with a full
+            # logger.exception stack trace on every call. A capability that is
+            # deliberately unavailable would have been reported to callers as
+            # the service malfunctioning and to operators as an ERROR.
+            raise NotImplementedError(
                 f"Weighted voting is unavailable: the '{model_name}' model "
                 "derives voting power from a token balance, and this service "
                 "has no balance source wired. A caller-supplied weight would "

@@ -96,7 +96,7 @@ async def test_a_weighted_vote_is_refused_while_no_balance_source_exists():
     svc = GovernanceService(_QUORATE)
     p = await svc.create_proposal("0xp", "T", "d", "token_weighted", ["yes", "no"])
 
-    with pytest.raises(ValueError, match="Weighted voting is unavailable"):
+    with pytest.raises(NotImplementedError, match="Weighted voting is unavailable"):
         await svc.vote(p["proposal_id"], "0xA", "no", weight=999_999.0)
 
 
@@ -106,7 +106,7 @@ async def test_the_refusal_names_its_lifting_condition():
     svc = GovernanceService(_QUORATE)
     p = await svc.create_proposal("0xp", "T", "d", "quadratic", ["yes", "no"])
 
-    with pytest.raises(ValueError) as exc:
+    with pytest.raises(NotImplementedError) as exc:
         await svc.vote(p["proposal_id"], "0xA", "no", weight=999_999.0)
     msg = str(exc.value)
     assert "balance source" in msg
