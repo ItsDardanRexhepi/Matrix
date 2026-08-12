@@ -56,8 +56,12 @@ class StakingService:
         self._staking_contract: str = resolve_staking_contract(config)
         self._web3 = Web3Manager.get_shared(config)
 
-        self._apy = APYCalculator(config)
+        # NEW-96: the pool manager is created FIRST and handed to the
+        # calculator. Order is load-bearing — the calculator now requires it,
+        # and before this the calculator built its own, so the APY was computed
+        # from an empty pool while the service held the real totals.
         self._pools = StakingPoolManager(config)
+        self._apy = APYCalculator(config, self._pools)
 
         # (staker, pool_id) -> position record
         self._positions: dict[tuple[str, str], dict[str, Any]] = {}

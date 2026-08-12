@@ -107,11 +107,54 @@ class DashboardAggregator:
                     staking_entry = dict(pos)
                     # Use Component 16's canonical APY calculator exclusively
                     apy_calculator = staking_svc.apy_calculator
+                    # NEW-96. THREE INDEPENDENT PATHS REACHED THE SAME VISIBLE
+                    # 0.0 HERE, and fixing fewer than all three leaves the
+                    # dashboard showing 0.0 anyway — which is how a correct fix
+                    # gets reverted as ineffective.
+                    #
+                    #   1. the calculator read a throwaway pool manager, so its
+                    #      APY was genuinely always 0.0  (fixed in
+                    #      apy_calculator.py — the shadow)
+                    #   2. this line read `apy_data["apy"]`; the calculator has
+                    #      always returned `current_apy`. The service's own
+                    #      caller (StakingService.get_position) reads
+                    #      `current_apy`, which is what makes this a misspelling
+                    #      rather than a second convention
+                    #   3. the bare `except` below substituted 0.0 for any
+                    #      failure
+                    #
+                    # AND 0.0 WAS NEVER A SAFE DEFAULT. `formatters.py` already
+                    # does the honest thing — `if apy is not None:` — and omits
+                    # the yield sentence entirely. Defaulting to 0.0 forced it
+                    # to print "Your current annual yield is 0.0%", a fabricated
+                    # yield claim, over a downstream component that was already
+                    # written to say nothing. None restores it.
                     try:
                         apy_data = await apy_calculator.calculate_apy(pool_id)
-                        staking_entry["apy"] = apy_data.get("apy", 0.0)
-                    except Exception:
-                        staking_entry["apy"] = 0.0
+                        apy_value = (
+                            apy_data.get("current_apy")
+                            if isinstance(apy_data, dict) else None
+                        )
+                        if isinstance(apy_value, (int, float)) and not isinstance(
+                            apy_value, bool
+                        ):
+                            staking_entry["apy"] = apy_value
+                        else:
+                            staking_entry["apy"] = None
+                            staking_entry["apy_unavailable"] = (
+                                apy_data.get("reason")
+                                or apy_data.get("error")
+                                or apy_data.get("status")
+                                or "calculator returned no current_apy"
+                            ) if isinstance(apy_data, dict) else (
+                                "calculator returned no APY"
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "APY calculation failed for pool %s: %s", pool_id, exc
+                        )
+                        staking_entry["apy"] = None
+                        staking_entry["apy_unavailable"] = f"calculation failed: {exc}"
                     portfolio["staking_positions"].append(staking_entry)
             except Exception as exc:
                 logger.warning("Failed to aggregate staking data: %s", exc)
