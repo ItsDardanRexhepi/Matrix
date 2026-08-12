@@ -22,6 +22,17 @@ from runtime.blockchain.services.governance.voting_models import (
 
 logger = logging.getLogger(__name__)
 
+#: Voting models whose result depends on a token balance. `one_person_one_vote`
+#: is deliberately absent: it returns 1.0 regardless of the weight passed in, so
+#: a forged weight cannot move it.
+_WEIGHT_DEPENDENT_MODELS = frozenset({"token_weighted", "quadratic"})
+
+#: Options that constitute APPROVAL. `finalize` claims a proposal passed only
+#: when the winning option is one of these. Options are arbitrary strings, so
+#: for any other winner the service reports who won and declines to assert
+#: passage — declining beats guessing on a governance outcome.
+_APPROVAL_OPTIONS = frozenset({"yes", "approve", "for", "in_favour", "in_favor", "aye"})
+
 _VALID_STATUSES = ("active", "passed", "rejected", "expired", "finalized")
 
 _PROPOSAL_TYPE_MAP: dict[str, str] = {
@@ -60,6 +71,11 @@ class GovernanceService:
         self._votes: dict[str, list[dict[str, Any]]] = {}
         # (proposal_id, voter) -> True  (prevents double voting)
         self._voter_registry: dict[tuple[str, str], bool] = {}
+
+        # CLUSTER A: the seam a real balance source plugs into. While it is
+        # None, weight-dependent voting refuses (step 1) and no snapshot is
+        # fabricated (step 2). Wiring it lifts both, in one place.
+        self._balance_source = None
 
         logger.info(
             "GovernanceService initialised (duration=%ds, model=%s).",
@@ -144,7 +160,22 @@ class GovernanceService:
 
         # Take a token snapshot for anti-flash-loan protection
         # In production, this would pull real balances from the chain
-        self._anti_manipulation.take_snapshot(proposal_id, {})
+        # ── CLUSTER A, STEP 2: no snapshot is fabricated.
+        #
+        # This called `take_snapshot(proposal_id, {})`. An EMPTY dict is falsy,
+        # so `check_vote`'s guard `if snapshot and snapshot_balance is not None`
+        # skipped the entire flash-loan branch — the protection was present,
+        # wired, and inert, and `get_flags()` returned [] for a voter with a
+        # snapshot balance of 0.0 voting at weight 999999.
+        #
+        # Recording an empty snapshot is worse than recording none: it makes
+        # the service look protected. With no balance source there is nothing
+        # honest to snapshot, so nothing is stored, and `check_vote` now
+        # REFUSES a weight-dependent vote whose snapshot is absent rather than
+        # silently skipping (fail-closed).
+        if self._balance_source is not None:                       # pragma: no cover
+            balances = await self._balance_source.balances_at_now()
+            self._anti_manipulation.take_snapshot(proposal_id, balances)
 
         logger.info(
             "Proposal created: id=%s type=%s title='%s' model=%s",
@@ -190,6 +221,33 @@ class GovernanceService:
         vote_key = (proposal_id, voter)
         if vote_key in self._voter_registry:
             raise ValueError(f"Voter {voter} has already voted on proposal {proposal_id}")
+
+        # ── CLUSTER A, STEP 1: the weight is no longer the caller's to declare.
+        #
+        # `weight` arrived from the request body and was used as-is. Nothing
+        # read a balance: this service has no web3, no token service, no
+        # account manager, and no reference to any balance getter — verified by
+        # inspecting its instance attributes. So a caller supplied their own
+        # voting power and the platform recorded it as `effective_weight`.
+        #
+        # THE HONEST FORM IS THAT WEIGHTED VOTING IS UNAVAILABLE, NOT THAT IT
+        # IS CALLER-ASSERTED. The two weight-dependent models are refused until
+        # a real balance source is wired; `one_person_one_vote` is unaffected
+        # because it discards the weight by construction (verified: it returns
+        # 1.0 for an input of 999).
+        #
+        # FAIL-CLOSED: the refusal is on the ABSENCE of a source, so wiring one
+        # lifts it and nothing else has to be remembered.
+        model_name = proposal["voting_model"]
+        if model_name in _WEIGHT_DEPENDENT_MODELS and self._balance_source is None:
+            raise ValueError(
+                f"Weighted voting is unavailable: the '{model_name}' model "
+                "derives voting power from a token balance, and this service "
+                "has no balance source wired. A caller-supplied weight would "
+                "be voting power the voter asserted about themselves. Use "
+                "'one_person_one_vote', or wire a balance source. "
+                "(Cluster A step 1)"
+            )
 
         # Anti-manipulation check
         manipulation_result = await self._anti_manipulation.check_vote(
@@ -290,15 +348,57 @@ class GovernanceService:
             voting_model=model,
         )
 
-        if quorum["quorum_met"]:
-            proposal["status"] = "passed" if tally.get("winner") else "rejected"
+        # ── CLUSTER A, STEP 3: the outcome is derived from the RESULT, not
+        # from the fact that someone voted.
+        #
+        # This was:
+        #     proposal["status"] = "passed" if tally.get("winner") else "rejected"
+        #
+        # `tally["winner"]` is `max(totals, key=totals.get)` — an argmax, so it
+        # is a non-empty string whenever ANY vote exists. The condition
+        # therefore asked "did anyone vote?" while appearing to ask "did it
+        # pass?". Driven: 999999 "no" against 1 "yes" finalized as PASSED. The
+        # votes were counted correctly and then discarded one line later — the
+        # same shape as NFT's discarded refusal and the dashboard's misspelled
+        # key, now on the governance outcome itself.
+        #
+        # WHAT "PASSED" CAN HONESTLY MEAN. Options are arbitrary strings, so
+        # this service cannot in general know which one constitutes approval.
+        # It claims passage only when the winning option is a recognised
+        # approval word; otherwise it reports the winner and does not assert
+        # passage. Refusing to answer beats guessing, and `outcome_basis` says
+        # which case applied so a reader is never left inferring.
+        winner = tally.get("winner")
+        if not quorum["quorum_met"]:
+            outcome, basis = "rejected", "quorum not met"
+        elif winner is None:
+            outcome, basis = "rejected", "no votes cast"
         else:
-            proposal["status"] = "rejected"
+            # The models report their margin under different key names —
+            # token_weighted uses winner_weight/total_weight, one_person_one_vote
+            # uses vote counts. Read the totals map, which every model returns,
+            # rather than printing "None of None" into a governance outcome.
+            totals = tally.get("totals") or {}
+            margin = (
+                f"{totals.get(winner)} of {sum(totals.values())}"
+                if totals else "an unreported margin"
+            )
+            if winner in _APPROVAL_OPTIONS:
+                outcome = "passed"
+                basis = f"'{winner}' won with {margin}"
+            else:
+                outcome = "rejected"
+                basis = (
+                    f"'{winner}' won with {margin}; it is not an approval "
+                    f"option ({sorted(_APPROVAL_OPTIONS)})"
+                )
+        proposal["status"] = outcome
 
         proposal["result"] = {
             "tally": tally,
             "quorum": quorum,
-            "outcome": proposal["status"],
+            "outcome": outcome,
+            "outcome_basis": basis,
         }
         proposal["finalized_at"] = now
         proposal["status"] = "finalized"

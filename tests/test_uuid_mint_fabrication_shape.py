@@ -210,6 +210,15 @@ def find_fabrication_shape() -> set[str]:
 #         the test. Filed known-and-dispositioned for the Phase-6 detector-delta
 #         pass rather than reopening the domain.
 
+# STRUCK 2026-08-12 (47 -> 46): governance/service.py::GovernanceService.create_proposal
+#   IT WAS NOT FIXED — the shape stopped matching. Cluster A step 2 replaced its
+#   unconditional `take_snapshot(pid, {})` with a guarded `await` on a balance
+#   source, and this shape requires ZERO awaits. Recorded explicitly because an
+#   entry leaving for a STRUCTURAL reason rather than a behavioural one is
+#   exactly what a ratchet must not accept silently.
+#   Its census verdict is unchanged: category 5 (it planted an empty snapshot
+#   that shadowed real balance state), never a fabrication — a proposal record
+#   IS the artifact. Its presence here was always a shape match, not a finding.
 KNOWN_FABRICATION_SHAPE = {
     "nft_services/rights.py::RightsManagement.transfer_rights",
     "agent_identity/service.py::AgentIdentityService.trade_model_access",
@@ -237,7 +246,6 @@ KNOWN_FABRICATION_SHAPE = {
     "gaming/service.py::GamingService.place_prediction_bet",
     "gaming/service.py::GamingService.resolve_market",
     "gaming/vetting.py::VettingPipeline.submit_for_review",
-    "governance/service.py::GovernanceService.create_proposal",
     "governance/service.py::GovernanceService.propose_multisig",
     "governance/service.py::GovernanceService.parameter_change",
     # NEW-80 (2026-08-11): create_parametric_policy left the shape. It now
@@ -353,8 +361,8 @@ def test_the_measured_count_is_recorded():
     the re-baseline block above KNOWN_FABRICATION_SHAPE, and `_shape`'s
     docstring for the call-form gap that remains OPEN and measured (+5).
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 47
-    assert len(find_fabrication_shape()) == 47
+    assert len(KNOWN_FABRICATION_SHAPE) == 46
+    assert len(find_fabrication_shape()) == 46
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -711,5 +719,5 @@ def test_the_shape_inventory_is_at_the_documented_baseline():
     number. See `_shape`'s docstring for the measured +5 the call-form gap
     would add, which is deliberately NOT included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 47
+    assert len(KNOWN_FABRICATION_SHAPE) == 46
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current

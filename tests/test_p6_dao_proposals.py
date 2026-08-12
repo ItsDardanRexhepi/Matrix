@@ -30,11 +30,17 @@ async def test_dao_proposals_returns_client_shape(env):
         proposer="0xabc",
         title="Fund the treasury",
         description="Allocate 10 ETH to grants",
-        voting_model="token_weighted",
+        # CLUSTER A: this was token_weighted with a caller-declared weight of
+        # 3.0, and the assertion below REQUIRED that weight to reach the tally.
+        # It was pinning the defect, not guarding a behaviour — a client
+        # declaring its own voting power and the server honouring it is exactly
+        # what Cluster A step 1 removes. INVERTED rather than adjusted-to-green;
+        # see the vote assertion below.
+        voting_model="one_person_one_vote",
         options=["for", "against"],
     )
     pid = prop["proposal_id"]
-    await gov.vote(proposal_id=pid, voter="0xv1", choice="for", weight=3.0)
+    await gov.vote(proposal_id=pid, voter="0xv1", choice="for")
 
     resp = await client.get("/api/v1/governance/daos/dao1/proposals")
     assert resp.status == 200, await resp.text()
@@ -46,7 +52,15 @@ async def test_dao_proposals_returns_client_shape(env):
     assert row["title"] == "Fund the treasury"
     assert row["description"] == "Allocate 10 ETH to grants"
     assert isinstance(row["status"], str)
-    assert row["votes_for"] >= 3.0, "the for-vote weight must be tallied server-side"
+    # INVERTED (Cluster A). Was: `assert row["votes_for"] >= 3.0` with the
+    # message "the for-vote weight must be tallied server-side" — asserting
+    # that a CALLER-SUPPLIED weight of 3.0 reached the tally. That is the
+    # forgeable-weight defect stated as a requirement. One voter is now worth
+    # exactly one vote, and no caller-declared figure can change it.
+    assert row["votes_for"] == 1.0, (
+        "one voter must be worth one vote — if this is 3.0 again, a "
+        "caller-declared weight is reaching the tally"
+    )
     assert row["votes_against"] == 0.0
     assert isinstance(row["quorum"], (int, float))
     # end_time is an ISO-8601 string (client decoder needs a string, not epoch).
