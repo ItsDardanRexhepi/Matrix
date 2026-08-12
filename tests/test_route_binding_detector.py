@@ -94,7 +94,8 @@ def find_broken_bindings() -> dict[str, str]:
 
 # ── The frozen inventory (measured 2026-08-11; ratchet: may only shrink) ──
 #
-# 49 at introduction -> 38 after the SERVICE-MISSING deletions.
+# 49 at introduction -> 38 (SERVICE-MISSING deletions) -> 18 (NEW-89
+# Tier 1 + Tier 2). The 18 that remain are exactly the client-called set.
 #
 # The 11 SERVICE-MISSING routes are GONE, and the triage that produced that is
 # worth recording, because "the service does not exist, so delete" turned out to
@@ -119,45 +120,34 @@ def find_broken_bindings() -> dict[str, str]:
 # it, 8 of the 11 would have been "helpfully" repointed, 6 onto fabrications.
 
 KNOWN_BROKEN_BINDINGS = {
-    # ── MISMATCH (22) — kwarg names do not bind ──────────────────────────
+    # ── TIER 3 ONLY — the 18 routes the shipped iOS client CALLS ────────
+    #
+    # Tier 1 (17) and Tier 2 (3) are CLEARED by NEW-89. What remains is the
+    # coordination gate: every route below is invoked by MTRX today, so the
+    # server contract cannot be chosen unilaterally. Fixing a route the client
+    # calls with the wrong shape does not fix the feature — it MOVES the
+    # breakage, from a server that rejects the call to a server that accepts a
+    # call the client is not making correctly.
+    #
+    # These stay broken ON PURPOSE until the intended contract is chosen per
+    # route. A 400 is a safe state; a route that accepts the wrong shape is not.
     "_handle_agent_register": "MISMATCH",
-    "_handle_community_create": "MISMATCH",
-    "_handle_credential_issue": "MISMATCH",
-    "_handle_crossborder_send": "MISMATCH",
-    "_handle_custody_transfer": "MISMATCH",
+    "_handle_bridge_execute": "METHOD-MISSING",
+    "_handle_bridge_quote": "METHOD-MISSING",
     "_handle_fundraising_create": "MISMATCH",
     "_handle_governance_create": "MISMATCH",
     "_handle_insurance_create": "MISMATCH",
     "_handle_ip_register": "MISMATCH",
-    "_handle_nft_batch_mint": "MISMATCH",
-    "_handle_nft_bridge": "MISMATCH",
-    "_handle_nft_collection_create": "MISMATCH",
-    "_handle_nft_fractionalize": "MISMATCH",
     "_handle_nft_mint": "MISMATCH",
-    "_handle_nft_rent": "MISMATCH",
-    "_handle_nft_royalty_claim": "MISMATCH",
+    "_handle_rwa_listings": "METHOD-MISSING",
     "_handle_rwa_tokenize": "MISMATCH",
     "_handle_securities_create": "MISMATCH",
-    "_handle_snapshot_vote": "MISMATCH",
+    "_handle_social_post": "METHOD-MISSING",
     "_handle_stablecoin_transfer": "MISMATCH",
     "_handle_staking_stake": "MISMATCH",
     "_handle_staking_unstake": "MISMATCH",
-    # ── METHOD-MISSING (16) — service exists, method does not ────────────
-    "_handle_bridge_execute": "METHOD-MISSING",
-    "_handle_bridge_quote": "METHOD-MISSING",
-    "_handle_multisig_approve": "METHOD-MISSING",
-    "_handle_multisig_propose": "METHOD-MISSING",
-    "_handle_provenance_log": "METHOD-MISSING",
-    "_handle_rwa_fractional_buy": "METHOD-MISSING",
-    "_handle_rwa_listings": "METHOD-MISSING",
-    "_handle_social_gate": "METHOD-MISSING",
-    "_handle_social_message_send": "METHOD-MISSING",
-    "_handle_social_post": "METHOD-MISSING",
-    "_handle_soulbound_mint": "METHOD-MISSING",
     "_handle_swap_execute": "METHOD-MISSING",
     "_handle_swap_route": "METHOD-MISSING",
-    "_handle_treasury_transfer": "METHOD-MISSING",
-    "_handle_yield_optimize": "METHOD-MISSING",
     "_handle_zk_proof": "METHOD-MISSING",
 }
 
@@ -201,13 +191,13 @@ def test_the_measured_counts_are_recorded():
     NEW-81 judgment per item.
     """
     current = find_broken_bindings()
-    assert len(KNOWN_BROKEN_BINDINGS) == 38
-    assert len(current) == 38
+    assert len(KNOWN_BROKEN_BINDINGS) == 18
+    assert len(current) == 18
 
     by_class: dict[str, int] = {}
     for cls in current.values():
         by_class[cls] = by_class.get(cls, 0) + 1
-    assert by_class == {"MISMATCH": 22, "METHOD-MISSING": 16}, by_class
+    assert by_class == {"MISMATCH": 11, "METHOD-MISSING": 7}, by_class
 
 
 def test_the_deleted_service_missing_routes_stay_deleted():
