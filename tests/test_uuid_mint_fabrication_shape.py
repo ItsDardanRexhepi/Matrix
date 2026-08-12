@@ -220,6 +220,18 @@ def find_fabrication_shape() -> set[str]:
 #   that shadowed real balance state), never a fabrication — a proposal record
 #   IS the artifact. Its presence here was always a shape match, not a finding.
 KNOWN_FABRICATION_SHAPE = {
+    # ADDED 2026-08-12 (46 -> 47) — and it became VISIBLE rather than newly
+    # wrong. Cluster B moved queue_timelock's write from
+    # `self._proposals.setdefault(...)` (a CALL, which this shape's
+    # assignment-only clause cannot see) to `self._timelocks[id] = record` (an
+    # ASSIGN, which it can). The call-form gap documented in `_shape` closed
+    # itself for this one method as a side effect of fixing the store
+    # corruption.
+    # ADJUDICATED HONEST: it now returns `recorded_unqueued` with `executed:
+    # False` and a disclosure stating no timelock executor exists. A shape
+    # member, not a fabrication — the distinction this inventory has always
+    # carried.
+    "governance/service.py::GovernanceService.queue_timelock",
     "nft_services/rights.py::RightsManagement.transfer_rights",
     "agent_identity/service.py::AgentIdentityService.trade_model_access",
     "agent_identity/service.py::AgentIdentityService.sell_training_data",
@@ -361,8 +373,8 @@ def test_the_measured_count_is_recorded():
     the re-baseline block above KNOWN_FABRICATION_SHAPE, and `_shape`'s
     docstring for the call-form gap that remains OPEN and measured (+5).
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 46
-    assert len(find_fabrication_shape()) == 46
+    assert len(KNOWN_FABRICATION_SHAPE) == 47
+    assert len(find_fabrication_shape()) == 47
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -719,5 +731,5 @@ def test_the_shape_inventory_is_at_the_documented_baseline():
     number. See `_shape`'s docstring for the measured +5 the call-form gap
     would add, which is deliberately NOT included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 46
+    assert len(KNOWN_FABRICATION_SHAPE) == 47
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current

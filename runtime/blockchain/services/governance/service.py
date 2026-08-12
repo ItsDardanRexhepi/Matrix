@@ -77,6 +77,11 @@ class GovernanceService:
         # fabricated (step 2). Wiring it lifts both, in one place.
         self._balance_source = None
 
+        # CLUSTER B: timelock records live HERE, not in _proposals. Writing
+        # them into the proposal store under a `_timelock_` key made
+        # list_proposals() raise KeyError: 'title'.
+        self._timelocks: dict[str, dict[str, Any]] = {}
+
         logger.info(
             "GovernanceService initialised (duration=%ds, model=%s).",
             self._voting_duration, self._default_model,
@@ -518,17 +523,43 @@ class GovernanceService:
         self, proposal_id: str, delay_seconds: int = 86400,
     ) -> dict:
         """Queue a passed proposal into a timelock."""
+        # ── CLUSTER B. Two defects, and removing only the first leaves
+        # listing broken, so both are fixed together.
+        #
+        # (a) THE CLAIM. "queued" says a passed proposal is now awaiting
+        #     timelocked execution. It never looked the proposal up, never
+        #     changed its status, and NOTHING EXECUTES a timelock anywhere in
+        #     this repo — there is no executor, so `executable_at` is a date on
+        #     which nothing will happen. Recorded, not queued.
+        #
+        # (b) THE STORE CORRUPTION. The record went into `self._proposals`
+        #     under a `_timelock_` key, so `list_proposals()` — which assumes
+        #     every value there is a proposal — raised `KeyError: 'title'`. A
+        #     fabrication that also breaks a real read path: deleting the
+        #     fabrication alone would have left listing broken, because the
+        #     pollution is the store choice, not the claim.
+        proposal = self._proposals.get(proposal_id)
+        if not proposal:
+            raise ValueError(f"Proposal {proposal_id} not found")
+
         tl_id = f"tl_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
         record = {
             "id": tl_id,
-            "status": "queued",
+            "status": "recorded_unqueued",
             "proposal_id": proposal_id,
             "delay_seconds": delay_seconds,
-            "executable_at": now + delay_seconds,
-            "queued_at": now,
+            "earliest_execution_if_built": now + delay_seconds,
+            "recorded_at": now,
+            "settled": False,
+            "executed": False,
+            "disclosure": (
+                "RECORDED, NOT QUEUED. No timelock executor exists in this "
+                "platform, so nothing will act on this record at any time. "
+                "The target proposal's status is unchanged."
+            ),
         }
-        self._proposals.setdefault(f"_timelock_{tl_id}", record)
+        self._timelocks[tl_id] = record
         logger.info("Timelock queued: id=%s", tl_id)
         return record
 
@@ -556,34 +587,68 @@ class GovernanceService:
     async def approve_multisig(
         self, multisig_id: str, signer: str,
     ) -> dict:
-        """Approve a multisig proposal."""
-        approval_id = f"msa_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": approval_id,
-            "status": "approved",
-            "multisig_id": multisig_id,
-            "signer": signer,
-            "approved_at": int(time.time()),
-        }
-        logger.info("Multisig approved: id=%s signer=%s", approval_id, signer)
-        return record
+        """Approve a multisig proposal.
+
+        CLUSTER B — REFUSES. Strip the claim and nothing remains: it minted
+        `msa_<uuid>`, returned `"status": "approved"`, echoed its two arguments
+        and a timestamp, and touched no store. Driven: every dict and list on
+        the service is byte-identical before and after. It never checked the
+        signer against the multisig's `signers`, never appended to its
+        `approvals`, never evaluated the `threshold`.
+
+        THE SUBSTRATE EXISTS, WHICH IS WHY THIS REFUSES RATHER THAN BEING
+        DELETED. `propose_multisig` writes a real record with `signers`,
+        `threshold` and an `approvals` list seeded with the proposer, so an
+        honest approval is genuinely buildable local work — a multisig
+        approval record IS the artifact. Building it is implementation, not
+        audit, so the capability is marked unavailable and the condition names
+        exactly what is already there to build on.
+
+        LIFTING CONDITION — all of: resolve `multisig_id` in the
+        `_multisig_*` records and refuse an unknown one; verify `signer` is in
+        that record's `signers` and has not already approved; append to
+        `approvals`; derive the returned status from `len(approvals) >=
+        threshold` rather than asserting it; and bind `signer` to an
+        authenticated caller (deferred register item 0 — otherwise anyone can
+        approve as anyone).
+        """
+        raise NotImplementedError(
+            "Multisig approval is unavailable: this method recorded nothing "
+            "and checked nothing — it never verified the signer, never "
+            "appended to the multisig's approvals, and never evaluated the "
+            "threshold. An honest implementation is buildable against the "
+            "existing `_multisig_*` records; until then an approval reported "
+            "here would be an approval no multisig received. (Cluster B)"
+        )
 
     async def snapshot_vote(
         self, proposal_id: str, voter: str, choice: str, block_number: int = 0,
     ) -> dict:
-        """Cast an off-chain snapshot vote."""
-        sv_id = f"sv_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": sv_id,
-            "status": "cast",
-            "proposal_id": proposal_id,
-            "voter": voter,
-            "choice": choice,
-            "block_number": block_number,
-            "cast_at": int(time.time()),
-        }
-        logger.info("Snapshot vote cast: id=%s", sv_id)
-        return record
+        """Cast an off-chain snapshot vote.
+
+        CLUSTER B — REFUSES. Strip the claim and nothing remains: it minted a
+        uuid, returned `"status": "cast"`, echoed its arguments, and touched no
+        store. Driven: every dict and list on the service is byte-identical
+        before and after.
+
+        AND NOTHING LOCAL COULD SUBSTANTIATE IT. Snapshot is an EXTERNAL
+        off-chain voting system; a vote is cast by signing a message and
+        submitting it to a Snapshot hub. This platform has no hub client, no
+        signer for it, and no space configuration — the gateway route already
+        refuses `space` as unbuilt (NEW-89). So unlike a proposal or a
+        membership, there is no local artifact that a record here could BE.
+
+        LIFTING CONDITION — all of: a Snapshot hub endpoint; a signer that can
+        produce the voter's EIP-712 signature (which this service cannot, as it
+        holds no keys); a configured space; and a status derived from the hub's
+        acknowledgement rather than asserted.
+        """
+        raise NotImplementedError(
+            "Snapshot voting is unavailable: casting an off-chain Snapshot "
+            "vote requires a Snapshot hub client and the voter's signature, "
+            "neither of which exists in this platform. A record here would "
+            "report a vote that was never submitted anywhere. (Cluster B)"
+        )
 
     async def parameter_change(
         self, parameter: str, old_value: Any, new_value: Any, proposer: str,

@@ -241,7 +241,20 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("timelock_queue",          "Queue Timelock Action",   "governance", "governance", "timelock_queue"),
     _cap("multisig_propose",        "Propose Multisig Action", "governance", "governance", "multisig_propose"),
     _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "multisig_approve"),
-    _cap("treasury_transfer",       "Treasury Transfer",       "governance", "governance", "treasury_transfer"),
+    # CLUSTER B: `treasury_transfer` REMOVED from the catalog — door 3 of 5.
+    # The gateway route went in Tier 2 and the ACTION_MAP literal goes with this
+    # change; this entry alone would have kept the action installed, because
+    # `install_action_map` iterates every capability and never consults
+    # `available`. Marking it unavailable was NOT enough, and finding that out
+    # is a separate platform-wide finding (60 capabilities are flagged
+    # unavailable and all 60 are installed regardless).
+    #
+    # AND THIS ENTRY WAS WRONG. It named service "governance", but
+    # treasury_transfer lives on DAOService in dao_management. The ACTION_MAP
+    # literal `("dao_management", "treasury_transfer")` masked it, because
+    # install_action_map never overrides an existing mapping. Removing the
+    # literal exposed a catalog row resolving to a method that does not exist —
+    # so this door was not merely open, it pointed nowhere.
     _cap("parameter_change",        "Parameter Change",        "governance", "governance", "parameter_change"),
     _cap("vote_escrow",             "Vote-Escrow Lock",        "governance", "advanced_governance", "vote_escrow",          subcategory="veToken",    protocol="curve",  available=False),
     _cap("quadratic_vote",          "Quadratic Vote",          "governance", "advanced_governance", "quadratic_vote",       subcategory="quadratic",  available=False),

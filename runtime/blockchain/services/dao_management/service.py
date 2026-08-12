@@ -297,16 +297,68 @@ class DAOService:
                 "operation": "treasury_transfer",
                 "requested": {"dao_id": dao_id, "recipient": recipient, "amount": amount},
             })
-        transfer_id = f"tt_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": transfer_id,
-            "status": "transferred",
+        # ── CLUSTER B. DISABLED. Strip the claim and nothing remains: it
+        # minted a uuid, echoed the caller's own arguments back with
+        # `"status": "transferred"` and a timestamp, and returned. It never
+        # awaited, never wrote ANY store — not even `self.treasury` — and never
+        # touched a contract. A DAO treasury transfer reported as complete with
+        # nothing moved and no record kept.
+        #
+        # IT WAS INVISIBLE TO BOTH DETECTORS, each for a different structural
+        # reason, which is why it needed finding by hand:
+        #   D6 requires a store WRITE, and this writes nothing — a fabrication
+        #      that keeps no record is invisible by construction.
+        #   D7 exempts anything containing a refusal primitive, and its own
+        #      honest gate put it on that whitelist. THE GATE WAS ACTING AS
+        #      CAMOUFLAGE: adding a correct refusal path made a fabricating
+        #      method look honest to the detector built to find fabrications.
+        #
+        # FIVE DOORS, ALL CLOSED — and the count was wrong twice before it was
+        # right, which is the finding. The gateway route was deleted in Tier 2
+        # as too dangerous to advertise, and that deletion FELT like removal.
+        # It removed one door of five:
+        #
+        #   1. the gateway route            (deleted in Tier 2)
+        #   2. ACTION_MAP                   + _STATE_MODIFYING_ACTIONS
+        #   3. the capability catalog       — `available=False` was NOT enough:
+        #      `install_action_map` iterates every capability and never
+        #      consults `available`, so the row had to be REMOVED. That is a
+        #      platform-wide finding in its own right (60 capabilities are
+        #      flagged unavailable and all 60 install regardless).
+        #   4. extensions/registry.json     — served live and UserDefaults-
+        #      cached by the iOS client; found by the dangling-advertisement
+        #      control, not by inspection.
+        #   5. runtime/chat/intent_actions  — the worst of them. It scripted
+        #      Trinity a line to SPEAK: "Initiating a 50,000 USDC transfer
+        #      from the Uniswap DAO treasury... This will go through the
+        #      governance approval flow." No such flow exists. A fabrication
+        #      in the guide is worse than one in a handler: the handler lies
+        #      when called, the guide teaches the lie.
+        #
+        # DELIBERATELY NOT A DOOR: runtime/protocols/morpheus_triggers.py keeps
+        # its `treasury_transfer -> governance` risk classification. It is a
+        # classifier, not a caller-facing surface; it advertises nothing and
+        # can make nothing reachable. Dropping it would silently remove a guard
+        # a future real implementation should inherit.
+        #
+        # LIFTING CONDITION — all of: a real transfer built, signed and sent
+        # against the DAO's treasury contract; a status DERIVED from the
+        # transaction receipt, as `staking.py::_claim_rewards` already does;
+        # the transfer recorded in a store that can be reconciled; and the
+        # caller bound to an authenticated identity with authority over that
+        # treasury (deferred register item 0).
+        return {
+            "status": "error",
+            "error_category": "not_implemented",
+            "error": "treasury_transfer_disabled",
             "dao_id": dao_id,
             "recipient": recipient,
             "amount": amount,
-            "token": token,
-            "reason": reason,
-            "transferred_at": int(time.time()),
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "DISABLED (Cluster B). This method reported a completed "
+                "treasury transfer while moving nothing and recording "
+                "nothing. No value has been transferred and no record exists."
+            ),
         }
-        logger.info("Treasury transfer: id=%s dao=%s", transfer_id, dao_id)
-        return record

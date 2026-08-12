@@ -352,7 +352,11 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "multisig_propose": ("governance", "propose_multisig"),
     "multisig_approve": ("governance", "approve_multisig"),
     "snapshot_vote": ("governance", "snapshot_vote"),
-    "treasury_transfer": ("dao_management", "treasury_transfer"),
+    # CLUSTER B: "treasury_transfer" REMOVED. Its gateway route was deleted in
+    # Tier 2 as too dangerous to advertise, and this entry kept it reachable
+    # through POST /api/v1/capabilities/{id}/invoke, which bypasses `_call`.
+    # Deleting a route removes one door of three; the others are here and in
+    # the capability catalog. Lifting condition in dao_management/service.py.
     "parameter_change": ("governance", "parameter_change"),
     # ── RWA Expanded ─────────────────────────────────────────────
     "rwa_tokenize": ("rwa_tokenization", "tokenize_asset"),
@@ -470,7 +474,7 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "nft_fractionalize", "nft_rent", "nft_dynamic_update", "nft_batch_mint",
     "nft_royalty_claim", "nft_bridge", "did_create", "credential_issue",
     "soulbound_mint", "timelock_queue", "multisig_propose", "multisig_approve",
-    "snapshot_vote", "treasury_transfer", "parameter_change",
+    "snapshot_vote", "parameter_change",   # CLUSTER B: treasury_transfer removed
     "rwa_tokenize", "rwa_fractional_buy", "rwa_income_claim",
     "cross_border_remit",
     "zk_proof_generate",  # NEW-48: private_vote + confidential_compute removed

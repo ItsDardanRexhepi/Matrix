@@ -200,13 +200,12 @@
         "submit_dispute_evidence",
         "submit_retropgf",
         "timelock_queue",
-        "treasury_transfer",
         "vote",
         "vote_escrow"
       ],
       "icon": "person.3.fill",
       "available": true,
-      "capability_count": 23
+      "capability_count": 22
     },
     {
       "id": "social",

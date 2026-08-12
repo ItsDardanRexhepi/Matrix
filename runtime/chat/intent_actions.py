@@ -2849,26 +2849,31 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
     },
 
+    # CLUSTER B — DISABLED. The established idiom (see the payment-authorization
+    # and insurance-payout closes): `unavailable`, NO `action_name` so the model
+    # cannot dispatch it, "NOT AVAILABLE" in the description, and KEYWORDS Kept
+    # so the request still matches and Trinity answers "not available" rather
+    # than failing to recognise it at all.
+    #
+    # WHAT WAS HERE MATTERED MORE THAN THE ROUTE. The removed entry scripted
+    # Trinity a line to speak — "Initiating a 50,000 USDC transfer from the
+    # Uniswap DAO treasury to 0xrecipient. This will go through the governance
+    # approval flow." There is no governance approval flow, and no transfer was
+    # ever initiated. A fabrication in the guide is worse than one in a handler:
+    # the handler lies once when called, the guide teaches the lie.
     "treasury_transfer": {
-        "action_name": "treasury_transfer",
-        "description": "Transfer funds from a DAO treasury.",
-        "required_params": [
-            {"name": "dao_id", "type": "string", "description": "Identifier of the DAO.", "example": "dao_uniswap"},
-            {"name": "recipient", "type": "string", "description": "Recipient address.", "example": "0xrecipient..."},
-            {"name": "amount", "type": "number", "description": "Amount to transfer.", "example": 10000.0},
-            {"name": "asset", "type": "string", "description": "Token to transfer.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Purpose or memo for the transfer.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            "Transfer funds from a DAO treasury. NOT AVAILABLE — no treasury "
+            "execution path exists. The former handler returned "
+            "status='transferred' without moving any value, without a signer, "
+            "and without touching the treasury balance."
+        ),
         "keywords": ["treasury transfer", "dao funds", "treasury send", "dao payment"],
-        "follow_up": "Which DAO, who's the recipient, how much, and which token?",
-        "example_conversation": (
-            "User: We need to send funds from the DAO treasury\n"
-            "Trinity: Got it. Which DAO, who's receiving, how much, and which token?\n"
-            "User: dao_uniswap, send 50,000 USDC to 0xrecipient\n"
-            "Trinity: Initiating a 50,000 USDC transfer from the Uniswap DAO treasury to 0xrecipient. This will go through the governance approval flow.\n"
-            "Trinity: [calls platform_action with action='treasury_transfer', params={dao_id: 'dao_uniswap', recipient: '0xrecipient', amount: 50000.0, asset: 'USDC'}]"
+        "follow_up": (
+            "DAO treasury transfers aren't available yet — there's no execution "
+            "path to move treasury funds. I can help with the proposal side of "
+            "governance instead."
         ),
     },
 

@@ -161,10 +161,12 @@ def find_unbacked_authority_claims() -> set[str]:
 #   queue_timelock   — it DOES write a store, so it is D6's case (call-form),
 #     not this detector's.
 
-KNOWN_UNBACKED_AUTHORITY = {
-    "services/governance/service.py::GovernanceService.approve_multisig",
-    "services/governance/service.py::GovernanceService.snapshot_vote",
-}
+# BURN-DOWN: 2 at introduction -> 0 (Cluster B). Both now refuse, with
+# lifting conditions naming what an honest implementation requires. THE ZERO IS
+# THE POINT: D11 was built BEFORE the fixes precisely so this number could
+# demonstrate class closure. A detector written afterwards can be shaped,
+# however unconsciously, to return zero.
+KNOWN_UNBACKED_AUTHORITY: set[str] = set()
 
 
 def test_no_new_unbacked_authority_claims():
@@ -185,8 +187,8 @@ def test_no_new_unbacked_authority_claims():
 
 
 def test_the_inventory_is_at_the_measured_baseline():
-    """2 at introduction, both adjudicated. BURN-DOWN starts here."""
-    assert len(KNOWN_UNBACKED_AUTHORITY) == 2
+    """2 at introduction -> 0 after Cluster B. The class is closed."""
+    assert len(KNOWN_UNBACKED_AUTHORITY) == 0
     assert find_unbacked_authority_claims() == KNOWN_UNBACKED_AUTHORITY
 
 
