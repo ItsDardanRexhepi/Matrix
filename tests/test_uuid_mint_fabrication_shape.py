@@ -73,6 +73,12 @@ import ast
 import pathlib
 
 from tests import refusal_primitives
+from tests.state_mutation import (
+    MUTATING_CALLS as _MUTATING_CALLS,
+    base_name as _base_name,
+    mutates_service_state,
+    state_aliases as _state_aliases,
+)
 
 SERVICES = pathlib.Path(__file__).resolve().parent.parent / (
     "runtime/blockchain/services"
@@ -373,99 +379,16 @@ def _is_gated(fn: ast.AST) -> bool:
     return False
 
 
-_MUTATING_CALLS = ("append", "update", "setdefault", "pop", "extend", "remove", "clear")
-
-
-def _state_aliases(fn: ast.AST) -> set[str]:
-    """Locals bound from service state — and REBINDING un-aliases them.
-
-    The rebinding rule is not a nicety. `NFTService.process_sale` does
-
-        sale_result = await self._royalty.process_sale(...)   # live ledger object
-        sale_result = dict(sale_result)                       # NEW-90 defensive copy
-        sale_result["status"] = "recorded_unsettled"          # mutates the COPY
-
-    Without the rebinding rule this reads as service-state mutation and the
-    detector fires on the one method where the aliasing bug was deliberately
-    FIXED. A detector that flags a correct fix teaches the next reader to undo
-    it, and false alarms are how a detector gets muted — so the rule is here
-    before the fix ships, not after someone hits it.
-
-    LIMITATION, stated rather than implied: this is order-insensitive, so a
-    mutation that happens BEFORE a later rebinding is not counted. That errs
-    toward silence on a narrow case in exchange for not crying wolf on the
-    common one. It is a deliberate trade, not an oversight.
-    """
-    aliases: set[str] = set()
-    assigns = [n for n in ast.walk(fn) if isinstance(n, ast.Assign)]
-    for node in sorted(assigns, key=lambda n: (n.lineno, n.col_offset)):
-        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            continue
-        value = node.value
-        if isinstance(value, ast.Await):
-            value = value.value
-        name = node.targets[0].id
-        if ast.unparse(value).startswith("self."):
-            aliases.add(name)
-        else:
-            aliases.discard(name)
-    return aliases
-
-
-def _base_name(node: ast.AST) -> str | None:
-    """The root Name of a possibly-nested subscript chain."""
-    while isinstance(node, ast.Subscript):
-        node = node.value
-    return node.id if isinstance(node, ast.Name) else None
-
-
 def _mutates(fn: ast.AST) -> bool:
     """True if this method mutates service state.
 
-    ALIAS-AWARE SINCE 2026-08-12 — see the re-baseline note on
-    KNOWN_GATE_ASYMMETRY. The original version matched only two syntactic
-    shapes, `self.<store>[k] = v` and `self.<store>.append(...)`, and was
-    therefore blind to the ORDINARY Python idiom for mutating a nested
-    structure:
-
-        dao = await self.get_dao(dao_id)     # bind an alias
-        dao["members"].append(record)        # mutate through it
-
-    That is how `DAOService.join_dao` and `.leave_dao` change persistent
-    membership, and D6 read the class as having no ungated mutating sibling.
+    DELEGATES to tests/state_mutation.py. That rule has been wrong twice and
+    fixed twice (NEW-99 alias writes, NEW-99b the sibling clause in this same
+    file), and D11 is now a third consumer — three copies of a twice-corrected
+    rule is the vocabulary-drift problem in a new costume. One implementation,
+    every consumer.
     """
-    aliases = _state_aliases(fn)
-
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if not isinstance(target, ast.Subscript):
-                    continue
-                # self.<store>[...] = ...
-                if (
-                    isinstance(target.value, ast.Attribute)
-                    and isinstance(target.value.value, ast.Name)
-                    and target.value.value.id == "self"
-                ):
-                    return True
-                # <alias>[...] = ...   where <alias> came from self
-                if _base_name(target) in aliases:
-                    return True
-        if isinstance(node, ast.Call):
-            f = node.func
-            if not (isinstance(f, ast.Attribute) and f.attr in _MUTATING_CALLS):
-                continue
-            # self.<store>.append(...)
-            if (
-                isinstance(f.value, ast.Attribute)
-                and isinstance(f.value.value, ast.Name)
-                and f.value.value.id == "self"
-            ):
-                return True
-            # <alias>[...].append(...)  /  <alias>.append(...)
-            if _base_name(f.value) in aliases:
-                return True
-    return False
+    return mutates_service_state(fn)
 
 
 def find_gate_asymmetry() -> dict[str, list[str]]:
