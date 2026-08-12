@@ -245,3 +245,87 @@ async def test_the_refusal_still_refuses_and_records_nothing():
         await svc.vote(proposal_id, "0xA", "no", weight=999_999.0)
 
     assert svc._proposals[proposal_id]["vote_count"] == votes_before
+
+
+# ── THE TWO SURFACES MUST AGREE ──────────────────────────────────────────
+#
+# This is the assertion that makes the exception-type change a net improvement
+# rather than a traded defect. The dispatcher and the HTTP gateway maintain
+# SEPARATE exception ladders:
+#
+#     dispatcher   TypeError -> validation/400 | NotImplementedError -> 501
+#                  | everything else -> service_error/502
+#     gateway      KeyError -> 404 | TypeError -> 400 | ValueError -> 400
+#                  | NotImplementedError -> 501 | everything else -> 500
+#
+# They were reconciled only at the NotImplementedError rung, and only because
+# both were changed together. Converting the governance refusals took the
+# dispatcher 502 -> 501 and simultaneously took POST /api/v1/governance/
+# snapshot/vote from 400 -> 500, because the gateway had no such clause. Fixing
+# one surface alone would have left ValueError->400 and NotImplementedError->500
+# classifying the SAME refusal oppositely — worse than the original state,
+# because the inconsistency would then be deliberate.
+
+
+async def test_a_refusal_is_501_on_the_gateway_not_500():
+    """The HTTP half. Without the `except NotImplementedError` clause in
+    ServiceRoutes._call this is a 500 with an ERROR-level stack trace."""
+    from aiohttp import web
+
+    from gateway.service_routes import ServiceRoutes
+
+    with pytest.raises(web.HTTPNotImplemented) as exc:
+        await ServiceRoutes(config={})._call(
+            "governance", "snapshot_vote",
+            proposal_id="p1", voter="0xa", choice="yes",
+        )
+
+    body = json.loads(exc.value.text)
+    assert body["error_category"] == "not_implemented"
+    assert "hub" in body["error"].lower(), "the lifting condition was lost"
+
+
+async def test_both_surfaces_classify_the_same_refusal_the_same_way():
+    """THE PAIRING ASSERTION. One refusal, two transports, one meaning.
+
+    A caller must not learn "not implemented" from the dispatcher and "the
+    server broke" from HTTP for the identical condition.
+    """
+    from aiohttp import web
+
+    from gateway.service_routes import ServiceRoutes
+
+    envelope = await _dispatch("snapshot_vote", {
+        "proposal_id": "p1", "voter": "0xa", "choice": "yes",
+    })
+
+    with pytest.raises(web.HTTPNotImplemented) as exc:
+        await ServiceRoutes(config={})._call(
+            "governance", "snapshot_vote",
+            proposal_id="p1", voter="0xa", choice="yes",
+        )
+    http_body = json.loads(exc.value.text)
+
+    assert envelope["error_category"] == http_body["error_category"] == "not_implemented", (
+        f"the surfaces disagree: dispatcher={envelope['error_category']!r} "
+        f"gateway={http_body['error_category']!r} — the same refusal is being "
+        "reported two different ways"
+    )
+    assert exc.value.status == 501
+
+
+async def test_the_gateway_still_calls_a_bad_value_a_client_error():
+    """CONTROL IN THE OTHER DIRECTION. The new clause must not swallow
+    ValueError — a bad parameter value is still an honest 400, not a 501.
+    Widening the refusal rung to catch client errors would convert real 400s
+    into "not implemented", which is the mirror-image lie."""
+    from aiohttp import web
+
+    from gateway.service_routes import ServiceRoutes
+
+    with pytest.raises(web.HTTPBadRequest):
+        await ServiceRoutes(config={})._call(
+            "governance", "vote",
+            proposal_id="does-not-exist", voter="0xa", choice="yes",
+        )
+

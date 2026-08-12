@@ -271,6 +271,16 @@ class ConversionWizard:
     # unattended, and leaving dead fabricating code in place is leaving a
     # loaded surface for whoever next goes looking for a batch-membership API.
 
+    # RESTORED. The `migrate_members` deletion hunk ended on this decorator and
+    # took it with the removed method, so `convert()`'s `self._calculate_voting_power(
+    # shares, total, governance_type)` began passing FOUR arguments to a
+    # three-parameter function and raised TypeError on every call. Working code,
+    # killed by a deletion that looked local — and the suite stayed green because
+    # nothing exercised `convert()`. Both halves are now covered:
+    # tests/test_conversion_wizard_convert.py drives the method, and
+    # tests/test_bound_call_arity.py catches the SHAPE for every class in the
+    # tree, so the next lost decorator fails a test rather than a caller.
+    @staticmethod
     def _calculate_voting_power(
         shares: float, total_shares: float, governance_type: str
     ) -> float:

@@ -720,6 +720,34 @@ class ServiceRoutes:
                 text=json.dumps({"error": str(exc)}),
                 content_type="application/json",
             )
+        except NotImplementedError as exc:
+            # A DELIBERATE REFUSAL — the capability does not exist and never
+            # will until it is built. Without this clause it fell to the generic
+            # handler below as HTTP 500 + an ERROR-level stack trace: a
+            # permanently-unavailable capability reported as the server
+            # malfunctioning, which retry layers treat as transient.
+            #
+            # THIS CLAUSE IS HALF OF A PAIR. The dispatcher maps
+            # NotImplementedError -> "not_implemented"/501 and everything else
+            # to "service_error"/502; this gateway maps ValueError -> 400 and
+            # everything else to 500. The two ladders disagree, so changing a
+            # refusal's exception type improves one surface and regresses the
+            # other unless both move together. Converting the governance
+            # refusals to NotImplementedError took the dispatcher 502 -> 501 and
+            # this route 400 -> 500; adding the clause here is what makes the
+            # change a net improvement rather than a traded defect.
+            # tests/test_refusal_classification.py asserts BOTH surfaces agree.
+            logger.info(
+                "Refused %s.%s (capability unavailable): %s",
+                service_name, method_name, exc,
+            )
+            raise web.HTTPNotImplemented(
+                text=json.dumps({
+                    "error": str(exc),
+                    "error_category": "not_implemented",
+                }),
+                content_type="application/json",
+            )
         except Exception as exc:
             logger.exception("Error in %s.%s", service_name, method_name)
             raise web.HTTPInternalServerError(
