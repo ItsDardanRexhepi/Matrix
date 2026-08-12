@@ -38,6 +38,15 @@ from runtime.chat.intent_actions import INTENT_ACTION_MAP
 from runtime.protocols.integration import ProtocolStack
 from runtime.react_loop import Message, ReActContext
 
+def _name_of(entry: dict) -> str | None:
+    """Resolve by keywords, not description — six entries share a description."""
+    probe = tuple(entry.get("keywords") or ())
+    for action, guide in INTENT_ACTION_MAP.items():
+        if tuple(guide.get("keywords") or ()) == probe:
+            return action
+    return None
+
+
 UNAVAILABLE = sorted(a for a, g in INTENT_ACTION_MAP.items() if g.get("unavailable"))
 
 
@@ -63,21 +72,77 @@ def test_the_inventory_is_what_the_measurement_found():
     assert set(UNAVAILABLE) == missing_name
 
 
+
+# ── Branch-owned markers: text NO guide field contains ───────────────────
+#
+# CONFIRMED VACUOUS BEFORE REPAIR. Asserting `"NOT AVAILABLE" in enrichment`
+# passed even with "NOT AVAILABLE" stripped from the branch template, because
+# every guide's own description contains the phrase. The test was reading the
+# INPUT it fed in, not the OUTPUT the branch produced — wrong-object, verified by
+# mutation: 129/129 still green with the branch text removed.
+#
+# These three strings live only in ProtocolStack.pre_process, so an assertion on
+# them cannot be satisfied by the data.
+TOP_BRANCH = "The user is asking for a capability that is NOT AVAILABLE"
+TOP_GUARD = "Do not attempt this action and do not imply it succeeded"
+ALT_BRANCH = "[Intent Alt] Also possible, but NOT AVAILABLE"
+
+
+def _branch_markers_appear_in_no_guide_field() -> bool:
+    for guide in INTENT_ACTION_MAP.values():
+        for value in guide.values():
+            if isinstance(value, str) and (
+                TOP_BRANCH in value or TOP_GUARD in value or ALT_BRANCH in value
+            ):
+                return False
+    return True
+
+
+def test_the_branch_markers_are_not_present_in_the_data():
+    """GUARD THE GUARD. If a description ever contains the branch's own wording,
+    every assertion below silently becomes vacuous again."""
+    assert _branch_markers_appear_in_no_guide_field()
+
+
 @pytest.mark.parametrize("action", UNAVAILABLE)
 async def test_every_unavailable_capability_actually_reaches_the_user(action):
-    """THE LOAD-BEARING TEST. Before the repair every one of these delivered
-    zero enrichments; the honest text existed in the guide and was unreachable."""
+    """THE LOAD-BEARING TEST, now asserting on what the BRANCH emits.
+
+    RIGHT-ANSWER-WRONG-BRANCH, also confirmed: `payroll_run` loses its own top
+    keyword to the working `send_payment`, so it reaches the user through the ALT
+    branch. The previous version asserted the top-branch outcome for it and
+    passed anyway — via a substring the alt branch happened to share. Which
+    branch ran is now established first, and each gets the assertion that
+    belongs to it.
+    """
+    from runtime.chat.intent_actions import match_intent
+
     guide = INTENT_ACTION_MAP[action]
-    enrichments = await _intent_enrichments(guide["keywords"][0])
+    probe = guide["keywords"][0]
+    enrichments = await _intent_enrichments(probe)
+    joined = "\n".join(enrichments)
 
     assert enrichments, (
         f"{action}: the request matched but NOTHING reached the model — the "
         "follow_up is unreachable again"
     )
-    assert any("NOT AVAILABLE" in e for e in enrichments), (
-        f"{action}: an enrichment was produced but it does not tell the model "
-        f"the capability is unavailable: {enrichments}"
-    )
+
+    matches = match_intent(probe)
+    is_top = matches and _name_of(matches[0]) == action
+
+    if is_top:
+        assert TOP_BRANCH in joined, (
+            f"{action} is the top match but the unavailable branch did not run"
+        )
+        assert TOP_GUARD in joined, (
+            f"{action}: the anti-fabrication instruction is missing — the model "
+            "is told the capability is unavailable but not that it must refrain"
+        )
+    else:
+        assert ALT_BRANCH in joined, (
+            f"{action} is not the top match for {probe!r}, so it must reach the "
+            f"user through the alt branch, and did not: {enrichments}"
+        )
 
 
 @pytest.mark.parametrize("action", UNAVAILABLE)
