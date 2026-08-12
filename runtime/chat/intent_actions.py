@@ -2852,8 +2852,13 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # CLUSTER B — DISABLED. The established idiom (see the payment-authorization
     # and insurance-payout closes): `unavailable`, NO `action_name` so the model
     # cannot dispatch it, "NOT AVAILABLE" in the description, and KEYWORDS Kept
-    # so the request still matches and Trinity answers "not available" rather
-    # than failing to recognise it at all.
+    # so the request still matches. NOTE, AND THIS WAS FALSE WHEN WRITTEN: the
+    # claim that Trinity then "answers not available rather than failing to
+    # recognise it at all" did not hold. The only consumer subscripted
+    # `action_name`, raised, and discarded the whole enrichment — measured at
+    # zero for all sixteen unavailable entries. Repaired in the consumer
+    # (runtime/protocols/integration.py); true from that commit onward, false
+    # before it.
     #
     # WHAT WAS HERE MATTERED MORE THAN THE ROUTE. The removed entry scripted
     # Trinity a line to speak — "Initiating a 50,000 USDC transfer from the
@@ -2870,9 +2875,17 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             "and without touching the treasury balance."
         ),
         "keywords": ["treasury transfer", "dao funds", "treasury send", "dao payment"],
+        # THE PRE-REPOINT READ CAUGHT THIS BEFORE IT WAS EVER SPOKEN. The first
+        # version said "there's no execution path to move treasury funds".
+        # FALSE — contracts/OpenMatrixDAO.sol:210 declares
+        # `treasuryWithdraw(address,uint256)`. Same defect as the queue_timelock
+        # disclosure: a platform-wide negative asserted without grepping, in
+        # caller-visible text. The narrow claim IS verified: no Python caller of
+        # `treasuryWithdraw` exists anywhere in the repo.
         "follow_up": (
-            "DAO treasury transfers aren't available yet — there's no execution "
-            "path to move treasury funds. I can help with the proposal side of "
+            "DAO treasury transfers aren't available yet — the platform has no "
+            "wired path to the DAO's on-chain treasury function, so I can't "
+            "move treasury funds. I can help with the proposal side of "
             "governance instead."
         ),
     },
@@ -3142,7 +3155,10 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
         "keywords": ["confidential compute", "private computation", "encrypted execution", "secure compute"],
         "follow_up": (
-            "I can't run confidential compute — there's no TEE/MPC/FHE implementation on the platform. Ordinary (non-confidential) compute jobs do reach a real provider."
+            # NARROWED: "no TEE/MPC/FHE implementation on the platform" is
+            # overbroad — an MPCService exists and is registered (threshold
+            # SIGNING, not confidential computation). Scoped to the capability.
+            "I can't run confidential compute — there's no confidential-compute backend here (no TEE, and the MPC service that does exist is for threshold signing, not private computation). Ordinary (non-confidential) compute jobs do reach a real provider."
         ),
     },
 
@@ -4076,6 +4092,11 @@ def get_param_prompt(action_name: str) -> str:
     guide = INTENT_ACTION_MAP.get(action_name)
     if not guide:
         return f"Unknown action '{action_name}'."
+
+    # An `unavailable` guide carries no params; asking for them is meaningless
+    # and subscripting them raised KeyError inside the caller's try/except.
+    if guide.get("unavailable"):
+        return guide.get("follow_up", "") or ""
 
     lines = [f"To {guide['description'].lower().rstrip('.')}, I need the following:"]
     for p in guide["required_params"]:

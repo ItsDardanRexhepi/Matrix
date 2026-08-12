@@ -160,24 +160,65 @@ class ProtocolStack:
                 if matches:
                     top = matches[0]
                     context.metadata["matched_intent"] = top
-                    hint_parts = [
-                        f"[Intent Detection] The user likely wants: {top['action_name']} "
-                        f"(confidence: {top['score']:.0%})",
-                    ]
-                    param_prompt = get_param_prompt(top["action_name"])
-                    if param_prompt:
-                        hint_parts.append(f"Required info: {param_prompt}")
-                    if top.get("follow_up"):
-                        hint_parts.append(f"If info is missing, ask: {top['follow_up']}")
+
+                    # THE `unavailable` GUIDES CARRY NO `action_name`, BY
+                    # DESIGN — that is what stops the model dispatching a
+                    # disabled action. Subscripting it here raised KeyError,
+                    # which the `except Exception` below swallowed at DEBUG,
+                    # discarding the ENTIRE enrichment. Sixteen honest-
+                    # unavailable dispositions across six closed domains
+                    # shipped their routing half and silently dropped the half
+                    # the user would actually read: measured, all sixteen
+                    # delivered ZERO enrichments, indistinguishable from the
+                    # request not being recognised at all — which is precisely
+                    # what keeping the keywords was supposed to prevent.
+                    #
+                    # Second occurrence of the inert-fix pattern after
+                    # ACTION_LABELS: a fix whose deliverable is text a user
+                    # reads, resting on a consumer nobody drove.
+                    if top.get("unavailable"):
+                        hint_parts = [
+                            "[Intent Detection] The user is asking for a "
+                            "capability that is NOT AVAILABLE: "
+                            f"{top.get('description', '')}",
+                        ]
+                        if top.get("follow_up"):
+                            hint_parts.append(f"Tell them: {top['follow_up']}")
+                        hint_parts.append(
+                            "Do not attempt this action and do not imply it "
+                            "succeeded."
+                        )
+                    else:
+                        hint_parts = [
+                            f"[Intent Detection] The user likely wants: "
+                            f"{top['action_name']} (confidence: {top['score']:.0%})",
+                        ]
+                        param_prompt = get_param_prompt(top["action_name"])
+                        if param_prompt:
+                            hint_parts.append(f"Required info: {param_prompt}")
+                        if top.get("follow_up"):
+                            hint_parts.append(
+                                f"If info is missing, ask: {top['follow_up']}"
+                            )
                     enrichments.append("\n".join(hint_parts))
 
-                    # Include runner-up if close in score
+                    # Include runner-up if close in score. `.get` here too: an
+                    # unavailable runner-up used to raise and cost the
+                    # `[Intent Alt]` line, though the top's line survived
+                    # because it was appended first.
                     if len(matches) > 1 and matches[1]["score"] >= top["score"] * 0.7:
                         alt = matches[1]
-                        enrichments.append(
-                            f"[Intent Alt] Also possible: {alt['action_name']} "
-                            f"(confidence: {alt['score']:.0%})"
-                        )
+                        alt_name = alt.get("action_name")
+                        if alt_name is None and alt.get("unavailable"):
+                            enrichments.append(
+                                "[Intent Alt] Also possible, but NOT "
+                                f"AVAILABLE: {alt.get('description', '')}"
+                            )
+                        elif alt_name is not None:
+                            enrichments.append(
+                                f"[Intent Alt] Also possible: {alt_name} "
+                                f"(confidence: {alt['score']:.0%})"
+                            )
         except Exception:
             logger.debug("Intent classification unavailable")
 

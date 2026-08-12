@@ -102,8 +102,16 @@ def test_door_5_the_model_is_not_taught_to_call_it():
     0xrecipient. This will go through the governance approval flow." There is no
     governance approval flow and no transfer was ever initiated.
 
-    Keywords are KEPT deliberately: the request must still MATCH so the answer
-    is "not available" rather than a failure to recognise the request at all.
+    Keywords are KEPT deliberately so the request still MATCHES.
+
+    THIS DOCSTRING PREVIOUSLY CLAIMED the answer would then be "not available"
+    rather than a failure to recognise the request. FALSE when written: the only
+    consumer subscripted `action_name`, raised KeyError, and discarded the
+    enrichment — zero for all sixteen unavailable entries. Repaired in
+    runtime/protocols/integration.py; the behaviour is now asserted by
+    tests/test_unavailable_intent_reaches_the_user.py rather than by this
+    structural test, which never drove the consumer and never could have caught
+    it.
     """
     from runtime.chat.intent_actions import INTENT_ACTION_MAP
 
