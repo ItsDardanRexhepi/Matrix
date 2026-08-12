@@ -300,26 +300,97 @@ def _is_gated(fn: ast.AST) -> bool:
     return False
 
 
+_MUTATING_CALLS = ("append", "update", "setdefault", "pop", "extend", "remove", "clear")
+
+
+def _state_aliases(fn: ast.AST) -> set[str]:
+    """Locals bound from service state — and REBINDING un-aliases them.
+
+    The rebinding rule is not a nicety. `NFTService.process_sale` does
+
+        sale_result = await self._royalty.process_sale(...)   # live ledger object
+        sale_result = dict(sale_result)                       # NEW-90 defensive copy
+        sale_result["status"] = "recorded_unsettled"          # mutates the COPY
+
+    Without the rebinding rule this reads as service-state mutation and the
+    detector fires on the one method where the aliasing bug was deliberately
+    FIXED. A detector that flags a correct fix teaches the next reader to undo
+    it, and false alarms are how a detector gets muted — so the rule is here
+    before the fix ships, not after someone hits it.
+
+    LIMITATION, stated rather than implied: this is order-insensitive, so a
+    mutation that happens BEFORE a later rebinding is not counted. That errs
+    toward silence on a narrow case in exchange for not crying wolf on the
+    common one. It is a deliberate trade, not an oversight.
+    """
+    aliases: set[str] = set()
+    assigns = [n for n in ast.walk(fn) if isinstance(n, ast.Assign)]
+    for node in sorted(assigns, key=lambda n: (n.lineno, n.col_offset)):
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        value = node.value
+        if isinstance(value, ast.Await):
+            value = value.value
+        name = node.targets[0].id
+        if ast.unparse(value).startswith("self."):
+            aliases.add(name)
+        else:
+            aliases.discard(name)
+    return aliases
+
+
+def _base_name(node: ast.AST) -> str | None:
+    """The root Name of a possibly-nested subscript chain."""
+    while isinstance(node, ast.Subscript):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
 def _mutates(fn: ast.AST) -> bool:
+    """True if this method mutates service state.
+
+    ALIAS-AWARE SINCE 2026-08-12 — see the re-baseline note on
+    KNOWN_GATE_ASYMMETRY. The original version matched only two syntactic
+    shapes, `self.<store>[k] = v` and `self.<store>.append(...)`, and was
+    therefore blind to the ORDINARY Python idiom for mutating a nested
+    structure:
+
+        dao = await self.get_dao(dao_id)     # bind an alias
+        dao["members"].append(record)        # mutate through it
+
+    That is how `DAOService.join_dao` and `.leave_dao` change persistent
+    membership, and D6 read the class as having no ungated mutating sibling.
+    """
+    aliases = _state_aliases(fn)
+
     for node in ast.walk(fn):
         if isinstance(node, ast.Assign):
             for target in node.targets:
+                if not isinstance(target, ast.Subscript):
+                    continue
+                # self.<store>[...] = ...
                 if (
-                    isinstance(target, ast.Subscript)
-                    and isinstance(target.value, ast.Attribute)
+                    isinstance(target.value, ast.Attribute)
                     and isinstance(target.value.value, ast.Name)
                     and target.value.value.id == "self"
                 ):
                     return True
+                # <alias>[...] = ...   where <alias> came from self
+                if _base_name(target) in aliases:
+                    return True
         if isinstance(node, ast.Call):
             f = node.func
+            if not (isinstance(f, ast.Attribute) and f.attr in _MUTATING_CALLS):
+                continue
+            # self.<store>.append(...)
             if (
-                isinstance(f, ast.Attribute)
-                and f.attr in ("append", "update", "setdefault", "pop")
-                and isinstance(f.value, ast.Attribute)
+                isinstance(f.value, ast.Attribute)
                 and isinstance(f.value.value, ast.Name)
                 and f.value.value.id == "self"
             ):
+                return True
+            # <alias>[...].append(...)  /  <alias>.append(...)
+            if _base_name(f.value) in aliases:
                 return True
     return False
 
@@ -357,13 +428,73 @@ def find_gate_asymmetry() -> dict[str, list[str]]:
     return out
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# RE-BASELINE 2026-08-12 — 6 classes / 10 methods  ->  7 classes / 15 methods
+# ══════════════════════════════════════════════════════════════════════════
+#
+# THE NUMBER WENT UP AND THAT IS A CORRECTION, NOT A REGRESSION. Nothing in
+# the platform got worse on this date. `_mutates` got honest.
+#
+# MECHANISM. The old `_mutates` matched exactly two syntactic shapes —
+# `self.<store>[k] = v` and `self.<store>.append(...)` — and was blind to the
+# ORDINARY Python idiom for mutating a nested structure:
+#
+#     dao = await self.get_dao(dao_id)     # bind an alias to service state
+#     dao["members"].append(record)        # mutate through the alias
+#     dao["member_count"] = len(...)
+#
+# That is how DAOService.join_dao and .leave_dao change persistent membership.
+# The class has two GATED methods (create_dao, treasury_transfer) and three
+# ungated siblings, one of which takes a `stake: float` and one of which
+# returns "stake_returned" — the exact asymmetry this detector exists to find —
+# and it reported nothing.
+#
+# THIS IS A SECOND, DISTINCT BLINDING MECHANISM. The first (staking, NEW-94c)
+# was VOCABULARY drift: a wrapper renamed the refusal primitive and the
+# detector stopped matching. The shared registry fixed that. This one is a
+# SHAPE mismatch — nothing was renamed, and the registry cannot help. A
+# syntactic detector is blind to every semantically equivalent form it did not
+# enumerate, and the form missed here is the default way Python mutates a
+# nested structure. The blind spot was therefore not an edge case; it was a
+# large fraction of ordinary code.
+#
+# EVERY CLEAN READING TAKEN AGAINST THE OLD NUMBER WAS FALSE ASSURANCE,
+# including the 6/10 recorded in the domain-10 close. A number wrong in the
+# direction of comfort is worse than a larger honest one.
+#
+# THE FIVE ADDED ENTRIES WERE EACH ADJUDICATED BY HAND before entering this
+# list, because a detector fix that over-fires produces false alarms and false
+# alarms are how a detector gets muted. One candidate was REJECTED:
+# NFTService.process_sale, whose `sale_result = dict(sale_result)` rebinds the
+# name to a local copy (the NEW-90 fix). Firing there would have flagged the
+# very method where the aliasing bug was corrected. See `_state_aliases`.
+#
+# REACH-BACK, and it is not hypothetical: this detector has been blind for
+# every domain closed so far. Re-running it across all ten closed domains is a
+# REQUIRED Phase-6 item, not a sweep candidate.
+#
+# NOTE, five instances now: get_policy and get_privacy_commitment are `get_`
+# methods that WRITE. With staking's get_position, governance's get_proposal
+# auto-expire, and insurance's get_policy, that is a pattern — and it is why
+# the staking read exemption had to be an enumerated whitelist rather than a
+# naming convention.
+# ══════════════════════════════════════════════════════════════════════════
+
 KNOWN_GATE_ASYMMETRY = {
+    # + join_dao / leave_dao: alias-mutation, invisible before the fix
+    "dao_management/service.py::DAOService": ["join_dao", "leave_dao"],
     "defi/loans.py::LoanManager": ["liquidate", "repay_loan", "update_pool_total"],
     "dex/service.py::DEXService": ["add_liquidity", "remove_liquidity"],
-    "insurance/service.py::InsuranceService": ["file_claim"],
+    # + cancel_policy / get_policy: alias-mutation (get_policy WRITES on read)
+    "insurance/service.py::InsuranceService": [
+        "cancel_policy", "file_claim", "get_policy",
+    ],
     "ip_royalties/service.py::IPRoyaltyService": ["license_ip", "transfer_ip"],
     "privacy/service.py::PrivacyService": ["get_privacy_commitment"],
-    "rwa_tokenization/service.py::RWAService": ["tokenize_asset"],
+    # + transfer_ownership: alias-mutation, and it reassigns token["owner"]
+    "rwa_tokenization/service.py::RWAService": [
+        "tokenize_asset", "transfer_ownership",
+    ],
     # staking/service.py::StakingService — REMOVED by NEW-94 (was:
     # ["claim_rewards"]). The whole domain now gates on one switch, so the
     # class has no asymmetry left to record. Kept as a comment rather than
@@ -431,15 +562,21 @@ def test_no_new_gate_asymmetry():
 
 
 def test_the_gate_asymmetry_count_is_recorded():
-    """RATCHET: 7 classes / 11 methods -> 6 / 10 after NEW-94.
+    """RATCHET: 7/11 -> 6/10 (NEW-94) -> 7/15 (2026-08-12 alias re-baseline).
+
+    THE LAST MOVE WAS UPWARD AND IT IS A CORRECTION, NOT A REGRESSION — see
+    the re-baseline block above KNOWN_GATE_ASYMMETRY. Nothing got worse; the
+    detector stopped being blind to alias mutation. A ratchet that silently
+    moves up is indistinguishable from a ratchet that failed, so the reason
+    lives next to the number.
 
     Tightened rather than relaxed. If a later change makes staking asymmetric
     again, `test_no_new_gate_asymmetry` fails on it as a NEW finding, which is
     the correct treatment — the domain gate is a control now, not a habit.
     """
     current = find_gate_asymmetry()
-    assert len(current) == 6
-    assert sum(len(v) for v in current.values()) == 10
+    assert len(current) == 7
+    assert sum(len(v) for v in current.values()) == 15
 
     assert not [k for k in current if k.startswith("staking/")], (
         "staking has gate asymmetry again — NEW-94 armed the domain as a unit "
@@ -447,3 +584,79 @@ def test_the_gate_asymmetry_count_is_recorded():
         "gated staking class means a method was added outside that scheme. "
         "See tests/test_staking_arming.py."
     )
+
+
+def test_alias_mutation_is_detected_in_both_directions():
+    """The 2026-08-12 fix, proven to DISCRIMINATE rather than merely to fire.
+
+    A detector fix that over-fires is worse than the blind spot it closes:
+    false alarms are how a detector gets muted, and this one nearly flagged
+    NFTService.process_sale — the method where the aliasing bug was FIXED.
+    """
+    def m(src: str) -> bool:
+        return _mutates(ast.parse(src.strip()).body[0])
+
+    # FIRES — the ordinary idiom the old version missed
+    assert m('''
+async def f(self, i):
+    dao = await self.get_dao(i)
+    dao["members"].append({})
+'''), "alias mutation is invisible again — the 2026-08-12 blind spot is back"
+
+    assert m('''
+async def f(self, i):
+    p = self._policies.get(i)
+    p["status"] = "expired"
+''')
+
+    # DOES NOT FIRE — an alias bound purely for READING
+    assert not m('''
+async def f(self, i):
+    dao = await self.get_dao(i)
+    return {"n": dao["member_count"], "members": list(dao["members"])}
+'''), "the detector fires on a read-only alias — that is a false alarm"
+
+    # DOES NOT FIRE — rebound to a local copy (the NEW-90 defensive copy)
+    assert not m('''
+async def f(self, i):
+    r = await self._royalty.process(i)
+    r = dict(r)
+    r["status"] = "recorded_unsettled"
+'''), (
+        "the detector flags a defensive copy — it would fire on NEW-90's fix "
+        "and teach the next reader to remove it"
+    )
+
+    # DOES NOT FIRE — a plain local with no relationship to service state
+    assert not m('''
+async def f(self):
+    out = {}
+    out["a"] = 1
+''')
+
+    # STILL FIRES — the classic shape must not regress
+    assert m('''
+async def f(self, i):
+    self._store[i] = {}
+''')
+    assert m('''
+async def f(self, x):
+    self._log.append(x)
+''')
+
+
+def test_the_rejected_candidate_stays_rejected():
+    """NFTService.process_sale was adjudicated and EXCLUDED. Pinned by name so
+    a later loosening of `_state_aliases` cannot quietly re-admit it."""
+    import inspect
+
+    from runtime.blockchain.services.nft_services.service import NFTService
+
+    fn = ast.parse(inspect.getsource(NFTService.process_sale).strip()).body[0]
+    assert not _mutates(fn), (
+        "process_sale is being read as service-state mutation again. Its "
+        "`sale_result = dict(sale_result)` rebinds to a local copy (NEW-90). "
+        "Re-read _state_aliases before accepting this."
+    )
+    assert "dao_management/service.py::DAOService" in KNOWN_GATE_ASYMMETRY
+    assert "nft_services/service.py::NFTService" not in KNOWN_GATE_ASYMMETRY
