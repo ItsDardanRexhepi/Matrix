@@ -146,7 +146,12 @@ class StakingService:
         # staker holding a balance the pool never recorded — a partial state
         # nothing downstream could detect. The refusal is bound and checked
         # rather than discarded (D10).
-        pool_update = await self._pools.add_stake(pool_id, amount)
+        # NEW-95: `new_staker` is passed because only the service knows whether
+        # this stake OPENS a position. The counter used to increment on every
+        # call, so one address staking three times counted as three stakers.
+        pool_update = await self._pools.add_stake(
+            pool_id, amount, new_staker=is_new,
+        )
         if pool_update is not None:
             return pool_update
 
@@ -216,7 +221,16 @@ class StakingService:
         # ORDERING, forced by NEW-94 — the mirror of the note in `stake`.
         # `remove_stake` can now refuse, so the pool accounting is attempted
         # before the position is debited. Bound and checked, not discarded (D10).
-        pool_update = await self._pools.remove_stake(pool_id, amount)
+        # NEW-95: `staker_exited` mirrors the cleanup condition below, computed
+        # before the debit so the pool counter and the position store agree.
+        # `_accrue_rewards` has already run, so pending_rewards is final here.
+        will_exit = (
+            (position["staked_amount"] - amount) <= 0
+            and position["pending_rewards"] <= 0
+        )
+        pool_update = await self._pools.remove_stake(
+            pool_id, amount, staker_exited=will_exit,
+        )
         if pool_update is not None:
             return pool_update
 
