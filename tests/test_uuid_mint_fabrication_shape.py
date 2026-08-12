@@ -83,8 +83,39 @@ SERVICES = pathlib.Path(__file__).resolve().parent.parent / (
 
 
 def _shape(fn: ast.AST) -> tuple[bool, bool, bool, bool]:
-    """Return (mints_uuid, writes_store, has_await, has_status_literal)."""
+    """Return (mints_uuid, writes_store, has_await, has_status_literal).
+
+    ALIAS-AWARE SINCE 2026-08-12, matching `_mutates`. The store-write clause
+    had the same blind spot the gate-asymmetry side did (NEW-99): it saw only
+    `self.<store>[k] = v` and missed the ordinary idiom
+
+        record = self._rights.get(key)   # alias
+        record["updated_at"] = now       # write through it
+
+    KNOWN REMAINING GAP, MEASURED AND STATED RATHER THAN LEFT IMPLICIT.
+    This clause still counts only ASSIGNMENTS. `_mutates` also counts mutating
+    CALLS (`append`/`setdefault`/`pop`/…); this does not, so a method that
+    records its fabrication with `self._store.append(...)` instead of
+    `self._store[k] = ...` is invisible here.
+
+    Measured 2026-08-12: closing that gap too would take the inventory from 47
+    to 52. The five it would add are
+
+        governance/service.py::GovernanceService.queue_timelock
+        rwa_tokenization/service.py::RWAService.fractional_buy
+        social/service.py::SocialService.follow_wallet
+        social/service.py::SocialService.publish_post
+        supply_chain/service.py::SupplyChainService.log_event
+
+    They are NOT added here, because each needs the same individual
+    adjudication the alias entry got — the NFTService.process_sale rejection is
+    why raw detector output never enters this list. The number is recorded so
+    that 47 is read as "47 under an assignment-only write clause", not as a
+    measurement of the whole shape. A count whose scope is undocumented is the
+    same defect as a control whose name overstates it.
+    """
     mints = writes = awaits = status = False
+    aliases = _state_aliases(fn)
     for node in ast.walk(fn):
         if isinstance(node, ast.Await):
             awaits = True
@@ -96,12 +127,15 @@ def _shape(fn: ast.AST) -> tuple[bool, bool, bool, bool]:
                 mints = True
         elif isinstance(node, ast.Assign):
             for target in node.targets:
+                if not isinstance(target, ast.Subscript):
+                    continue
                 if (
-                    isinstance(target, ast.Subscript)
-                    and isinstance(target.value, ast.Attribute)
+                    isinstance(target.value, ast.Attribute)
                     and isinstance(target.value.value, ast.Name)
                     and target.value.value.id == "self"
                 ):
+                    writes = True
+                elif _base_name(target) in aliases:
                     writes = True
         elif isinstance(node, ast.Dict):
             for key, value in zip(node.keys, node.values):
@@ -138,9 +172,40 @@ def find_fabrication_shape() -> set[str]:
 
 # ── The frozen inventory (measured 2026-08-11; ratchet: may only shrink) ──
 #
-# 50 at introduction -> 49 after NEW-67 (auto_settle_claim delegated).
+# 50 at introduction -> 49 after NEW-67 (auto_settle_claim delegated) -> 46 as
+# domain censuses struck entries -> 47 on the 2026-08-12 alias re-baseline.
+#
+# RE-BASELINE 2026-08-12 — 46 -> 47.  UPWARD, AND A CORRECTION.
+#   OLD: 46.  NEW: 47.  DATE: 2026-08-12.
+#   MECHANISM: `_shape`'s store-write clause matched only
+#   `self.<store>[k] = v` and was blind to a write through an alias bound from
+#   service state — the same gap NEW-99 closed on the gate-asymmetry side, in
+#   the sibling function, left half-fixed for one commit.
+#   Nothing in the platform changed on this date. The detector did.
+#
+#   THE ONE ENTRY ADDED WAS ADJUDICATED INDIVIDUALLY, not taken from detector
+#   output (the NFTService.process_sale rejection under NEW-99 is why):
+#     nft_services/rights.py::RightsManagement.transfer_rights
+#       - TRUE shape member: mints rt_<uuid>, writes `record["updated_at"]`
+#         and `right["holder"]` through an alias of self._rights, returns a
+#         hardcoded "status": "transferred", awaits nothing.
+#       - BUT PROBABLY CATEGORY 1, not a fabrication. rights.py carries no
+#         gate at all, and for LICENSING RIGHTS the platform ledger plausibly
+#         IS the artifact — the same reasoning that exempted
+#         SupplyChainService.transfer_custody from D7 ("for custody, the record
+#         IS the asset"). Unlike token OWNERSHIP, which domain 9 established
+#         lives on-chain, there is no external rights registry this contradicts.
+#       - It is listed because this inventory has always contained legitimate
+#         local records (see the module docstring: a proposal, an appeal, a
+#         moderation report). Membership means "matches the shape", not
+#         "is a fabrication".
+#       - HONEST NOTE: domain 9 closed without ever seeing this entry. The
+#         disposition would probably not have changed, but it was never put to
+#         the test. Filed known-and-dispositioned for the Phase-6 detector-delta
+#         pass rather than reopening the domain.
 
 KNOWN_FABRICATION_SHAPE = {
+    "nft_services/rights.py::RightsManagement.transfer_rights",
     "agent_identity/service.py::AgentIdentityService.trade_model_access",
     "agent_identity/service.py::AgentIdentityService.sell_training_data",
     "dao_management/factory.py::DAOFactory.deploy",
@@ -273,9 +338,17 @@ def test_the_measured_count_is_recorded():
     (NEW-86 delegated remit, NEW-87 disabled bridge_transfer). Both were on
     BOTH detectors' lists; a fix has to tighten every ratchet it clears, or
     the next reader inherits a stale inventory.
+
+    THEN 46 -> 47 ON 2026-08-12, UPWARD, AND A CORRECTION rather than a
+    regression — `_shape`'s write clause became alias-aware, closing the gap
+    NEW-99 had closed on the sibling function one commit earlier. Nothing in
+    the platform changed on that date; the detector stopped being blind. The
+    single added entry was adjudicated individually before being listed. See
+    the re-baseline block above KNOWN_FABRICATION_SHAPE, and `_shape`'s
+    docstring for the call-form gap that remains OPEN and measured (+5).
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 46
-    assert len(find_fabrication_shape()) == 46
+    assert len(KNOWN_FABRICATION_SHAPE) == 47
+    assert len(find_fabrication_shape()) == 47
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -660,3 +733,60 @@ def test_the_rejected_candidate_stays_rejected():
     )
     assert "dao_management/service.py::DAOService" in KNOWN_GATE_ASYMMETRY
     assert "nft_services/service.py::NFTService" not in KNOWN_GATE_ASYMMETRY
+
+
+def test_shape_write_detection_is_alias_aware_in_both_directions():
+    """The 2026-08-12 `_shape` fix, proven to DISCRIMINATE.
+
+    Same standard as `_mutates`: a detector fix that over-fires is worse than
+    the blind spot, because false alarms are how a detector gets muted and a
+    detector that fires on a defensive copy pressures the next reader to remove
+    the copy.
+    """
+    def shape(src: str):
+        return _shape(ast.parse(src.strip()).body[0])
+
+    # FIRES — uuid + alias write + status literal + no await
+    mints, writes, awaits, status = shape('''
+def f(self, k):
+    record = self._rights.get(k)
+    record["updated_at"] = 1
+    return {"id": uuid.uuid4().hex, "status": "transferred"}
+''')
+    assert (mints, writes, awaits, status) == (True, True, False, True), (
+        "the alias write is invisible to _shape again"
+    )
+
+    # DOES NOT FIRE — alias bound purely for READING
+    assert not shape('''
+def f(self, k):
+    record = self._rights.get(k)
+    return {"id": uuid.uuid4().hex, "status": "ok", "n": record["count"]}
+''')[1], "_shape counts a read-only alias as a store write"
+
+    # DOES NOT FIRE — rebound to a defensive copy (the NEW-90 shape)
+    assert not shape('''
+def f(self, k):
+    r = self._ledger.get(k)
+    r = dict(r)
+    r["status"] = "recorded_unsettled"
+    return {"id": uuid.uuid4().hex, "status": "recorded_unsettled"}
+''')[1], (
+        "_shape flags a defensive copy — it would fire on NEW-90's fix"
+    )
+
+    # STILL FIRES — the classic shape must not regress
+    assert shape('''
+def f(self, k):
+    self._store[k] = {}
+    return {"id": uuid.uuid4().hex, "status": "created"}
+''')[1]
+
+
+def test_the_shape_inventory_is_at_the_documented_baseline():
+    """47 under an ASSIGNMENT-ONLY write clause — the scope is part of the
+    number. See `_shape`'s docstring for the measured +5 the call-form gap
+    would add, which is deliberately NOT included pending adjudication."""
+    current = find_fabrication_shape()
+    assert len(KNOWN_FABRICATION_SHAPE) == 47
+    assert "nft_services/rights.py::RightsManagement.transfer_rights" in current
