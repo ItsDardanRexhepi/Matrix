@@ -323,8 +323,8 @@ class DAOService:
         #   3. the capability catalog       — `available=False` was NOT enough:
         #      `install_action_map` iterates every capability and never
         #      consults `available`, so the row had to be REMOVED. That is a
-        #      platform-wide finding in its own right (60 capabilities are
-        #      flagged unavailable and all 60 install regardless).
+        #      platform-wide finding in its own right (59 capabilities are
+        #      flagged unavailable and all 59 install regardless).
         #   4. extensions/registry.json     — served live and UserDefaults-
         #      cached by the iOS client; found by the dangling-advertisement
         #      control, not by inspection.

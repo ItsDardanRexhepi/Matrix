@@ -237,16 +237,23 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("create_proposal",         "Create Proposal",         "governance", "governance", "create_proposal", feed_event="proposal_created"),
     _cap("vote",                    "Vote on Proposal",        "governance", "governance", "vote",            feed_event="vote_cast"),
     _cap("finalize_proposal",       "Finalize Proposal",       "governance", "governance", "finalize"),
-    _cap("snapshot_vote",           "Snapshot Vote",           "governance", "governance", "snapshot_vote",   protocol="snapshot"),
+    _cap("snapshot_vote",           "Snapshot Vote",           "governance", "governance", "snapshot_vote",   protocol="snapshot", available=False),
     _cap("timelock_queue",          "Queue Timelock Action",   "governance", "governance", "timelock_queue"),
     _cap("multisig_propose",        "Propose Multisig Action", "governance", "governance", "multisig_propose"),
-    _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "multisig_approve"),
+    # CLUSTER B FOLLOW-UP: both methods now raise NotImplementedError
+    # unconditionally, so advertising them as available was the five-doors
+    # doctrine stated in this very file and then not walked. They stay ROUTED
+    # (unlike treasury_transfer, which was removed) because an honest 501 with
+    # a lifting condition is a better answer than "unknown action" for a
+    # capability that is intended to exist — but `available` must tell the
+    # truth about whether it works today.
+    _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "multisig_approve", available=False),
     # CLUSTER B: `treasury_transfer` REMOVED from the catalog — door 3 of 5.
     # The gateway route went in Tier 2 and the ACTION_MAP literal goes with this
     # change; this entry alone would have kept the action installed, because
     # `install_action_map` iterates every capability and never consults
     # `available`. Marking it unavailable was NOT enough, and finding that out
-    # is a separate platform-wide finding (60 capabilities are flagged
+    # is a separate platform-wide finding (59 capabilities are flagged
     # unavailable and all 60 are installed regardless).
     #
     # AND THIS ENTRY WAS WRONG. It named service "governance", but

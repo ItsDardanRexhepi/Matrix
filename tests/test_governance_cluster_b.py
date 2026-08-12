@@ -152,6 +152,14 @@ async def test_it_moves_nothing_and_says_so():
     assert result["value_moved"] is False
     assert result["settled"] is False
 
+    # THE DISCLOSURE IS THE DELIVERABLE, so it is asserted rather than assumed.
+    # An adversarial pass deleted this entire string and all 18 tests in this
+    # file stayed green: the honest text was unpinned and the next refactor
+    # would have dropped it silently. Content, not just the key — an empty
+    # disclosure satisfies `"disclosure" in result`.
+    assert "DISABLED" in result["disclosure"]
+    assert "moving nothing and recording" in result["disclosure"]
+
 
 # ── The two refusals ─────────────────────────────────────────────────────
 
@@ -243,7 +251,15 @@ async def test_queue_timelock_does_not_claim_to_have_queued_anything():
     assert record["status"] == "recorded_unqueued"
     assert record["executed"] is False
     assert record["settled"] is False
-    assert "no timelock executor" in record["disclosure"].lower()
+
+    # THIS ASSERTION WAS PINNING A FALSE CLAIM. It required the disclosure to
+    # say "no timelock executor" — which was untrue: runtime/blockchain/
+    # governance.py schedules and executes against a real TimelockController.
+    # Adjudicated before changing (the standing rule): this was not a fixture
+    # and not correct behaviour being protected, it was a test written to match
+    # an unverified sentence. Inverted to the narrow, grepped claim.
+    assert "nothing reads this record" in record["disclosure"].lower()
+    assert "runtime/blockchain/governance.py" in record["disclosure"]
 
 
 async def test_the_queued_proposals_status_is_untouched_and_the_record_says_so():

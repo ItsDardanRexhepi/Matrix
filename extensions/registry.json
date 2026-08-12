@@ -3,7 +3,7 @@
   "platform": "0pnMatrx",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
-  "total_capabilities": 196,
+  "total_capabilities": 195,
   "total_categories": 20,
   "components": [
     {

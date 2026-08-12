@@ -77,10 +77,21 @@ class GovernanceService:
         # fabricated (step 2). Wiring it lifts both, in one place.
         self._balance_source = None
 
-        # CLUSTER B: timelock records live HERE, not in _proposals. Writing
-        # them into the proposal store under a `_timelock_` key made
-        # list_proposals() raise KeyError: 'title'.
+        # THREE NON-PROPOSAL STORES. `self._proposals` is read by
+        # `list_proposals()`, which assumes every value in it is a proposal with
+        # a "title". THREE methods wrote non-proposal records into it under
+        # prefixed keys — `_timelock_`, `_multisig_` and `_param_` — so a single
+        # call to any of them made listing raise KeyError: 'title'.
+        #
+        # THE FIRST PASS FIXED ONLY `_timelock_` AND READ AS A CLASS CLOSED,
+        # because the test that proved it exercised the one writer it knew
+        # about. One instance fixed looks identical to a class closed when the
+        # test only covers the instance. All three are now separated, and
+        # tests/test_governance_store_separation.py triggers EACH writer
+        # individually and asserts listing survives all three together.
         self._timelocks: dict[str, dict[str, Any]] = {}
+        self._multisigs: dict[str, dict[str, Any]] = {}
+        self._parameter_changes: dict[str, dict[str, Any]] = {}
 
         logger.info(
             "GovernanceService initialised (duration=%ds, model=%s).",
@@ -536,9 +547,27 @@ class GovernanceService:
         #
         # (a) THE CLAIM. "queued" says a passed proposal is now awaiting
         #     timelocked execution. It never looked the proposal up, never
-        #     changed its status, and NOTHING EXECUTES a timelock anywhere in
-        #     this repo — there is no executor, so `executable_at` is a date on
-        #     which nothing will happen. Recorded, not queued.
+        #     changed its status, and NOTHING READS `self._timelocks` — so
+        #     `executable_at` was a date on which nothing would happen.
+        #     Recorded, not queued.
+        #
+        #     THE FIRST VERSION OF THIS CLAIM WAS FALSE, and that is the
+        #     finding worth keeping. It read "NOTHING EXECUTES a timelock
+        #     anywhere in this repo — there is no executor". An executor DOES
+        #     exist: runtime/blockchain/governance.py schedules (line ~80) and
+        #     executes (line ~128) against a deployed TimelockController. I
+        #     asserted a platform-wide negative in caller-visible text without
+        #     grepping for it, inside a commit whose entire purpose was removing
+        #     unverified claims.
+        #
+        #     THE CLAIM IS NOW NARROW AND CHECKABLE, and each half was grepped
+        #     before it was written:
+        #       * nothing reads `self._timelocks` — the only references are the
+        #         write below and its tests;
+        #       * this service never imports or calls that class, and that class
+        #         contains no reference to GovernanceService.
+        #     Both are verifiable with one grep each, which is the standard a
+        #     negative in user-facing text has to meet.
         #
         # (b) THE STORE CORRUPTION. The record went into `self._proposals`
         #     under a `_timelock_` key, so `list_proposals()` — which assumes
@@ -562,9 +591,11 @@ class GovernanceService:
             "settled": False,
             "executed": False,
             "disclosure": (
-                "RECORDED, NOT QUEUED. No timelock executor exists in this "
-                "platform, so nothing will act on this record at any time. "
-                "The target proposal's status is unchanged."
+                "RECORDED, NOT QUEUED. Nothing reads this record: it is not "
+                "connected to the on-chain timelock in "
+                "runtime/blockchain/governance.py, which this service never "
+                "calls and which never reads this store. The target proposal's "
+                "status is unchanged."
             ),
         }
         self._timelocks[tl_id] = record
@@ -588,7 +619,7 @@ class GovernanceService:
             "approvals": [proposer],
             "proposed_at": now,
         }
-        self._proposals[f"_multisig_{ms_id}"] = record
+        self._multisigs[ms_id] = record
         logger.info("Multisig proposed: id=%s", ms_id)
         return record
 
@@ -612,8 +643,8 @@ class GovernanceService:
         audit, so the capability is marked unavailable and the condition names
         exactly what is already there to build on.
 
-        LIFTING CONDITION — all of: resolve `multisig_id` in the
-        `_multisig_*` records and refuse an unknown one; verify `signer` is in
+        LIFTING CONDITION — all of: resolve `multisig_id` in
+        `self._multisigs` and refuse an unknown one; verify `signer` is in
         that record's `signers` and has not already approved; append to
         `approvals`; derive the returned status from `len(approvals) >=
         threshold` rather than asserting it; and bind `signer` to an
@@ -625,7 +656,7 @@ class GovernanceService:
             "and checked nothing — it never verified the signer, never "
             "appended to the multisig's approvals, and never evaluated the "
             "threshold. An honest implementation is buildable against the "
-            "existing `_multisig_*` records; until then an approval reported "
+            "existing `self._multisigs` records; until then an approval reported "
             "here would be an approval no multisig received. (Cluster B)"
         )
 
@@ -672,7 +703,7 @@ class GovernanceService:
             "proposer": proposer,
             "proposed_at": int(time.time()),
         }
-        self._proposals[f"_param_{pc_id}"] = record
+        self._parameter_changes[pc_id] = record
         logger.info("Parameter change proposed: id=%s param=%s", pc_id, parameter)
         return record
 
