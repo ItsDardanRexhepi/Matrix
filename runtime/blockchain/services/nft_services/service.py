@@ -22,6 +22,72 @@ from runtime.blockchain.services.nft_services.valuation import ValuationEngine
 logger = logging.getLogger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# NFT GATING CONDITION — read before setting `nft.contract_address` (NEW-93)
+# ─────────────────────────────────────────────────────────────────────────
+#
+# ONE config key arms SEVEN fabrications at once. Each of the following opens
+# with `if not self._web3.available or self._web3.is_placeholder(...)` and
+# returns not_deployed TODAY — that gate is the only reason they are inert:
+#
+#     fractionalize      -> "fractionalized"   writes self._fractions
+#     rent               -> "rented"           writes self._rentals
+#     mint_soulbound     -> "minted"           writes self._soulbound
+#     batch_mint         -> "minted"
+#     royalty_claim      -> "claimed"
+#     bridge_nft         -> "bridged"
+#     dynamic_update     -> "updated"
+#
+# None of them touches a chain, a signer, or a token record. Setting the key
+# does not make them work; it makes them ANSWER.
+#
+# WHY THIS DOMAIN'S ARMING IS DIFFERENT FROM EVERY PRIOR ONE. In insurance,
+# deployment supplied an already-running consumer with its first objects — the
+# claim surface existed and was merely idle. Here, deployment arms claims about
+# PROPERTY THAT NOTHING CAN REFUTE:
+#
+#   * this platform holds NO ownership record. `NFTFactory._collections` is
+#     declared "cache for in-process queries" and is NEVER WRITTEN — three
+#     occurrences package-wide, one declaration and two reads. Ownership lives
+#     on-chain in OpenMatrixNFT.sol, which is not deployed.
+#   * so when `fractionalize` reports a token split into 10 shares, there is no
+#     store on EITHER side that can say the caller never owned it.
+#   * and `buy_nft` — already live, already ungated on
+#     POST /api/v1/capabilities/buy_nft/invoke — is in _STATE_MODIFYING_ACTIONS
+#     with ACTION_TO_FEED_EVENT "nft_purchased", so every sale that transfers
+#     nothing is BROADCAST to the public social feed as a purchase.
+#
+# A false claim about money is contradicted by a balance. A false claim about
+# property, with no title record on either side, is contradicted by nothing.
+#
+# LIFTING CONDITION — all five, or leave `nft.contract_address` unset:
+#
+#   1. OWNERSHIP IS READABLE. `NFTFactory.get_token` must return a real owner —
+#      from the chain, not from `_collections`, which is a cache with no writer.
+#      PARTIAL-STATE FAILURE MODE: every method below acts on tokens whose
+#      ownership it cannot check, so any caller can fractionalize, rent or
+#      bridge a token they do not hold.
+#   2. EACH OF THE SEVEN EITHER PERFORMS ITS OPERATION OR REFUSES. Writing a
+#      dict and returning "fractionalized" is not fractionalising.
+#      PARTIAL-STATE FAILURE MODE: seven confident receipts for nothing.
+#   3. `buy_nft`'s FEED EVENT IS DERIVED FROM SETTLEMENT, not from the request
+#      being accepted — the NEW-88 rule, which this domain has not yet applied.
+#      PARTIAL-STATE FAILURE MODE: the public feed becomes the loudest surface
+#      of the fabrication, exactly as `bridge_completed` was.
+#   4. OWNERSHIP IS CHECKED BEFORE ACTING. A caller must be shown to hold a
+#      token before its rights, rents or fractions are altered (rule 27 —
+#      every sibling authority path, not just one).
+#      PARTIAL-STATE FAILURE MODE: NEW-78's hole, on property instead of claims.
+#   5. `estimate_value` STILL DISCLOSES its unmeasured factors (NEW-92), because
+#      arming the contract does not populate `_floor_prices` or `_creator_scores`
+#      — their writers still have zero callers.
+#      PARTIAL-STATE FAILURE MODE: a deployed marketplace quoting prices from a
+#      model whose majority weight is constants.
+#
+# Satisfying four of five is not four-fifths safe. Clause 1 is load-bearing for
+# 2 and 4 — without a readable owner, neither can be implemented at all.
+
+
 class NFTService:
     """Orchestrate all NFT operations on the 0pnMatrx platform.
 

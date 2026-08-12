@@ -86,11 +86,21 @@ class ValuationEngine:
             recent = sorted(sales, key=lambda s: s["timestamp"], reverse=True)[:10]
             recent_avg = sum(s["price"] for s in recent) / len(recent)
 
-        # Rarity (placeholder — real implementation uses get_rarity_score)
-        rarity_multiplier = 1.0
-
-        # Creator reputation
-        creator_rep = 0.5  # neutral default
+        # NEW-92. Rarity and creator reputation are NOT MEASURED. They are
+        # neutral constants, and they carry 0.30 + 0.15 of the declared weight
+        # while floor carries a further 0.25 from a store whose only writer
+        # (update_floor_price) has zero callers. So up to 70% of a "weighted
+        # multi-factor" valuation can rest on nothing observed.
+        #
+        # These are NOT wired here. Wiring update_floor_price/update_creator_score
+        # would move this from visibly low-confidence to CONFIDENTLY WRONG over a
+        # scoring path no one has validated, and estimate_value returns a price a
+        # user acts on immediately — unlike a risk score, which only gates
+        # eligibility. Arming dead machinery is worse here than leaving it dead.
+        #
+        # What changes instead: the response now SAYS which factors carry data.
+        rarity_multiplier = 1.0   # constant, not measured
+        creator_rep = 0.5         # constant, not measured
 
         # Weighted valuation
         components: dict[str, float] = {}
@@ -130,11 +140,39 @@ class ValuationEngine:
             has_volume=volume > 0,
         )
 
+        # NEW-92: name the evidence rather than let the caller infer it from a
+        # number. `measured_factors` is derived from the stores, never asserted.
+        measured = {
+            "floor_price": floor > 0,
+            "recent_sales": recent_avg > 0,
+            "collection_volume": volume > 0,
+            "rarity": False,             # constant 1.0 — never measured
+            "creator_reputation": False,  # constant 0.5 — never measured
+        }
+        measured_weight = sum(
+            self._weights[k] for k, ok in measured.items() if ok
+        )
+        unmeasured = sorted(k for k, ok in measured.items() if not ok)
+
         result = {
             "collection": collection,
             "token_id": token_id,
             "estimated_value_eth": round(estimated_value, 6),
             "confidence": confidence,
+            # NEW-92 — the deliberate part. The 0.6 ceiling used to be an
+            # ACCIDENT of `has_floor` never being true; an accident is not a
+            # control and would not survive someone "improving" the cap.
+            "measured_factors": measured,
+            "measured_weight_fraction": round(measured_weight, 4),
+            "unmeasured_factors": unmeasured,
+            "disclosure": (
+                f"{round(measured_weight * 100)}% of the declared weight is "
+                f"backed by observed data. These factors are NOT measured and "
+                f"contribute constants: {', '.join(unmeasured)}. "
+                "Treat this as an indication, not a price."
+                if unmeasured else
+                "All declared factors are backed by observed data."
+            ),
             "confidence_label": self._confidence_label(confidence),
             "factors": {
                 "floor_price_eth": floor,
