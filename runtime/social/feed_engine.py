@@ -67,7 +67,20 @@ ACTION_LABELS: Dict[str, str] = {
     "create_dao": "created a DAO",
     "stake": "staked tokens",
     "unstake": "unstaked tokens",
-    "claim_rewards": "claimed staking rewards",
+    # NEW-97: was "claimed staking rewards". Nothing is transferred — see
+    # StakingService.claim_rewards, which now returns `recorded_unsettled`.
+    #
+    # AND THE LABEL WAS UNREACHABLE, WHICH I GOT WRONG FIRST TIME. `ingest` does
+    # `ACTION_LABELS.get(action, f"performed {action}")` and the dispatcher
+    # passes the ACTION name, "claim_staking_rewards", while this map is keyed
+    # by the SERVICE METHOD name, "claim_rewards". The keys never met, so the
+    # live feed emitted "performed claim_staking_rewards" and the false
+    # sentence was never actually published. The danger was LATENT, not live:
+    # repair the key mismatch with the old text in place and the false claim
+    # goes live that day. Both keys are fixed so neither ordering can surface
+    # it, and the action-keyed entry makes the honest sentence reachable now.
+    "claim_rewards": "recorded a staking reward claim (not settled)",
+    "claim_staking_rewards": "recorded a staking reward claim (not settled)",
     "send_payment": "sent a payment",
     "create_invoice": "created an invoice",
     "register_ip": "registered intellectual property",

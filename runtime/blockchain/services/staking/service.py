@@ -134,7 +134,7 @@ class StakingService:
                 "staked_amount": 0.0,
                 "pending_rewards": 0.0,
                 "total_rewards_earned": 0.0,
-                "total_commission_paid": 0.0,
+                "total_commission_recorded": 0.0,   # NEW-97, was ..._paid
                 "staked_at": now,
                 "last_reward_at": now,
             }
@@ -303,10 +303,18 @@ class StakingService:
 
         position["pending_rewards"] = 0.0
         position["total_rewards_earned"] += gross
-        position["total_commission_paid"] += commission
+        # NEW-97: `total_commission_paid` -> `total_commission_recorded`. This
+        # is the NEW-91 `total_royalties_paid` shape in a SECOND domain: the
+        # word "paid" over a running total this service computed for itself,
+        # with no wallet, balance or payout anywhere to reconcile it against.
+        # Recorded as a repeat instance rather than a fresh discovery.
+        position["total_commission_recorded"] += commission
         position["last_claimed_at"] = int(time.time())
 
-        # Record commission
+        # Record commission. NEW-97: the entry names a `platform_wallet` and
+        # nothing was ever sent to it, so the disclosure lives on the record —
+        # a reader of `self._commissions` must not mistake a computed split for
+        # a transfer.
         self._commissions.append({
             "staker": staker,
             "pool_id": pool_id,
@@ -315,14 +323,35 @@ class StakingService:
             "net_reward": round(net, 6),
             "platform_wallet": self._platform_wallet,
             "timestamp": int(time.time()),
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "NOT SETTLED. Commission computed and recorded locally. No "
+                "transfer was made to the platform wallet and none to the "
+                "staker."
+            ),
         })
 
         logger.info(
-            "Rewards claimed: staker=%s pool=%s gross=%.6f commission=%.6f net=%.6f",
+            "Rewards RECORDED (NOT paid — no value moved): staker=%s pool=%s "
+            "gross=%.6f commission=%.6f net=%.6f",
             staker, pool_id, gross, commission, net,
         )
         return {
-            "status": "claimed",
+            # NEW-97. "claimed" means the staker received the rewards. Nothing
+            # was transferred: this method zeroes a counter it maintains itself
+            # and appends a line item. The 4-vs-6 discriminator says vocabulary
+            # rather than removal — strip the outcome claim and the time-
+            # weighted accrual, the 5% split and the ledger all remain, and all
+            # three are real arithmetic.
+            #
+            # THE CORRECT PATTERN ALREADY EXISTS IN THIS REPO, in a method of
+            # the same name: `runtime/blockchain/staking.py::_claim_rewards`
+            # builds a transaction, signs it, sends it, waits for a receipt and
+            # returns `"claimed" if receipt["status"] == 1 else "failed"` —
+            # status DERIVED from settlement. Two `claim_rewards`, one real and
+            # one recording-only, and only the real one earned the word.
+            "status": "recorded_unsettled",
             "staker": staker,
             "pool_id": pool_id,
             "gross_reward": round(gross, 6),
@@ -330,6 +359,15 @@ class StakingService:
             "commission_pct": self._commission_pct,
             "net_reward": round(net, 6),
             "platform_wallet": self._platform_wallet,
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "RECORDED, NOT PAID. This service computed a reward split and "
+                "cleared its own pending-rewards counter. No value was "
+                "transferred to the staker or to the platform wallet, and the "
+                "rewards themselves are accrued from a configured rate with no "
+                "funded source behind them."
+            ),
         }
 
     async def get_position(
@@ -387,6 +425,18 @@ class StakingService:
         apy_data = await self._apy.calculate_apy(pool_id)
         result["current_apy"] = apy_data.get("current_apy", 0.0)
 
+        # NEW-97: this response publishes `pending_rewards`,
+        # `total_rewards_earned` and `total_commission_recorded` — every one of
+        # them produced by `_accrue_rewards` from a configured rate with no
+        # funded source. A reader seeing a rewards balance would reasonably
+        # assume someone owes it to them; the disclosure says who does not.
+        result["rewards_settled"] = False
+        result["rewards_disclosure"] = (
+            "Reward figures are ACCRUED, NOT FUNDED. They are computed from "
+            "the pool's configured reward_rate and elapsed time. No treasury "
+            "or balance backs them and no transfer has been made."
+        )
+
         return result
 
     # ------------------------------------------------------------------
@@ -396,7 +446,36 @@ class StakingService:
     async def _accrue_rewards(
         self, position: dict[str, Any], pool: dict[str, Any],
     ) -> None:
-        """Accrue rewards for a position based on time elapsed."""
+        """Accrue rewards for a position based on time elapsed.
+
+        NEW-97 — THE ACCRUAL IS REAL AND THAT IS THE PROBLEM.
+
+        The arithmetic below is a genuine time-weighted pro-rata computation:
+        share of pool, daily rate, elapsed seconds. Apply the 4-vs-6
+        discriminator — strip the outcome claim and ask what work is left — and
+        everything is left, because there is no outcome claim to strip. This is
+        category 6, not a fabrication.
+
+        WHAT IS MISSING IS NOT THE COMPUTATION BUT THE FUNDED SOURCE.
+        `reward_rate` is a pool-creation parameter. There is no treasury, no
+        balance, and no payer anywhere in this domain. So this method CREATES A
+        BALANCE OUT OF A CONFIGURATION VALUE, compounding with wall-clock time,
+        with nothing on the other side of the ledger.
+
+        That is a different thing from a royalty split, and the distinction is
+        why the arming condition has a clause of its own: a split DESCRIBES a
+        payment someone else could make, while an accrual CREATES an
+        obligation. Recording a description costs nothing if it is never acted
+        on. Recording an obligation is a debt whether or not anyone acts on it.
+
+        NO STAKING METHOD MAY BE ARMED UNTIL REWARDS HAVE A DEMONSTRATED FUNDED
+        SOURCE — a real balance the accrual draws against, and a check that
+        FAILS CLOSED when it cannot cover. Not "a treasury exists", but "the
+        accrual reads it and refuses when it cannot cover". Otherwise the first
+        honest thing this service does is calculate a debt. This clause belongs
+        in the compound arming condition (item 4, not yet written); until then
+        the NEW-94 domain gate is what keeps it dark.
+        """
         now = int(time.time())
         last = position.get("last_reward_at", now)
         elapsed = max(0, now - last)

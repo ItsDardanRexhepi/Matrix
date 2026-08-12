@@ -173,7 +173,17 @@ CAPABILITIES: list[dict[str, Any]] = [
     # ── Staking (core) ─────────────────────────────────────────────────────
     _cap("stake",                   "Stake Tokens",            "staking", "staking", "stake",                 feed_event="tokens_staked"),
     _cap("unstake",                 "Unstake Tokens",          "staking", "staking", "unstake",               feed_event="tokens_unstaked"),
-    _cap("claim_staking_rewards",   "Claim Staking Rewards",   "staking", "staking", "claim_staking_rewards", feed_event="rewards_claimed"),
+    # NEW-97: feed_event "rewards_claimed" -> "rewards_recorded". THE FEED
+    # EVENT IS KEYED ON THE ACTION NAME, NOT THE RESULT — it is emitted
+    # whatever `claim_rewards` returns, so changing the response's status to
+    # `recorded_unsettled` did not touch it. Left alone, the response would
+    # have said "not settled" while the social feed announced that rewards were
+    # claimed, and the feed is the louder surface. This is NEW-85's
+    # `payment_sent` -> `payment_recorded` in a third domain; NEW-88 removed
+    # `bridge_completed` outright because bridging is disabled, whereas this
+    # method does real arithmetic and writes a real ledger line, so it is
+    # renamed rather than removed.
+    _cap("claim_staking_rewards",   "Claim Staking Rewards",   "staking", "staking", "claim_staking_rewards", feed_event="rewards_recorded"),
     _cap("get_staking_position",    "Get Staking Position",    "staking", "staking", "get_position", state_modifying=False, uses_paymaster=False),
 
     # ── NFTs ───────────────────────────────────────────────────────────────
