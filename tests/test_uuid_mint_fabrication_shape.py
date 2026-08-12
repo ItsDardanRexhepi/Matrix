@@ -72,7 +72,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from tests.refusal_primitives import REFUSAL_PRIMITIVES, mentions_refusal
+from tests import refusal_primitives
 
 SERVICES = pathlib.Path(__file__).resolve().parent.parent / (
     "runtime/blockchain/services"
@@ -295,7 +295,7 @@ def _is_gated(fn: ast.AST) -> bool:
             name = getattr(node.func, "attr", None) or getattr(
                 node.func, "id", None
             )
-            if name in REFUSAL_PRIMITIVES:
+            if refusal_primitives.is_refusal_name(name):
                 return True
     return False
 
@@ -334,7 +334,7 @@ def find_gate_asymmetry() -> dict[str, list[str]]:
         # asked only about the base name, NEW-94's wrapper made the whole
         # staking package invisible here — and the resulting drop in the count
         # looked exactly like a fix.
-        if not mentions_refusal(text):
+        if not refusal_primitives.mentions_refusal(text):
             continue
         try:
             tree = ast.parse(text)

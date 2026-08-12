@@ -42,7 +42,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from tests.refusal_primitives import REFUSAL_PRIMITIVES, mentions_refusal
+from tests import refusal_primitives
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "runtime/blockchain"
 
@@ -50,11 +50,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent / "runtime/blockchain"
 # EVERY name-matching detector at once, not just this one — NEW-94's wrapper
 # silently blinded D6 as well, and D6's falling count read as progress. One
 # list, imported by all of them, is the only version of this that stays true.
-_REFUSAL_PRIMITIVES = REFUSAL_PRIMITIVES
+
 
 
 def _mentions_refusal(fn: ast.AST) -> bool:
-    return mentions_refusal(ast.unparse(fn))
+    return refusal_primitives.mentions_refusal(ast.unparse(fn))
 
 
 def _refusing_methods() -> set[str]:
@@ -79,8 +79,8 @@ def find_refusal_wrappers() -> set[str]:
 
     A free function (as opposed to a method) whose body constructs a refusal is
     by definition a wrapper other code will call in place of the primitive.
-    Each one must be registered in ``_REFUSAL_PRIMITIVES`` or it blinds this
-    detector to everything downstream of it.
+    Each one must be registered in tests/refusal_primitives.py or it blinds
+    this detector — and D6 and D7 — to everything downstream of it.
     """
     found: set[str] = set()
     for path in ROOT.rglob("*.py"):
@@ -133,13 +133,13 @@ def test_every_refusal_wrapper_is_registered():
     reporting zero while an entire domain's refusals become invisible to it.
 
     So every free function in runtime/blockchain that can produce a refusal
-    must appear in ``_REFUSAL_PRIMITIVES``. This test is what makes the
+    must appear in the shared registry. This test is what makes the
     registration mandatory rather than remembered.
     """
-    unregistered = find_refusal_wrappers() - set(_REFUSAL_PRIMITIVES)
+    unregistered = find_refusal_wrappers() - set(refusal_primitives.REFUSAL_PRIMITIVES)
     assert not unregistered, (
         "a new refusal wrapper exists but is not registered in "
-        f"_REFUSAL_PRIMITIVES: {sorted(unregistered)}. Every caller of it is "
+        f"the registry: {sorted(unregistered)}. Every caller of it is "
         "currently INVISIBLE to D10, so this file's green means less than it "
         "did before the wrapper was added. Add the name to the tuple."
     )
@@ -152,7 +152,7 @@ def test_the_wrapper_registration_is_load_bearing():
     With `staking_not_deployed` registered, the staking methods that refuse
     through it are recognised as refusers. Drop it and they vanish.
     """
-    assert "staking_not_deployed" in _REFUSAL_PRIMITIVES
+    assert refusal_primitives.is_refusal_name("staking_not_deployed")
 
     with_wrapper = _refusing_methods()
     assert {"add_stake", "remove_stake", "create_pool"} <= with_wrapper, (

@@ -1,39 +1,53 @@
-"""The refusal primitives every detector must recognise. ONE list, shared.
+"""The refusal vocabulary every name-matching detector must import. ONE list.
 
-WHY THIS FILE EXISTS — a wrapper blinded two detectors, not one.
+WHY THIS FILE EXISTS — a rename blinded a detector, and the silence read as
+success.
 
 Several controls in this suite recognise "this method can honestly refuse" by
-looking for the NAME of the refusal primitive in the method's source:
+looking for the NAME of a refusal primitive in the method's source:
 
-    D6  test_uuid_mint_fabrication_shape.py   `_is_gated`, and a file-level
+    D6  test_uuid_mint_fabrication_shape.py   `_is_gated`, plus a file-level
                                               skip that drops any file not
-                                              mentioning the primitive at all
+                                              mentioning a primitive at all
+    D7  test_fake_delivery_detector.py        the "real or refuses" token set
     D10 test_discarded_refusal_detector.py    `_refusing_methods`
 
-Name-matching means WRAPPING the primitive in a helper hides every caller of
-that helper from every one of them, simultaneously and silently — the
-detectors keep reporting green over code they can no longer see.
+NEW-94 wrapped `not_deployed_response` in `staking_not_deployed` so the whole
+staking domain could gate on one switch — a rename made in good faith, to
+improve the code. D6 matched the old literal and skipped files that never
+mention it, so THE ENTIRE STAKING PACKAGE WENT INVISIBLE. Its gate-asymmetry
+count fell from 7 classes / 11 methods to 6 / 10, and that drop was recorded as
+confirmation that the staking asymmetry had been fixed. It was the opposite.
 
-NEW-94 did exactly this. It introduced `staking_not_deployed` (a thin wrapper
-around `not_deployed_response`) to gate the whole staking domain on one switch,
-and removed the primitive's name from all three staking sources. D10 was
-updated in the same commit. D6 WAS NOT, and the consequence was worse than a
-blind spot:
+The demonstration was a controlled experiment, not an argument: an adversarial
+verifier DISABLED EVERY STAKING GATE and re-ran D6. Still 6 / 10. Still no
+staking entry. The count had fallen because the instrument had stopped looking.
 
-    D6's gate-asymmetry count fell from 7 classes / 11 methods to 6 / 10, and
-    that drop was read as evidence the staking asymmetry had been FIXED.
-    It was not evidence of anything. The file-level skip had simply stopped
-    reading the staking package. An adversarial verifier proved it by
-    disabling every staking gate and re-running D6: still 6 / 10, still no
-    staking entry.
+A DETECTOR THAT GETS QUIETER WHEN YOU CHANGE THE THING IT WATCHES IS WORSE THAN
+NO DETECTOR, because silence is indistinguishable from success. And the general
+lesson is structural, not a bug in D6's logic — its logic was correct: ANY
+name-matching control can be blinded by a rename, including a rename made to
+improve the code.
 
-A number that moves for the right reason and a number that moves because the
-instrument stopped looking are indistinguishable from the outside. That is the
-failure this file prevents: register a wrapper ONCE, here, and every detector
-that imports this list keeps its reach.
+WHY A REGISTRY RATHER THAN A FIX TO EACH DETECTOR. It makes the blinding
+IMPOSSIBLE rather than detected. One place declares the vocabulary; every
+name-matching detector imports it. A new wrapper either registers here, or the
+detectors do not recognise it as a refusal at all — which fails LOUD (D10's
+`test_every_refusal_wrapper_is_registered` goes red) instead of quiet.
 
-If you add a new refusal wrapper, add it below. D10's
-`test_every_refusal_wrapper_is_registered` fails until you do.
+THIS FILE IS LOAD-BEARING FOR THREE CONTROLS, so it is itself proven rather
+than trusted — see tests/test_refusal_registry.py:
+
+  * no detector may match a refusal name it did not get from here, or the class
+    comes back one hardcoded literal at a time;
+  * adding a name must make the detectors see a new wrapper, and removing one
+    must make them stop — a shared dependency that is not mutation-tested is a
+    single point of silent failure for all three.
+
+Callers must use `mentions_refusal()` / `is_refusal_name()` rather than reading
+`REFUSAL_PRIMITIVES` into a module-level binding of their own: the functions
+resolve the tuple at CALL time, which is what lets the registry be mutated in a
+test and is exactly the indirection that keeps the three detectors honest.
 """
 
 from __future__ import annotations
@@ -48,3 +62,8 @@ REFUSAL_PRIMITIVES: tuple[str, ...] = (
 def mentions_refusal(source: str) -> bool:
     """True if this source text can produce a refusal through any primitive."""
     return any(p in source for p in REFUSAL_PRIMITIVES)
+
+
+def is_refusal_name(name: str | None) -> bool:
+    """True if `name` is a registered refusal primitive."""
+    return name in REFUSAL_PRIMITIVES

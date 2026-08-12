@@ -63,6 +63,8 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from tests import refusal_primitives
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "runtime/blockchain"
 
 # Status literals that assert value reached someone.
@@ -71,12 +73,29 @@ DELIVERY_VOCABULARY = frozenset({
     "transferred", "bridged", "disbursed", "remitted", "bridging",
 })
 
-# Tokens meaning the method can really move value, or honestly refuses to.
-_REAL_OR_REFUSES = (
+# Tokens meaning the method can really move value.
+_REAL_TRANSFER = (
     "send_transaction", "send_raw_transaction", "sign_transaction", "to_wei",
     "build_transaction", "get_transaction_receipt",
-    "not_deployed_response", "is_placeholder", "_require_config",
+    "is_placeholder", "_require_config",
 )
+
+
+def _real_or_refuses() -> tuple[str, ...]:
+    """Tokens meaning the method really moves value, or honestly refuses to.
+
+    The REFUSAL half comes from tests/refusal_primitives.py rather than being
+    written out here. This file used to hardcode "not_deployed_response", which
+    made it the third control blinded by NEW-94's wrapper — and D7's blindness
+    fails in the OPPOSITE direction to D6's: because this is a WHITELIST, a
+    method that honestly refuses through an unregistered wrapper stops looking
+    honest and gets flagged as a fake delivery. A false alarm rather than a
+    silence, but the same root, and false alarms are how a detector gets muted.
+
+    Composed at CALL time so the registry's mutation test can prove this
+    detector actually depends on it.
+    """
+    return _REAL_TRANSFER + refusal_primitives.REFUSAL_PRIMITIVES
 
 # The honest idiom (x402 / fundraising / attestation already use it).
 _DISCLOSES = ("value_moved", "disclosure", "RECORDED_UNSETTLED")
@@ -146,7 +165,7 @@ def find_fake_delivery() -> set[str]:
                 if not _delivery_claims(fn):
                     continue
                 body = ast.unparse(fn)
-                if any(t in body for t in _REAL_OR_REFUSES):
+                if any(t in body for t in _real_or_refuses()):
                     continue
                 if any(d in body for d in _DISCLOSES):
                     continue
