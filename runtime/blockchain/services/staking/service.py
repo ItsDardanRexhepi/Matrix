@@ -27,6 +27,119 @@ _COMMISSION_PCT = 5.0       # 5 % flat
 _MIN_STAKE_ETH = 1.0        # 1 ETH minimum
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# STAKING ARMING CONDITION                                          (NEW-98)
+# ══════════════════════════════════════════════════════════════════════════
+#
+# ONE KEY ARMS THIS WHOLE DOMAIN. Setting `staking.staking_contract` (or
+# `blockchain.staking_contract`) flips all eight gated methods at once — see
+# arming.py. That is deliberate: a domain that arms per-method is what NEW-94
+# found and removed. It also means this comment is the only thing standing
+# between a configuration change and everything below.
+#
+# DO NOT SET THAT KEY UNTIL EVERY CLAUSE BELOW HOLDS.
+#
+# Each clause states its own PARTIAL-STATE FAILURE MODE, because seven
+# requirements without per-clause consequences invite exactly the incremental
+# arming they exist to prevent — someone satisfies three, ships, and the other
+# four become "known issues".
+#
+# ──────────────────────────────────────────────────────────────────────────
+# CLAUSE 1 — REWARDS HAVE A DEMONSTRATED FUNDED SOURCE.
+#   `_accrue_rewards` computes a real time-weighted pro-rata share from
+#   `pool["reward_rate"]`, a pool-creation PARAMETER. There is no treasury, no
+#   balance and no payer anywhere in this domain. The accrual therefore creates
+#   a balance out of a configuration value, compounding with wall-clock time,
+#   with nothing on the other side of the ledger.
+#   REQUIRED: a real balance the accrual draws against, and a check that FAILS
+#   CLOSED when it cannot cover. Not "a treasury exists" — the accrual must
+#   READ it and REFUSE when insufficient.
+#   PARTIAL-STATE FAILURE MODE: armed with the accrual unfunded, the first
+#   honest thing this service does is calculate a debt. Every staker holds a
+#   growing claim the platform never agreed to and cannot pay, and the number
+#   grows whether or not anyone ever calls anything — `get_position` alone
+#   mints it.
+#   THIS IS THE CLAUSE THAT DISTINGUISHES THIS DOMAIN. A royalty split
+#   (NEW-91) DESCRIBES a payment someone else could make; recording a
+#   description costs nothing if nobody acts on it. An accrual CREATES an
+#   obligation, and an obligation is a debt whether or not anyone acts on it.
+#
+# CLAUSE 2 — `staker` IS BOUND TO AN AUTHENTICATED CALLER IDENTITY.
+#   Every method here takes `staker` as a plain string parameter and trusts it.
+#   WORKED EXAMPLE, driven during the census: an unrelated caller ran
+#   `unstake(staker="0xbob", amount=40.0)`, cut bob's stake from 100 to 60, and
+#   received bob's full position record in the response. No authentication, no
+#   ownership check, no error.
+#   REQUIRED: `staker` derived from the authenticated request principal, never
+#   accepted from the caller.
+#   PARTIAL-STATE FAILURE MODE: armed with a caller-supplied `staker`, the
+#   domain is a withdrawal API for other people's positions. Everything else in
+#   this condition is irrelevant if this one is unmet.
+#   SCOPE: the root is the dispatcher's missing identity binding — DEFERRED
+#   REGISTER ITEM 0 (NEW-82). This clause is that item's worked example with a
+#   dollar amount attached, and it is NOT solved inside this domain.
+#
+# CLAUSE 3 — POSITION STATE IS READ FROM CHAIN, NOT FROM `_positions`.
+#   `self._positions` is a process-local dict. It is not durable, not shared
+#   between instances, and has no relationship to any on-chain staking state.
+#   REQUIRED: balances and reward state read from the deployed contract.
+#   PARTIAL-STATE FAILURE MODE: armed while reading `_positions`, two gateway
+#   processes disagree about every balance, a restart erases every position,
+#   and the contract's view — the only one that governs money — is never
+#   consulted. Note the interaction with clause 1: an unfunded accrual stored
+#   in a volatile dict is a debt that also cannot be audited.
+#
+# CLAUSE 4 — THE POOL-ACCOUNTING CORRECTIONS ARE IN PLACE (NEW-95).
+#   `remove_stake` treated a negative amount as a deposit (10.0 staked,
+#   `remove_stake(-20.0)` -> total 30.0) and silently absorbed over-withdrawal.
+#   Both are fixed; this clause exists so a REVERT cannot precede an arming.
+#   REQUIRED: tests/test_staking_pool_accounting.py green at arming time.
+#   PARTIAL-STATE FAILURE MODE: arming is exactly what makes the sign bug
+#   reachable with real money. Unarmed it moves a number in a dict; armed it is
+#   a withdrawal endpoint that mints.
+#
+# CLAUSE 5 — `create_pool`'s STATUS IS DERIVED FROM A RECEIPT.
+#   It mints a uuid, writes a dict and asserts `status: "active"` having
+#   awaited nothing — the staking domain's single D6 entry.
+#   REQUIRED: status derived from a transaction receipt, as
+#   `runtime/blockchain/staking.py::_claim_rewards` already does
+#   (`"claimed" if receipt["status"] == 1 else "failed"`). The correct pattern
+#   is in this repo; it does not need inventing.
+#   PARTIAL-STATE FAILURE MODE: a pool reported "active" on no chain, which
+#   every downstream reader treats as a place to put money.
+#
+# CLAUSE 6 — `unstake` DOES NOT RETURN A RECORD FOR A POSITION IT DELETED.
+#   It deletes `self._positions[key]` when the position closes and then returns
+#   `_sanitize_position(position)` — a full record describing state that no
+#   longer exists, built from a local reference that outlived the store entry.
+#   REQUIRED: return a settlement receipt, or an explicit closed-position
+#   response; not a snapshot of a deleted record.
+#   PARTIAL-STATE FAILURE MODE: on a real deployment that response is a
+#   receipt for something unverifiable — the caller is handed numbers that
+#   cannot be re-read from any store, so a dispute has nothing to check.
+#
+# CLAUSE 7 — THE FEED SURFACES ARE RE-DERIVED AT ARMING TIME.
+#   The feed's current honesty is ACCIDENTAL. `SocialFeedEngine.ingest`
+#   resolves `ACTION_LABELS.get(action, f"performed {action}")` with the
+#   dispatcher's ACTION name, while `ACTION_LABELS` is keyed by short
+#   METHOD-style names — three key vocabularies meet in that map (the labels'
+#   own keys, the action names, and `r["event_type"]` at the render site). Most
+#   lookups MISS, so most labels fall through to "performed <action>", which
+#   happens to be truthful. `ACTION_TO_FEED_EVENT` likewise has no reader.
+#   REQUIRED: at arming, re-derive what this domain's actions actually publish,
+#   by driving the emission rather than reading the tables.
+#   PARTIAL-STATE FAILURE MODE: this is the arming-dead-machinery hazard
+#   applied to a label table. Repairing the key mismatch ships every stale
+#   label at once, converting silent truth into loud falsehood in one commit —
+#   so THE AUDIT OF THE LABEL TABLE MUST PRECEDE THE REPAIR OF ITS KEYS, never
+#   the other way round. Tracked as a Phase-6 sweep with that ordering.
+#
+# ──────────────────────────────────────────────────────────────────────────
+# LIFTING CONDITION: all seven, together. Clause 2's root is deferred register
+# item 0 and is not this domain's to close.
+# ══════════════════════════════════════════════════════════════════════════
+
+
 class StakingService:
     """Main staking service.
 
