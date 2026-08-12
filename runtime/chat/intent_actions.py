@@ -707,8 +707,16 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "keywords": ["find attestations", "search attestations", "list attestations", "my attestations", "query attestations"],
         "follow_up": (
             "I can't search attestations — 0pnMatrx has no attestation index. "
+            # EXISTENCE IS NOT THE TEST; CONFIGURATION IS. `attestation.verify`
+            # is real code, but under the shipped config it returns "Missing EAS
+            # config: rpc_url, eas_contract, eas_schema, paymaster_private_key,
+            # platform_wallet". Offering it unconditionally promised a user
+            # something a fresh deployment cannot do — the same shape as
+            # available=False not meaning unreachable, one layer up: the thing
+            # exists and the user still cannot have it. The condition is now
+            # named, as arweave_store's Filecoin clause already did.
             "If you have a specific attestation UID I can verify it on-chain, "
-            "which is real."
+            "provided this deployment has its EAS configuration in place."
         ),
     },
 
@@ -3331,7 +3339,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # NARROWED: "no TEE/MPC/FHE implementation on the platform" is
             # overbroad — an MPCService exists and is registered (threshold
             # SIGNING, not confidential computation). Scoped to the capability.
-            "I can't run confidential compute — there's no confidential-compute backend here (no TEE, and the MPC service that does exist is for threshold signing, not private computation). Ordinary (non-confidential) compute jobs do reach a real provider."
+            "I can't run confidential compute — there's no confidential-compute backend here (no TEE, and the MPC service that does exist is for threshold signing, not private computation). Ordinary (non-confidential) compute jobs use a real path once this deployment's compute contracts are deployed."
         ),
     },
 

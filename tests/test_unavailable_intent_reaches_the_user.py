@@ -497,3 +497,60 @@ def test_the_defect_history_moved_rather_than_vanished(action):
         "Silence reads as 'nobody thought about it'."
     )
 
+
+
+# ── A claim about the platform is a claim about THIS deployment ──────────
+#
+# Existence is not the test; configuration is. Driven under the shipped config
+# ({} — what a fresh install has), not a test config:
+#
+#   private_vote        "the ordinary governance vote, which is real"
+#                       -> governance.vote returns a real weighted vote record. TRUE.
+#   query_attestations  "I can verify it on-chain, which is real"
+#                       -> "Missing EAS config: rpc_url, eas_contract, ...". FALSE.
+#   confidential_compute "Ordinary compute jobs do reach a real provider"
+#                       -> status "not_deployed". FALSE.
+#   arweave_store       "... IF YOU HAVE STORAGE CREDENTIALS CONFIGURED"
+#                       -> not_deployed + credential-gated. TRUE — it named its
+#                          condition, and is the model the other two now follow.
+#
+# Same shape as available=False not meaning unreachable, one layer up: the
+# capability exists and the user still cannot have it.
+
+@pytest.mark.parametrize("action", ["query_attestations", "confidential_compute",
+                                    "arweave_store"])
+def test_a_conditional_offer_names_its_condition(action):
+    """An offer that only holds under some configuration must say so. Without
+    the condition it is a promise a fresh deployment cannot keep."""
+    text = INTENT_ACTION_MAP[action]["follow_up"].lower()
+
+    # THE MARKER MUST NAME THE DEPLOYMENT, NOT ANY CONDITION.
+    #
+    # The first version of this list included "if you have", and
+    # query_attestations FALSE-PASSED on it: its old text read "If you have a
+    # specific attestation UID I can verify it on-chain, which is real" — the
+    # conditional qualifies the UID the USER supplies, not the configuration the
+    # DEPLOYMENT lacks. Right word, wrong object, and the proof-of-failure run
+    # exposed it by showing one failure where two were expected.
+    assert any(marker in text for marker in
+               ("this deployment", "configured", "deployed", "configuration")), (
+        f"{action}'s follow_up offers an alternative without naming the "
+        "DEPLOYMENT condition it depends on — a conditional about what the user "
+        "supplies is not a conditional about what the install has"
+    )
+
+
+async def test_the_governance_vote_alternative_really_works():
+    """The one unconditional offer of the four, so it is the one that must be
+    driven rather than trusted."""
+    from runtime.blockchain.services.registry import ServiceRegistry
+
+    governance = ServiceRegistry({}).get("governance")
+    proposal = await governance.create_proposal(
+        "0xp", "T", "d", "one_person_one_vote", ["yes", "no"])
+    record = await governance.vote(proposal["proposal_id"], "0xa", "yes")
+
+    assert record.get("vote_id") and record.get("effective_weight") is not None, (
+        "private_vote's follow_up sends the user to the ordinary governance "
+        f"vote as a real alternative, and it no longer works: {record}"
+    )
