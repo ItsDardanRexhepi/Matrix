@@ -385,3 +385,115 @@ def test_the_defect_history_survives_beside_the_code():
     assert "silently restore that agent's spend headroom" in flat
     assert "do not re-enable authorize_payment" in flat
 
+
+# ── The audit's own findings must not be part of the product ─────────────
+#
+# MEASURED: 14 of 16 descriptions carried internal issue IDs (NEW-38/48/48b/53/
+# 57), past-tense defect post-mortems, or code symbols — and SEVEN follow_ups
+# carried post-mortems too, found only by scanning every field rather than the
+# one the finding named. Two of the sixteen were already clean and served as the
+# worked examples for the rule.
+#
+# MY FIRST COUNT SAID 13 AND 3-CLEAN, AND IT WAS WRONG, in exactly the way this
+# control is built to avoid: the pattern `NEW-\d+\b` does not match "NEW-48b",
+# and my post-mortem list omitted "It returned". A phrase list decays; the next
+# wording routes around it. Hence SHAPES below — an issue-ID regex that tolerates
+# suffixes, backtick-quoted symbols, and past-tense construction — rather than a
+# roster of sentences seen so far.
+#
+# THE CRITERION: a user-facing description states the CURRENT CAPABILITY
+# BOUNDARY; the defect history belongs in the code comment beside it.
+
+import re as _re
+
+_ISSUE_ID = _re.compile(r"\b(?:NEW|RUN|P[0-3])-\d+[a-z]?\b", _re.I)
+_SYMBOL = _re.compile(r"`[^`]+`|status=['\"]|\bACTION_MAP\b|\b\w+\.py\b|\b\w+\(\)")
+_PAST_DEFECT = _re.compile(
+    r"\b(?:the former handler|the previous one|it used to|this used to|used to "
+    r"trigger|reported success|returned a random|returned status|it discarded|"
+    r"never persisted|never touched|deleted nothing|it accepted)\b", _re.I,
+)
+
+
+@pytest.mark.parametrize("action", UNAVAILABLE)
+async def test_the_rendered_notice_contains_no_audit_internals(action):
+    """RENDERED OUTPUT, SHAPE-BASED. Drives the renderer and inspects the final
+    string, so it cannot be scoped to the wrong field — which is how the previous
+    version of this control missed a live disclosure."""
+    rendered = "\n".join(
+        await _intent_enrichments(INTENT_ACTION_MAP[action]["keywords"][0])
+    )
+
+    problems = []
+    if m := _ISSUE_ID.search(rendered):
+        problems.append(f"internal issue id {m.group(0)!r}")
+    if m := _SYMBOL.search(rendered):
+        problems.append(f"code symbol {m.group(0)!r}")
+    if m := _PAST_DEFECT.search(rendered):
+        problems.append(f"past-tense defect description {m.group(0)!r}")
+
+    assert not problems, (
+        f"{action}: the text delivered to the model leaks audit internals "
+        f"({'; '.join(problems)}). A description states the capability boundary; "
+        "the defect history belongs in the code comment beside it."
+    )
+
+
+@pytest.mark.parametrize("action", UNAVAILABLE)
+def test_no_field_carries_audit_internals_either(action):
+    """EVERY FIELD, not the one a finding happened to name.
+
+    The surface rule, learned the hard way: a reported disclosure named two
+    descriptions; the same exploit was also sitting in a follow_up, which is the
+    field the model is told to RELAY. When a finding names a field, check every
+    field that renders to the same surface.
+    """
+    guide = INTENT_ACTION_MAP[action]
+    offenders = []
+    for field, value in guide.items():
+        if not isinstance(value, str):
+            continue
+        for label, pattern in (("issue id", _ISSUE_ID), ("symbol", _SYMBOL),
+                               ("past-defect", _PAST_DEFECT)):
+            if m := pattern.search(value):
+                offenders.append(f"{field}: {label} {m.group(0)!r}")
+
+    assert not offenders, f"{action} — {offenders}"
+
+
+@pytest.mark.parametrize("action", UNAVAILABLE)
+def test_the_defect_history_moved_rather_than_vanished(action):
+    """MOVED, NOT DROPPED — and this is the assertion that makes the whole
+    cleanup safe to do at scale.
+
+    The post-mortems are the protection against re-introduction: three fixes this
+    engagement were undone or nearly undone because the reason lived only in
+    commit history, which nobody greps before restoring a capability. Each entry
+    must still carry, in the source beside it, both the history and an explicit
+    bar for putting the capability back.
+
+    Whitespace-normalised before matching: the preserved text lives in a wrapped
+    comment, and asserting against raw source produced a FALSE NEGATIVE reading
+    "the history was dropped" when it was intact — the failure mode that gets a
+    correct fix reverted by someone restoring what is already there.
+    """
+    import pathlib
+
+    source = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "runtime" / "chat" / "intent_actions.py"
+    ).read_text()
+    entry_start = source.index(f'"{action}": {{')
+    entry = source[entry_start:source.index("\n    },", entry_start)]
+    flat = _re.sub(r"\s*#\s*", " ", entry)
+    flat = _re.sub(r"\s+", " ", flat).lower()
+
+    assert "defect history" in flat, (
+        f"{action}: no preserved history beside the entry — if this capability "
+        "is restored, nothing tells the next person what it used to do"
+    )
+    assert "re-enable bar:" in flat, (
+        f"{action}: history kept but no explicit bar for putting it back. "
+        "Silence reads as 'nobody thought about it'."
+    )
+

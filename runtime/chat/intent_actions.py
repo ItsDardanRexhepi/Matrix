@@ -64,6 +64,15 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "deploy_contract": {
         "unavailable": True,
         "description": (
+            # DEFECT HISTORY: none. This entry never fabricated anything —
+            # 0pnMatrx has genuinely never deployed contracts, and this
+            # description has always stated the boundary rather than a post-
+            # mortem. It is one of the two worked examples the sanitisation rule
+            # was derived FROM.
+            #
+            # RE-ENABLE BAR: there is nothing to re-enable. If deployment is
+            # ever built, this stops being an `unavailable` entry entirely and
+            # gains an action_name.
             "NOT AVAILABLE — 0pnMatrx does not deploy contracts. It generates "
             "Solidity scaffolding from a structured declaration; deploying it is "
             "a separate step the user performs with their own tooling and signer."
@@ -681,10 +690,19 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "query_attestations": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-48b). It returned the text of a GraphQL "
-            "query as if it were the query results, so any caller checking the "
-            "result length concluded attestations had been found. The platform has "
-            "no EAS subgraph reader."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48b). It returned the text of a GraphQL query as if
+            #   it were the query results, so any caller checking the result
+            #   length concluded attestations had been found.
+            #
+            # RE-ENABLE BAR: Do not restore until a subgraph reader actually
+            # executes the query and returns its results.
+            "NOT AVAILABLE — 0pnMatrx has no EAS subgraph reader, so attestations cannot be searched."
         ),
         "keywords": ["find attestations", "search attestations", "list attestations", "my attestations", "query attestations"],
         "follow_up": (
@@ -835,10 +853,10 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # Three times this engagement a fix was undone or nearly undone
             # because its reason lived only in commit history, which nobody
             # greps before restoring a capability as a convenience. NEW-53 is
-            # a SECURITY disable: do not re-enable authorize_payment or
-            # refund_payment until the caller can be verified as entitled to
-            # the payment. Restoring it "because the method exists" reopens a
-            # cross-agent spend.
+            # RE-ENABLE BAR: this is a SECURITY disable. Do not re-enable
+            # authorize_payment or refund_payment until the caller can be
+            # verified as entitled to the payment. Restoring it "because the
+            # method exists" reopens a cross-agent spend.
             "NOT AVAILABLE — payment authorization is disabled pending caller-identity verification. This is a deliberate security hold, not a missing feature: it returns once a caller can be verified as entitled to the payment."
         ),
         "keywords": ["authorize payment", "approve payment", "confirm payment"],
@@ -878,8 +896,10 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             #
             # The "silently restore that agent's spend headroom" clause is the
             # part that made this a disclosure rather than a tidiness problem:
-            # it names the effect an attacker would want. Same re-enable bar as
-            # authorize_payment above.
+            # it names the effect an attacker would want.
+            #
+            # RE-ENABLE BAR: identical to authorize_payment above — caller
+            # identity must be verified before refunds return.
             "NOT AVAILABLE — refunds are disabled pending caller-identity verification, for the same reason as authorize_payment. This is a deliberate security hold, not a missing feature."
         ),
         "keywords": ["refund payment", "reverse payment", "get refund", "cancel payment"],
@@ -2322,6 +2342,14 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "request_deletion": {
         "unavailable": True,
         "description": (
+            # DEFECT HISTORY: none for this entry. The fabricating code was
+            # execute_deletion (NEW-38), recorded there; this entry has always
+            # refused honestly. Second of the two worked examples for the rule.
+            #
+            # RE-ENABLE BAR: do not accept deletion requests until a verified
+            # erasure path exists across every data store — the same bar as
+            # execute_deletion. Accepting a request that cannot be honoured is
+            # the fabrication, even if nothing is reported done.
             "NOT AVAILABLE — 0pnMatrx cannot delete user data. There is no "
             "verified erasure path across its data stores. Requests are not "
             "accepted, not queued, and no deletion can be reported as done. Do "
@@ -2385,11 +2413,21 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "execute_deletion": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed from ACTION_MAP (NEW-38). This used to "
-            "trigger a deletion executor that deleted nothing and reported "
-            "success for nine data categories it never opened, then issued a "
-            "random identifier as an on-chain attestation of the deletion. "
-            "There is nothing to execute and nothing to confirm."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed from ACTION_MAP (NEW-38). This used to trigger a deletion
+            #   executor that deleted nothing and reported success for nine data
+            #   categories it never opened, then issued a random identifier as an
+            #   on-chain attestation of the deletion.
+            #
+            # RE-ENABLE BAR: Do not restore until a verified erasure path exists
+            # across every data store. A deletion that cannot be verified must
+            # not be reported as done — that is the whole defect.
+            "NOT AVAILABLE — there is nothing to execute: 0pnMatrx cannot delete user data, so no deletion is ever queued and none can be confirmed."
         ),
         "keywords": ["execute deletion", "confirm deletion", "proceed with deletion", "finalize deletion"],
         "follow_up": (
@@ -2901,17 +2939,21 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "treasury_transfer": {
         "unavailable": True,
         "description": (
-            # THIRD INSTANCE OF THE SAME DEFECT, and the first two fixes are
-            # why this one is embarrassing: the follow_up beside this line was
-            # corrected for asserting a platform-wide negative, and this line
-            # kept it. It was invisible until the consumer repair began
-            # rendering `description` verbatim — a string that had been inert
-            # became user-facing in the same commit that corrected its twin.
-            "Transfer funds from a DAO treasury. NOT AVAILABLE — the platform "
-            "has no wired path to the DAO's on-chain treasury function. The "
-            "former handler returned "
-            "status='transferred' without moving any value, without a signer, "
-            "and without touching the treasury balance."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   The former handler returned status='transferred' without moving
+            #   any value, without a signer, and without touching the treasury
+            #   balance.
+            #
+            # RE-ENABLE BAR: Do not restore until the platform actually builds
+            # and signs a treasuryWithdraw call. contracts/OpenMatrixDAO.sol:210
+            # declares that function; nothing in runtime/ calls it, and the gap
+            # between those two facts is this entry.
+            "Transfer funds from a DAO treasury. NOT AVAILABLE — the platform has no wired path to the DAO's on-chain treasury function."
         ),
         "keywords": ["treasury transfer", "dao funds", "treasury send", "dao payment"],
         # THE PRE-REPOINT READ CAUGHT THIS BEFORE IT WAS EVER SPOKEN. The first
@@ -3046,56 +3088,100 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "stream_payment": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
-            "no value at all: no transfer, no counterparty, no disbursement. "
-            "The platform has no implementation of this operation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
         ),
         "keywords": ["stream payment", "streaming payment", "pay by second", "continuous payment", "real-time payment", "salary stream"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, and "
-            "the previous one reported success while paying no one."
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "recurring_create": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
-            "no value at all: no transfer, no counterparty, no disbursement. "
-            "The platform has no implementation of this operation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
         ),
         "keywords": ["recurring payment", "automatic payment", "autopay", "scheduled payment", "monthly payment"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, and "
-            "the previous one reported success while paying no one."
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "escrow_milestone": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
-            "no value at all: no transfer, no counterparty, no disbursement. "
-            "The platform has no implementation of this operation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
         ),
         "keywords": ["escrow", "milestone payment", "escrow release", "project payment", "milestone escrow"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, and "
-            "the previous one reported success while paying no one."
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "payment_split": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
-            "no value at all: no transfer, no counterparty, no disbursement. "
-            "The platform has no implementation of this operation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
         ),
         "keywords": ["split payment", "divide payment", "split bill", "pay multiple", "shared payment"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, and "
-            "the previous one reported success while paying no one."
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3126,28 +3212,50 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "invoice_factor": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
-            "no value at all: no transfer, no counterparty, no disbursement. "
-            "The platform has no implementation of this operation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
         ),
         "keywords": ["invoice factoring", "factor invoice", "early payment", "invoice financing"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, and "
-            "the previous one reported success while paying no one."
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "payroll_run": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-57). It reported success while moving "
-            "no value at all: no transfer, no counterparty, no disbursement. "
-            "The platform has no implementation of this operation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "NOT AVAILABLE — 0pnMatrx has no implementation of this operation. It cannot move value, so it is not offered."
         ),
         "keywords": ["payroll", "pay employees", "salary distribution", "mass payment", "batch payroll"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, and "
-            "the previous one reported success while paying no one."
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3179,18 +3287,44 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "private_vote": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-48). It discarded the vote `choice` entirely, set `choice_hash` to a random value that was not a commitment to anything, never persisted the vote, and never touched any tally. A user who 'voted privately' had not voted."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48). It discarded the vote `choice` entirely, set
+            #   `choice_hash` to a random value that was not a commitment to
+            #   anything, never persisted the vote, and never touched any tally. A
+            #   user who 'voted privately' had not voted.
+            #
+            # RE-ENABLE BAR: Do not restore until a real commitment scheme
+            # persists the vote AND it reaches a tally. A hash committing to
+            # nothing is worse than no privacy, because it looks like privacy.
+            "NOT AVAILABLE — 0pnMatrx has no private-ballot implementation, so a private vote cannot be cast or counted."
         ),
         "keywords": ["private vote", "anonymous vote", "secret ballot", "hidden vote"],
         "follow_up": (
-            "I can't cast a private vote — 0pnMatrx has no private-ballot implementation, and the previous one recorded nothing. Use the ordinary governance vote, which is real."
+            "I can't cast a private vote — 0pnMatrx has no private-ballot implementation, so nothing would be recorded. Use the ordinary governance vote, which is real."
         ),
     },
 
     "confidential_compute": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-48). It returned status 'completed' and a random result hash without performing, scheduling, or dispatching any computation."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48). It returned status 'completed' and a random
+            #   result hash without performing, scheduling, or dispatching any
+            #   computation.
+            #
+            # RE-ENABLE BAR: Do not restore until a real TEE/FHE backend
+            # dispatches work and returns its output.
+            "NOT AVAILABLE — there is no confidential-compute backend here, so no private computation can be performed or scheduled."
         ),
         "keywords": ["confidential compute", "private computation", "encrypted execution", "secure compute"],
         "follow_up": (
@@ -3767,7 +3901,18 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "arweave_store": {
         "unavailable": True,
         "description": (
-            "NOT AVAILABLE — removed (NEW-48). It returned a random string as an Arweave transaction id for data it never uploaded. No Arweave upload client exists on the platform."
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48). It returned a random string as an Arweave
+            #   transaction id for data it never uploaded.
+            #
+            # RE-ENABLE BAR: Do not restore until a real client uploads and
+            # returns a transaction id issued by the Arweave network.
+            "NOT AVAILABLE — 0pnMatrx has no Arweave upload client, so nothing can be stored to Arweave."
         ),
         "keywords": ["arweave", "permanent storage", "store forever", "arweave upload"],
         "follow_up": (
