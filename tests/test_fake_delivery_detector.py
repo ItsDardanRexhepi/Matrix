@@ -162,15 +162,12 @@ def find_fake_delivery() -> set[str]:
 # Every one of these was read by hand before freezing.
 
 KNOWN_FAKE_DELIVERY = {
-    # Domain 8. remit skips every guard its sibling send_payment applies —
-    # sanctions, KYC, travel rule, the _max_payment cap, negative amounts —
-    # and never converts currency, reporting net_amount in the SOURCE currency
-    # while declaring the remittance sent.
-    "services/cross_border/service.py::CrossBorderService.remit",
-    # Says "bridging"; ACTION_TO_FEED_EVENT publishes it as "bridge_completed".
-    # Its honest twin CCIPService.bridge_token_ccip is catalogued available=False
-    # while this is catalogued available=True.
-    "services/cross_border/service.py::CrossBorderService.bridge_transfer",
+    # remit STRUCK by NEW-86 (5 -> 4): it now DELEGATES to send_payment and
+    # inherits all seven guards it used to skip.
+    # bridge_transfer STRUCK by NEW-87 (4 -> 3): disabled at the leaf. It could
+    # not be repointed to the real CCIPService.bridge_token_ccip without
+    # inventing a chain-selector table and a token-address table, so it refuses
+    # and names what a real repoint needs.
     # send_payment was here and is STRUCK by NEW-85 (6 -> 5). It was the one
     # D6 missed. Real compliance, real FX, real fee maths, then "completed"
     # over money that never moved. Category 6, not 4: strip the claim and a
@@ -207,9 +204,14 @@ def test_the_inventory_only_shrinks():
 
 
 def test_the_measured_count_is_recorded():
-    """BURN-DOWN: 6 at introduction (2026-08-11) -> 5 after NEW-85."""
-    assert len(KNOWN_FAKE_DELIVERY) == 5
-    assert len(find_fake_delivery()) == 5
+    """BURN-DOWN: 6 at introduction (2026-08-11) -> 5 (NEW-85) -> 3 (NEW-86/87).
+
+    All three cross-border instances are cleared. The remaining three are in
+    gaming, social and nft_services — untouched, and deliberately so: this
+    burn-down followed the domain, not the detector.
+    """
+    assert len(KNOWN_FAKE_DELIVERY) == 3
+    assert len(find_fake_delivery()) == 3
 
 
 def test_the_axis_that_justifies_a_second_detector_still_holds():

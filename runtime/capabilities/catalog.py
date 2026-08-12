@@ -283,7 +283,14 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("close_channel",           "Close Payment Channel",   "payments", "payment_channels", "close_channel", subcategory="state_channels", available=False),
 
     # ── Cross-chain / Bridging ─────────────────────────────────────────────
-    _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "cross_chain_bridge"),
+    # NEW-87 / NEW-88 — THE CATALOG INVERSION, and it is visible on this
+    # screen: the SIX honest CCIP/Hyperlane/Wormhole/Axelar/Stargate bridges
+    # below are all available=False, while THIS ONE — which never bridged
+    # anything, had zero awaits and validated nothing — was the only bridging
+    # capability advertised as available=True. The fabrication was the one
+    # offered to clients and to the model; the real implementations were the
+    # ones marked unavailable. Now False, matching its honest siblings.
+    _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "cross_chain_bridge", available=False),
     _cap("bridge_token_ccip",       "Bridge via CCIP",         "bridging", "ccip",         "bridge_token_ccip",       protocol="ccip",      available=False),
     _cap("send_cross_chain_message","Cross-chain Message",     "bridging", "ccip",         "send_cross_chain_message",protocol="ccip",      available=False),
     _cap("bridge_hyperlane",        "Bridge via Hyperlane",    "bridging", "ccip",         "bridge_hyperlane",        protocol="hyperlane", available=False),

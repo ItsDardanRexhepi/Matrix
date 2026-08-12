@@ -141,8 +141,6 @@ def find_fabrication_shape() -> set[str]:
 KNOWN_FABRICATION_SHAPE = {
     "agent_identity/service.py::AgentIdentityService.trade_model_access",
     "agent_identity/service.py::AgentIdentityService.sell_training_data",
-    "cross_border/service.py::CrossBorderService.bridge_transfer",
-    "cross_border/service.py::CrossBorderService.remit",
     "dao_management/factory.py::DAOFactory.deploy",
     "dex/pools.py::LiquidityPoolManager.create_pool",
     "did_identity/service.py::DIDService.create_did",
@@ -269,10 +267,13 @@ def test_the_measured_count_is_recorded():
     discrepancy is recorded here rather than smoothed over, because the ratchet
     is only as honest as the census behind it.
 
-    BURN-DOWN: 50 at introduction -> 49 (NEW-67) -> 48 (NEW-80).
+    BURN-DOWN: 50 at introduction -> 49 (NEW-67) -> 48 (NEW-80) -> 46
+    (NEW-86 delegated remit, NEW-87 disabled bridge_transfer). Both were on
+    BOTH detectors' lists; a fix has to tighten every ratchet it clears, or
+    the next reader inherits a stale inventory.
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 48
-    assert len(find_fabrication_shape()) == 48
+    assert len(KNOWN_FABRICATION_SHAPE) == 46
+    assert len(find_fabrication_shape()) == 46
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────

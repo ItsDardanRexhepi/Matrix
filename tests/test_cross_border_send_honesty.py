@@ -190,19 +190,23 @@ def test_the_d7_ratchet_can_be_tightened_for_this_method():
     )
 
 
-def test_its_two_siblings_are_deliberately_still_flagged():
-    """SCOPE BOUNDARY, made load-bearing.
+def test_the_scope_boundary_was_crossed_deliberately_and_not_by_accident():
+    """THE RETIRED SCOPE PIN, kept as a record rather than deleted.
 
-    remit and bridge_transfer are NOT fixed in this commit — they are the
-    next one, and their disposition is different (delegation / repoint, not
-    vocabulary). If they silently cleared here, this commit would be doing
-    undisclosed work.
+    NEW-85 shipped with a pin asserting that `remit` and `bridge_transfer`
+    were STILL flagged by D7 — so that commit could not silently do
+    undisclosed work while claiming to fix only `send_payment`.
+
+    NEW-86/87 is the commit licensed to cross that boundary, and it did: both
+    are now cleared, by two DIFFERENT dispositions (delegation, and disable).
+    Inverting the assertion rather than deleting it keeps the record that the
+    boundary existed and was crossed on purpose — a deleted pin looks
+    identical to a pin that was never written.
     """
     from tests.test_fake_delivery_detector import find_fake_delivery
 
     current = find_fake_delivery()
-    assert "services/cross_border/service.py::CrossBorderService.remit" in current
-    assert (
-        "services/cross_border/service.py::CrossBorderService.bridge_transfer"
-        in current
-    )
+    for name in ("remit", "bridge_transfer", "send_payment"):
+        assert f"services/cross_border/service.py::CrossBorderService.{name}" \
+            not in current
+    assert current, "D7 matches nothing at all — it has stopped detecting"

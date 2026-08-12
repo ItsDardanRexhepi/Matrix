@@ -507,7 +507,18 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     # / perp_trade feed events removed with their fabrications. A feed event
     # is a public claim that something happened; these announced events for
     # operations that never occurred.
-    "cross_chain_bridge": "bridge_completed",
+    # NEW-88: `cross_chain_bridge` -> "bridge_completed" REMOVED. This is an
+    # independent defect from the fabrication behind it and it survives fixing
+    # that method, so it is fixed on its own terms: the method's own literal
+    # was "bridging" — an IN-PROGRESS claim — and this table upgraded it to
+    # COMPLETED and published that upgrade to the public social feed. Even a
+    # perfectly honest bridge that returned "submitted" would have been
+    # announced here as finished.
+    #
+    # LIFTING CONDITION: a feed event for bridging may be restored only when
+    # it is DERIVED from a settlement result (a confirmed destination-chain
+    # receipt), never from the fact that a request was accepted. Same rule as
+    # the NEW-61 removals above.
     "nft_fractionalize": "nft_fractionalized",
     "nft_batch_mint": "nft_batch_minted",
     "nft_bridge": "nft_bridged",

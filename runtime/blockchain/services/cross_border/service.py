@@ -279,47 +279,108 @@ class CrossBorderService:
     async def bridge_transfer(
         self, sender: str, recipient: str, amount: float, source_chain: str, dest_chain: str, token: str = "USDC",
     ) -> dict:
-        """Bridge assets across chains."""
-        bridge_id = f"bridge_{uuid.uuid4().hex[:16]}"
-        now = int(time.time())
-        record: dict[str, Any] = {
-            "id": bridge_id,
-            "status": "bridging",
-            "sender": sender,
-            "recipient": recipient,
-            "amount": amount,
-            "source_chain": source_chain,
-            "dest_chain": dest_chain,
-            "token": token,
-            "initiated_at": now,
+        """DISABLED. NEW-87. This never bridged anything.
+
+        WHAT IT USED TO DO: mint a uuid, write
+        ``{"status": "bridging", ...}`` into ``self._payments``, log, return.
+        Zero awaits. No chain, no signer, no bridge protocol, no router
+        address, no tx_hash. It validated nothing — not the amount, not the
+        sender, not the chains, not the token.
+
+        WHY DISABLED AND NOT REPOINTED. The honest implementation already
+        exists: ``CCIPService.bridge_token_ccip`` — credential-gated first,
+        a real ``Router.ccipSend``, returning ``"submitted"`` with a tx_hash
+        and a non-custodial note. Delegating to it was the preferred
+        disposition and it is NOT POSSIBLE without inventing data:
+
+            this method has      CCIP requires
+            ---------------      -------------
+            source/dest_chain    destination_chain_selector (uint64 CCIP
+            as NAMES             selector — a per-network magic number)
+            token as a SYMBOL    token as an ERC-20 CONTRACT ADDRESS on the
+            ("USDC")             source chain
+            amount as a float    amount in integer base units
+
+        Both mappings are deployment facts. Writing a chain-name -> selector
+        table or a symbol -> address table from memory would be fabricating
+        the exact class of data this audit exists to remove — and a wrong
+        selector or a wrong token address sends real value to the wrong
+        place. So: refuse, and name what a real repoint needs.
+
+        LIFTING CONDITION — all four, or leave it disabled:
+          1. a chain-name -> CCIP chain-selector map, sourced from Chainlink's
+             published selector list for the target networks, in config;
+          2. a token-symbol -> ERC-20 address map PER CHAIN, in config;
+          3. this method converts ``amount`` to integer base units using the
+             token's real ``decimals()``, not an assumed 6 or 18; and
+          4. the returned status is DERIVED from what
+             ``bridge_token_ccip`` returns — never asserted alongside it.
+        Satisfying 1-3 without 4 reproduces this defect one layer down.
+        """
+        return {
+            "status": "error",
+            "error": (
+                "Cross-chain bridging is disabled. This path never moved "
+                "value: it recorded a dict and reported 'bridging'."
+            ),
+            "value_moved": False,
+            "settled": False,
+            "disabled_by": "NEW-87",
+            "requested": {
+                "sender": sender, "recipient": recipient, "amount": amount,
+                "source_chain": source_chain, "dest_chain": dest_chain,
+                "token": token,
+            },
+            "honest_alternative": (
+                "ccip.bridge_token_ccip — a real Router.ccipSend. It is "
+                "catalogued available=False pending its own configuration."
+            ),
         }
-        self._payments[bridge_id] = record
-        logger.info("Bridge transfer initiated: id=%s", bridge_id)
-        return record
 
     async def remit(
         self, sender: str, recipient: str, amount: float, from_currency: str, to_currency: str, corridor: str = "",
     ) -> dict:
-        """Send a remittance payment."""
-        remit_id = f"remit_{uuid.uuid4().hex[:16]}"
-        now = int(time.time())
-        fee = round(amount * (self._fee_pct / 100.0), 6)
-        record: dict[str, Any] = {
-            "id": remit_id,
-            "status": "sent",
-            "sender": sender,
-            "recipient": recipient,
-            "amount": amount,
-            "from_currency": from_currency.upper(),
-            "to_currency": to_currency.upper(),
-            "corridor": corridor or f"{from_currency.upper()}->{to_currency.upper()}",
-            "fee": fee,
-            "net_amount": round(amount - fee, 6),
-            "sent_at": now,
-        }
-        self._payments[remit_id] = record
-        logger.info("Remittance sent: id=%s", remit_id)
-        return record
+        """Send a remittance. DELEGATES to send_payment. NEW-86.
+
+        WHAT THIS USED TO BE: fifteen lines that minted a uuid, computed a
+        fee, and returned ``"status": "sent"``. Zero awaits. It applied NONE
+        of the guards its sibling applies, and it never converted currency at
+        all — it reported ``net_amount`` in the SOURCE currency while
+        declaring the remittance sent, for corridors the conversion layer
+        cannot even price.
+
+        WHY DELEGATION AND NOT REMOVAL. `remit` and `send_payment` are the
+        same operation: money across a corridor. Their signatures already
+        agree; the only extra parameter, ``corridor``, is one `send_payment`
+        derives itself. So this is the NEW-67 shape — a shadow over a real
+        implementation that lives one method away.
+
+        WHAT DELEGATION INHERITS, each of which `remit` previously skipped:
+          * sanctions screening        * KYC threshold check
+          * travel-rule flagging       * the _max_payment cap
+          * negative/zero rejection    * real FX conversion
+          * EAS attestation
+        And, since NEW-85, the honest custody vocabulary: the result carries
+        ``settled: False`` / ``value_moved: False`` / ``disclosure``.
+
+        ORDERING NOTE: this delegation was deliberately NOT shipped before
+        NEW-85. Delegating into a method that still claimed ``"completed"``
+        would have turned "lies about sending, unguarded" into "lies about
+        sending, guarded" — better gating, and not a fix.
+
+        ``corridor`` is accepted for signature compatibility and ignored:
+        `send_payment` derives the corridor from the currency pair, and
+        honouring a caller-supplied one would let the caller choose which
+        compliance thresholds apply to their own payment.
+        """
+        result = await self.send_payment(
+            sender, recipient, amount, from_currency, to_currency,
+        )
+        # Preserve the legacy `id` key so existing callers keep working; the
+        # canonical key is payment_id, as send_payment returns it.
+        if "payment_id" in result:
+            result.setdefault("id", result["payment_id"])
+        return result
 
     # ------------------------------------------------------------------
     # Attestation
