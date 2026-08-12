@@ -350,12 +350,31 @@ class NFTService:
             buyer=buyer,
         )
 
-        # Transfer NFT
-        await self._factory.transfer_token(
+        # Transfer NFT.
+        #
+        # NEW-90: this was a BARE `await` — the return value was DISCARDED and
+        # `nft_transferred` was set True twelve lines below regardless.
+        # `NFTFactory.transfer_token` refuses on BOTH branches, including when
+        # `_is_ready()` is true ("factory ABI not yet wired into runtime"), so
+        # the one component honest enough to say "I cannot do this" was called,
+        # ignored, and contradicted by its own caller.
+        #
+        # The factory is CORRECT. `_collections` is declared in its own comment
+        # as a "cache for in-process queries"; ownership lives on-chain in
+        # OpenMatrixNFT.sol (a real ERC721), and refusing while that contract is
+        # undeployed is the right behaviour. The defect was never a missing
+        # implementation — it was an implemented refusal being overwritten,
+        # which is worse than a stub because someone did the work correctly and
+        # the caller unmade it.
+        transfer_result = await self._factory.transfer_token(
             collection=collection,
             token_id=token_id,
             from_addr=seller,
             to_addr=buyer,
+        )
+        transferred = (
+            isinstance(transfer_result, dict)
+            and transfer_result.get("status") not in (None, "not_deployed", "error")
         )
 
         # Transfer display rights
@@ -372,7 +391,32 @@ class NFTService:
         # Update valuation data
         self._valuation.record_sale(collection, token_id, sale_price)
 
-        sale_result["nft_transferred"] = True
+        # NEW-90: derived from what the factory actually returned, never
+        # asserted alongside it. The factory's own answer is carried through so
+        # a caller can see WHY, not just that the answer was no.
+        #
+        # COPY FIRST. `RoyaltyEnforcement.process_sale` returns the SAME dict
+        # object it appended to its own `_sales` ledger, so mutating it here
+        # would rewrite a stored royalty record from the outside — and would
+        # clobber that record's own NEW-91 disclosure. Caught by a test that
+        # read the stored record rather than the returned one.
+        sale_result = dict(sale_result)
+        sale_result["nft_transferred"] = transferred
+        sale_result["transfer_result"] = transfer_result
+        if not transferred:
+            sale_result["status"] = "recorded_unsettled"
+            sale_result["settled"] = False
+            sale_result["value_moved"] = False
+            sale_result["disclosure"] = (
+                "NOT SETTLED. The royalty split, platform fee and seller "
+                "proceeds below are real arithmetic over the configured "
+                "royalty, and this sale has been RECORDED — but the NFT was "
+                "NOT transferred and no value moved. Ownership of this token "
+                "is unchanged, and this platform holds no ownership record of "
+                "its own: token ownership lives on-chain in the NFT contract, "
+                "which is not deployed. Nothing was paid to the royalty "
+                "recipient, the platform wallet, or the seller."
+            )
         return sale_result
 
     # ── Valuation ────────────────────────────────────────────────────

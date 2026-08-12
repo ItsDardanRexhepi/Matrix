@@ -191,6 +191,18 @@ class RoyaltyEnforcement:
             },
             "seller_proceeds": round(seller_proceeds, 8),
             "timestamp": now,
+            # NEW-91: this module computes a split and RECORDS it. It holds no
+            # wallet, no balance and no payout rail — nothing here pays anyone.
+            # The arithmetic above is real; the settlement it describes has not
+            # occurred. Disclosed on the record itself so a reader of
+            # `self._sales` cannot mistake a line item for a payment.
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "NOT SETTLED. This is a computed royalty/fee split recorded "
+                "locally. No transfer was made to the royalty recipient, the "
+                "platform wallet, or the seller."
+            ),
         }
 
         self._sales.append(sale_record)
@@ -299,10 +311,24 @@ class RoyaltyEnforcement:
                 total += sale["royalty"]["amount"]
                 count += 1
 
+        # NEW-91: the key was `total_royalties_eth` on a method named
+        # get_total_royalties_PAID. Nothing here was paid: this sums line items
+        # this module wrote for itself, with no wallet, balance or payout record
+        # anywhere to reconcile against. The arithmetic is real; the word was
+        # not. The method name is kept so existing callers still resolve, and
+        # the response says plainly what the number is.
         return {
             "recipient": recipient,
-            "total_royalties_eth": round(total, 8),
+            "total_royalties_recorded_eth": round(total, 8),
             "num_sales": count,
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "RECORDED, NOT PAID. This is the sum of royalty amounts this "
+                "service computed and stored for its own sale records. No "
+                "payment was made and there is no external ledger, wallet or "
+                "payout to reconcile this figure against."
+            ),
         }
 
     # ── Internal ──────────────────────────────────────────────────────
