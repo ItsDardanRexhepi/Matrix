@@ -13,6 +13,13 @@ import time
 import uuid
 from typing import Any
 
+from ._oracle_contract import (
+    Verdict,
+    extract_measurement,
+    read_measurement,
+    read_number,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,7 +142,33 @@ class TriggerManager:
             oracle_data: Pre-fetched oracle data, or None to fetch fresh.
 
         Returns:
-            True if the condition is met.
+            True if the condition is met. FALSE COLLAPSES TWO DIFFERENT FACTS —
+            "the event did not happen" and "we could not measure it" — so any
+            caller that reports a decision to a claimant must use
+            :meth:`evaluate_condition_detailed` instead. Kept boolean because
+            its own callers only need the fail-closed answer (§AK: this
+            returns the callee's verdict, and the callee is the honest one).
+        """
+        return (await self.evaluate_condition_detailed(trigger, oracle_data)).met
+
+    async def evaluate_condition_detailed(
+        self,
+        trigger: dict,
+        oracle_data: dict | None = None,
+    ) -> Verdict:
+        """Evaluate a trigger, distinguishing "not met" from "not measured".
+
+        DOMAIN 18-D. The measurement is located through the oracle contract
+        (:mod:`._oracle_contract`) rather than read off whatever dict arrives,
+        because WHERE IT LIVES DEPENDS ON THE ORACLE TYPE: weather responses
+        are merged flat into the gateway envelope, while every custom-backed
+        type nests the provider body under ``"data"``. Reading the top level
+        was correct for neither, and each evaluator silently substituted an
+        insurer-favourable default for the field it failed to find.
+
+        Accepts either a raw gateway envelope or an already-extracted
+        measurement, so both call paths — the pre-fetched one in
+        ``check_triggers`` and the fresh one here — go through the same door.
         """
         if oracle_data is None:
             oracle_data = await self._fetch_oracle_data(trigger)
@@ -143,71 +176,158 @@ class TriggerManager:
         conditions = trigger.get("conditions", {})
         trigger_type = trigger.get("trigger_type", "")
 
-        if trigger_type == "weather":
-            return self._eval_weather(conditions, oracle_data)
-        elif trigger_type == "flight_delay":
-            return self._eval_flight_delay(conditions, oracle_data)
-        elif trigger_type == "crop":
-            return self._eval_crop(conditions, oracle_data)
-        elif trigger_type == "earthquake":
-            return self._eval_earthquake(conditions, oracle_data)
-        elif trigger_type == "smart_contract_hack":
-            return self._eval_hack(conditions, oracle_data)
+        measurement = extract_measurement(oracle_data)
+        if measurement is None:
+            return Verdict(
+                met=False,
+                measured=False,
+                reason=(
+                    "the oracle returned no measurement, so the covered event "
+                    "could not be checked."
+                ),
+            )
 
-        return False
+        evaluator = {
+            "weather": self._eval_weather,
+            "flight_delay": self._eval_flight_delay,
+            "crop": self._eval_crop,
+            "earthquake": self._eval_earthquake,
+            "smart_contract_hack": self._eval_hack,
+        }.get(trigger_type)
+
+        if evaluator is None:
+            return Verdict(
+                met=False,
+                measured=False,
+                reason=(
+                    f"no evaluator is registered for trigger type "
+                    f"'{trigger_type}', so the covered event could not be "
+                    f"checked."
+                ),
+            )
+
+        return evaluator(conditions, measurement)
 
     # ------------------------------------------------------------------
     # Condition evaluators
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _eval_weather(conditions: dict, data: dict) -> bool:
+    def _unmeasured(field: str) -> Verdict:
+        """The oracle answered, but not about the thing the policy insures."""
+        return Verdict(
+            met=False,
+            measured=False,
+            reason=(
+                f"the oracle response did not report '{field}', so the covered "
+                f"event could not be checked."
+            ),
+        )
+
+    @staticmethod
+    def _eval_weather(conditions: dict, data: dict) -> Verdict:
         metric = conditions.get("metric", "temperature")
         threshold = float(conditions.get("threshold", 0))
         comparator = conditions.get("comparator", "gt")
-        value = data.get(metric)
 
+        value = read_number(data, metric)
         if value is None:
-            return False
-        value = float(value)
+            return TriggerManager._unmeasured(metric)
 
-        if comparator == "gt":
-            return value > threshold
-        elif comparator == "lt":
-            return value < threshold
-        elif comparator == "gte":
-            return value >= threshold
-        elif comparator == "lte":
-            return value <= threshold
-        elif comparator == "eq":
-            return value == threshold
-        return False
+        outcomes = {
+            "gt": value > threshold,
+            "lt": value < threshold,
+            "gte": value >= threshold,
+            "lte": value <= threshold,
+            "eq": value == threshold,
+        }
+        if comparator not in outcomes:
+            return Verdict(
+                met=False,
+                measured=False,
+                reason=(
+                    f"the comparator '{comparator}' is not recognised, so the "
+                    f"policy trigger could not be evaluated."
+                ),
+            )
+        return Verdict(
+            met=outcomes[comparator],
+            measured=True,
+            reason=f"Measured {metric}={value}, threshold {comparator} {threshold}.",
+        )
 
     @staticmethod
-    def _eval_flight_delay(conditions: dict, data: dict) -> bool:
+    def _eval_flight_delay(conditions: dict, data: dict) -> Verdict:
         delay_threshold = int(conditions.get("delay_minutes", 120))
-        actual_delay = int(data.get("delay_minutes", 0))
-        return actual_delay >= delay_threshold
+        actual_delay = read_number(data, "delay_minutes")
+        if actual_delay is None:
+            return TriggerManager._unmeasured("delay_minutes")
+        return Verdict(
+            met=actual_delay >= delay_threshold,
+            measured=True,
+            reason=(
+                f"Measured delay {actual_delay} minutes against a "
+                f"{delay_threshold}-minute threshold."
+            ),
+        )
 
     @staticmethod
-    def _eval_crop(conditions: dict, data: dict) -> bool:
+    def _eval_crop(conditions: dict, data: dict) -> Verdict:
         threshold = float(conditions.get("rainfall_threshold_mm", 50))
-        actual = float(data.get("rainfall_mm", 999))
+        actual = read_number(data, "rainfall_mm")
+        if actual is None:
+            # Pre-fix this defaulted to 999mm — a fabricated downpour that
+            # denied every drought claim the policy existed to pay.
+            return TriggerManager._unmeasured("rainfall_mm")
         # Trigger if rainfall is BELOW threshold (drought)
-        return actual < threshold
+        return Verdict(
+            met=actual < threshold,
+            measured=True,
+            reason=(
+                f"Measured rainfall {actual}mm against a {threshold}mm drought "
+                f"threshold."
+            ),
+        )
 
     @staticmethod
-    def _eval_earthquake(conditions: dict, data: dict) -> bool:
+    def _eval_earthquake(conditions: dict, data: dict) -> Verdict:
         threshold = float(conditions.get("magnitude_threshold", 5.0))
-        magnitude = float(data.get("magnitude", 0))
-        return magnitude >= threshold
+        magnitude = read_number(data, "magnitude")
+        if magnitude is None:
+            return TriggerManager._unmeasured("magnitude")
+        return Verdict(
+            met=magnitude >= threshold,
+            measured=True,
+            reason=(
+                f"Measured magnitude {magnitude} against a {threshold} "
+                f"threshold."
+            ),
+        )
 
     @staticmethod
-    def _eval_hack(conditions: dict, data: dict) -> bool:
+    def _eval_hack(conditions: dict, data: dict) -> Verdict:
         loss_threshold = float(conditions.get("loss_threshold", 0))
-        reported_loss = float(data.get("loss_amount", 0))
-        is_hacked = data.get("hack_detected", False)
-        return bool(is_hacked) and reported_loss >= loss_threshold
+        reported_loss = read_number(data, "loss_amount")
+        is_hacked = read_measurement(data, "hack_detected")
+
+        # BOTH fields are decision inputs, so BOTH must be present. Pre-fix
+        # `hack_detected` defaulted to False, which denied every claim, while
+        # `loss_amount` defaulted to 0.0, which — with the shipped default
+        # threshold of 0 — satisfied the comparison. The two defaults pointed
+        # in opposite directions on the same reading.
+        if is_hacked is None:
+            return TriggerManager._unmeasured("hack_detected")
+        if reported_loss is None:
+            return TriggerManager._unmeasured("loss_amount")
+
+        return Verdict(
+            met=bool(is_hacked) and reported_loss >= loss_threshold,
+            measured=True,
+            reason=(
+                f"Measured hack_detected={bool(is_hacked)}, loss "
+                f"{reported_loss} against a {loss_threshold} threshold."
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Oracle integration

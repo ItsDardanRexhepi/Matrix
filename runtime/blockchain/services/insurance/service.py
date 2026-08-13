@@ -369,16 +369,33 @@ class InsuranceService:
             )
 
         try:
-            met = await self._trigger_manager.evaluate_condition(
+            verdict = await self._trigger_manager.evaluate_condition_detailed(
                 trigger, oracle_data=oracle_data,
             )
         except Exception as exc:  # noqa: BLE001 - any evaluation fault fails closed
             logger.warning("Oracle evaluation failed: %s", exc)
             return False, "Verification failed; the claim cannot be verified."
 
-        if not met:
-            return False, "Oracle data does not satisfy the policy trigger."
-        return True, "Oracle data satisfies the policy trigger."
+        # 18-D. THE GUARD ABOVE TESTS THE ENVELOPE, NOT THE MEASUREMENT, and
+        # an envelope is never empty — the gateway merges `oracle_type`,
+        # `cached` and `timestamp` into every response. So `if not oracle_data`
+        # passed on a `data: {}` body, the evaluators substituted their
+        # insurer-favourable defaults, and this method reported a determination
+        # about an event nobody had measured. In one direction that denied
+        # every honest claim; in the other it APPROVED A FULL PAYOUT.
+        #
+        # The docstring above forbids exactly this conflation and the method
+        # committed it anyway, one call deeper. Reading `measured` is what
+        # makes the stated principle load-bearing rather than aspirational.
+        if not verdict.measured:
+            return False, (
+                f"Verification authority unavailable — {verdict.reason} "
+                f"This is not a determination that the event did not occur."
+            )
+
+        if not verdict.met:
+            return False, f"Oracle data does not satisfy the policy trigger. {verdict.reason}"
+        return True, f"Oracle data satisfies the policy trigger. {verdict.reason}"
 
     def _already_settled(self, policy_id: str) -> bool:
         """Has an approved claim already been paid on this policy? NEW-79."""
