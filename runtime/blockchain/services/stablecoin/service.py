@@ -223,8 +223,16 @@ class StablecoinService:
         }
         self._transfers.append(transfer_record)
 
+        # DOMAIN 15-E — was "Transfer completed". AN OPERATOR READING LOGS IS A
+        # SURFACE TOO; inert means inert on every surface. 15-A rewrote the
+        # response and left this line asserting the settlement the response now
+        # denies, so one transfer_id joined a record saying settled=False to a
+        # log line saying completed. The cited template (cross_border.send_payment,
+        # NEW-85) fixed BOTH surfaces in one change; copying the disposition and
+        # not the surface list is how the fix half-landed.
         logger.info(
-            "Transfer completed: id=%s %s %.6f %s -> %s (fee=%.6f, net=%.6f)",
+            "Transfer RECORDED (NOT settled — no value moved): "
+            "id=%s %s %.6f %s -> %s (fee=%.6f, net=%.6f)",
             transfer_id, token, amount, from_addr, to_addr, fee, net_amount,
         )
         return transfer_record
