@@ -11,8 +11,11 @@ the guard was skipped. That is the FIFTH shape the non-finite class has walked �
 sign (15-D), ratio (16-A), sufficiency (16-I), eligibility (16-P), floor (here) —
 and the point each time is the same: THE FINDING IS NOT THAT SIGN CHECKS ARE
 WEAK, IT IS THAT EVERY COMPARISON IS WEAK. `configure_royalty`'s cap is the
-sharpest instance: `bps < 0 or bps > cap` is a conjunction of two comparisons
-that a NaN satisfies BOTH halves of, so the cap admitted an uncapped royalty.
+sharpest instance: `bps < 0 or bps > cap` is a DISJUNCTION, and a NaN makes BOTH
+disjuncts False, so the whole test is False and the cap admitted an uncapped
+royalty. That is the shape a careful author writes SPECIFICALLY to be thorough —
+two bounds, both directions covered — which is exactly why it is the strongest
+evidence for the rule: adding the second comparison widened the gap.
 
 17-A. §U, THE FIFTH SELF-ATTESTATION INSTANCE, AND IT NEEDS NO MALFORMED INPUT.
 `process_sale` computes the creator's royalty as `sale_price * bps / 10000`, and
@@ -79,9 +82,14 @@ async def test_an_ordinary_sale_is_unaffected(royalty):
 async def test_a_non_finite_bps_cannot_walk_through_the_royalty_cap(royalty, bad):
     """DEFECT-PROVER, AND THE SHARPEST FORM OF THE CLASS.
 
-    `if bps < 0 or bps > self._max_royalty_bps` is a conjunction of TWO ordered
-    comparisons. A NaN makes BOTH False, so it satisfies a guard whose entire
-    job is bounding the value — the cap admitted an uncapped royalty rate.
+    `if bps < 0 or bps > self._max_royalty_bps` is a DISJUNCTION of two ordered
+    comparisons. A NaN makes BOTH disjuncts False, so the disjunction is False
+    and the raise is skipped — a guard whose entire job is bounding the value
+    admitted an unbounded one.
+
+    ADDING THE SECOND COMPARISON MADE IT WORSE, NOT BETTER. One bound leaves one
+    way through; two bounds written as a disjunction leave a value that fails
+    both, and NaN is exactly that value.
     """
     with pytest.raises(ValueError, match="finite"):
         await royalty.configure_royalty(collection="0xC", token_id=1,

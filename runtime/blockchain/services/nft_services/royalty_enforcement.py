@@ -90,9 +90,17 @@ class RoyaltyEnforcement:
         """
         if not recipient or not recipient.startswith("0x"):
             raise ValueError("Valid recipient address required")
-        # 17-B. THE CAP IS THE POINT, AND NaN WALKS THROUGH IT: `nan < 0` is
-        # False and `nan > cap` is False, so a NaN bps satisfied both halves of
-        # this conjunction and was stored as the collection's royalty rate.
+        # 17-B. THE CAP IS THE POINT, AND NaN WALKS BETWEEN ITS TWO BOUNDS.
+        # `bps < 0 or bps > cap` is a DISJUNCTION: `nan < 0` is False and
+        # `nan > cap` is False, so BOTH disjuncts fail, the disjunction is
+        # False, and the raise is skipped — a NaN bps was stored as the
+        # collection's royalty rate.
+        #
+        # This is the shape a careful author writes SPECIFICALLY to be thorough:
+        # two bounds, both directions covered, defence in depth. It is the
+        # strongest evidence yet for §W's rule that EVERY COMPARISON IS WEAK —
+        # adding a second comparison to a guard does not strengthen it against a
+        # value for which every comparison is False. It widens the gap.
         bps = require_finite_bps(bps, "bps", self._max_royalty_bps)
         if bps < 0 or bps > self._max_royalty_bps:
             raise ValueError(
