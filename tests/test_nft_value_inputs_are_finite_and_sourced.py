@@ -162,3 +162,96 @@ async def test_the_understatement_is_arithmetic_and_undefended(royalty):
     # ...and both records carry the same honest provenance marker
     assert honest["price_verified"] is False
     assert understated["price_verified"] is False
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# C3 · 17-C · 17-E — the last three domain-17 findings
+# ══════════════════════════════════════════════════════════════════════════
+
+from runtime.blockchain.services.nft_services.rights import RightsManagement
+
+
+# ── C3: §U's SIXTH instance — the requester decides its own rarity ────────
+
+
+async def test_rarity_inputs_are_validated_against_each_other():
+    """DEFECT-PROVER. Unvalidated in BOTH directions, measured pre-fix:
+    `count: 0` -> 250.0 on a declared "0-100 scale"; `count: -5` -> 250.0;
+    `count: 100000` with `total_supply: 100` -> -150.0 with rank_estimate 250,
+    a rank LARGER than the supply it ranks within."""
+    v = ValuationEngine({})
+    for bad, why in [(0, "zero"), (-5, "negative"), (float("nan"), "NaN")]:
+        with pytest.raises(ValueError):
+            await v.get_rarity_score("0xC", 1, 10000,
+                                     {"Background": {"value": "G", "count": bad}})
+    with pytest.raises(ValueError, match="exceeds total_supply"):
+        await v.get_rarity_score("0xC", 1, 100,
+                                 {"Background": {"value": "G", "count": 100000}})
+
+
+async def test_the_rarity_result_discloses_that_its_inputs_are_the_callers():
+    """DEFECT-PROVER (§U). The score cannot be verified — no trait index exists
+    — so the record says whose numbers it is, rather than inventing a check."""
+    v = ValuationEngine({})
+    out = await v.get_rarity_score("0xC", 1, 10000,
+                                   {"Background": {"value": "G", "count": 50}})
+    assert out["inputs_source"] == "caller_asserted"
+    assert out["inputs_verified"] is False
+    assert "NOT been verified" in out["rarity_disclosure"]
+
+
+async def test_an_honest_rarity_query_still_works():
+    """SCOPE PIN — validation must not break the ordinary path."""
+    v = ValuationEngine({})
+    out = await v.get_rarity_score("0xC", 1, 10000,
+                                   {"Background": {"value": "G", "count": 50}})
+    assert 0 <= out["rarity_score"] <= 100
+
+
+# ── 17-C / §AH: the disclosure vouched for the caller-supplied component ──
+
+
+async def test_the_valuation_disclosure_says_the_observed_data_is_self_reported():
+    """DEFECT-PROVER (§AH). NEW-92 honestly flagged the three UNMEASURED
+    factors — so a diligent reader discounts those and leans on the remainder.
+    The remainder is fed by caller-supplied sale prices. **The disclosure earned
+    the reader's confidence and spent it on the one component the caller
+    controls.** Disclosing the measured/unmeasured split makes an implicit claim
+    it never verified: that "measured" means "reliable"."""
+    v = ValuationEngine({})
+    v.record_sale("0xC", 1, 1000.0)
+    out = await v.estimate_value(collection="0xC", token_id=1)
+
+    d = " ".join(out["disclosure"].split())
+    assert "REPORTED BY CALLERS" in d, d
+    assert "self-reported" in d
+
+
+# ── 17-E: "rights_set" when nothing was set ──────────────────────────────
+
+
+async def test_an_empty_rights_request_does_not_claim_rights_were_set():
+    """DEFECT-PROVER. `rights={}` returned status "rights_set" unconditionally —
+    and post-16-N that status is what the dispatcher reads to attest and
+    publish. The 16-N classification of `rights_set` as a real outcome is
+    CORRECT; the emitter was wrong. §AK: a result-based gate is only as good as
+    the result it reads."""
+    r = RightsManagement({})
+    out = await r.set_rights(collection="0xC", token_id=1, rights={})
+
+    assert out["status"] == "no_rights_supplied"
+    assert out["rights_changed"] == 0
+
+    from runtime.blockchain.services.service_dispatcher import _outcome_is_real
+    assert _outcome_is_real(out) is False, (
+        "the dispatcher would attest 'rights set' for a request that set none"
+    )
+
+
+async def test_a_real_rights_grant_still_reports_rights_set():
+    """SCOPE PIN — the honest success path is unchanged."""
+    r = RightsManagement({})
+    out = await r.set_rights(collection="0xC", token_id=1,
+                             rights={"display": {"granted": True, "holder": "0xH"}})
+    assert out["status"] == "rights_set"
+    assert out["rights_changed"] == 1

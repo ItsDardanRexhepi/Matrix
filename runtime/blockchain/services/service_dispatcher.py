@@ -542,6 +542,7 @@ _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
     "found", "known", "queried", "reviewed", "checked", "valid", "suspicious",
     # preconditions unmet / not this deployment's job
     "not_configured", "not_ready", "not_registered", "not_qualified",
+    "no_rights_supplied",   # 17-E: a request that set nothing
     "not_settlement", "unresolved", "in_progress", "degraded",
 })
 

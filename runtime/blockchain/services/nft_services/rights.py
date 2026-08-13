@@ -171,7 +171,15 @@ class RightsManagement:
         )
 
         return {
-            "status": "rights_set",
+            # 17-E. THIS WAS UNCONDITIONAL. `rights={}` changed nothing and
+            # still returned "rights_set" — and post-16-N that status is what
+            # the dispatcher reads to decide whether to attest and publish, so
+            # the platform attested "rights set" for a request that set none.
+            # The 16-N classification of `rights_set` as a real outcome is
+            # CORRECT; the emitter was wrong. A result-based gate is only as
+            # good as the result (§AK).
+            "status": "rights_set" if rights else "no_rights_supplied",
+            "rights_changed": len(rights),
             "collection": collection,
             "token_id": token_id,
             "rights": record["rights"],
