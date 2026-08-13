@@ -175,13 +175,68 @@ def sweep_results():
         async with TestClient(TestServer(app)) as c:
             for method, path, _ in SWEEPABLE:
                 try:
-                    resp = await _call(c, method, path)
-                    out[(method, path)] = (resp.status, await resp.text())
+                    resp = await asyncio.wait_for(
+                        _call(c, method, path), timeout=_CONNECT_TIMEOUT_S
+                    )
+                    # STREAMING ENDPOINTS NEVER CLOSE — that is their contract.
+                    # `await resp.text()` reads to EOF, so on an SSE route it
+                    # blocks until the harness gives up. Read a bounded prefix
+                    # instead: enough to judge the status line and any error
+                    # envelope, without waiting for a stream that will not end.
+                    if _is_streaming(resp, path):
+                        chunk = await asyncio.wait_for(
+                            resp.content.read(_STREAM_PREFIX_BYTES),
+                            timeout=_STREAM_READ_TIMEOUT_S,
+                        )
+                        resp.close()
+                        body = chunk.decode("utf-8", "replace")
+                    else:
+                        body = await asyncio.wait_for(
+                            resp.text(), timeout=_BODY_TIMEOUT_S
+                        )
+                    out[(method, path)] = (resp.status, body)
+                except asyncio.TimeoutError:
+                    # A HANG IS A FINDING, and a DIFFERENT one from a raise.
+                    # -2 keeps it distinguishable from -1 so a hung route is not
+                    # triaged as an exception, and so a future timeout cannot be
+                    # silently absorbed into the raise bucket.
+                    out[(method, path)] = (
+                        -2, f"TIMED OUT after {_BODY_TIMEOUT_S}s with no complete response"
+                    )
                 except Exception as exc:  # a raised exception IS a finding
                     out[(method, path)] = (-1, f"RAISED {type(exc).__name__}: {exc}")
         return out
 
     return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run())
+
+
+# ── sweep timeouts ───────────────────────────────────────────────────────
+# The sweep previously had NO client-side timeout. `GET /api/v1/events/stream`
+# is a Server-Sent Events endpoint: it holds the connection open by design, so
+# `await resp.text()` — which reads to EOF — waited 302 SECONDS and then failed.
+# Five minutes of CI wall-clock, and a red that says nothing about the route.
+#
+# This is an environmental property of the TEST, not a defect in the code under
+# test. The route behaves exactly as an SSE endpoint should; the harness asked
+# it a question with no answer.
+_CONNECT_TIMEOUT_S = 10.0
+_BODY_TIMEOUT_S = 10.0
+_STREAM_READ_TIMEOUT_S = 3.0
+_STREAM_PREFIX_BYTES = 4096
+
+_STREAMING_PATHS = ("/stream",)
+
+
+def _is_streaming(resp, path: str) -> bool:
+    """A route is streaming if it says so, or if its path is known to be.
+
+    Content-type first, because that is the route's own declaration; the path
+    suffix is the fallback for a handler that streams without labelling itself.
+    """
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if "text/event-stream" in ctype or "application/x-ndjson" in ctype:
+        return True
+    return any(s in path for s in _STREAMING_PATHS)
 
 
 async def _call(client: TestClient, method: str, path: str):
@@ -279,6 +334,16 @@ def test_route_does_not_raise_or_500(sweep_results, method, path):
     status, body = sweep_results[(method, path)]
     assert status != -1, (
         f"{method} {_fill(path)} raised instead of responding: {body[:300]}"
+    )
+    # A HANG IS ITS OWN FINDING. Before the harness had a timeout this surfaced
+    # as -1 after 302 seconds, i.e. as a raise — the wrong diagnosis and a
+    # five-minute one. A route that never answers is a defect distinct from a
+    # route that throws, and it must not be absorbed into the raise bucket.
+    assert status != -2, (
+        f"{method} {_fill(path)} did not answer within the sweep timeout: {body[:300]}\n"
+        "If this route legitimately streams, it must declare a streaming "
+        "content-type (text/event-stream) so the harness reads a bounded prefix "
+        "instead of waiting for an end that never comes."
     )
     assert status != 500, (
         f"{method} {_fill(path)} -> HTTP 500. An unhandled server error on a "
