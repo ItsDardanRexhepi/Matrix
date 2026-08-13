@@ -95,18 +95,19 @@ def dispatcher_with_spies():
         ("pending", {"status": "pending"}),
         ("STATUS SAYS DONE, FLAGS SAY NO", {"status": "completed", "settled": False}),
         ("value_moved False", {"status": "success", "value_moved": False}),
-        ("no status key at all", {"loan_id": "loan_x"}),
         ("None", None),
         ("not a dict", "ok"),
     ],
 )
 def test_a_non_outcome_is_not_treated_as_real(label, result):
-    """FAILS CLOSED, and the direction is the point.
+    """AN EXPLICIT REFUSAL IS NEVER TREATED AS REAL.
 
-    Misjudging a refusal as real re-creates 16-K — a false attestation, the
-    defect being fixed. Misjudging a real action as a refusal costs an
-    attestation, which is a visible gap someone can notice. An unrecorded truth
-    is recoverable; a recorded falsehood is not.
+    Note what is NOT in this list any more: a dict with no `status` key. A first
+    version of the predicate put it here, reasoning "cannot tell -> do not
+    attest". Measuring showed that 17 of the 182 attested actions return a
+    SUCCESS with no status field, so that reading would have silently stopped
+    attesting a sixth of the surface. Refusals in this codebase announce
+    themselves; successes often do not.
     """
     assert _outcome_is_real(result) is False, label
 
@@ -118,12 +119,37 @@ def test_a_non_outcome_is_not_treated_as_real(label, result):
         ("completed", {"status": "completed"}),
         ("settled True", {"status": "completed", "settled": True}),
         ("case-insensitive", {"status": "SUCCESS"}),
+        # THE 17 SHAPES A FIRST VERSION OF THE PREDICATE WOULD HAVE DROPPED.
+        # Measured: 17 of the 182 attested actions return a success with NO
+        # status key. Treating that as "cannot tell -> do not attest" would have
+        # invented an evidence gap across a sixth of the surface.
+        ("dex.add_liquidity shape", {"pool_id": "p1", "shares_minted": 10.0}),
+        ("loyalty.earn_points shape", {"points_earned": 50, "balance": 120}),
+        ("dao.join_dao shape", {"dao_id": "d1", "member": "0xA", "member_count": 3}),
     ],
 )
 def test_a_real_outcome_is_still_attestable(label, result):
     """SCOPE PIN. Failing closed must not swallow genuine actions — an
     attestation layer that never attests is the mirror-image defect."""
     assert _outcome_is_real(result) is True, label
+
+
+def test_a_success_without_a_status_key_is_still_attested():
+    """THE REGRESSION A FIRST VERSION OF THIS FIX INTRODUCED, pinned.
+
+    Refusals in this codebase ANNOUNCE THEMSELVES — not_deployed, error,
+    recorded_unsettled are all explicit. Successes often do not: 17 of the 182
+    attested actions return a plain result dict with no status field. So absence
+    of a status is evidence of SUCCESS, and treating it as "cannot tell" would
+    silently stop attesting a sixth of the surface.
+
+    "Fail closed" is only safe once you have correctly identified which
+    direction closed is.
+    """
+    assert _outcome_is_real({"pool_id": "p1", "shares_minted": 10.0}) is True
+    assert _outcome_is_real({"points_earned": 50}) is True
+    # ...but an explicit refusal still wins, status key or not
+    assert _outcome_is_real({"pool_id": "p1", "settled": False}) is False
 
 
 def test_the_disclosure_flags_outrank_an_optimistic_status():

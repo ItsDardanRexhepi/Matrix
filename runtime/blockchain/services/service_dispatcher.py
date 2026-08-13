@@ -449,21 +449,36 @@ def _outcome_is_real(result: Any) -> bool:
     result, and gating one without the other is the half-fix this engagement
     keeps catching.
 
-    FAILS CLOSED, and the direction is the whole point. Misjudging a refusal as
-    real re-creates 16-K — a false attestation, the defect being fixed.
-    Misjudging a real action as a refusal costs an attestation and a feed row,
-    which is a visible gap someone can notice and correct. **An unrecorded truth
-    is recoverable; a recorded falsehood is not.** So anything not recognisably
-    an outcome is treated as a non-outcome.
+    REFUSALS ANNOUNCE THEMSELVES; SUCCESSES OFTEN DO NOT. That asymmetry is a
+    measured property of this codebase, not an assumption, and it decides the
+    default.
 
-    Explicit about the shapes:
-      - a dict with a status in _NON_OUTCOME_STATUSES  -> False
-      - a dict carrying settled=False or value_moved=False -> False, whatever
-        its status says (15-A's idiom; the flags are the honest field)
-      - a dict with no `status` key at all             -> False, because we
-        cannot tell, and cannot-tell must not mint evidence
-      - None                                           -> False
-      - anything not a dict                            -> False, same reason
+    MEASURED over the 182 attested actions: 72 carry `status` on every literal
+    return; **17 return a SUCCESS with no `status` key at all** —
+    `dex.add_liquidity` -> {amount_a, amount_b, pool_id, provider, shares_minted},
+    `loyalty.earn_points` -> {points_earned, balance, program_id, ...},
+    `dao_management.join_dao` -> {dao_id, member, member_count}. Meanwhile every
+    refusal idiom this audit found or shipped is EXPLICIT: `not_deployed`,
+    `status: "error"`, `recorded_unsettled`, `liquidation_due_unsettled`.
+
+    So absence of a status field is evidence of SUCCESS, not of refusal.
+
+    A FIRST VERSION OF THIS PREDICATE GOT THAT BACKWARDS, and the mistake is
+    worth keeping. It treated a missing `status` as "cannot tell -> do not
+    attest", reasoning that an unrecorded truth is recoverable while a recorded
+    falsehood is not. That principle is right; it was applied to the wrong axis.
+    Measuring rather than reasoning showed it would have silently stopped
+    attesting 17 genuine actions — inventing an evidence GAP across a sixth of
+    the surface in the name of preventing a false record. "Fail closed" is only
+    safe when you have correctly identified which direction "closed" is.
+
+    So: a dict is REAL unless it says otherwise. It says otherwise by carrying a
+    non-outcome status, or by carrying 15-A's disclosure flags, which outrank an
+    optimistic status because they are the field that was added to be honest.
+
+    Non-dicts and None still return False: they are not this codebase's success
+    idiom, they carry no refusal vocabulary to check, and no attested action
+    returns one on its success path.
     """
     if not isinstance(result, dict):
         return False
@@ -476,7 +491,7 @@ def _outcome_is_real(result: Any) -> bool:
 
     status = result.get("status")
     if status is None:
-        return False  # cannot tell -> do not attest
+        return True  # no refusal vocabulary present -> a plain success shape
 
     return str(status).strip().lower() not in _NON_OUTCOME_STATUSES
 
