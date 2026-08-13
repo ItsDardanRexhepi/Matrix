@@ -612,3 +612,133 @@ async def test_the_ledger_returns_to_zero_over_a_full_lifecycle(service):
 
     assert lm._pool_borrowed["USDC"] == 0.0
     assert lm._loans[loan_id]["status"].value == "repaid"
+
+
+# ── 16-S / 16-T / 16-U: the remaining lows ────────────────────────────────
+
+
+def test_the_collateral_whitelist_is_consulted_by_nothing():
+    """16-S. THE VOTE IS REAL AND DECIDES NOTHING — asserted by enumeration,
+    not by reading the governance code, which looks entirely correct.
+
+    16-M was a control nothing FEEDS (`defi.collateral_tokens`, zero readers).
+    This is the same shape at the other end: a control nothing READS. Neither is
+    visible in the machinery; both need the question "what consumes this?".
+
+    If a future change wires the vote to collateral acceptance, this test fails
+    and the docstring it guards must be rewritten — which is the intended
+    outcome, not a nuisance.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "runtime"
+    callers = [
+        f"{p}:{i}"
+        for p in root.rglob("*.py")
+        if "__pycache__" not in str(p) and p.name != "whitelist_governance.py"
+        for i, line in enumerate(p.read_text().splitlines(), 1)
+        if "is_whitelisted" in line
+    ]
+    assert callers == [], (
+        f"`is_whitelisted` now has callers {callers} — the governance vote may "
+        f"be binding. Re-derive whether WhitelistGovernance's docstring, which "
+        f"states the whitelist governs nothing, is still true."
+    )
+
+    from runtime.blockchain.services.defi.collateral import CollateralManager
+
+    src = pathlib.Path(CollateralManager.__module__.replace(".", "/") + ".py")
+    assert "_collateral_factors" in (root.parent / src).read_text(), (
+        "collateral acceptance no longer gates on _collateral_factors"
+    )
+
+
+def test_a_passed_proposal_does_not_claim_the_platform_now_accepts_the_token():
+    """16-S's corrective wording, asserted POSITIVELY.
+
+    The log line said "passed and executed: token %s added", which a reader
+    takes as "the platform now accepts this token". It accepts nothing new.
+
+    Asserted by the presence of the disclosure rather than the absence of the
+    old phrase, deliberately: 16-L's test failed because the "old wording is
+    gone" check matched the corrective comment's own QUOTE of the old wording.
+    An absence assertion over a file that must also explain what it corrected
+    is a trap the moment the explanation is good.
+    """
+    import inspect
+
+    from runtime.blockchain.services.defi.whitelist_governance import (
+        WhitelistGovernance,
+    )
+
+    # INSTRUMENT FAILURE #2, THIRD OCCURRENCE, THIRD DISGUISE. Searching source
+    # for a contiguous phrase keeps failing because the phrase is not contiguous
+    # in the source. In 16-L the break was a comment's `# ` continuation; here it
+    # is ADJACENT STRING-LITERAL CONCATENATION, which leaves `" "` mid-phrase
+    # after whitespace normalisation. Normalise that away too, or this test
+    # reports a missing disclosure that is sitting right in front of it.
+    src = " ".join(inspect.getsource(WhitelistGovernance._finalize_proposal).split())
+    src = src.replace('" "', "")
+    assert "not consulted by collateral acceptance" in src, (
+        "the passed-proposal log no longer discloses that the whitelist does "
+        "not govern what the platform accepts as collateral"
+    )
+
+
+async def test_listing_offers_does_not_hand_out_the_store(service):
+    """16-T. `results.append(offer)` returned the LIVE dicts from
+    `self._offers`, so a caller could rewrite the store by editing a listing."""
+    p2p = service._p2p_lending
+    p2p._offers["o1"] = {
+        "offer_id": "o1", "lender": "0xL", "token": "USDC",
+        "amount": 1000.0, "remaining_amount": 1000.0, "interest_rate": 5.0,
+        "status": "open", "expires_at": int(time.time()) + 86400,
+        "duration_days": 30, "created_at": int(time.time()),
+    }
+
+    listed = await p2p.list_offers()
+    listed[0]["remaining_amount"] = 999_999.0
+    listed[0]["lender"] = "0xATTACKER"
+
+    assert p2p._offers["o1"]["remaining_amount"] == 1000.0
+    assert p2p._offers["o1"]["lender"] == "0xL"
+
+
+def test_the_lifting_condition_does_not_cite_a_defect_that_was_fixed():
+    """16-U. A LIFTING CONDITION THAT NAMES AN ALREADY-FIXED DEFECT.
+
+    The NEW-64 block gated re-registering the collateral actions on two
+    conditions, the second being NEW-62 — `service.py` feeding `repaid_amount`
+    into a principal-only ledger via `record_repayment`. 16-C removed that:
+    `record_repayment` no longer exists and `service.py` passes
+    `remaining_principal`. So the gate was being held shut partly by a reason
+    that had stopped being true.
+
+    Worse than no condition: a reader either leaves it shut for a reason that
+    has gone away, or goes looking for `record_repayment`, fails to find it, and
+    learns to distrust the annotation. **This audit's own later fixes invalidate
+    this audit's own earlier annotations.**
+
+    Clause 1 is still open and is on its own sufficient, so the gate stays shut
+    — which is why this is a comment fix and not a re-registration.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    dispatcher = (root / "runtime/blockchain/services/service_dispatcher.py").read_text()
+    collateral = (root / "runtime/blockchain/services/defi/collateral.py").read_text()
+    defi_service = (root / "runtime/blockchain/services/defi/service.py").read_text()
+
+    # the premise: NEW-62's mechanism really is gone
+    assert "def record_repayment" not in collateral
+    assert "set_borrow_position" in defi_service
+    assert 'result["remaining_principal"]' in defi_service
+
+    # the comment must say so, and must still say clause 1 is open
+    block = dispatcher[dispatcher.index("LIFTING CONDITION"):][:2600]
+    assert "SATISFIED by 16-C" in block, (
+        "the lifting condition still cites NEW-62 as open; it was fixed by 16-C"
+    )
+    assert "CLAUSE 1 IS STILL OPEN" in block, (
+        "the correction must not read as though the whole gate can be lifted"
+    )

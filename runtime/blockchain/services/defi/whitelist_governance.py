@@ -28,6 +28,34 @@ class ProposalStatus(str, Enum):
 class WhitelistGovernance:
     """Govern which tokens are accepted on the DeFi platform.
 
+    16-S. THE VOTE IS REAL. IT DECIDES NOTHING TODAY.
+
+    Measured: ``is_whitelisted`` has ZERO call sites outside this file, and
+    ``_whitelist`` is read only by this class's own methods. What the platform
+    actually accepts as collateral is decided at
+    ``collateral.py:107`` — ``if token not in self._collateral_factors`` — and
+    16-M established that ``_collateral_factors`` is a hardcoded literal that
+    ``defi.collateral_tokens`` does not feed either.
+
+    So both directions are open: a token can pass quorum, clear the approval
+    threshold, be added to ``_whitelist`` and STILL be refused as collateral;
+    and a token in ``_collateral_factors`` is accepted whether or not governance
+    ever considered it. ``execute_proposal`` sets ``ProposalStatus.EXECUTED``
+    and logs "passed and executed: token %s added" — which is true of the set
+    and false of the platform.
+
+    This is 16-M's shape at the OUTPUT end. 16-M was a control nothing feeds;
+    this is a control nothing reads. Both present as working machinery, and
+    neither can be caught by looking at the machinery — only by asking what
+    consumes the result. The governance loop itself is genuine and worth
+    keeping; what was wrong was the silence about its reach.
+
+    To make the vote binding, ``CollateralManager.deposit`` must consult
+    ``is_whitelisted`` instead of (or as well as) ``_collateral_factors``. That
+    is a behaviour change to a value-accepting path and is deliberately NOT made
+    here: it would let a governance vote widen what the platform takes as
+    collateral, which is a product decision, not a documentation fix.
+
     Parameters
     ----------
     config : dict
@@ -267,8 +295,16 @@ class WhitelistGovernance:
             # Auto-execute: add to whitelist
             self._whitelist.add(proposal["token_address"])
             proposal["status"] = ProposalStatus.EXECUTED
+            # 16-S: the claim is scoped to what actually changed. This used to
+            # read "passed and executed: token %s added", which a reader takes
+            # to mean the platform now accepts the token. It accepts nothing new
+            # — collateral acceptance is gated on `_collateral_factors`, which
+            # this set does not feed. See the class docstring.
             logger.info(
-                "Proposal %s passed and executed: token %s added (%.0f%% approval)",
+                "Proposal %s passed: token %s added to the governance whitelist "
+                "(%.0f%% approval). NOTE: the whitelist is not consulted by "
+                "collateral acceptance — this does not change what the platform "
+                "accepts as collateral.",
                 proposal["proposal_id"],
                 proposal["token_address"],
                 approval_rate * 100,

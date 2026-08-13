@@ -324,13 +324,33 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     #   1. the operation actually holds value (real escrow or a real on-chain
     #      position), or the response discloses that it does not, in the
     #      RECORDED_UNSETTLED idiom (settled=False / value_moved=False); AND
-    #   2. NEW-62 is fixed — service.py passes repaid_amount (principal plus
-    #      interest) into a principal-only ledger, collateral.py clamps the
-    #      overshoot with max(0, ...), and a zero ledger makes withdraw's
+    #   2. [SATISFIED by 16-C, 2026-08-12] NEW-62 is fixed. As written this read:
+    #      "service.py passes repaid_amount (principal plus interest) into a
+    #      principal-only ledger, collateral.py clamps the overshoot with
+    #      max(0, ...), and a zero ledger makes withdraw's
     #      `total_borrows_usd > 0` conjunct False, disabling the health check
     #      entirely. Reproduced: repay $10,000 of a $10,202 debt, loan stays
     #      ACTIVE owing $202, guard reports no_borrows, all collateral
-    #      withdraws.
+    #      withdraws."
+    #      16-C replaced `CollateralManager.record_repayment(user, token,
+    #      amount)` — a SUBTRACT fed the wrong quantity — with
+    #      `set_borrow_position(user, token, principal)`, and service.py:196 now
+    #      passes `result["remaining_principal"]`, the loan's own figure, so the
+    #      two ledgers cannot disagree. `record_repayment` no longer exists;
+    #      tests/test_defi_borrow_ledger_matches_the_loan.py pins its absence.
+    #
+    #      16-U. THE STALE CONDITION IS CORRECTED IN PLACE RATHER THAN DELETED,
+    #      because this is a LIFTING CONDITION — it gates future work, and a
+    #      condition naming an already-fixed defect is worse than no condition:
+    #      a reader either leaves the gate shut for a reason that has gone away,
+    #      or goes looking for `record_repayment`, fails to find it, and learns
+    #      to distrust the annotation. This audit's own later fixes invalidate
+    #      this audit's own earlier annotations; §AB's sibling.
+    #
+    #      CLAUSE 1 IS STILL OPEN AND IS ON ITS OWN SUFFICIENT: the operation
+    #      still increments a Python dict with no escrow and no chain position,
+    #      and does not disclose it. Do not re-register on the strength of
+    #      clause 2 alone.
     # Pinned by tests/test_collateral_actions_unexposed.py.
     "cross_chain_bridge": ("cross_border", "bridge_transfer"),
     # ── NFT Expanded ─────────────────────────────────────────────

@@ -437,6 +437,17 @@ class GovernanceService:
     async def list_proposals(self, status: str | None = None) -> list:
         """List all proposals, optionally filtered by status.
 
+        16-T. THIS METHOD WRITES. The auto-expiry below transitions proposals
+        from ``active`` to ``expired`` — a governance state change performed by
+        a method named ``list_``. It is kept, because lazy expiry is the only
+        thing moving proposals out of ``active`` and removing it would leave
+        them votable past their deadline; but it is named here rather than left
+        for a reader to find, because "a read that mutates" is the
+        label-vs-behaviour class this census has been counting.
+
+        Unlike `p2p_lending.list_offers`, this one does not alias: each entry is
+        a fresh summary dict, so a caller cannot reach the store through it.
+
         Returns:
             List of proposal summary dicts.
         """

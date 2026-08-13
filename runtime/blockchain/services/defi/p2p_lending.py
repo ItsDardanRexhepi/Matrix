@@ -261,6 +261,18 @@ class P2PLending:
             - ``min_amount`` (float): minimum amount
             - ``max_rate`` (float): maximum interest rate
             - ``limit`` (int): max results (default 50)
+
+        16-T. THIS METHOD WRITES, AND IT USED TO HAND OUT THE STORE.
+
+        The auto-expiry below is a real state transition performed by a method
+        named ``list_``. It is kept — lazy expiry is a legitimate pattern and
+        removing it would leave offers OPEN past their expiry — but it is named
+        here rather than left for a reader to discover, because "a read that
+        mutates" is the label-vs-behaviour class this census has been counting.
+
+        The aliasing is fixed outright: results used to be the LIVE offer dicts
+        from ``self._offers``, so any caller could mutate the store by editing
+        what a listing returned. Copies now.
         """
         filters = filters or {}
         now = int(time.time())
@@ -292,7 +304,9 @@ class P2PLending:
             if offer["interest_rate"] > max_rate:
                 continue
 
-            results.append(offer)
+            # 16-T: a COPY. `results.append(offer)` handed callers the live dict
+            # out of `self._offers`, so editing a listing edited the store.
+            results.append(dict(offer))
             if len(results) >= limit:
                 break
 
