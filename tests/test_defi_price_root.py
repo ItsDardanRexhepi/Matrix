@@ -267,3 +267,58 @@ def test_the_registry_di_gap_is_shared_by_three_services():
             f"{cls_name}.{dep} — the registry passes only config, so this "
             "optional dependency is still never supplied (NEW-59)"
         )
+
+
+# ── 16-B: the FAIL CLOSED claim, and its exception ────────────────────────
+
+
+async def test_fail_closed_has_exactly_three_exceptions_and_they_are_named():
+    """16-B. `DeFiService._resolve_oracle`'s docstring stated FAIL CLOSED
+    without qualification. It is true for every token EXCEPT the three
+    stablecoins, which return a hardcoded 1.0.
+
+    NOT A BEHAVIOUR DEFECT — the constant is a CONSIDERED prior ruling, stated
+    in CollateralManager._get_price ("Stablecoin par is accurate, not
+    fabricated") and pinned above. The defect was that the sibling docstring in
+    service.py characterised the SAME constant as a fabricated input, so two
+    files of one service asserted opposite things about one value. The wording
+    was corrected; the behaviour was not touched.
+
+    This test exists so the exception cannot silently grow. If a fourth token
+    joins the hardcoded set, FAIL CLOSED becomes materially less true and the
+    docstring's correction needs revisiting.
+    """
+    svc = DeFiService({})
+
+    hardcoded = []
+    for token in ("USDC", "USDT", "DAI", "ETH", "WBTC", "WETH", "MATIC", "LINK"):
+        try:
+            await svc._get_token_price(token)
+            hardcoded.append(token)
+        except ValueError:
+            pass
+
+    assert hardcoded == ["USDC", "USDT", "DAI"], (
+        f"the set of tokens that do NOT fail closed changed: {hardcoded}"
+    )
+
+
+async def test_a_real_oracle_price_overrides_the_stablecoin_constant():
+    """WHAT BOUNDS THE RESIDUAL RISK. Par is accurate until a depeg, and valuing
+    collateral at par through a depeg is a classic insolvency path. The
+    exposure is confined to the UNCONFIGURED deployment because a configured
+    oracle wins — asserted here so that ordering cannot regress silently."""
+
+    class DepeggedOracle:
+        async def request(self, _kind, params, caller=None):
+            if "USDC" in params.get("pair", ""):
+                return {"price": 0.85}
+            return {"status": "error"}
+
+    svc = DeFiService({})
+    svc._oracle = DepeggedOracle()
+
+    assert await svc._get_token_price("USDC") == 0.85, (
+        "the hardcoded par overrode a live oracle price — the constant must be "
+        "a last resort, never a first one"
+    )

@@ -368,7 +368,34 @@ class DeFiService:
         same pattern privacy uses to reach storage/compute. Constructed
         directly from config (OracleGateway.__init__ takes only config); it is
         itself credential-gated and returns errors when no feed is configured,
-        which the price methods below treat as "no price" and FAIL CLOSED.
+        which the price methods below treat as "no price".
+
+        ── 16-B. TWO CORRECTIONS TO THE PARAGRAPH ABOVE. ──
+
+        (1) "FAIL CLOSED" WAS STATED WITHOUT ITS EXCEPTION. It is true for every
+        token EXCEPT USDC / USDT / DAI, which return a hardcoded 1.0 at the
+        bottom of `_get_token_price`. Driven with a WORKING BUT UNCONFIGURED
+        oracle (so the result is not an artifact of a missing dependency):
+        USDC/USDT/DAI -> 1.0, ETH -> raises. Three tokens do not fail closed,
+        and they are the usual borrow assets of a lending protocol.
+
+        (2) THIS DOCSTRING AND ITS SIBLING DISAGREE ABOUT THE SAME CONSTANT.
+        Here the hardcoded 1.0 is named as part of the defect NEW-59 fixed
+        ("a fabricated input"). In `collateral.py::_get_price` the identical
+        constant is deliberately KEPT and justified: "Stablecoin par is
+        accurate, not fabricated", pinned by
+        tests/test_defi_price_root.py (`_get_price("USDC") == 1.0`).
+
+        THE SIBLING'S RULING STANDS AND THIS FILE'S WORDING IS THE ERROR — a
+        considered prior adjudication is not overturned by a docstring in
+        another file. The behaviour is UNCHANGED by this correction.
+
+        The residual risk the sibling's ruling accepts, recorded so it is not
+        rediscovered as new: par is accurate until a depeg, and valuing
+        collateral at par through a depeg is a classic insolvency path. It is
+        bounded because a REAL oracle price is honoured when configured —
+        driven: an oracle reporting USDC at 0.85 yields 0.85, not 1.0. The
+        exposure is confined to the unconfigured deployment.
 
         This is a registry-level DI gap shared by fundraising and dashboard
         (NEW-59); the same lazy-resolution template applies there.
