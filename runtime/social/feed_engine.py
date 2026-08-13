@@ -144,7 +144,9 @@ class FeedEvent:
             detail=detail,
             component=row.get("component"),
             tx_hash=row.get("tx_hash"),
-            value_usd=row.get("value_usd"),
+            # 19-D: sanitised on READ too, so a row poisoned before
+            # this fix cannot keep the feed unserialisable.
+            value_usd=sanitize_value_usd(row.get("value_usd")),
             rarity_score=row.get("rarity_score", 0.0),
             timestamp=row.get("timestamp", 0.0),
             ranked_score=row.get("ranked_score", 0.0),
@@ -152,6 +154,48 @@ class FeedEvent:
 
 
 # ── Ranking engine ───────────────────────────────────────────────────
+
+#: 19-D. The declared ceiling for a single feed event's reported value. Not a
+#: risk model — a bound, so one row cannot dominate a public ranking or a
+#: `MAX(value_usd)` statistic. Values above it are recorded AT the ceiling and
+#: flagged, never silently truncated to look ordinary.
+_MAX_EVENT_VALUE_USD = 1_000_000_000.0
+
+
+def sanitize_value_usd(raw: Any) -> Optional[float]:
+    """Coerce a reported event value into something a public feed can hold.
+
+    19-D. `value_usd` arrives from `params[...]` — the request body — through
+    `ServiceDispatcher`'s feed-ingest block, unvalidated and unbounded. Two
+    measured consequences, both from an ordinary well-formed request:
+
+      * `"Infinity"` is a PLAIN JSON STRING that `float()` accepts. Stored as
+        `inf`, it makes the ENTIRE `/social/feed` response invalid JSON —
+        `web.json_response` emits a bare `Infinity` token and `JSON.parse`
+        fails. Not one row: the whole document, for every strict client
+        (`web/social.html`, the MTRX Swift `JSONDecoder`). Unauthenticated,
+        persistent, and it survives until the row is deleted.
+
+      * The value drives `ranked_score`, which is computed at INGEST and stored,
+        so the row keeps its position without ever being re-derived.
+
+    APPLIED AT BOTH ENDS, deliberately. At ingest it stops new poison; at
+    hydration it neutralises rows ALREADY stored, so the feed recovers without
+    a migration. Sanitising only the writer would leave the feed permanently
+    broken by anything written before the fix — and a fix that requires the
+    attack not to have happened yet is not a fix.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None          # inf/-inf/nan are not values; they are not "zero" either
+    if v < 0:
+        return None
+    return min(v, _MAX_EVENT_VALUE_USD)
 
 
 class FeedRankingEngine:
@@ -320,7 +364,7 @@ class SocialFeedEngine:
                 detail=detail or {},
                 component=component,
                 tx_hash=tx_hash,
-                value_usd=value_usd,
+                value_usd=sanitize_value_usd(value_usd),
             )
 
             # Score before persisting
