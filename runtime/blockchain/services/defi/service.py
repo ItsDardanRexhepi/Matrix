@@ -175,9 +175,16 @@ class DeFiService:
 
             result = await self._loan_manager.repay_loan(loan_id, amount)
 
-            # Update collateral tracking
-            self._collateral_manager.record_repayment(
-                borrower, borrow_token, result["repaid_amount"]
+            # DOMAIN 16-C — SET FROM THE AUTHORITATIVE LOAN STATE, DO NOT
+            # DECREMENT BY THE PAYMENT. This used to pass
+            # `result["repaid_amount"]` to `record_repayment`, which subtracted
+            # the PAYMENT from a ledger holding the PRINCIPAL. `repay_loan`
+            # applies payment to interest first, so those are different
+            # quantities and the ledgers drifted apart on any partial repayment
+            # made after interest accrued. `remaining_principal` is the loan's
+            # own figure; using it means the two can no longer disagree.
+            self._collateral_manager.set_borrow_position(
+                borrower, borrow_token, result["remaining_principal"]
             )
 
             # Update reputation

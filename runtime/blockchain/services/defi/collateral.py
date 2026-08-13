@@ -213,11 +213,39 @@ class CollateralManager:
         user_borrows = self._borrows.setdefault(user, {})
         user_borrows[token] = user_borrows.get(token, 0) + amount
 
-    def record_repayment(self, user: str, token: str, amount: float) -> None:
-        """Record a repayment, reducing borrow position."""
-        user_borrows = self._borrows.get(user, {})
-        current = user_borrows.get(token, 0)
-        user_borrows[token] = max(0, current - amount)
+    def set_borrow_position(self, user: str, token: str, principal: float) -> None:
+        """Set the recorded borrow position from the AUTHORITATIVE loan state.
+
+        DOMAIN 16-C. This replaces `record_repayment(user, token, amount)`, which
+        decremented by the payment: `user_borrows[token] = max(0, current - amount)`.
+
+        THE DEFECT WAS A DELTA BETWEEN TWO LEDGERS OF THE SAME DEBT.
+        `record_borrow` recorded PRINCIPAL. The caller then decremented by
+        `repaid_amount`, the PAYMENT — and `repay_loan` applies payment to
+        INTEREST FIRST, so the two quantities are not the same thing. Driven:
+
+            borrow 1000 principal, accrue 20.19 interest, repay 1000
+            -> loan:      ACTIVE, 20.19 still owed   (correct)
+            -> ledger:    max(0, 1000 - 1000) = 0    (wrong)
+            -> health:    "no_borrows", factor Infinity, total_borrows_usd 0.0
+            -> withdraw:  ALL 10 ETH released while 20.19 USDC is still owed
+
+        No malformed input. No NaN. An ordinary partial repayment.
+
+        WHY SET AND NOT DECREMENT: a delta can drift from its source; an
+        assignment cannot. `repay_loan` already returns `remaining_principal`,
+        so the authoritative number exists and there is no reason to recompute
+        it here. The class of bug this closes is not "the subtraction was wrong"
+        but "there were two ledgers and only one of them was right".
+
+        RENAMED RATHER THAN ADDED. Leaving `record_repayment` beside a correct
+        twin would be the `set_balance` / `migrate_members` shape — an
+        unattended primitive one line from live, and the wrong one is the one
+        with the friendlier name.
+        """
+        if not math.isfinite(principal):
+            raise ValueError("Borrow position must be a finite number")
+        self._borrows.setdefault(user, {})[token] = max(0.0, float(principal))
 
     # ── Internal helpers ──────────────────────────────────────────────
 
