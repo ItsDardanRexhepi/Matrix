@@ -328,9 +328,50 @@ class DeFiService:
         borrower: str,
         collateral: dict[str, Any],
     ) -> dict[str, Any]:
-        """Accept a P2P lending offer."""
+        """Accept a P2P lending offer, valuing the collateral independently.
+
+        DOMAIN 16-G — SELF-ATTESTATION ON A LENDING DECISION. The collateral
+        arrives as a caller-supplied dict, and `P2PLending.accept_offer` took
+        `collateral["value_usd"]` at face value to compute the ratio it then
+        checked against the minimum. THE PARTY THE CHECK CONSTRAINS SUPPLIED THE
+        NUMBER THE CHECK USED. Driven:
+
+            accept_offer(offer, "0xBORROWER",
+                         {"token": "ETH", "amount": 0.001,
+                          "value_usd": 5_000_000.0})
+              -> {"status": "filled", ...}
+
+        0.001 ETH, self-declared at five million dollars, backing a 1000 USDC
+        loan. `p2p_lending.py` contains neither the word "oracle" nor the word
+        "balance" — there was nothing in the file that could have disagreed.
+
+        THE FIX BELONGS HERE, not in the manager: this service already resolves
+        prices for pool lending via `_get_token_price`, so the valuation source
+        exists and the manager simply had no access to it. The caller's
+        `value_usd` is now IGNORED and recomputed. If the token cannot be
+        priced, the acceptance is refused rather than falling back to the
+        borrower's own figure — an unpriceable collateral is an unknown ratio,
+        and 16-A already established that an unknown ratio must stop the
+        transaction rather than be coerced into one.
+
+        Same class as fundraising's self-approved milestone and insurance's
+        self-attested trigger; registered with them.
+        """
+        token = collateral.get("token", "")
+        amount = collateral.get("amount", 0)
+
+        if not token:
+            raise ValueError("Collateral token is required")
+
+        price = await self._get_token_price(token)   # raises if unpriceable
+
+        verified = dict(collateral)
+        verified["value_usd"] = float(amount) * float(price)
+        verified["value_source"] = "service_oracle"
+        verified["value_usd_as_claimed"] = collateral.get("value_usd")
+
         return await self._p2p_lending.accept_offer(
-            offer_id, borrower, collateral
+            offer_id, borrower, verified
         )
 
     async def list_p2p_offers(

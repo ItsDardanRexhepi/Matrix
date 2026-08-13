@@ -180,3 +180,102 @@ async def test_an_accepted_loan_still_credits_its_collateral(service):
 
     assert service._collateral_manager._balances["0xY"]["ETH"] == 10.0
     assert service._collateral_manager._borrows["0xY"]["USDC"] == 1000.0
+
+
+# ── 16-G: the constrained party supplied the number the check used ───────
+
+
+async def test_the_borrower_cannot_declare_their_own_collateral_value(service):
+    """16-G. SELF-ATTESTATION ON A LENDING DECISION. `accept_offer` computed the
+    collateral ratio from `collateral["value_usd"]` — a field in the caller's own
+    request body. Driven pre-fix: 0.001 ETH self-declared at $5,000,000 backed a
+    1000 USDC loan and returned status "filled". `p2p_lending.py` contains
+    neither "oracle" nor "balance"; nothing in the file could have disagreed.
+
+    Same class as fundraising's self-approved milestone and insurance's
+    self-attested trigger.
+    """
+    offer = await service.create_p2p_offer("0xL", "USDC", 1000.0, 0.05, 30)
+
+    with pytest.raises(ValueError, match="below minimum"):
+        await service.accept_p2p_offer(
+            offer["offer_id"], "0xB",
+            {"token": "ETH", "amount": 0.001, "value_usd": 5_000_000.0},
+        )
+
+
+async def test_a_genuinely_collateralised_p2p_offer_is_still_accepted(service):
+    """SCOPE PIN. The independent valuation must not refuse honest borrowers —
+    1.0 ETH at the real 2000.0 covers a 1000 USDC loan at 2x."""
+    offer = await service.create_p2p_offer("0xL", "USDC", 1000.0, 0.05, 30)
+
+    accepted = await service.accept_p2p_offer(
+        offer["offer_id"], "0xB",
+        {"token": "ETH", "amount": 1.0, "value_usd": 1.0},  # understated; ignored
+    )
+
+    assert accepted["status"] == "filled"
+    assert accepted["collateral"]["value_usd"] == pytest.approx(2000.0)
+    assert accepted["collateral"]["value_source"] == "service_oracle"
+
+
+async def test_unpriceable_collateral_is_refused_not_self_valued(service):
+    """An unknown value must stop the acceptance, not fall back to the
+    borrower's figure — 16-A's ruling on unknown ratios, applied here."""
+    offer = await service.create_p2p_offer("0xL", "USDC", 1000.0, 0.05, 30)
+
+    with pytest.raises(ValueError, match="No price available"):
+        await service.accept_p2p_offer(
+            offer["offer_id"], "0xB",
+            {"token": "OBSCURE", "amount": 1.0, "value_usd": 9_999_999.0},
+        )
+
+
+# ── 16-H: a read that wrote, while the catalog said it did not ───────────
+
+
+async def test_get_loan_does_not_mutate_the_stored_record(service):
+    """16-H. `get_loan` is catalogued `state_modifying=False`, and that flag is
+    what decides whether the dispatcher attests and publishes. The body wrote
+    `accrued_interest` and re-based `last_interest_update` on every call."""
+    import asyncio
+    import copy
+
+    loan = await service.create_loan("0xA", "ETH", 10.0, "USDC", 1000.0)
+    loan_id = loan["loan_id"]
+    before = copy.deepcopy(service._loan_manager._loans[loan_id])
+
+    await asyncio.sleep(1.1)
+    await service.get_loan(loan_id)
+
+    after = service._loan_manager._loans[loan_id]
+    changed = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    assert not changed, f"a read mutated the stored loan: {changed}"
+
+
+async def test_get_loan_does_not_return_the_ledger_by_reference(service):
+    """The aliasing half. A consumer writing to the result edited the ledger."""
+    loan = await service.create_loan("0xA", "ETH", 10.0, "USDC", 1000.0)
+
+    result = await service.get_loan(loan["loan_id"])
+
+    assert result is not service._loan_manager._loans[loan["loan_id"]]
+    result["borrow_amount"] = 0.0
+    assert service._loan_manager._loans[loan["loan_id"]]["borrow_amount"] == 1000.0
+
+
+async def test_get_loan_still_reports_accrued_interest(service):
+    """SCOPE PIN — and the point of the fix. The VALUE must still be correct;
+    only the persistence and the aliasing go away. Reading no longer compounds:
+    the answer is a function of the loan and the clock, not of how often anyone
+    looked."""
+    import asyncio
+
+    loan = await service.create_loan("0xA", "ETH", 10.0, "USDC", 1000.0)
+    await asyncio.sleep(1.1)
+
+    first = await service.get_loan(loan["loan_id"])
+    second = await service.get_loan(loan["loan_id"])
+
+    assert first["accrued_interest"] > 0
+    assert second["accrued_interest"] >= first["accrued_interest"]

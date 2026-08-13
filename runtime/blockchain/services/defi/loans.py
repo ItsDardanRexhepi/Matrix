@@ -228,13 +228,32 @@ class LoanManager:
         KeyError
             If loan_id is not found.
         """
+        # DOMAIN 16-H — A READ THAT WROTE, WHILE THE CATALOG SAID IT DID NOT.
+        # `get_loan` is registered `state_modifying=False` (catalog.py:138), and
+        # that flag is what decides whether the dispatcher attests the action and
+        # publishes it. Meanwhile the body called `_accrue_interest(loan)`, which
+        # writes `accrued_interest` and re-bases `last_interest_update` on the
+        # stored record. Driven: two `get_loan` calls one second apart mutated
+        # both fields. It also returned `self._loans[loan_id]` BY REFERENCE, so
+        # any consumer that wrote to the result edited the ledger.
+        #
+        # The catalog was not wrong about what a read SHOULD do — the code was
+        # wrong about what this read DID. Fixed on the code side: interest is
+        # computed for the response on a COPY, and nothing is persisted.
+        #
+        # THIS IS ALSO MORE CORRECT ARITHMETIC, not merely more honest. Accrual
+        # re-based the clock on every read, so interest was compounded once per
+        # observation: reading a loan ten times charged more than reading it once.
+        # Computing from the un-rebased `last_interest_update` makes the answer a
+        # function of the loan and the clock, not of how often anyone looked.
         if loan_id not in self._loans:
             raise KeyError(f"Loan '{loan_id}' not found")
 
-        loan = self._loans[loan_id]
-        if loan["status"] == LoanStatus.ACTIVE:
-            self._accrue_interest(loan)
-        return loan
+        stored = self._loans[loan_id]
+        view = dict(stored)
+        if view["status"] == LoanStatus.ACTIVE:
+            self._accrue_interest(view)
+        return view
 
     async def repay_loan(
         self, loan_id: str, amount: float

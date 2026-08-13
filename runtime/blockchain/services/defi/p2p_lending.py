@@ -219,10 +219,20 @@ class P2PLending:
 
         offer["status"] = OfferStatus.FILLED
         offer["borrower"] = borrower
+        # DOMAIN 16-G — PROVENANCE MUST SURVIVE TO THE CONSUMER. This rebuilt the
+        # collateral record from three fields and dropped everything else, which
+        # discarded `value_source` and `value_usd_as_claimed` — the marks that
+        # say whether the valuation came from the service's oracle or from the
+        # borrower's own request body. Same lesson as domain 14's `rate_source`:
+        # the honest datum existed one call up and was lost at the boundary the
+        # reader sees. A lender cannot tell a verified valuation from a declared
+        # one if the record does not carry the difference.
         offer["collateral"] = {
             "token": collateral_token,
             "amount": collateral_amount,
             "value_usd": collateral_value,
+            "value_source": collateral.get("value_source", "caller_declared"),
+            "value_usd_as_claimed": collateral.get("value_usd_as_claimed"),
         }
         offer["accepted_at"] = now
         offer["repayment_due"] = repayment_due
