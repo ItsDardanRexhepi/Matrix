@@ -110,6 +110,26 @@ class ExchangeContract:
         )
         return dict(order)
 
+    def committed_sell_amount(self, security_id: str, trader: str) -> int:
+        """Units this trader already has promised via OPEN sell orders.
+
+        DOMAIN 13-B. `SecuritiesExchangeService.sell` validated against the raw
+        balance and reserved nothing, so N orders each passed against the same
+        unreduced position. This is the reservation the caller needs to subtract.
+        Counts `remaining_amount` (not `original_amount`) so partially-matched
+        orders only reserve what is still outstanding.
+        """
+        total = 0
+        for order in self._orders.values():
+            if (
+                order.get("security_id") == security_id
+                and order.get("trader") == trader
+                and order.get("side") == "sell"
+                and order.get("status") == "open"
+            ):
+                total += int(order.get("remaining_amount", 0))
+        return total
+
     async def cancel_order(self, order_id: str) -> dict:
         """Cancel an open order.
 
@@ -209,7 +229,20 @@ class ExchangeContract:
                 "seller": best_ask["trader"],
                 "buy_order_id": best_bid["order_id"],
                 "sell_order_id": best_ask["order_id"],
-                "executed_at": int(time.time()),
+                # DOMAIN 13-C — "matched", NOT "executed". This engine transfers
+                # NOTHING: it holds no reference to the service's `_balances`
+                # (see __init__ — config, order books, trades only), so it is
+                # structurally incapable of settling what it matches. Measured:
+                # one trade reported executed, balances unchanged, counterparty
+                # holding 0 afterwards. The order-book bookkeeping below is real
+                # work; the EXECUTION claim was the lie.
+                "matched_at": int(time.time()),
+                "settled": False,
+                "settlement": (
+                    "NOT SETTLED — this exchange has no settlement path. The "
+                    "match is a price/quantity agreement only; no security and "
+                    "no payment has moved."
+                ),
             }
             trades.append(trade)
             self._trades.append(trade)
@@ -222,19 +255,19 @@ class ExchangeContract:
 
             now = int(time.time())
             if best_bid["remaining_amount"] == 0:
-                best_bid["status"] = "filled"
+                best_bid["status"] = "matched_unsettled"
                 best_bid["updated_at"] = now
             else:
                 best_bid["updated_at"] = now
 
             if best_ask["remaining_amount"] == 0:
-                best_ask["status"] = "filled"
+                best_ask["status"] = "matched_unsettled"
                 best_ask["updated_at"] = now
             else:
                 best_ask["updated_at"] = now
 
             logger.info(
-                "Trade executed: id=%s security=%s price=%.4f amount=%d buyer=%s seller=%s",
+                "Trade MATCHED (unsettled): id=%s security=%s price=%.4f amount=%d buyer=%s seller=%s",
                 trade["trade_id"], security_id, exec_price, fill_qty,
                 best_bid["trader"], best_ask["trader"],
             )

@@ -202,6 +202,45 @@ class SecuritiesExchangeService:
                 f"Compliance check failed: {compliance_result['reason']}"
             )
 
+        # DOMAIN 13-A — REFUSED. THIS METHOD DELIVERED SECURITIES AND COLLECTED
+        # NOTHING. Measured: issuer 1000 -> 900, buyer 0 -> 100, and the returned
+        # trade asserted total_value=1000.0 for a payment that never occurred.
+        #
+        # THERE IS NO CONSIDERATION LEG ANYWHERE IN THIS DOMAIN. Grepped for
+        # payment/settle/escrow/debit/credit across all five files: the only hits
+        # are the word "accredited". `ExchangeContract.__init__` takes only
+        # config and holds order books — it has NO reference to `self._balances`,
+        # so the matching engine is structurally incapable of transferring what
+        # it matches. There is no settlement path to delegate to.
+        #
+        # WORSE THAN A FABRICATED SUCCESS. The NEW-57 payment stubs moved nothing
+        # in either direction, so the lie was symmetric — nobody received
+        # anything. Here ONE SIDE REALLY EXECUTES and persists: the buyer keeps
+        # the instrument. A recorded transfer of a REGULATED instrument asserting
+        # a price was paid is a counsel-relevant artifact (M3), not only a code
+        # defect.
+        #
+        # AND IT LEAVES THE DOMAIN: the dashboard reads `_balances` directly for
+        # `portfolio["securities"]`, so an unpaid credit renders as a user-facing
+        # holding.
+        #
+        # Refusing rather than dropping `total_value`: the defect is the unpaid
+        # TRANSFER, not the misleading field. Rejected alternative recorded in the
+        # domain-13 close.
+        #
+        # LIFTING CONDITION: a consideration leg that debits the buyer atomically
+        # with the credit, ROUTED THROUGH `self._compliance.check_transfer` —
+        # which is a REAL, WORKING control (it blocks non-whitelisted receivers,
+        # verified) and must not be bypassed by whatever settles.
+        raise NotImplementedError(
+            "Securities purchase is unavailable: this exchange has no settlement "
+            "path, so a buy would transfer the security without collecting "
+            "payment. Nothing here debits a buyer, and the matching engine "
+            "cannot reach balances at all. Returns once a consideration leg "
+            "exists that moves payment atomically with the security, through "
+            "the existing ERC-3643 compliance check."
+        )
+
         # Check issuer balance
         issuer_balance = self._balances.get((security_id, issuer), 0)
         if issuer_balance < amount:
@@ -269,10 +308,23 @@ class SecuritiesExchangeService:
         if price <= 0:
             raise ValueError("Sell price must be positive")
 
+        # DOMAIN 13-B — RESERVE AGAINST OPEN ORDERS. This checked the RAW balance
+        # and reserved nothing, so each order was validated against the same
+        # unreduced position: measured, a holder of 100 placed 3 x 100 = 300
+        # committed with the balance never moving. Unbounded over-commitment.
+        #
+        # INDEPENDENT OF THE SETTLEMENT QUESTION. Even once a consideration leg
+        # exists, an order book that lets a holder promise more than they hold is
+        # wrong on its own terms — so this is fixed here rather than deferred
+        # with 13-A.
         seller_balance = self._balances.get((security_id, seller), 0)
-        if seller_balance < amount:
+        committed = self._exchange.committed_sell_amount(security_id, seller)
+        available = seller_balance - committed
+        if available < amount:
             raise ValueError(
-                f"Insufficient balance: have={seller_balance}, selling={amount}"
+                f"Insufficient uncommitted balance: have={seller_balance}, "
+                f"already committed to open sell orders={committed}, "
+                f"available={available}, selling={amount}"
             )
 
         # Place as a sell order on the exchange
