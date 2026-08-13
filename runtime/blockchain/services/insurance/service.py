@@ -69,11 +69,32 @@ class InsuranceService:
         self._policies: dict[str, dict[str, Any]] = {}
         self._claims: dict[str, dict[str, Any]] = {}
 
+        # 18-J. The reserve's solvency gate weighed only the policy being
+        # written, because the exposure counter it read had no writers. It now
+        # asks the policy book directly, on every decision.
+        self._reserve_fund.set_exposure_provider(self._active_exposure)
+
         logger.info("InsuranceService initialised.")
 
     # ------------------------------------------------------------------
     # Policy lifecycle
     # ------------------------------------------------------------------
+
+    def _active_exposure(self) -> float:
+        """Total coverage the platform is on the hook for RIGHT NOW. 18-J.
+
+        Derived from the policy book rather than accumulated, so a lapse or a
+        payout is reflected without an event to hook. A policy counts only
+        while it is `active` AND unexpired: an expired policy cannot be
+        claimed against (`file_claim` and `auto_settle_claim` both refuse it),
+        so counting it would over-state exposure and refuse honest business.
+        """
+        now = int(time.time())
+        return sum(
+            float(p.get("coverage", {}).get("amount", 0.0))
+            for p in self._policies.values()
+            if p.get("status") == "active" and int(p.get("expires_at", 0)) > now
+        )
 
     async def create_policy(
         self,
@@ -328,6 +349,19 @@ class InsuranceService:
             claim_id, claim, policy, verified=verified, reason=reason,
         )
         claim.update(result)
+
+        # 18-K. RECORD THE OUTCOME AGAINST THE HOLDER'S HISTORY.
+        # `EligibilityTracker.record_claim` had ZERO CALLERS tree-wide, so
+        # `_history` never received a claim event, `_compute_risk_score`
+        # returned 0.0 for everyone forever, and TWO OF THE THREE
+        # `check_eligibility` gates were structurally unreachable — while both
+        # `check_eligibility` and `get_history` reported `risk_score` and
+        # `total_claims` as measured facts. A control fed by a writer that is
+        # never called is not a lenient control, it is an absent one wearing a
+        # control's clothes.
+        await self._eligibility.record_claim(
+            policy["holder"], claim_id, claim.get("status", "unknown"),
+        )
 
         if claim["status"] == "approved":
             policy["status"] = "claimed"
@@ -766,6 +800,19 @@ class InsuranceService:
             claim_id, claim, policy, verified=verified, reason=reason,
         )
         claim.update(result)
+
+        # 18-K. RECORD THE OUTCOME AGAINST THE HOLDER'S HISTORY.
+        # `EligibilityTracker.record_claim` had ZERO CALLERS tree-wide, so
+        # `_history` never received a claim event, `_compute_risk_score`
+        # returned 0.0 for everyone forever, and TWO OF THE THREE
+        # `check_eligibility` gates were structurally unreachable — while both
+        # `check_eligibility` and `get_history` reported `risk_score` and
+        # `total_claims` as measured facts. A control fed by a writer that is
+        # never called is not a lenient control, it is an absent one wearing a
+        # control's clothes.
+        await self._eligibility.record_claim(
+            policy["holder"], claim_id, claim.get("status", "unknown"),
+        )
         if claim.get("status") == "approved":
             policy["status"] = "claimed"
 
@@ -933,16 +980,59 @@ class InsuranceService:
                 "operation": "assess_risk",
                 "requested": {"holder": holder, "policy_type": policy_type},
             })
+        # 18-L. BOTH NUMBERS WERE LITERALS. `risk_score: 50` and
+        # `premium_estimate: 0.0` were hard-coded — no engine consulted, no
+        # history read, identical for every holder and every policy type. The
+        # status "assessed" is a real outcome, so the dispatcher attested and
+        # published a "risk assessment" that had assessed nothing. Measured
+        # against the honest engine: premium_estimate 0.0 versus 2000.0.
+        #
+        # This is the one insurance action that reached its caller through the
+        # dispatcher while the ownership actions were dead (18-H) — the
+        # fabricating path worked and the honest ones did not.
+        if policy_type not in POLICY_TYPES:
+            raise ValueError(
+                f"Unknown policy_type '{policy_type}'. "
+                f"Must be one of: {', '.join(sorted(POLICY_TYPES))}"
+            )
+
+        params = parameters or {}
+        coverage_amount = require_finite_money(
+            params.get("coverage_amount", params.get("amount", 0)),
+            "coverage_amount",
+        )
+        duration_days = int(params.get("duration_days", self._default_duration))
+
+        quote = await self._fee_engine.calculate_premium(
+            policy_type, coverage_amount, duration_days,
+            params.get("risk_factors", {}),
+        )
+        history = await self._eligibility.get_history(holder)
+
         assess_id = f"risk_{uuid.uuid4().hex[:16]}"
         record: dict[str, Any] = {
             "id": assess_id,
             "status": "assessed",
             "holder": holder,
             "policy_type": policy_type,
-            "parameters": parameters or {},
-            "risk_score": 50,
-            "premium_estimate": 0.0,
+            "parameters": params,
+            # 0..1 from the holder's real claim history (18-K wired the writer
+            # that feeds it), scaled to the 0..100 this field has always been
+            # documented as.
+            "risk_score": round(
+                float(history.get("risk_score", 0.0)) * 100.0, 2),
+            "premium_estimate": quote["total_premium"],
+            "premium_breakdown": quote,
+            "claims_on_record": history.get("total_claims", 0),
+            # §U / 16-G idiom: the amount this is quoted against is the
+            # ENQUIRER'S OWN, and no policy is created here. An estimate that
+            # did not say so would be read as a price the platform had agreed.
+            "estimate_basis": "caller_supplied_coverage_amount",
+            "estimate_is_binding": False,
             "assessed_at": int(time.time()),
         }
-        logger.info("Risk assessed: id=%s", assess_id)
+        logger.info(
+            "Risk assessed: id=%s premium_estimate=%s risk_score=%s",
+            assess_id, record["premium_estimate"], record["risk_score"],
+        )
         return record
