@@ -263,6 +263,23 @@ class LoanManager:
         self._accrue_interest(loan)
         total_owed = loan["borrow_amount"] + loan["accrued_interest"]
 
+        # DOMAIN 16-D — THE GUARD WAS AT THE WRONG LAYER, AND IT WAS MY MISS.
+        # 16-C put an isfinite check on `set_borrow_position`, which correctly
+        # refused a NaN repayment — but only AFTER this method had already
+        # mutated the loan. Driven: a refused NaN repay left the loan carrying
+        # `borrow_amount = nan`, i.e. the ledger was protected and the loan was
+        # corrupted. A torn write, produced by guarding the second writer and
+        # not the first.
+        #
+        # `min(nan, total_owed)` returns nan, and `nan <= accrued_interest` is
+        # False, so the NaN flowed into the principal branch.
+        #
+        # THE RULE: validate at the FIRST writer of the transaction, not the
+        # last. A guard downstream of a mutation converts silent corruption into
+        # loud corruption — an improvement, but not a fix.
+        if not math.isfinite(amount):
+            raise ValueError("Repayment amount must be a finite number")
+
         if amount <= 0:
             raise ValueError("Repayment amount must be positive")
 
@@ -354,28 +371,75 @@ class LoanManager:
 
         collateral_remaining = loan["collateral_amount"] - collateral_seized
 
-        loan["status"] = LoanStatus.LIQUIDATED
-        loan["collateral_amount"] = collateral_remaining
-        loan["borrow_amount"] = 0.0
-        loan["accrued_interest"] = 0.0
+        # DOMAIN 16-E, AND THIS HALF WAS WORSE THAN THE RETURN VALUE. The
+        # method used to mark the loan LIQUIDATED, reduce its recorded
+        # collateral, and set borrow_amount and accrued_interest to 0.0 — i.e.
+        # it ERASED THE DEBT while the borrower still held every unit of
+        # collateral. A lender reading this record sees a closed, settled
+        # position; the borrower has the asset and owes nothing on the books.
+        #
+        # The state must record that a liquidation is DUE, and must not pretend
+        # one occurred. Debt and collateral are left exactly as they are,
+        # because nothing about them changed.
+        loan["status"] = LoanStatus.ACTIVE
+        loan["liquidation_due"] = True
+        loan["liquidation_due_at"] = int(time.time())
+        loan["liquidation_ratio_at_determination"] = round(current_ratio, 4)
 
-        # Update pool
-        self._pool_borrowed[loan["borrow_token"]] = max(
-            0, self._pool_borrowed.get(loan["borrow_token"], 0) - total_owed
-        )
+        # The pool figure is NOT decremented. It was reduced by `total_owed` on
+        # the theory that the debt had been repaid out of seized collateral. No
+        # collateral was seized and no debt was repaid, so decrementing it
+        # understated outstanding borrowings by the full loan value.
 
+        # DOMAIN 16-E — "seized" WAS A CLAIM ABOUT SOMETHING THAT NEVER HAPPENED.
+        # LoanManager has no reference to CollateralManager's balances, so this
+        # method CANNOT move collateral — the same structural fact domain 13
+        # established for the securities exchange. Driven, on an eligible loan:
+        #
+        #   returned:  collateral_seized 1.0, collateral_remaining 0.0,
+        #              debt_repaid 1200.0, status "liquidated"
+        #   actual:    borrower's collateral ledger UNCHANGED at ETH 1.0,
+        #              borrow ledger UNCHANGED at USDC 1200.0
+        #
+        # Nothing was seized, nothing was repaid, and the borrower kept both the
+        # collateral and the debt. This is the LENDER'S ONLY REMEDY reporting
+        # success over an action it is structurally unable to perform.
+        #
+        # DISPOSITION — the NEW-85 test, and domain 13's `match_orders` ruling
+        # applied verbatim. Strip the outcome claim: is there work left? YES —
+        # the eligibility determination is real (price fetch, ratio computation,
+        # threshold comparison) and is the useful half. So this is category 6:
+        # the method stops claiming to have EXECUTED a liquidation and starts
+        # reporting what it actually did, which is DETERMINE that one is due.
+        #
+        # The amounts are kept as what they are — a QUOTE of what a real
+        # liquidation would take — under names that cannot be misread as a
+        # completed transfer.
         result = {
             "loan_id": loan_id,
-            "status": LoanStatus.LIQUIDATED,
-            "collateral_seized": round(collateral_seized, 8),
-            "collateral_remaining": round(collateral_remaining, 8),
-            "debt_repaid": round(total_owed, 8),
+            "status": "liquidation_due_unsettled",
+            "seized": False,
+            "value_moved": False,
+            "collateral_seizable": round(collateral_seized, 8),
+            "collateral_would_remain": round(collateral_remaining, 8),
+            "debt_outstanding": round(total_owed, 8),
             "liquidation_penalty": round(penalty, 8),
             "ratio_at_liquidation": round(current_ratio, 4),
+            "disclosure": (
+                "DETERMINED, NOT EXECUTED. This loan is eligible for "
+                "liquidation and the amounts above are what a liquidation "
+                "WOULD take. No collateral has been seized and no debt has "
+                "been repaid: LoanManager holds no reference to the collateral "
+                "ledger and cannot move it. A real liquidation requires a "
+                "settlement path that does not exist in this service."
+            ),
         }
 
+        # An operator reading logs is a surface too — inert means inert on every
+        # surface. Was "Loan liquidated: ... seized=...".
         logger.info(
-            "Loan liquidated: id=%s seized=%.6f %s ratio=%.2f",
+            "Liquidation DUE (NOT executed — no collateral moved): "
+            "id=%s seizable=%.6f %s ratio=%.2f",
             loan_id, collateral_seized, loan["collateral_token"], current_ratio,
         )
         return result

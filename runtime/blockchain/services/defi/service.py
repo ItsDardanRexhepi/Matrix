@@ -115,12 +115,17 @@ class DeFiService:
             collateral_price = await self._get_token_price(collateral_token)
             borrow_price = await self._get_token_price(borrow_token)
 
-            # Deposit collateral
-            await self._collateral_manager.deposit(
-                borrower, collateral_token, collateral_amount
-            )
-
-            # Create loan
+            # DOMAIN 16-F — THE DEPOSIT USED TO HAPPEN BEFORE THE LOAN WAS
+            # VALIDATED, AND NOTHING UNDID IT. `create_loan` below raises when
+            # the collateral ratio is below the minimum, and that exception
+            # propagated with no compensating debit — so a REFUSED loan left the
+            # collateral credited. Driven: create_loan(0xZ, ETH 0.1, USDC 1000)
+            # raised "Collateral ratio 0.20 is below minimum 1.50" and left
+            # `_balances["0xZ"] == {"ETH": 0.1}`.
+            #
+            # Two writes, one of which can fail, in an order where the survivor
+            # is the one that moves value. Ordered so the FALLIBLE step runs
+            # FIRST and the deposit is reached only once the loan is certain.
             loan = await self._loan_manager.create_loan(
                 borrower=borrower,
                 collateral_token=collateral_token,
@@ -129,6 +134,11 @@ class DeFiService:
                 borrow_amount=borrow_amount,
                 collateral_price=collateral_price,
                 borrow_price=borrow_price,
+            )
+
+            # The loan is validated and recorded; only now does collateral move.
+            await self._collateral_manager.deposit(
+                borrower, collateral_token, collateral_amount
             )
 
             # Record borrow for health tracking
