@@ -236,18 +236,34 @@ class DashboardAggregator:
         # Collect from each registered service that exposes activity
         for svc_name, svc in self._services.items():
             try:
+                # COPY BEFORE STAMPING. These dicts belong to the SUB-SERVICE.
+                # `item["component"] = svc_name` wrote into whatever the service
+                # returned — and services in this platform return their stored
+                # records BY REFERENCE, so a dashboard READ permanently added a
+                # `component` key to another service's state, for every
+                # registered service, on every page view. Reproduced against a
+                # service's own `_records` list before the fix.
+                #
+                # The stamped value is benign; the PRIMITIVE is not. A proven
+                # ability to hold and mutate references to foreign services'
+                # records is an arbitrary write one refactor away.
+                #
+                # SHALLOW copy deliberately: it closes the measured defect. A
+                # deep copy would assert that nested state is also safe without
+                # anyone having measured whether any service returns nested
+                # mutables — an unverified negative, the same shape as the
+                # queue_timelock disclosure. Deep-aliasing is on the register as
+                # a candidate to COUNT, not to pre-empt.
                 if hasattr(svc, "get_activity"):
                     svc_activity = await svc.get_activity(address)
                     if isinstance(svc_activity, list):
                         for item in svc_activity:
-                            item["component"] = svc_name
-                            activities.append(item)
+                            activities.append({**item, "component": svc_name})
                 elif hasattr(svc, "get_transactions"):
                     txs = await svc.get_transactions(address)
                     if isinstance(txs, list):
                         for tx in txs:
-                            tx["component"] = svc_name
-                            activities.append(tx)
+                            activities.append({**tx, "component": svc_name})
             except Exception as exc:
                 logger.warning(
                     "Failed to aggregate activity from %s: %s", svc_name, exc,

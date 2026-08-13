@@ -85,7 +85,22 @@ class DashboardService:
         portfolio = await self._aggregator.aggregate_portfolio(user_address)
 
         # Determine which components the user has interacted with
-        active_components = self._user_components.get(user_address, set())
+        # COPY BEFORE ADD — a read must not write. `.get(addr, set())` returns
+        # the STORED set when the key exists, and the `.add()` calls below then
+        # mutated it in place, so `get_overview` permanently widened the user's
+        # recorded components. Sixth mutation-on-read in this census.
+        #
+        # THE DEFAULT MASKED IT: for a user with no entry the mutation landed on
+        # the throwaway `set()`, so the bug only appeared on the SECOND call,
+        # after `record_interaction` had created a real entry — which is why
+        # unit tests with fresh fixtures could not see it.
+        #
+        # Two consequences, both closed here: `record_interaction`'s meaning
+        # stops being corrupted (it recorded interaction OR "once held a
+        # position a read observed"), and the component set stops being
+        # monotonic — nothing in this service ever removed a component, so a
+        # widened view could never narrow again.
+        active_components = set(self._user_components.get(user_address, set()))
 
         # Also infer from portfolio data
         if portfolio.get("staking_positions"):
