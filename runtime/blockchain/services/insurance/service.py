@@ -13,6 +13,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.services.insurance._guards import require_finite_money
+
 from runtime.blockchain.services.ownership import assert_owner
 from runtime.blockchain.services.insurance.eligibility import EligibilityTracker
 from runtime.blockchain.services.insurance.fee_engine import FeeEngine
@@ -108,7 +110,13 @@ class InsuranceService:
                 },
             })
 
-        coverage_amount = float(coverage.get("amount", 0))
+        # 18-B. THE BOUNDED RANGE BELOW CANNOT SEE NaN. `nan <= 0` is False and
+        # `nan > max` is False, so a NaN coverage satisfies NEITHER bound and
+        # passes both — §W's fifth shape, in the method that SETS THE PAYOUT
+        # (`approve_claim` pays out `float(policy["coverage"]["amount"])`).
+        # Rejected before the comparisons that are supposed to reject it.
+        coverage_amount = require_finite_money(
+            coverage.get("amount", 0), "coverage.amount")
         if coverage_amount <= 0:
             raise ValueError("coverage.amount must be positive")
         if coverage_amount > self._max_coverage:
@@ -134,6 +142,10 @@ class InsuranceService:
         )
         expected_premium = premium_calc["total_premium"]
 
+        # 18-B: `nan < expected` is False, so a NaN premium walked through the
+        # sufficiency check as well — the policy is priced by a number that is
+        # not one.
+        premium = require_finite_money(premium, "premium", allow_zero=True)
         if premium < expected_premium:
             return {
                 "status": "rejected",

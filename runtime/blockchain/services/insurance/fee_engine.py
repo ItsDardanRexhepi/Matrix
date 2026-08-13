@@ -12,6 +12,7 @@ Coverage tiers:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -116,14 +117,39 @@ class FeeEngine:
         adjustment_total = 0.0
         breakdown: list[dict[str, Any]] = []
 
+        # 18-A / §AN — THE PLATFORM'S OWN CONSTANT WAS AN ATTACKER-SCALED
+        # PARAMETER. `adj` is the platform's number (`first_time_buyer: -0.10`);
+        # `factor_value` is the CALLER'S. Multiplying one by the other let the
+        # party who PAYS the premium scale the discount the platform defined.
+        # Measured pre-fix: {} -> 2000.00 · {first_time_buyer: True} -> 1800.00 ·
+        # {first_time_buyer: 10} -> 0.01 · 1000, NaN and inf -> 0.01 as well,
+        # because the floor clamp turned every abusive value into the same
+        # unremarkable minimum (§AN.1 — a clamp reads as the control, and here
+        # it was what made the abuse quiet).
+        #
+        # A CALLER MAY SELECT A FACTOR. A CALLER MAY NOT SCALE ONE. Declaring
+        # `first_time_buyer` is a claim the platform prices; deciding it is worth
+        # ten times the platform's own figure is not a claim, it is arithmetic on
+        # the platform's policy. Numeric values are therefore treated as a
+        # PRESENCE FLAG, not a multiplier.
+        #
+        # NOT FIXED HERE, RECORDED INSTEAD (conservative disposition): nothing
+        # verifies `first_time_buyer` itself. Selecting a discount you are not
+        # entitled to is still possible and is §U's open half — it needs an
+        # underwriting source that does not exist in this repo, and inventing one
+        # would fabricate a control. The REJECTED ALTERNATIVE was to drop
+        # negative adjustments entirely; rejected because it silently reprices
+        # every honest policy that legitimately qualifies, trading a bounded
+        # abuse for an unbounded overcharge.
         for factor_name, factor_value in risk_factors.items():
-            adj = self._risk_adjustments.get(factor_name, 0.0)
-            if isinstance(factor_value, (int, float)):
-                adj *= float(factor_value)
-            elif factor_value is True:
-                pass  # use adj as-is
-            else:
+            if factor_name not in self._risk_adjustments:
                 continue
+            if factor_value is False or factor_value is None:
+                continue
+            if isinstance(factor_value, (int, float)) and not isinstance(factor_value, bool):
+                if not math.isfinite(float(factor_value)) or float(factor_value) <= 0:
+                    continue          # not a declaration at all
+            adj = self._risk_adjustments[factor_name]
 
             adjustment_total += adj
             breakdown.append({
