@@ -424,6 +424,63 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 }
 
 # Actions that modify state and should be attested via EAS
+#: DOMAIN 16-K — statuses that mean NOTHING HAPPENED.
+#: Every one is an idiom this audit either found or shipped:
+#:   not_deployed          the deployment gate refused (NEW-57 family)
+#:   error / failed        the service reported a failure
+#:   blocked / rejected    a control refused (rate limiter, compliance)
+#:   unavailable           the capability is not available in this deployment
+#:   recorded_unsettled    15-A — a local record, NO value moved
+#:   liquidation_due_unsettled   16-E — a determination, NOT an execution
+#:   pending / queued      not yet done; attesting now would assert the future
+_NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    "not_deployed", "error", "failed", "failure", "blocked", "rejected",
+    "refused", "declined", "unavailable", "not_available", "unsupported",
+    "recorded_unsettled", "liquidation_due_unsettled", "pending", "queued",
+    "skipped", "noop", "no_op",
+})
+
+
+def _outcome_is_real(result: Any) -> bool:
+    """Did the action actually happen? DOMAIN 16-K's single predicate.
+
+    Governs BOTH the attestation and the feed publish, so the two cannot drift
+    apart — domain 8 established the feed is keyed on action name rather than
+    result, and gating one without the other is the half-fix this engagement
+    keeps catching.
+
+    FAILS CLOSED, and the direction is the whole point. Misjudging a refusal as
+    real re-creates 16-K — a false attestation, the defect being fixed.
+    Misjudging a real action as a refusal costs an attestation and a feed row,
+    which is a visible gap someone can notice and correct. **An unrecorded truth
+    is recoverable; a recorded falsehood is not.** So anything not recognisably
+    an outcome is treated as a non-outcome.
+
+    Explicit about the shapes:
+      - a dict with a status in _NON_OUTCOME_STATUSES  -> False
+      - a dict carrying settled=False or value_moved=False -> False, whatever
+        its status says (15-A's idiom; the flags are the honest field)
+      - a dict with no `status` key at all             -> False, because we
+        cannot tell, and cannot-tell must not mint evidence
+      - None                                           -> False
+      - anything not a dict                            -> False, same reason
+    """
+    if not isinstance(result, dict):
+        return False
+
+    # 15-A's disclosure flags outrank the status string: a record that says
+    # settled=False is telling you plainly that nothing moved, even if some
+    # other field reads optimistically.
+    if result.get("settled") is False or result.get("value_moved") is False:
+        return False
+
+    status = result.get("status")
+    if status is None:
+        return False  # cannot tell -> do not attest
+
+    return str(status).strip().lower() not in _NON_OUTCOME_STATUSES
+
+
 _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "convert_contract", "create_loan", "repay_loan",
     "mint_nft", "create_nft_collection", "transfer_nft", "list_nft_for_sale",
@@ -892,14 +949,51 @@ class ServiceDispatcher:
 
             result = await method(**params)
 
-            # Attest state-modifying actions
+            # ── DOMAIN 16-K ────────────────────────────────────────────────
+            # THE ATTESTATION LAYER DID NOT CHECK WHETHER ANYTHING HAPPENED.
+            # Membership in _STATE_MODIFYING_ACTIONS was the ENTIRE condition;
+            # `result` was read only to pull tx_hash into the feed payload,
+            # never to decide whether to record. So every refusal — every
+            # `not_deployed`, every `status: "error"`, every honest decline this
+            # audit shipped — was attested and published AS AN ACTION TAKEN.
+            #
+            # Measured: 182 attested actions, of which 62 return an honest
+            # refusal. The system's mechanism for recording that something
+            # happened did not check whether it happened.
+            #
+            # KEYED ON THE RESULT, NOT ON DISPOSITION STYLE. A raised refusal
+            # never reached this block (the exception unwinds past it) while a
+            # returned one always did — so the clean subset was clean only
+            # because raise-vs-return was picked on local ergonomics, sixteen
+            # domains deep, never once on attestation behaviour. A style-keyed
+            # rule can be got wrong by accident by a future fix. This one cannot.
+            #
+            # BOTH SURFACES, ONE PREDICATE. Domain 8 established the feed is
+            # keyed on ACTION NAME rather than result, so gating the attestation
+            # alone would leave the feed announcing refusals — the half-fix this
+            # engagement keeps catching (15-A's log line, 16-I's third entry
+            # point). `_outcome_is_real` governs both.
+            #
+            # THE REFUSAL IS STILL RECORDED, AS A REFUSAL. Suppressing it would
+            # trade a false record for no record, which is the same defect facing
+            # the other way: an audit trail must show that the system DECLINED,
+            # not that nothing occurred.
             if action in _STATE_MODIFYING_ACTIONS:
-                await self._attest_action(action, target_service, params, result)
+                _happened = _outcome_is_real(result)
+
+                if _happened:
+                    await self._attest_action(action, target_service, params, result)
+                else:
+                    await self._attest_refusal(action, target_service, params, result)
 
                 # Fire-and-forget: publish to the social feed.
                 # Never blocks the response — failures are logged and
                 # swallowed inside SocialFeedEngine.ingest().
-                if self._feed_engine is not None:
+                # A REFUSAL IS NOT AN ACTIVITY: nothing happened, so nothing is
+                # announced. The refusal is still recorded above, where an audit
+                # trail belongs; the public feed is a different surface with a
+                # different contract.
+                if _happened and self._feed_engine is not None:
                     _component_id = None
                     try:
                         from extensions import registry as _reg
@@ -974,6 +1068,33 @@ class ServiceDispatcher:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _attest_refusal(
+        self,
+        action: str,
+        service_name: str,
+        params: dict,
+        result: Any,
+    ) -> None:
+        """Record that the platform DECLINED to act — as a decline.
+
+        DOMAIN 16-K. The counterpart to `_attest_action`. A refusal that leaves
+        no trace is not an improvement over a refusal recorded as a success: an
+        auditor reading the trail must be able to tell "the system declined" from
+        "nothing was ever asked". Both are answers; only one of them is silence.
+
+        Deliberately a LOG record rather than an EAS attestation. An on-chain
+        attestation costs gas and asserts a fact to third parties; "we declined
+        because contracts are not deployed" is an operational event, not a
+        counterparty-facing claim. If a deployment ever needs refusals on-chain
+        that is a product decision, and this is the seam it would hang from.
+        """
+        _status = result.get("status") if isinstance(result, dict) else None
+        logger.info(
+            "ACTION DECLINED (not attested, not published): action=%s service=%s "
+            "status=%s — the platform did not perform this action",
+            action, service_name, _status,
+        )
 
     async def _attest_action(
         self,
