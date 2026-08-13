@@ -247,6 +247,34 @@ class InsuranceService:
         Recorded here rather than half-patched, because a per-method guard in
         one service would make the seam look audited while leaving the general
         case open, which is the failure NEW-77 exists to prevent.
+
+        18-C [2026-08-13] — NEW-82's STATED BLOCKER HAS BEEN REMOVED, AND THE
+        FINDING IS STILL OPEN. Both halves matter.
+
+        REMOVED: 17-D built the identity binding this deferral said was missing.
+        `ServiceDispatcher.execute` now takes a keyword-only `caller_identity`,
+        `gateway/bridge.py` and `runtime/capabilities/registry.py` both pass the
+        wallet the security middleware already bound, and the dispatcher injects
+        it into the service call. The seam NEW-82 described as absent EXISTS.
+
+        STILL OPEN: the injection is SIGNATURE-GATED on the exact parameter name
+        `caller_identity`. Measured — `file_claim(policy_id, caller)`,
+        `cancel_policy(policy_id, caller)`, `renew_coverage(...)` and
+        `auto_settle_claim(...)` are each reached: False. THE NAMES DO NOT MATCH,
+        so an attacker still passes `caller="<victim>"` exactly as recorded.
+
+        NOT PATCHED HERE, AND DELIBERATELY. Renaming these four parameters would
+        close it for insurance and leave every other service's caller/holder/
+        creator argument unbound — which is the precise failure this deferral was
+        written to avoid, so the original ruling STANDS ON ITS OWN TERMS and is
+        not overturned. What changed is the cost: the platform-wide fix (map
+        caller/holder/creator to the authenticated identity AT the dispatcher) is
+        now a real option rather than a missing subsystem.
+
+        RECORDED BECAUSE A DEFERRAL THAT CITES A VANISHED BLOCKER AGES INTO A
+        FALSE ONE — 16-U's shape pointed forward. A reader finding this note
+        without this paragraph would conclude the mechanism does not exist, and
+        would be wrong.
         """
         policy = self._policies.get(policy_id)
         if not policy:
