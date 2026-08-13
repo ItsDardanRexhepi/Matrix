@@ -6,6 +6,7 @@ release, vesting schedules, and automatic refunds.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from typing import Any
@@ -76,6 +77,28 @@ _VALID_STATUSES = (
 # is removed or if any money path starts touching real value while the
 # clauses are unmet.
 # ══════════════════════════════════════════════════════════════════════════
+
+
+def _require_finite_positive(value: Any, name: str) -> float:
+    """20-A. A quantity that is not a finite positive number is not a quantity.
+
+    `nan <= 0` is False and `nan < floor` is False, so every ordered guard in
+    this module admits a NaN (§W's fifth shape). On a durable environmental
+    claim a NaN or a negative tonnage is not a small amount — it is not an
+    amount.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a number, got {value!r}") from None
+    if not math.isfinite(v):
+        raise ValueError(
+            f"{name} must be a finite number, got {value!r} — a non-finite "
+            f"value satisfies neither bound of a range check and passes both"
+        )
+    if v <= 0:
+        raise ValueError(f"{name} must be positive, got {v}")
+    return v
 
 
 class FundraisingService:
@@ -539,6 +562,10 @@ class FundraisingService:
         """Purchase carbon credits."""
         credit_id = f"cc_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
+        # 20-A. `tonnes_remaining` is the registry's balance and the ONLY
+        # field `retire_carbon_credit` may decrement. Without it a retirement
+        # had nothing to check itself against.
+        amount = _require_finite_positive(amount, "amount")
         record: dict[str, Any] = {
             "id": credit_id,
             "status": "purchased",
@@ -547,7 +574,19 @@ class FundraisingService:
             "project": project,
             "vintage_year": vintage_year or 2024,
             "tonnes_co2": amount,
+            "tonnes_remaining": amount,
             "purchased_at": now,
+            # 20-B. The dispatcher reads these FIRST to decide whether to
+            # attest and publish. They had ZERO writers here, so all four
+            # green actions were published to the durable public feed as real
+            # outcomes. Nothing is settled and no value moves — this is an
+            # in-process record.
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "Recorded in the platform's own registry. No credit was "
+                "acquired from a registry operator and no value moved."
+            ),
         }
         self._campaigns[f"_carbon_{credit_id}"] = record
         logger.info("Carbon credit purchased: id=%s", credit_id)
@@ -557,6 +596,50 @@ class FundraisingService:
         self, holder: str, credit_id: str, tonnes: float,
     ) -> dict:
         """Retire carbon credits to offset emissions."""
+        # 20-A. A RETIREMENT IS A CLAIM SOMEONE OUTSIDE THE PLATFORM RELIES ON.
+        #
+        # This method read NO field of any credit record and decremented
+        # nothing. MEASURED at pin e6cbc018: a credit_id that was never
+        # purchased returned status "retired"; the SAME id retired twice
+        # returned "retired" both times; NEGATIVE tonnage was accepted — and
+        # the record carried `tonnes=None`, so it did not even carry the
+        # quantity it claimed to retire. Unbounded, any caller, any id.
+        #
+        # §E.18 with the worst subject matter in the census: a retired carbon
+        # credit is a representation about an environmental commodity, relied
+        # on by an offset registry, a disclosure, or a regulator. Unlike a
+        # wrong internal balance, THE COUNTERPARTY FOR THIS RECORD IS OUTSIDE
+        # THE PLATFORM, and the retirement was attested and published to the
+        # durable public feed as a real outcome (20-B).
+        #
+        # ALREADY-PUBLISHED RETIREMENTS ARE NOT RETRACTED BY THIS FIX. Feed
+        # rows attesting retirements of credits that were never purchased
+        # persist. Same shape as the qr_secret prerequisite: a fix that stops
+        # new false records does not withdraw the old ones. Whether that is
+        # actionable is an operator decision, recorded in the close.
+        tonnes = _require_finite_positive(tonnes, "tonnes")
+        credit = self._campaigns.get(f"_carbon_{credit_id}")
+        if credit is None:
+            raise ValueError(
+                f"credit {credit_id!r} is not in the registry — nothing to "
+                f"retire. A retirement names a credit that was purchased."
+            )
+        if str(credit.get("buyer", "")).lower() != str(holder).lower():
+            raise PermissionError(
+                f"{holder!r} does not hold credit {credit_id!r}; it belongs to "
+                f"{credit.get('buyer')!r}."
+            )
+        remaining = float(credit.get("tonnes_remaining", 0.0))
+        if tonnes > remaining:
+            raise ValueError(
+                f"cannot retire {tonnes} tonnes of credit {credit_id!r}: only "
+                f"{remaining} remain. Retiring more than was bought is a "
+                f"double-count of the same offset."
+            )
+        credit["tonnes_remaining"] = remaining - tonnes
+        if credit["tonnes_remaining"] <= 0:
+            credit["status"] = "retired"
+
         retire_id = f"ccr_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
         record: dict[str, Any] = {
@@ -565,7 +648,14 @@ class FundraisingService:
             "holder": holder,
             "credit_id": credit_id,
             "tonnes_retired": tonnes,
+            "tonnes_remaining": credit["tonnes_remaining"],
             "retired_at": now,
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "Retired in the platform's own registry only. No retirement "
+                "was filed with an external offset registry."
+            ),
         }
         self._campaigns[f"_retire_{retire_id}"] = record
         logger.info("Carbon credit retired: id=%s", retire_id)
