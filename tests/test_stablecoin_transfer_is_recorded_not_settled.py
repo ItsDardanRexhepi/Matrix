@@ -128,14 +128,83 @@ def test_the_funding_path_still_works_for_tests():
     assert service._balances["0xA"]["USDC"] == 500.0
 
 
-async def test_an_unfunded_ledger_still_refuses_a_transfer():
-    """THE MEASUREMENT THAT MADE 15-A DISARMED. Nothing in production can fund a
-    balance, so the fabricated 'completed' was unreachable — disarmed by ABSENCE
-    OF A FUNDING PATH rather than by configuration, which is a distinct reason
-    from the config-caused entries in domain 14."""
+async def test_an_unfunded_ledger_still_refuses_a_well_formed_transfer():
+    """── THIS TEST PINNED A FALSE CLAIM. THE CLAIM IS RETRACTED. ──
+
+    It used to be named `test_an_unfunded_ledger_still_refuses_a_transfer` and
+    its docstring read: "Nothing in production can fund a balance, so the
+    fabricated 'completed' was unreachable — disarmed by ABSENCE OF A FUNDING
+    PATH." That was FALSE, and 15-D proves it: `transfer` with `amount=NaN`
+    funds the ledger from an unfunded address, reachable over HTTP.
+
+    The assertion below is still TRUE — it just does not support the conclusion
+    it was written to support. A WELL-FORMED transfer against an unfunded ledger
+    is refused. That is one input. The docstring generalised it to every input
+    and labelled 15-A "disarmed" on that basis.
+
+    Kept, renamed, and re-scoped rather than deleted, because the behaviour is
+    worth pinning and because the sixth adjudication category — a test that
+    pins an unverified claim — is better shown than described. 15-A is
+    reclassified ARMED in the closeout.
+    """
     service = StablecoinService({})
 
     result = await service.transfer("USDC", "0xA", "0xB", 100.0)
 
     assert result["status"] == "error"
     assert "insufficient balance" in result["error"].lower()
+
+
+# ── 15-D: the guard NaN walked through ───────────────────────────────────
+
+
+async def test_a_nan_amount_is_refused():
+    """15-D. NaN is False against EVERY comparison, so `amount <= 0` and
+    `sender_balance < amount` both passed it through."""
+    service = StablecoinService({})
+
+    result = await service.transfer("USDC", "0xA", "0xB", float("nan"))
+
+    assert result["status"] == "error"
+    assert "finite" in result["error"].lower()
+
+
+async def test_a_nan_transfer_cannot_fund_an_unfunded_ledger():
+    """THE ACTUAL HARM, asserted end to end. The first call poisoned three
+    ledger entries with NaN; the SECOND call then credited a real 39,990 USDC
+    from an address that was never funded. Driven at the pre-fix commit."""
+    service = StablecoinService({})
+
+    await service.transfer("USDC", "0xATTACKER", "0xSINK", float("nan"))
+    assert service._balances == {}, "a refused transfer still wrote to the ledger"
+
+    result = await service.transfer("USDC", "0xATTACKER", "0xVICTIM", 40_000.0)
+
+    assert result["status"] == "error"
+    assert "insufficient balance" in result["error"].lower()
+    assert (await service.get_balance("0xVICTIM", "USDC"))["balance"] == 0.0
+
+
+async def test_get_fee_does_not_classify_a_nan_into_the_maximum_tier():
+    """SAME AXIS, SECOND ENTRY POINT — the surface rule. `amount < threshold` is
+    False for NaN on every tier, so NaN fell through the whole loop and returned
+    fee=NaN under tier "maximum", as though it had classified the amount."""
+    service = StablecoinService({})
+
+    fee = await service.get_fee(float("nan"))
+
+    assert fee["tier"] == "invalid"
+    assert fee["fee"] == 0.0
+
+
+async def test_an_infinite_amount_is_refused_with_a_reason():
+    """inf was ALREADY refused before the fix, but for the wrong reason —
+    `sender_balance < inf` is True, so it read as "insufficient balance" rather
+    than as a malformed amount. A funded ledger would have changed that answer."""
+    service = StablecoinService({})
+    service.set_balance("0xA", "USDC", 1000.0)
+
+    result = await service.transfer("USDC", "0xA", "0xB", float("inf"))
+
+    assert result["status"] == "error"
+    assert "finite" in result["error"].lower()

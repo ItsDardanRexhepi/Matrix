@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import time
 import uuid
 from typing import Any
@@ -107,6 +108,16 @@ class StablecoinService:
                 "status": "error",
                 "error": f"Unsupported token: {token}. Supported: {sorted(self.supported_tokens)}",
             }
+
+        # DOMAIN 15-D — NaN DEFEATS EVERY COMPARISON GUARD BELOW.
+        # `amount <= 0` is False for NaN, and so is `sender_balance < amount`,
+        # so an UNFUNDED address walked both checks and credited a recipient a
+        # real amount on the next call, having poisoned the ledger with NaN.
+        # This must come BEFORE the sign check, not after: ordering is the whole
+        # fix, since a NaN reaching any `<`/`<=` silently answers False.
+        # json.loads accepts a bare `NaN` literal, so this arrived over HTTP.
+        if not math.isfinite(amount):
+            return {"status": "error", "error": "Amount must be a finite number"}
 
         if amount <= 0:
             return {"status": "error", "error": "Amount must be positive"}
@@ -260,6 +271,12 @@ class StablecoinService:
         Returns:
             Dict with fee amount, rate, and tier description.
         """
+        # DOMAIN 15-D, SAME AXIS. `amount < threshold` is False for NaN on every
+        # tier, so a NaN fell through the whole tier loop to the "maximum" tier
+        # and returned fee=NaN as though it had classified the amount.
+        if not math.isfinite(amount):
+            return {"fee": 0.0, "rate": 0.0, "tier": "invalid", "amount": amount}
+
         if amount <= 0:
             return {"fee": 0.0, "rate": 0.0, "tier": "invalid", "amount": amount}
 
@@ -295,15 +312,35 @@ class StablecoinService:
         INERT PRIMITIVE ONE LINE FROM LIVE IS NOT SAFE, IT IS UNATTENDED. One
         ACTION_MAP entry, no config change, no gate to notice.
 
-        NOT DELETED, because it is the ONLY thing that funds the ledger — driven,
-        an unfunded transfer returns "Insufficient balance: 0.000000", so
-        removing it would make every transfer permanently impossible and destroy
-        the test path. Instead it is GATED to the test environment, which keeps
-        the funding path and removes the unattended mint.
+        NOT DELETED, because it is the only INTENDED way to fund the ledger —
+        removing it would destroy the test path. Gated instead, which keeps the
+        funding path and removes the unattended mint.
 
-        This is also why 15-A is DISARMED BY ABSENCE OF A FUNDING PATH rather
-        than by configuration: the fabricated "completed" was unreachable in
-        production because nothing could give an address a balance.
+        ── CORRECTION, 15-D. THE SENTENCE THAT USED TO BE HERE WAS FALSE. ──
+
+        This docstring claimed set_balance was "the ONLY thing that funds the
+        ledger", and concluded that 15-A was DISARMED BY ABSENCE OF A FUNDING
+        PATH. Both statements were wrong, and a test I wrote in the same commit
+        pinned the second one.
+
+        `transfer` funds the ledger too, for an address with no balance at all:
+        `amount = NaN` makes `amount <= 0` False AND `sender_balance < amount`
+        False, so an unfunded sender walked every guard, wrote NaN into three
+        ledger entries, and on the NEXT call credited a recipient 39,990 USDC —
+        driven end to end through the live ACTION_MAP path, since json.loads
+        accepts a bare `NaN` literal off the wire.
+
+        So 15-A was ARMED, not disarmed, and this gate narrowed the unattended
+        mints from two to one rather than closing the class. The remaining one is
+        closed by the `math.isfinite` guard in `transfer` above.
+
+        WHAT THE ERROR WAS, since it is the transferable part: I verified the
+        premise by driving ONE path (an unfunded transfer of a valid amount
+        returns "Insufficient balance") and generalised it to ALL paths. An
+        absence claim — "nothing can fund this" — is a statement about every
+        input, and a single well-formed input cannot establish it. The standing
+        rule says absence claims are adjudicated, never assumed; I adjudicated
+        this one against a sample of size one and wrote a test that pinned it.
         """
         import os
         import sys
