@@ -123,6 +123,29 @@ class ComplianceScaffold:
         flags: list[str] = []
         needs_verification = False
 
+        # DOMAIN 14-C — SCREENING AGAINST AN EMPTY LIST IS NOT SCREENING.
+        # Every corridor declares sanctions_check: True and the logic below is
+        # real — it refuses on a hit. But `_sanctions_list` is fed from
+        # config `cross_border.sanctions_list`, which is EMPTY in the shipped
+        # deployment (measured: len 0), so the branch runs and can never match.
+        #
+        # NOT UNREACHABLE — UNFED. That distinction matters: the sibling
+        # controls in this method genuinely enforce (a 50,000 transfer is
+        # refused on the reporting threshold, driven), so this is ONE control
+        # configured to catch nothing, not a dead compliance module.
+        #
+        # A CONTROL THAT REPORTS ENABLED AND CANNOT MATCH IS WORSE THAN ONE
+        # THAT REPORTS DISABLED: it produces the paperwork of screening without
+        # the screening, and a reviewer reading `sanctions_check: True`
+        # reasonably concludes the corridor is screened.
+        #
+        # NOT FIXED BY POPULATING A LIST HERE. Writing sanctioned addresses
+        # from memory would fabricate the exact class of data this audit exists
+        # to remove, and a WRONG entry blocks a legitimate party — a false
+        # positive on a sanctions list is its own serious harm. The list must
+        # come from a real source; until it does, the result says so.
+        sanctions_configured = bool(self._sanctions_list)
+
         # Sanctions check
         if reqs.get("sanctions_check", True):
             if sender in self._sanctions_list:
@@ -168,11 +191,30 @@ class ComplianceScaffold:
 
         approved = not needs_verification
 
+        # DOMAIN 14-C — REPORT WHETHER THE SCREEN COULD ACTUALLY RUN. Without
+        # this, a caller reading `requirements: {"sanctions_check": True, ...}`
+        # concludes the corridor was screened. It was not: the list is empty.
+        if reqs.get("sanctions_check", True) and not sanctions_configured:
+            flags.append("sanctions_screening_unavailable")
+
         result: dict[str, Any] = {
             "approved": approved,
             "corridor": corridor,
             "amount": amount,
             "flags": flags,
+            "sanctions_screened": bool(
+                reqs.get("sanctions_check", True) and sanctions_configured
+            ),
+            "sanctions_disclosure": (
+                None if sanctions_configured or not reqs.get("sanctions_check", True)
+                else (
+                    "NOT SCREENED — this corridor requires sanctions screening "
+                    "and no sanctions list is configured in this deployment "
+                    "(config: cross_border.sanctions_list). The check ran "
+                    "against an empty list and cannot have matched. Do not "
+                    "treat this result as a completed sanctions screen."
+                )
+            ),
             "requirements": reqs,
             "regulations": reqs.get("regulations", []),
             "checked_at": int(time.time()),
