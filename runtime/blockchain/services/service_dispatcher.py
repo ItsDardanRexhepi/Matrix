@@ -433,12 +433,82 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 #:   recorded_unsettled    15-A — a local record, NO value moved
 #:   liquidation_due_unsettled   16-E — a determination, NOT an execution
 #:   pending / queued      not yet done; attesting now would assert the future
+#: 16-N. A DENY-LIST WAS A CLOSED-WORLD GUESS ABOUT AN OPEN VOCABULARY.
+#: The first version of this predicate ended `status not in _NON_OUTCOME_STATUSES`,
+#: so any status the list had not anticipated read as a real outcome. On the
+#: status axis it FAILED OPEN — the exact inversion of the docstring above it.
+#: The vocabulary is not open, though: it is finite and it can be counted. An AST
+#: census of every status literal in the 50 packages reachable from
+#: `_STATE_MODIFYING_ACTIONS` returns 115 distinct strings. Both sets below are
+#: that census, classified. `test_refusals_are_not_attested.py` re-derives it and
+#: fails if any status is unclassified, so "unanticipated" is no longer a state
+#: this predicate can be in without the suite saying so.
 _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    # the platform refused, failed, or had nothing to do
     "not_deployed", "error", "failed", "failure", "blocked", "rejected",
     "refused", "declined", "unavailable", "not_available", "unsupported",
-    "recorded_unsettled", "liquidation_due_unsettled", "pending", "queued",
-    "skipped", "noop", "no_op",
+    "chain_error", "provider_error", "invalid", "invalid_request",
+    "compliance_hold", "denied", "needs_changes", "expired", "grace_period",
+    "no_rewards", "no_position", "no_submission", "nothing_to_claim",
+    "not_found", "not_started", "none", "already_released", "unknown",
+    # not yet done — attesting now would assert the future
+    "pending", "queued", "skipped", "noop", "no_op", "pending_verification",
+    # this audit's own unsettled idiom: a record was written, no value moved
+    "recorded_unsettled", "liquidation_due_unsettled", "calculated_unpaid",
+    "recorded_unqueued", "matched_unsettled",
+    # PREPARED, UNSIGNED transactions. `auctions._prepared_response`: "The server
+    # returns to/data/value/chainId only — it does NOT sign and does NOT
+    # broadcast." Identical in kind to `recorded_unsettled`, which was already
+    # here; these were missed because the naming convention differs.
+    "prepared", "prepared_unsigned",
+    # reads and checks. A lookup is not a state change, and attesting one would
+    # record an action that no caller performed.
+    "found", "known", "queried", "reviewed", "checked", "valid", "suspicious",
+    # preconditions unmet / not this deployment's job
+    "not_configured", "not_ready", "not_registered", "not_qualified",
+    "not_settlement", "unresolved", "in_progress", "degraded",
 })
+
+#: The other half of the same census: statuses that report a real state change or
+#: a broadcast transaction, where "this action happened" is a true claim.
+_REAL_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    "submitted", "claim_submitted", "confirmed", "deployed", "executed",
+    "active", "open", "created", "registered", "proposed", "requested",
+    "reserved", "filed", "appealed", "responded", "escalated", "countered",
+    "finalized", "processed", "processing", "pending_review", "flagged",
+    "accepted", "approved", "completed", "resolved", "resolved_paid",
+    "resolved_cancelled", "triggered", "attested", "verified", "assessed",
+    "minted", "listed", "published", "purchased", "invested", "funded",
+    "released", "refunding", "refunded", "retired", "granted", "issued",
+    "sold", "traded", "transferred", "claimed", "deposited", "withdrawn",
+    "repaid", "filled", "passed", "entered", "placed", "rented", "bridged",
+    "fractionalized", "rights_set", "configured", "generated", "stored",
+    "written", "logged", "manufactured", "tracked", "recorded", "sent",
+    "following", "updated", "converted", "cancelled", "deactivated",
+    "deregistered", "renewed", "authorized", "applied", "rolled_back",
+    "reset", "ok", "success", "succeeded", "done",
+    # `runtime/blockchain/*.py` — the shared helpers services return through.
+    # A first scoping of this census covered `services/<pkg>/` only and could not
+    # see them, which is how "success" itself came to be missing from a set whose
+    # whole job is naming successes.
+    "compiled", "verification_submitted", "source_generated", "payment_attested",
+    "routed", "scheduled", "settled", "staked", "unstaked", "supplied",
+    "borrowed", "voted", "revoked", "frozen", "started", "qualified",
+    "validated", "under_escrow",
+})
+
+
+def _normalise_status(status: Any) -> str:
+    """Reduce a status value to the string the classification sets are keyed on.
+
+    `str(LoanStatus.ACTIVE)` is ``"LoanStatus.ACTIVE"``, NOT ``"active"`` — a
+    ``(str, Enum)`` member does not stringify to its value. Seven attested
+    services return enum members directly (`defi/loans.py`, `defi/p2p_lending.py`,
+    `dao_management/treasury.py`, …), so without this every one of them missed
+    both sets. Harmless today because those members happen to be successes; a
+    single failure member on the same pattern would have been attested as real.
+    """
+    return str(getattr(status, "value", status)).strip().lower()
 
 
 def _outcome_is_real(result: Any) -> bool:
@@ -472,9 +542,19 @@ def _outcome_is_real(result: Any) -> bool:
     the surface in the name of preventing a false record. "Fail closed" is only
     safe when you have correctly identified which direction "closed" is.
 
-    So: a dict is REAL unless it says otherwise. It says otherwise by carrying a
-    non-outcome status, or by carrying 15-A's disclosure flags, which outrank an
-    optimistic status because they are the field that was added to be honest.
+    THAT ASYMMETRY DECIDES ONE AXIS ONLY, AND A LATER PASS FOUND IT APPLIED TO
+    TWO. Absence of a status is evidence of success. A status that is PRESENT but
+    unrecognised is not evidence of anything, and the first version of this
+    predicate — `status not in _NON_OUTCOME_STATUSES` — read it as success. The
+    deny-list held 18 strings; the services emit 115. So the two axes now have
+    two different defaults, each measured rather than reasoned:
+
+      * no `status` key                -> REAL   (17 of 182 actions; measured)
+      * `status` present, unrecognised -> NOT REAL
+
+    and the classification itself is a census rather than a guess, held in place
+    by a test that re-derives it. 15-A's disclosure flags still outrank both,
+    because they are the field that was added to be honest.
 
     Non-dicts and None still return False: they are not this codebase's success
     idiom, they carry no refusal vocabulary to check, and no attested action
@@ -489,11 +569,38 @@ def _outcome_is_real(result: Any) -> bool:
     if result.get("settled") is False or result.get("value_moved") is False:
         return False
 
+    # 16-O. POSITIVE EVIDENCE OUTRANKS A LIFECYCLE STATUS.
+    # A record-creating action reports the NEW RECORD's status, not its own
+    # disposition. `x402.create_payment` mints a payment id, signs the header and
+    # persists the record, then returns the payment's real lifecycle state,
+    # "pending" — because NEW-56, an earlier fix in this same audit, stopped it
+    # overwriting that field with "created". Without this branch, that honesty fix
+    # reads as a refusal and a genuine, durable action loses its record. The two
+    # meanings are not separable from the string: `insurance` returns
+    # "pending" for "reserve insufficient, claim NOT paid" — a true refusal — and
+    # both are correct. Only the service can break the tie, and `created: True` is
+    # it saying so. It does not outrank 15-A's flags: those report that no value
+    # moved, which is a different and stronger claim than "a record now exists".
+    if result.get("created") is True:
+        return True
+
     status = result.get("status")
     if status is None:
         return True  # no refusal vocabulary present -> a plain success shape
 
-    return str(status).strip().lower() not in _NON_OUTCOME_STATUSES
+    s = _normalise_status(status)
+    if s in _NON_OUTCOME_STATUSES:
+        return False
+    if s in _REAL_OUTCOME_STATUSES:
+        return True
+
+    # PRESENT BUT UNRECOGNISED -> NOT AN OUTCOME. The measured asymmetry that
+    # decides the `status is None` case above does NOT extend to here: a service
+    # that bothered to name a status is precisely the case where absence of
+    # evidence is not evidence. Falling through to True is what let
+    # `compliance_hold` be attested and published to the public feed as a
+    # completed $5,000 payment that compliance had in fact refused.
+    return False
 
 
 _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
@@ -1104,10 +1211,19 @@ class ServiceDispatcher:
         counterparty-facing claim. If a deployment ever needs refusals on-chain
         that is a product decision, and this is the seam it would hang from.
         """
+        # 16-N. REPORT WHAT WAS OBSERVED, NOT THE NEGATIVE FACT IT IMPLIES.
+        # This line used to end "— the platform did not perform this action",
+        # which is an unqualified assertion derived entirely from the predicate.
+        # 16-N found two cases where the predicate was wrong in each direction,
+        # and in the create_payment direction this log was the ONLY output: a
+        # genuine, persisted payment recorded as something that did not happen.
+        # A wrong predicate should leave a gap in the trail, not a falsehood in
+        # it — the same principle the attestation path is built on, applied to
+        # the path that runs when the attestation path declines.
         _status = result.get("status") if isinstance(result, dict) else None
         logger.info(
             "ACTION DECLINED (not attested, not published): action=%s service=%s "
-            "status=%s — the platform did not perform this action",
+            "status=%s — no outcome evidence in the service result",
             action, service_name, _status,
         )
 
