@@ -11,6 +11,8 @@ import logging
 import time
 from typing import Any
 
+from runtime.blockchain.services.insurance._guards import require_finite_money
+
 logger = logging.getLogger(__name__)
 
 _MIN_RESERVE_RATIO = 1.5  # 150 %
@@ -75,6 +77,13 @@ class ReserveFund:
         Returns:
             Updated balance and solvency info.
         """
+        # 18-M. `deposit` was NaN-blind too, and NO census finding named it —
+        # 27 findings enumerated the withdrawal side and none the deposit side.
+        # A chokepoint fix at `withdraw` alone would have left this half open,
+        # and one NaN deposit poisons the balance exactly as a NaN withdrawal
+        # does. Zero callers today; guarded because the asymmetry is the whole
+        # lesson (§AK.2 — one call site named, several sharing the defect).
+        amount = require_finite_money(amount, "deposit amount")
         if amount <= 0:
             raise ValueError("Deposit amount must be positive")
 
@@ -103,6 +112,19 @@ class ReserveFund:
         Returns:
             Updated balance.
         """
+        # 18-M. DEFENCE IN DEPTH, and the guard the census's recommended
+        # chokepoint fix would have missed on the other side. Both bounded
+        # comparisons below are False against NaN — `nan <= 0` and
+        # `nan > balance` — so a NaN satisfied NEITHER and passed BOTH, and the
+        # subtraction then made `_balance` itself NaN, after which every later
+        # solvency comparison is False and the CORRECTLY-PRICED path is refused
+        # forever while the unpriced one is unbounded (§W's fifth shape).
+        #
+        # Both `_policies` writers now reject non-finite amounts (18-B, 18-F,
+        # 18-I), so today there is NO ARMED PATH to here. This is the guard at
+        # the place that does the arithmetic, so a future fourth writer cannot
+        # reopen it.
+        amount = require_finite_money(amount, "withdrawal amount")
         if amount <= 0:
             raise ValueError("Withdrawal amount must be positive")
         if amount > self._balance:

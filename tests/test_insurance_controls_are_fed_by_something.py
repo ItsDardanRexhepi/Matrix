@@ -239,3 +239,113 @@ async def test_a_non_finite_coverage_cannot_be_assessed(bad):
     svc = _armed(InsuranceService({}))
     with pytest.raises(ValueError, match="finite"):
         await svc.assess_risk("alice", "earthquake", {"coverage_amount": bad})
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 18-M · the reserve's own arithmetic
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("op", ["withdraw", "deposit"])
+async def test_the_reserve_refuses_a_non_finite_amount(op, bad):
+    """DEFECT-PROVER, DEFENCE IN DEPTH. Both bounded comparisons in `withdraw`
+    are False against NaN — `nan <= 0` and `nan > balance` — so a NaN
+    satisfied neither and passed both, and the subtraction made `_balance`
+    itself NaN. Every later solvency comparison is then False: the
+    correctly-priced path is refused forever while the unpriced one is
+    unbounded.
+
+    `deposit` was NaN-blind on the same shape and NO census finding named it —
+    27 findings enumerated the withdrawal side and none the deposit side. A
+    chokepoint fix at `withdraw` alone would have left this half open (§AK.2).
+
+    Both `_policies` writers now reject non-finite amounts, so there is no
+    armed path here today. This is the guard at the arithmetic itself, so a
+    future fourth writer cannot reopen it.
+    """
+    fund = ReserveFund({"insurance": {"initial_reserve": 1_000.0}})
+    with pytest.raises(ValueError, match="finite"):
+        await getattr(fund, op)(bad)
+    assert fund._balance == 1_000.0
+
+
+async def test_the_reserve_still_refuses_an_oversized_withdrawal():
+    """SCOPE PIN — the original insufficiency guard must still bind."""
+    fund = ReserveFund({"insurance": {"initial_reserve": 1_000.0}})
+    with pytest.raises(ValueError, match="Insufficient reserve"):
+        await fund.withdraw(5_000.0)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 18-N · the same ledger call, classified in opposite directions
+# ══════════════════════════════════════════════════════════════════════════
+
+
+async def test_both_claim_paths_disclose_that_no_value_moved():
+    """DEFECT-PROVER. `auto_settle_claim` and `file_claim` both reach
+    `ReserveFund.withdraw`, which is a ledger decrement — no transfer occurs on
+    either. The sibling disclosed it; `file_claim` returned an "approved" claim
+    with a `payout_amount` and said nothing, so the identical fact was
+    disclosed on one path and withheld on the other.
+
+    `file_claim` is the more dangerous half: it is the path a claimant actually
+    files on, and "approved, payout_amount 50000.0" reads as "you have been
+    paid"."""
+    svc = _armed(InsuranceService({"insurance": {"initial_reserve": 5_000_000.0}}))
+    pol = await _quake(svc, "alice", 1_000.0)
+
+    async def real_quake(_t):
+        return {"oracle_type": "custom", "cached": False, "timestamp": 1,
+                "data": {"magnitude": 7.9}}
+    svc._trigger_manager._fetch_oracle_data = real_quake
+
+    claim = await svc.file_claim(pol["policy_id"], caller="alice")
+
+    assert claim["status"] == "approved"
+    assert claim["value_moved"] is False
+    assert "NOT a transfer" in claim["disclosure"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 18-O · the corpus that scripted a promise the code could not keep
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_the_scripted_renewal_call_can_actually_be_made():
+    """DEFECT-PROVER (§T.3). The corpus declared `new_period` and
+    `updated_coverage`; the method accepts neither, so driving the shipped
+    example produced "renew_coverage() got an unexpected keyword argument
+    'new_period'". A shipped example that cannot run is written and not
+    wired."""
+    import inspect
+    import runtime.chat.intent_actions as ia
+
+    entry = next(
+        v["cover_renew"] for name in dir(ia)
+        if isinstance(v := getattr(ia, name), dict) and "cover_renew" in v
+    )
+    accepted = inspect.signature(InsuranceService.renew_coverage).parameters
+    declared = ([p["name"] for p in entry["required_params"]]
+                + [p["name"] for p in entry.get("optional_params", [])])
+
+    assert [p for p in declared if p not in accepted] == []
+
+
+def test_the_corpus_does_not_promise_cover_before_the_call_returns():
+    """DEFECT-PROVER (§AH, one layer above the code). The example line read
+    "Your coverage continues uninterrupted." against a method that renewed
+    nothing. The model was not fabricating — it was repeating a guarantee the
+    platform wrote down for it. 18-G made renewal real, but it can still refuse
+    on price or status, so the assurance must follow the result."""
+    import runtime.chat.intent_actions as ia
+
+    entry = next(
+        v["cover_renew"] for name in dir(ia)
+        if isinstance(v := getattr(ia, name), dict) and "cover_renew" in v
+    )
+    example = entry["example_conversation"]
+    assert "continues uninterrupted" not in example
+    assert example.index("platform_action") < example.index("Renewed"), (
+        "the outcome must be stated AFTER the call, not before it"
+    )

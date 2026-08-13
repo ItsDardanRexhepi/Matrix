@@ -3797,12 +3797,38 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "cover_renew": {
         "action_name": "cover_renew",
         "description": "Renew an existing insurance coverage period.",
+        # 18-O. TWO DEFECTS, ONE ENTRY, AND BOTH ARE ABOUT THE CORPUS RATHER
+        # THAN THE CODE.
+        #
+        # (1) THE PARAMETERS WERE WRONG. This declared `new_period` and
+        #     `updated_coverage`; `InsuranceService.renew_coverage` accepts
+        #     neither. Driving the scripted call produced
+        #     "renew_coverage() got an unexpected keyword argument
+        #     'new_period'" — so the documented chat contract could never
+        #     succeed, while the capability/API path (which uses the real
+        #     signature) reached the method. A shipped example that cannot run
+        #     is a §T.3: written, and not wired.
+        #
+        # (2) THE SCRIPT PROMISED SOMETHING THE METHOD COULD NOT KEEP. The
+        #     example line read "Your coverage continues uninterrupted."
+        #     against a method that, until 18-G, renewed nothing — never
+        #     looked the policy up, never wrote the store, never moved
+        #     `expires_at` — while the holder's cover lapsed on its original
+        #     date. That is §AH one layer ABOVE the code: the instruction
+        #     corpus teaching the assistant to make the exact assurance the
+        #     implementation contradicts. The model is not fabricating here;
+        #     it is repeating a guarantee the platform wrote down for it.
+        #
+        # 18-G made the renewal real, priced and ownership-checked, so the
+        # promise is now keepable — but only if the assistant stops asserting
+        # it BEFORE the call returns. The example now states the outcome after
+        # the result, and names the two things that can refuse it.
         "required_params": [
             {"name": "policy_id", "type": "string", "description": "The policy to renew.", "example": "policy_weather_001"},
-            {"name": "new_period", "type": "string", "description": "New coverage period (e.g. '6m', '1y').", "example": "1y"},
+            {"name": "additional_premium", "type": "number", "description": "Premium paid for the extension. Must meet the quoted amount or the renewal is refused.", "example": 250.0},
         ],
         "optional_params": [
-            {"name": "updated_coverage", "type": "object", "description": "Updated coverage details if changing the terms.", "default": None},
+            {"name": "extension_days", "type": "integer", "description": "Length of the extension in days.", "default": 365},
         ],
         "keywords": ["renew insurance", "extend coverage", "renew policy", "continue coverage"],
         "follow_up": "Which policy do you want to renew, and for how long?",
@@ -3810,8 +3836,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             "User: I need to renew my weather insurance\n"
             "Trinity: Of course. What's the policy ID, and how long do you want the new coverage period to be?\n"
             "User: Policy policy_weather_001, renew for another year\n"
-            "Trinity: Renewing policy_weather_001 for another year with the same terms. Your coverage continues uninterrupted.\n"
-            "Trinity: [calls platform_action with action='cover_renew', params={policy_id: 'policy_weather_001', new_period: '1y'}]"
+            "Trinity: [calls platform_action with action='cover_renew', params={policy_id: 'policy_weather_001', additional_premium: 250.0, extension_days: 365}]\n"
+            "Trinity: Renewed — policy_weather_001 now runs to 12 March 2027. "
+            "A renewal can be refused if the additional premium is below the "
+            "quoted amount, or if the policy has been cancelled or claimed, so "
+            "I check the result before telling you cover continues."
         ),
     },
 

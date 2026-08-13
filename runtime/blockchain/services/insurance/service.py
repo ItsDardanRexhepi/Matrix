@@ -370,7 +370,28 @@ class InsuranceService:
             "Claim filed: id=%s policy=%s status=%s",
             claim_id, policy_id, claim["status"],
         )
-        return claim
+
+        # 18-N. THE SAME LEDGER CALL, CLASSIFIED IN OPPOSITE DIRECTIONS.
+        # `auto_settle_claim` and this method both reach
+        # `ReserveFund.withdraw`, which is `self._balance -= amount` plus a
+        # ledger append — no transfer occurs on either. The sibling says so
+        # (`value_moved: False` plus a disclosure); this one returned an
+        # "approved" claim carrying a `payout_amount` and said nothing, so the
+        # identical fact was disclosed on one path and not the other.
+        #
+        # A claimant reading "approved, payout_amount 50000.0" concludes they
+        # have been paid. The divergence was caused by a single missing field,
+        # and it is the more dangerous half: this is the path a claimant
+        # actually files on.
+        return {
+            **claim,
+            "value_moved": False,
+            "disclosure": (
+                "Claim decision and reserve accounting are real; the payout is "
+                "a reserve-ledger entry, NOT a transfer to the claimant. No "
+                "funds have been sent."
+            ),
+        }
 
     async def _verify_via_oracle(self, policy: dict) -> tuple[bool, str]:
         """Decide a parametric claim from ORACLE data. Fails closed. NEW-78.
