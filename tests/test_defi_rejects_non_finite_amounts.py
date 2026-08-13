@@ -271,3 +271,110 @@ def test_the_defi_domain_has_no_unguarded_value_entry_left():
             "can be reached with NaN, which is False against every comparison"
         )
         assert "import math" in src, f"{name} guards without importing math"
+
+
+# ── 16-I: the third value entry point, and the third guard SHAPE ─────────
+
+
+async def test_a_nan_repayment_cannot_settle_a_p2p_loan():
+    """16-I. THE ENTRY POINT MY OWN 16-A FIX MISSED.
+
+    16-A guarded `create_offer` and `accept_offer` in this file and never
+    enumerated `repay_offer` — the surface rule failing WITHIN a file I was
+    actively editing, which is worse than failing across files because after
+    editing two methods the natural assumption is that you know what is in it.
+
+    Driven pre-fix: an offer of 1000 USDC with 1009.11 due and 1.0 ETH
+    collateral, repaid with NaN, returned {"status": "repaid", "amount_repaid":
+    NaN, "collateral_released": {...}} and moved the offer to REPAID. The
+    borrower recovers the collateral having paid nothing.
+
+    A SUFFICIENCY CHECK IS NO SAFER THAN A SIGN CHECK. `amount < total_due`
+    reads as strictly stronger than `amount <= 0` — it compares against a real
+    computed figure rather than zero — and the same value defeats both. Third
+    distinct guard SHAPE the class has walked:
+        sign check          `amount <= 0`                    (15-D)
+        ratio/threshold     `ratio < min_collateral_ratio`   (16-A)
+        sufficiency         `amount < total_due`             (16-I)
+    """
+    mgr = P2PLending({})
+    offer = await mgr.create_offer("0xL", "USDC", 1000.0, 0.05, 30)
+    await mgr.accept_offer(
+        offer["offer_id"], "0xB",
+        {"token": "ETH", "amount": 1.0, "value_usd": 5000.0},
+    )
+
+    with pytest.raises(ValueError) as exc:
+        await mgr.repay_offer(offer["offer_id"], "0xB", float("nan"))
+
+    assert "finite" in str(exc.value).lower()
+    assert mgr._offers[offer["offer_id"]]["status"] == "filled", (
+        "a refused repayment settled the offer anyway"
+    )
+
+
+async def test_a_genuine_full_repayment_still_settles():
+    """SCOPE PIN. The guard must not block real repayment — that would trap
+    collateral permanently, a worse failure than the one being fixed."""
+    mgr = P2PLending({})
+    offer = await mgr.create_offer("0xL", "USDC", 1000.0, 0.05, 30)
+    await mgr.accept_offer(
+        offer["offer_id"], "0xB",
+        {"token": "ETH", "amount": 1.0, "value_usd": 5000.0},
+    )
+    due = mgr._offers[offer["offer_id"]]["total_repayment"]
+
+    result = await mgr.repay_offer(offer["offer_id"], "0xB", due)
+
+    assert result["status"] == "repaid"
+    assert result["amount_repaid"] == pytest.approx(due)
+
+
+async def test_the_underpayment_control_still_fires():
+    """The pre-existing control, asserted intact — a short repayment is still
+    refused, so the finiteness guard did not shadow it."""
+    mgr = P2PLending({})
+    offer = await mgr.create_offer("0xL", "USDC", 1000.0, 0.05, 30)
+    await mgr.accept_offer(
+        offer["offer_id"], "0xB",
+        {"token": "ETH", "amount": 1.0, "value_usd": 5000.0},
+    )
+
+    with pytest.raises(ValueError, match="Partial repayment not supported"):
+        await mgr.repay_offer(offer["offer_id"], "0xB", 500.0)
+
+
+def test_every_value_entry_point_in_p2p_lending_is_guarded():
+    """THE ENUMERATION, MADE MECHANICAL (T.2).
+
+    The rule that would have prevented 16-I is "enumerate every entry point that
+    accepts a value BEFORE fixing any of them". This asserts the enumeration
+    holds rather than trusting that it was done: every method taking a numeric
+    parameter must reach a finiteness guard. A fourth entry point added without
+    one fails here.
+    """
+    import ast
+    import pathlib
+
+    src = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "runtime" / "blockchain" / "services" / "defi" / "p2p_lending.py"
+    ).read_text()
+    tree = ast.parse(src)
+
+    NUMERIC = ("amount", "value", "rate", "days", "price", "ratio", "fee")
+    unguarded = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [a.arg for a in node.args.args if a.arg != "self"]
+        if not any(k in p.lower() for p in params for k in NUMERIC):
+            continue
+        body = ast.get_source_segment(src, node) or ""
+        if "math.isfinite" not in body:
+            unguarded.append(node.name)
+
+    assert not unguarded, (
+        f"value entry points with no finiteness guard: {unguarded}. "
+        "Enumerate every one before fixing any of them."
+    )

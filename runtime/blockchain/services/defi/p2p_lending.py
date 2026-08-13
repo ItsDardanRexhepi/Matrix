@@ -327,6 +327,34 @@ class P2PLending:
         if offer["borrower"] != borrower:
             raise ValueError("Only the borrower can repay")
 
+        # DOMAIN 16-I — THE THIRD VALUE ENTRY POINT IN THIS FILE, MISSED BY ME.
+        # 16-A guarded `create_offer` and `accept_offer` and never enumerated
+        # `repay_offer`. Its sole amount control is `amount < total_due`, which
+        # NaN walks like every other comparison. Driven:
+        #
+        #   offer 1000 USDC, total due 1009.11, collateral 1.0 ETH
+        #   repay_offer(offer_id, borrower, NaN)
+        #     -> {"status": "repaid", "amount_repaid": NaN,
+        #         "collateral_released": {...}}
+        #     -> offer status REPAID
+        #
+        # The borrower recovers their collateral having paid nothing.
+        #
+        # A SUFFICIENCY CHECK IS NO SAFER THAN A SIGN CHECK. `amount < total_due`
+        # reads as strictly stronger than `amount <= 0` — it compares against a
+        # real computed figure rather than zero — and it is defeated by the same
+        # value, for the same reason. This is the third distinct guard SHAPE the
+        # class has walked: sign check (15-D), ratio/threshold (16-A), and now
+        # sufficiency.
+        #
+        # THE ENUMERATION THAT SHOULD HAVE PRECEDED THE FIRST FIX (T.2), stated
+        # here because a commit either carries the list or it does not:
+        #   p2p_lending.py value entry points — create_offer(amount,
+        #   interest_rate, duration_days) · accept_offer(collateral dict:
+        #   amount, value_usd) · repay_offer(amount). THREE, not two.
+        if not math.isfinite(amount):
+            raise ValueError("Repayment amount must be a finite number")
+
         total_due = offer.get("total_repayment", offer["amount"])
         if amount < total_due:
             raise ValueError(
