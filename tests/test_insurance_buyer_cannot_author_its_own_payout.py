@@ -233,6 +233,95 @@ async def test_the_parametric_path_honours_the_coverage_ceiling(svc):
         )
 
 
+async def test_trigger_params_cannot_overwrite_the_gated_coverage_amount(svc):
+    """DEFECT-PROVER — 18-I, AND A HOLE 18-F ITSELF LEFT OPEN.
+
+    18-F added the guarded twin's GATES and not the twin's RECORD
+    CONSTRUCTION. The record built `coverage` as
+    `{"amount": coverage_amount, ..., **(trigger_params or {})}` — splat last,
+    excluding nothing — so a buyer-supplied `trigger_params["amount"]`
+    OVERWROTE the value every gate had just validated, and `ClaimsProcessor`
+    pays `policy["coverage"]["amount"]`.
+
+    MEASURED at 5eee277 with all of 18-F's gates in place: an honest premium
+    of 75.0 for 1,000 of cover, a legitimate in-band predicate, and an HONEST
+    oracle reporting a real M7.8 paid out 5,000,000 — five times
+    `max_coverage`, a figure neither solvency nor the fee engine ever saw.
+
+    §AK.2 at its sharpest: guarding the INPUT to a record while leaving the
+    record's construction unguarded moves the defect one field over.
+    """
+    await svc._reserve_fund.deposit(10_000_000.0)
+    quote = await svc._fee_engine.calculate_premium("earthquake", 1000.0, 365, {})
+    rec = await svc.create_parametric_policy(
+        holder="0xALICE", trigger_type="earthquake",
+        trigger_params={"magnitude_threshold": 6.0, "amount": 5_000_000.0},
+        coverage_amount=1000.0, premium=quote["total_premium"],
+    )
+    assert rec["coverage"]["amount"] == 1000.0, (
+        "the payout field must carry the GATED amount, not the buyer's"
+    )
+    assert rec["coverage"]["magnitude_threshold"] == 6.0, (
+        "legitimate trigger_params keys must still reach the record"
+    )
+
+
+async def test_a_non_finite_amount_cannot_reach_the_record_through_trigger_params(svc):
+    """DEFECT-PROVER — 18-I's NaN limb, which 18-F's own commit message
+    claimed to have closed and had not. The finiteness guard ran on
+    `coverage_amount`; the record then took `trigger_params["amount"]`, so a
+    NaN landed in the field the payout reads and poisoned the reserve from
+    there."""
+    await svc._reserve_fund.deposit(10_000_000.0)
+    rec = await svc.create_parametric_policy(
+        holder="0xB", trigger_type="earthquake",
+        trigger_params={"magnitude_threshold": 6.0, "amount": float("nan")},
+        coverage_amount=1000.0, premium=1e9,
+    )
+    assert math.isfinite(rec["coverage"]["amount"])
+    assert rec["coverage"]["amount"] == 1000.0
+
+
+async def test_both_policy_writers_exclude_the_same_keys():
+    """DEFECT-PROVER, STRUCTURAL. The two writers into `_policies` must agree
+    on which caller-supplied keys may reach `coverage`.
+
+    They source the AMOUNT differently, and that difference is the whole
+    finding: `create_policy` reads it out of the coverage dict, so the gated
+    value and the dict entry are the same number and there is nothing to
+    clobber. `create_parametric_policy` takes it as a SEPARATE parameter and
+    then splatted a second dict over the result — so the gate and the record
+    could disagree, and did.
+
+    What both must share is the exclusion of keys that are inputs to a gate
+    rather than fields of a policy. `risk_factors` is the clearest: it is
+    consumed by the fee engine and must never become part of the coverage the
+    claim path reads.
+    """
+    svc = _armed(InsuranceService({}))
+    await svc._reserve_fund.deposit(10_000_000.0)
+    hostile = {"duration_days": 99999, "risk_factors": {"first_time_buyer": 1e9}}
+
+    classic = await svc.create_policy(
+        holder="0xA", policy_type="earthquake",
+        coverage={"amount": 1000.0, "magnitude_threshold": 6.0, **hostile},
+        premium=1e9)
+    parametric = await svc.create_parametric_policy(
+        holder="0xB", trigger_type="earthquake",
+        trigger_params={"magnitude_threshold": 6.0, "amount": 9_999_999.0,
+                        **hostile},
+        coverage_amount=1000.0, premium=1e9)
+
+    for name, rec in (("create_policy", classic),
+                      ("create_parametric_policy", parametric)):
+        assert "risk_factors" not in rec["coverage"], f"{name} leaked risk_factors"
+
+    assert parametric["coverage"]["amount"] == 1000.0, (
+        "the parametric writer must keep the GATED amount, not the buyer's"
+    )
+    assert classic["coverage"]["amount"] == 1000.0
+
+
 async def test_the_parametric_path_still_refuses_what_the_reserve_cannot_back(svc):
     """DEFECT-PROVER. No solvency check ran on this path at all."""
     await svc._reserve_fund.deposit(100.0)

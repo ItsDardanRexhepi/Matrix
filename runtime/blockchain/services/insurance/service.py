@@ -645,8 +645,27 @@ class InsuranceService:
             "policy_type": trigger_type,
             "trigger_type": trigger_type,
             "trigger_params": trigger_params,
+            # 18-I. THE SPLAT USED TO COME LAST AND EXCLUDE NOTHING, so a
+            # buyer-supplied `trigger_params["amount"]` OVERWROTE the value
+            # every gate above had just validated. 18-F added the twin's gates
+            # and not the twin's RECORD CONSTRUCTION: the gates checked a
+            # number the record then threw away.
+            #
+            # MEASURED at 5eee277, with all of 18-F's gates in place: an
+            # honest premium of 75.0 for 1,000 of cover, a legitimate in-band
+            # predicate, and an HONEST oracle reporting a real M7.8 paid out
+            # 5,000,000 — five times max_coverage, which solvency and the fee
+            # engine never saw. The NaN variant reinstated the reserve
+            # poisoning that 18-F's own commit message claimed to have closed.
+            #
+            # §AK.2 in its sharpest form: a fix that guards the INPUT to a
+            # record while leaving the record's own construction unguarded has
+            # moved the defect one field over, not removed it. The exclusion
+            # list is now the twin's, verbatim.
             "coverage": {"amount": coverage_amount, "duration_days": duration_days,
-                         **(trigger_params or {})},
+                         **{k: v for k, v in (trigger_params or {}).items()
+                            if k not in ("amount", "duration_days",
+                                         "risk_factors")}},
             "coverage_amount": coverage_amount,
             "premium": premium,
             "premium_paid": premium,
