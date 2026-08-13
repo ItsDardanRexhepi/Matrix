@@ -92,7 +92,23 @@ class DashboardAggregator:
             "rwa_holdings": [],
             "securities": [],
             "liquidity_positions": [],
-            "total_value_usd": 0.0,
+            # NONE, NOT 0.0 — NOTHING EVER SUMS THIS. The only two references to
+            # `total_value_usd` in the whole package are this initialiser and the
+            # formatter that renders it; no code path assigns a computed total.
+            # At 0.0 the formatter printed "Your portfolio is worth
+            # approximately $0.00." over real holdings — a fabricated figure, and
+            # the SECOND instance of the fabricated-zero class after the APY
+            # field in this same file (NEW-96), whose comment already says "0.0
+            # was never a safe default". That fix landed on one field of this
+            # object and not its sibling.
+            #
+            # DELIBERATELY NOT SUMMED. `_services` is empty under the shipped
+            # config (the NEW-59 gap, on the register), so a computed total would
+            # be an equally-wrong 0.0 that is HARDER to spot. The fabricated zero
+            # and the empty aggregator are the same defect from two ends; the
+            # honest display is correct precisely because the data is not there
+            # yet, and stays correct once it is.
+            "total_value_usd": None,
             "aggregated_at": int(time.time()),
         }
 
