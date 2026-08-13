@@ -122,6 +122,20 @@ class LoanManager:
         ValueError
             If collateralisation ratio is below minimum.
         """
+        # DOMAIN 16-A — ARMED BY DEPLOYMENT. Under the shipped config the gate
+        # below returns not_deployed and nothing here runs; the moment contracts
+        # are deployed this becomes the live borrow path, and NaN walked ALL of
+        # it. Driven against a simulated-deployed install: a NaN collateral
+        # amount passed this sign check, passed the deployment gate, and then
+        # passed the MINIMUM-COLLATERALISATION check below — issuing a real
+        # 1000 USDC loan with collateral_ratio recorded as NaN.
+        #
+        # THAT IS THE PRIMARY SAFETY PROPERTY OF A LENDING PROTOCOL. It is not
+        # defeated by a clever exploit; it is defeated by a value for which every
+        # `<` answers False.
+        if not math.isfinite(collateral_amount) or not math.isfinite(borrow_amount):
+            raise ValueError("Amounts must be finite numbers")
+
         if collateral_amount <= 0 or borrow_amount <= 0:
             raise ValueError("Amounts must be positive")
 
@@ -147,6 +161,21 @@ class LoanManager:
         collateral_value = collateral_amount * collateral_price
         borrow_value = borrow_amount * borrow_price
         collateral_ratio = collateral_value / borrow_value if borrow_value > 0 else 0
+
+        # DOMAIN 16-A, DEFENCE IN DEPTH. Guarding the inputs is not sufficient:
+        # the ratio is a QUOTIENT OF PRICES, and a non-finite price from the
+        # oracle produces a non-finite ratio from finite inputs. A ratio that is
+        # not a number cannot be below a minimum — `NaN < 1.5` is False — so the
+        # check would pass without ever comparing anything.
+        # REFUSE, do not coerce: a ratio we cannot compute is not a ratio of 0,
+        # and silently substituting one would replace an unanswerable question
+        # with a confident wrong answer.
+        if not math.isfinite(collateral_ratio):
+            raise ValueError(
+                "Collateral ratio could not be computed as a finite number "
+                f"(collateral_value={collateral_value}, borrow_value={borrow_value}). "
+                "Refusing to issue a loan whose collateralisation is unknown."
+            )
 
         if collateral_ratio < self._min_collateral_ratio:
             raise ValueError(

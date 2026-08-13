@@ -7,6 +7,7 @@ uses the oracle gateway (Component 11) for real-time price checks.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Any
 
@@ -81,6 +82,12 @@ class CollateralManager:
         dict
             Updated balance and deposit confirmation.
         """
+        # DOMAIN 16-A — NaN IS FALSE AGAINST EVERY COMPARISON, INCLUDING THIS ONE.
+        # Must precede the sign check: `amount <= 0` answers False for NaN, so a
+        # NaN deposit was accepted, returned status "deposited" with
+        # new_balance=NaN, and poisoned the collateral ledger. Driven.
+        if not math.isfinite(amount):
+            raise ValueError("Deposit amount must be a finite number")
         if amount <= 0:
             raise ValueError("Deposit amount must be positive")
         if token not in self._collateral_factors:
@@ -118,6 +125,12 @@ class CollateralManager:
         ValueError
             If withdrawal would bring health factor below danger threshold.
         """
+        # DOMAIN 16-A — the withdrawal twin. BOTH sides of the ledger need the
+        # guard: `amount <= 0` AND `amount > current` are both False for NaN, so
+        # a NaN withdrawal walked the sign check AND the sufficiency check.
+        # Fixing deposit alone would leave the drain open.
+        if not math.isfinite(amount):
+            raise ValueError("Withdrawal amount must be a finite number")
         if amount <= 0:
             raise ValueError("Withdrawal amount must be positive")
 

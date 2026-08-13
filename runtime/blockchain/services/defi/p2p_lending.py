@@ -9,6 +9,7 @@ requirements.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from enum import Enum
@@ -86,6 +87,18 @@ class P2PLending:
         dict
             Offer details including ``offer_id``.
         """
+        # DOMAIN 16-A, THE TWIN. p2p_lending duplicates the pool lending logic
+        # for peer-to-peer offers and repeats the defect on THREE guards, not
+        # one. A BOUNDED-RANGE check is not safer than a sign check here: NaN is
+        # False against `< 0` AND against `> max`, so a NaN interest rate walks
+        # both ends of the range at once. Same for duration.
+        if not math.isfinite(amount):
+            raise ValueError("Amount must be a finite number")
+        if not math.isfinite(interest_rate):
+            raise ValueError("Interest rate must be a finite number")
+        if not math.isfinite(duration_days):
+            raise ValueError("Duration must be a finite number")
+
         if amount <= 0:
             raise ValueError("Amount must be positive")
         if interest_rate < 0 or interest_rate > self._max_interest:
@@ -170,6 +183,11 @@ class P2PLending:
         collateral_amount = collateral.get("amount", 0)
         collateral_value = collateral.get("value_usd", 0)
 
+        # DOMAIN 16-A — the accept_offer side. Collateral arrives as a caller-
+        # supplied dict, so both the amount and its USD value are untrusted.
+        if not math.isfinite(collateral_amount) or not math.isfinite(collateral_value):
+            raise ValueError("Collateral amount and value must be finite numbers")
+
         if not collateral_token or collateral_amount <= 0:
             raise ValueError("Valid collateral is required")
 
@@ -177,6 +195,14 @@ class P2PLending:
         # Estimate loan value from amount (simplified)
         loan_value = collateral.get("loan_value_usd", offer["amount"])
         ratio = collateral_value / loan_value if loan_value > 0 else 0
+        # DOMAIN 16-A, defence in depth — mirrors loans.py. Refuse an
+        # uncomputable ratio rather than coercing it to a number.
+        if not math.isfinite(ratio):
+            raise ValueError(
+                "Collateral ratio could not be computed as a finite number "
+                f"(collateral_value={collateral_value}, loan_value={loan_value}). "
+                "Refusing an offer whose collateralisation is unknown."
+            )
         if ratio < self._min_collateral_ratio:
             raise ValueError(
                 f"Collateral ratio {ratio:.2f} is below minimum "
