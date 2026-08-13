@@ -572,6 +572,16 @@ def _outcome_is_real(result: Any) -> bool:
       * no `status` key                -> REAL   (17 of 182 actions; measured)
       * `status` present, unrecognised -> NOT REAL
 
+    WHY THIS PREDICATE CANNOT BE STRING-BASED AT ALL — the argument, stated here
+    rather than left for a reader to reconstruct. `"pending"` is returned by
+    `insurance.process_claim` to mean "reserve insufficient, the claim was NOT
+    paid", and by `x402.create_payment` to mean "the payment record was created
+    and persisted". **Both are honest. Their meanings are opposite. No
+    classification of the STRING is correct for both**, so the string cannot be
+    the only evidence consulted, and any predicate that tries will be wrong for
+    one of them no matter which way it is set. Only the service can break the
+    tie, by stating positively that it acted — which is what `created: True` is.
+
     and the classification itself is a census rather than a guess, held in place
     by a test that re-derives it. 15-A's disclosure flags still outrank both,
     because they are the field that was added to be honest.
