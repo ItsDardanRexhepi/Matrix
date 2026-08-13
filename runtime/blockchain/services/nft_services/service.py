@@ -448,19 +448,50 @@ class NFTService:
             and transfer_result.get("status") not in (None, "not_deployed", "error")
         )
 
-        # Transfer display rights
-        try:
-            await self._rights.transfer_rights(
-                collection=collection,
-                token_id=token_id,
-                new_holder=buyer,
-                rights=["display"],
-            )
-        except KeyError:
-            pass
+        # 17-G / 17-H. BOTH OF THESE USED TO RUN UNCONDITIONALLY, ABOVE AND
+        # OUTSIDE the `if not transferred:` block twenty lines below — so a sale
+        # the platform REFUSED still moved the display right to the buyer and
+        # still wrote the buyer's asking price into the valuation evidence store.
+        if transferred:
+            # 17-G — THE AUTHORITY SURFACE. Moving the display right is a
+            # rights-ledger write, and it ran even when `transfer_token` refused
+            # on both branches. Measured pre-fix: after a refused buy,
+            # `_rights['<coll>:<id>']['rights']['display']['holder']` was the
+            # BUYER, with a transfer-history row, and `check_nft_rights`
+            # reported `source: "explicit"`.
+            #
+            # The disclosure this method returns says ownership is unchanged and
+            # "this platform holds no ownership record of its own" — accurate
+            # about VALUE and false about AUTHORITY, in one response, from one
+            # method. That is §AI's second axis: a method writes more than one
+            # KIND of state, and a disclosure scoped to one reads as scoped to
+            # all of them.
+            try:
+                await self._rights.transfer_rights(
+                    collection=collection,
+                    token_id=token_id,
+                    new_holder=buyer,
+                    rights=["display"],
+                )
+            except KeyError:
+                pass
 
-        # Update valuation data
-        self._valuation.record_sale(collection, token_id, sale_price)
+            # 17-H — THE EVIDENCE SURFACE, and the sharpest §AG/§AH instance the
+            # engagement produced. `record_sale` is the ONLY production writer of
+            # the valuation evidence store, and it was fed the caller's asking
+            # price for a sale that did not happen. `estimate_value` then
+            # reported that price as `measured_factors: {recent_sales: True}`
+            # behind NEW-92's disclosure "30% of the declared weight is backed by
+            # observed data" — and six repeats crossed `_min_sales` and lifted
+            # the confidence label to "medium".
+            #
+            # Verified verbatim by the finder and upheld at HIGH: armed
+            # "precisely BECAUSE the NFT contract is undeployed". THE HONEST
+            # REFUSAL WAS THE ATTACK PATH — NEW-90/91's refusal produced the
+            # unsettled sale, this line recorded it as evidence, and NEW-92's
+            # disclosure vouched for it. Three correct fixes composing into one
+            # defect that none of them contains.
+            self._valuation.record_sale(collection, token_id, sale_price)
 
         # NEW-90: derived from what the factory actually returned, never
         # asserted alongside it. The factory's own answer is carried through so
