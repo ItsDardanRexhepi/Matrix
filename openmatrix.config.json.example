@@ -414,6 +414,11 @@
     "block_on_critical": true,
     "block_on_high": false
   },
+  "_supply_chain_note": "qr_secret has a WORKING DEFAULT that is published in this public repo. Unset, the product-authenticity hash is forgeable by anyone who can read the source. Set it to a long random per-deployment value BEFORE issuing any QR code you intend to treat as authoritative.",
+  "supply_chain": {
+    "qr_secret": "CHANGE-ME-long-random-per-deployment-value"
+  },
+
   "social": {
     "twitter": {
       "api_key": "YOUR_TWITTER_API_KEY",
