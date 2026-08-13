@@ -36,6 +36,43 @@ from __future__ import annotations
 import math
 
 
+def effective_caller(
+    caller: str | None,
+    caller_identity: str,
+    caller_source: str | None,
+) -> str | None:
+    """Resolve WHICH identity an ownership check may trust. 18-H.
+
+    THE DEFECT THIS EXISTS TO CLOSE. `file_claim`, `cancel_policy` and
+    `renew_coverage` each declared a parameter named `caller`. The dispatcher
+    overrides exactly one name — `caller_identity` — and only for methods that
+    declare it; everything else in `params` is forwarded verbatim into
+    `method(**params)`, and `params` is the attacker-controlled request body
+    (service_dispatcher.py says so in terms). So `assert_owner` was handed a
+    string the CALLER wrote, and compared it to `policy["holder"]`.
+
+    MEASURED: a caller authenticated as "mallory", sending
+    `{"policy_id": <alice's>, "caller": "alice"}`, cancelled Alice's policy —
+    result "cancelled", stored status "cancelled".
+
+    17-D's own comment names this primitive as the thing it refused to ship:
+    "assert any address, have the platform record it". It was live the whole
+    time, one parameter name away, because the ownership sweep and the identity
+    sweep chose different words for the same idea (§AO.2 — thirteen names for
+    the party acting is the absence of a platform concept of one).
+
+    THE RULE. When a call arrives through the dispatcher, `caller_source` is
+    present, and ONLY the threaded `caller_identity` may be trusted — including
+    when it is empty, which is a refusal and never a fallback to the
+    self-asserted value. When `caller_source` is absent the call is internal
+    (e.g. `check_triggers` filing on the holder's behalf) and `caller` stands.
+    """
+    if caller_source is not None:
+        # Dispatcher-originated. The threaded value always wins, "" included.
+        return caller_identity or None
+    return caller
+
+
 def require_finite_money(value: float, name: str, *, allow_zero: bool = False) -> float:
     """A caller-supplied money amount: finite, and positive unless stated.
 

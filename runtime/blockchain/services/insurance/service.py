@@ -13,7 +13,10 @@ import time
 import uuid
 from typing import Any
 
-from runtime.blockchain.services.insurance._guards import require_finite_money
+from runtime.blockchain.services.insurance._guards import (
+    effective_caller,
+    require_finite_money,
+)
 from runtime.blockchain.services.insurance._predicate import (
     PredicateError,
     build_predicate,
@@ -207,7 +210,13 @@ class InsuranceService:
         )
         return policy
 
-    async def file_claim(self, policy_id: str, caller: str | None = None) -> dict:
+    async def file_claim(
+        self,
+        policy_id: str,
+        caller: str | None = None,
+        caller_identity: str = "",
+        caller_source: str | None = None,
+    ) -> dict:
         """File a claim against a policy. NEW-78.
 
         TWO HOLES CLOSED HERE, and neither alone was sufficient.
@@ -284,7 +293,10 @@ class InsuranceService:
         if not policy:
             raise ValueError(f"Policy {policy_id} not found")
 
-        assert_owner(caller, policy, owner_field="holder", what="policy")
+        assert_owner(
+            effective_caller(caller, caller_identity, caller_source),
+            policy, owner_field="holder", what="policy",
+        )
 
         if policy["status"] != "active":
             return {
@@ -421,7 +433,13 @@ class InsuranceService:
 
         return policy
 
-    async def cancel_policy(self, policy_id: str, caller: str | None = None) -> dict:
+    async def cancel_policy(
+        self,
+        policy_id: str,
+        caller: str | None = None,
+        caller_identity: str = "",
+        caller_source: str | None = None,
+    ) -> dict:
         """Cancel an active policy.
 
         Returns a pro-rated refund calculation.
@@ -442,7 +460,10 @@ class InsuranceService:
         if not policy:
             raise ValueError(f"Policy {policy_id} not found")
 
-        assert_owner(caller, policy, owner_field="holder", what="policy")
+        assert_owner(
+            effective_caller(caller, caller_identity, caller_source),
+            policy, owner_field="holder", what="policy",
+        )
 
         if policy["status"] != "active":
             return {
@@ -752,6 +773,8 @@ class InsuranceService:
         additional_premium: float,
         extension_days: int = 365,
         caller: str | None = None,
+        caller_identity: str = "",
+        caller_source: str | None = None,
     ) -> dict:
         """Renew an existing insurance policy — and actually renew it.
 
@@ -800,7 +823,10 @@ class InsuranceService:
                 "policy_id": policy_id,
             }
 
-        assert_owner(caller, policy, owner_field="holder", what="policy")
+        assert_owner(
+            effective_caller(caller, caller_identity, caller_source),
+            policy, owner_field="holder", what="policy",
+        )
 
         if policy["status"] not in ("active", "expired"):
             return {
