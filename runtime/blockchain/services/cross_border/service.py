@@ -223,6 +223,25 @@ class CrossBorderService:
         rate_data = await self._conversion.get_rate(from_currency, to_currency)
         rate = rate_data["rate"]
 
+        # DOMAIN 14-A — CARRY THE RATE'S PROVENANCE. `get_rate` already reports
+        # where the number came from ("identity" / "cache" / an oracle /
+        # "fallback"), and this method read `rate` and DISCARDED `source`, so the
+        # quote presented a hardcoded cross-rate as an `exchange_rate` with
+        # nothing marking it as non-market.
+        #
+        # AND FALLBACK IS THE SHIPPED PATH, NOT AN EDGE CASE. The oracle carries
+        # NO FIAT PAIRS at all under the shipped config (measured: BTC/USD,
+        # DAI/USD, ETH/USD, LINK/USD, USDC/USD, USDT/USD), so EVERY fiat corridor
+        # resolves to the fallback table. USD->EUR quoted 0.92 from a constant.
+        #
+        # THIRD INSTANCE OF ONE CLASS: a number rendered without the qualifier
+        # its own producer attached. `total_value_usd` printed $0.00 without
+        # saying it summed nothing; the APY printed 0.0 without saying no data
+        # backed it; this printed a rate without saying it was unsourced. Every
+        # time, the honest datum was one call up.
+        rate_source = rate_data.get("source", "unknown")
+        rate_is_market = rate_source not in ("fallback", "unknown")
+
         fee = amount * (self._fee_pct / 100.0)
         net = amount - fee
         converted = net * rate
@@ -232,6 +251,14 @@ class CrossBorderService:
             "source_currency": from_currency,
             "destination_currency": to_currency,
             "exchange_rate": rate,
+            "rate_source": rate_source,
+            "rate_is_market": rate_is_market,
+            "rate_disclosure": (
+                None if rate_is_market else
+                "INDICATIVE ONLY — this rate came from a built-in fallback "
+                "table, not a live market feed. No oracle covers this currency "
+                "pair in this deployment. Do not rely on it as a quoted price."
+            ),
             "fee_amount": round(fee, 6),
             "fee_pct": self._fee_pct,
             "net_source_amount": round(net, 6),
