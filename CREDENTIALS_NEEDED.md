@@ -61,9 +61,26 @@ one printed in a public repository.
 
 **DEPLOYMENT PREREQUISITE — ordering matters, as it did for `blockchain.eas_schema`.**
 Set `supply_chain.qr_secret` **before** issuing any product QR code you intend to
-treat as authoritative. Codes minted under the default remain forgeable after you
-rotate the secret — rotating invalidates them rather than repairing them, so
-anything already in circulation must be re-issued.
+treat as authoritative.
+
+**READ THIS BEFORE SETTING THE KEY — it has a cost, and the cost lands on
+physical goods.** Verification hashes are computed from the secret, so changing
+the secret changes every hash. **Rotating does not repair codes minted under the
+default; it invalidates them.** Every QR code already generated stops verifying
+the moment you set this key.
+
+So the operational consequence, stated plainly:
+
+- **Set it before your first production QR code** → costs nothing.
+- **Set it after** → **every code already printed, applied to a product, shipped,
+  or sitting in a warehouse becomes invalid**, and each one must be re-generated
+  and physically re-applied. The bill is labour and relabelling, not engineering.
+- **Never set it** → the codes verify, and anyone who can read this public
+  repository can forge a valid one for any product id.
+
+There is no option where you keep both the already-printed codes and a secret
+worth having. **Whoever sets this key needs to know it obsoletes every code
+already in circulation.**
 
 ## 8. Sign in with Apple — server credentials (P1-8)
 
