@@ -216,3 +216,91 @@ def test_the_matching_engine_still_cannot_reach_balances():
 
     assert not hasattr(contract, "_balances")
     assert not any("balance" in name for name in vars(contract))
+
+
+# ── Defects the ADVERSARIAL PASS found in the fixes above ────────────────
+#
+# All three were introduced by 4c99131 — the commit that fixed 13-A/B/C — and
+# all three passed a green suite. Recorded here rather than quietly repaired,
+# because how they escaped is the transferable part.
+
+
+async def test_trade_history_is_readable_after_a_match():
+    """THE RENAME BROKE A READER 45 LINES AWAY, IN THE SAME FILE.
+
+    13-C renamed the trade key `executed_at` -> `matched_at` in `match_orders`
+    and left `get_trades` sorting on the old key, so reading the history of any
+    security that had ever matched raised KeyError. THE SURFACE RULE, failed in
+    the commit that invoked it: "the same file" is not a small enough scope to
+    skip checking every reader of a renamed field.
+
+    The empty case masked it — an empty list never calls the sort key, so
+    `get_trades` on a security with no trades still returned `[]`. Same masking
+    shape as the mutable default in domain 12: harmless until there is data.
+    """
+    service, security_id = await _service_with_listed_security("0xS", "0xB")
+    service._balances[(security_id, "0xS")] = 100
+
+    await service.sell(security_id, "0xS", 100, 12.0)
+    await service._exchange.place_order(security_id, "buy", 12.0, 100, "0xB")
+    await service._exchange.match_orders(security_id)
+
+    trades = service._exchange.get_trades(security_id)
+
+    assert len(trades) == 1
+    assert "matched_at" in trades[0]
+
+
+async def test_matching_does_not_release_the_reservation():
+    """13-B AND 13-C CANCELLED EACH OTHER, AND NO TEST COMBINED THEM.
+
+    13-B reserved against orders with `status == "open"`. 13-C — same commit —
+    moved matched orders to `"matched_unsettled"` and drove `remaining_amount`
+    to 0. So MATCHING RELEASED THE RESERVATION while, by 13-C's own thesis,
+    nothing settled: a holder of 100 could sell 100, have it matched, and sell
+    100 again. The exact over-commitment 13-B existed to close.
+
+    Two fixes each correct in isolation, interacting to reopen one of them.
+    Each had its own test; neither test ran the other's code path.
+    """
+    service, security_id = await _service_with_listed_security("0xS", "0xB")
+    service._balances[(security_id, "0xS")] = 100
+
+    await service.sell(security_id, "0xS", 100, 12.0)
+    await service._exchange.place_order(security_id, "buy", 12.0, 100, "0xB")
+    await service._exchange.match_orders(security_id)
+
+    assert service._exchange.committed_sell_amount(security_id, "0xS") == 100, (
+        "matching released the reservation while settling nothing"
+    )
+
+    with pytest.raises(ValueError):
+        await service.sell(security_id, "0xS", 100, 12.0)
+
+
+async def test_cancelling_still_releases_after_the_interaction_fix():
+    """SCOPE PIN. Counting `original_amount` for unsettled orders must not
+    make the reservation permanent — a cancelled order still frees its units,
+    or a holder becomes unable to sell what they demonstrably own."""
+    service, security_id = await _service_with_listed_security("0xS")
+    service._balances[(security_id, "0xS")] = 100
+
+    order = await service.sell(security_id, "0xS", 100, 12.0)
+    await service._exchange.cancel_order(order["order_id"])
+
+    assert service._exchange.committed_sell_amount(security_id, "0xS") == 0
+    reopened = await service.sell(security_id, "0xS", 100, 12.0)
+    assert reopened["original_amount"] == 100
+
+
+def test_a_capability_that_always_refuses_is_not_advertised_available():
+    """THE FIVE-DOORS DOCTRINE, UNWALKED AGAIN. `buy()` raises
+    NotImplementedError unconditionally while the catalog still advertised
+    `buy_security` as available — the same miss as multisig_approve and
+    snapshot_vote in domain 11, in the commit that applied the refusal."""
+    from runtime.capabilities import catalog
+
+    cap = catalog.get_by_id("buy_security")
+
+    assert cap is not None, "it stays ROUTED so callers get an honest 501"
+    assert cap["available"] is False

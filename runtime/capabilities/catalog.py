@@ -395,7 +395,13 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("trigger_refunds",         "Trigger Refunds",         "markets", "fundraising", "trigger_refunds"),
     _cap("create_security",         "Create Security Token",   "markets", "securities_exchange", "create_security"),
     _cap("list_security",           "List Security",           "markets", "securities_exchange", "list_security"),
-    _cap("buy_security",            "Buy Security",            "markets", "securities_exchange", "buy_security"),
+    # DOMAIN 13-A FOLLOW-UP: buy() now raises NotImplementedError
+    # unconditionally (no settlement path exists), so advertising it available
+    # was the five-doors doctrine unwalked in the commit that applied it — the
+    # SAME miss as multisig_approve/snapshot_vote in domain 11. It stays ROUTED
+    # so callers get an honest 501 with the lifting condition rather than
+    # "unknown action".
+    _cap("buy_security",            "Buy Security",            "markets", "securities_exchange", "buy_security", available=False),
     _cap("sell_security",           "Sell Security",           "markets", "securities_exchange", "sell_security"),
 
     # ── Gaming ─────────────────────────────────────────────────────────────
