@@ -305,17 +305,50 @@ class NFTService:
                 to_addr=to_addr,
             )
 
-            # Transfer display rights to new owner
-            try:
-                await self._rights.transfer_rights(
-                    collection=collection,
-                    token_id=token_id,
-                    new_holder=to_addr,
-                    rights=["display"],
-                )
-            except KeyError:
-                # No rights record yet — that's fine for simple transfers
-                pass
+            # 17-I. THIS RAN UNCONDITIONALLY WHILE THE TRANSFER REFUSED.
+            # `transfer_token` returns not_deployed on BOTH branches today, so
+            # this method returned the factory's honest refusal WHILE MOVING THE
+            # DISPLAY RIGHT TO to_addr — leaving a transfer-history row and
+            # `check_nft_rights` reporting source:"explicit".
+            #
+            # IT IS THE MIRROR IMAGE OF 16-K. `transfer_nft` is in
+            # _STATE_MODIFYING_ACTIONS and returns not_deployed, so
+            # `_outcome_is_real` is False and the dispatcher writes "ACTION
+            # DECLINED (not attested, not published)" — for a call that DID
+            # mutate state. 16-K was a false POSITIVE in the trail, a refusal
+            # recorded as an action. This was a false NEGATIVE: an action
+            # recorded as a refusal.
+            #
+            # §AK: the predicate is correct and was being told the truth about a
+            # lie. A result-based gate can never be more honest than the result,
+            # so this class is only fixable AT THE METHOD, never at the
+            # chokepoint — no dispatcher-level fix reaches it.
+            #
+            # 17-G gated the identical call in `process_sale` and MISSED THIS
+            # SIBLING: the enumeration was real and its scope was one method.
+            # §AK.2 now requires the call-site count and each disposition:
+            #   transfer_rights — 3 sites in this file
+            #     :310 (here)  GATED on `transferred`
+            #     :470         GATED on `transferred`        (17-G)
+            #     :591         UNREACHABLE — NFTService.transfer_rights is in no
+            #                  ACTION_MAP entry, no capability catalog id and no
+            #                  gateway route (enumerated). Gate it before it is
+            #                  ever exposed; it is the same shape.
+            transferred = (
+                isinstance(result, dict)
+                and result.get("status") not in (None, "not_deployed", "error")
+            )
+            if transferred:
+                try:
+                    await self._rights.transfer_rights(
+                        collection=collection,
+                        token_id=token_id,
+                        new_holder=to_addr,
+                        rights=["display"],
+                    )
+                except KeyError:
+                    # No rights record yet — fine for a simple transfer.
+                    pass
 
             return result
 

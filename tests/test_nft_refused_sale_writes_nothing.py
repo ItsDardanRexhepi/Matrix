@@ -172,3 +172,47 @@ async def test_a_settled_sale_still_records_valuation_and_rights(svc, monkeypatc
     assert svc._valuation._sales_history.get("0xD:9"), "a settled sale wrote no evidence"
     holder = svc._rights._rights["0xD:9"]["rights"]["display"]["holder"]
     assert holder == "0xB", "a settled sale did not move the display right"
+
+
+# ── 17-I: the SIBLING METHOD 17-G missed ─────────────────────────────────
+
+
+async def test_a_refused_transfer_does_not_move_the_display_right(svc):
+    """DEFECT-PROVER. `NFTService.transfer` (action `transfer_nft`) called
+    `transfer_rights` UNCONDITIONALLY while `transfer_token` refused.
+
+    THE MIRROR IMAGE OF 16-K. `transfer_nft` returns not_deployed, so
+    `_outcome_is_real` is False and the dispatcher records "ACTION DECLINED" —
+    for a call that DID mutate state. 16-K was a refusal recorded as an action;
+    this was an action recorded as a refusal, and the second is harder to see
+    because a missing record and a correct refusal look identical.
+
+    17-G gated the identical call in `process_sale` and missed this one: the
+    enumeration was real and its scope was one method.
+    """
+    await svc._rights.set_rights(
+        collection="0xV", token_id=5,
+        rights={"display": {"granted": True, "holder": "0xOWNER"}})
+
+    out = await svc.transfer(collection="0xV", token_id=5,
+                             from_addr="0xOWNER", to_addr="0xATTACKER")
+
+    assert out.get("status") == "not_deployed", out
+    holder = svc._rights._rights["0xV:5"]["rights"]["display"]["holder"]
+    assert holder == "0xOWNER", f"a refused transfer moved the right to {holder}"
+    assert svc._rights._transfer_history.get("0xV:5", []) == []
+
+
+async def test_a_settled_transfer_still_moves_the_display_right(svc, monkeypatch):
+    """SCOPE PIN — gating must not disable the write outright."""
+    async def _ok(**kwargs):
+        return {"status": "submitted", "tx_hash": "0xabc"}
+    monkeypatch.setattr(svc._factory, "transfer_token", _ok)
+
+    await svc._rights.set_rights(
+        collection="0xW", token_id=6,
+        rights={"display": {"granted": True, "holder": "0xS"}})
+    await svc.transfer(collection="0xW", token_id=6,
+                       from_addr="0xS", to_addr="0xB")
+
+    assert svc._rights._rights["0xW:6"]["rights"]["display"]["holder"] == "0xB"
