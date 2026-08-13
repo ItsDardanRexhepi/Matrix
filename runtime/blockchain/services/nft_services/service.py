@@ -544,10 +544,35 @@ class NFTService:
     # ── Rights Management ────────────────────────────────────────────
 
     async def set_rights(
-        self, collection: str, token_id: int, rights: dict[str, Any]
+        self,
+        collection: str,
+        token_id: int,
+        rights: dict[str, Any],
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict[str, Any]:
-        """Set IP rights for an NFT."""
-        return await self._rights.set_rights(collection, token_id, rights)
+        """Set IP rights for an NFT.
+
+        `caller_identity` is the authenticated wallet of the caller, injected
+        by `ServiceDispatcher.execute` because this signature DECLARES it
+        (DOMAIN 17-D). This is the dispatch target for the `set_nft_rights`
+        action, so declaring the parameter here is what makes the identity
+        reach `RightsManagement` at all — the dispatcher injects by signature
+        and never by guesswork.
+
+        Optional, defaulting to "": entry points with no authenticated caller
+        still work and the grant is recorded as `set_by: ""` (unknown) rather
+        than being refused or attributed to someone.
+
+        NOT an ownership check. Nothing here verifies the caller holds the
+        token — this platform has no ownership record to check against (see
+        the NFT GATING CONDITION at the top of this file). This threads WHO,
+        which is the input such a check would need, and records it.
+        """
+        return await self._rights.set_rights(
+            collection, token_id, rights, caller_identity=caller_identity,
+            caller_source=caller_source,
+        )
 
     async def check_rights(
         self, collection: str, token_id: int, right_type: str

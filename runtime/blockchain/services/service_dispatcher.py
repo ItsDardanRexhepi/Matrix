@@ -9,12 +9,68 @@ Trinity's ReAct loop calls tools. This dispatcher registers one mega-tool
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import json
 import logging
 import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# 17-D. The parameter name a service method declares to receive the
+# AUTHENTICATED caller's wallet address from the dispatcher. One constant so
+# the service side and the injection side cannot drift apart.
+CALLER_IDENTITY_PARAM = "caller_identity"
+
+
+@functools.lru_cache(maxsize=1024)
+def _func_accepts_caller_identity(func: Any) -> bool:
+    try:
+        sig = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+    param = sig.parameters.get(CALLER_IDENTITY_PARAM)
+    if param is None:
+        return False
+    # An EXPLICITLY DECLARED parameter only. A method whose signature merely
+    # ends in **kwargs has not opted in — it would swallow the identity
+    # silently and forward it somewhere it was never meant to go, which is the
+    # kind of invisible coupling this parameter exists to avoid.
+    return param.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    )
+
+
+def _method_accepts_caller_identity(method: Any) -> bool:
+    """True when *method* declares a `caller_identity` parameter by name.
+
+    Signature inspection is the opt-in mechanism (see DOMAIN 17-D in
+    `ServiceDispatcher.execute`). Anything uninspectable — a builtin, a C
+    callable, an exotic wrapper — is treated as NOT accepting it, so an
+    unreadable signature degrades to today's behaviour instead of raising.
+
+    Caching is keyed on the underlying FUNCTION, not on the bound method:
+    `getattr(instance, name)` mints a fresh bound method on every dispatch, so
+    caching those would both miss every time and pin every service instance
+    the cache ever saw. `__func__` is the module-level function object, which
+    is stable and already immortal.
+    """
+    target = getattr(method, "__func__", method)
+    try:
+        return _func_accepts_caller_identity(target)
+    except TypeError:
+        # Unhashable callable — cannot be cached; answer directly.
+        try:
+            sig = inspect.signature(method)
+        except (TypeError, ValueError):
+            return False
+        param = sig.parameters.get(CALLER_IDENTITY_PARAM)
+        return param is not None and param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1026,6 +1082,9 @@ class ServiceDispatcher:
         action: str,
         service: str | None = None,
         params: dict | None = None,
+        *,
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> str:
         """Execute a platform action and return a JSON string result.
 
@@ -1037,6 +1096,12 @@ class ServiceDispatcher:
             Optional service-name override (normally inferred from *action*).
         params:
             Keyword arguments forwarded to the underlying service method.
+        caller_identity:
+            The AUTHENTICATED wallet address of the caller, or "" when the
+            entry point has none. See DOMAIN 17-D below. Keyword-only and
+            defaulting to "" so every existing call site — including the
+            positional ``execute(action, None, params)`` in
+            ``runtime/agents/handoff.py`` — keeps working unchanged.
 
         Returns
         -------
@@ -1044,8 +1109,53 @@ class ServiceDispatcher:
             JSON-encoded result dict with ``status``, ``action``, ``result``,
             and timing information.
         """
+        # ── DOMAIN 17-D ────────────────────────────────────────────────────
+        # THE CALLER'S IDENTITY WAS KNOWN AND THEN THROWN AWAY.
+        #
+        # `gateway/bridge.py` reads the session's linked wallet and binds it
+        # into the security context (`bind_request_security(identity=...)`)
+        # BEFORE calling this method — and then called `execute(action, params)`
+        # with no identity at all. So the wallet existed, one frame up, and the
+        # service decided without it. Two surfaces went blind at once:
+        #
+        #   AUTHORITY — the service is asked to move an IP right and cannot see
+        #     who asked. `set_rights` grants `commercial` on any token to any
+        #     holder for anyone who can reach the dispatcher.
+        #   EVIDENCE — the actor written to the attestation and to the PUBLIC
+        #     social feed fell back to `""`. The platform's own record said a
+        #     right moved and could not say who moved it.
+        #
+        # Both are fixed here, in one change, because a fix that lands one and
+        # not the other leaves the trail lying about a grant it can still not
+        # attribute.
+        #
+        # WHAT THIS IS NOT. This does not check OWNERSHIP, and must not be read
+        # as doing so. This platform holds NO ownership record — see the NFT
+        # GATING CONDITION in nft_services/service.py: `NFTFactory._collections`
+        # is a cache with a declaration, two reads and ZERO writers (verified
+        # again for this change). Checking a caller against a store that does
+        # not exist would fabricate a control, which is worse than the gap it
+        # covers. This change supplies the IDENTITY an ownership check would
+        # need; the ownership half is deployment-gate-plus-honest-refusal and is
+        # tracked separately.
         start = time.time()
         params = params or {}
+
+        # 17-J. AN EMPTY ACTOR WAS THREE FACTS WEARING ONE VALUE: no human
+        # initiated this (agent hand-off — "" is CORRECT); a human initiated it
+        # and the identity was DROPPED (17-D's defect); a human initiated it and
+        # was anonymous. The first two rendered identically, so THE 17-D FIX
+        # COULD NOT DEMONSTRATE ITS OWN SUCCESS FROM THE TRAIL.
+        #
+        # DERIVED FROM `caller_identity` ALONE, never from `_actor`. `_actor`
+        # falls back to `params["wallet"]`, which is SELF-ASSERTED on the bridge
+        # path — labelling that "authenticated" would be exactly the fabrication
+        # this field exists to prevent. The source describes the CHANNEL the
+        # identity arrived through, not whether some address is present.
+        _actor_source = (
+            "authenticated" if caller_identity
+            else (caller_source or "unauthenticated")
+        )
 
         # Resolve action -> service + method
         if action not in ACTION_MAP:
@@ -1062,8 +1172,9 @@ class ServiceDispatcher:
             target_service = service
 
         logger.info(
-            "Dispatching action=%s -> %s.%s  params=%s",
+            "Dispatching action=%s -> %s.%s  params=%s  caller=%s",
             action, target_service, method_name, list(params.keys()),
+            caller_identity or "<unauthenticated>",
         )
 
         try:
@@ -1099,7 +1210,64 @@ class ServiceDispatcher:
                     ),
                 })
 
+            # 17-D. HAND THE IDENTITY TO THE SERVICE — ONLY WHERE IT ASKED.
+            #
+            # Injection is gated on the target method's own signature: the
+            # parameter is passed if and only if the method declares a
+            # parameter literally named `caller_identity`. A method that has
+            # not opted in is called exactly as before, so none of the ~219
+            # existing actions can break on this.
+            #
+            # WHY SIGNATURE INJECTION AND NOT A ContextVar. A ContextVar (the
+            # shape `gateway/security_gate.py` uses for the security context)
+            # would be less code, but it is bound at ONE of the four entry
+            # points that reach this dispatcher — the other three
+            # (capabilities/registry.py, agents/handoff.py, tools/dispatcher.py)
+            # never bind it, so a service reading it would silently see the
+            # PREVIOUS request's identity or nothing, with no signature to say
+            # so. Declaring the parameter makes the dependency visible in the
+            # service's own API, works identically from all four entry points,
+            # and is checkable by `inspect`.
+            #
+            # THE AUTHENTICATED VALUE OVERWRITES, IT DOES NOT DEFAULT. `params`
+            # is attacker-controlled — it is the request body on the bridge
+            # path. If a client-supplied `params["caller_identity"]` were left
+            # to stand when the real identity is unknown, this fix would ship a
+            # brand-new spoofing primitive: assert any address, have the
+            # platform record it. So the threaded value ALWAYS wins, including
+            # when it is "" — an unauthenticated call records "unknown", never
+            # a self-asserted address.
+            if _method_accepts_caller_identity(method):
+                params = {**params, "caller_identity": caller_identity or "",
+                          "caller_source": _actor_source}
+
             result = await method(**params)
+
+            # 17-D (evidence half). WHO the record says acted.
+            #
+            # This was computed inside the feed block as
+            #     params.get("wallet") or params.get("address") or ""
+            # so `set_nft_rights` — whose params are collection/token_id/rights
+            # and contain neither key — was attested and published with
+            # actor "". Hoisted out of the feed block so the ATTESTATION and
+            # the FEED are attributed from one value: attributing the public
+            # feed and leaving the audit record anonymous is the half-fix.
+            #
+            # Order is deliberate and conservative: the existing params-derived
+            # actor keeps precedence so no currently-attributed action changes
+            # who it names, and the authenticated identity is the FALLBACK that
+            # fills the "" hole. Note the residual — a client-supplied `wallet`
+            # param still outranks the authenticated caller on this surface.
+            # That is a pre-existing attribution weakness, wider than 17-D
+            # (it touches every state-modifying action), and is not narrowed
+            # here.
+            _actor = (
+                params.get("wallet")
+                or params.get("address")
+                or caller_identity
+                or ""
+            )
+
 
             # ── DOMAIN 16-K ────────────────────────────────────────────────
             # THE ATTESTATION LAYER DID NOT CHECK WHETHER ANYTHING HAPPENED.
@@ -1134,9 +1302,15 @@ class ServiceDispatcher:
                 _happened = _outcome_is_real(result)
 
                 if _happened:
-                    await self._attest_action(action, target_service, params, result)
+                    await self._attest_action(
+                        action, target_service, params, result, actor=_actor,
+                        actor_source=_actor_source,
+                    )
                 else:
-                    await self._attest_refusal(action, target_service, params, result)
+                    await self._attest_refusal(
+                        action, target_service, params, result, actor=_actor,
+                        actor_source=_actor_source,
+                    )
 
                 # Fire-and-forget: publish to the social feed.
                 # Never blocks the response — failures are logged and
@@ -1152,7 +1326,6 @@ class ServiceDispatcher:
                         _component_id = _reg.service_to_component(target_service)
                     except Exception:
                         pass
-                    _actor = params.get("wallet") or params.get("address") or ""
                     _tx = None
                     if isinstance(result, dict):
                         _tx = result.get("tx_hash") or result.get("transaction_hash")
@@ -1227,6 +1400,9 @@ class ServiceDispatcher:
         service_name: str,
         params: dict,
         result: Any,
+        *,
+        actor: str = "",
+        actor_source: str = "",
     ) -> None:
         """Record that the platform DECLINED to act — as a decline.
 
@@ -1251,10 +1427,12 @@ class ServiceDispatcher:
         # it — the same principle the attestation path is built on, applied to
         # the path that runs when the attestation path declines.
         _status = result.get("status") if isinstance(result, dict) else None
+        # 17-D. A refusal names WHO was refused. "The system declined" is only
+        # half an audit record if it cannot say who it declined.
         logger.info(
             "ACTION DECLINED (not attested, not published): action=%s service=%s "
-            "status=%s — no outcome evidence in the service result",
-            action, service_name, _status,
+            "actor=%s status=%s — no outcome evidence in the service result",
+            action, service_name, actor or "<unknown>", _status,
         )
 
     async def _attest_action(
@@ -1263,6 +1441,9 @@ class ServiceDispatcher:
         service_name: str,
         params: dict,
         result: Any,
+        *,
+        actor: str = "",
+        actor_source: str = "",
     ) -> None:
         """Record an EAS attestation for a state-modifying action."""
         try:
@@ -1275,11 +1456,30 @@ class ServiceDispatcher:
             # attested. Signature drift plus a silent swallow — the NEW-9
             # shape. "" resolves to the primary platform schema via
             # `_resolve_schema`, which is what this call always meant.
+            # 17-D. THE ATTESTATION NOW NAMES THE ACTOR.
+            #
+            # This payload recorded action, service, a params hash and a
+            # timestamp — everything except WHO. An attestation that a right
+            # was granted, with the grantor unrecoverable (a hash is not a
+            # name), is the evidence half of the same defect the authority half
+            # fixes upstream. Empty string is written when the entry point had
+            # no authenticated identity: the record says "unknown", which is a
+            # fact, rather than omitting the field, which reads as "not
+            # applicable".
+            #
+            # `recipient` is deliberately UNCHANGED. In EAS the recipient is the
+            # SUBJECT of the attestation, not its author; repointing it at the
+            # caller would silently redefine what all ~182 attested actions
+            # assert to third parties, which is a product decision and a
+            # separate change. The actor is carried in the payload, where the
+            # authorship claim belongs.
             await attestation_svc.attest(
                 schema_uid="",
                 data={
                     "action": action,
                     "service": service_name,
+                    "actor": actor or "",
+                    "actor_source": actor_source or "unauthenticated",
                     "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
                     "timestamp": int(time.time()),
                 },

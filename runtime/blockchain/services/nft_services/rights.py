@@ -64,6 +64,8 @@ class RightsManagement:
         collection: str,
         token_id: int,
         rights: dict[str, Any],
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict[str, Any]:
         """Set or update IP rights for a token.
 
@@ -77,12 +79,51 @@ class RightsManagement:
             Rights configuration. Keys from RIGHTS_TYPES, values are
             dicts with ``granted`` (bool), ``holder`` (str),
             ``expires_at`` (int, optional), ``terms`` (str, optional).
+        caller_identity : str, optional
+            The AUTHENTICATED wallet address of whoever is setting these
+            rights, threaded from the dispatcher (DOMAIN 17-D). Optional and
+            defaulting to "" so existing callers — including this package's own
+            `NFTService.mint`, which writes the default rights grant — keep
+            working unchanged. "" is recorded as "" and means UNKNOWN.
 
         Returns
         -------
         dict
             Confirmed rights record.
         """
+        # ── DOMAIN 17-D — THE RECORD NOW SAYS WHO ─────────────────────────
+        #
+        # This method granted `commercial` / `derivative` / `physical` rights
+        # on any token to any holder, and stored the result with NO record of
+        # who asked for it. The identity was not missing from the system — the
+        # gateway had the caller's linked wallet and dropped it one frame above
+        # the dispatcher — so the platform's own store could not answer "who
+        # granted this?" about a grant it made itself.
+        #
+        # `set_by` is written at BOTH levels deliberately: on the record (who
+        # touched this token's rights last) and on each individual right (who
+        # granted THAT right), because a later call that changes one right type
+        # must not silently reassign authorship of the others.
+        #
+        # THIS IS NOT AN AUTHORITY CHECK, AND IS NOT WRITTEN AS ONE. Nothing
+        # here refuses. This platform holds no ownership record to check
+        # against — `NFTFactory._collections` has zero writers — so a check
+        # would have to invent its own truth. What lands here is the ATTRIBUTION
+        # an ownership check would need once ownership is readable, plus a
+        # record that answers "who" today.
+        #
+        # A CALL WITH NO IDENTITY IS STILL SERVED. Refusing every unauthenticated
+        # caller would break `NFTService.mint`'s default-rights write and every
+        # non-gateway entry point, and would trade a gap in the record for an
+        # outage. It degrades to `set_by: ""` — the honest answer, "we do not
+        # know" — never to a fabricated or self-asserted address.
+        _set_by = caller_identity or ""
+        # 17-J: WHO, and separately HOW WE KNOW. `set_by: ""` alone could not
+        # distinguish "no human initiated this" from "we dropped the identity"
+        # — and those are exactly the two facts 17-D exists to separate. A
+        # sentinel was rejected: it makes ONE string carry both the identity and
+        # the reason for its absence, which is the collapse this fixes.
+        _set_by_source = caller_source or ("authenticated" if _set_by else "unauthenticated")
         key = f"{collection}:{token_id}"
 
         # Validate rights types
@@ -100,6 +141,8 @@ class RightsManagement:
             "rights": {},
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
+            "created_by": _set_by,
+            "created_by_source": _set_by_source,
         })
 
         now = int(time.time())
@@ -113,14 +156,17 @@ class RightsManagement:
                 "expires_at": right_config.get("expires_at"),
                 "terms": right_config.get("terms", ""),
                 "updated_at": now,
+                # 17-D: who granted THIS right, per right type.
+                "set_by": _set_by,
             }
 
         record["updated_at"] = now
+        record["set_by"] = _set_by
         self._rights[key] = record
 
         logger.info(
-            "Rights set: %s #%d — %s",
-            collection[:10], token_id,
+            "Rights set: %s #%d by %s — %s",
+            collection[:10], token_id, _set_by or "<unknown caller>",
             {k: v.get("granted") for k, v in record["rights"].items()},
         )
 
@@ -130,6 +176,7 @@ class RightsManagement:
             "token_id": token_id,
             "rights": record["rights"],
             "updated_at": now,
+            "set_by": _set_by,
         }
 
     async def check_rights(
@@ -206,6 +253,12 @@ class RightsManagement:
             "expires_at": right.get("expires_at"),
             "expired": expired,
             "terms": right.get("terms", ""),
+            # 17-D. A right that can be read must be readable back to whoever
+            # granted it. Written by `set_rights` and surfaced here, so the
+            # attribution is queryable and not just log-and-forget. "" means
+            # the granting call carried no authenticated identity — an honest
+            # "unknown", distinguishable from a real address.
+            "set_by": right.get("set_by", ""),
             "source": "explicit",
         }
 

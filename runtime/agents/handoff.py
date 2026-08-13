@@ -87,7 +87,13 @@ class AgentHandoff:
                 "morpheus": decision,
             }
         try:
-            result = await self._dispatcher.execute(action, None, params)
+            # 17-J: this chain has no human caller — Trinity -> Morpheus -> Neo is
+            # agent-to-agent, with no HTTP request, session or wallet anywhere in
+            # the path. `caller_identity` is correctly "", and DECLARING the
+            # source is what stops that "" being read as a dropped identity.
+            result = await self._dispatcher.execute(
+                action, None, params, caller_source="agent_handoff",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Neo execution failed during hand-off")
             return {

@@ -798,7 +798,43 @@ class BridgeRoutes:
             if dispatcher is None:
                 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
                 dispatcher = ServiceDispatcher(self._config)   # cold fallback: works, but no feed
-            result = await dispatcher.execute(action, params)
+            # 17-D. THREAD THE WALLET WE ALREADY BOUND, TWENTY LINES UP.
+            # `linked.get("address", "")` was read above and handed to
+            # `bind_request_security(identity=...)` for the gate — and then
+            # dropped, so the service decided who could grant an IP right
+            # without ever being told who was asking, and the attestation and
+            # public feed recorded the grant with actor "". The identity was
+            # never missing; it was discarded at this line.
+            #
+            # ── ARGUMENT SLOT BUG, found while making that change ───────────
+            # This line read `dispatcher.execute(action, params)`, but the
+            # signature is `execute(action, service=None, params=None)` — so
+            # `params` landed in the SERVICE-OVERRIDE slot and the real params
+            # defaulted to {}. `if service: target_service = service` then set
+            # the target service to a dict, and the registry lookup raised
+            # `unhashable type: 'dict'`.
+            #
+            # MEASURED, not inferred. Replaying this exact call shape:
+            #   execute("set_nft_rights", {"collection": ..., "rights": ...})
+            #     -> {"status": "error", "error_category": "validation",
+            #         "error": "Invalid parameters for set_nft_rights:
+            #                   unhashable type: 'dict'"}
+            #   execute("set_nft_rights", None, {...same params...})
+            #     -> {"status": "ok", ... "rights_set" ...}
+            # So EVERY direct bridge action carrying parameters failed, and
+            # only zero-parameter actions (falsy dict -> `if service` false)
+            # ever reached their service.
+            #
+            # It is fixed here rather than filed because 17-D is unreachable
+            # without it: `set_rights` always carries params, so on this path
+            # the request died before the service was called, and a caller
+            # identity threaded into a call that never happens is not a fix.
+            # Passing by keyword so the slot cannot be misaligned again.
+            result = await dispatcher.execute(
+                action,
+                params=params,
+                caller_identity=linked.get("address", ""),
+            )
             return MobileResponse.ok(result)
         except KeyError as e:
             return MobileResponse.error(f"Unknown action: {action}", 404)

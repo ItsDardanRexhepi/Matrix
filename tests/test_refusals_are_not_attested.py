@@ -79,10 +79,19 @@ def dispatcher_with_spies():
     attested: list[str] = []
     declined: list[str] = []
 
-    async def _spy_attest(action, service, params, result):
+    # 17-D: both helpers gained a keyword-only `actor` so the attestation and
+    # the refusal log can name WHO acted (the caller identity the gateway used
+    # to drop). These doubles stand in for the real helpers, so they have to
+    # accept it — without the parameter the spy raised TypeError at the call
+    # site, which `execute` reports as "Invalid parameters" and which surfaced
+    # here as "the refusal left no record at all". Defaulted, so the doubles
+    # keep working for callers that do not pass it.
+    async def _spy_attest(action, service_name, params, result, *, actor: str = "",
+                          actor_source: str = ""):
         attested.append(action)
 
-    async def _spy_refusal(action, service, params, result):
+    async def _spy_refusal(action, service_name, params, result, *, actor: str = "",
+                           actor_source: str = ""):
         declined.append(action)
 
     d._attest_action = _spy_attest

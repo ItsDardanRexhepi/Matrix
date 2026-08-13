@@ -2684,7 +2684,19 @@ class ServiceRoutes:
             body = {}
         params = body.get("params", {}) if isinstance(body, dict) else {}
         reg = self._capability_registry()
-        result = await reg.invoke(capability_id, params)
+        # 17-D. This route reaches the SAME ServiceDispatcher as gateway/bridge.py
+        # — `set_nft_rights` is a catalog capability id — and it dropped the
+        # caller for exactly the same reason: nobody asked for it. The identity
+        # is already bound for every POST /api/v1/* by
+        # `GatewayServer._security_context_middleware`, so it is read here from
+        # the request-scoped context rather than from the body, following the
+        # idiom `_handle_governance_vote` and `_handle_insurance_claim` already
+        # use: an authenticated identity always wins, and a body-supplied
+        # address is never promoted to fact. Absent identity degrades to ""
+        # ("unknown"), never to a self-asserted address, and never to a refusal.
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
+        result = await reg.invoke(capability_id, params, caller_identity=authed)
         status = 200 if result.get("status") == "ok" else 400
         return web.json_response(result, status=status)
 
