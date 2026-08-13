@@ -57,6 +57,11 @@ from runtime.blockchain.web3_manager import (
     is_placeholder_value,
     not_deployed_response,
 )
+from runtime.blockchain.services.restaking._guards import (
+    require_restaking_enabled,
+    resolve_receiver,
+    settle_transaction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +255,11 @@ class RestakingService:
         token, amount)`` signed by the platform paymaster (platform-level
         restaking of the platform account's own token balance).
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'restake')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         manager_addr = cfg.get("strategy_manager_address", "")
         strategy_addr = cfg.get("strategy_address", "")
@@ -292,8 +302,12 @@ class RestakingService:
                 "chainId": self._web3.chain_id,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "restake",
                 "protocol": _PROTOCOL_EIGENLAYER,
@@ -301,11 +315,12 @@ class RestakingService:
                 "strategy": strategy_cs,
                 "token": token_cs,
                 "amount_wei": str(amount_wei),
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
-            }
+                },
+                method="restake", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("restake on-chain call failed: %s", exc)
             return self._error("restake", exc)
@@ -322,6 +337,11 @@ class RestakingService:
         platform paymaster. NOTE: the deposit signature is UNVERIFIED for
         the specific Symbiotic vault version — operator must confirm.
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'restake_symbiotic')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         vault_addr = cfg.get("symbiotic_vault_address", "")
 
@@ -337,7 +357,9 @@ class RestakingService:
         try:
             w3 = self._web3.w3
             vault_cs = w3.to_checksum_address(vault_addr)
-            receiver = params.get("receiver") or self._web3.get_account().address
+            # 19-B. Platform funds it, platform owns it. A caller-named
+            # beneficiary is REFUSED, not silently overridden.
+            receiver = resolve_receiver(params, self._web3.get_account().address)
             receiver_cs = w3.to_checksum_address(receiver)
             amount_wei = self._amount_in_wei(params)
 
@@ -347,20 +369,25 @@ class RestakingService:
                 "chainId": self._web3.chain_id,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "restake_symbiotic",
                 "protocol": _PROTOCOL_SYMBIOTIC,
                 "vault": vault_cs,
                 "receiver": receiver_cs,
                 "amount_wei": str(amount_wei),
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
                 "abi_note": "Vault.deposit(assets,receiver) assumed — verify vault version",
-            }
+                },
+                method="restake_symbiotic", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("restake_symbiotic on-chain call failed: %s", exc)
             return self._error("restake_symbiotic", exc)
@@ -377,6 +404,11 @@ class RestakingService:
         platform paymaster. ABI is ERC-4626-style and UNVERIFIED for the
         specific Karak vault deployment — operator must confirm.
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'restake_karak')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         vault_addr = cfg.get("karak_vault_address", "")
 
@@ -392,7 +424,9 @@ class RestakingService:
         try:
             w3 = self._web3.w3
             vault_cs = w3.to_checksum_address(vault_addr)
-            receiver = params.get("receiver") or self._web3.get_account().address
+            # 19-B. Platform funds it, platform owns it. A caller-named
+            # beneficiary is REFUSED, not silently overridden.
+            receiver = resolve_receiver(params, self._web3.get_account().address)
             receiver_cs = w3.to_checksum_address(receiver)
             amount_wei = self._amount_in_wei(params)
 
@@ -402,20 +436,25 @@ class RestakingService:
                 "chainId": self._web3.chain_id,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "restake_karak",
                 "protocol": _PROTOCOL_KARAK,
                 "vault": vault_cs,
                 "receiver": receiver_cs,
                 "amount_wei": str(amount_wei),
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
                 "abi_note": "Vault.deposit(assets,receiver) assumed — verify vault version",
-            }
+                },
+                method="restake_karak", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("restake_karak on-chain call failed: %s", exc)
             return self._error("restake_karak", exc)
@@ -432,6 +471,11 @@ class RestakingService:
         paymaster. An empty approver signature (expiry 0, zero salt) is used
         — valid when the operator has no delegation approver set.
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'delegate_to_operator')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         delegation_addr = cfg.get("delegation_manager_address", "")
         operator = params.get("operator")
@@ -467,18 +511,23 @@ class RestakingService:
                 "chainId": self._web3.chain_id,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "delegate_to_operator",
                 "protocol": _PROTOCOL_EIGENLAYER,
                 "delegation_manager": w3.to_checksum_address(delegation_addr),
                 "operator": operator_cs,
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
-            }
+                },
+                method="delegate_to_operator", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("delegate_to_operator on-chain call failed: %s", exc)
             return self._error("delegate_to_operator", exc)
@@ -496,6 +545,11 @@ class RestakingService:
         account (staker). Note the EigenLayer escrow delay applies before the
         withdrawal can be completed in a later step.
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'withdraw_restake')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         delegation_addr = cfg.get("delegation_manager_address", "")
         strategy_addr = params.get("strategy") or cfg.get("strategy_address", "")
@@ -536,8 +590,12 @@ class RestakingService:
                 "chainId": self._web3.chain_id,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "withdraw_restake",
                 "protocol": _PROTOCOL_EIGENLAYER,
@@ -545,12 +603,13 @@ class RestakingService:
                 "strategy": strategy_cs,
                 "shares_wei": str(shares_wei),
                 "withdrawer": staker,
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
                 "note": "queued — EigenLayer escrow delay applies before completion",
-            }
+                },
+                method="withdraw_restake", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("withdraw_restake on-chain call failed: %s", exc)
             return self._error("withdraw_restake", exc)
@@ -566,6 +625,11 @@ class RestakingService:
         value attached, signed by the platform paymaster. Stakes the platform
         account's own ETH — never a user's.
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'liquid_stake_lido')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         steth_addr = cfg.get("lido_steth_address", "")
 
@@ -596,19 +660,24 @@ class RestakingService:
                 "value": amount_wei,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "liquid_stake_lido",
                 "protocol": _PROTOCOL_LIDO,
                 "steth": steth_cs,
                 "referral": referral_cs,
                 "amount_wei": str(amount_wei),
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
-            }
+                },
+                method="liquid_stake_lido", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("liquid_stake_lido on-chain call failed: %s", exc)
             return self._error("liquid_stake_lido", exc)
@@ -624,6 +693,11 @@ class RestakingService:
         ETH value attached, signed by the platform paymaster. Stakes the
         platform account's own ETH — never a user's.
         """
+        # 19-A. Fails closed: this moves the platform's own treasury.
+        _disabled = require_restaking_enabled(self.service_name, self._config, 'liquid_stake_rocketpool')
+        if _disabled is not None:
+            return _disabled
+
         cfg = self._cfg()
         deposit_addr = cfg.get("rocketpool_deposit_address", "")
 
@@ -650,18 +724,23 @@ class RestakingService:
                 "value": amount_wei,
             })
             tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
+            # 19-C. BOTH HALVES, TOGETHER (17-D). The receipt decides:
+            #   mined ok -> "submitted" (real)   reverted -> "failed" (not)
+            #   no receipt -> "pending" + broadcast:True, so a broadcast
+            #   transaction is never recorded as a refusal.
+            return await settle_transaction(
+                self._web3, tx_hash, base={
                 "service": self.service_name,
                 "method": "liquid_stake_rocketpool",
                 "protocol": _PROTOCOL_ROCKETPOOL,
                 "deposit_pool": deposit_cs,
                 "amount_wei": str(amount_wei),
-                "tx_hash": tx_hash,
                 "explorer": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform_paymaster",
                 "acts_on": "platform_account",
-            }
+                },
+                method="liquid_stake_rocketpool", service_name=self.service_name,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("liquid_stake_rocketpool on-chain call failed: %s", exc)
             return self._error("liquid_stake_rocketpool", exc)

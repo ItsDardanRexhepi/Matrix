@@ -56,6 +56,21 @@ from __future__ import annotations
 REFUSAL_PRIMITIVES: tuple[str, ...] = (
     "not_deployed_response",       # the primitive (runtime/blockchain/web3_manager.py)
     "staking_not_deployed",        # NEW-94 wrapper (services/staking/arming.py)
+    # 19-A wrapper (services/restaking/_guards.py).
+    #
+    # NAMED `require_restaking_enabled`, NOT `require_enabled`, AND THE REASON
+    # IS A MEASURED FALSE POSITIVE. `mentions_refusal` matches by SUBSTRING, so
+    # registering the shorter name made every call site of the PRE-EXISTING,
+    # unrelated `RealEstateService._require_enabled` (service.py:114) classify
+    # as a refusal wrapper. D10 then reported two "discards" in real_estate
+    # that are correct code: `get_property` RAISES on absence, and its callers
+    # discard the return deliberately — `# 404-equivalent if absent`.
+    #
+    # A substring-matched registry is only as safe as the DISTINCTIVENESS of
+    # the names in it. Any entry that is a substring of an unrelated identifier
+    # silently widens the graph and manufactures findings. Register
+    # domain-qualified names.
+    "require_restaking_enabled",
 )
 
 

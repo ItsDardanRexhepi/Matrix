@@ -238,11 +238,27 @@ def test_adding_a_name_makes_the_detectors_see_a_new_wrapper(registry):
     `remove_stake`. It is NOT a refusal — it is borrowed here precisely because
     it is inert, so the only thing that can change the detectors' answer is the
     registry entry itself.
+
+    RE-DERIVED (19-A). This asserted `after > before` where `before` was taken
+    against the LIVE registry and `after` against a hard-coded three-name
+    replacement — so the moment a legitimate fourth entry was registered, the
+    "after" set LOST that entry's methods and the strict-superset check failed
+    for a reason that has nothing to do with the property.
+
+    The expectation was written against a SNAPSHOT of the registry's contents.
+    The property it means to assert is: **adding a name strictly increases
+    visibility.** That is now asserted differentially — baseline is whatever
+    the registry currently holds, and the probe is added to it — so the test
+    stays true however many names are registered.
     """
+    live = tuple(refusal_primitives.REFUSAL_PRIMITIVES)
+    assert "_require_pool" not in live, "probe name must not already be live"
+
+    registry.set(*live)
     before = d10._refusing_methods()
     assert "get_pool" not in before
 
-    registry.set("not_deployed_response", "staking_not_deployed", "_require_pool")
+    registry.set(*live, "_require_pool")
 
     after = d10._refusing_methods()
     assert after > before, "adding a registry name changed nothing"
@@ -283,3 +299,52 @@ def _staking_fn(name: str) -> ast.AST:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
             return node
     raise AssertionError(f"staking method {name} not found")
+
+
+def test_no_registered_name_is_a_substring_of_an_unrelated_identifier():
+    """REQUIREMENT 3 (19-A), and it exists because this fired for real.
+
+    `mentions_refusal` matches by SUBSTRING. Registering `require_enabled`
+    therefore reclassified every call site of the pre-existing, unrelated
+    `RealEstateService._require_enabled` (real_estate/service.py:114) as a
+    refusal wrapper — and D10 duly reported two "discarded refusals" in
+    `get_documents` and `update_listing_status` that are correct code:
+    `get_property` RAISES on absence, and its callers discard the return
+    deliberately (`# 404-equivalent if absent`).
+
+    Two false findings, manufactured by a name. The fix was to register the
+    domain-qualified `require_restaking_enabled` instead — and this test, so
+    the next entry cannot do it silently.
+
+    §T: the constraint goes where the work happens. A rule in the registry's
+    docstring is advice; a test that fails at registration time is a rule.
+    """
+    root = pathlib.Path(__file__).resolve().parents[1]
+    collisions: dict[str, list[str]] = {}
+
+    for name in refusal_primitives.REFUSAL_PRIMITIVES:
+        hits: list[str] = []
+        for py in (root / "runtime").rglob("*.py"):
+            try:
+                tree = ast.parse(py.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                ident = None
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    ident = node.name
+                elif isinstance(node, ast.Attribute):
+                    ident = node.attr
+                if ident and ident != name and name in ident:
+                    hits.append(f"{py.relative_to(root)}::{ident}")
+        if hits:
+            collisions[name] = sorted(set(hits))[:6]
+
+    assert not collisions, (
+        f"a registered refusal name is a SUBSTRING of an unrelated identifier: "
+        f"{collisions}. `mentions_refusal` matches by substring, so every call "
+        f"site of that identifier will be reclassified as a refusal wrapper and "
+        f"the detectors will manufacture findings there. Register a "
+        f"domain-qualified name instead (e.g. `require_restaking_enabled`, not "
+        f"`require_enabled`)."
+    )
