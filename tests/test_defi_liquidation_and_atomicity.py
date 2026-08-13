@@ -336,3 +336,93 @@ async def test_the_borrower_does_not_receive_the_lenders_credit(service):
     assert borrower["total_events"] == 0, (
         "the borrower received the lender's funding credit"
     )
+
+
+# ── 16-L / 16-M: documentation that stated the opposite of the code ──────
+
+
+def test_the_loan_store_comment_is_not_inverted():
+    """16-L. The comment read "used only when contracts are not deployed". The
+    reverse holds: create_loan's gate returns not_deployed BEFORE the line that
+    writes the store, so it is populated ONLY when contracts ARE deployed.
+
+    Load-bearing for severity, not cosmetic — a reader trusting it would treat
+    this as throwaway state for the undeployed case, when it is the live ledger
+    of the deployed one, and the store 16-C's collateral-release defect ran
+    through.
+    """
+    import pathlib
+
+    src = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "runtime" / "blockchain" / "services" / "defi" / "loans.py"
+    ).read_text()
+
+    # NOTE: the old wording is deliberately QUOTED inside the correction, so a
+    # bare "not in src" would match my own quote. Assert on the corrective
+    # marker and on the absence of the wording as a LIVE comment line instead.
+    live_comment = [
+        ln for ln in src.splitlines()
+        if ln.strip().startswith("# In-memory loan storage")
+    ]
+    assert not live_comment, f"the inverted comment is back: {live_comment}"
+
+    # WHITESPACE-NORMALISE BEFORE MATCHING. The corrective marker wraps across a
+    # comment line, so "# " lands mid-phrase and a contiguous substring search
+    # finds nothing. That is instrument failure #2 exactly, recurring in a test
+    # I wrote after cataloguing it — the check that fails to observe its subject
+    # because of how the subject is formatted.
+    flat = " ".join(src.replace("#", " ").split())
+    assert "ONLY when contracts ARE deployed" in flat
+
+
+async def test_an_undeployed_service_never_populates_the_loan_store():
+    """THE FACT THE COMMENT GOT BACKWARDS, asserted rather than described.
+
+    TAKES NO `service` FIXTURE, DELIBERATELY. That fixture monkeypatches
+    `svc._web3`, and `Web3Manager.get_shared()` is a PROCESS-WIDE SINGLETON — so
+    requesting it here would make this "undeployed" instance inherit a deployed
+    gate. The L.3 aliasing trap, met a second time, in the test that exists to
+    prove the undeployed path.
+    """
+    from runtime.blockchain.services.defi import DeFiService
+
+    undeployed = DeFiService({})  # no gate patched anywhere in this test
+    result = await undeployed.create_loan("0xA", "ETH", 10.0, "USDC", 1000.0)
+
+    assert result["status"] == "not_deployed"
+    assert undeployed._loan_manager._loans == {}, (
+        "the store filled while contracts were NOT deployed"
+    )
+
+
+def test_the_documented_config_key_is_not_claimed_unless_it_is_read():
+    """16-M. The class docstring told operators that accepted collateral tokens
+    are configured under `defi.collateral_tokens`. Measured: ZERO readers
+    repo-wide. The set is the hardcoded `_collateral_factors` literal.
+
+    The unfed-control shape (14-C's empty sanctions list) expressed as
+    documentation: an operator setting that key to RESTRICT accepted collateral
+    would see it silently ignored and believe the restriction was in force.
+
+    Pinned as a biconditional — if someone later wires the key up, the docstring
+    may claim it again, and this test says so rather than blocking the feature.
+    """
+    import pathlib
+
+    base = pathlib.Path(__file__).resolve().parent.parent / "runtime"
+    src = (base / "blockchain" / "services" / "defi" / "collateral.py").read_text()
+
+    readers = [
+        p for p in base.rglob("*.py")
+        if "collateral_tokens" in p.read_text(errors="ignore")
+        and p.name != "collateral.py"
+    ]
+
+    if readers:
+        return  # the key is wired now; the docstring may legitimately claim it
+
+    assert "WHICH NOTHING READS" in src, (
+        "collateral.py documents defi.collateral_tokens as a live config key "
+        "while nothing in the repo reads it"
+    )

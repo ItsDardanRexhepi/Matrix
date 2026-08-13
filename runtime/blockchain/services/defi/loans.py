@@ -76,7 +76,17 @@ class LoanManager:
 
         self._web3 = Web3Manager.get_shared(config)
 
-        # In-memory loan storage (used only when contracts are not deployed)
+        # DOMAIN 16-L — THIS COMMENT SAID THE OPPOSITE OF THE TRUTH.
+        # It read "used only when contracts are not deployed". The reverse is
+        # the case: `create_loan`'s gate returns not_deployed BEFORE reaching
+        # the line that writes here, so this store is populated ONLY when
+        # contracts ARE deployed. Verified — under the shipped config the store
+        # stays empty and every read raises KeyError.
+        #
+        # The inversion matters because it is load-bearing for severity: a
+        # reader trusting it would conclude this is throwaway state for the
+        # undeployed case, when it is in fact the live ledger of the deployed
+        # one — the store that 16-C's collateral-release defect ran through.
         self._loans: dict[str, dict[str, Any]] = {}
         # Pool utilisation tracking per token
         self._pool_total: dict[str, float] = {}     # total deposited

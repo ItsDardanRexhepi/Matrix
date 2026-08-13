@@ -25,8 +25,22 @@ class CollateralManager:
     Parameters
     ----------
     config : dict
-        Platform config.  Reads ``defi.collateral_tokens`` for accepted
-        tokens and their collateral factors.
+        Platform config.
+
+        DOMAIN 16-M — THIS SAID ``defi.collateral_tokens``, WHICH NOTHING READS.
+        Measured: zero readers repo-wide. The accepted-token set and its
+        collateral factors are the hardcoded ``_collateral_factors`` literal in
+        ``__init__``; there is no config path to change them.
+
+        The defect is not the missing key — it is that the docstring told an
+        OPERATOR they had a control they do not have. Someone setting
+        ``defi.collateral_tokens`` to restrict accepted collateral would see it
+        silently ignored and believe the restriction was in force. That is the
+        unfed-control shape (14-C's sanctions list) expressed as documentation:
+        a knob that reports itself as connected to nothing.
+
+        To change accepted collateral today, edit ``_collateral_factors``. If a
+        config path is wanted, that is a feature, not a doc fix.
     oracle_gateway : object, optional
         OracleGateway instance for price feeds.  If ``None``, price
         lookups will use fallback values from config.
