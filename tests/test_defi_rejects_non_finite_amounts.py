@@ -58,17 +58,28 @@ NAN = float("nan")
 INF = float("inf")
 
 
-def _deployed(service: DeFiService) -> DeFiService:
+def _deployed(service: DeFiService, monkeypatch) -> DeFiService:
     """Simulate a deployed install.
 
     The gate's condition is `not self._web3.available or
     self._web3.is_placeholder(self._lending_pool_address)` — it reads NOTHING
     from the arguments, which is what makes the shipped-config absence claim
     sound AND what makes this simulation faithful.
+
+    MUST USE monkeypatch, NOT PLAIN ASSIGNMENT. `Web3Manager.get_shared()` is a
+    PROCESS-WIDE SINGLETON: `DeFiService({})._web3 is DeFiService({})._web3` is
+    True, and so is `service._web3 is service._loan_manager._web3`. The first
+    version of this helper assigned the attributes directly, which permanently
+    flipped the whole process to "deployed" and broke
+    test_collateral_actions_unexposed::test_core_lending_is_still_gated_shut —
+    a test that PASSED IN ISOLATION and failed only in company.
+
+    That is the aliasing hazard this audit catalogues (a shared object reached by
+    a mutating consumer), committed in the test layer, against a test whose whole
+    job is to pin that lending stays gated shut. monkeypatch restores on teardown.
     """
-    for mgr in (service, service._loan_manager):
-        mgr._web3.available = True
-        mgr._web3.is_placeholder = lambda _addr: False
+    monkeypatch.setattr(service._web3, "available", True)
+    monkeypatch.setattr(service._web3, "is_placeholder", lambda _addr: False)
     return service
 
 
@@ -80,9 +91,9 @@ def service() -> DeFiService:
 # ── the load-bearing assertion ───────────────────────────────────────────
 
 
-async def test_a_loan_is_not_issued_against_nan_collateral(service):
+async def test_a_loan_is_not_issued_against_nan_collateral(service, monkeypatch):
     """THE FINDING. Driven at the pre-fix commit: this returned a loan_id."""
-    _deployed(service)
+    _deployed(service, monkeypatch)
 
     with pytest.raises(ValueError) as exc:
         await service.create_loan("0xB", "ETH", NAN, "USDC", 1000.0)
@@ -90,10 +101,10 @@ async def test_a_loan_is_not_issued_against_nan_collateral(service):
     assert "finite" in str(exc.value).lower()
 
 
-async def test_the_well_formed_loan_still_works(service):
+async def test_the_well_formed_loan_still_works(service, monkeypatch):
     """SCOPE PIN. The guard must not break borrowing — if this fails, the fix
     traded a working feature for a refusal."""
-    _deployed(service)
+    _deployed(service, monkeypatch)
 
     loan = await service.create_loan("0xA", "ETH", 10.0, "USDC", 1000.0)
 
@@ -102,11 +113,11 @@ async def test_the_well_formed_loan_still_works(service):
     assert math.isfinite(loan["collateral_ratio"])
 
 
-async def test_the_collateralisation_control_still_refuses_a_thin_loan(service):
+async def test_the_collateralisation_control_still_refuses_a_thin_loan(service, monkeypatch):
     """THE CONTROL ITSELF, asserted intact. The whole finding is that this check
     was bypassable; if the fix disabled it instead of repairing it, the domain is
     worse off, not better."""
-    _deployed(service)
+    _deployed(service, monkeypatch)
 
     with pytest.raises(ValueError) as exc:
         await service.create_loan("0xD", "ETH", 0.1, "USDC", 1000.0)
@@ -114,7 +125,7 @@ async def test_the_collateralisation_control_still_refuses_a_thin_loan(service):
     assert "below minimum" in str(exc.value)
 
 
-async def test_an_uncomputable_ratio_is_refused_not_coerced(service):
+async def test_an_uncomputable_ratio_is_refused_not_coerced(service, monkeypatch):
     """DEFENCE IN DEPTH. Guarding the inputs is not enough — the ratio is a
     QUOTIENT OF PRICES, so a non-finite price yields a non-finite ratio from
     finite inputs. Refuse; do not coerce to 0, which would replace an
@@ -132,7 +143,7 @@ async def test_an_uncomputable_ratio_is_refused_not_coerced(service):
     had never executed — which is the inert-fix pattern one level up, in the
     verification rather than the fix.
     """
-    _deployed(service)
+    _deployed(service, monkeypatch)
 
     async def _price(token):
         return NAN if token == "ETH" else 1.0
@@ -149,7 +160,7 @@ async def test_an_uncomputable_ratio_is_refused_not_coerced(service):
 # ── the collateral ledger, which is UNGATED ──────────────────────────────
 
 
-async def test_nan_cannot_be_deposited_as_collateral(service):
+async def test_nan_cannot_be_deposited_as_collateral(service, monkeypatch):
     """UNGATED PATH — no deployment gate stands in front of this one at all.
     Pre-fix this returned {"status": "deposited", "new_balance": NaN} and
     poisoned the ledger, under the SHIPPED config."""
@@ -160,7 +171,7 @@ async def test_nan_cannot_be_deposited_as_collateral(service):
     assert service._collateral_manager._balances.get("0xA", {}).get("ETH") is None
 
 
-async def test_nan_cannot_be_withdrawn(service):
+async def test_nan_cannot_be_withdrawn(service, monkeypatch):
     """THE TWIN. `amount <= 0` AND `amount > current` are both False for NaN, so
     the withdrawal walked the sign check and the sufficiency check. Fixing
     deposit alone would have left the drain open."""
@@ -173,7 +184,7 @@ async def test_nan_cannot_be_withdrawn(service):
     assert service._collateral_manager._balances["0xA"]["ETH"] == 5.0
 
 
-async def test_infinity_is_refused_too(service):
+async def test_infinity_is_refused_too(service, monkeypatch):
     """inf is not NaN and fails differently — `inf > current` is True, so the
     sufficiency check DID catch a withdrawal. It did not catch a deposit."""
     with pytest.raises(ValueError) as exc:
@@ -182,7 +193,7 @@ async def test_infinity_is_refused_too(service):
     assert "finite" in str(exc.value).lower()
 
 
-async def test_ordinary_validation_is_untouched(service):
+async def test_ordinary_validation_is_untouched(service, monkeypatch):
     """THE PROOF THAT THIS IS CATEGORY 6, NOT MISSING VALIDATION. These guards
     were always correct; only the NaN case walked them. If either stops firing,
     the fix broke a working control."""
