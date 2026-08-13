@@ -14,6 +14,10 @@ import uuid
 from typing import Any
 
 from runtime.blockchain.services.insurance._guards import require_finite_money
+from runtime.blockchain.services.insurance._predicate import (
+    PredicateError,
+    build_predicate,
+)
 
 from runtime.blockchain.services.ownership import assert_owner
 from runtime.blockchain.services.insurance.eligibility import EligibilityTracker
@@ -502,37 +506,20 @@ class InsuranceService:
     def _build_trigger_conditions(
         policy_type: str, coverage: dict,
     ) -> dict[str, Any]:
-        """Build trigger conditions from policy type and coverage params."""
-        conditions: dict[str, Any] = {"policy_type": policy_type}
+        """Build a VALIDATED trigger predicate from the buyer's coverage dict.
 
-        if policy_type == "weather":
-            conditions["location"] = coverage.get("location", "")
-            conditions["metric"] = coverage.get("metric", "temperature")
-            conditions["threshold"] = coverage.get("threshold", 0)
-            conditions["comparator"] = coverage.get("comparator", "gt")
+        18-E. This method used to lift `metric`, `comparator` and `threshold`
+        verbatim out of the buyer's own dict, so the policyholder wrote the
+        test their payout was decided by. NEW-78 removed the claimant's
+        DATA from the claim decision and left the claimant's PREDICATE in it.
 
-        elif policy_type == "flight_delay":
-            conditions["flight_number"] = coverage.get("flight_number", "")
-            conditions["delay_minutes"] = coverage.get("delay_minutes", 120)
-
-        elif policy_type == "crop":
-            conditions["location"] = coverage.get("location", "")
-            conditions["crop_type"] = coverage.get("crop_type", "")
-            conditions["rainfall_threshold_mm"] = coverage.get(
-                "rainfall_threshold_mm", 50,
-            )
-
-        elif policy_type == "earthquake":
-            conditions["location"] = coverage.get("location", "")
-            conditions["magnitude_threshold"] = coverage.get(
-                "magnitude_threshold", 5.0,
-            )
-
-        elif policy_type == "smart_contract_hack":
-            conditions["contract_address"] = coverage.get("contract_address", "")
-            conditions["loss_threshold"] = coverage.get("loss_threshold", 0)
-
-        return conditions
+        Validation lives in `_predicate.build_predicate`, which refuses to
+        issue rather than returning a predicate the platform will not stand
+        behind. See that module for the measured exploits, the bands and their
+        stated basis, and for what deliberately REMAINS open (the premium does
+        not vary with the threshold — D18-FEE-C2, registered, not closed).
+        """
+        return build_predicate(policy_type, coverage)
 
     # ------------------------------------------------------------------
     # Expanded insurance operations
@@ -550,6 +537,71 @@ class InsuranceService:
                 "operation": "create_parametric_policy",
                 "requested": {"holder": holder, "trigger_type": trigger_type, "coverage_amount": coverage_amount},
             })
+        # 18-F. THE UNPRICED TWIN. This method wrote a claimable policy having
+        # called the fee engine ZERO times, check_eligibility ZERO times and
+        # check_solvency ZERO times, and having never validated trigger_type
+        # against POLICY_TYPES or coverage_amount against max_coverage. The
+        # buyer supplied BOTH the coverage amount AND the premium and nothing
+        # reconciled them — §U taken to its limit: in the priced path the buyer
+        # manipulates an input to the price; here the buyer simply states it.
+        #
+        # Measured at the census pin, all with ordinary finite floats:
+        #   coverage 90,000 / premium 0.0 -> approved, reserve driven to 0.0,
+        #     against an honest quote of 1,440.0, on BOTH claim surfaces;
+        #   policy_type "banana" -> active, trigger registered, published to
+        #     the public feed as insurance_policy_created;
+        #   coverage NaN -> ReserveFund._balance becomes NaN, after which the
+        #     CORRECTLY-PRICED path is rejected forever with "Reserve fund
+        #     insufficient" while this one becomes unbounded. This method was
+        #     the sole injection point for that: the twin rejects NaN
+        #     incidentally at solvency (balance >= NaN is False).
+        #
+        # The gates below are the twin's gates, in the twin's order. NEW-80
+        # made these records claimable; it is what turned an unpriced record
+        # into an obligation.
+        if trigger_type not in POLICY_TYPES:
+            raise ValueError(
+                f"Unknown trigger_type '{trigger_type}'. "
+                f"Must be one of: {', '.join(sorted(POLICY_TYPES))}"
+            )
+
+        coverage_amount = require_finite_money(coverage_amount, "coverage_amount")
+        if coverage_amount > self._max_coverage:
+            raise ValueError(
+                f"coverage_amount {coverage_amount} exceeds max "
+                f"{self._max_coverage}"
+            )
+        premium = require_finite_money(premium, "premium", allow_zero=True)
+
+        elig = await self._eligibility.check_eligibility(holder, trigger_type)
+        if not elig.get("eligible", False):
+            return {
+                "status": "rejected",
+                "reason": elig.get("reason", "Not eligible"),
+                "eligibility": elig,
+            }
+
+        duration_days_gate = int(self._default_duration)
+        premium_calc = await self._fee_engine.calculate_premium(
+            trigger_type, coverage_amount, duration_days_gate,
+            (trigger_params or {}).get("risk_factors", {}),
+        )
+        expected_premium = premium_calc["total_premium"]
+        if premium < expected_premium:
+            return {
+                "status": "rejected",
+                "reason": f"Premium {premium} is below required {expected_premium}",
+                "premium_required": expected_premium,
+            }
+
+        solvency = await self._reserve_fund.check_solvency(coverage_amount)
+        if not solvency.get("solvent", False):
+            return {
+                "status": "rejected",
+                "reason": "Reserve fund insufficient for additional coverage",
+                "solvency": solvency,
+            }
+
         policy_id = f"ppol_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
         # NEW-80: SCHEMA RECONCILED WITH THE POLICY SHAPE THE CLAIM PATH
@@ -577,6 +629,7 @@ class InsuranceService:
             "coverage_amount": coverage_amount,
             "premium": premium,
             "premium_paid": premium,
+            "premium_breakdown": premium_calc,
             "created_at": now,
             "expires_at": now + duration_days * 86400,
         }
@@ -694,9 +747,42 @@ class InsuranceService:
         }
 
     async def renew_coverage(
-        self, policy_id: str, additional_premium: float, extension_days: int = 365,
+        self,
+        policy_id: str,
+        additional_premium: float,
+        extension_days: int = 365,
+        caller: str | None = None,
     ) -> dict:
-        """Renew an existing insurance policy."""
+        """Renew an existing insurance policy — and actually renew it.
+
+        18-G. THIS METHOD RENEWED NOTHING. It never looked up the policy, never
+        wrote to `self._policies`, and never extended `expires_at`. It built a
+        fresh dict containing `status: "renewed"` and returned it. `renewed` is
+        in `_REAL_OUTCOME_STATUSES`, so `_outcome_is_real` returned True, the
+        dispatcher ATTESTED `cover_renew` into the platform's own audit record
+        and PUBLISHED it to the public social feed — while the stored policy
+        expired on its original date and all three read paths (`file_claim`,
+        `auto_settle_claim`, `get_policy`) then refused the holder as expired.
+
+        A live denial of coverage, announced publicly as its opposite.
+
+        It was reachable with TWO ordinary scalars, no authentication and no
+        ownership check, on shipped config. `new_expiry` was the sharpest part:
+        a measured-looking field computed as `now + extension_days`, never read
+        from the policy's actual `expires_at` and never written anywhere. A
+        reader treats a returned expiry as the policy's new expiry; it was an
+        arithmetic expression over the caller's own argument.
+
+        §AG CORRECTION, from the verification pass. This was filed as biting
+        because of NEW-79. It does not: `file_claim`'s expiry refusal exists in
+        the original commit and predates `renew_coverage` entirely — NEW-79
+        only extended that same refusal to `auto_settle_claim`. The defect has
+        been a live denial on the PRIMARY claim path since the method was born.
+        The composition frame was unearned and the finding is older than filed.
+
+        `caller` is required, per the NEW-78b ownership idiom: the sweep that
+        covered `file_claim` and `cancel_policy` never reached this method.
+        """
         if (
             not self._web3.available
             or self._web3.is_placeholder(self._policy_contract)
@@ -705,19 +791,90 @@ class InsuranceService:
                 "operation": "renew_coverage",
                 "requested": {"policy_id": policy_id, "extension_days": extension_days},
             })
-        renew_id = f"ren_{uuid.uuid4().hex[:16]}"
+
+        policy = self._policies.get(policy_id)
+        if not policy:
+            return {
+                "status": "not_found",
+                "reason": f"Policy {policy_id} not found; nothing was renewed.",
+                "policy_id": policy_id,
+            }
+
+        assert_owner(caller, policy, owner_field="holder", what="policy")
+
+        if policy["status"] not in ("active", "expired"):
+            return {
+                "status": "rejected",
+                "reason": (
+                    f"Cannot renew a policy with status '{policy['status']}'; "
+                    f"nothing was renewed."
+                ),
+                "policy_id": policy_id,
+            }
+
+        extension_days = int(extension_days)
+        if extension_days <= 0:
+            raise ValueError("extension_days must be positive")
+        additional_premium = require_finite_money(
+            additional_premium, "additional_premium", allow_zero=True)
+
+        # The renewal must be PRICED, or it is a free extension of cover. Same
+        # engine, same sufficiency test as issuance.
+        coverage_amount = require_finite_money(
+            policy.get("coverage", {}).get("amount", 0), "coverage.amount")
+        quote = await self._fee_engine.calculate_premium(
+            policy["policy_type"], coverage_amount, extension_days,
+            policy.get("coverage", {}).get("risk_factors", {}),
+        )
+        required = quote["total_premium"]
+        if additional_premium < required:
+            return {
+                "status": "rejected",
+                "reason": (
+                    f"Additional premium {additional_premium} is below the "
+                    f"required {required}; nothing was renewed."
+                ),
+                "premium_required": required,
+                "policy_id": policy_id,
+            }
+
         now = int(time.time())
-        record: dict[str, Any] = {
+        # Extend from whichever is later: an unexpired policy extends from its
+        # own expiry, a lapsed one from today. Extending a lapsed policy from
+        # its old expiry would silently sell cover for a period already past.
+        base = max(int(policy.get("expires_at", now)), now)
+        new_expiry = base + extension_days * 86400
+
+        policy["expires_at"] = new_expiry
+        policy["status"] = "active"
+        policy["premium_paid"] = (
+            require_finite_money(policy.get("premium_paid", 0), "premium_paid",
+                                 allow_zero=True)
+            + additional_premium
+        )
+        policy.setdefault("renewals", []).append({
+            "renewed_at": now,
+            "extension_days": extension_days,
+            "additional_premium": additional_premium,
+            "premium_breakdown": quote,
+            "new_expiry": new_expiry,
+        })
+
+        renew_id = f"ren_{uuid.uuid4().hex[:16]}"
+        logger.info(
+            "Coverage renewed: id=%s policy=%s new_expiry=%s",
+            renew_id, policy_id, new_expiry,
+        )
+        return {
             "id": renew_id,
             "status": "renewed",
             "policy_id": policy_id,
             "additional_premium": additional_premium,
             "extension_days": extension_days,
-            "new_expiry": now + extension_days * 86400,
+            "new_expiry": new_expiry,
             "renewed_at": now,
+            "premium_breakdown": quote,
         }
-        logger.info("Coverage renewed: id=%s", renew_id)
-        return record
 
     async def assess_risk(
         self, holder: str, policy_type: str, parameters: dict | None = None,

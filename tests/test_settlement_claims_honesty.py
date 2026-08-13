@@ -68,9 +68,15 @@ async def _funded_policy(svc, holder):
     passing — so the reserve is funded first.
     """
     await svc._reserve_fund.deposit(10_000.0)
+    # 18-E: the threshold key here USED to be `delay_threshold_minutes`, which
+    # nothing has ever read — `_build_trigger_conditions` looked for
+    # `delay_minutes` and silently defaulted. The policy this fixture built
+    # therefore had a payout threshold its author never chose, which is the
+    # defect 18-E closes, sitting inside a test. The key is now the one the
+    # predicate actually reads, and an absent one is a refusal to issue.
     policy = await svc.create_policy(
         holder=holder, policy_type="flight_delay",
-        coverage={"amount": 500.0, "delay_threshold_minutes": 120},
+        coverage={"amount": 500.0, "delay_minutes": 120},
         premium=25.0,
     )
     assert policy.get("status") != "rejected", policy
