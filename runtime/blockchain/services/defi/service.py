@@ -315,11 +315,26 @@ class DeFiService:
         interest_rate: float,
         duration_days: int,
     ) -> dict[str, Any]:
-        """Create a P2P lending offer."""
+        """Create a P2P lending offer.
+
+        DOMAIN 16-J — POSTING AN OFFER IS NOT FUNDING A LOAN. This awarded the
+        reputation event literally named `loan_funded` (+10, the schedule's
+        joint-largest positive) the moment an offer was POSTED: no borrower, no
+        acceptance, no collateral, no funds moved, and no obligation to honour
+        it. Confirmed by two independent lenses.
+
+        Reputation is what other participants read to decide whether to transact
+        with a lender, so an event awarded for an *intention* rather than an
+        *act* inflates exactly the signal it exists to carry — and it is
+        free-riding by construction: post offers, accrue "funded" credit, never
+        fill one.
+
+        The award moves to `accept_p2p_offer`, where a borrower has actually
+        taken the offer. Nothing is awarded here; posting is not an achievement.
+        """
         result = await self._p2p_lending.create_offer(
             lender, token, amount, interest_rate, duration_days
         )
-        await self._reputation.update_score(lender, "loan_funded")
         return result
 
     async def accept_p2p_offer(
@@ -370,9 +385,18 @@ class DeFiService:
         verified["value_source"] = "service_oracle"
         verified["value_usd_as_claimed"] = collateral.get("value_usd")
 
-        return await self._p2p_lending.accept_offer(
+        accepted = await self._p2p_lending.accept_offer(
             offer_id, borrower, verified
         )
+
+        # DOMAIN 16-J — the `loan_funded` award lives HERE, not on posting. This
+        # is the first point at which a borrower has taken the offer, so it is
+        # the first point at which the lender has done the thing the event is
+        # named for. Awarded to the LENDER, who funded it — not the borrower.
+        lender = accepted.get("lender") or self._p2p_lending._offers[offer_id]["lender"]
+        await self._reputation.update_score(lender, "loan_funded")
+
+        return accepted
 
     async def list_p2p_offers(
         self, filters: dict[str, Any] | None = None

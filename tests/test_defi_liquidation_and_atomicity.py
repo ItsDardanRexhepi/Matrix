@@ -279,3 +279,60 @@ async def test_get_loan_still_reports_accrued_interest(service):
 
     assert first["accrued_interest"] > 0
     assert second["accrued_interest"] >= first["accrued_interest"]
+
+
+# ── 16-J: posting an offer is not funding a loan ─────────────────────────
+
+
+async def test_posting_an_offer_awards_no_reputation(service):
+    """16-J. Pre-fix, `create_p2p_offer` awarded the event literally named
+    `loan_funded` (+10, the schedule's joint-largest positive) the moment an
+    offer was POSTED — no borrower, no acceptance, no collateral, no funds
+    moved, no obligation to honour it.
+
+    Reputation is what other participants read to decide whether to transact
+    with a lender, so an event awarded for an INTENTION rather than an ACT
+    inflates precisely the signal it exists to carry. It was also free-riding by
+    construction: post offers, accrue "funded" credit, never fill one.
+    """
+    before = await service.get_reputation("0xL")
+
+    await service.create_p2p_offer("0xL", "USDC", 1000.0, 0.05, 30)
+
+    after = await service.get_reputation("0xL")
+    assert after["score"] == before["score"], (
+        "posting an offer moved the lender's reputation"
+    )
+    assert after["total_events"] == before["total_events"]
+
+
+async def test_the_award_moves_to_acceptance(service):
+    """The event is not deleted — it is relocated to the first moment the lender
+    has actually done the thing it is named for."""
+    offer = await service.create_p2p_offer("0xL", "USDC", 1000.0, 0.05, 30)
+    before = await service.get_reputation("0xL")
+
+    await service.accept_p2p_offer(
+        offer["offer_id"], "0xB",
+        {"token": "ETH", "amount": 1.0, "value_usd": 1.0},
+    )
+
+    after = await service.get_reputation("0xL")
+    assert after["score"] > before["score"], "funding a loan earned nothing"
+
+
+async def test_the_borrower_does_not_receive_the_lenders_credit(service):
+    """SCOPE PIN on the relocation. `loan_funded` belongs to the party who
+    funded it; awarding it to whoever triggered the call would be a different
+    defect with the same shape."""
+    offer = await service.create_p2p_offer("0xL", "USDC", 1000.0, 0.05, 30)
+
+    await service.accept_p2p_offer(
+        offer["offer_id"], "0xB",
+        {"token": "ETH", "amount": 1.0, "value_usd": 1.0},
+    )
+
+    borrower = await service.get_reputation("0xB")
+    assert borrower["total_events"] == 0, (
+        "the borrower received the lender's funding credit"
+    )
