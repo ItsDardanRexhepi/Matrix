@@ -163,10 +163,16 @@ class InsuranceService:
                 "eligibility": elig,
             }
 
+        # 18-P. The predicate is built BEFORE pricing, because the premium now
+        # depends on it. Building it first also means an unissuable predicate
+        # is refused before any of the work below runs.
+        trigger_conditions = self._build_trigger_conditions(policy_type, coverage)
+
         # Calculate expected premium
         risk_factors = coverage.get("risk_factors", {})
         premium_calc = await self._fee_engine.calculate_premium(
             policy_type, coverage_amount, duration_days, risk_factors,
+            trigger_conditions=trigger_conditions,
         )
         expected_premium = premium_calc["total_premium"]
 
@@ -214,8 +220,7 @@ class InsuranceService:
 
         self._policies[policy_id] = policy
 
-        # Register auto-trigger if applicable
-        trigger_conditions = self._build_trigger_conditions(policy_type, coverage)
+        # Register auto-trigger if applicable (built above, before pricing)
         if trigger_conditions:
             trigger = await self._trigger_manager.register_trigger(
                 policy_id, policy_type, trigger_conditions,
@@ -658,9 +663,12 @@ class InsuranceService:
             }
 
         duration_days_gate = int(self._default_duration)
+        gate_conditions = self._build_trigger_conditions(
+            trigger_type, trigger_params or {})
         premium_calc = await self._fee_engine.calculate_premium(
             trigger_type, coverage_amount, duration_days_gate,
             (trigger_params or {}).get("risk_factors", {}),
+            trigger_conditions=gate_conditions,
         )
         expected_premium = premium_calc["total_premium"]
         if premium < expected_premium:
@@ -935,9 +943,12 @@ class InsuranceService:
         # engine, same sufficiency test as issuance.
         coverage_amount = require_finite_money(
             policy.get("coverage", {}).get("amount", 0), "coverage.amount")
+        renew_trigger = self._trigger_manager.get_trigger(
+            policy.get("trigger_id") or "") or {}
         quote = await self._fee_engine.calculate_premium(
             policy["policy_type"], coverage_amount, extension_days,
             policy.get("coverage", {}).get("risk_factors", {}),
+            trigger_conditions=renew_trigger.get("conditions"),
         )
         required = quote["total_premium"]
         if additional_premium < required:
@@ -1024,9 +1035,17 @@ class InsuranceService:
         )
         duration_days = int(params.get("duration_days", self._default_duration))
 
+        try:
+            enquiry_conditions = build_predicate(policy_type, params)
+        except PredicateError:
+            # An estimate for a predicate we would refuse to underwrite is
+            # still worth quoting, at the un-severity-adjusted base — but it
+            # must not silently look like a quote for an issuable policy.
+            enquiry_conditions = None
         quote = await self._fee_engine.calculate_premium(
             policy_type, coverage_amount, duration_days,
             params.get("risk_factors", {}),
+            trigger_conditions=enquiry_conditions,
         )
         history = await self._eligibility.get_history(holder)
 

@@ -67,7 +67,12 @@ from __future__ import annotations
 import math
 from typing import Any, NamedTuple
 
-__all__ = ["PREDICATE_SPECS", "PredicateError", "build_predicate"]
+__all__ = [
+    "PREDICATE_SPECS",
+    "PredicateError",
+    "build_predicate",
+    "trigger_ease",
+]
 
 
 class PredicateError(ValueError):
@@ -155,6 +160,60 @@ _DESCRIPTIVE: dict[str, tuple[str, ...]] = {
     "earthquake": ("location",),
     "smart_contract_hack": ("contract_address",),
 }
+
+
+def trigger_ease(policy_type: str, conditions: dict) -> float | None:
+    """How EASY the registered trigger is to satisfy, on 0.0..1.0. 18-P.
+
+    1.0 is the easiest threshold the platform will underwrite (the near end of
+    the insurable band), 0.0 the hardest (the far end). Returns ``None`` when
+    the trigger cannot be placed on a bounded scale, which is a refusal to
+    guess rather than a zero.
+
+    THIS IS A DECLARED SCHEDULE, NOT A RISK MODEL, and the distinction is the
+    whole reason it is safe to add. It does not estimate how often a peril
+    occurs; it says where inside the platform's own declared band the buyer
+    chose to sit. It lives here because the bands live here (18-E) — the
+    alternative was a second copy of them in the fee engine.
+    """
+    spec = PREDICATE_SPECS.get(policy_type)
+    if not spec:
+        return None
+
+    if policy_type == "weather":
+        metric = conditions.get("metric")
+        comparator = conditions.get("comparator")
+        if metric not in spec or comparator not in spec.get(metric, {}):
+            return None
+        band = spec[metric][comparator]
+        threshold = conditions.get("threshold")
+    else:
+        key, comparator = _FIXED[policy_type]
+        band = spec[key][comparator]
+        threshold = conditions.get(key)
+
+    if threshold is None:
+        return None
+    try:
+        value = float(threshold)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    if not math.isfinite(band.lo) or not math.isfinite(band.hi):
+        # `smart_contract_hack`'s loss floor is unbounded above, so there is no
+        # scale to place a threshold on. Saying so beats inventing an upper
+        # bound purely to make the arithmetic work.
+        return None
+    if band.hi == band.lo:
+        return None
+
+    position = (value - band.lo) / (band.hi - band.lo)
+    position = min(1.0, max(0.0, position))
+
+    # A `lt` trigger fires BELOW its threshold, so a HIGHER number is the
+    # easier one; every other comparator fires above, where LOWER is easier.
+    return position if comparator == "lt" else 1.0 - position
 
 
 def _finite(value: Any, name: str) -> float:

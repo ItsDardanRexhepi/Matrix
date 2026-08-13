@@ -74,10 +74,18 @@ async def _funded_policy(svc, holder):
     # therefore had a payout threshold its author never chose, which is the
     # defect 18-E closes, sitting inside a test. The key is now the one the
     # predicate actually reads, and an absent one is a refusal to issue.
+    # 18-P/18-Q repriced this: tiers are marginal and the premium now varies
+    # with how easy the trigger is. Quoted through the engine rather than
+    # hard-coded, so a future repricing does not silently break a fixture that
+    # is not about pricing at all.
+    coverage = {"amount": 500.0, "delay_minutes": 120}
+    quote = await svc._fee_engine.calculate_premium(
+        "flight_delay", 500.0, svc._default_duration, {},
+        trigger_conditions=svc._build_trigger_conditions("flight_delay", coverage),
+    )
     policy = await svc.create_policy(
         holder=holder, policy_type="flight_delay",
-        coverage={"amount": 500.0, "delay_minutes": 120},
-        premium=25.0,
+        coverage=coverage, premium=quote["total_premium"],
     )
     assert policy.get("status") != "rejected", policy
     return policy["policy_id"]

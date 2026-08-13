@@ -252,7 +252,11 @@ async def test_trigger_params_cannot_overwrite_the_gated_coverage_amount(svc):
     record's construction unguarded moves the defect one field over.
     """
     await svc._reserve_fund.deposit(10_000_000.0)
-    quote = await svc._fee_engine.calculate_premium("earthquake", 1000.0, 365, {})
+    quote = await svc._fee_engine.calculate_premium(
+        "earthquake", 1000.0, 365, {},
+        trigger_conditions=svc._build_trigger_conditions(
+            "earthquake", {"magnitude_threshold": 6.0}),
+    )
     rec = await svc.create_parametric_policy(
         holder="0xALICE", trigger_type="earthquake",
         trigger_params={"magnitude_threshold": 6.0, "amount": 5_000_000.0},

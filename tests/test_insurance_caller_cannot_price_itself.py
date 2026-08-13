@@ -184,11 +184,20 @@ async def test_a_non_finite_coverage_cannot_pass_both_bounds(svc, bad):
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
 async def test_a_non_finite_premium_cannot_walk_through_the_sufficiency_check(svc, bad):
     """DEFECT-PROVER. `premium < expected_premium` is defeated by NaN the same
-    way — the policy priced by a number that is not one."""
+    way — the policy priced by a number that is not one.
+
+    18-P moved the predicate build AHEAD of pricing, so a policy with no
+    predicate is now refused before the premium is ever examined. This test
+    supplies a VALID predicate deliberately: without one it would still pass,
+    on the wrong refusal, and the guard it exists to prove would be masked
+    rather than exercised."""
     with pytest.raises(ValueError, match="finite"):
         await svc.create_policy(
             holder="0xH", policy_type="weather",
-            coverage={"amount": 100_000.0, "duration_days": 365}, premium=bad)
+            coverage={"amount": 100_000.0, "duration_days": 365,
+                      "metric": "temperature", "comparator": "gt",
+                      "threshold": 45.0},
+            premium=bad)
 
 
 async def test_the_original_bounds_still_bind(svc):
