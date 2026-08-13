@@ -99,7 +99,12 @@ async def test_self_written_proof_cannot_verify_a_milestone():
         "is the release trigger, so this is self-granted fund release"
     )
     assert result["result"]["authority_available"] is False
-    assert "authority unavailable" in result["result"]["reason"].lower()
+    # Asserts the CONCEPT, not the phrasing. The original matched the literal
+    # "authority unavailable" and broke when the wording was sharpened — a
+    # prose-substring assertion makes the disclosure hard to improve while
+    # proving nothing the `authority_available is False` check above does not
+    # already prove.
+    assert "authority" in result["result"]["reason"].lower()
 
 
 def test_the_self_attesting_fallback_is_gone_from_the_source():
@@ -233,3 +238,37 @@ def test_release_moves_no_value():
                 f"{path.name} now touches real value ({token}) — the "
                 "armed-on-deployment assessment for NEW-73 must be redone"
             )
+
+
+async def test_the_refusal_holds_when_an_oracle_IS_supplied():
+    """The branch that actually ran in production, and was never tested.
+
+    NEW-73 fixed the self-attestation hole with `if self._oracle_service is
+    None: refuse`. Correct when written. NEW-59 then made the oracle
+    resolvable, so that branch became DEAD CODE and execution moved to a live
+    branch calling `self._oracle_service.verify(proof)` — a method
+    `OracleGateway` does not have. It failed closed only by landing in a bare
+    `except Exception`, and reported "Oracle verification failed", which reads
+    as a transient outage rather than "no such authority exists".
+
+    Every test in this file passed `None`, so the branch that ran in
+    production was the one branch no test drove.
+    """
+    class _AnyOracle:
+        async def verify(self, proof):        # what the old code called
+            return {"verified": True}
+        async def request(self, oracle_type, params):   # what exists
+            return {"verified": True, "data": params}
+        async def request_safe(self, oracle_type, params):
+            return {"verified": True, "data": params}
+
+    mv = MilestoneVerification({}, _AnyOracle())
+    await mv.submit_milestone("c", 0, PROOF)
+    result = await mv.verify_milestone("c", 0, "oracle")
+
+    assert result["status"] != "verified"
+    assert result["result"]["authority_available"] is False, (
+        "an oracle object was supplied and the milestone was treated as "
+        "verifiable — routing the submitter's own proof dict through a "
+        "gateway launders it, it does not corroborate it"
+    )

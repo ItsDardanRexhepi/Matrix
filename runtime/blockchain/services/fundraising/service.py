@@ -121,13 +121,22 @@ class FundraisingService:
         self._max_milestones: int = int(f_cfg.get("max_milestones", 10))
 
         self._vesting = VestingManager(config)
-        # NEW-59 (fundraising instance): `oracle_service` is never supplied in
-        # production — ServiceRegistry.get() does `cls(self._config)`, one
-        # positional arg — so this was always None and MilestoneVerification
-        # always took its self-attesting fallback. Here that gap is
-        # SECURITY-load-bearing, not merely correctness-load-bearing: in defi
-        # the same gap made prices fake; here it made milestone verification
-        # self-granted, and milestone verification is the release trigger.
+        # NEW-59 (fundraising instance). THE PARAGRAPH THAT USED TO SIT HERE
+        # SAID "`oracle_service` is never supplied ... so this was always
+        # None". That stopped being true on the line below it, which NEW-59
+        # itself added: `_resolve_oracle()` supplies one. The comment went on
+        # describing the world it had just ended, and it read as authoritative
+        # BECAUSE it named the hazard precisely — an artifact that explicitly
+        # names the failure it is committing reads as immune to it (§AM.3).
+        #
+        # The consequence was not cosmetic. NEW-73's fail-closed branch in
+        # MilestoneVerification is keyed on `oracle_service is None`, so
+        # supplying one turned that branch into DEAD CODE and moved execution
+        # onto a live branch that called a method OracleGateway does not have.
+        #
+        # `_verify_via_oracle` now refuses unconditionally and explains why;
+        # read its docstring before changing anything here, and in particular
+        # before making this oracle "work".
         self._oracle_service = oracle_service
         self._milestones = MilestoneVerification(config, self._resolve_oracle())
         self._refunds = RefundManager(config)

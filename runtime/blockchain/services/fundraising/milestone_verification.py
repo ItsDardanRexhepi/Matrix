@@ -211,62 +211,102 @@ class MilestoneVerification:
         return vote
 
     async def _verify_via_oracle(self, record: dict) -> dict:
-        """Verify milestone using Component 11 (Oracle Gateway)."""
-        if self._oracle_service is None:
-            # NEW-73: FAIL CLOSED. This was a self-attestation hole.
-            #
-            # The removed fallback read the SUBMITTER'S OWN proof dict and
-            # approved on `description and (documents or metrics)`:
-            #
-            #     if has_desc and (has_docs or has_metrics):
-            #         return {"approved": True, ...}
-            #
-            # The submitter writes that dict. So {"description": "done",
-            # "documents": ["x"]} self-approved the milestone — and this is
-            # the RELEASE TRIGGER: release_milestone_funds refuses unless
-            # status == "verified", so the gate looked like an authority
-            # check while the authority was the beneficiary. That is worse
-            # than an ungated release, because a reviewer sees the
-            # `!= "verified"` check and concludes the path is protected.
-            #
-            # It was also the DEFAULT path, not an edge case: the registry
-            # constructs FundraisingService as cls(config) (NEW-59), so
-            # oracle_service was never suppliable and the fallback was the
-            # only branch that ever ran.
-            #
-            # The honest behaviour with no verification authority available
-            # is "cannot verify", never "verify yourself".
-            logger.warning(
-                "Milestone verification unavailable: no oracle authority "
-                "configured. Refusing to self-attest."
-            )
-            return {
-                "approved": False,
-                "method": "oracle",
-                "authority_available": False,
-                "reason": (
-                    "Verification authority unavailable — no oracle service is "
-                    "configured. A milestone cannot be verified from the "
-                    "submitter's own proof."
-                ),
-            }
+        """REFUSE. There is no authority on this platform that can attest a
+        fundraising milestone, so this method declines instead of pretending.
 
-        # Use oracle service for external verification
-        try:
-            proof = record.get("proof", {})
-            oracle_result = await self._oracle_service.verify(proof)
-            return {
-                "approved": oracle_result.get("verified", False),
-                "method": "oracle",
-                "oracle_response": oracle_result,
-            }
-        except Exception as exc:
-            logger.error("Oracle verification failed: %s", exc)
-            return {
-                "approved": False,
-                "method": "oracle",
-                "reason": f"Oracle verification failed: {exc}",
-            }
+        =====================================================================
+        DO NOT "FIX" THIS BY POINTING IT AT OracleGateway.request().
+        =====================================================================
+
+        That is the repair this code invites, and it is the defect returning
+        in a new costume. The history:
+
+          * NEW-73 removed a self-attestation hole. The original code read the
+            SUBMITTER'S OWN `proof` dict and approved on
+            `description and (documents or metrics)`. The submitter writes
+            that dict, so {"description": "done", "documents": ["x"]}
+            released the funds.
+
+          * NEW-73's replacement was `if self._oracle_service is None: refuse`
+            — correct WHEN WRITTEN, because the registry constructs
+            FundraisingService as cls(config) and an oracle could never be
+            supplied.
+
+          * NEW-59 then made the oracle resolvable (service.py `_resolve_oracle`).
+            The None-branch became DEAD CODE. The live branch called
+            `self._oracle_service.verify(proof)` — and `OracleGateway` HAS NO
+            `verify` METHOD. Enumerated: price_feeds, vrf, weather, request,
+            request_safe, query_price, request_vrf, query_weather, cache_stats,
+            prune_caches, invalidate_cache. So every call raised
+            AttributeError, was swallowed by `except Exception`, and returned
+            "Oracle verification failed: ..." — which fails closed BY ACCIDENT
+            and reads to an operator as a TRANSIENT outage rather than as
+            "no such authority exists."
+
+        The obvious repair is to change the method name to one that exists —
+        `request_safe("custom", proof)`. DO NOT. `OracleGateway` dispatches
+        five oracle types: price_feed, weather, sports, vrf, custom. NONE of
+        them can observe whether a fundraising milestone was delivered. A
+        price feed knows what ETH costs. `_handle_custom` takes `params` and
+        works with what it is handed. `params` WOULD BE `proof`, AND `proof`
+        IS WRITTEN BY THE PARTY WHO GETS PAID WHEN IT IS BELIEVED.
+
+        §U — could the party bound by the decision have supplied its input?
+        Here, yes, entirely. Routing the submitter's dict through a gateway
+        does not make it evidence; it launders it. The result would be the
+        NEW-73 hole with an oracle-shaped receipt attached, which is strictly
+        worse than the original, because the original at least did not
+        produce a document that says an oracle checked.
+
+        LIFTING CONDITION — what must exist before this refusal is removed:
+
+          An authority that verifies a FACT THE SUBMITTER DID NOT SUPPLY.
+
+        Concretely, it must take as input something the submitter does not
+        control, and report an observation made independently of them:
+
+          * a named third-party attestor with its own key, signing a
+            statement about the deliverable, where the signature is checked
+            against a key registered BEFORE the campaign opened;
+          * an on-chain fact the milestone was defined against in advance
+            (a deployed contract address, a Merkle root committed at campaign
+            creation, a token balance at a block height);
+          * a delivery receipt from a counterparty with an adverse interest —
+            the buyer, the auditor, the escrow agent.
+
+        A URL in `proof` is not this. A hash of a document in `proof` is not
+        this — it authenticates a file the submitter chose. An "oracle" that
+        echoes `proof` back is not this. If the proposed authority's input can
+        be traced back to the submitter, the condition is NOT met.
+
+        Until then the honest answer is the one this returns: we cannot
+        verify. `release_milestone_funds` refuses unless status == "verified",
+        so this refusal holds the funds rather than releasing them, which is
+        the conservative direction. The community-vote path
+        (`_verify_via_community_vote`) remains available and is a DIFFERENT
+        claim — it reports what voters said, not what happened.
+        """
+        logger.warning(
+            "Milestone verification refused: no authority exists that can "
+            "attest a fundraising milestone. campaign=%s",
+            record.get("campaign_id"),
+        )
+        return {
+            "approved": False,
+            "method": "oracle",
+            # Emitted on EVERY path now. The pre-fix live branch dropped this
+            # field entirely, so the one machine-readable signal that
+            # distinguishes "no authority exists" from "the authority said no"
+            # was absent exactly when it was true.
+            "authority_available": False,
+            "verified": False,
+            "reason": (
+                "No verification authority is available for fundraising "
+                "milestones. This is a deliberate refusal, not an outage. A "
+                "milestone cannot be verified from proof supplied by the "
+                "party who is paid when it is believed."
+            ),
+        }
 
     async def _verify_via_community_vote(
         self, key: tuple[str, int]
