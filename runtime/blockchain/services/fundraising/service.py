@@ -256,6 +256,11 @@ class FundraisingService:
             raise ValueError("Creator address is required")
         if not title:
             raise ValueError("Campaign title is required")
+        # 20-C. EVERY ordered guard below admits a NaN: `nan < floor` is
+        # False, `nan <= 0` is False, `nan > cap` is False. A NaN satisfies
+        # neither bound of a range check and therefore passes BOTH.
+        goal = _require_finite_positive(goal, "goal")
+        deadline_days = _require_finite_positive(deadline_days, "deadline_days")
         if goal < self._min_goal:
             raise ValueError(f"Goal must be at least {self._min_goal}")
         if deadline_days <= 0:
@@ -338,6 +343,7 @@ class FundraisingService:
             raise ValueError(
                 f"Campaign is {campaign['status']}, not accepting contributions"
             )
+        amount = _require_finite_positive(amount, "amount")
         if amount <= 0:
             raise ValueError("Contribution amount must be positive")
 
@@ -667,6 +673,7 @@ class FundraisingService:
         """Purchase a renewable energy certificate."""
         cert_id = f"rec_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
+        energy_mwh = _require_finite_positive(energy_mwh, "energy_mwh")
         record: dict[str, Any] = {
             "id": cert_id,
             "status": "purchased",
@@ -675,6 +682,14 @@ class FundraisingService:
             "source": source,
             "region": region,
             "purchased_at": now,
+            # 20-B. Four green actions share this; fixing the two carbon ones
+            # and leaving these would be §AK.2's half-fix in the remediation.
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "Recorded in the platform's own registry. No certificate was "
+                "acquired from a registry operator and no value moved."
+            ),
         }
         self._campaigns[f"_rec_{cert_id}"] = record
         logger.info("Renewable cert purchased: id=%s", cert_id)
@@ -686,11 +701,18 @@ class FundraisingService:
         """Invest in a green bond."""
         bond_id = f"gb_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
+        amount = _require_finite_positive(amount, "amount")
         record: dict[str, Any] = {
             "id": bond_id,
             "status": "invested",
             "investor": investor,
             "amount": amount,
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "Recorded in the platform's own registry. No bond was "
+                "purchased from an issuer and no value moved."
+            ),
             "bond_name": bond_name,
             "maturity_years": maturity_years,
             "invested_at": now,

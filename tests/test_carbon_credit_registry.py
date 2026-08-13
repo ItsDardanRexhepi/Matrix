@@ -114,3 +114,111 @@ async def test_the_harness_reaches_the_code_under_test(svc):
         holder="0xA", credit_id=await _bought(svc, 5.0), tonnes=5.0
     )
     assert out["status"] == "retired" and out["tonnes_remaining"] == 0.0
+
+
+# ---------------------------------------------------------------- 20-C ------
+# Every ordered guard in this service admits a NaN. `nan < floor` is False,
+# `nan <= 0` is False, `nan > cap` is False — a NaN satisfies NEITHER bound of
+# a range check and so passes BOTH. §AK.4: 7 paths enumerated, 7 through the
+# one guard, shown equal.
+
+_NAN_PATHS = [
+    ("create_campaign.goal", "goal"),
+    ("create_campaign.deadline_days", "deadline_days"),
+    ("contribute.amount", "amount"),
+    ("buy_carbon_credit.amount", "amount"),
+    ("retire_carbon_credit.tonnes", "tonnes"),
+    ("buy_renewable_cert.energy_mwh", "energy_mwh"),
+    ("invest_green_bond.amount", "amount"),
+]
+
+_MS = [{"title": "m", "description": "d", "release_pct": 100}]
+
+
+async def _drive(svc: FundraisingService, path: str, value):
+    cid = (await svc.create_campaign(
+        creator="0xA", title="t", goal=1000.0, deadline_days=30, milestones=_MS,
+    ))["campaign_id"]
+    # `return {...}[path]()` returns the COROUTINE. `await _drive(...)` then
+    # awaits _drive, gets a coroutine back, and never runs it — 21 tests that
+    # exercised nothing. It failed loud only because these assert a REFUSAL;
+    # a test asserting acceptance would have passed silently. Hence the
+    # reached-the-code control below.
+    return await {
+        "create_campaign.goal": lambda: svc.create_campaign(
+            creator="0xA", title="t", goal=value, deadline_days=30, milestones=_MS),
+        "create_campaign.deadline_days": lambda: svc.create_campaign(
+            creator="0xA", title="t", goal=10.0, deadline_days=value, milestones=_MS),
+        "contribute.amount": lambda: svc.contribute(
+            campaign_id=cid, contributor="0xB", amount=value),
+        "buy_carbon_credit.amount": lambda: svc.buy_carbon_credit(
+            buyer="0xA", amount=value),
+        "retire_carbon_credit.tonnes": lambda: svc.retire_carbon_credit(
+            holder="0xA", credit_id="x", tonnes=value),
+        "buy_renewable_cert.energy_mwh": lambda: svc.buy_renewable_cert(
+            buyer="0xA", energy_mwh=value),
+        "invest_green_bond.amount": lambda: svc.invest_green_bond(
+            investor="0xA", amount=value),
+    }[path]()
+
+
+@pytest.mark.parametrize("path,_arg", _NAN_PATHS)
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.asyncio
+async def test_no_entry_point_admits_a_non_finite_quantity(svc, path, _arg, bad):
+    with pytest.raises(ValueError, match="finite"):
+        await _drive(svc, path, bad)
+
+
+@pytest.mark.asyncio
+async def test_a_nan_contribution_cannot_permanently_unfund_a_campaign(svc):
+    """MEASURED before the fix: ONE NaN contribution set `raised` to NaN, and
+    since `nan >= goal` is False the campaign could NEVER reach "funded" —
+    a later honest contribution of 999999 left `raised=nan`, `status=active`,
+    and told THAT contributor `progress_pct=nan`. Denial of funding by any
+    caller, on a campaign they do not own, for the price of one contribution.
+    """
+    cid = (await svc.create_campaign(
+        creator="0xA", title="t", goal=1000.0, deadline_days=30, milestones=_MS,
+    ))["campaign_id"]
+    with pytest.raises(ValueError, match="finite"):
+        await svc.contribute(campaign_id=cid, contributor="0xATK", amount=float("nan"))
+
+    out = await svc.contribute(campaign_id=cid, contributor="0xHONEST", amount=1500.0)
+    assert not math.isnan(out["progress_pct"])
+    assert svc._campaigns[cid]["raised"] == 1500.0
+    assert svc._campaigns[cid]["status"] == "funded"
+
+
+@pytest.mark.asyncio
+async def test_all_four_green_actions_answer_the_attestation_predicate(svc):
+    """20-B named FOUR actions. Fixing the two carbon ones and leaving the
+    other two would be §AK.2's half-fix inside the remediation itself."""
+    cid = (await svc.buy_carbon_credit(buyer="0xA", amount=10.0))["id"]
+    records = [
+        await svc.buy_carbon_credit(buyer="0xA", amount=10.0),
+        await svc.retire_carbon_credit(holder="0xA", credit_id=cid, tonnes=1.0),
+        await svc.buy_renewable_cert(buyer="0xA", energy_mwh=5.0),
+        await svc.invest_green_bond(investor="0xA", amount=5.0),
+    ]
+    assert len(records) == 4
+    for rec in records:
+        assert rec["settled"] is False
+        assert rec["value_moved"] is False
+        assert rec.get("disclosure")
+        assert _outcome_is_real(rec) is False
+
+
+@pytest.mark.parametrize("path,_arg", _NAN_PATHS)
+@pytest.mark.asyncio
+async def test_the_nan_harness_reaches_the_code_under_test(svc, path, _arg):
+    """Every path in `_NAN_PATHS` must actually execute under `_drive`.
+
+    Proven by passing a value the guard REJECTS FOR A DIFFERENT REASON
+    (negative, not non-finite): if the driver never ran the method, no error
+    arrives at all and this goes red. A refusal-only assertion cannot tell
+    "the guard fired" from "the harness never called it".
+    """
+    with pytest.raises((ValueError, PermissionError)) as caught:
+        await _drive(svc, path, -1.0)
+    assert "finite" not in str(caught.value)
