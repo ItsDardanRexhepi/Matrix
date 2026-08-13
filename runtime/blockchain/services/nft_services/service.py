@@ -12,6 +12,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.services.nft_services._guards import require_finite_amount
+
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 from runtime.blockchain.services.nft_services.factory import NFTFactory
@@ -345,6 +347,9 @@ class NFTService:
         dict
             Listing confirmation with price breakdown.
         """
+        # 17-B: `nan <= 0` is False, so the sign check below passes a NaN
+        # listing price straight into the listing record.
+        price = require_finite_amount(price, "price")
         if price <= 0:
             raise ValueError("Price must be positive")
 

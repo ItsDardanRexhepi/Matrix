@@ -13,6 +13,11 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.services.nft_services._guards import (
+    require_finite_amount,
+    require_finite_bps,
+)
+
 logger = logging.getLogger(__name__)
 
 # Maximum royalty: 25% (2500 bps)
@@ -85,6 +90,10 @@ class RoyaltyEnforcement:
         """
         if not recipient or not recipient.startswith("0x"):
             raise ValueError("Valid recipient address required")
+        # 17-B. THE CAP IS THE POINT, AND NaN WALKS THROUGH IT: `nan < 0` is
+        # False and `nan > cap` is False, so a NaN bps satisfied both halves of
+        # this conjunction and was stored as the collection's royalty rate.
+        bps = require_finite_bps(bps, "bps", self._max_royalty_bps)
         if bps < 0 or bps > self._max_royalty_bps:
             raise ValueError(
                 f"Royalty must be between 0 and {self._max_royalty_bps} bps "
@@ -154,6 +163,10 @@ class RoyaltyEnforcement:
         dict
             Sale breakdown with royalty, platform fee, and seller proceeds.
         """
+        # 17-B. THE FLOOR GUARD BELOW CANNOT SEE NaN: `nan < 0.0001` is False,
+        # so it was skipped and the sale was priced at NaN throughout. Reject
+        # non-finite BEFORE the comparison that is supposed to reject it.
+        sale_price = require_finite_amount(sale_price, "sale_price")
         if sale_price < _MIN_SALE_PRICE:
             raise ValueError(
                 f"Sale price {sale_price} is below minimum {_MIN_SALE_PRICE}"
@@ -177,6 +190,26 @@ class RoyaltyEnforcement:
             "collection": collection,
             "token_id": token_id,
             "sale_price": sale_price,
+            # 17-A. §U, THE FIFTH SELF-ATTESTATION INSTANCE. `sale_price` is
+            # supplied by the party who OWES the royalty computed from it, and
+            # nothing here consults a chain receipt, escrow, or oracle — grep
+            # over this method for web3/chain/receipt/verify/escrow/oracle
+            # returns nothing. Measured with a 10% royalty configured: an
+            # honest 10.0 pays the creator 1.0; reporting 1.0 pays 0.1. No
+            # malformed input required.
+            #
+            # There is no price oracle for an arbitrary NFT sale, so the sale
+            # price CANNOT be independently established here. What can be fixed
+            # is the record's silence about that: 16-G's idiom, provenance
+            # preserved rather than a verification invented.
+            "price_source": "caller_asserted",
+            "price_verified": False,
+            "price_disclosure": (
+                "sale_price was supplied by the caller and has NOT been "
+                "verified against an on-chain transfer, an escrow, or a price "
+                "oracle. The royalty and platform fee below are computed from "
+                "that unverified figure."
+            ),
             "seller": seller,
             "buyer": buyer,
             "royalty": {

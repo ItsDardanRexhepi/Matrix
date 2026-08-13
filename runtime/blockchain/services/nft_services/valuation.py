@@ -16,6 +16,8 @@ import math
 import time
 from typing import Any
 
+from runtime.blockchain.services.nft_services._guards import require_finite_amount
+
 logger = logging.getLogger(__name__)
 
 # Weight factors for valuation components
@@ -284,6 +286,11 @@ class ValuationEngine:
     ) -> None:
         """Record a sale for valuation tracking."""
         key = f"{collection}:{token_id}"
+        # 17-B. A NaN price here is PERMANENT: it lands in `_sales_history`
+        # and is added into `_collection_volumes`, and every later
+        # `estimate_value` averages it, so one bad call poisons the collection's
+        # valuation for the process lifetime. Guarded at the writer.
+        price = require_finite_amount(price, "price")
         sales = self._sales_history.setdefault(key, [])
         sales.append({
             "price": price,
