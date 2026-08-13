@@ -317,14 +317,27 @@ class LoanManager:
         # Apply repayment: first to interest, then principal
         if repay_amount <= loan["accrued_interest"]:
             loan["accrued_interest"] -= repay_amount
+            principal_repaid = 0.0
         else:
             remainder = repay_amount - loan["accrued_interest"]
             loan["accrued_interest"] = 0.0
             loan["borrow_amount"] -= remainder
+            principal_repaid = remainder
 
-        # Update pool
+        # 16-R. THE LEDGER WAS INCREMENTED BY PRINCIPAL AND DECREMENTED BY
+        # PRINCIPAL PLUS INTEREST. `create_loan` adds `borrow_amount` to
+        # `_pool_borrowed`; this line used to subtract the whole `repay_amount`,
+        # which pays interest first. Every repayment of a loan that had accrued
+        # any interest removed more from the pool than the loan ever put in, so
+        # `_pool_borrowed` drifted DOWN — understating outstanding borrowings,
+        # and with it utilisation, and with it the rate charged to every
+        # subsequent borrower. `max(0, ...)` hid the drift from ever going
+        # visibly negative, which is why it reads as correct.
+        #
+        # Only the PRINCIPAL portion is a change in what is borrowed. Interest is
+        # a payment on the debt, not a reduction of the amount lent out.
         self._pool_borrowed[loan["borrow_token"]] = max(
-            0, self._pool_borrowed.get(loan["borrow_token"], 0) - repay_amount
+            0, self._pool_borrowed.get(loan["borrow_token"], 0) - principal_repaid
         )
 
         # Check if fully repaid
@@ -379,6 +392,33 @@ class LoanManager:
         loan = self._loans[loan_id]
         if loan["status"] != LoanStatus.ACTIVE:
             raise ValueError(f"Loan '{loan_id}' is {loan['status']}, cannot liquidate")
+
+        # 16-P. THE NON-FINITE CLASS, THIRD GUARD SHAPE — an eligibility test.
+        # 16-A walked the sign check (`amount <= 0`) and the ratio check
+        # (`collateral_ratio < min`); this is `current_ratio >= threshold`, and it
+        # fails the same way for the same reason. With a NaN price the ratio is
+        # NaN, `NaN >= threshold` is FALSE, and the "not eligible, refuse" branch
+        # is skipped — so A LOAN THAT IS PERFECTLY HEALTHY IS MARKED
+        # LIQUIDATION-DUE. The guard reads as a protection and inverts into the
+        # attack: the safe direction is the one NaN cannot reach.
+        #
+        # A zero collateral price is a separate defect on the same inputs: the
+        # seizure arithmetic divides by `collateral_price` and raises
+        # ZeroDivisionError from inside a method that has already accrued
+        # interest. Both are rejected HERE, before `_accrue_interest` mutates the
+        # loan, because 16-F established that validation after mutation leaves
+        # the record changed by a call that refused.
+        for _label, _price in (("collateral", collateral_price),
+                               ("borrow", borrow_price)):
+            if not math.isfinite(_price):
+                raise ValueError(
+                    f"{_label.capitalize()} price must be a finite number; "
+                    f"liquidation eligibility cannot be decided from {_price!r}"
+                )
+            if _price <= 0:
+                raise ValueError(
+                    f"{_label.capitalize()} price must be positive, got {_price}"
+                )
 
         self._accrue_interest(loan)
 
@@ -517,6 +557,35 @@ class LoanManager:
 
     # ── Interest rate model ───────────────────────────────────────────
 
+    def _utilisation(self, token: str) -> float:
+        """Pool utilisation. ONE definition, because there used to be two.
+
+        16-Q. `_calculate_interest_rate` read ``self._pool_total.get(token, 1.0)``
+        and `get_rates` read ``self._pool_total.get(token, 0.0)`` — the same
+        quantity, two defaults, in the same file. For a token with no pool entry
+        and any outstanding borrowing, the rate was computed from utilisation
+        **1.0** (the maximum kink, via a fabricated denominator of one unit)
+        while `get_rates` returned ``"utilisation": 0.0`` in the same dict as the
+        rate derived from it. A borrower was charged the maximum rate by an API
+        that reported the pool as idle.
+
+        The finding this came from was filed as "the rate model reads a control
+        nothing feeds". That premise is FALSE and the correction is recorded
+        rather than quietly dropped: `_pool_total` has a writer,
+        `update_pool_total`, reached from four call sites in `defi/service.py`.
+        The defect is not an unfed control, it is a DIVERGENT one — which is the
+        harder version, because every reader looks correct on its own.
+
+        An empty pool with borrowings against it is fully drawn, so utilisation
+        is 1.0 — not zero, and not a made-up denominator. The rate is unchanged
+        by this fix on every input; only the reported number becomes true.
+        """
+        total = self._pool_total.get(token, 0.0)
+        borrowed = self._pool_borrowed.get(token, 0.0)
+        if total <= 0:
+            return 1.0 if borrowed > 0 else 0.0
+        return min(borrowed / total, 1.0)
+
     def _calculate_interest_rate(self, token: str) -> float:
         """Calculate variable interest rate based on pool utilisation.
 
@@ -525,9 +594,7 @@ class LoanManager:
         - Above optimal utilisation: base_rate + optimal * slope1 +
           (utilisation - optimal) * slope2
         """
-        total = self._pool_total.get(token, 1.0)
-        borrowed = self._pool_borrowed.get(token, 0.0)
-        utilisation = min(borrowed / total, 1.0) if total > 0 else 0.0
+        utilisation = self._utilisation(token)
 
         if utilisation <= _OPTIMAL_UTILISATION:
             rate = self._base_rate + utilisation * _SLOPE_1
@@ -567,7 +634,10 @@ class LoanManager:
         """
         total = self._pool_total.get(token, 0.0)
         borrowed = self._pool_borrowed.get(token, 0.0)
-        utilisation = borrowed / total if total > 0 else 0.0
+        # 16-Q: the SAME utilisation the rate was computed from. These were two
+        # separate expressions with different defaults, so this dict could report
+        # a rate derived from utilisation 1.0 next to `"utilisation": 0.0`.
+        utilisation = self._utilisation(token)
         rate = self._calculate_interest_rate(token)
 
         return {

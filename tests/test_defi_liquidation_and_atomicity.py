@@ -426,3 +426,189 @@ def test_the_documented_config_key_is_not_claimed_unless_it_is_read():
         "collateral.py documents defi.collateral_tokens as a live config key "
         "while nothing in the repo reads it"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 16-P / 16-Q / 16-R — the remaining confirmed defi findings
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _active_loan(service):
+    """A healthy loan: 10 ETH collateral against 1000 USDC, ratio 20x."""
+    lm = service._loan_manager
+    loan_id = "loan_test"
+    lm._loans[loan_id] = {
+        "loan_id": loan_id, "borrower": "0xA",
+        "collateral_token": "ETH", "collateral_amount": 10.0,
+        "borrow_token": "USDC", "borrow_amount": 1000.0,
+        "accrued_interest": 0.0, "interest_rate": 0.05,
+        "status": lm._loans.get(loan_id, {}).get("status") or _LoanStatus().ACTIVE,
+        "last_interest_update": int(time.time()),
+        "created_at": int(time.time()),
+    }
+    return lm, loan_id
+
+
+class _LoanStatus:
+    def __init__(self):
+        from runtime.blockchain.services.defi.loans import LoanStatus
+        self.ACTIVE = LoanStatus.ACTIVE
+
+
+# ── 16-P: a NaN price liquidates a healthy loan ───────────────────────────
+
+
+async def test_a_nan_price_cannot_make_a_healthy_loan_liquidatable(service):
+    """THE NON-FINITE CLASS, THIRD GUARD SHAPE — an eligibility test.
+
+    15-D walked the sign check (`amount <= 0`), 16-A the ratio check
+    (`collateral_ratio < min`). This is `current_ratio >= threshold`, and it
+    fails identically: with a NaN price the ratio is NaN, `NaN >= threshold` is
+    FALSE, so the "above threshold, refuse" branch is SKIPPED and execution
+    falls through to the liquidation determination.
+
+    A loan collateralised at 20x is marked liquidation-due. The guard reads as a
+    protection and inverts into the attack — §W.1's ordering rule, which is why
+    triage goes by what a guard protects and never by how sound it looks.
+    """
+    lm, loan_id = _active_loan(service)
+
+    with pytest.raises(ValueError, match="finite"):
+        await lm.liquidate(loan_id, collateral_price=float("nan"),
+                           borrow_price=1.0)
+
+    assert lm._loans[loan_id].get("liquidation_due") is not True, (
+        "a 20x-collateralised loan was marked liquidation-due by a NaN price"
+    )
+
+
+async def test_a_zero_price_is_refused_not_a_zero_division(service):
+    """The seizure arithmetic divides by `collateral_price`. Pre-fix a zero
+    price raised ZeroDivisionError from inside a method that had ALREADY accrued
+    interest onto the loan — an uncaught arithmetic error standing in for a
+    validation refusal, with the record left mutated."""
+    lm, loan_id = _active_loan(service)
+
+    with pytest.raises(ValueError, match="positive"):
+        await lm.liquidate(loan_id, collateral_price=0.0, borrow_price=1.0)
+
+
+async def test_a_refused_price_leaves_the_loan_untouched(service):
+    """16-F's ordering lesson, re-applied. The guard runs BEFORE
+    `_accrue_interest`, so a refused call changes nothing at all — not the
+    interest, not the timestamp. Validation after mutation leaves the record
+    changed by a call that refused."""
+    lm, loan_id = _active_loan(service)
+    before = dict(lm._loans[loan_id])
+
+    for bad in (float("nan"), float("inf"), 0.0, -5.0):
+        with pytest.raises(ValueError):
+            await lm.liquidate(loan_id, collateral_price=bad, borrow_price=1.0)
+        with pytest.raises(ValueError):
+            await lm.liquidate(loan_id, collateral_price=2000.0, borrow_price=bad)
+
+    assert lm._loans[loan_id] == before, (
+        "a refused liquidation mutated the loan record"
+    )
+
+
+# ── 16-Q: the reported utilisation was not the one the rate used ──────────
+
+
+async def test_the_reported_utilisation_is_the_one_the_rate_was_computed_from(service):
+    """TWO READERS OF ONE QUANTITY, WITH DIFFERENT DEFAULTS.
+
+    `_calculate_interest_rate` read `_pool_total.get(token, 1.0)`; `get_rates`
+    read `_pool_total.get(token, 0.0)`. For a token with no pool entry and any
+    borrowing, the rate came from utilisation 1.0 — the maximum kink, via a
+    fabricated denominator of one unit — while the SAME dict reported
+    `"utilisation": 0.0`. A borrower charged the top rate by an API reporting an
+    idle pool.
+
+    The finding was filed as "the rate model reads a control nothing feeds".
+    That premise is false — `_pool_total` has a writer, `update_pool_total`,
+    reached from four call sites. The defect is a DIVERGENT control, not an
+    unfed one, which is the harder version: each reader is correct alone.
+    """
+    lm = service._loan_manager
+    lm._pool_borrowed["USDC"] = 250.0          # borrowings, no pool entry
+
+    rates = await lm.get_rates("USDC")
+
+    assert rates["utilisation"] == 1.0, (
+        f"reported utilisation {rates['utilisation']} contradicts the rate, "
+        f"which is computed from 1.0"
+    )
+    # the rate is unchanged by the fix — only the reported number becomes true
+    assert rates["borrow_rate"] == round(lm._calculate_interest_rate("USDC"), 6)
+
+
+async def test_an_empty_pool_with_no_borrowings_is_idle_not_fully_drawn(service):
+    """SCOPE PIN. "No pool entry" must not become "fully utilised" across the
+    board — that would be the mirror-image fabrication."""
+    lm = service._loan_manager
+    assert (await lm.get_rates("DAI"))["utilisation"] == 0.0
+
+
+async def test_utilisation_is_the_real_ratio_when_the_pool_is_funded(service):
+    """SCOPE PIN. The ordinary path is untouched."""
+    lm = service._loan_manager
+    lm.update_pool_total("USDC", 1000.0)
+    lm._pool_borrowed["USDC"] = 400.0
+    assert (await lm.get_rates("USDC"))["utilisation"] == 0.4
+
+
+# ── 16-R: the pool ledger drifted down on every repayment ─────────────────
+
+
+async def test_repaying_interest_does_not_reduce_recorded_borrowings(service):
+    """THE LEDGER WAS INCREMENTED BY PRINCIPAL AND DECREMENTED BY PRINCIPAL
+    PLUS INTEREST.
+
+    `create_loan` adds `borrow_amount`; `repay_loan` subtracted the whole
+    `repay_amount`, which is applied to interest first. So every repayment of a
+    loan carrying interest removed more from `_pool_borrowed` than the loan ever
+    added. The drift understates outstanding borrowings, and utilisation, and
+    the rate charged to every later borrower. `max(0, ...)` kept it from ever
+    going visibly negative, which is why it reads as correct.
+    """
+    lm, loan_id = _active_loan(service)
+    lm._pool_borrowed["USDC"] = 1000.0
+    lm._loans[loan_id]["accrued_interest"] = 50.0
+    lm._loans[loan_id]["last_interest_update"] = int(time.time())
+
+    await lm.repay_loan(loan_id, 50.0)          # pays interest ONLY
+
+    assert lm._pool_borrowed["USDC"] == 1000.0, (
+        f"an interest-only repayment moved recorded borrowings to "
+        f"{lm._pool_borrowed['USDC']}; no principal was repaid"
+    )
+    assert lm._loans[loan_id]["accrued_interest"] == 0.0
+    assert lm._loans[loan_id]["borrow_amount"] == 1000.0
+
+
+async def test_repaying_principal_does_reduce_recorded_borrowings(service):
+    """SCOPE PIN. The ledger must still track real principal movement — a fix
+    that stopped decrementing at all would be the mirror-image defect."""
+    lm, loan_id = _active_loan(service)
+    lm._pool_borrowed["USDC"] = 1000.0
+    lm._loans[loan_id]["accrued_interest"] = 50.0
+    lm._loans[loan_id]["last_interest_update"] = int(time.time())
+
+    await lm.repay_loan(loan_id, 250.0)         # 50 interest + 200 principal
+
+    assert lm._pool_borrowed["USDC"] == 800.0
+    assert lm._loans[loan_id]["borrow_amount"] == 800.0
+
+
+async def test_the_ledger_returns_to_zero_over_a_full_lifecycle(service):
+    """THE INVARIANT, not the arithmetic. Whatever a loan added, repaying it in
+    full removes exactly that — no more, whatever interest accrued in between."""
+    lm, loan_id = _active_loan(service)
+    lm._pool_borrowed["USDC"] = 1000.0
+    lm._loans[loan_id]["accrued_interest"] = 137.42
+
+    await lm.repay_loan(loan_id, 1137.42)
+
+    assert lm._pool_borrowed["USDC"] == 0.0
+    assert lm._loans[loan_id]["status"].value == "repaid"
