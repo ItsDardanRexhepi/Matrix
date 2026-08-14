@@ -40,6 +40,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from runtime.blockchain.services.creator_platforms._guards import (
+    RECEIPT_TIMEOUT_S,
+    publish_unknown,
+    require_creator_platforms_enabled,
+    resolve_attributed_party,
+    resolve_edition_address,
+    settle_publish,
+)
 from runtime.blockchain.web3_manager import (
     Web3Manager,
     is_placeholder_value,
@@ -129,8 +137,17 @@ class CreatorPlatformsService:
         Params: ``to`` (recipient address, on-chain path), ``quantity`` (int, default 1),
         ``edition_address`` (override), ``sound_handle`` / ``release_id`` (API path).
         """
+        refusal = require_creator_platforms_enabled(
+            self.service_name, self._config, "mint_sound")
+        if refusal is not None:
+            return refusal
         cfg = self._cfg()
-        edition_address = params.get("edition_address") or cfg.get("sound_edition_address") or ""
+        # 21-B. Config ONLY. This value is also the branch selector below, so a
+        # caller-supplied address both redirected the platform's signature and
+        # switched on on-chain signing for an operator who configured API
+        # access only.
+        edition_address = resolve_edition_address(
+            params, cfg.get("sound_edition_address") or "")
 
         # ── ON-CHAIN path: a real SoundEdition contract is configured. ──
         if not is_placeholder_value(edition_address):
@@ -183,8 +200,17 @@ class CreatorPlatformsService:
                     },
                 )
 
-            return {
-                "status": "minted",
+            # 21-C. `send_transaction` returns on BROADCAST. Returning
+            # "minted" here asserted that a token exists because a node
+            # accepted a raw transaction — a REVERTED mint was
+            # indistinguishable from one that worked, and "minted" is in
+            # _REAL_OUTCOME_STATUSES, so the dispatcher attested it and
+            # published it to the public feed as a thing that happened.
+            #
+            # `wait_for_receipt` has existed on Web3Manager the whole time
+            # (19-C's lesson, fourth instance of the orphaned-real-mechanism
+            # pattern): the evidence was collectable and was not collected.
+            base = {
                 "service": self.service_name,
                 "protocol": "Sound.xyz (SoundEdition on-chain)",
                 "edition_address": edition_address,
@@ -193,6 +219,41 @@ class CreatorPlatformsService:
                 "tx_hash": tx_hash,
                 "explorer_url": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform paymaster",
+                "broadcast": True,
+            }
+            try:
+                receipt = await self._web3.wait_for_receipt(
+                    tx_hash, timeout=RECEIPT_TIMEOUT_S)
+            except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN
+                logger.warning("mint_sound: no receipt for %s: %s", tx_hash, exc)
+                return {
+                    **base, "status": "pending", "settled": False,
+                    "value_moved": None,
+                    "disclosure": (
+                        "The mint was BROADCAST and no receipt was obtained "
+                        "within the wait window. This is NOT a refusal and NOT "
+                        "a failure — the transaction may be mined. Check the "
+                        "hash. Do not retry blindly: there is no idempotency "
+                        "key on this path and a retry mints again."
+                    ),
+                }
+            if int(getattr(receipt, "status", 0) or 0) != 1:
+                return {
+                    **base, "status": "failed", "settled": True,
+                    "value_moved": False,
+                    "block_number": getattr(receipt, "blockNumber", None),
+                    "disclosure": (
+                        "The mint transaction was mined and REVERTED on-chain. "
+                        "No token was minted. Gas was still spent."
+                    ),
+                }
+            return {
+                **base,
+                "status": "minted",
+                "settled": True,
+                "value_moved": True,
+                "block_number": getattr(receipt, "blockNumber", None),
+                "gas_used": getattr(receipt, "gasUsed", None),
             }
 
         # ── OFF-CHAIN path: Sound.xyz GraphQL API. ──
@@ -259,8 +320,16 @@ class CreatorPlatformsService:
                 },
             )
 
+        # 21-C. THIS PATH MINTS NOTHING. It runs a GraphQL READ for release
+        # metadata — and it returned `status: "ok"`, which is in
+        # _REAL_OUTCOME_STATUSES, under an action named `mint_sound`. Measured:
+        # `_outcome_is_real` returned True, so the dispatcher EAS-attested a
+        # metadata query and published it to the public feed as a mint.
+        # "metadata_only" is deliberately NOT in the real-outcome vocabulary.
         return {
-            "status": "ok",
+            "status": "metadata_only",
+            "settled": False,
+            "value_moved": False,
             "service": self.service_name,
             "protocol": "Sound.xyz",
             "release_id": release_id,
@@ -288,6 +357,10 @@ class CreatorPlatformsService:
 
         Returns the REAL Arweave transaction id / entry id from the gateway.
         """
+        refusal = require_creator_platforms_enabled(
+            self.service_name, self._config, "publish_mirror_post")
+        if refusal is not None:
+            return refusal
         cfg = self._cfg()
         api_key = cfg.get("mirror_api_key") or ""
         if is_placeholder_value(api_key):
@@ -329,11 +402,18 @@ class CreatorPlatformsService:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        # 21-B. `author` is the BYLINE and Mirror entries are stored
+        # PERMANENTLY ON ARWEAVE. Caller-supplied, it let one caller publish
+        # under another party's name, irreversibly, on a third-party platform,
+        # to readers who cannot see this platform's internal records.
         payload = {
             "title": title,
             "body": content,
-            "author": params.get("author"),
-            "publication": params.get("publication"),
+            "author": resolve_attributed_party(
+                params, "author", cfg.get("mirror_author"), "author"),
+            "publication": resolve_attributed_party(
+                params, "publication", cfg.get("mirror_publication"),
+                "publication"),
         }
         url = endpoint.rstrip("/") + "/tx"
         try:
@@ -342,30 +422,38 @@ class CreatorPlatformsService:
                 resp.raise_for_status()
                 body = resp.json() if resp.content else {}
         except Exception as exc:  # noqa: BLE001
+            # 21-C, THE UNDER-CLAIM HALF. This returned the CREDENTIAL-GATED
+            # refusal shape for a fault that may have occurred AFTER the POST
+            # reached Mirror — telling an operator to go configure an API key
+            # about a post that may be live on Arweave forever.
             logger.error("publish_mirror_post failed: %s", exc)
-            return not_deployed_response(
-                self.service_name,
-                extra={
+            return publish_unknown(
+                base={
+                    "service": self.service_name,
                     "method": "publish_mirror_post",
                     "protocol": "Mirror (mirror.xyz / Arweave)",
-                    "endpoint": url,
-                    "error": f"Mirror publish failed: {exc}",
+                    "title": title,
                 },
+                endpoint=url, exc=exc,
             )
 
         arweave_id = None
         if isinstance(body, dict):
             arweave_id = body.get("id") or body.get("transactionId") or body.get("arweaveTxId")
-        return {
-            "status": "published",
-            "service": self.service_name,
-            "protocol": "Mirror (mirror.xyz / Arweave)",
-            "title": title,
-            "arweave_tx_id": arweave_id,
-            "endpoint": url,
-            "published_by": "platform Mirror publishing account",
-            "gateway_response": body,
-        }
+        # 21-C. "published" was asserted on ANY 2xx, without reading whether
+        # the gateway named anything. A record claiming a permanent Arweave
+        # entry exists, carrying `arweave_tx_id: None`, points at nothing.
+        return settle_publish(
+            base={
+                "service": self.service_name,
+                "protocol": "Mirror (mirror.xyz / Arweave)",
+                "title": title,
+                "endpoint": url,
+                "published_by": "platform Mirror publishing account",
+            },
+            method="publish_mirror_post", service_name=self.service_name,
+            id_value=arweave_id, id_field="arweave_tx_id", response_body=body,
+        )
 
     # ── Paragraph (paragraph.xyz) ─────────────────────────────────────
 
@@ -380,6 +468,10 @@ class CreatorPlatformsService:
 
         Returns the REAL post id / URL from the Paragraph API.
         """
+        refusal = require_creator_platforms_enabled(
+            self.service_name, self._config, "publish_paragraph_post")
+        if refusal is not None:
+            return refusal
         cfg = self._cfg()
         api_key = cfg.get("paragraph_api_key") or ""
         if is_placeholder_value(api_key):
@@ -401,7 +493,12 @@ class CreatorPlatformsService:
                 },
             )
 
-        publication = params.get("publication") or cfg.get("paragraph_publication") or ""
+        # 21-B. A caller-supplied `publication` OVERRODE the operator's
+        # configured one, aiming the platform's Paragraph credential at any
+        # publication the caller named.
+        publication = resolve_attributed_party(
+            params, "publication", cfg.get("paragraph_publication") or "",
+            "publication") or ""
         if is_placeholder_value(publication):
             return self._gate(
                 "publish_paragraph_post",
@@ -441,14 +538,14 @@ class CreatorPlatformsService:
                 body = resp.json() if resp.content else {}
         except Exception as exc:  # noqa: BLE001
             logger.error("publish_paragraph_post failed: %s", exc)
-            return not_deployed_response(
-                self.service_name,
-                extra={
+            return publish_unknown(   # 21-C, the under-claim half
+                base={
+                    "service": self.service_name,
                     "method": "publish_paragraph_post",
                     "protocol": "Paragraph (paragraph.xyz)",
-                    "endpoint": url,
-                    "error": f"Paragraph publish failed: {exc}",
+                    "title": title,
                 },
+                endpoint=url, exc=exc,
             )
 
         post_id = None
@@ -456,15 +553,16 @@ class CreatorPlatformsService:
         if isinstance(body, dict):
             post_id = body.get("id") or body.get("postId")
             post_url = body.get("url") or body.get("postUrl")
-        return {
-            "status": "published",
-            "service": self.service_name,
-            "protocol": "Paragraph (paragraph.xyz)",
-            "title": title,
-            "publication": publication,
-            "post_id": post_id,
-            "post_url": post_url,
-            "endpoint": url,
-            "published_by": "platform Paragraph publishing account",
-            "api_response": body,
-        }
+        return settle_publish(   # 21-C
+            base={
+                "service": self.service_name,
+                "protocol": "Paragraph (paragraph.xyz)",
+                "title": title,
+                "publication": publication,
+                "post_url": post_url,
+                "endpoint": url,
+                "published_by": "platform Paragraph publishing account",
+            },
+            method="publish_paragraph_post", service_name=self.service_name,
+            id_value=post_id, id_field="post_id", response_body=body,
+        )

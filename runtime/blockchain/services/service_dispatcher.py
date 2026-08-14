@@ -520,6 +520,14 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 #: fails if any status is unclassified, so "unanticipated" is no longer a state
 #: this predicate can be in without the suite saying so.
 _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    # 21-C. `mint_sound`'s off-chain path runs a GraphQL READ for release
+    # metadata and mints nothing. It previously returned "ok" — a REAL-outcome
+    # status — so the dispatcher attested a metadata query and published it to
+    # the public feed under an action named `mint_sound`. Classified
+    # explicitly, not left to the unrecognised-status default, because this
+    # test exists precisely to stop a new string from acquiring a meaning by
+    # accident.
+    "metadata_only",
     # the platform refused, failed, or had nothing to do
     "not_deployed", "error", "failed", "failure", "blocked", "rejected",
     "refused", "declined", "unavailable", "not_available", "unsupported",

@@ -71,6 +71,26 @@ REFUSAL_PRIMITIVES: tuple[str, ...] = (
     # silently widens the graph and manufactures findings. Register
     # domain-qualified names.
     "require_restaking_enabled",
+    # 21-A wrapper (services/creator_platforms/_guards.py). Domain-qualified
+    # for the reason recorded above: the registry matches by SUBSTRING, so
+    # `require_enabled` would have swept in every unrelated `_require_enabled`
+    # in the repo. Checked before registering — no other identifier in
+    # runtime/ or tests/ contains this string.
+    "require_creator_platforms_enabled",
+    # 21-C wrapper (services/creator_platforms/_guards.py). NOT a refusal in
+    # the ordinary sense — it reports an UNKNOWN outcome for a request that
+    # was dispatched to a third party and may have succeeded. It is registered
+    # because D10 must see its call sites: a caller that discards this return
+    # value is discarding "the post may be live", which is exactly the
+    # discard the detector exists to find.
+    "publish_unknown",
+    # 21-C wrapper (services/creator_platforms/_guards.py). Registered for the
+    # same reason as `publish_unknown`: its no-id branch returns a NON-outcome
+    # ("the gateway accepted the request and named nothing we can point at"),
+    # so a caller discarding it discards a disclosure. The detector found both
+    # of these on its own — this is the registry working as designed rather
+    # than a list someone remembered to update.
+    "settle_publish",
 )
 
 
