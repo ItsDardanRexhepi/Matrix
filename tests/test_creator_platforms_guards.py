@@ -919,3 +919,198 @@ def test_safe_text_redacts_urls_embedded_in_free_text(text, secret):
 def test_safe_text_leaves_clean_text_alone(text):
     """§AQ class 3 — a redactor that mangles diagnostics is its own defect."""
     assert safe_text(text) == text
+
+
+# ─────────────────────────────── 21-P ───────────────────────────────
+# 21-H covered FIVE transport sites and only ONE had a behavioural test.
+#
+# MEASURED by mutation: suppressing the body of `log_cancelled_dispatch` —
+# handlers still present, so the structural count still passes — failed
+# 1 of 141 tests. Four sites were guarded by a count of the word
+# `except asyncio.CancelledError`, which is §AT's exact class: it asserts the
+# handler EXISTS, never that it FIRES.
+#
+# The receipt-wait site is the one that matters most: cancellation there means
+# a paymaster-funded transaction is already broadcast.
+
+
+async def _cancel_at(monkeypatch, svc, where):
+    """Drive a cancellation at one named transport site."""
+    import httpx
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(self._r)
+            super().__init__(*a, **k)
+
+        def _r(self, request):
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _C)
+    return svc
+
+
+import asyncio  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_broadcast_is_recorded(caplog):
+    """Site 1 — the chain broadcast."""
+    import logging
+    svc = _armed_service(send_exc=asyncio.CancelledError())
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(asyncio.CancelledError):
+            await svc.mint_sound(to="0xB", quantity=1)
+    assert any("CANCELLED AFTER DISPATCH" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_receipt_wait_is_recorded(caplog):
+    """Site 2 — THE WORST ONE. Cancellation here means the mint was already
+    broadcast and paid for by the platform paymaster, so without a record the
+    platform holds no trace of a transaction it signed."""
+    import logging
+    svc = _armed_service(receipt_exc=asyncio.CancelledError())
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(asyncio.CancelledError):
+            await svc.mint_sound(to="0xB", quantity=1)
+    msg = " ".join(r.getMessage() for r in caplog.records)
+    assert "CANCELLED AFTER DISPATCH" in msg
+    assert "0xTXHASH" in msg, "the record must name the broadcast transaction"
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_sound_metadata_call_is_recorded(caplog, monkeypatch):
+    """Site 3 — the Sound GraphQL call."""
+    import logging
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"].pop("sound_edition_address", None)
+    cfg["services"]["creator_platforms"]["sound_api_key"] = "k"
+    svc = CreatorPlatformsService(cfg)
+    await _cancel_at(monkeypatch, svc, "sound")
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(asyncio.CancelledError):
+            await svc.mint_sound(release_id="r1")
+    assert any("CANCELLED AFTER DISPATCH" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_paragraph_publish_is_recorded(caplog, monkeypatch):
+    """Site 5 — the Paragraph POST. (Site 4, Mirror, is covered above.)"""
+    import logging
+    svc = CreatorPlatformsService(_cfg(True))
+    await _cancel_at(monkeypatch, svc, "paragraph")
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(asyncio.CancelledError):
+            await svc.publish_paragraph_post(title="T", body="b")
+    assert any("CANCELLED AFTER DISPATCH" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_always_propagates():
+    """Swallowing cancellation to return a dict would break every caller's
+    timeout. All five sites re-raise; this asserts the property rather than
+    the keyword."""
+    svc = _armed_service(send_exc=asyncio.CancelledError())
+    with pytest.raises(asyncio.CancelledError):
+        await svc.mint_sound(to="0xB", quantity=1)
+
+
+# ─────────────────────────────── 21-Q ───────────────────────────────
+# THE CONTRADICTION, RESOLVED BY MEASUREMENT.
+#
+# Two adversarial lenses reported the same 21-M gap with incompatible counts:
+# guards::4 said "1 of 4 endpoint-recording sites never calls safe_endpoint";
+# attest::1 said "2 of 3 sites record the RAW credentialed endpoint".
+#
+# My own enumeration: TWO raw sites, both on the Sound API path — the
+# cancellation log and the failure record. BOTH LENSES UNDERCOUNTED,
+# DIFFERENTLY, and a fix scoped to either lens's count would have shipped the
+# other site. §AR's contradiction category is exactly this: two individually
+# sound findings that cannot both be acted on as stated.
+
+
+def test_no_endpoint_is_recorded_without_redaction():
+    """A structural control, and legitimately so — the SUBJECT here is the
+    source text (§AT's exception for structural invariants). It counts, so a
+    new recording site cannot be added raw."""
+    from pathlib import Path
+    src = Path(
+        "runtime/blockchain/services/creator_platforms/service.py"
+    ).read_text()
+    import re
+    # No endpoint/url is recorded raw.
+    assert not re.search(r'"endpoint": (endpoint|url),', src)
+    # Every cancellation site passes either a redacted URL or a non-URL
+    # locator (the chain sites pass "chain tx via ..." / "broadcast tx ...").
+    calls = re.findall(r"log_cancelled_dispatch\(\s*(?:#[^\n]*\n\s*)*"
+                       r'"[a-z_]+",\s*([^,]+),', src)
+    assert len(calls) == 5, f"expected 5 cancellation sites, found {len(calls)}"
+    for arg in calls:
+        arg = arg.strip()
+        assert arg.startswith("safe_endpoint(") or arg.startswith('f"'), (
+            f"cancellation site logs a raw locator: {arg}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_the_sound_api_failure_record_carries_no_credential(caplog):
+    """The behavioural half — §AT: the structural test above says a site
+    exists, this one says it does not leak."""
+    import logging
+    import httpx
+    from unittest.mock import patch
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(self._r)
+            super().__init__(*a, **k)
+
+        def _r(self, request):
+            raise httpx.ConnectError("boom", request=request)
+
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"].pop("sound_edition_address", None)
+    cfg["services"]["creator_platforms"]["sound_api_key"] = "k"
+    cfg["services"]["creator_platforms"]["sound_endpoint"] = (
+        "https://user:SUPERSECRET@sound.example/graphql"
+    )
+    svc = CreatorPlatformsService(cfg)
+    with caplog.at_level(logging.DEBUG):
+        with patch.object(httpx, "AsyncClient", _C):
+            out = await svc.mint_sound(release_id="r1")
+
+    assert "SUPERSECRET" not in str(out)
+    assert "SUPERSECRET" not in " ".join(r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_sound_call_logs_no_credential(caplog):
+    """The second raw site: the cancellation log on the same path."""
+    import logging
+    import httpx
+    from unittest.mock import patch
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(self._r)
+            super().__init__(*a, **k)
+
+        def _r(self, request):
+            raise asyncio.CancelledError()
+
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"].pop("sound_edition_address", None)
+    cfg["services"]["creator_platforms"]["sound_api_key"] = "k"
+    cfg["services"]["creator_platforms"]["sound_endpoint"] = (
+        "https://user:SUPERSECRET@sound.example/graphql"
+    )
+    svc = CreatorPlatformsService(cfg)
+    with caplog.at_level(logging.DEBUG):
+        with patch.object(httpx, "AsyncClient", _C):
+            with pytest.raises(asyncio.CancelledError):
+                await svc.mint_sound(release_id="r1")
+
+    msg = " ".join(r.getMessage() for r in caplog.records)
+    assert "CANCELLED AFTER DISPATCH" in msg
+    assert "SUPERSECRET" not in msg

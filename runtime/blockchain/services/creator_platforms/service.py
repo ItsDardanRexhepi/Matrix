@@ -412,7 +412,9 @@ class CreatorPlatformsService:
                 body = resp.json()
         except asyncio.CancelledError:   # 21-H
             log_cancelled_dispatch(
-                "mint_sound", endpoint, self.service_name)
+                # 21-Q. `sound_endpoint` is an operator-configured URL and can
+                # carry userinfo exactly as `mirror_endpoint` does.
+                "mint_sound", safe_endpoint(endpoint), self.service_name)
             raise
         except Exception as exc:  # noqa: BLE001
             logger.error("mint_sound API call failed: %s", safe_text(exc))
@@ -421,7 +423,7 @@ class CreatorPlatformsService:
                 extra={
                     "method": "mint_sound",
                     "protocol": "Sound.xyz",
-                    "endpoint": endpoint,
+                    "endpoint": safe_endpoint(endpoint),   # 21-Q
                     "error": f"Sound API call failed: {safe_text(exc)}",
                 },
             )
