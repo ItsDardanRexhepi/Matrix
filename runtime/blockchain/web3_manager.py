@@ -189,10 +189,35 @@ class Web3Manager:
                 raise
 
     async def wait_for_receipt(self, tx_hash: str, timeout: int = 120):
-        """Wait for a transaction receipt. Returns the receipt or raises."""
+        """Wait for a transaction receipt. Returns the receipt or raises.
+
+        21-I. THE OFFLOAD IS THE POINT. `w3.eth.wait_for_transaction_receipt`
+        is SYNCHRONOUS — it polls in a loop and sleeps. This method was
+        declared `async` and called it directly, with no await and no thread,
+        so awaiting it BLOCKED THE ENTIRE EVENT LOOP for up to `timeout`
+        seconds. An `async def` that never awaits is a function lying about
+        its concurrency contract, and the signature is exactly what stops a
+        caller noticing.
+
+        THIS ENGAGEMENT INTRODUCED THE STALL. Enumerated at the time of the
+        fix, `wait_for_receipt` had ZERO callers until 19-C and 21-C added the
+        only two — both of them ours, both added to stop a service claiming an
+        outcome it had not confirmed. The mechanism was real and orphaned; we
+        called it, correctly, and in doing so activated a latent defect inside
+        it.
+
+        §AG's after-form in its sharpest version so far: not "our fix made a
+        neighbour load-bearing" but "our fix ACTIVATED A LATENT DEFECT IN THE
+        MECHANISM IT CALLED". A fix that reaches for an unused facility inherits
+        whatever is wrong with it, and nothing about the facility's own history
+        will warn you — it had no callers precisely because nobody had tested
+        it.
+        """
         if not self.available or self.w3 is None:
             raise RuntimeError("Web3Manager not available")
-        return self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+        return await asyncio.to_thread(
+            self.w3.eth.wait_for_transaction_receipt, tx_hash, timeout=timeout
+        )
 
     def get_balance_eth(self, address: str | None = None) -> float:
         """Return the ETH balance of *address* (paymaster by default)."""
