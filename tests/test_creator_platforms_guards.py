@@ -531,3 +531,74 @@ def test_every_transport_site_has_a_cancellation_handler():
         f"transport site can be cancelled with no record written"
     )
     assert broad == 5
+
+
+# ─────────────────────────────── 21-K ───────────────────────────────
+
+from runtime.blockchain.services.creator_platforms._guards import (  # noqa: E402
+    require_mint_quantity, require_text,
+)
+
+
+@pytest.mark.parametrize("bad", [0, False, True, -5, 1.9, "7", "  7  ", 10 ** 30, None, [1], 11])
+def test_a_mint_quantity_must_be_a_bounded_whole_number(bad):
+    """MEASURED before 21-K, on `int(params.get("quantity", 1) or 1)`:
+
+        0        -> mints 1      the `or 1` bypass: asked for none, got one
+        False    -> mints 1
+        -5       -> mints -5     straight into mint(to, uint256)
+        1.9      -> mints 1      silent truncation
+        10**30   -> mints 10**30 unbounded
+        "  7  "  -> mints 7      string coercion
+
+    It feeds a REAL on-chain mint paid for by the platform paymaster, so an
+    unbounded caller-supplied count is an unbounded caller-directed spend."""
+    with pytest.raises(PermissionError):
+        require_mint_quantity(bad, 10)
+
+
+@pytest.mark.parametrize("good", [1, 5, 10])
+def test_honest_mint_quantities_are_still_permitted(good):
+    """§AQ class 3."""
+    assert require_mint_quantity(good, 10) == good
+
+
+@pytest.mark.asyncio
+async def test_the_quantity_guard_runs_before_the_mint():
+    """Driven in situ with web3 marked available, so the mint path is actually
+    reached — with a reach-proof: an honest quantity must fail DOWNSTREAM (at
+    the contract call), not on quantity."""
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"]["max_mint_quantity"] = 10
+    svc = CreatorPlatformsService(cfg)
+    svc._web3.available = True
+    svc._web3.paymaster_key = "0xKEY"
+    svc._web3.platform_wallet = "0xPLAT"
+
+    reach = await svc.mint_sound(quantity=5)
+    assert reach.get("refused") is not True, "harness never reached the mint path"
+
+    for bad in (0, -5, 11):
+        out = await svc.mint_sound(quantity=bad)
+        assert out.get("refused") is True
+        assert "quantity" in str(out.get("reason", ""))
+
+
+@pytest.mark.parametrize("bad", [0, [], {}, "", "   ", None, 5.0])
+def test_publishable_text_must_be_a_non_empty_string(bad):
+    """`is_placeholder_value` returns False for EVERY non-string — it detects
+    unfilled config templates, a different question than "is this publishable
+    text" (§I.13). Non-strings reached the third-party request body."""
+    with pytest.raises(PermissionError):
+        require_text(bad, "title")
+
+
+def test_the_mint_quantity_cap_is_in_the_shipped_example_config():
+    """21-F's lesson: a bound the operator cannot find is not a bound they
+    chose."""
+    import json
+    from pathlib import Path
+    cfg = json.loads(Path("openmatrix.config.json.example").read_text())
+    body = cfg["services"]["creator_platforms"]
+    assert "max_mint_quantity" in body
+    assert "mirror_endpoint" in body

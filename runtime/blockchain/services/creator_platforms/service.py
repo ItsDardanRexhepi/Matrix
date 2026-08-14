@@ -46,6 +46,8 @@ from runtime.blockchain.services.creator_platforms._guards import (
     classify_transport_fault,
     log_cancelled_dispatch,
     publish_not_sent,
+    require_mint_quantity,
+    require_text,
     publish_rejected,
     refusal_response,
     publish_unknown,
@@ -216,7 +218,15 @@ class CreatorPlatformsService:
                         "error": "missing required param 'to' (mint recipient) and no platform_wallet configured",
                     },
                 )
-            quantity = int(params.get("quantity", 1) or 1)
+            # 21-K. See require_mint_quantity: `or 1` made 0 mint one, and
+            # nothing bounded a caller-directed, platform-paid spend.
+            try:
+                quantity = require_mint_quantity(
+                    params.get("quantity", 1),
+                    int(cfg.get("max_mint_quantity", 10)),
+                )
+            except PermissionError as exc:
+                return refusal_response(self.service_name, "mint_sound", exc)
 
             # REAL on-chain mint. UNVERIFIED: the exact mint selector/signature
             # varies by SoundEdition version (V1/V2 / minter modules). Confirm the
@@ -472,8 +482,17 @@ class CreatorPlatformsService:
                 "Mirror (mirror.xyz / Arweave)",
             )
 
-        title = params.get("title")
-        content = params.get("body") or params.get("content")
+        # 21-K. `is_placeholder_value` returns False for EVERY non-string —
+        # it detects unfilled config templates, which is a different question
+        # than "is this publishable text" (§I.13). Non-strings reached the
+        # third-party body.
+        try:
+            title = require_text(params.get("title"), "title")
+            content = require_text(
+                params.get("body") if params.get("body") is not None
+                else params.get("content"), "body")
+        except PermissionError as exc:
+            return refusal_response(self.service_name, "publish_mirror_post", exc)
         if is_placeholder_value(title) or content is None:
             return not_deployed_response(
                 self.service_name,
@@ -633,8 +652,17 @@ class CreatorPlatformsService:
                 "Paragraph (paragraph.xyz)",
             )
 
-        title = params.get("title")
-        content = params.get("body") or params.get("content")
+        # 21-K. `is_placeholder_value` returns False for EVERY non-string —
+        # it detects unfilled config templates, which is a different question
+        # than "is this publishable text" (§I.13). Non-strings reached the
+        # third-party body.
+        try:
+            title = require_text(params.get("title"), "title")
+            content = require_text(
+                params.get("body") if params.get("body") is not None
+                else params.get("content"), "body")
+        except PermissionError as exc:
+            return refusal_response(self.service_name, "publish_paragraph_post", exc)
         if is_placeholder_value(title) or content is None:
             return not_deployed_response(
                 self.service_name,

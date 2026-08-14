@@ -109,6 +109,8 @@ __all__ = [
     "classify_transport_fault",
     "refusal_response",
     "log_cancelled_dispatch",
+    "require_mint_quantity",
+    "require_text",
 ]
 
 #: How long to wait for a mint receipt before reporting the outcome as UNKNOWN.
@@ -323,6 +325,67 @@ def log_cancelled_dispatch(method: str, endpoint: str, service_name: str) -> Non
         "any retry, because a retry will act again.",
         service_name, method, endpoint,
     )
+
+
+def require_mint_quantity(raw: Any, maximum: int) -> int:
+    """A mint quantity must be a whole positive number, and bounded. 21-K.
+
+    `int(params.get("quantity", 1) or 1)` — MEASURED:
+
+        quantity=0        -> mints 1      the `or 1` bypass: the caller asked
+        quantity=False    -> mints 1      for none and got one
+        quantity=-5       -> mints -5     straight into mint(to, uint256)
+        quantity=1.9      -> mints 1      silent truncation
+        quantity=10**30   -> mints 10**30 unbounded
+        quantity="  7  "  -> mints 7      string coercion
+
+    This feeds a REAL on-chain mint paid for by the platform paymaster, so an
+    unbounded caller-supplied count is an unbounded caller-directed spend.
+
+    The bound is OPERATOR-CONFIGURABLE and written into the shipped example
+    config, because 21-F is what happens when a fix invents a key nobody can
+    find.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise PermissionError(
+            f"quantity must be a whole number, got {type(raw).__name__} "
+            f"{raw!r}. It is not coerced: a float truncates silently and a "
+            f"string hides a typo in a value that spends platform gas."
+        )
+    if raw < 1:
+        raise PermissionError(
+            f"quantity must be at least 1, got {raw}. Zero previously minted "
+            f"ONE — the `or 1` default fired on any falsy value — and a "
+            f"negative went straight into mint(to, uint256)."
+        )
+    if raw > maximum:
+        raise PermissionError(
+            f"quantity {raw} exceeds the configured maximum {maximum}. This "
+            f"mint is paid for by the platform paymaster, so the cap is an "
+            f"operator decision: services.creator_platforms.max_mint_quantity."
+        )
+    return raw
+
+
+def require_text(value: Any, name: str) -> str:
+    """A title or body must be a non-empty string. 21-K.
+
+    `is_placeholder_value` returns **False for every non-string** (it is a
+    CONFIG-placeholder detector and correct at that job), so the
+    "missing required params" guard admitted `0`, `[]`, `{}` and every other
+    non-string — which then went into the third-party request body.
+
+    §I.13's shape: the guard answered a different question than the consumer
+    asked. The consumer needs "is this publishable text"; the guard answers "is
+    this an unfilled config template".
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise PermissionError(
+            f"{name} must be a non-empty string, got "
+            f"{type(value).__name__} {value!r}. This value is published to a "
+            f"third party."
+        )
+    return value
 
 
 def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:

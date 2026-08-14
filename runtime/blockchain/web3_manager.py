@@ -105,9 +105,55 @@ class Web3Manager:
 
     @classmethod
     def get_shared(cls, config: dict | None = None) -> "Web3Manager":
-        """Return the process-wide shared Web3Manager, creating it if needed."""
+        """Return the process-wide shared Web3Manager, creating it if needed.
+
+        21-J. THE `config` ARGUMENT IS IGNORED AFTER THE FIRST CALL, and it was
+        ignored SILENTLY. MEASURED with two services and two configs:
+
+            same object returned?  True
+            service A (first)      rpc=rpc-A  chain=1
+            service B (asked B)    rpc=rpc-A  chain=1
+
+        Whichever service constructs first decides the RPC, THE NETWORK and THE
+        PAYMASTER KEY that every later service signs with. `creator_platforms`
+        gates its mint on `self._web3.paymaster_key` — so 21-C's paymaster
+        check can be reading a key that came from a different service's config,
+        and a mint intended for one chain can be signed on another.
+
+        WHAT THIS DOES AND DELIBERATELY DOES NOT DO. It does not change which
+        instance is returned: making the singleton config-aware would alter
+        process-wide behaviour for every service at once, which is a platform
+        decision and not this domain's to make (Rule M). It makes the
+        divergence LOUD. In normal operation every service is handed the same
+        top-level config dict, so this is silent; it fires only when the
+        configs genuinely disagree, which is exactly when someone needs to
+        know.
+
+        A silent bleed and a logged one are the same defect. Only one of them
+        can be noticed.
+        """
         if cls._instance is None:
             cls._instance = Web3Manager(config or {})
+            return cls._instance
+
+        if config:
+            live = cls._instance
+            incoming = (config.get("blockchain", {}) or {}) if isinstance(config, dict) else {}
+            divergent = {
+                key: (getattr(live, attr, None), incoming.get(key))
+                for key, attr in (("rpc_url", "rpc_url"), ("chain_id", "chain_id"))
+                if incoming.get(key) is not None
+                and str(incoming.get(key)) != str(getattr(live, attr, None))
+            }
+            if divergent:
+                logger.error(
+                    "Web3Manager.get_shared IGNORED a divergent config: %s. The "
+                    "process-wide instance was built by an earlier caller and "
+                    "its RPC, network and PAYMASTER KEY are what every service "
+                    "signs with — including this one. Fields shown as "
+                    "(in-use, requested-and-ignored).",
+                    divergent,
+                )
         return cls._instance
 
     @classmethod
