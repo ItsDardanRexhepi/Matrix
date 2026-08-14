@@ -117,12 +117,17 @@ def test_a_caller_cannot_name_the_byline_or_the_target_publication(key, what):
 
 @pytest.mark.asyncio
 async def test_the_refusal_happens_before_anything_is_signed_or_sent():
-    """A guard that refuses AFTER the external call has already gone out is
-    not a guard. Driven through the real service with credentials present."""
+    """A guard that refuses AFTER the external call has gone out is not a
+    guard. 21-E changed this from RAISING to RETURNING — see
+    test_a_hijack_attempt_is_recorded_as_a_refusal for why — so the assertion
+    is now on the returned shape, and the guard still runs before any signing.
+    """
     svc = CreatorPlatformsService(_cfg(True))
-    with pytest.raises(PermissionError):
-        await svc.mint_sound(edition_address="0xATTACKER", to="0xATTACKER",
-                             quantity=999999)
+    out = await svc.mint_sound(edition_address="0xATTACKER", to="0xATTACKER",
+                               quantity=999999)
+    assert out.get("refused") is True
+    assert "not the operator-configured" in str(out.get("reason", ""))
+    assert "tx_hash" not in out, "a refusal must not carry evidence of a send"
 
 
 # ─────────────────────────────── 21-C ───────────────────────────────
@@ -238,3 +243,83 @@ def test_21D_did_not_narrow_the_permit_set():
     operator who legitimately opted in."""
     cfg = {"services": {"creator_platforms": {"enabled": True}}}
     assert require_creator_platforms_enabled("creator_platforms", cfg, "m") is None
+
+
+# ─────────────────────────────── 21-E ───────────────────────────────
+# Three defects in 21-B/21-C, found by round 2's adversarial lenses.
+
+@pytest.mark.parametrize("method,kwargs", [
+    ("mint_sound", {"edition_address": "0xATTACKER"}),
+    ("publish_mirror_post", {"title": "T", "body": "b", "author": "victim"}),
+    ("publish_paragraph_post", {"title": "T", "body": "b", "publication": "victim"}),
+])
+@pytest.mark.asyncio
+async def test_a_hijack_attempt_is_recorded_as_a_refusal(method, kwargs):
+    """MEASURED through the real ServiceDispatcher before 21-E: a RAISED
+    refusal unwinds past the attestation block, so `execute` reported
+    `{"status": "error", "error_category": "service_error", "degraded": true}`
+    and wrote ZERO attestations — while a RETURNED refusal in the same run
+    produced ATTEST_REFUSAL.
+
+    So the guards that exist to stop a caller hijacking a byline, a publication
+    or the contract the platform signs against LEFT NO RECORD THAT THE ATTEMPT
+    HAPPENED, and reported it as an internal fault of ours. An audit trail must
+    show that the system DECLINED, and a hijack attempt is exactly the event it
+    must show."""
+    svc = CreatorPlatformsService(_cfg(True))
+    out = await getattr(svc, method)(**kwargs)          # must NOT raise
+    assert out.get("refused") is True
+    assert _outcome_is_real(out) is False
+
+
+@pytest.mark.parametrize("exc,expected", [
+    (ConnectionRefusedError("refused"), "not_sent"),
+    (TypeError("Object of type set is not JSON serializable"), "not_sent"),
+    (TimeoutError("read timeout"), "unknown"),
+])
+def test_the_exception_type_decides_whether_the_request_was_sent(exc, expected):
+    """21-C read no exception type, so ONE `except Exception` manufactured both
+    errors: a proven non-dispatch was reported as "may be live", and a 4xx was
+    reported as unknown."""
+    from runtime.blockchain.services.creator_platforms._guards import (
+        classify_transport_fault,
+    )
+    assert classify_transport_fault(exc) == expected
+
+
+@pytest.mark.parametrize("code,expected", [(401, "rejected"), (422, "rejected"), (503, "unknown")])
+def test_a_4xx_is_knowable_and_a_5xx_is_not(code, expected):
+    from runtime.blockchain.services.creator_platforms._guards import (
+        classify_transport_fault,
+    )
+
+    class _Resp:
+        status_code = code
+
+    class _Err(Exception):
+        response = _Resp()
+
+    assert classify_transport_fault(_Err()) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_proven_non_dispatch_does_not_claim_the_post_may_be_live():
+    """Caller-triggerable: any unserialisable value in `subtitle` minted an
+    unresolvable "may be live" record, poisoning the very signal 21-C added."""
+    svc = CreatorPlatformsService(_cfg(True))
+    out = await svc.publish_paragraph_post(title="T", body="b", subtitle={1, 2})
+    assert out["status"] == "failed"
+    assert out["dispatched"] is False
+    assert "retrying is safe" in out["disclosure"]
+    assert "may be live" not in out["disclosure"]
+
+
+def test_the_mint_has_the_dispatched_unknown_shape_too():
+    """§AK.2 inside 21-C: the shape was built for exactly this and wired at
+    both publishers and not at the one action with an irreversible on-chain
+    effect."""
+    import inspect
+    from runtime.blockchain.services.creator_platforms import service as mod
+    src = inspect.getsource(mod.CreatorPlatformsService.mint_sound)
+    assert "classify_transport_fault" in src
+    assert "no idempotency key" in src

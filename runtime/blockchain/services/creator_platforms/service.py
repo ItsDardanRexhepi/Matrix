@@ -42,6 +42,10 @@ from typing import Any
 
 from runtime.blockchain.services.creator_platforms._guards import (
     RECEIPT_TIMEOUT_S,
+    classify_transport_fault,
+    publish_not_sent,
+    publish_rejected,
+    refusal_response,
     publish_unknown,
     require_creator_platforms_enabled,
     resolve_attributed_party,
@@ -146,8 +150,11 @@ class CreatorPlatformsService:
         # caller-supplied address both redirected the platform's signature and
         # switched on on-chain signing for an operator who configured API
         # access only.
-        edition_address = resolve_edition_address(
-            params, cfg.get("sound_edition_address") or "")
+        try:
+            edition_address = resolve_edition_address(
+                params, cfg.get("sound_edition_address") or "")
+        except PermissionError as exc:   # 21-E — RETURN so the refusal is recorded
+            return refusal_response(self.service_name, "mint_sound", exc)
 
         # ── ON-CHAIN path: a real SoundEdition contract is configured. ──
         if not is_placeholder_value(edition_address):
@@ -189,7 +196,39 @@ class CreatorPlatformsService:
                 ).build_transaction({"from": self._web3.get_account().address})
                 tx_hash = await self._web3.send_transaction(tx)
             except Exception as exc:  # noqa: BLE001
+                # 21-E / AQ::3. §AK.2 INSIDE 21-C. 21-C built the
+                # dispatched-outcome-unknown shape for exactly this and wired
+                # it at BOTH publishers — and not here, on the ONE action with
+                # an irreversible on-chain effect.
+                #
+                # `Web3Manager.send_transaction` re-raises AFTER
+                # `send_raw_transaction`, which is precisely where a read
+                # timeout leaves the raw tx IN THE MEMPOOL. The old branch told
+                # the operator "This service requires a deployed contract, see
+                # DEPLOYMENT_GUIDE.md" about a mint that may already be mining
+                # and already paid for by the platform paymaster. Their natural
+                # response — configure and retry — MINTS A SECOND TOKEN, and
+                # the pending branch below states there is no idempotency key.
                 logger.error("mint_sound on-chain mint failed: %s", exc)
+                if classify_transport_fault(exc) == "unknown":
+                    return {
+                        "service": self.service_name,
+                        "method": "mint_sound",
+                        "protocol": "Sound.xyz (SoundEdition on-chain)",
+                        "edition_address": edition_address,
+                        "to": to, "quantity": quantity,
+                        "status": "pending", "settled": False,
+                        "value_moved": None, "dispatched": True,
+                        "error": str(exc),
+                        "disclosure": (
+                            "The mint may have been BROADCAST before this "
+                            "fault. It is NOT a refusal and NOT a credential "
+                            "problem: a token may be minting, paid for by the "
+                            "platform paymaster. Check the chain before "
+                            "retrying — there is no idempotency key on this "
+                            "path and a retry mints again."
+                        ),
+                    }
                 return not_deployed_response(
                     self.service_name,
                     extra={
@@ -409,12 +448,16 @@ class CreatorPlatformsService:
         payload = {
             "title": title,
             "body": content,
-            "author": resolve_attributed_party(
-                params, "author", cfg.get("mirror_author"), "author"),
-            "publication": resolve_attributed_party(
-                params, "publication", cfg.get("mirror_publication"),
-                "publication"),
+            "author": None, "publication": None,
         }
+        try:   # 21-E — RETURN so the hijack attempt is recorded as a refusal
+            payload["author"] = resolve_attributed_party(
+                params, "author", cfg.get("mirror_author"), "author")
+            payload["publication"] = resolve_attributed_party(
+                params, "publication", cfg.get("mirror_publication"),
+                "publication")
+        except PermissionError as exc:
+            return refusal_response(self.service_name, "publish_mirror_post", exc)
         url = endpoint.rstrip("/") + "/tx"
         try:
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
@@ -427,15 +470,26 @@ class CreatorPlatformsService:
             # reached Mirror — telling an operator to go configure an API key
             # about a post that may be live on Arweave forever.
             logger.error("publish_mirror_post failed: %s", exc)
-            return publish_unknown(
-                base={
-                    "service": self.service_name,
-                    "method": "publish_mirror_post",
-                    "protocol": "Mirror (mirror.xyz / Arweave)",
-                    "title": title,
-                },
-                endpoint=url, exc=exc,
-            )
+            # 21-E. The exception TYPE carries the answer and 21-C never read
+            # it, so BOTH errors were manufactured at this one site: a proven
+            # non-dispatch (connection refused, DNS failure, an unserialisable
+            # caller param) was reported as "may be live", and a 4xx — the
+            # strongest evidence the gateway received it and stored nothing —
+            # was reported as unknown, discarding the credential diagnosis.
+            _base = {
+                "service": self.service_name,
+                "method": "publish_mirror_post",
+                "protocol": "Mirror (mirror.xyz / Arweave)",
+                "title": title,
+            }
+            _kind = classify_transport_fault(exc)
+            if _kind == "not_sent":
+                return publish_not_sent(base=_base, endpoint=url, exc=exc)
+            if _kind == "rejected":
+                return publish_rejected(
+                    base=_base, endpoint=url, exc=exc,
+                    missing="services.creator_platforms.mirror_api_key")
+            return publish_unknown(base=_base, endpoint=url, exc=exc)
 
         arweave_id = None
         if isinstance(body, dict):
@@ -496,9 +550,13 @@ class CreatorPlatformsService:
         # 21-B. A caller-supplied `publication` OVERRODE the operator's
         # configured one, aiming the platform's Paragraph credential at any
         # publication the caller named.
-        publication = resolve_attributed_party(
-            params, "publication", cfg.get("paragraph_publication") or "",
-            "publication") or ""
+        try:   # 21-E
+            publication = resolve_attributed_party(
+                params, "publication", cfg.get("paragraph_publication") or "",
+                "publication") or ""
+        except PermissionError as exc:
+            return refusal_response(
+                self.service_name, "publish_paragraph_post", exc)
         if is_placeholder_value(publication):
             return self._gate(
                 "publish_paragraph_post",
@@ -538,15 +596,26 @@ class CreatorPlatformsService:
                 body = resp.json() if resp.content else {}
         except Exception as exc:  # noqa: BLE001
             logger.error("publish_paragraph_post failed: %s", exc)
-            return publish_unknown(   # 21-C, the under-claim half
-                base={
-                    "service": self.service_name,
-                    "method": "publish_paragraph_post",
-                    "protocol": "Paragraph (paragraph.xyz)",
-                    "title": title,
-                },
-                endpoint=url, exc=exc,
-            )
+            # 21-E. The exception TYPE carries the answer and 21-C never read
+            # it, so BOTH errors were manufactured at this one site: a proven
+            # non-dispatch (connection refused, DNS failure, an unserialisable
+            # caller param) was reported as "may be live", and a 4xx — the
+            # strongest evidence the gateway received it and stored nothing —
+            # was reported as unknown, discarding the credential diagnosis.
+            _base = {
+                "service": self.service_name,
+                "method": "publish_paragraph_post",
+                "protocol": "Paragraph (paragraph.xyz)",
+                "title": title,
+            }
+            _kind = classify_transport_fault(exc)
+            if _kind == "not_sent":
+                return publish_not_sent(base=_base, endpoint=url, exc=exc)
+            if _kind == "rejected":
+                return publish_rejected(
+                    base=_base, endpoint=url, exc=exc,
+                    missing="services.creator_platforms.paragraph_api_key")
+            return publish_unknown(base=_base, endpoint=url, exc=exc)
 
         post_id = None
         post_url = None

@@ -104,6 +104,10 @@ __all__ = [
     "resolve_attributed_party",
     "settle_publish",
     "publish_unknown",
+    "publish_rejected",
+    "publish_not_sent",
+    "classify_transport_fault",
+    "refusal_response",
 ]
 
 #: How long to wait for a mint receipt before reporting the outcome as UNKNOWN.
@@ -281,6 +285,133 @@ def settle_publish(
             "the published entry. This is NOT a confirmation: without an id "
             "there is nothing to point a reader at and nothing to verify the "
             "post against. It is also NOT a refusal — the content may be live."
+        ),
+    }
+
+
+def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:
+    """Turn a 21-B PermissionError into a RETURNED refusal. 21-E.
+
+    MEASURED through the real ServiceDispatcher: a RAISED refusal unwinds past
+    the attestation block, so `execute` reported
+    `{"status": "error", "error_category": "service_error", "degraded": true}`
+    and wrote ZERO attestations — while a RETURNED refusal in the same run
+    produced `ATTEST_REFUSAL`. The dispatcher says so itself at
+    service_dispatcher.py:1288-1292.
+
+    So the 21-B guards, which exist to stop a caller hijacking a byline, a
+    publication or the contract the platform signs against, LEFT NO RECORD
+    THAT THE ATTEMPT HAPPENED — and reported it as an internal fault of ours.
+    An audit trail must show that the system DECLINED, and a hijack attempt is
+    precisely the event it must show.
+    """
+    return not_deployed_response(service_name, extra={
+        "method": method,
+        "refused": True,
+        "reason": str(exc),
+        "disclosure": (
+            "The request named a party or a contract that the operator did not "
+            "configure. Nothing was signed, sent or published. This is a "
+            "REFUSAL BY POLICY, not a fault."
+        ),
+    })
+
+
+def classify_transport_fault(exc: Exception) -> str:
+    """Did the request REACH the third party? 21-E.
+
+    21-C collapsed every fault into "dispatched, may be live". Driven, that was
+    wrong in both directions at one call site:
+
+      * connection refused / DNS failure / a caller-supplied unserialisable
+        param are PROOF THE REQUEST NEVER LEFT THIS PROCESS, and were reported
+        as "the post may be live ... a retry may publish a second copy" —
+        which discourages the one correct remedy. Caller-controllable, too: any
+        unserialisable value in `subtitle` minted an unresolvable record.
+      * an HTTP 401/422 is the STRONGEST EVIDENCE that the gateway received the
+        request and stored nothing, and it was reported as unknown — throwing
+        away the credential diagnosis that the whole `_gate` machinery exists
+        to produce.
+
+    So the over-claim and the under-claim were BOTH manufactured inside the fix
+    for under-claims, at the same `except Exception`. The exception type was
+    never inspected; it carries the answer.
+
+    Returns one of: "not_sent" · "rejected" · "unknown".
+    """
+    import json as _json
+
+    # Proof it never left: encoding failed before any socket write.
+    if isinstance(exc, (TypeError, ValueError)) and not isinstance(exc, OSError):
+        return "not_sent"
+    if isinstance(exc, _json.JSONDecodeError):
+        # A decode fault happens AFTER a response arrived — the post may exist.
+        return "unknown"
+
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        # The gateway answered. 4xx means it received and stored nothing.
+        if 400 <= status < 500:
+            return "rejected"
+        return "unknown"  # 5xx may have been written before the error
+
+    name = type(exc).__name__
+    if name in {"ConnectError", "ConnectTimeout", "UnsupportedProtocol",
+                "InvalidURL", "ProxyError"}:
+        return "not_sent"
+    if isinstance(exc, (ConnectionRefusedError, ConnectionError)):
+        return "not_sent"
+    return "unknown"
+
+
+def publish_rejected(
+    *, base: dict[str, Any], endpoint: str, exc: Exception, missing: str
+) -> dict[str, Any]:
+    """The gateway ANSWERED and refused. 21-E.
+
+    A 4xx is knowable, and the actionable answer is the credential one. Naming
+    the config key is what `_gate` does for a MISSING credential; a PRESENT but
+    invalid one deserves the same answer, not "outcome unknown".
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return {
+        **base,
+        "status": "failed",
+        "settled": True,
+        "value_moved": False,
+        "dispatched": True,
+        "http_status": status,
+        "endpoint": endpoint,
+        "missing": missing,
+        "error": str(exc),
+        "disclosure": (
+            f"The gateway received the request and REJECTED it"
+            f"{f' with HTTP {status}' if status else ''}. Nothing was "
+            f"published. This is not an unknown outcome — retrying without "
+            f"changing the credential will fail the same way."
+        ),
+    }
+
+
+def publish_not_sent(
+    *, base: dict[str, Any], endpoint: str, exc: Exception
+) -> dict[str, Any]:
+    """The request never left this process. 21-E.
+
+    Reported as a plain failure, NOT as "may be live". Retrying is safe here,
+    and saying otherwise discourages the correct remedy.
+    """
+    return {
+        **base,
+        "status": "failed",
+        "settled": True,
+        "value_moved": False,
+        "dispatched": False,
+        "endpoint": endpoint,
+        "error": str(exc),
+        "disclosure": (
+            "The request was NOT sent — it failed before reaching the "
+            "gateway. Nothing was published and retrying is safe."
         ),
     }
 

@@ -91,6 +91,14 @@ REFUSAL_PRIMITIVES: tuple[str, ...] = (
     # of these on its own — this is the registry working as designed rather
     # than a list someone remembered to update.
     "settle_publish",
+    # 21-E wrappers (services/creator_platforms/_guards.py). `refusal_response`
+    # converts a 21-B PermissionError into a RETURNED refusal so the
+    # dispatcher records the hijack attempt instead of unwinding past its
+    # attestation block; `publish_rejected` and `publish_not_sent` are the two
+    # outcomes 21-C had collapsed into "may be live".
+    "refusal_response",
+    "publish_rejected",
+    "publish_not_sent",
 )
 
 
