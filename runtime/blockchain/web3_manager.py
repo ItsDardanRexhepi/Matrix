@@ -21,8 +21,13 @@ when the caller has explicitly opted into a real on-chain operation.
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 from typing import Any, Optional
+
+#: 21-S. How long a single blocking receipt poll may occupy a worker thread.
+#: Bounds the thread orphaned by a cancellation; it does not shorten the wait.
+_RECEIPT_POLL_SLICE_S = 5
 
 logger = logging.getLogger(__name__)
 
@@ -292,8 +297,48 @@ class Web3Manager:
         """
         if not self.available or self.w3 is None:
             raise RuntimeError("Web3Manager not available")
-        return await asyncio.to_thread(
-            self.w3.eth.wait_for_transaction_receipt, tx_hash, timeout=timeout
+
+        # 21-S. THE WAIT IS SLICED BECAUSE `asyncio.to_thread` WORK IS NOT
+        # CANCELLABLE. Cancelling the awaiting task frees the caller and leaves
+        # the worker thread polling to completion — MEASURED: cancelled at
+        # 0.4s, the thread was still running afterwards and exited only on its
+        # own schedule.
+        #
+        # With the default 120s and the platform's own 20s batch-route ceiling,
+        # every cancelled batch mint orphaned a pool thread for up to 100s.
+        # Enough of them exhaust the default executor and stall every other
+        # `to_thread` caller in the process — a availability failure introduced
+        # by 21-I, which is itself the fix that stopped this call blocking the
+        # event loop. Both facts are true: the offload was right, and it moved
+        # the cost rather than removing it.
+        #
+        # Slicing bounds the orphan to one slice instead of the full timeout.
+        # It does NOT make the thread cancellable — nothing can — so the
+        # docstring says what it actually achieves.
+        deadline = time.monotonic() + max(0, int(timeout or 0))
+        slice_s = min(_RECEIPT_POLL_SLICE_S, max(1, int(timeout or 1)))
+        last_exc: Exception | None = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                return await asyncio.to_thread(
+                    self.w3.eth.wait_for_transaction_receipt,
+                    tx_hash,
+                    timeout=min(slice_s, remaining),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # A slice expiring is expected; anything else is not, but we
+                # cannot reliably name web3's timeout type across versions, so
+                # the DEADLINE decides and the last error is re-raised at it.
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+        raise TimeoutError(
+            f"no receipt for {tx_hash} within {timeout}s"
         )
 
     def get_balance_eth(self, address: str | None = None) -> float:

@@ -70,11 +70,86 @@ async def test_the_event_loop_keeps_running_during_the_receipt_wait():
 
 
 @pytest.mark.asyncio
-async def test_the_timeout_is_still_passed_through():
-    """§AQ class 3: fixing the blocking must not change what the call does."""
+async def test_the_callers_deadline_is_honoured_and_each_slice_is_bounded():
+    """§AQ class 3, and the contract 21-S actually changed.
+
+    Before 21-S the caller's timeout was passed straight through as ONE
+    blocking call. 21-S slices it, so the per-call argument is now the SLICE —
+    caught by the previous version of this test, which asserted the raw
+    argument and went red. That was a real behaviour change and the test was
+    right to fail.
+
+    The caller's contract is the OVERALL deadline; the slice is an
+    implementation bound on how long one worker thread can be occupied. Both
+    are asserted here."""
+    from runtime.blockchain import web3_manager as wm
     w = _manager(delay=0.01)
     await w.wait_for_receipt("0xdead", timeout=42)
-    assert w.w3.eth.calls == [("0xdead", 42)]
+    assert w.w3.eth.calls, "the receipt call never ran"
+    tx, per_call = w.w3.eth.calls[0]
+    assert tx == "0xdead"
+    assert per_call <= wm._RECEIPT_POLL_SLICE_S, (
+        "a single slice may not occupy a worker thread for the whole timeout"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_cancellation_orphans_at_most_one_slice():
+    """THE DEFECT 21-S FIXES. `asyncio.to_thread` work is NOT cancellable:
+    cancelling the awaiting task frees the caller and leaves the worker thread
+    polling to completion. MEASURED before 21-S — cancelled at 0.4s, the thread
+    was still running afterwards.
+
+    With the default 120s and the platform's own 20s batch ceiling, every
+    cancelled batch mint orphaned a pool thread for up to 100s. Slicing does
+    NOT make the thread cancellable — nothing can — it bounds the orphan to one
+    slice."""
+    import time as _t
+    from runtime.blockchain import web3_manager as wm
+
+    seen = []
+
+    class _SlowEth:
+        def wait_for_transaction_receipt(self, h, timeout=120):
+            seen.append(timeout)
+            _t.sleep(min(timeout, 0.3))
+            raise RuntimeError("not yet")
+
+    w = Web3Manager.__new__(Web3Manager)
+    w.available = True
+    w.w3 = type("W3", (), {"eth": _SlowEth()})()
+
+    task = asyncio.create_task(w.wait_for_receipt("0xabc", timeout=120))
+    await asyncio.sleep(0.4)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert seen, "the harness never reached the polling call"
+    assert max(seen) <= wm._RECEIPT_POLL_SLICE_S, (
+        f"a slice was given {max(seen)}s — a cancellation would orphan a "
+        f"thread for that long"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_overall_deadline_still_expires():
+    """Slicing must not turn a bounded wait into an unbounded loop."""
+    import time as _t
+
+    class _NeverEth:
+        def wait_for_transaction_receipt(self, h, timeout=120):
+            _t.sleep(0.05)
+            raise RuntimeError("never mined")
+
+    w = Web3Manager.__new__(Web3Manager)
+    w.available = True
+    w.w3 = type("W3", (), {"eth": _NeverEth()})()
+
+    start = _t.monotonic()
+    with pytest.raises(Exception):
+        await w.wait_for_receipt("0xabc", timeout=1)
+    assert _t.monotonic() - start < 4, "the deadline did not bound the loop"
 
 
 @pytest.mark.asyncio
