@@ -126,8 +126,24 @@ def require_creator_platforms_enabled(
     wrapper — a measured false positive that manufactured two findings in
     domain 19. Register domain-qualified names.
     """
-    svc_cfg = (config.get("services", {}) or {}).get(service_name, {}) or {}
-    if svc_cfg.get("enabled") is True:
+    # The traversal is defensive because MEASURED, an earlier version of this
+    # guard RAISED rather than refused: `services` as a string, or a service
+    # body that is a string or a list, produced
+    # `AttributeError: 'str' object has no attribute 'get'`.
+    #
+    # That still failed closed in EFFECT — nothing minted — but it destroyed
+    # the thing this gate exists to deliver. 21-A's whole product is the
+    # DISCLOSURE: "set services.creator_platforms.enabled to true". An
+    # operator with a malformed config got an opaque traceback instead, which
+    # is §AC at the guard layer — an AttributeError is indistinguishable from
+    # any other bug, so the one shape that tells the operator what to do is
+    # exactly the shape they do not receive.
+    #
+    # Any config we cannot read is a config that did not say `enabled: true`,
+    # and that is a refusal.
+    svc_cfg: Any = config.get("services") if isinstance(config, dict) else None
+    svc_cfg = svc_cfg.get(service_name) if isinstance(svc_cfg, dict) else None
+    if isinstance(svc_cfg, dict) and svc_cfg.get("enabled") is True:
         return None
     return not_deployed_response(service_name, extra={
         "method": method,

@@ -188,3 +188,53 @@ def test_the_mint_awaits_a_receipt():
     src = inspect.getsource(mod.CreatorPlatformsService.mint_sound)
     assert "wait_for_receipt" in src
     assert '"status": "pending"' in src or "'status': 'pending'" in src
+
+
+# ─────────────────────────────── 21-D ───────────────────────────────
+# A defect in 21-A itself, found by driving the guard against hostile config
+# shapes rather than reading it.
+
+_MALFORMED = [
+    ("services is a list", {"services": []}),
+    ("services is a string", {"services": "x"}),
+    ("service body is a string", {"services": {"creator_platforms": "on"}}),
+    ("service body is a list", {"services": {"creator_platforms": [1]}}),
+    ("config is not a dict", "nope"),
+    ("config is None", None),
+    ("services is None", {"services": None}),
+    ("empty config", {}),
+]
+
+
+@pytest.mark.parametrize("label,cfg", _MALFORMED, ids=[m[0] for m in _MALFORMED])
+def test_a_malformed_config_refuses_with_the_disclosure_and_never_raises(label, cfg):
+    """MEASURED before 21-D: `services` as a string, or a service body that is
+    a string or a list, produced `AttributeError: 'str' object has no attribute
+    'get'`.
+
+    That still failed closed in EFFECT — nothing minted — but it destroyed what
+    the gate exists to deliver. 21-A's product is the DISCLOSURE naming the key
+    to set; an operator with a malformed config got an opaque traceback
+    instead. §AC at the guard layer: an AttributeError is indistinguishable
+    from any other bug, so the one shape that tells the operator what to do is
+    exactly the shape they do not get.
+    """
+    out = require_creator_platforms_enabled("creator_platforms", cfg, "mint_sound")
+    assert out is not None, "a config we cannot read did not say enabled:true"
+    assert "enabled must be set to true" in str(out.get("missing", ""))
+
+
+@pytest.mark.parametrize("truthy", ["true", "True", 1, [1], {"a": 1}])
+def test_only_the_boolean_true_opts_in(truthy):
+    """Opting a token-minting service in is an operator decision, and a truthy
+    value is not a decision."""
+    cfg = {"services": {"creator_platforms": {"enabled": truthy}}}
+    assert require_creator_platforms_enabled("creator_platforms", cfg, "m") is not None
+
+
+def test_21D_did_not_narrow_the_permit_set():
+    """§AQ class 3, asserted explicitly because this is the class both prior
+    §AQ instances skipped: hardening the traversal must not stop admitting the
+    operator who legitimately opted in."""
+    cfg = {"services": {"creator_platforms": {"enabled": True}}}
+    assert require_creator_platforms_enabled("creator_platforms", cfg, "m") is None
