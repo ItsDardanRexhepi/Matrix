@@ -37,12 +37,14 @@ only touched through ``Web3Manager`` (also lazy / offline-safe).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 from runtime.blockchain.services.creator_platforms._guards import (
     RECEIPT_TIMEOUT_S,
     classify_transport_fault,
+    log_cancelled_dispatch,
     publish_not_sent,
     publish_rejected,
     refusal_response,
@@ -226,6 +228,16 @@ class CreatorPlatformsService:
                     quantity,
                 ).build_transaction({"from": self._web3.get_account().address})
                 tx_hash = await self._web3.send_transaction(tx)
+            except asyncio.CancelledError:
+                # 21-H. `asyncio.CancelledError` inherits from
+                # BaseException, NOT Exception, so every `except Exception`
+                # in this file missed it. MEASURED: the request was issued,
+                # cancellation propagated, and the service returned NOTHING.
+                # Not a wrong record — NO RECORD. Record it, then RE-RAISE:
+                # cancellation must propagate or every caller's timeout breaks.
+                log_cancelled_dispatch(
+                    "mint_sound", f"chain tx via {edition_address}", self.service_name)
+                raise
             except Exception as exc:  # noqa: BLE001
                 # 21-E / AQ::3. §AK.2 INSIDE 21-C. 21-C built the
                 # dispatched-outcome-unknown shape for exactly this and wired
@@ -294,6 +306,14 @@ class CreatorPlatformsService:
             try:
                 receipt = await self._web3.wait_for_receipt(
                     tx_hash, timeout=RECEIPT_TIMEOUT_S)
+            except asyncio.CancelledError:
+                # 21-H, and the WORST of the five sites: cancellation here means the
+                # mint was ALREADY BROADCAST — tx_hash exists — and the wait for its
+                # receipt was abandoned. Without this the platform holds no record of
+                # a transaction it signed and paid for.
+                log_cancelled_dispatch(
+                    "mint_sound", f"broadcast tx {tx_hash}", self.service_name)
+                raise
             except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN
                 logger.warning("mint_sound: no receipt for %s: %s", tx_hash, exc)
                 return {
@@ -378,6 +398,10 @@ class CreatorPlatformsService:
                 resp = await client.post(endpoint, headers=headers, json=gql)
                 resp.raise_for_status()
                 body = resp.json()
+        except asyncio.CancelledError:   # 21-H
+            log_cancelled_dispatch(
+                "mint_sound", endpoint, self.service_name)
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.error("mint_sound API call failed: %s", exc)
             return not_deployed_response(
@@ -532,6 +556,10 @@ class CreatorPlatformsService:
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 body = resp.json() if resp.content else {}
+        except asyncio.CancelledError:   # 21-H
+            log_cancelled_dispatch(
+                "publish_mirror_post", url, self.service_name)
+            raise
         except Exception as exc:  # noqa: BLE001
             # 21-C, THE UNDER-CLAIM HALF. This returned the CREDENTIAL-GATED
             # refusal shape for a fault that may have occurred AFTER the POST
@@ -664,6 +692,10 @@ class CreatorPlatformsService:
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 body = resp.json() if resp.content else {}
+        except asyncio.CancelledError:   # 21-H
+            log_cancelled_dispatch(
+                "publish_paragraph_post", url, self.service_name)
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.error("publish_paragraph_post failed: %s", exc)
             # 21-E. The exception TYPE carries the answer and 21-C never read

@@ -108,6 +108,7 @@ __all__ = [
     "publish_not_sent",
     "classify_transport_fault",
     "refusal_response",
+    "log_cancelled_dispatch",
 ]
 
 #: How long to wait for a mint receipt before reporting the outcome as UNKNOWN.
@@ -294,6 +295,34 @@ def settle_publish(
             "post against. It is also NOT a refusal — the content may be live."
         ),
     }
+
+
+def log_cancelled_dispatch(method: str, endpoint: str, service_name: str) -> None:
+    """A request was issued and the task was CANCELLED. 21-H.
+
+    `asyncio.CancelledError` inherits from BaseException, NOT Exception, so
+    every `except Exception` in this module missed it. MEASURED: the POST was
+    issued, cancellation propagated, and the service returned NOTHING.
+
+    That is the under-claim in its purest form — not a wrong record, NO RECORD.
+    A mint or a permanent Arweave entry may be in flight and the platform holds
+    no trace that it was ever attempted. The batch route's per-item ceiling
+    (gateway/service_routes.py) cancels exactly this way, so it is not a
+    hypothetical.
+
+    THE LOG IS THE ONLY CHANNEL AVAILABLE and that is a real limitation, stated
+    rather than hidden: cancellation MUST propagate — swallowing it to return a
+    dict would break every caller's timeout — and a cancelled caller is not
+    waiting for a return value. So the record goes where something can still
+    read it, at ERROR level, and the caller still gets its cancellation.
+    """
+    logger.error(
+        "%s.%s CANCELLED AFTER DISPATCH to %s — the request was issued and the "
+        "outcome is UNKNOWN. A token may be minting or a post may be live. "
+        "There is no idempotency key on this path: check the provider before "
+        "any retry, because a retry will act again.",
+        service_name, method, endpoint,
+    )
 
 
 def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:

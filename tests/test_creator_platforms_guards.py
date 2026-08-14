@@ -460,3 +460,74 @@ def test_the_two_defaults_that_remain_are_their_own_credentials_issuer():
     assert "api.sound.xyz" in mod._DEFAULT_SOUND_ENDPOINT
     assert "api.paragraph.xyz" in mod._DEFAULT_PARAGRAPH_ENDPOINT
     assert not hasattr(mod, "_DEFAULT_MIRROR_ENDPOINT")
+
+
+# ─────────────────────────────── 21-H ───────────────────────────────
+# NOT A WRONG RECORD — NO RECORD.
+
+def test_cancelled_error_is_not_an_exception():
+    """The premise, asserted so the reason survives: `asyncio.CancelledError`
+    inherits from BaseException, so every `except Exception` in the service
+    missed it."""
+    import asyncio
+    assert not issubclass(asyncio.CancelledError, Exception)
+    assert issubclass(asyncio.CancelledError, BaseException)
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_publish_still_leaves_a_record(caplog):
+    """MEASURED before 21-H: the POST was issued, cancellation propagated, and
+    the service returned NOTHING — no record, no disclosure, no "may be live"
+    warning. The batch route's per-item ceiling cancels exactly this way.
+
+    Cancellation MUST still propagate: swallowing it to return a dict would
+    break every caller's timeout. So the record goes to the log, which is the
+    only channel a cancelled caller leaves open."""
+    import asyncio
+    import logging
+    import httpx
+    from unittest.mock import patch
+
+    sent = []
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(self._r)
+            super().__init__(*a, **k)
+
+        def _r(self, request):
+            sent.append(str(request.url))
+            raise asyncio.CancelledError()
+
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"]["mirror_endpoint"] = "https://gw.example"
+    svc = CreatorPlatformsService(cfg)
+
+    with caplog.at_level(logging.ERROR):
+        with patch.object(httpx, "AsyncClient", _C):
+            with pytest.raises(asyncio.CancelledError):
+                await svc.publish_mirror_post(title="T", body="b")
+
+    assert sent, "harness never issued the request"
+    assert any("CANCELLED AFTER DISPATCH" in r.getMessage() for r in caplog.records)
+    assert any("no idempotency key" in r.getMessage() for r in caplog.records)
+
+
+def test_every_transport_site_has_a_cancellation_handler():
+    """§AK.2 as a structural control rather than a promise. 21-C guarded two of
+    three sites and 21-E found the third; this counts them so the next transport
+    site cannot be added without one.
+
+    Five sites, enumerated: the chain broadcast, the receipt wait, the Sound
+    GraphQL call, and the two publisher POSTs."""
+    from pathlib import Path
+    src = Path(
+        "runtime/blockchain/services/creator_platforms/service.py"
+    ).read_text()
+    broad = src.count("except Exception as exc")
+    cancelled = src.count("except asyncio.CancelledError")
+    assert cancelled == broad, (
+        f"{broad} broad handlers but {cancelled} cancellation handlers — a "
+        f"transport site can be cancelled with no record written"
+    )
+    assert broad == 5
