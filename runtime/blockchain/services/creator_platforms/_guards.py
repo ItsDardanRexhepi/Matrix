@@ -205,6 +205,15 @@ def resolve_attributed_party(
     Refused rather than overridden, for the same reason as 19-B: a caller who
     believes they named a byline and did not is worse off than one who is told
     they may not.
+
+    ONE EXCEPTION, STATED BECAUSE THE PARAGRAPH ABOVE OTHERWISE OVERSTATES IT:
+    a falsy or whitespace-only value (``None``, ``""``, ``0``, ``False``,
+    ``"   "``) is treated as NOT SUPPLIED and is silently ignored, not refused.
+    That is the right behaviour — an absent key and an empty one mean the same
+    thing to a caller — but "refused rather than ignored" was written as an
+    absolute and the code has always ignored this class. Saying so here is the
+    difference between a contract and a slogan (§AM.3 applied to my own
+    docstring: a comment that names the hazard reads as immune to it).
     """
     requested = params.get(key)
     if requested and str(requested).strip():
@@ -224,8 +233,6 @@ def resolve_attributed_party(
 def settle_publish(
     *,
     base: dict[str, Any],
-    method: str,
-    service_name: str,
     id_value: Any,
     id_field: str,
     response_body: Any,

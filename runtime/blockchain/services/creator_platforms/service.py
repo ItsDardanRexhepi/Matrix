@@ -139,7 +139,14 @@ class CreatorPlatformsService:
           query/submit via the Sound.xyz GraphQL API for the drop.
 
         Params: ``to`` (recipient address, on-chain path), ``quantity`` (int, default 1),
-        ``edition_address`` (override), ``sound_handle`` / ``release_id`` (API path).
+        ``sound_handle`` / ``release_id`` (API path).
+
+        ``edition_address`` IS NO LONGER A CALLER OVERRIDE (21-B). It is read
+        from ``services.creator_platforms.sound_edition_address``. It selects
+        which contract the PLATFORM PAYMASTER signs against and it is also the
+        on-chain/off-chain branch selector, so a caller-supplied value both
+        redirected the platform's signature and switched on on-chain signing
+        for an operator who had configured API access only.
         """
         refusal = require_creator_platforms_enabled(
             self.service_name, self._config, "mint_sound")
@@ -391,8 +398,16 @@ class CreatorPlatformsService:
         configured Mirror publishing gateway). The platform's own publishing account
         is used — no user wallet is signed with and no user funds are moved.
 
-        Params: ``title``, ``body`` (markdown/content); optional ``author``,
-        ``publication`` (Mirror publication address/handle).
+        Params: ``title``, ``body`` (markdown/content).
+
+        ``author`` AND ``publication`` ARE NO LONGER CALLER PARAMS (21-B). They
+        are read from ``services.creator_platforms.mirror_author`` and
+        ``.mirror_publication``. A caller supplying either gets a REFUSAL, not
+        an override — Mirror entries are permanent on Arweave and the byline is
+        published with the PLATFORM'S credential, so who it names is an
+        operator decision. This paragraph replaces one that still advertised
+        both as optional caller params AFTER 21-B began refusing them: the
+        docstring named exactly the thing that had changed (§AM.3).
 
         Returns the REAL Arweave transaction id / entry id from the gateway.
         """
@@ -505,7 +520,6 @@ class CreatorPlatformsService:
                 "endpoint": url,
                 "published_by": "platform Mirror publishing account",
             },
-            method="publish_mirror_post", service_name=self.service_name,
             id_value=arweave_id, id_field="arweave_tx_id", response_body=body,
         )
 
@@ -517,8 +531,11 @@ class CreatorPlatformsService:
         Uses the platform's Paragraph API key. The platform's own publishing account
         is used — no user wallet is signed with and no user funds are moved.
 
-        Params: ``title``, ``body`` (markdown/content); optional ``publication``
-        (Paragraph publication id/slug), ``subtitle``.
+        Params: ``title``, ``body`` (markdown/content); optional ``subtitle``.
+
+        ``publication`` IS NO LONGER A CALLER PARAM (21-B) — it is read from
+        ``services.creator_platforms.paragraph_publication``. A caller
+        supplying a different value gets a REFUSAL.
 
         Returns the REAL post id / URL from the Paragraph API.
         """
@@ -632,6 +649,5 @@ class CreatorPlatformsService:
                 "endpoint": url,
                 "published_by": "platform Paragraph publishing account",
             },
-            method="publish_paragraph_post", service_name=self.service_name,
             id_value=post_id, id_field="post_id", response_body=body,
         )

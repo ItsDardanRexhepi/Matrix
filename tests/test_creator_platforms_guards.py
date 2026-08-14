@@ -138,8 +138,8 @@ def test_a_confirmed_publish_keeps_its_audit_record():
     everything. Stamping `value_moved: False` on a confirmed publish — true of
     money — would erase the record of a post that really exists. That is an
     under-claim manufactured inside the fix for under-claims."""
-    rec = settle_publish(base={}, method="m", service_name="s",
-                         id_value="ar_123", id_field="arweave_tx_id",
+    rec = settle_publish(base={}, id_value="ar_123",
+                         id_field="arweave_tx_id",
                          response_body={"id": "ar_123"})
     assert rec["status"] == "published"
     assert rec["settled"] is True
@@ -148,9 +148,8 @@ def test_a_confirmed_publish_keeps_its_audit_record():
 
 
 def test_a_2xx_that_names_nothing_is_not_a_confirmation():
-    rec = settle_publish(base={}, method="m", service_name="s",
-                         id_value=None, id_field="arweave_tx_id",
-                         response_body={})
+    rec = settle_publish(base={}, id_value=None,
+                         id_field="arweave_tx_id", response_body={})
     assert rec["status"] == "pending"
     assert rec["settled"] is False
     assert rec["arweave_tx_id"] is None
@@ -323,3 +322,56 @@ def test_the_mint_has_the_dispatched_unknown_shape_too():
     src = inspect.getsource(mod.CreatorPlatformsService.mint_sound)
     assert "classify_transport_fault" in src
     assert "no idempotency key" in src
+
+
+# ─────────────────────────────── 21-F ───────────────────────────────
+# Documentation/behaviour mismatches in 21-B, found by round 2's completeness
+# critic auditing the FIXES rather than the original code.
+
+def test_the_config_keys_21B_reads_are_in_the_shipped_example():
+    """critic::27. 21-B moved `edition_address`, `author` and `publication`
+    from caller params to config — and INVENTED `mirror_author` and
+    `mirror_publication`, which appeared in no document and no example config.
+
+    A refusal that names a key the operator cannot find is not actionable, and
+    an undiscoverable key is R-21.1's shape pointed the other way: there, the
+    config named a control the code ignored; here, the code named a control the
+    config never mentioned."""
+    import json
+    from pathlib import Path
+    cfg = json.loads(Path("openmatrix.config.json.example").read_text())
+    body = cfg["services"]["creator_platforms"]
+    for key in ("sound_edition_address", "mirror_author",
+                "mirror_publication", "paragraph_publication"):
+        assert key in body, f"{key} is read by 21-B and absent from the example"
+
+
+@pytest.mark.parametrize("method,advertised", [
+    ("mint_sound", "edition_address"),
+    ("publish_mirror_post", "author"),
+    ("publish_paragraph_post", "publication"),
+])
+def test_no_docstring_advertises_a_param_the_code_now_refuses(method, advertised):
+    """critic::28, and §AM.3 committed by this engagement: after 21-B began
+    refusing these, all three docstrings still listed them as optional caller
+    params — the artifact named exactly the thing that had changed."""
+    import inspect
+    from runtime.blockchain.services.creator_platforms import service as mod
+    doc = inspect.getdoc(getattr(mod.CreatorPlatformsService, method)) or ""
+    head = doc.split("Params:")[1] if "Params:" in doc else doc
+    line = head.split("\n\n")[0]
+    assert advertised not in line, (
+        f"{method} still advertises {advertised!r} as a caller param"
+    )
+    assert "NO LONGER" in doc
+
+
+@pytest.mark.parametrize("falsy", [None, "", 0, False, "   "])
+def test_a_falsy_attributed_party_is_treated_as_not_supplied(falsy):
+    """critic::30. Both guard docstrings promised 'refused rather than
+    ignored' as an absolute, and have always SILENTLY IGNORED falsy and
+    whitespace-only values. The behaviour is right — an absent key and an empty
+    one mean the same thing — so the docstring was corrected to match the code
+    rather than the code bent to match the slogan."""
+    kwargs = {"author": falsy} if falsy is not None else {}
+    assert resolve_attributed_party(kwargs, "author", "operator", "author") == "operator"
