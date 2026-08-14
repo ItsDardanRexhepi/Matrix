@@ -646,3 +646,57 @@ async def test_a_non_string_endpoint_refuses_instead_of_raising(method, key, bad
     svc = CreatorPlatformsService(cfg)
     out = await getattr(svc, method)(title="T", body="b")   # must not raise
     assert key in str(out.get("missing", ""))
+
+
+# ─────────────────────────────── 21-M ───────────────────────────────
+
+from runtime.blockchain.services.creator_platforms._guards import (  # noqa: E402
+    safe_endpoint,
+)
+
+
+@pytest.mark.parametrize("url,expected_secret_gone", [
+    ("https://user:SUPERSECRET@gw.example/base", "SUPERSECRET"),
+    ("https://TOKEN@gw.example", "TOKEN"),
+    ("https://:SUPERSECRET@gw.example", "SUPERSECRET"),
+])
+def test_a_credential_in_the_gateway_url_is_redacted_from_the_record(url, expected_secret_gone):
+    """MEASURED: with `mirror_endpoint` set to
+    `https://user:SUPERSECRET@gw.example/base`, the returned record carried the
+    full URL — and that record has `settled: True`, so it is attested AND
+    published to the PUBLIC SOCIAL FEED. The census scored this LATENT; driven,
+    it is LIVE and it publishes.
+
+    A userinfo with NO colon is the credential itself (`https://TOKEN@host` is
+    how bearer-style gateway URLs are written); an earlier version of this
+    redactor preserved it as if it were a username."""
+    assert expected_secret_gone not in safe_endpoint(url)
+    assert "***" in safe_endpoint(url)
+
+
+@pytest.mark.parametrize("url", [
+    "https://gw.example/base", "https://gw.example/path@with-at", "not-a-url", "",
+])
+def test_a_url_without_a_credential_is_left_alone(url):
+    assert safe_endpoint(url) == url
+
+
+@pytest.mark.asyncio
+async def test_the_credential_still_reaches_the_host_that_issued_it():
+    """Only what is RECORDED is redacted. The credential must still reach the
+    host it was issued for — redacting the request instead of the record would
+    break publishing while looking like a fix."""
+    import httpx
+    from unittest.mock import patch
+    sent = []
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"]["mirror_endpoint"] = (
+        "https://user:SUPERSECRET@gw.example/base"
+    )
+    svc = CreatorPlatformsService(cfg)
+    with patch.object(httpx, "AsyncClient", _capture_client(sent)):
+        out = await svc.publish_mirror_post(title="T", body="b")
+
+    assert "SUPERSECRET" in sent[0], "the credential never reached the gateway"
+    assert "SUPERSECRET" not in str(out), "the credential is in the durable record"
+    assert out["status"] == "published"

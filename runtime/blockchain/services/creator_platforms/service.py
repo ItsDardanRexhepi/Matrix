@@ -48,6 +48,7 @@ from runtime.blockchain.services.creator_platforms._guards import (
     publish_not_sent,
     require_mint_quantity,
     require_text,
+    safe_endpoint,
     publish_rejected,
     refusal_response,
     publish_unknown,
@@ -437,7 +438,7 @@ class CreatorPlatformsService:
             "service": self.service_name,
             "protocol": "Sound.xyz",
             "release_id": release_id,
-            "endpoint": endpoint,
+            "endpoint": safe_endpoint(endpoint),   # 21-M
             "note": (
                 "Sound.xyz minting is on-chain via the SoundEdition contract. "
                 "Configure services.creator_platforms.sound_edition_address to mint; "
@@ -589,7 +590,7 @@ class CreatorPlatformsService:
                 body = resp.json() if resp.content else {}
         except asyncio.CancelledError:   # 21-H
             log_cancelled_dispatch(
-                "publish_mirror_post", url, self.service_name)
+                "publish_mirror_post", safe_endpoint(url), self.service_name)
             raise
         except Exception as exc:  # noqa: BLE001
             # 21-C, THE UNDER-CLAIM HALF. This returned the CREDENTIAL-GATED
@@ -611,12 +612,14 @@ class CreatorPlatformsService:
             }
             _kind = classify_transport_fault(exc)
             if _kind == "not_sent":
-                return publish_not_sent(base=_base, endpoint=url, exc=exc)
+                return publish_not_sent(
+                    base=_base, endpoint=safe_endpoint(url), exc=exc)
             if _kind == "rejected":
                 return publish_rejected(
-                    base=_base, endpoint=url, exc=exc,
+                    base=_base, endpoint=safe_endpoint(url), exc=exc,
                     missing="services.creator_platforms.mirror_api_key")
-            return publish_unknown(base=_base, endpoint=url, exc=exc)
+            return publish_unknown(
+                base=_base, endpoint=safe_endpoint(url), exc=exc)
 
         arweave_id = None
         if isinstance(body, dict):
@@ -629,7 +632,7 @@ class CreatorPlatformsService:
                 "service": self.service_name,
                 "protocol": "Mirror (mirror.xyz / Arweave)",
                 "title": title,
-                "endpoint": url,
+                "endpoint": safe_endpoint(url),   # 21-M
                 "published_by": "platform Mirror publishing account",
             },
             id_value=arweave_id, id_field="arweave_tx_id", response_body=body,
@@ -746,7 +749,7 @@ class CreatorPlatformsService:
                 body = resp.json() if resp.content else {}
         except asyncio.CancelledError:   # 21-H
             log_cancelled_dispatch(
-                "publish_paragraph_post", url, self.service_name)
+                "publish_paragraph_post", safe_endpoint(url), self.service_name)
             raise
         except Exception as exc:  # noqa: BLE001
             logger.error("publish_paragraph_post failed: %s", exc)
@@ -764,12 +767,14 @@ class CreatorPlatformsService:
             }
             _kind = classify_transport_fault(exc)
             if _kind == "not_sent":
-                return publish_not_sent(base=_base, endpoint=url, exc=exc)
+                return publish_not_sent(
+                    base=_base, endpoint=safe_endpoint(url), exc=exc)
             if _kind == "rejected":
                 return publish_rejected(
-                    base=_base, endpoint=url, exc=exc,
+                    base=_base, endpoint=safe_endpoint(url), exc=exc,
                     missing="services.creator_platforms.paragraph_api_key")
-            return publish_unknown(base=_base, endpoint=url, exc=exc)
+            return publish_unknown(
+                base=_base, endpoint=safe_endpoint(url), exc=exc)
 
         post_id = None
         post_url = None
@@ -783,7 +788,7 @@ class CreatorPlatformsService:
                 "title": title,
                 "publication": publication,
                 "post_url": post_url,
-                "endpoint": url,
+                "endpoint": safe_endpoint(url),   # 21-M
                 "published_by": "platform Paragraph publishing account",
             },
             id_value=post_id, id_field="post_id", response_body=body,

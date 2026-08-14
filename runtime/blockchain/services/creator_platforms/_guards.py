@@ -111,6 +111,7 @@ __all__ = [
     "log_cancelled_dispatch",
     "require_mint_quantity",
     "require_text",
+    "safe_endpoint",
 ]
 
 #: How long to wait for a mint receipt before reporting the outcome as UNKNOWN.
@@ -386,6 +387,46 @@ def require_text(value: Any, name: str) -> str:
             f"third party."
         )
     return value
+
+
+def safe_endpoint(url: Any) -> str:
+    """Strip any credential embedded in a URL before it is RECORDED. 21-M.
+
+    MEASURED: with `mirror_endpoint` set to
+    `https://user:SUPERSECRET@gw.example/base`, the returned record carried
+
+        endpoint: https://user:SUPERSECRET@gw.example/base/tx
+
+    and that record has `settled: True`, so `_outcome_is_real` attests it AND
+    the dispatcher publishes it to the PUBLIC SOCIAL FEED. The census scored
+    this LATENT; driven, it is LIVE and it publishes.
+
+    Userinfo in a URL is a normal way to configure a bundler or a
+    self-hosted gateway, so this is not operator error — it is a shape the
+    config legitimately takes, and the record is the wrong place for it.
+
+    THE REQUEST STILL USES THE FULL URL. Only what is written into the record,
+    the log and the feed is redacted: the credential must still reach the host
+    that issued it, and must not reach anyone else.
+    """
+    text = str(url or "")
+    if "@" not in text:
+        return text
+    try:
+        scheme, rest = text.split("://", 1)
+    except ValueError:
+        return text
+    userinfo, _, hostpart = rest.partition("@")
+    if "/" in userinfo:          # the '@' is in the path, not the authority
+        return text
+    # A userinfo with NO colon is the credential itself — `https://TOKEN@host`
+    # is how bearer-style gateway URLs are usually written, and an earlier
+    # version of this function preserved it as if it were a username. Only the
+    # `user:password` form has a non-secret half.
+    if ":" not in userinfo:
+        return f"{scheme}://***@{hostpart}"
+    user = userinfo.split(":", 1)[0]
+    return f"{scheme}://{user}:***@{hostpart}" if user else f"{scheme}://***@{hostpart}"
 
 
 def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:
