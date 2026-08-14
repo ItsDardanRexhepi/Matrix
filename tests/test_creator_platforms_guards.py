@@ -184,14 +184,125 @@ def test_metadata_only_is_classified_and_is_not_an_outcome():
     assert _outcome_is_real({"status": "metadata_only", "settled": False}) is False
 
 
-def test_the_mint_awaits_a_receipt():
-    """19-C's lesson, fourth instance of the orphaned-real-mechanism pattern:
-    `wait_for_receipt` existed on Web3Manager the whole time."""
-    import inspect
-    from runtime.blockchain.services.creator_platforms import service as mod
-    src = inspect.getsource(mod.CreatorPlatformsService.mint_sound)
-    assert "wait_for_receipt" in src
-    assert '"status": "pending"' in src or "'status': 'pending'" in src
+# ── 21-N: the mint's outcome, tested BEHAVIOURALLY ──────────────────
+#
+# WHAT WAS HERE BEFORE, and why it is gone. This assertion:
+#
+#     src = inspect.getsource(...mint_sound); assert "wait_for_receipt" in src
+#
+# PROVED NOTHING. Driven by mutation: restoring the exact pre-21-C behaviour —
+# claim status "minted", settled True, value_moved True on BROADCAST ALONE,
+# never awaiting a receipt — left the whole suite green, because the string
+# "wait_for_receipt" still appeared IN A COMMENT.
+#
+# A test that greps source text asserts the presence of a WORD. Only a test
+# that drives the code asserts a BEHAVIOUR — and the defect 21-C fixed is
+# entirely behavioural.
+
+
+class _Receipt:
+    def __init__(self, status, block=11, gas=21000):
+        self.status = status
+        self.blockNumber = block
+        self.gasUsed = gas
+
+
+def _armed_service(receipt=None, receipt_exc=None, send_exc=None):
+    """A service whose chain transport is stubbed and whose DECISIONS are not."""
+    cfg = _cfg(True)
+    svc = CreatorPlatformsService(cfg)
+    w = svc._web3
+    w.available = True
+    w.paymaster_key = "0xKEY"
+    w.platform_wallet = "0xPLATFORM"
+
+    class _Fn:
+        def build_transaction(self, _):
+            return {"to": "0xLEGIT", "data": "0x"}
+
+    class _Fns:
+        def mint(self, to, quantity):
+            return _Fn()
+
+    w.load_contract = lambda *a, **k: type("C", (), {"functions": _Fns()})()
+    w.get_account = lambda: type("A", (), {"address": "0xPLATFORM"})()
+    w.w3 = type("W3", (), {"to_checksum_address": staticmethod(lambda a: a)})()
+    w.explorer_url = lambda h: f"https://x/tx/{h}"
+
+    async def _send(tx):
+        if send_exc:
+            raise send_exc
+        return "0xTXHASH"
+
+    async def _wait(h, timeout=None):
+        if receipt_exc:
+            raise receipt_exc
+        return receipt
+
+    w.send_transaction = _send
+    w.wait_for_receipt = _wait
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_mint_is_reported_as_minted():
+    """Reach-proof (SR-3): this must reach the receipt branch, which it proves
+    by returning a tx_hash the stub supplied."""
+    out = await _armed_service(receipt=_Receipt(1)).mint_sound(to="0xB", quantity=1)
+    assert out["status"] == "minted"
+    assert out["settled"] is True
+    assert out["value_moved"] is True
+    assert out["tx_hash"] == "0xTXHASH"
+    assert out["block_number"] == 11
+    assert _outcome_is_real(out) is True
+
+
+@pytest.mark.asyncio
+async def test_a_reverted_mint_is_not_reported_as_minted():
+    """THE DEFECT 21-C FIXED. Pre-21-C this returned "minted" — a reverted
+    transaction was indistinguishable from one that worked, and "minted" is a
+    REAL-outcome status, so the dispatcher attested it and published it."""
+    out = await _armed_service(receipt=_Receipt(0)).mint_sound(to="0xB", quantity=1)
+    assert out["status"] == "failed"
+    assert out["settled"] is True
+    assert out["value_moved"] is False
+    assert _outcome_is_real(out) is False
+
+
+@pytest.mark.asyncio
+async def test_a_mint_with_no_receipt_is_pending_not_minted_and_not_refused():
+    """The third outcome, which pre-21-C could not express at all."""
+    out = await _armed_service(
+        receipt_exc=TimeoutError("no receipt")
+    ).mint_sound(to="0xB", quantity=1)
+    assert out["status"] == "pending"
+    assert out["settled"] is False
+    assert out["broadcast"] is True
+    assert out["tx_hash"] == "0xTXHASH"
+    assert "no idempotency key" in out["disclosure"]
+    assert _outcome_is_real(out) is False
+
+
+@pytest.mark.asyncio
+async def test_a_broadcast_fault_of_unknown_outcome_is_not_a_credential_refusal():
+    """21-E / AQ::3 driven behaviourally rather than grepped."""
+    out = await _armed_service(
+        send_exc=TimeoutError("read timeout")
+    ).mint_sound(to="0xB", quantity=1)
+    assert out["status"] == "pending"
+    assert out["dispatched"] is True
+    assert out["settled"] is False
+    assert _outcome_is_real(out) is False
+
+
+@pytest.mark.asyncio
+async def test_a_provably_pre_broadcast_fault_is_not_reported_as_maybe_mined():
+    """The other direction: a fault that proves nothing was sent must not claim
+    a token may be minting."""
+    out = await _armed_service(
+        send_exc=ConnectionRefusedError("refused")
+    ).mint_sound(to="0xB", quantity=1)
+    assert out.get("status") != "pending" or out.get("dispatched") is not True
 
 
 # ─────────────────────────────── 21-D ───────────────────────────────
@@ -740,3 +851,71 @@ def test_the_undecidable_case_is_documented_not_claimed():
     assert safe_endpoint("https://gw.example/SECRET/tx") == "https://gw.example/SECRET/tx"
     from runtime.blockchain.services.creator_platforms import _guards
     assert "NOT DETECTABLE" in _guards.safe_endpoint.__doc__
+
+
+# ─────────────────────────────── 21-O ───────────────────────────────
+
+from runtime.blockchain.services.creator_platforms._guards import (  # noqa: E402
+    safe_text,
+)
+
+
+@pytest.mark.asyncio
+async def test_no_credential_survives_anywhere_in_the_record_or_the_log(caplog):
+    """§AK.2 INSIDE 21-M. 21-M redacted the `endpoint` FIELD and left the field
+    beside it. MEASURED before 21-O:
+
+        endpoint : https://user:***@gw.example/base/tx         <- redacted
+        error    : failed connecting to
+                   https://user:SUPERSECRET@gw.example/base/tx <- NOT redacted
+
+    httpx puts the request URL in its exception messages, so every
+    `"error": str(exc)` and every logger line carried the credential the field
+    next to it had just been scrubbed of.
+
+    This asserts over the WHOLE record and the WHOLE log, not a field list — a
+    per-field redactor is only as good as the enumeration of fields."""
+    import logging
+    import httpx
+    from unittest.mock import patch
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(self._r)
+            super().__init__(*a, **k)
+
+        def _r(self, request):
+            raise httpx.ConnectError(f"failed connecting to {request.url}",
+                                     request=request)
+
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"]["mirror_endpoint"] = (
+        "https://user:SUPERSECRET@gw.example/base"
+    )
+    svc = CreatorPlatformsService(cfg)
+    with caplog.at_level(logging.DEBUG):
+        with patch.object(httpx, "AsyncClient", _C):
+            out = await svc.publish_mirror_post(title="T", body="b")
+
+    assert "SUPERSECRET" not in str(out)
+    assert "SUPERSECRET" not in " ".join(r.getMessage() for r in caplog.records)
+    assert "***" in str(out)
+
+
+@pytest.mark.parametrize("text,secret", [
+    ("failed connecting to https://user:SECRET@gw.example/p", "SECRET"),
+    ("timeout for https://TOKEN@gw.example after 30s", "TOKEN"),
+    ("two: https://a:S1@x/ and https://b:S2@y/", "S1"),
+    ("query https://gw.example/p?token=SECRET failed", "SECRET"),
+])
+def test_safe_text_redacts_urls_embedded_in_free_text(text, secret):
+    assert secret not in safe_text(text)
+
+
+@pytest.mark.parametrize("text", [
+    "nothing sensitive here", "", "connection reset by peer",
+    "https://gw.example/clean/path failed",
+])
+def test_safe_text_leaves_clean_text_alone(text):
+    """§AQ class 3 — a redactor that mangles diagnostics is its own defect."""
+    assert safe_text(text) == text

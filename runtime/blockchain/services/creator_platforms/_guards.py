@@ -92,6 +92,7 @@ a fix that stops new false records does not retract the old ones.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from runtime.blockchain.web3_manager import not_deployed_response
@@ -112,6 +113,7 @@ __all__ = [
     "require_mint_quantity",
     "require_text",
     "safe_endpoint",
+    "safe_text",
 ]
 
 #: How long to wait for a mint receipt before reporting the outcome as UNKNOWN.
@@ -472,6 +474,33 @@ def safe_endpoint(url: Any) -> str:
     return f"{prefix}{user}:***@{hostpart}" if user else f"{prefix}***@{hostpart}"
 
 
+_URL_IN_TEXT = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s\"'<>]+")
+
+
+def safe_text(value: Any) -> str:
+    """Redact any credentialed URL EMBEDDED IN FREE TEXT. 21-O.
+
+    §AK.2 INSIDE 21-M. 21-M redacted the `endpoint` FIELD and left the field
+    beside it untouched. MEASURED at the previous commit:
+
+        endpoint : https://user:***@gw.example/base/tx        <- redacted
+        error    : failed connecting to
+                   https://user:SUPERSECRET@gw.example/base/tx <- NOT redacted
+
+    httpx puts the request URL in its exception messages, so every
+    `"error": str(exc)` in this module — and every logger line that formats an
+    exception — carried the credential that the field next to it had just been
+    scrubbed of. The record was redacted; the record was still a leak.
+
+    A redactor applied per-field is only as good as the enumeration of fields.
+    This one is applied to the TEXT, so a URL is scrubbed wherever it appears.
+    """
+    text = str(value or "")
+    if "://" not in text:
+        return text
+    return _URL_IN_TEXT.sub(lambda m: safe_endpoint(m.group(0)), text)
+
+
 def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:
     """Turn a 21-B PermissionError into a RETURNED refusal. 21-E.
 
@@ -566,7 +595,7 @@ def publish_rejected(
         "http_status": status,
         "endpoint": endpoint,
         "missing": missing,
-        "error": str(exc),
+        "error": safe_text(exc),
         "disclosure": (
             f"The gateway received the request and REJECTED it"
             f"{f' with HTTP {status}' if status else ''}. Nothing was "
@@ -591,7 +620,7 @@ def publish_not_sent(
         "value_moved": False,
         "dispatched": False,
         "endpoint": endpoint,
-        "error": str(exc),
+        "error": safe_text(exc),
         "disclosure": (
             "The request was NOT sent — it failed before reaching the "
             "gateway. Nothing was published and retrying is safe."
@@ -617,7 +646,7 @@ def publish_unknown(
         "value_moved": False,
         "dispatched": True,
         "endpoint": endpoint,
-        "error": str(exc),
+        "error": safe_text(exc),
         "disclosure": (
             "The request was DISPATCHED to the third-party gateway and the "
             "outcome is unknown — the fault occurred after it left this "

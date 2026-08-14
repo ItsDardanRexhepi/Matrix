@@ -49,6 +49,7 @@ from runtime.blockchain.services.creator_platforms._guards import (
     require_mint_quantity,
     require_text,
     safe_endpoint,
+    safe_text,
     publish_rejected,
     refusal_response,
     publish_unknown,
@@ -263,7 +264,7 @@ class CreatorPlatformsService:
                 # and already paid for by the platform paymaster. Their natural
                 # response — configure and retry — MINTS A SECOND TOKEN, and
                 # the pending branch below states there is no idempotency key.
-                logger.error("mint_sound on-chain mint failed: %s", exc)
+                logger.error("mint_sound on-chain mint failed: %s", safe_text(exc))
                 if classify_transport_fault(exc) == "unknown":
                     return {
                         "service": self.service_name,
@@ -273,7 +274,7 @@ class CreatorPlatformsService:
                         "to": to, "quantity": quantity,
                         "status": "pending", "settled": False,
                         "value_moved": None, "dispatched": True,
-                        "error": str(exc),
+                        "error": safe_text(exc),
                         "disclosure": (
                             "The mint may have been BROADCAST before this "
                             "fault. It is NOT a refusal and NOT a credential "
@@ -289,7 +290,7 @@ class CreatorPlatformsService:
                         "method": "mint_sound",
                         "protocol": "Sound.xyz (SoundEdition on-chain)",
                         "edition_address": edition_address,
-                        "error": f"on-chain mint failed: {exc}",
+                        "error": f"on-chain mint failed: {safe_text(exc)}",
                     },
                 )
 
@@ -326,7 +327,7 @@ class CreatorPlatformsService:
                     "mint_sound", f"broadcast tx {tx_hash}", self.service_name)
                 raise
             except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN
-                logger.warning("mint_sound: no receipt for %s: %s", tx_hash, exc)
+                logger.warning("mint_sound: no receipt for %s: %s", tx_hash, safe_text(exc))
                 return {
                     **base, "status": "pending", "settled": False,
                     "value_moved": None,
@@ -414,14 +415,14 @@ class CreatorPlatformsService:
                 "mint_sound", endpoint, self.service_name)
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.error("mint_sound API call failed: %s", exc)
+            logger.error("mint_sound API call failed: %s", safe_text(exc))
             return not_deployed_response(
                 self.service_name,
                 extra={
                     "method": "mint_sound",
                     "protocol": "Sound.xyz",
                     "endpoint": endpoint,
-                    "error": f"Sound API call failed: {exc}",
+                    "error": f"Sound API call failed: {safe_text(exc)}",
                 },
             )
 
@@ -597,7 +598,7 @@ class CreatorPlatformsService:
             # refusal shape for a fault that may have occurred AFTER the POST
             # reached Mirror — telling an operator to go configure an API key
             # about a post that may be live on Arweave forever.
-            logger.error("publish_mirror_post failed: %s", exc)
+            logger.error("publish_mirror_post failed: %s", safe_text(exc))
             # 21-E. The exception TYPE carries the answer and 21-C never read
             # it, so BOTH errors were manufactured at this one site: a proven
             # non-dispatch (connection refused, DNS failure, an unserialisable
@@ -752,7 +753,7 @@ class CreatorPlatformsService:
                 "publish_paragraph_post", safe_endpoint(url), self.service_name)
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.error("publish_paragraph_post failed: %s", exc)
+            logger.error("publish_paragraph_post failed: %s", safe_text(exc))
             # 21-E. The exception TYPE carries the answer and 21-C never read
             # it, so BOTH errors were manufactured at this one site: a proven
             # non-dispatch (connection refused, DNS failure, an unserialisable
