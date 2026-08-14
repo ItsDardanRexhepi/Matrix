@@ -47,7 +47,7 @@ async def test_retirement_decrements_the_credit_it_names(svc):
     out = await svc.retire_carbon_credit(holder="0xA", credit_id=cid, tonnes=60.0)
     assert out["tonnes_retired"] == 60.0
     assert out["tonnes_remaining"] == 40.0
-    assert svc._campaigns[f"_carbon_{cid}"]["tonnes_remaining"] == 40.0
+    assert svc._green[f"_carbon_{cid}"]["tonnes_remaining"] == 40.0
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,7 @@ async def test_a_tonnage_that_is_not_a_quantity_is_refused(svc, bad):
     cid = await _bought(svc, 100.0)
     with pytest.raises((ValueError, TypeError)):
         await svc.retire_carbon_credit(holder="0xA", credit_id=cid, tonnes=bad)
-    assert svc._campaigns[f"_carbon_{cid}"]["tonnes_remaining"] == 100.0
+    assert svc._green[f"_carbon_{cid}"]["tonnes_remaining"] == 100.0
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, 0.0])

@@ -87,6 +87,16 @@ def _require_finite_positive(value: Any, name: str) -> float:
     claim a NaN or a negative tonnage is not a small amount — it is not an
     amount.
     """
+    # 20-F. `float()` accepts str, so an unguarded `float(value)` WIDENED the
+    # accepted input: `goal="500"` raised TypeError before 20-C and was
+    # accepted after it. A guard added to refuse bad values must not, on the
+    # way, start admitting values the code previously rejected — the finiteness
+    # fix was not licensed to change the type contract. `bool` is an `int`
+    # subclass, so True would otherwise arrive as the quantity 1.0.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(
+            f"{name} must be a number, got {type(value).__name__} {value!r}"
+        )
     try:
         v = float(value)
     except (TypeError, ValueError):
@@ -141,8 +151,28 @@ class FundraisingService:
         self._milestones = MilestoneVerification(config, self._resolve_oracle())
         self._refunds = RefundManager(config)
 
-        # campaign_id -> campaign record
+        # campaign_id -> campaign record. CAMPAIGNS ONLY.
         self._campaigns: dict[str, dict[str, Any]] = {}
+        # 20-G. Green-action records (carbon credits, retirements, renewable
+        # certificates, green bonds) used to be stuffed into `_campaigns`
+        # under prefixed keys. `list_campaigns` iterates `_campaigns.values()`
+        # and reads `campaign["campaign_id"]` unconditionally, so ONE
+        # unauthenticated `carbon_credit_buy` — a free action, in ACTION_MAP —
+        # permanently turned the no-filter `list_campaigns` into
+        # `KeyError: 'campaign_id'`. ServiceRegistry caches the service as a
+        # singleton, so the break was process-global and lasted the process
+        # lifetime.
+        #
+        # It also SUPPRESSED A REFUND PATH: `list_campaigns` is one of the four
+        # NEW-74 auto-fail detection sites. With a green record ordered ahead
+        # of a campaign, the loop died before reaching it, and that campaign's
+        # deadline-failure never got noticed FROM THIS SITE (the other three
+        # sites still fire — measured).
+        #
+        # Pre-existing, and 20-A is what made it matter: 20-A promoted this
+        # dict to the carbon registry of record, so a heterogeneous store
+        # became security-load-bearing. ONE DICT, ONE SHAPE.
+        self._green: dict[str, dict[str, Any]] = {}
         # campaign_id -> {contributor: total_amount}
         self._contributions: dict[str, dict[str, float]] = {}
 
@@ -478,6 +508,20 @@ class FundraisingService:
         now = int(time.time())
 
         for campaign in self._campaigns.values():
+            # 20-G. Structural, not defensive-by-habit: `_campaigns` holds
+            # CAMPAIGNS. If a future writer puts another shape here, this
+            # states the invariant at the point that depends on it, rather
+            # than dying on `campaign["campaign_id"]` below and taking a
+            # refund-detection site down with it (§T.4 — the constraint should
+            # hold without anyone remembering it).
+            if "campaign_id" not in campaign:
+                logger.error(
+                    "Non-campaign record in _campaigns (keys=%s); skipping. "
+                    "Green-action records belong in _green.",
+                    sorted(campaign)[:6],
+                )
+                continue
+
             # Auto-fail check
             if (campaign["status"] == "active"
                     and now > campaign["deadline"]
@@ -637,7 +681,7 @@ class FundraisingService:
                 "acquired from a registry operator and no value moved."
             ),
         }
-        self._campaigns[f"_carbon_{credit_id}"] = record
+        self._green[f"_carbon_{credit_id}"] = record
         logger.info("Carbon credit purchased: id=%s", credit_id)
         return record
 
@@ -667,7 +711,7 @@ class FundraisingService:
         # new false records does not withdraw the old ones. Whether that is
         # actionable is an operator decision, recorded in the close.
         tonnes = _require_finite_positive(tonnes, "tonnes")
-        credit = self._campaigns.get(f"_carbon_{credit_id}")
+        credit = self._green.get(f"_carbon_{credit_id}")
         if credit is None:
             raise ValueError(
                 f"credit {credit_id!r} is not in the registry — nothing to "
@@ -706,7 +750,7 @@ class FundraisingService:
                 "was filed with an external offset registry."
             ),
         }
-        self._campaigns[f"_retire_{retire_id}"] = record
+        self._green[f"_retire_{retire_id}"] = record
         logger.info("Carbon credit retired: id=%s", retire_id)
         return record
 
@@ -734,7 +778,7 @@ class FundraisingService:
                 "acquired from a registry operator and no value moved."
             ),
         }
-        self._campaigns[f"_rec_{cert_id}"] = record
+        self._green[f"_rec_{cert_id}"] = record
         logger.info("Renewable cert purchased: id=%s", cert_id)
         return record
 
@@ -760,6 +804,6 @@ class FundraisingService:
             "maturity_years": maturity_years,
             "invested_at": now,
         }
-        self._campaigns[f"_bond_{bond_id}"] = record
+        self._green[f"_bond_{bond_id}"] = record
         logger.info("Green bond investment: id=%s", bond_id)
         return record
