@@ -493,16 +493,13 @@ class CreatorPlatformsService:
                 else params.get("content"), "body")
         except PermissionError as exc:
             return refusal_response(self.service_name, "publish_mirror_post", exc)
-        if is_placeholder_value(title) or content is None:
-            return not_deployed_response(
-                self.service_name,
-                extra={
-                    "method": "publish_mirror_post",
-                    "protocol": "Mirror (mirror.xyz / Arweave)",
-                    "error": "missing required params 'title' and/or 'body'",
-                },
-            )
-
+        # 21-L / AQ::8. `is_placeholder_value` refuses any string starting
+        # "your_" — correct for a CONFIG value left as a template, and WRONG
+        # for user content: "your_first_post" and "Your_Guide_To_Arweave" are
+        # legitimate titles and were refused as unfilled config. `require_text`
+        # above already asks the consumer's question, so the config-template
+        # detector no longer runs against caller content (§I.13 completed:
+        # the guard was answering the config question about a content field).
         try:
             import httpx  # lazy
         except ImportError:
@@ -569,6 +566,21 @@ class CreatorPlatformsService:
             "body": content,
             "author": _author, "publication": _publication,
         }
+        # 21-L / regions::7. `.rstrip` sits OUTSIDE the try, so a non-string
+        # `mirror_endpoint` in config raised AttributeError straight past this
+        # service's own error handling and out to the dispatcher — 21-D's
+        # lesson at a second site: a config we cannot read is a config that
+        # did not configure this, and that is a refusal, not a crash.
+        if not isinstance(endpoint, str):
+            return self._gate(
+                "publish_mirror_post",
+                "services.creator_platforms.mirror_endpoint",
+                "publish_mirror_post",
+                extra={"reason": (
+                    f"mirror_endpoint must be a URL string, got "
+                    f"{type(endpoint).__name__} {endpoint!r}."
+                )},
+            )
         url = endpoint.rstrip("/") + "/tx"
         try:
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
@@ -663,16 +675,13 @@ class CreatorPlatformsService:
                 else params.get("content"), "body")
         except PermissionError as exc:
             return refusal_response(self.service_name, "publish_paragraph_post", exc)
-        if is_placeholder_value(title) or content is None:
-            return not_deployed_response(
-                self.service_name,
-                extra={
-                    "method": "publish_paragraph_post",
-                    "protocol": "Paragraph (paragraph.xyz)",
-                    "error": "missing required params 'title' and/or 'body'",
-                },
-            )
-
+        # 21-L / AQ::8. `is_placeholder_value` refuses any string starting
+        # "your_" — correct for a CONFIG value left as a template, and WRONG
+        # for user content: "your_first_post" and "Your_Guide_To_Arweave" are
+        # legitimate titles and were refused as unfilled config. `require_text`
+        # above already asks the consumer's question, so the config-template
+        # detector no longer runs against caller content (§I.13 completed:
+        # the guard was answering the config question about a content field).
         # 21-B. A caller-supplied `publication` OVERRODE the operator's
         # configured one, aiming the platform's Paragraph credential at any
         # publication the caller named.
@@ -714,6 +723,21 @@ class CreatorPlatformsService:
             "subtitle": params.get("subtitle"),
             "markdown": content,
         }
+        # 21-L / regions::7. `.rstrip` sits OUTSIDE the try, so a non-string
+        # `paragraph_endpoint` in config raised AttributeError straight past this
+        # service's own error handling and out to the dispatcher — 21-D's
+        # lesson at a second site: a config we cannot read is a config that
+        # did not configure this, and that is a refusal, not a crash.
+        if not isinstance(endpoint, str):
+            return self._gate(
+                "publish_paragraph_post",
+                "services.creator_platforms.paragraph_endpoint",
+                "publish_paragraph_post",
+                extra={"reason": (
+                    f"paragraph_endpoint must be a URL string, got "
+                    f"{type(endpoint).__name__} {endpoint!r}."
+                )},
+            )
         url = endpoint.rstrip("/") + "/v1/posts"
         try:
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:

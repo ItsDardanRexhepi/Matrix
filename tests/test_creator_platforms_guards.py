@@ -602,3 +602,47 @@ def test_the_mint_quantity_cap_is_in_the_shipped_example_config():
     body = cfg["services"]["creator_platforms"]
     assert "max_mint_quantity" in body
     assert "mirror_endpoint" in body
+
+
+# ─────────────────────────────── 21-L ───────────────────────────────
+
+@pytest.mark.parametrize("title", ["your_first_post", "Your_Guide_To_Arweave", "YOUR_TITLE"])
+@pytest.mark.asyncio
+async def test_a_legitimate_title_is_not_refused_as_a_config_placeholder(title):
+    """AQ::8, and §AQ class 3 — a guard refusing valid input is its own defect.
+
+    `is_placeholder_value` refuses any string starting "your_". Correct for a
+    CONFIG value left as a template; wrong for user content, where
+    "your_first_post" is an ordinary title. `require_text` (21-K) already asks
+    the consumer's question, so the config-template detector no longer runs
+    against caller content — §I.13 completed, since the guard had been
+    answering the config question about a content field."""
+    import httpx
+    from unittest.mock import patch
+    sent = []
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"]["mirror_endpoint"] = "https://gw.example"
+    svc = CreatorPlatformsService(cfg)
+    with patch.object(httpx, "AsyncClient", _capture_client(sent)):
+        out = await svc.publish_mirror_post(title=title, body="b")
+    assert out.get("refused") is not True
+    assert out.get("status") != "not_deployed"
+    assert sent, "the post was never dispatched"
+
+
+@pytest.mark.parametrize("bad", [12345, ["x"], {"a": 1}, 3.5])
+@pytest.mark.parametrize("method,key", [
+    ("publish_mirror_post", "mirror_endpoint"),
+    ("publish_paragraph_post", "paragraph_endpoint"),
+])
+@pytest.mark.asyncio
+async def test_a_non_string_endpoint_refuses_instead_of_raising(method, key, bad):
+    """regions::7. `.rstrip` sits OUTSIDE the try, so a non-string endpoint
+    raised AttributeError straight past the service's own error handling.
+    21-D's lesson at a second site: a config we cannot read is a config that
+    did not configure this, and that is a refusal, not a crash."""
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"][key] = bad
+    svc = CreatorPlatformsService(cfg)
+    out = await getattr(svc, method)(title="T", body="b")   # must not raise
+    assert key in str(out.get("missing", ""))

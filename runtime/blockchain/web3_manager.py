@@ -165,12 +165,43 @@ class Web3Manager:
         """Return True if *value* is empty or looks like a config placeholder."""
         return is_placeholder_value(value)
 
-    def explorer_url(self, tx_hash: str) -> str:
-        """Return the Base Sepolia (or matching network) block-explorer URL."""
-        base = "https://sepolia.basescan.org/tx/"
-        if self.network and "mainnet" in self.network.lower():
-            base = "https://basescan.org/tx/"
-        return f"{base}{tx_hash}"
+    #: chain_id -> block-explorer tx base. Only chains we can name honestly.
+    _EXPLORERS: dict[int, str] = {
+        1: "https://etherscan.io/tx/",
+        8453: "https://basescan.org/tx/",
+        84532: "https://sepolia.basescan.org/tx/",
+        11155111: "https://sepolia.etherscan.io/tx/",
+        137: "https://polygonscan.com/tx/",
+        42161: "https://arbiscan.io/tx/",
+        10: "https://optimistic.etherscan.io/tx/",
+    }
+
+    def explorer_url(self, tx_hash: str) -> str | None:
+        """Return a block-explorer URL, or None when we cannot build a real one.
+
+        21-L. THIS ALWAYS RETURNED A BASE URL, FOR EVERY CHAIN. The base was
+        `sepolia.basescan.org` unless `self.network` contained "mainnet", in
+        which case `basescan.org` — so a transaction on Ethereum, Polygon,
+        Arbitrum or Optimism got a link to Base's explorer, where it does not
+        exist. It also read `self.network`, an attribute that is not always
+        set, raising AttributeError on an instance built without it.
+
+        Combined with the unprefixed hash (register R-21.3: `.hex()` drops the
+        `0x` under the installed hexbytes 1.3.1), the durable success record of
+        a mint carried A LINK TO THE WRONG EXPLORER FOR A MALFORMED HASH —
+        while reading as evidence that the transaction is inspectable.
+
+        `None` is the honest answer for a chain we have no explorer for. A URL
+        that does not resolve is worse than no URL: the absent field says "look
+        it up yourself", and the broken one says "here is the proof" and is not.
+        """
+        if not tx_hash:
+            return None
+        h = str(tx_hash)
+        if not h.startswith("0x"):
+            h = "0x" + h          # R-21.3's domain consequence, fixed here
+        base = self._EXPLORERS.get(int(getattr(self, "chain_id", 0) or 0))
+        return f"{base}{h}" if base else None
 
     def get_account(self):
         """Return an ``eth_account.LocalAccount`` for the configured paymaster key."""
