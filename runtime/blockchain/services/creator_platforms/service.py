@@ -63,10 +63,34 @@ logger = logging.getLogger(__name__)
 # Canonical documented protocol base URLs (overridable via per-platform config).
 # Sound.xyz public API (GraphQL). ref: https://docs.sound.xyz (api.sound.xyz/graphql)
 _DEFAULT_SOUND_ENDPOINT = "https://api.sound.xyz/graphql"
-# Mirror has no fully public write REST API; entries are stored on Arweave. The
-# platform must configure its Mirror/AR publishing gateway endpoint. We default to
-# the Arweave bundler gateway base used by Mirror (UNVERIFIED for direct posting).
-_DEFAULT_MIRROR_ENDPOINT = "https://arweave.net"
+# 21-G. THERE IS NO DEFAULT MIRROR ENDPOINT, AND THERE MUST NOT BE.
+#
+# The paragraph that stood here said "The platform must configure its Mirror/AR
+# publishing gateway endpoint" and the NEXT LINE supplied a default so that it
+# did not have to — `_DEFAULT_MIRROR_ENDPOINT = "https://arweave.net"`. §AM.3
+# in its purest form: the comment named the requirement and the code below it
+# removed the requirement.
+#
+# The consequence is not a wrong URL. `publish_mirror_post` sends
+# `Authorization: Bearer <mirror_api_key>` to whatever this resolves to.
+# MEASURED with the request intercepted locally, zero-config:
+#
+#     mirror     -> arweave.net         credential sent: True   NOT THE ISSUER
+#     paragraph  -> api.paragraph.xyz   credential sent: True   issuer
+#     sound      -> api.sound.xyz       credential sent: True   issuer
+#
+# Only Mirror had the mismatch — the other two defaults ARE the credential's
+# issuer, which is the correct shape and the reason this is a specific defect
+# rather than a general one. arweave.net is a public gateway that never issued
+# this credential, has no relationship to it, and does not use Bearer auth: it
+# would simply receive and log it.
+#
+# A DEFAULT ENDPOINT FOR A CREDENTIALED REQUEST IS A DECISION ABOUT WHO
+# RECEIVES THE CREDENTIAL. That decision cannot have a convenience default,
+# because the failure mode is disclosure to a third party rather than an
+# error the operator sees. `publish_mirror_post` now REFUSES until an operator
+# names the gateway, and the refusal names the key.
+_MIRROR_ENDPOINT_KEY = "services.creator_platforms.mirror_endpoint"
 # Paragraph publishing API base. ref: https://docs.paragraph.xyz (api.paragraph.xyz)
 _DEFAULT_PARAGRAPH_ENDPOINT = "https://api.paragraph.xyz"
 
@@ -445,7 +469,44 @@ class CreatorPlatformsService:
                 "Mirror (mirror.xyz / Arweave)",
             )
 
-        endpoint = cfg.get("mirror_endpoint") or _DEFAULT_MIRROR_ENDPOINT
+        # 21-G ORDERING. THE AUTHORIZATION REFUSAL RUNS BEFORE THE CONFIG
+        # REFUSAL, and the reason is a regression my own test caught: once the
+        # endpoint gate was added it fired FIRST, so a byline-hijack attempt
+        # against an operator who had not configured `mirror_endpoint` came
+        # back as "your endpoint is unset" and the hijack attempt WAS NEVER
+        # RECORDED AS ONE.
+        #
+        # A config problem is the operator's own state; an attempted hijack is
+        # someone acting against them. When both are true the second is the one
+        # they need to see, and a misconfiguration must never mask it. This
+        # resolution is pure — it touches no network — so running it first
+        # costs nothing.
+        try:   # 21-E — RETURN so the hijack attempt is recorded as a refusal
+            _author = resolve_attributed_party(
+                params, "author", cfg.get("mirror_author"), "author")
+            _publication = resolve_attributed_party(
+                params, "publication", cfg.get("mirror_publication"),
+                "publication")
+        except PermissionError as exc:
+            return refusal_response(self.service_name, "publish_mirror_post", exc)
+
+        # 21-G. No default: see the note at _MIRROR_ENDPOINT_KEY. Refusing is
+        # the only option that cannot disclose the credential.
+        endpoint = cfg.get("mirror_endpoint") or ""
+        if is_placeholder_value(endpoint):
+            return self._gate(
+                "publish_mirror_post",
+                _MIRROR_ENDPOINT_KEY,
+                "Mirror (mirror.xyz / Arweave)",
+                extra={"reason": (
+                    "There is deliberately no default Mirror endpoint. This "
+                    "request would send the platform's Mirror credential as a "
+                    "Bearer token to whatever host it resolved to, so the host "
+                    "must be an explicit operator decision. Point this at your "
+                    "Mirror/Arweave publishing gateway — the party that ISSUED "
+                    "the credential in services.creator_platforms.mirror_api_key."
+                )},
+            )
         # REAL publish against the configured Mirror/AR gateway. UNVERIFIED: Mirror
         # has no public documented write REST endpoint — entries are signed and
         # bundled to Arweave (typically via a bundler such as Bundlr/Irys or a
@@ -463,16 +524,8 @@ class CreatorPlatformsService:
         payload = {
             "title": title,
             "body": content,
-            "author": None, "publication": None,
+            "author": _author, "publication": _publication,
         }
-        try:   # 21-E — RETURN so the hijack attempt is recorded as a refusal
-            payload["author"] = resolve_attributed_party(
-                params, "author", cfg.get("mirror_author"), "author")
-            payload["publication"] = resolve_attributed_party(
-                params, "publication", cfg.get("mirror_publication"),
-                "publication")
-        except PermissionError as exc:
-            return refusal_response(self.service_name, "publish_mirror_post", exc)
         url = endpoint.rstrip("/") + "/tx"
         try:
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:

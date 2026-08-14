@@ -375,3 +375,88 @@ def test_a_falsy_attributed_party_is_treated_as_not_supplied(falsy):
     rather than the code bent to match the slogan."""
     kwargs = {"author": falsy} if falsy is not None else {}
     assert resolve_attributed_party(kwargs, "author", "operator", "author") == "operator"
+
+
+# ─────────────────────────────── 21-G ───────────────────────────────
+# A DEFAULT ENDPOINT FOR A CREDENTIALED REQUEST IS A DECISION ABOUT WHO
+# RECEIVES THE CREDENTIAL.
+
+def _capture_client(recorder):
+    import httpx
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(self._rec)
+            super().__init__(*a, **k)
+
+        def _rec(self, request):
+            recorder.append(str(request.url))
+            return httpx.Response(200, json={"id": "ar_fake"})
+
+    return _C
+
+
+@pytest.mark.asyncio
+async def test_mirror_refuses_rather_than_send_the_credential_to_a_default_host():
+    """THE REPRODUCTION, measured with the request intercepted locally:
+
+        mirror    -> arweave.net        credential sent: True   NOT THE ISSUER
+        paragraph -> api.paragraph.xyz  credential sent: True   issuer
+        sound     -> api.sound.xyz      credential sent: True   issuer
+
+    Only Mirror had the mismatch. `arweave.net` is a public gateway that never
+    issued the credential and does not use Bearer auth — it would simply
+    receive and log it. The failure mode is DISCLOSURE, not an error the
+    operator sees, which is why this default could not be made safer and had
+    to be removed."""
+    import httpx
+    from unittest.mock import patch
+    sent = []
+    cfg = _cfg(True)                       # api key present, NO mirror_endpoint
+    svc = CreatorPlatformsService(cfg)
+    with patch.object(httpx, "AsyncClient", _capture_client(sent)):
+        out = await svc.publish_mirror_post(title="T", body="b")
+    assert sent == [], "the credential left the process on the default path"
+    assert out.get("missing") == "services.creator_platforms.mirror_endpoint"
+
+
+@pytest.mark.asyncio
+async def test_an_operator_who_names_their_gateway_can_still_publish():
+    """§AQ class 3 — removing a default must not remove the capability."""
+    import httpx
+    from unittest.mock import patch
+    sent = []
+    cfg = _cfg(True)
+    cfg["services"]["creator_platforms"]["mirror_endpoint"] = "https://gw.example"
+    svc = CreatorPlatformsService(cfg)
+    with patch.object(httpx, "AsyncClient", _capture_client(sent)):
+        out = await svc.publish_mirror_post(title="T", body="b")
+    assert sent == ["https://gw.example/tx"]
+    assert out["status"] == "published"
+
+
+@pytest.mark.asyncio
+async def test_a_hijack_is_not_masked_by_a_missing_endpoint():
+    """Caught by an existing test when 21-G was added: the new config gate
+    fired FIRST, so a byline hijack against an operator who had not configured
+    `mirror_endpoint` came back as "your endpoint is unset" and the attempt was
+    never recorded as one.
+
+    A config problem is the operator's own state; an attempted hijack is
+    someone acting against them. When both are true, the second is the one they
+    need to see."""
+    cfg = _cfg(True)                       # deliberately no mirror_endpoint
+    svc = CreatorPlatformsService(cfg)
+    out = await svc.publish_mirror_post(title="T", body="b", author="victim")
+    assert out.get("refused") is True
+    assert "not the operator-configured author" in str(out.get("reason", ""))
+
+
+def test_the_two_defaults_that_remain_are_their_own_credentials_issuer():
+    """The scope of 21-G, asserted so it is not over-applied: Sound and
+    Paragraph default to the host that ISSUED their key, which is the correct
+    shape. This is a specific defect, not a general ban on defaults."""
+    from runtime.blockchain.services.creator_platforms import service as mod
+    assert "api.sound.xyz" in mod._DEFAULT_SOUND_ENDPOINT
+    assert "api.paragraph.xyz" in mod._DEFAULT_PARAGRAPH_ENDPOINT
+    assert not hasattr(mod, "_DEFAULT_MIRROR_ENDPOINT")
