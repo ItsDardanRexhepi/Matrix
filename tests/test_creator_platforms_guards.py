@@ -700,3 +700,43 @@ async def test_the_credential_still_reaches_the_host_that_issued_it():
     assert "SUPERSECRET" in sent[0], "the credential never reached the gateway"
     assert "SUPERSECRET" not in str(out), "the credential is in the durable record"
     assert out["status"] == "published"
+
+
+@pytest.mark.parametrize("url", [
+    "https://user:SECRET@gw.example/p",
+    "https://TOKEN@gw.example",
+    "https://:SECRET@gw.example",
+    "user:SECRET@gw.example",                       # no scheme
+    "HTTPS://user:SECRET@gw.example",               # uppercase scheme
+    "https://user:SECRET@[::1]:8443/p",             # IPv6 literal
+    "https://user:SECRET@evil@gw.example/p",        # multiple @
+    "https://gw.example/p?token=SECRET",            # credential in query
+    "https://gw.example/p?api_key=SECRET&x=1",
+])
+def test_safe_endpoint_survives_evasion(url):
+    """Driven against my OWN first version, three evasions worked. Two are
+    fixed (schemeless userinfo, credential query params); the third is
+    undecidable and documented rather than papered over."""
+    assert "SECRET" not in safe_endpoint(url)
+    assert "TOKEN" not in safe_endpoint(url) or "***" in safe_endpoint(url)
+
+
+@pytest.mark.parametrize("url", [
+    "https://gw.example/base",
+    "https://gw.example/p?to=a@b.com",              # @ in a query VALUE
+    "https://gw.example/path@with-at",              # @ in the path
+    "not-a-url",
+    "",
+])
+def test_safe_endpoint_leaves_clean_urls_alone(url):
+    """§AQ class 3 — a redactor that mangles honest URLs breaks diagnostics."""
+    assert safe_endpoint(url) == url
+
+
+def test_the_undecidable_case_is_documented_not_claimed():
+    """A secret in a PATH SEGMENT is indistinguishable from a route. This test
+    exists so the limitation is asserted rather than discovered later: it
+    records that we do NOT redact it, and the docstring says why."""
+    assert safe_endpoint("https://gw.example/SECRET/tx") == "https://gw.example/SECRET/tx"
+    from runtime.blockchain.services.creator_platforms import _guards
+    assert "NOT DETECTABLE" in _guards.safe_endpoint.__doc__

@@ -389,8 +389,16 @@ def require_text(value: Any, name: str) -> str:
     return value
 
 
+#: Query parameter names whose VALUE is a credential. Not exhaustive by
+#: construction — see safe_endpoint's note on what cannot be detected.
+_SECRET_QUERY_KEYS = frozenset({
+    "token", "key", "api_key", "apikey", "access_token", "auth", "secret",
+    "password", "passwd", "pwd", "signature", "sig", "bearer", "session",
+})
+
+
 def safe_endpoint(url: Any) -> str:
-    """Strip any credential embedded in a URL before it is RECORDED. 21-M.
+    """Strip credentials from a URL before it is RECORDED. 21-M.
 
     MEASURED: with `mirror_endpoint` set to
     `https://user:SUPERSECRET@gw.example/base`, the returned record carried
@@ -401,32 +409,67 @@ def safe_endpoint(url: Any) -> str:
     the dispatcher publishes it to the PUBLIC SOCIAL FEED. The census scored
     this LATENT; driven, it is LIVE and it publishes.
 
-    Userinfo in a URL is a normal way to configure a bundler or a
-    self-hosted gateway, so this is not operator error — it is a shape the
-    config legitimately takes, and the record is the wrong place for it.
+    Userinfo in a URL is a normal way to configure a bundler or self-hosted
+    gateway, so this is not operator error — it is a shape the config
+    legitimately takes, and the record is the wrong place for it.
 
     THE REQUEST STILL USES THE FULL URL. Only what is written into the record,
     the log and the feed is redacted: the credential must still reach the host
     that issued it, and must not reach anyone else.
+
+    WHAT THIS CANNOT DO, stated because a redactor that implies completeness is
+    worse than one that does not. Driven against my own first version, three
+    evasions worked; two are fixed here and the third is UNDECIDABLE:
+
+      * `user:SECRET@host` with NO scheme       -> FIXED
+      * `https://host/p?token=SECRET`           -> FIXED for the key names in
+                                                   _SECRET_QUERY_KEYS, which is
+                                                   a DENYLIST and therefore
+                                                   incomplete by construction
+                                                   (R-21.5's shape, and named
+                                                   as such rather than trusted)
+      * `https://host/SECRET/tx`                -> NOT DETECTABLE. A secret in
+                                                   a path segment is
+                                                   indistinguishable from a
+                                                   route. An operator must not
+                                                   put a credential in the path
+                                                   of a configured endpoint;
+                                                   nothing here can save them
+                                                   if they do.
     """
     text = str(url or "")
+    if not text:
+        return ""
+
+    # ---- query: redact the VALUE of any credential-ish key ----
+    head, sep, query = text.partition("?")
+    if sep and query:
+        parts = []
+        for pair in query.split("&"):
+            name, eq, _value = pair.partition("=")
+            if eq and name.strip().lower() in _SECRET_QUERY_KEYS:
+                parts.append(f"{name}=***")
+            else:
+                parts.append(pair)
+        text = head + "?" + "&".join(parts)
+
+    # ---- userinfo: works with or without a scheme ----
     if "@" not in text:
         return text
-    try:
-        scheme, rest = text.split("://", 1)
-    except ValueError:
+    scheme, sep, rest = text.partition("://")
+    if not sep:                      # schemeless `user:SECRET@host` still leaks
+        scheme, rest = "", text
+    userinfo, at, hostpart = rest.partition("@")
+    if not at or "/" in userinfo:    # the '@' is in the path, not the authority
         return text
-    userinfo, _, hostpart = rest.partition("@")
-    if "/" in userinfo:          # the '@' is in the path, not the authority
-        return text
-    # A userinfo with NO colon is the credential itself — `https://TOKEN@host`
-    # is how bearer-style gateway URLs are usually written, and an earlier
-    # version of this function preserved it as if it were a username. Only the
-    # `user:password` form has a non-secret half.
+    prefix = f"{scheme}://" if sep else ""
+    # A userinfo with NO colon IS the credential — `https://TOKEN@host` is how
+    # bearer-style gateway URLs are written. Only `user:password` has a
+    # non-secret half.
     if ":" not in userinfo:
-        return f"{scheme}://***@{hostpart}"
+        return f"{prefix}***@{hostpart}"
     user = userinfo.split(":", 1)[0]
-    return f"{scheme}://{user}:***@{hostpart}" if user else f"{scheme}://***@{hostpart}"
+    return f"{prefix}{user}:***@{hostpart}" if user else f"{prefix}***@{hostpart}"
 
 
 def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:
