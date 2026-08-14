@@ -7,11 +7,24 @@ Supports linear and cliff vesting schedules.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _require_finite_positive(value, name: str) -> float:
+    """20-I. A quantity that is not a finite positive number is not a quantity."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number, got {type(value).__name__} {value!r}")
+    v = float(value)
+    if not math.isfinite(v):
+        raise ValueError(f"{name} must be a finite number, got {value!r}")
+    if v <= 0:
+        raise ValueError(f"{name} must be positive, got {v}")
+    return v
 
 
 class VestingManager:
@@ -61,8 +74,10 @@ class VestingManager:
         """
         if not beneficiary:
             raise ValueError("Beneficiary address is required")
-        if total_amount <= 0:
-            raise ValueError("Total amount must be positive")
+        # 20-I. `nan <= 0` is False, so this ordered guard admitted a NaN and
+        # minted a durable grant with total_amount=nan. Same shape 20-C fixed
+        # in service.py; this module was never routed through it.
+        total_amount = _require_finite_positive(total_amount, "total_amount")
 
         vesting_type = schedule.get("type", "linear")
         if vesting_type not in ("linear", "cliff"):
@@ -98,7 +113,17 @@ class VestingManager:
 
         if vesting_type == "cliff":
             cliff_days = int(schedule.get("cliff_days", duration_days // 4))
-            cliff_pct = float(schedule.get("cliff_pct", 25.0))
+            # 20-I. UNBOUNDED. A cliff_pct of 100000 made cliff_amount
+            # 1_000_000 for a 1_000 grant, and `_calculate_available`'s
+            # `if remaining <= 0: return cliff_amount` then returned the whole
+            # inflated figure. A cliff is a FRACTION of the grant.
+            cliff_pct = _require_finite_positive(
+                schedule.get("cliff_pct", 25.0), "cliff_pct")
+            if cliff_pct > 100.0:
+                raise ValueError(
+                    f"cliff_pct must be at most 100 (a cliff is a share of the "
+                    f"grant, not a multiple of it), got {cliff_pct}"
+                )
             vesting["cliff_at"] = now + (cliff_days * 86400)
             vesting["cliff_pct"] = cliff_pct
             vesting["cliff_amount"] = total_amount * (cliff_pct / 100.0)
@@ -137,6 +162,7 @@ class VestingManager:
                 "message": "No tokens available to claim yet",
             }
 
+        claimed_before = vesting["claimed_amount"]
         vesting["claimed_amount"] += claimable
 
         # Mark cliff as released if applicable
@@ -154,9 +180,16 @@ class VestingManager:
             "Vesting claimed: id=%s amount=%.6f total_claimed=%.6f",
             vesting_id, claimable, vesting["claimed_amount"],
         )
+        # 20-I. The RETURN VALUE and the LEDGER disagreed by 1000x: the
+        # clamp above corrected `claimed_amount` to total_amount while
+        # `claimable` — the number handed to the caller — kept the inflated
+        # figure. A caller reading this was told a million tokens were
+        # released while the ledger recorded a thousand. Report what was
+        # actually credited.
+        credited = vesting["claimed_amount"] - claimed_before
         return {
             "vesting_id": vesting_id,
-            "claimed": claimable,
+            "claimed": credited,
             "total_claimed": vesting["claimed_amount"],
             "total_amount": vesting["total_amount"],
             "remaining": vesting["total_amount"] - vesting["claimed_amount"],

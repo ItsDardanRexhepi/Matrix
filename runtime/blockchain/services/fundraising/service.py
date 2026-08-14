@@ -455,6 +455,20 @@ class FundraisingService:
             "campaign_goal": campaign["goal"],
             "progress_pct": (campaign["raised"] / campaign["goal"] * 100),
             "contributed_at": now,
+            # 20-H. §AK.2 INSIDE THE REMEDIATION. 20-B gave settled/
+            # value_moved to the four GREEN actions and left `contribute` —
+            # the action that actually takes a contributor's money. It
+            # returned no `settled`, no `value_moved` and no `status`, so
+            # `_outcome_is_real` took its `status is None -> True` branch and
+            # EAS-attested every contribution to the public feed as a real
+            # outcome. Nothing moves on a chain here; `campaign["raised"]` is
+            # a dict field.
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "Recorded in the platform's own ledger. No transfer was "
+                "broadcast and no value moved on-chain."
+            ),
         }
 
         logger.info(
