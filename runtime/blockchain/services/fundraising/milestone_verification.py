@@ -282,9 +282,27 @@ class MilestoneVerification:
         Until then the honest answer is the one this returns: we cannot
         verify. `release_milestone_funds` refuses unless status == "verified",
         so this refusal holds the funds rather than releasing them, which is
-        the conservative direction. The community-vote path
-        (`_verify_via_community_vote`) remains available and is a DIFFERENT
-        claim — it reports what voters said, not what happened.
+        the conservative direction.
+
+        20-J. ONE CORRECTION TO THE PARAGRAPH THIS REPLACES, which said the
+        community-vote path "remains available and is a DIFFERENT claim — it
+        reports what voters said, not what happened." That is true of what the
+        path MEANS and dangerously incomplete about what it DOES: reaching
+        quorum there sets status to "verified", which is the same string
+        `release_milestone_funds` gates on. So the two paths are different
+        claims that produce THE SAME RELEASE.
+
+        And `cast_community_vote` takes `voter` as a caller-supplied string
+        with no signature, no eligibility check against contributors, and no
+        exclusion of the campaign creator; double-voting is prevented only by
+        string equality. Five invented addresses clear the default quorum.
+
+        REFUSING THE ORACLE PATH THEREFORE FUNNELS ALL RELEASE AUTHORITY ONTO
+        THE WEAKER OF THE TWO. That is not a reason to restore the oracle
+        path — it never verified anything — but it means the milestone
+        lifting condition above is NOT satisfied by community vote, and this
+        refusal does not by itself make the release trigger safe. Both routes
+        must meet the same condition: a fact the submitter did not supply.
         """
         logger.warning(
             "Milestone verification refused: no authority exists that can "

@@ -731,6 +731,21 @@ class FundraisingService:
                 f"credit {credit_id!r} is not in the registry — nothing to "
                 f"retire. A retirement names a credit that was purchased."
             )
+        # 20-J. THIS IS A CONSISTENCY CHECK, NOT AN AUTHORIZATION CONTROL,
+        # and it must not be read as one. `buyer` and `holder` are both
+        # caller-supplied strings on an UNAUTHENTICATED surface: the same
+        # caller who names `holder` here named `buyer` when they bought, and
+        # buying is free and unbounded. So this stops a caller retiring a
+        # credit they did not name themselves — nothing more. It binds one
+        # caller's two strings to each other; it binds neither to a party.
+        #
+        # It is worth keeping (it removes the "retire anyone's credit"
+        # variant) and worth NOT overstating: real authorization here waits on
+        # register item 0, the platform-wide caller-identity binding, which is
+        # a platform decision and not fixable in this service. `str(None)` is
+        # "none" and `str(0)` is "0", so non-string holders collapse into
+        # ordinary strings rather than erroring — another reason this is a
+        # consistency check and not an identity check.
         if str(credit.get("buyer", "")).lower() != str(holder).lower():
             raise PermissionError(
                 f"{holder!r} does not hold credit {credit_id!r}; it belongs to "
