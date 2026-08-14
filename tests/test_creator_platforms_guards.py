@@ -1114,3 +1114,51 @@ async def test_a_cancelled_sound_call_logs_no_credential(caplog):
     msg = " ".join(r.getMessage() for r in caplog.records)
     assert "CANCELLED AFTER DISPATCH" in msg
     assert "SUPERSECRET" not in msg
+
+
+# ─────────────────────────────── 21-R ───────────────────────────────
+# SR-2 across all three methods, and the bound SR-2 needed.
+
+@pytest.mark.parametrize("method,kwargs", [
+    ("publish_mirror_post", {"title": "T", "body": "b", "author": "victim"}),
+    ("publish_paragraph_post", {"title": "T", "body": "b", "publication": "victim"}),
+    ("mint_sound", {"edition_address": "0xATTACKER"}),
+])
+@pytest.mark.asyncio
+async def test_a_hijack_is_recorded_even_with_no_credentials_configured(method, kwargs):
+    """21-G fixed the ordering for the ENDPOINT gate and left it broken at the
+    API_KEY gate — §AK.2 inside an ordering fix. A hijack attempt against an
+    operator whose api_key is unset came back as "your api_key is missing", so
+    the attempt was never recorded as one."""
+    svc = CreatorPlatformsService({"services": {"creator_platforms": {"enabled": True}}})
+    out = await getattr(svc, method)(**kwargs)
+    assert out.get("refused") is True
+    assert "not the operator-configured" in str(out.get("reason", ""))
+
+
+@pytest.mark.parametrize("method,kwargs", [
+    ("publish_mirror_post", {"title": "T", "body": "b", "author": "victim"}),
+    ("publish_paragraph_post", {"title": "T", "body": "b", "publication": "victim"}),
+    ("mint_sound", {"edition_address": "0xATTACKER"}),
+])
+@pytest.mark.asyncio
+async def test_a_disabled_service_adjudicates_nothing(method, kwargs):
+    """THE BOUND SR-2 NEEDED, and the reason ordering::4 is REFUSED rather than
+    fixed. SR-2 orders gates WITHIN AN ENABLED SERVICE. "Is this service on at
+    all" is not a configuration refusal in SR-2's sense — it is the operator's
+    decision that this service adjudicates nothing. A disabled service
+    answering "you may not name that author" would tell an unauthenticated
+    caller that it exists and is configured."""
+    svc = CreatorPlatformsService({"services": {"creator_platforms": {"enabled": False}}})
+    out = await getattr(svc, method)(**kwargs)
+    assert "enabled must be set to true" in str(out.get("missing", ""))
+    assert out.get("refused") is not True
+
+
+def test_the_authorization_refusal_does_not_disclose_the_configured_value():
+    """Checked rather than assumed — it is what makes running authorization
+    before the credential gates safe for an unauthenticated caller."""
+    with pytest.raises(PermissionError) as caught:
+        resolve_attributed_party(
+            {"author": "victim"}, "author", "SECRET_OPERATOR_HANDLE", "author")
+    assert "SECRET_OPERATOR_HANDLE" not in str(caught.value)

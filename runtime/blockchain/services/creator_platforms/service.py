@@ -478,6 +478,33 @@ class CreatorPlatformsService:
         if refusal is not None:
             return refusal
         cfg = self._cfg()
+        # 21-R / SR-2. AUTHORIZATION RUNS BEFORE THE CREDENTIAL GATES.
+        # 21-G fixed this ordering for the endpoint gate and left it broken at
+        # the api_key gate — §AK.2 in the ordering fix itself. A byline or
+        # publication hijack against an operator whose api_key is unset came
+        # back as "your api_key is missing", so THE ATTEMPT WAS NEVER RECORDED
+        # AS ONE.
+        #
+        # Safe to run first, checked rather than assumed: the 21-B refusal does
+        # NOT name the operator's configured value (measured), so an
+        # unauthenticated caller learns only that theirs was rejected. And it
+        # touches no network.
+        #
+        # THE 21-A ENABLEMENT GATE STILL PRECEDES EVERYTHING, deliberately.
+        # SR-2 orders gates WITHIN AN ENABLED SERVICE. "Is this service on at
+        # all" is not a configuration refusal in SR-2's sense — it is the
+        # operator's decision that this service adjudicates nothing, and a
+        # disabled service answering "you may not name that author" would tell
+        # a caller it exists and is configured.
+        try:   # 21-E — RETURN so the hijack attempt is recorded as a refusal
+            _author = resolve_attributed_party(
+                params, "author", cfg.get("mirror_author"), "author")
+            _publication = resolve_attributed_party(
+                params, "publication", cfg.get("mirror_publication"),
+                "publication")
+        except PermissionError as exc:
+            return refusal_response(self.service_name, "publish_mirror_post", exc)
+
         api_key = cfg.get("mirror_api_key") or ""
         if is_placeholder_value(api_key):
             return self._gate(
@@ -525,15 +552,6 @@ class CreatorPlatformsService:
         # they need to see, and a misconfiguration must never mask it. This
         # resolution is pure — it touches no network — so running it first
         # costs nothing.
-        try:   # 21-E — RETURN so the hijack attempt is recorded as a refusal
-            _author = resolve_attributed_party(
-                params, "author", cfg.get("mirror_author"), "author")
-            _publication = resolve_attributed_party(
-                params, "publication", cfg.get("mirror_publication"),
-                "publication")
-        except PermissionError as exc:
-            return refusal_response(self.service_name, "publish_mirror_post", exc)
-
         # 21-G. No default: see the note at _MIRROR_ENDPOINT_KEY. Refusing is
         # the only option that cannot disclose the credential.
         endpoint = cfg.get("mirror_endpoint") or ""
@@ -662,6 +680,32 @@ class CreatorPlatformsService:
         if refusal is not None:
             return refusal
         cfg = self._cfg()
+        # 21-R / SR-2. AUTHORIZATION RUNS BEFORE THE CREDENTIAL GATES.
+        # 21-G fixed this ordering for the endpoint gate and left it broken at
+        # the api_key gate — §AK.2 in the ordering fix itself. A byline or
+        # publication hijack against an operator whose api_key is unset came
+        # back as "your api_key is missing", so THE ATTEMPT WAS NEVER RECORDED
+        # AS ONE.
+        #
+        # Safe to run first, checked rather than assumed: the 21-B refusal does
+        # NOT name the operator's configured value (measured), so an
+        # unauthenticated caller learns only that theirs was rejected. And it
+        # touches no network.
+        #
+        # THE 21-A ENABLEMENT GATE STILL PRECEDES EVERYTHING, deliberately.
+        # SR-2 orders gates WITHIN AN ENABLED SERVICE. "Is this service on at
+        # all" is not a configuration refusal in SR-2's sense — it is the
+        # operator's decision that this service adjudicates nothing, and a
+        # disabled service answering "you may not name that author" would tell
+        # a caller it exists and is configured.
+        try:   # 21-E
+            publication = resolve_attributed_party(
+                params, "publication", cfg.get("paragraph_publication") or "",
+                "publication") or ""
+        except PermissionError as exc:
+            return refusal_response(
+                self.service_name, "publish_paragraph_post", exc)
+
         api_key = cfg.get("paragraph_api_key") or ""
         if is_placeholder_value(api_key):
             return self._gate(
@@ -691,13 +735,6 @@ class CreatorPlatformsService:
         # 21-B. A caller-supplied `publication` OVERRODE the operator's
         # configured one, aiming the platform's Paragraph credential at any
         # publication the caller named.
-        try:   # 21-E
-            publication = resolve_attributed_party(
-                params, "publication", cfg.get("paragraph_publication") or "",
-                "publication") or ""
-        except PermissionError as exc:
-            return refusal_response(
-                self.service_name, "publish_paragraph_post", exc)
         if is_placeholder_value(publication):
             return self._gate(
                 "publish_paragraph_post",
