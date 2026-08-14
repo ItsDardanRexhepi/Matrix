@@ -285,8 +285,41 @@ class FundraisingService:
                 f"Maximum {self._max_milestones} milestones allowed"
             )
 
-        # Validate milestone release percentages sum to 100
-        total_pct = sum(m.get("release_pct", 0) for m in milestones)
+        # 20-E. §I.13 — THE GUARD VALIDATED A DIFFERENT VALUE THAN THE ONE
+        # STORED. The check was `sum(m.get("release_pct", 0) ...)`; the store
+        # below was `m.get("release_pct", 100 / len(milestones))`. TWO
+        # DIFFERENT DEFAULTS FOR ONE KEY: an absent key contributed 0 to the
+        # conservation check and a FULL SHARE to the stored schedule.
+        #
+        # MEASURED at the pin, two milestones, the second omitting the key:
+        #     guard sees 100 -> passes
+        #     stored         -> [100, 50.0] = 150%
+        #     released       -> campaign["released"] = 1500.0 on raised 1000.0
+        #     campaign then marks itself "completed"
+        #
+        # 150% of contributor money released, by a campaign creator, using a
+        # field they simply left out. Not malformed input — ABSENT input.
+        #
+        # The fix is not a better default. It is to NORMALISE ONCE and then
+        # validate THE NORMALISED LIST, so the conservation check and the
+        # release schedule cannot disagree by construction (§T.4): there is
+        # now no second value for them to disagree about.
+        normalised_pcts: list[float] = []
+        for i, m in enumerate(milestones):
+            if not isinstance(m, dict):
+                raise ValueError(f"Milestone {i} must be an object")
+            if "release_pct" not in m:
+                raise ValueError(
+                    f"Milestone {i} does not declare `release_pct`. It is not "
+                    f"inferred: a missing share silently became a full share, "
+                    f"and the sum that was checked was not the sum that was "
+                    f"spent."
+                )
+            normalised_pcts.append(
+                _require_finite_positive(m["release_pct"], f"milestone[{i}].release_pct")
+            )
+
+        total_pct = sum(normalised_pcts)
         if abs(total_pct - 100.0) > 0.01:
             raise ValueError(
                 f"Milestone release percentages must sum to 100, got {total_pct}"
@@ -301,7 +334,8 @@ class FundraisingService:
                 "idx": i,
                 "title": m.get("title", f"Milestone {i + 1}"),
                 "description": m.get("description", ""),
-                "release_pct": m.get("release_pct", 100 / len(milestones)),
+                # 20-E. Reads the SAME list the conservation check summed.
+                "release_pct": normalised_pcts[i],
                 "status": "pending",
                 "released_amount": 0.0,
             })
