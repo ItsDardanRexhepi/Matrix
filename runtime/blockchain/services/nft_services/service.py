@@ -530,6 +530,32 @@ class NFTService:
 
         token = self._factory.get_token(collection, token_id)
         if token is None:
+            # 22-F. §AC — THE ERROR NAMED THE PROXIMATE CAUSE AND HID THE
+            # ACTUAL ONE. Under the SHIPPED config no token can exist at all:
+            # `mint` refuses because the factory is not deployed, so the store
+            # is necessarily empty and EVERY call to this live ACTION_MAP
+            # action raised "Token 1 not found in 0xCOLL". An operator reads
+            # that as "I used the wrong token id" and goes looking for a token,
+            # when the real answer is "no NFT contract is deployed".
+            #
+            # This was the last of the three crashes the reachability recast
+            # found. The other two (22-B) indexed a success-only key on a
+            # refusal shape; this one raises an honest-but-misleading message.
+            # Different mechanism, same consequence: a live action whose
+            # failure does not name what to fix.
+            #
+            # Returned, not raised (21-E/AQ::9), so the dispatcher records a
+            # refusal rather than `service_error, degraded: true`.
+            if not self._factory._is_ready():
+                return not_deployed_response("nft_services", {
+                    "method": "list_for_sale",
+                    "missing": "nft.factory_address (NFT factory contract)",
+                    "reason": (
+                        f"Token {token_id} is not in {collection}, and it "
+                        f"cannot be: no NFT contract is deployed, so nothing "
+                        f"has been minted. The token id is not the problem."
+                    ),
+                })
             raise KeyError(f"Token {token_id} not found in {collection}")
 
         # Calculate fee breakdown
