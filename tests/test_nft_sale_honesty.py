@@ -143,12 +143,23 @@ async def test_a_real_transfer_would_be_reported_true():
         "the OWNERSHIP disclaimer must not be added when the transfer happened"
     )
 
-    # But `value_moved` is STILL False, and that is correct rather than a
-    # leftover: the token moved, the ROYALTY did not. NEW-91's record-level
-    # disclosure is about the payment, NEW-90's is about the token, and the two
-    # claims are independent — which is precisely rule 21 (real is not one
-    # property) applied inside a single response.
-    assert result["value_moved"] is False
+    # The token moved, the ROYALTY did not, and the two claims are independent
+    # — rule 21 (real is not one property) applied inside a single response.
+    # THAT REASONING IS UNCHANGED AND STILL RIGHT. Only its ENCODING moved.
+    #
+    # 22-D: this assertion used to read `result["value_moved"] is False`.
+    # MEASURED: `_outcome_is_real` treats `value_moved: False` as the strongest
+    # "this did not happen" signal, outranking every other clause — so
+    # expressing "the royalty was not paid" in that field silently suppressed
+    # the attestation of a REAL NFT TRANSFER. The field was serving two
+    # masters: a per-record semantic claim and a dispatcher-level control.
+    #
+    # Split, so each reader gets a field that answers its own question. The
+    # claim this test exists to protect is now asserted on `royalty_paid`.
+    assert result["royalty_paid"] is False
+    assert "value_moved" not in result, (
+        "a settled transfer must not carry the dispatcher's did-not-happen flag"
+    )
     assert "No transfer was made to the royalty recipient" in result["disclosure"]
 
 

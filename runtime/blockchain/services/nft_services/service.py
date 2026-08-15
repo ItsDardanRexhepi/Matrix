@@ -657,6 +657,67 @@ class NFTService:
         sale_result = dict(sale_result)
         sale_result["nft_transferred"] = transferred
         sale_result["transfer_result"] = transfer_result
+        # 22-D. THE SETTLED BRANCH HAD NO FLAGS OF ITS OWN, so it inherited
+        # the ROYALTY module's — and those mean something narrower.
+        #
+        # `RoyaltyEnforcement.process_sale` sets settled/value_moved False to
+        # say "the split was COMPUTED, not PAID" (NEW-91). That is true of the
+        # royalty leg. It is NOT true of the sale: when the NFT transfer
+        # succeeds, a token changed hands. Passing the royalty leg's flags
+        # through unchanged makes `_outcome_is_real` read a REAL TRANSFER as
+        # "this did not happen", so a settled sale is recorded and published as
+        # a declined action. Armed-only: under the shipped config `transferred`
+        # is False and the branch below is correct.
+        #
+        # ===================================================================
+        # DO NOT "FIX" AC::2/AH::4 BY WRITING settled/value_moved=False ONTO
+        # THE SEVEN ARMED METHODS.
+        # ===================================================================
+        # That is the obvious reading — those methods omit the two fields the
+        # honesty predicate reads — and it REPRODUCES THIS DEFECT SEVENFOLD,
+        # driven and measured. `value_moved: False` is the strongest "this did
+        # not happen" signal in `_outcome_is_real`; it outranks every other
+        # clause. It means NO VALUE MOVED. It must never be used to mean:
+        #   * "this is an internal record"  (domain 21 made exactly this error
+        #     in 21-C and erased the attestation of posts that really existed)
+        #   * "one leg of this action did not pay"  (this defect)
+        #
+        # An action that genuinely happens without moving value takes
+        # `settled: True` AND OMITS `value_moved`. The omission is the point:
+        # the field is a claim, and a claim not made is not a claim of False.
+        # THE FIELD WAS SERVING TWO MASTERS, and both prior authors were right.
+        #
+        # A deliberate earlier decision (tests/test_nft_sale_honesty.py:146)
+        # kept `value_moved: False` on a SETTLED sale, reasoning: "the token
+        # moved, the ROYALTY did not... the two claims are independent". That
+        # is correct AS A STATEMENT ABOUT THE RECORD.
+        #
+        # AC::1 is also correct: `_outcome_is_real` reads `value_moved: False`
+        # as the strongest "this did not happen" signal, outranking every other
+        # clause — so that semantic claim silently suppressed the ATTESTATION
+        # of a real transfer.
+        #
+        # Neither author was wrong; the FIELD is overloaded (§AJ.7 — a value
+        # without an admissibility test will itself overload). One name carried
+        # a per-record semantic claim AND a dispatcher-level control, and the
+        # two readers disagree about what it means.
+        #
+        # SPLIT, so each reader gets a field that answers ITS question:
+        #   value_moved  -> the dispatcher's control: did this action happen
+        #   royalty_paid -> the record's claim: was the royalty actually paid
+        # The earlier reasoning is preserved in full; only its ENCODING moved
+        # off a field that another component was already reading for something
+        # else.
+        if transferred:
+            sale_result["settled"] = True
+            sale_result.pop("value_moved", None)
+            sale_result["royalty_paid"] = False
+            sale_result["royalty_disclosure"] = (
+                "The NFT transfer settled. The royalty and fee figures on this "
+                "record were COMPUTED AND RECORDED, not paid — this service "
+                "holds no wallet or payout rail. Those two facts are separate "
+                "and are reported separately."
+            )
         if not transferred:
             sale_result["status"] = "recorded_unsettled"
             sale_result["settled"] = False
