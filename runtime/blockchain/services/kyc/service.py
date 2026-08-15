@@ -384,10 +384,65 @@ class KYCService:
             except Exception:  # noqa: BLE001
                 data = {"raw": resp.text[:500]}
 
+            # ===============================================================
+            # 23-C. ONE PARSER, KEYED FOR ONE PROVIDER — AND IT GRADES BOTH.
+            # ===============================================================
+            # §AK.4, counted before proposing: the provider is selected for the
+            # REQUEST at two sites, and the response is graded at exactly ONE
+            # (here), using SUMSUB-ONLY KEYS unconditionally. So this is one
+            # grading site and one defect — separate from 23-B, which is the
+            # outbound path. Two fixes; neither subsumes the other.
+            #
+            # MEASURED at pin 42c9b19 under provider="persona":
+            #   {"data":{"attributes":{"status":"declined",
+            #                          "failure-reason":"watchlist-hit"}}}
+            #     -> status='checked', risk='unknown', review_answer=None
+            #   {"data":{"attributes":{"status":"approved"}}}
+            #     -> status='checked', risk='unknown', review_answer=None
+            # BYTE-IDENTICAL VERDICT FIELDS FOR APPROVED AND DECLINED. A
+            # watchlist hit on a named person silently downgraded to 'unknown'
+            # while the response affirmatively claims the check ran.
+            #
+            # WE DO NOT WRITE A PERSONA PARSER, AND THAT IS THE POINT.
+            # R-23.2 records that NO REAL PROVIDER RESPONSE HAS EVER BEEN
+            # OBSERVED IN THIS ENGAGEMENT — every envelope tested is one we
+            # authored. Writing a grader for a shape we have never seen is the
+            # same guess 23-B refused, and it would be worse here: the guess
+            # would produce a VERDICT ABOUT A PERSON rather than a request path.
+            #
+            # So an ungradeable provider is REFUSED, not graded to 'unknown'
+            # under a 'checked' status. LIFTING CONDITION: a captured, real
+            # response from that provider, and a grader written against it.
+            if provider != "sumsub":
+                return {
+                    "status": "provider_unsupported",
+                    "service": self.service_name,
+                    "method": "check_aml_risk",
+                    "refused": True,
+                    "provider": provider_name,
+                    "applicant_id": applicant_id,
+                    "sanctions_screened": False,
+                    "sanctions_disclosure": (
+                        "NOT SCREENED — no verdict was derived. This service "
+                        "can only grade Sumsub review envelopes, and the "
+                        "configured provider is "
+                        f"{provider_name}. Its response was fetched and NOT "
+                        "interpreted. Do not treat this as a completed "
+                        "sanctions or PEP screen."
+                    ),
+                    "provider_response": data,
+                }
+
             # Sumsub: reviewResult.reviewAnswer is GREEN (clear) / RED (hit).
             review_result = data.get("reviewResult", {}) if isinstance(data, dict) else {}
             review_answer = review_result.get("reviewAnswer")
             reject_labels = review_result.get("rejectLabels", [])
+            # 23-C. Ported from cross_border/compliance.py:205 — the honest
+            # version already existed in this repository and was stated only at
+            # that scope (§AI.1). A GREEN review answer is the provider's
+            # adjudication; it is NOT by itself evidence that a sanctions or
+            # PEP list was consulted.
+            _screened = review_answer in ("GREEN", "RED")
             if review_answer == "GREEN":
                 risk = "low"
             elif review_answer == "RED":
@@ -396,6 +451,14 @@ class KYCService:
                 risk = "unknown"
 
             return {
+                "sanctions_screened": _screened,
+                "sanctions_disclosure": (
+                    None if _screened else
+                    "NOT SCREENED — the provider returned no review "
+                    "adjudication for this applicant, so no sanctions or PEP "
+                    "determination exists. Do not treat this result as a "
+                    "completed screen."
+                ),
                 "status": "checked" if ok else "provider_error",
                 "service": self.service_name,
                 "method": "check_aml_risk",

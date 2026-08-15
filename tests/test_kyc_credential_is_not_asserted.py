@@ -185,3 +185,79 @@ def test_the_disposition_is_a_refusal_not_a_sanitiser():
             f"applicant_id is being rewritten with {transform} — that is a "
             f"guess about the provider's parser, not a control"
         )
+
+
+# ─────────────────────────────── 23-C ───────────────────────────────
+
+def _body_client(body):
+    import httpx
+
+    class _C(httpx.AsyncClient):
+        def __init__(self, *a, **k):
+            k["transport"] = httpx.MockTransport(
+                lambda r: httpx.Response(200, json=body))
+            super().__init__(*a, **k)
+
+    return _C
+
+
+def _kyc(provider):
+    from runtime.blockchain.services.kyc.service import KYCService
+    return KYCService({"services": {"kyc": {
+        "api_key": "k", "secret_key": "s", "provider": provider}}})
+
+
+@pytest.mark.parametrize("body", [
+    {"data": {"attributes": {"status": "declined", "failure-reason": "watchlist-hit"}}},
+    {"data": {"attributes": {"status": "approved"}}},
+])
+@pytest.mark.asyncio
+async def test_an_ungradeable_provider_is_refused_not_graded_unknown(body):
+    """MEASURED before 23-C: under provider="persona" the parser read
+    SUMSUB-ONLY keys, so DECLINED and APPROVED were BYTE-IDENTICAL in the
+    verdict fields — status 'checked', risk 'unknown'. A watchlist hit on a
+    named person silently downgraded, while the response affirmatively claimed
+    the check ran.
+
+    We do NOT write a Persona parser: R-23.2 records that no real provider
+    response has ever been observed in this engagement, and a grader for a
+    shape we have never seen would produce A VERDICT ABOUT A PERSON from a
+    guess."""
+    import httpx
+    from unittest.mock import patch
+    with patch.object(httpx, "AsyncClient", _body_client(body)):
+        out = await _kyc("persona").check_aml_risk(applicant_id="TEST_ENTITY_001")
+    assert out["status"] == "provider_unsupported"
+    assert out["sanctions_screened"] is False
+    assert "NOT SCREENED" in out["sanctions_disclosure"]
+    assert "risk" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_graded_sumsub_verdict_reports_that_it_was_screened():
+    """§AQ class 3 — the provider we CAN grade must still be graded."""
+    import httpx
+    from unittest.mock import patch
+    with patch.object(httpx, "AsyncClient",
+                      _body_client({"reviewResult": {"reviewAnswer": "GREEN"}})):
+        out = await _kyc("sumsub").check_aml_risk(applicant_id="TEST_ENTITY_001")
+    assert out["status"] == "checked"
+    assert out["risk"] == "low"
+    assert out["sanctions_screened"] is True
+    assert out["sanctions_disclosure"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_sumsub_response_with_no_adjudication_says_it_was_not_screened():
+    """THE FIELD THAT WAS MISSING. Previously indistinguishable from a real
+    screen: both returned status 'checked'. Ported from
+    cross_border/compliance.py:205, where the honest version already existed
+    and was stated only at that scope (§AI.1)."""
+    import httpx
+    from unittest.mock import patch
+    with patch.object(httpx, "AsyncClient", _body_client({})):
+        out = await _kyc("sumsub").check_aml_risk(applicant_id="TEST_ENTITY_001")
+    assert out["status"] == "checked"
+    assert out["risk"] == "unknown"
+    assert out["sanctions_screened"] is False
+    assert "NOT SCREENED" in out["sanctions_disclosure"]
