@@ -520,6 +520,11 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 #: fails if any status is unclassified, so "unanticipated" is no longer a state
 #: this predicate can be in without the suite saying so.
 _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    # 23-A. `issue_kyc_credential` refuses to attest that a person passed KYC
+    # without a screened verification result. Classified explicitly — this test
+    # exists precisely to stop a new string acquiring a meaning by accident,
+    # and a credential refusal must never read as a credential.
+    "not_verified",
     # 21-C. `mint_sound`'s off-chain path runs a GraphQL READ for release
     # metadata and mints nothing. It previously returned "ok" — a REAL-outcome
     # status — so the dispatcher attested a metadata query and published it to

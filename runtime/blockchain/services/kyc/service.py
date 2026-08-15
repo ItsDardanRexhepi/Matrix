@@ -382,6 +382,100 @@ class KYCService:
           - ``blockchain.eas_contract`` — EAS contract address (chain-level)
           - ``blockchain.eas_schema``   — registered KYC schema UID
         """
+        # 23-A / SR-2. AUTHORIZATION BEFORE CONFIGURATION. This block was
+        # BELOW the chain-config gates, so an attempt to mint a credential with
+        # NO verification result came back as "rpc_url missing" — masking the
+        # attempt and, worse, telling the caller what to configure to make it
+        # work. A config problem is the operator's own state; an attempt to
+        # obtain an unearned credential about a person is someone acting. When
+        # both are true the second is the one that must be reported.
+        subject = params.get("subject") or params.get("recipient") or params.get("holder")
+        if is_placeholder_value(subject):
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "issue_kyc_credential",
+                "error": "subject (holder wallet address) is required",
+            }
+
+        kyc_level = str(params.get("kyc_level", "verified"))
+        expiration = int(params.get("expiration", 0) or 0)
+
+        # ===================================================================
+        # 23-A. `passed` WAS THE SOURCE LITERAL `True`.
+        # ===================================================================
+        # MEASURED at pin 42c9b19 by decoding the calldata actually handed to
+        # `contract.functions.attest()`:
+        #
+        #     encode(["string","bool","uint256"], [kyc_level, True, issued_at])
+        #                                                     ^^^^ a LITERAL
+        #
+        # and enumerated over this method's own source: `applicant_id`,
+        # `check_aml_risk`, `review_answer`, `reviewResult`, `risk`,
+        # `reject_labels`, `sanction`, `pep`, `start_kyc` — EVERY ONE ABSENT.
+        # A caller supplied an address and a free-text level, and the
+        # platform's paymaster key notarised onto a PUBLIC ATTESTATION
+        # REGISTRY that this person PASSED KYC at that level. Driven with
+        # kyc_level='enhanced-aml-cleared-sanctions-screened' -> attested.
+        #
+        # §U in its purest form: the party bound by the decision supplied the
+        # entire content of the decision. And unlike a carbon registry entry,
+        # AN IDENTITY CREDENTIAL ON A WALLET CANNOT BE RECALLED FROM PARTIES
+        # WHO ALREADY RELIED ON IT.
+        #
+        # THIS IS A DELIBERATE REFUSAL, NOT A PASS-THROUGH, AND THE ORDER
+        # MATTERS — DO NOT "FIX" THIS BY WIRING `check_aml_risk` INTO IT.
+        # That method cannot yet distinguish "screened and clear" from "never
+        # screened" (its 11-key response was enumerated; no such field
+        # exists). Wiring it would attest an UNSCREENED person as passed with
+        # one more step of indirection AND a provider name attached to lend it
+        # credibility (§AH). The honest fields must be ported from
+        # `cross_border/compliance.py:205` — `sanctions_screened` plus the
+        # "ran against an empty list and cannot have matched" disclosure —
+        # BEFORE the attestation has anything true to carry.
+        #
+        # ⚠ SEQUENCING, because the obvious next fix arms this one:
+        # wiring `blockchain.schemas.identity` (AP::5 / AC::2) uses a UID
+        # ALREADY SHIPPED AND POPULATED in the example config, and doing that
+        # first would ARM this cluster rather than gate it. `passed` is fixed
+        # here FIRST for that reason.
+        #
+        # LIFTING CONDITION — what must exist before this refusal is removed:
+        # a verification result the SUBJECT DID NOT SUPPLY, carrying (a) the
+        # provider's own adjudication, (b) an explicit field stating that
+        # sanctions/PEP screening ran, and (c) the applicant record it
+        # describes. A caller-supplied `kyc_level` string is none of those.
+        _verification = params.get("verification_result")
+        _screened = bool(
+            isinstance(_verification, dict)
+            and _verification.get("sanctions_screened") is True
+            and _verification.get("review_answer") == "GREEN"
+        )
+        if not _screened:
+            return {
+                "status": "not_verified",
+                "service": self.service_name,
+                "method": "issue_kyc_credential",
+                "refused": True,
+                "subject": subject,
+                "requested_level": kyc_level,
+                "reason": (
+                    "No verification result was supplied that establishes this "
+                    "subject passed screening. The platform will not attest "
+                    "`passed` on a public registry from a caller-supplied "
+                    "level string alone — that would be a signed statement "
+                    "about a person's regulatory status with nothing behind "
+                    "it, readable by every downstream verifier and not "
+                    "recallable from anyone who relied on it."
+                ),
+                "required": (
+                    "verification_result{sanctions_screened: true, "
+                    "review_answer: 'GREEN'} originating from the provider, "
+                    "not from the caller"
+                ),
+            }
+        _passed = True
+
         bc = self._config.get("blockchain", {})
         eas_contract = bc.get("eas_contract", "")
         eas_schema = bc.get("eas_schema", "")
@@ -412,17 +506,6 @@ class KYCService:
                 "protocol": "EAS (Ethereum Attestation Service) verifiable credential",
             })
 
-        subject = params.get("subject") or params.get("recipient") or params.get("holder")
-        if is_placeholder_value(subject):
-            return {
-                "status": "invalid_request",
-                "service": self.service_name,
-                "method": "issue_kyc_credential",
-                "error": "subject (holder wallet address) is required",
-            }
-
-        kyc_level = str(params.get("kyc_level", "verified"))
-        expiration = int(params.get("expiration", 0) or 0)
 
         try:
             from web3 import Web3  # noqa: PLC0415
@@ -450,7 +533,9 @@ class KYCService:
             issued_at = int(time.time())
             encoded_data = encode(
                 ["string", "bool", "uint256"],
-                [kyc_level, True, issued_at],
+                # 23-A. Derived, not asserted. `_passed` is reachable only
+                # through the screened-verification gate above.
+                [kyc_level, _passed, issued_at],
             )
             schema_bytes = bytes.fromhex(str(eas_schema).replace("0x", ""))
 
