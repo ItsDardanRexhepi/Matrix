@@ -35,7 +35,10 @@ class RoyaltyEnforcement:
         Platform config.  Reads:
         - ``blockchain.platform_wallet`` — platform fee recipient
         - ``blockchain.platform_fee_bps`` — platform fee (default 250)
-        - ``nft.royalty.max_bps`` — maximum royalty (default 2500)
+        - ``nft.royalty.max_bps`` — maximum royalty (default 2500).
+          ``nft.max_royalty_bps`` (the key factory.py documents) is ALSO
+          honoured; the nested form wins if both are set. 22-G — they were two
+          keys for one concept and only one governed the live path.
     attestation_service : object, optional
         AttestationService instance (Component 8) for recording
         royalty payment attestations.
@@ -52,8 +55,35 @@ class RoyaltyEnforcement:
         bc = config.get("blockchain", {})
         self._platform_wallet: str = bc.get("platform_wallet", "")
         self._platform_fee_bps: int = int(bc.get("platform_fee_bps", 250))
+        # 22-G. TWO CONFIG KEYS FOR ONE CONCEPT, AND THE DOCUMENTED ONE DID
+        # NOT GOVERN THE LIVE PATH.
+        #
+        #   factory.py:30 documents `nft.max_royalty_bps` and factory.py:44
+        #   reads it — governing deploy/mint, which REFUSE under the shipped
+        #   config.
+        #   THIS class documented `nft.royalty.max_bps` and read only that —
+        #   and this class is what `configure_nft_royalty` uses, one of only
+        #   SIX of seventeen nft actions that executes at all.
+        #
+        # MEASURED: with `nft.max_royalty_bps = 100`, a request for 2500 bps
+        # was CONFIGURED AT 2500 on the live path. With
+        # `nft.royalty.max_bps = 100` it was refused. An operator who read the
+        # factory's documentation and set the cap it names capped only the
+        # paths that already refuse.
+        #
+        # §AP's 19-x variant — a document points at a control that does not
+        # govern the live path — and R-21.1's shape at key granularity rather
+        # than service granularity.
+        #
+        # BOTH KEYS ARE NOW READ, nested first so an existing deployment's
+        # value keeps winning (§AQ class 3: an operator who already set
+        # `nft.royalty.max_bps` must not silently get a different cap).
+        _nft_cfg = config.get("nft", {}) or {}
+        _nested = (_nft_cfg.get("royalty", {}) or {}).get("max_bps")
+        _flat = _nft_cfg.get("max_royalty_bps")
         self._max_royalty_bps: int = int(
-            config.get("nft", {}).get("royalty", {}).get("max_bps", _MAX_ROYALTY_BPS)
+            _nested if _nested is not None
+            else (_flat if _flat is not None else _MAX_ROYALTY_BPS)
         )
 
         # Royalty configurations: {collection:token_id: config}

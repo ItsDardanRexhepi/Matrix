@@ -116,3 +116,43 @@ async def test_a_different_identity_cannot_take_over_an_owned_royalty():
     out = await svc.configure_royalty("0xC", -1, _B, 2500,
                                       caller_identity=_B, caller_source="authenticated")
     assert out.get("refused") is True
+
+
+# ─────────────────────────────── 22-G ───────────────────────────────
+
+@pytest.mark.parametrize("cfg,capped", [
+    ({"nft": {"max_royalty_bps": 100}}, True),          # factory.py:30's key
+    ({"nft": {"royalty": {"max_bps": 100}}}, True),     # this class's key
+    ({"nft": {"max_royalty_bps": 2500, "royalty": {"max_bps": 100}}}, True),
+    ({}, False),                                         # default 2500
+])
+@pytest.mark.asyncio
+async def test_both_documented_cap_keys_govern_the_live_path(cfg, capped):
+    """22-G. TWO CONFIG KEYS FOR ONE CONCEPT, and the documented one did not
+    govern the live path.
+
+    `factory.py:30` documents `nft.max_royalty_bps` and factory.py:44 reads it,
+    governing deploy/mint — which REFUSE under the shipped config. This class
+    read only `nft.royalty.max_bps`, and this class is what
+    `configure_nft_royalty` uses: one of only SIX of seventeen nft actions that
+    executes at all.
+
+    MEASURED before: `nft.max_royalty_bps = 100` and a request for 2500 was
+    CONFIGURED AT 2500. An operator who read the factory's documentation and
+    set the cap it names capped only the paths that already refuse."""
+    svc = NFTService(cfg)
+    if capped:
+        with pytest.raises(ValueError):
+            await svc.configure_royalty("0xC", -1, _A, 2500)
+    else:
+        out = await svc.configure_royalty("0xC", -1, _A, 2500)
+        assert out["bps"] == 2500
+
+
+@pytest.mark.asyncio
+async def test_the_nested_key_wins_when_both_are_set():
+    """§AQ class 3 — an operator who already set `nft.royalty.max_bps` must not
+    silently get a different cap because a second key is now honoured."""
+    svc = NFTService({"nft": {"max_royalty_bps": 2500, "royalty": {"max_bps": 100}}})
+    with pytest.raises(ValueError):
+        await svc.configure_royalty("0xC", -1, _A, 500)
