@@ -134,6 +134,70 @@ class RightsManagement:
                     f"Valid types: {', '.join(sorted(RIGHTS_TYPES))}"
                 )
 
+        # 22-C. `created_by` WAS WRITTEN AND NEVER READ — one dict lookup away.
+        #
+        # MEASURED at pin 84a6c3e through the real ServiceDispatcher, under the
+        # SHIPPED config (set_nft_rights is one of only 6 of 17 nft actions
+        # that executes at all):
+        #
+        #   grant #1, caller_identity='0xVICTIM'
+        #       -> created_by='0xVICTIM', created_by_source='authenticated',
+        #          rights.commercial.holder='0xVICTIM'
+        #   grant #2, caller_identity=''            <-- UNAUTHENTICATED
+        #       -> rights.commercial.holder='0xATTACKER', set_by='',
+        #          status 'rights_set'
+        #   check_nft_rights -> granted=true, holder=ATTACKER, source='explicit'
+        #
+        # 17-D threaded WHO and recorded it. It did not COMPARE it. The
+        # platform was holding `created_by` — a record it wrote itself — and
+        # never looked at it.
+        #
+        # THE RULE IS 22-A's, TRANSFERRED RATHER THAN REINVENTED: an
+        # unidentified caller may CREATE, never MODIFY. Checked that it
+        # transfers before adopting it — the asymmetry is identical (the
+        # platform wrote the record and declines to read it), and the same
+        # reason applies for ignoring `_set_by`-only comparison: under the
+        # shipped config there is no authenticated identity, so a rule
+        # protecting only identified creators would protect nothing in the
+        # deployment we ship.
+        #
+        # PER RIGHT TYPE, NOT PER RECORD — and this granularity was CORRECTED
+        # rather than chosen. My first version was record-level, reasoning that
+        # a stranger adding a NEW right type to another party's token is the
+        # same attack. IT IS NOT, and an existing test said so:
+        # test_each_right_records_who_granted_it (17-D) deliberately drives a
+        # SECOND caller adding `derivative` to a token whose `commercial` the
+        # first caller set, and asserts the first caller's attribution survives.
+        # MULTI-PARTY RIGHTS ON ONE TOKEN ARE A DESIGNED BEHAVIOUR — a creator
+        # holds display, a licensee is granted commercial by someone else.
+        #
+        # §AQ class 3 exactly: the record-level rule stopped permitting
+        # something the code already permitted, and the test that encoded the
+        # intent caught it. The granularity had to be MEASURED against the
+        # suite, not derived from the threat.
+        #
+        # An existing right may be changed only by the party that set it; a
+        # right type not yet granted may be added by anyone, which is what the
+        # design intends and what the measured attack never needed.
+        _existing = self._rights.get(key)
+        if _existing is not None:
+            for _rt in rights:
+                _prior = (_existing.get("rights") or {}).get(_rt)
+                if _prior is None:
+                    continue          # a NEW right type — permitted by design
+                _owner = str(_prior.get("set_by") or "")
+                if not (_set_by and _owner.lower() == _set_by.lower()):
+                    raise PermissionError(
+                        f"the '{_rt}' right on {collection} #{token_id} was "
+                        f"granted by {_owner or '<an unidentified caller>'} "
+                        f"and cannot be changed by "
+                        f"{_set_by or '<an unidentified caller>'}. Commercial, "
+                        f"derivative and physical rights are what a licensee "
+                        f"or marketplace reads to decide what may be done with "
+                        f"the work; the platform wrote this grant itself and "
+                        f"will not let a second party rewrite it."
+                    )
+
         # Build rights record
         record = self._rights.get(key, {
             "collection": collection,

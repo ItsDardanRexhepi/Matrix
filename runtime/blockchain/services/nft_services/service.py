@@ -360,8 +360,13 @@ class NFTService:
             else:
                 result["royalty_configured"] = True
 
-            # Set default rights
-            await self._rights.set_rights(
+            # Set default rights. Captured, not discarded — 22-C gives
+            # set_rights the ability to refuse, and D10 flags a bare `await`
+            # the moment that becomes true (it did so for configure_royalty in
+            # 22-A). This site creates a FRESH key for a newly minted token,
+            # so the 22-C check cannot refuse it; the capture closes the
+            # latent discard rather than an active one.
+            _rights_result = await self._rights.set_rights(
                 collection=collection,
                 token_id=token_id,
                 rights={
@@ -716,10 +721,23 @@ class NFTService:
         the NFT GATING CONDITION at the top of this file). This threads WHO,
         which is the input such a check would need, and records it.
         """
-        return await self._rights.set_rights(
-            collection, token_id, rights, caller_identity=caller_identity,
-            caller_source=caller_source,
-        )
+        # 22-C. RETURNED, NOT RAISED — 21-E/AQ::9, same as 22-A.
+        try:
+            return await self._rights.set_rights(
+                collection, token_id, rights, caller_identity=caller_identity,
+                caller_source=caller_source,
+            )
+        except PermissionError as exc:
+            return not_deployed_response("nft_services", {
+                "method": "set_rights",
+                "refused": True,
+                "reason": str(exc),
+                "disclosure": (
+                    "Rights for this token were established by another party. "
+                    "Nothing was changed. This is a REFUSAL BY POLICY, not a "
+                    "fault."
+                ),
+            })
 
     async def check_rights(
         self, collection: str, token_id: int, right_type: str
