@@ -302,6 +302,58 @@ class KYCService:
                 "error": "applicant_id is required (from start_kyc)",
             }
 
+        # ===================================================================
+        # 23-B. THE APPLICANT ID CHOSE WHICH RECORD THE VERDICT DESCRIBED.
+        # ===================================================================
+        # MEASURED at pin 42c9b19, synthetic placeholders only:
+        #
+        #   applicant_id = "TEST_ENTITY_A/../TEST_ENTITY_B"
+        #   path actually served : /resources/applicants/TEST_ENTITY_B/status
+        #   applicant_id returned: TEST_ENTITY_A/../TEST_ENTITY_B
+        #   risk / review_answer : high / RED
+        #
+        # A RED SANCTIONS VERDICT BELONGING TO ONE RECORD WAS RETURNED BEARING
+        # ANOTHER IDENTIFIER. That is the harm the standing constraint names —
+        # a false positive on a sanctions screen, attaching to a real person.
+        # And `_sumsub_headers` signs `ts+METHOD+path+body` over the SAME
+        # unencoded string, so the injected path is VALIDLY HMAC-SIGNED with
+        # the platform's own provider credentials.
+        #
+        # THIS IS A REFUSAL, NOT A SANITISER, AND THE DISTINCTION IS THE POINT.
+        # Percent-encoding or stripping this input would be A GUESS ABOUT THE
+        # PROVIDER'S PARSER — we do not know how Sumsub or Persona normalise a
+        # path, and R-23.2 records that NO REAL PROVIDER RESPONSE HAS EVER BEEN
+        # OBSERVED IN THIS ENGAGEMENT. A transform we cannot validate against
+        # the receiving parser is a second guess layered on the first.
+        #
+        # So: anything not plainly an opaque identifier is REFUSED, and the
+        # request is never sent.
+        #
+        # LIFTING CONDITION — what would let this widen: the provider's own
+        # DOCUMENTED identifier grammar, or an opaque handle THIS PLATFORM
+        # issued and can therefore vouch for. Neither exists today. Until one
+        # does, the conservative set is the only honest bound.
+        _bad = [c for c in str(applicant_id) if not (c.isalnum() or c in "-_")]
+        if _bad:
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "check_aml_risk",
+                "refused": True,
+                "applicant_id": applicant_id,
+                "reason": (
+                    "applicant_id must be an opaque identifier "
+                    "([A-Za-z0-9_-] only). It is interpolated into the "
+                    "provider request path and HMAC-signed with this "
+                    "platform's credentials, so a value containing path or "
+                    "query characters selects WHICH PERSON'S RECORD the "
+                    "returned verdict describes. Refused rather than "
+                    "rewritten: encoding it would be a guess about the "
+                    "provider's parser."
+                ),
+                "rejected_characters": sorted(set(_bad)),
+            }
+
         provider = self._provider()
         base_url = self._base_url()
 
