@@ -520,6 +520,10 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 #: fails if any status is unclassified, so "unanticipated" is no longer a state
 #: this predicate can be in without the suite saying so.
 _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    # 23-C. `check_aml_risk` refuses to grade a provider whose response shape
+    # has never been observed. Classified explicitly — a refusal to screen
+    # must never read as a completed screen.
+    "provider_unsupported",
     # 23-A. `issue_kyc_credential` refuses to attest that a person passed KYC
     # without a screened verification result. Classified explicitly — this test
     # exists precisely to stop a new string acquiring a meaning by accident,
