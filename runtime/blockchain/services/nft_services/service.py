@@ -184,13 +184,70 @@ class NFTService:
                 )
 
             # Configure collection-wide royalty
+            # 22-B. THE FACTORY REFUSES HONESTLY AND THIS CALLER INDEXED A
+            # SUCCESS-ONLY KEY. MEASURED at pin 84a6c3e under the SHIPPED
+            # config (which has no top-level `nft` block at all):
+            #
+            #   deploy_erc721(...) -> {status: 'not_deployed', action_required,
+            #                          deployment_guide, message, operation,
+            #                          requested, service}   NO 'collection_address'
+            #   this line          -> result["collection_address"]  ->  KeyError
+            #
+            # The gate WORKS and the consumer DEFEATS IT: a correct refusal
+            # becomes a crash, and the crash is what made the whole
+            # create -> mint -> list -> sell chain unreachable at step one.
+            # Two sites share this exact shape (§AK.2), so both are fixed
+            # together; fixing one would have left the chain dead one link
+            # further down.
+            if result.get("status") == "not_deployed" or "collection_address" not in result:
+                # The refusal is RE-ORIGINATED here rather than passed through,
+                # and the reason is a control, not style. D6 classifies a
+                # method as able-to-refuse by looking for a CALL to a
+                # registered refusal primitive; a method that merely
+                # PROPAGATES a callee's refusal is invisible to it, so
+                # returning `result` directly left this method counted as an
+                # ungated state-modifying sibling of one that gates.
+                #
+                # The alternative was to teach the detector about propagation
+                # — which touches tests/, making it a P-3 register item, and
+                # which would weaken a control to accommodate this change.
+                # Re-originating keeps the detector strict and costs nothing:
+                # the factory's own diagnosis is carried through verbatim.
+                return not_deployed_response("nft_services", {
+                    "method": "create_collection",
+                    "missing": "nft.factory_address (NFT factory contract)",
+                    "reason": (
+                        "The NFT factory refused: no contract is deployed. "
+                        "This method previously indexed a success-only key on "
+                        "that refusal and raised KeyError instead."
+                    ),
+                    "factory_response": result,
+                })
             collection_address = result["collection_address"]
-            await self._royalty.configure_royalty(
+            # 22-A. The return is CAPTURED, not discarded. Before 22-A
+            # `configure_royalty` could not refuse, so a bare `await` was
+            # harmless; it can now, and D10 caught this the moment the
+            # capability appeared. A caller that discards a refusal reports a
+            # success the refusal never authorised.
+            #
+            # These two sites each write a FRESH key so the 22-A authority
+            # check cannot refuse them — but `configure_royalty` also rejects a
+            # malformed recipient or an out-of-range bps, and THOSE were always
+            # possible. The discard was latent before and is closed now.
+            _royalty_result = await self._royalty.configure_royalty(
                 collection=collection_address,
                 token_id=-1,  # collection-wide
                 recipient=creator,
                 bps=royalty_bps,
             )
+            if isinstance(_royalty_result, dict) and _royalty_result.get("refused"):
+                result["royalty_configured"] = False
+                result["disclosure"] = (
+                    "The collection was created but its royalty was NOT "
+                    "configured: " + str(_royalty_result.get("reason", ""))
+                )
+            else:
+                result["royalty_configured"] = True
 
             logger.info(
                 "Collection created: address=%s type=%s name=%s creator=%s",
@@ -236,15 +293,72 @@ class NFTService:
                 metadata=metadata,
             )
 
+            # 22-B. THE FACTORY REFUSES HONESTLY AND THIS CALLER INDEXED A
+            # SUCCESS-ONLY KEY. MEASURED at pin 84a6c3e under the SHIPPED
+            # config (which has no top-level `nft` block at all):
+            #
+            #   deploy_erc721(...) -> {status: 'not_deployed', action_required,
+            #                          deployment_guide, message, operation,
+            #                          requested, service}   NO 'token_id'
+            #   this line          -> result["token_id"]  ->  KeyError
+            #
+            # The gate WORKS and the consumer DEFEATS IT: a correct refusal
+            # becomes a crash, and the crash is what made the whole
+            # create -> mint -> list -> sell chain unreachable at step one.
+            # Two sites share this exact shape (§AK.2), so both are fixed
+            # together; fixing one would have left the chain dead one link
+            # further down.
+            if result.get("status") == "not_deployed" or "token_id" not in result:
+                # The refusal is RE-ORIGINATED here rather than passed through,
+                # and the reason is a control, not style. D6 classifies a
+                # method as able-to-refuse by looking for a CALL to a
+                # registered refusal primitive; a method that merely
+                # PROPAGATES a callee's refusal is invisible to it, so
+                # returning `result` directly left this method counted as an
+                # ungated state-modifying sibling of one that gates.
+                #
+                # The alternative was to teach the detector about propagation
+                # — which touches tests/, making it a P-3 register item, and
+                # which would weaken a control to accommodate this change.
+                # Re-originating keeps the detector strict and costs nothing:
+                # the factory's own diagnosis is carried through verbatim.
+                return not_deployed_response("nft_services", {
+                    "method": "mint",
+                    "missing": "nft.factory_address (NFT factory contract)",
+                    "reason": (
+                        "The NFT factory refused: no contract is deployed. "
+                        "This method previously indexed a success-only key on "
+                        "that refusal and raised KeyError instead."
+                    ),
+                    "factory_response": result,
+                })
             token_id = result["token_id"]
 
             # Configure token-specific royalty
-            await self._royalty.configure_royalty(
+            # 22-A. The return is CAPTURED, not discarded. Before 22-A
+            # `configure_royalty` could not refuse, so a bare `await` was
+            # harmless; it can now, and D10 caught this the moment the
+            # capability appeared. A caller that discards a refusal reports a
+            # success the refusal never authorised.
+            #
+            # These two sites each write a FRESH key so the 22-A authority
+            # check cannot refuse them — but `configure_royalty` also rejects a
+            # malformed recipient or an out-of-range bps, and THOSE were always
+            # possible. The discard was latent before and is closed now.
+            _royalty_result = await self._royalty.configure_royalty(
                 collection=collection,
                 token_id=token_id,
                 recipient=creator,
                 bps=royalty_bps,
             )
+            if isinstance(_royalty_result, dict) and _royalty_result.get("refused"):
+                result["royalty_configured"] = False
+                result["disclosure"] = (
+                    "The token was minted but its royalty was NOT configured: "
+                    + str(_royalty_result.get("reason", ""))
+                )
+            else:
+                result["royalty_configured"] = True
 
             # Set default rights
             await self._rights.set_rights(
@@ -628,12 +742,39 @@ class NFTService:
     # ── Royalty Management ───────────────────────────────────────────
 
     async def configure_royalty(
-        self, collection: str, token_id: int, recipient: str, bps: int
+        self,
+        collection: str,
+        token_id: int,
+        recipient: str,
+        bps: int,
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict[str, Any]:
         """Configure royalty for a token or collection."""
-        return await self._royalty.configure_royalty(
-            collection, token_id, recipient, bps
-        )
+        # 22-A. RETURNED, NOT RAISED — domain 21's AQ::9 lesson, transferred.
+        # MEASURED there through the real ServiceDispatcher: a RAISED refusal
+        # unwinds past the attestation block, so `execute` reports
+        # `{"status":"error","error_category":"service_error","degraded":true}`
+        # and writes ZERO attestations, while a RETURNED refusal produces
+        # ATTEST_REFUSAL. A guard that exists to stop a royalty hijack must
+        # leave a record that one was attempted — and must not report the
+        # attempt as an internal fault of ours.
+        try:
+            return await self._royalty.configure_royalty(
+                collection, token_id, recipient, bps,
+                caller_identity=caller_identity, caller_source=caller_source,
+            )
+        except PermissionError as exc:
+            return not_deployed_response("nft_services", {
+                "method": "configure_royalty",
+                "refused": True,
+                "reason": str(exc),
+                "disclosure": (
+                    "The royalty destination was already configured and this "
+                    "caller is not the party that configured it. Nothing was "
+                    "changed. This is a REFUSAL BY POLICY, not a fault."
+                ),
+            })
 
     async def get_royalty_info(
         self, collection: str, token_id: int, sale_price: float = 1.0

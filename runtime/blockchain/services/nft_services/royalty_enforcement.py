@@ -69,6 +69,8 @@ class RoyaltyEnforcement:
         token_id: int,
         recipient: str,
         bps: int,
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict[str, Any]:
         """Configure royalty for a specific token (ERC-2981 compatible).
 
@@ -108,6 +110,74 @@ class RoyaltyEnforcement:
                 f"({self._max_royalty_bps / 100:.1f}%)"
             )
 
+        # 22-A. WHO SET THIS, AND MAY THIS CALLER CHANGE IT.
+        #
+        # MEASURED at pin 84a6c3e, through the real ServiceDispatcher, under
+        # THE SHIPPED CONFIG (this is one of only 6 of 17 nft actions that
+        # executes at all — the rest crash or refuse):
+        #
+        #   1. creator configures  -> configured  recipient=0x1111 bps=500
+        #   2. STRANGER, caller_identity=""  -> configured  recipient=0x2222
+        #                                       bps=2500   no refusal
+        #   3. get_royalty_info    -> receiver=0x2222
+        #   4. buy_nft             -> royalty split computed for 0x2222
+        #
+        # The stored entry had NO attribution field at all, so after the
+        # overwrite nothing in the platform's own store distinguished the
+        # creator's configuration from the stranger's except the recipient
+        # value — which is the thing under dispute.
+        #
+        # WHY THIS IS FIXABLE HERE AND THE OWNERSHIP CHECK IS NOT. The package
+        # justifies having no authority check with "this platform has no
+        # ownership record to check against" (service.py:604). That is TRUE of
+        # token ownership, which lives on-chain, and FALSE of this record: the
+        # royalty configuration is the PLATFORM'S OWN store, written by this
+        # method, and it knows who wrote it first. §AI.1 — an absence
+        # established at the ownership scope, stated at the whole-domain scope.
+        #
+        # THE RULE: AN UNIDENTIFIED CALLER MAY CREATE, NEVER MODIFY.
+        #
+        # An identified setter owns the entry — only that identity may change
+        # it. An entry whose setter is UNKNOWN may not be changed by an
+        # unidentified caller either, and the reason is the measurement: under
+        # the SHIPPED config there is no authenticated identity at all
+        # (register item 0), so a rule that only protected identified setters
+        # would protect nothing in the deployment we actually ship.
+        #
+        # CHECKED, not assumed, that this breaks no legitimate flow (§AQ
+        # class 3): the two in-package writers each create a FRESH key —
+        # `create_collection` writes the collection default once
+        # (service.py:188) and `mint` writes a per-token entry
+        # (service.py:242). Neither overwrites an existing entry, so neither
+        # is refused. What is refused is precisely the external re-write,
+        # which is the attack.
+        #
+        # The honest residue, stated rather than hidden: with no identity
+        # available, re-configuring a royalty legitimately now requires an
+        # authenticated caller. That is a real cost and it is the correct
+        # direction — the alternative is the measured hijack.
+        _set_by = caller_identity or ""
+        _set_by_source = caller_source or (
+            "authenticated" if _set_by else "unauthenticated"
+        )
+        _existing = (
+            self._collection_defaults.get(collection)
+            if token_id == -1
+            else self._royalty_configs.get(f"{collection}:{token_id}")
+        )
+        if _existing is not None:
+            _owner = str(_existing.get("set_by") or "")
+            _may_change = bool(_set_by) and _owner.lower() == _set_by.lower()
+            if not _may_change:
+                raise PermissionError(
+                    f"royalty for {collection} #{token_id} was configured by "
+                    f"{_owner or '<an unidentified caller>'} and cannot be "
+                    f"changed by {_set_by or '<an unidentified caller>'}. The royalty "
+                    f"destination decides who is paid on every future sale; "
+                    f"the platform wrote this record itself and will not let a "
+                    f"second party redirect it."
+                )
+
         now = int(time.time())
         config_entry = {
             "collection": collection,
@@ -116,6 +186,11 @@ class RoyaltyEnforcement:
             "bps": bps,
             "percentage": f"{bps / 100:.2f}%",
             "configured_at": now,
+            # 22-A. Written at both levels for the same reason 17-J gives:
+            # WHO, and separately HOW WE KNOW. `set_by: ""` alone cannot
+            # distinguish "nobody was authenticated" from "we did not look".
+            "set_by": _set_by,
+            "set_by_source": _set_by_source,
         }
 
         if token_id == -1:
