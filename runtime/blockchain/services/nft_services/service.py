@@ -445,14 +445,32 @@ class NFTService:
             #
             # 17-G gated the identical call in `process_sale` and MISSED THIS
             # SIBLING: the enumeration was real and its scope was one method.
-            # §AK.2 now requires the call-site count and each disposition:
-            #   transfer_rights — 3 sites in this file
-            #     :310 (here)  GATED on `transferred`
-            #     :470         GATED on `transferred`        (17-G)
-            #     :591         UNREACHABLE — NFTService.transfer_rights is in no
-            #                  ACTION_MAP entry, no capability catalog id and no
-            #                  gateway route (enumerated). Gate it before it is
-            #                  ever exposed; it is the same shape.
+            # §AK.2 requires the call-site count and each disposition:
+            #   transfer_rights — 3 sites in this file, BY ENCLOSING METHOD:
+            #     transfer()        GATED on `transferred`   (this one)
+            #     process_sale()    GATED on `transferred`   (17-G)
+            #     NFTService.transfer_rights()
+            #                       UNREACHABLE — in no ACTION_MAP entry, no
+            #                       capability catalog id and no gateway route
+            #                       (re-enumerated at 84a6c3e: 253 ACTION_MAP
+            #                       entries, 195 catalog capabilities, and the
+            #                       dispatcher resolves method names only from
+            #                       ACTION_MAP). Gate it before it is exposed;
+            #                       it is the same shape.
+            #
+            # 22-E. CITED BY METHOD, NOT BY LINE NUMBER, AND THE REASON IS A
+            # MEASURED FAILURE. This block previously read ":310 / :470 / :591".
+            # Re-derived by AST at 84a6c3e the sites are :462, :622, :817 —
+            # THE COUNT WAS RIGHT AND EVERY LINE NUMBER WAS STALE, drifted
+            # +152/+152/+226 by fixes inserted above them. A reader following
+            # ":310" lands on unrelated code and concludes the enumeration is
+            # wrong; it was right when written.
+            #
+            # A LINE NUMBER IN A COMMENT IS A CLAIM THAT DECAYS WITHOUT ANYONE
+            # EDITING IT — the same family as §AJ.8 (HEAD is a query, not an
+            # identifier). A method name is stable under insertion, and if it
+            # is renamed the reference breaks loudly instead of pointing
+            # somewhere plausible and wrong.
             transferred = (
                 isinstance(result, dict)
                 and result.get("status") not in (None, "not_deployed", "error")

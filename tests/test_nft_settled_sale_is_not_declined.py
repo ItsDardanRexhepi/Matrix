@@ -99,3 +99,49 @@ def test_the_trap_is_documented_where_the_next_reader_meets_it():
     src = Path("runtime/blockchain/services/nft_services/service.py").read_text()
     assert "DO NOT" in src and "SEVEN ARMED METHODS" in src
     assert "reproduces this defect sevenfold" in src.lower()
+
+
+# ─────────────────────────────── 22-E ───────────────────────────────
+
+def test_the_call_site_enumeration_is_cited_by_method_not_line_number():
+    """22-E / §AY. The §AK.2 block previously cited ":310 / :470 / :591".
+    Re-derived by AST at 84a6c3e the sites are :462, :622, :817 — THE COUNT WAS
+    RIGHT AND EVERY LINE NUMBER WAS STALE, drifted +152/+152/+226 by fixes
+    inserted above them.
+
+    A line number is an address into a file that changes; a method name is an
+    address into a structure that does not. This test re-derives the count so
+    the enumeration cannot silently become wrong again — and it is a
+    STRUCTURAL assertion whose subject IS the source text, which is §AT's
+    stated exception."""
+    import ast
+    from pathlib import Path
+
+    src = Path("runtime/blockchain/services/nft_services/service.py").read_text()
+    tree = ast.parse(src)
+
+    sites = [n.lineno for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and getattr(n.func, "attr", None) == "transfer_rights"]
+    assert len(sites) == 3, (
+        f"the §AK.2 block claims 3 call sites for transfer_rights; AST finds "
+        f"{len(sites)} at {sorted(sites)} — the enumeration is now wrong"
+    )
+
+    # The DISPOSITION LINES must name methods, not line numbers. Asserting
+    # ":310 not in block" was too crude and failed on the block's own
+    # explanation of what it replaced — a test cannot distinguish a citation
+    # from a quotation of a former citation by substring, so it must look at
+    # the lines that do the citing.
+    block = src[src.index("§AK.2 requires the call-site count"):][:1400]
+    dispositions = [ln for ln in block.splitlines()
+                    if "GATED on" in ln or "UNREACHABLE —" in ln]
+    assert len(dispositions) == 3, (
+        f"expected 3 disposition lines, found {len(dispositions)}"
+    )
+    for ln in dispositions:
+        assert not any(tok in ln for tok in (":3", ":4", ":5", ":6", ":8")), (
+            f"a disposition line cites a line number, which decays: {ln.strip()}"
+        )
+    for method in ("transfer()", "process_sale()", "NFTService.transfer_rights()"):
+        assert method in block, f"{method} is not named in the enumeration"
