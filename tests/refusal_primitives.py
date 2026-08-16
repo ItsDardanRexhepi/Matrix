@@ -99,6 +99,10 @@ REFUSAL_PRIMITIVES: tuple[str, ...] = (
     "refusal_response",
     "publish_rejected",
     "publish_not_sent",
+    # 23-D wrapper (services/kyc/service.py). Domain-qualified per 19's
+    # substring lesson — `require_enabled` would sweep in every unrelated
+    # `_require_enabled` in the repo.
+    "require_kyc_enabled",
 )
 
 

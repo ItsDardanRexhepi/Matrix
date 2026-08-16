@@ -152,6 +152,47 @@ class KYCService:
 
     # ── Methods ──────────────────────────────────────────────────────
 
+    def require_kyc_enabled(self, method: str) -> dict | None:
+        """23-D. Refuse unless services.kyc.enabled is explicitly true.
+
+        NAMED `require_kyc_enabled`, not `require_enabled`: the refusal
+        registry matches by SUBSTRING, and a short name silently
+        reclassifies every unrelated `_require_enabled` in the repo — a
+        measured false positive that manufactured two findings in
+        domain 19. Domain-qualified names only.
+        """
+        # 23-D. `services.kyc.enabled` HAD A WRITER AND NO READERS.
+        # Writer set = {openmatrix.config.json.example}; reader set inside this
+        # package = EMPTY (enumerated: every config read is provider, endpoint,
+        # api_key, secret_key, template_id, level_name, eas_contract,
+        # eas_schema — 'enabled' appears nowhere). An operator reading the
+        # shipped config sees `services.kyc {enabled: false}` and concludes the
+        # identity service is off. It was not.
+        #
+        # 19-A's template, and this service is the one that most needed it: the
+        # same guard already protects a treasury (restaking), a token mint
+        # (creator_platforms) and real_estate. The service that makes durable
+        # claims about NAMED PEOPLE did not have it.
+        #
+        # FAILS CLOSED. Absent means refuse — the alternative is what shipped.
+        # PLATFORM SCOPE IS NOT FIXED HERE: 42 of 44 services have the same
+        # dead key (R-21.1). That rename touches every service and is a scoping
+        # decision, not a remediation — registered, not done (P-3).
+        if (self._config.get("services", {}) or {}).get(
+                self.service_name, {}).get("enabled") is not True:
+            return not_deployed_response(self.service_name, extra={
+                "method": method,
+                "missing": f"services.{self.service_name}.enabled must be true",
+                "reason": (
+                    "This service returns AML/sanctions verdicts about named "
+                    "individuals and issues durable identity credentials. It "
+                    "is disabled by default; enabling it is an explicit, "
+                    "auditable operator decision, not implied by populating "
+                    "provider credentials."
+                ),
+            })
+        return None
+
     async def start_kyc(self, **params: Any) -> dict:
         """Start a KYC verification flow for a user via the configured provider.
 
@@ -163,7 +204,12 @@ class KYCService:
         Expected params: ``external_user_id`` (str, your opaque user ref),
         optional ``level_name`` (Sumsub verification level).
         """
+        _gate = self.require_kyc_enabled("start_kyc")
+        if _gate is not None:
+            return _gate
+
         cfg = self._cfg()
+
         api_key = cfg.get("api_key")
         secret_key = cfg.get("secret_key")
 
@@ -267,6 +313,10 @@ class KYCService:
         Expected params: ``applicant_id`` (provider applicant id from
         ``start_kyc``).
         """
+        _gate = self.require_kyc_enabled("check_aml_risk")
+        if _gate is not None:
+            return _gate
+
         cfg = self._cfg()
         api_key = cfg.get("api_key")
         secret_key = cfg.get("secret_key")
@@ -497,6 +547,10 @@ class KYCService:
           - ``blockchain.eas_contract`` — EAS contract address (chain-level)
           - ``blockchain.eas_schema``   — registered KYC schema UID
         """
+        _gate = self.require_kyc_enabled("issue_kyc_credential")
+        if _gate is not None:
+            return _gate
+
         # 23-A / SR-2. AUTHORIZATION BEFORE CONFIGURATION. This block was
         # BELOW the chain-config gates, so an attempt to mint a credential with
         # NO verification result came back as "rpc_url missing" — masking the
@@ -549,11 +603,20 @@ class KYCService:
         # "ran against an empty list and cannot have matched" disclosure —
         # BEFORE the attestation has anything true to carry.
         #
-        # ⚠ SEQUENCING, because the obvious next fix arms this one:
-        # wiring `blockchain.schemas.identity` (AP::5 / AC::2) uses a UID
-        # ALREADY SHIPPED AND POPULATED in the example config, and doing that
-        # first would ARM this cluster rather than gate it. `passed` is fixed
-        # here FIRST for that reason.
+        # SEQUENCING — RE-MEASURED AFTER THIS FIX LANDED, AND THE WARNING IS
+        # NOW STALE IN THE SAFE DIRECTION. It originally read: wiring
+        # `blockchain.schemas.identity` (AP::5 / AC::2) uses a UID ALREADY
+        # SHIPPED AND POPULATED, so doing that first would ARM this cluster.
+        #
+        # DRIVEN with rpc_url, eas_schema and paymaster_private_key ALL
+        # populated and no verification supplied: status='not_verified',
+        # refused=True. THIS GATE DOMINATES EVERY CHAIN-CONFIG PATH, so the
+        # schema wiring can no longer arm the cluster.
+        #
+        # Kept, corrected rather than deleted, because a stale warning that
+        # names a hazard which no longer exists READS AS AUTHORITATIVE (§AM.3)
+        # — and because the ordering claim is still true of any deployment
+        # that reverts this gate.
         #
         # LIFTING CONDITION — what must exist before this refusal is removed:
         # a verification result the SUBJECT DID NOT SUPPLY, carrying (a) the

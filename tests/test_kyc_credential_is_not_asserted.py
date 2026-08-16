@@ -30,9 +30,15 @@ from runtime.blockchain.services.registry import ServiceRegistry
 
 
 def _svc():
-    return ServiceRegistry(
-        json.loads(Path("openmatrix.config.json.example").read_text())
-    ).get("kyc")
+    """The shipped config, PLUS the 23-D opt-in.
+
+    23-D gates all three methods on `services.kyc.enabled`, and it precedes
+    everything — a disabled service adjudicates nothing (§AS's bound on SR-2).
+    These tests are about the VERIFICATION gate downstream of it, so they opt
+    in explicitly rather than testing the enablement refusal by accident."""
+    cfg = json.loads(Path("openmatrix.config.json.example").read_text())
+    cfg.setdefault("services", {}).setdefault("kyc", {})["enabled"] = True
+    return ServiceRegistry(cfg).get("kyc")
 
 
 @pytest.mark.asyncio
@@ -123,7 +129,8 @@ def test_passed_is_not_a_literal_in_the_attestation_payload():
 def _kyc_armed():
     from runtime.blockchain.services.kyc.service import KYCService
     return KYCService({"services": {"kyc": {
-        "api_key": "k", "secret_key": "s", "provider": "sumsub"}}})
+        "enabled": True, "api_key": "k", "secret_key": "s",
+        "provider": "sumsub"}}})
 
 
 def _capture(served):
@@ -204,7 +211,8 @@ def _body_client(body):
 def _kyc(provider):
     from runtime.blockchain.services.kyc.service import KYCService
     return KYCService({"services": {"kyc": {
-        "api_key": "k", "secret_key": "s", "provider": provider}}})
+        "enabled": True, "api_key": "k", "secret_key": "s",
+        "provider": provider}}})
 
 
 @pytest.mark.parametrize("body", [
@@ -261,3 +269,42 @@ async def test_a_sumsub_response_with_no_adjudication_says_it_was_not_screened()
     assert out["risk"] == "unknown"
     assert out["sanctions_screened"] is False
     assert "NOT SCREENED" in out["sanctions_disclosure"]
+
+
+# ─────────────────────────────── 23-D ───────────────────────────────
+
+@pytest.mark.parametrize("method,kwargs", [
+    ("start_kyc", {}),
+    ("check_aml_risk", {"applicant_id": "TEST_ENTITY_001"}),
+    ("issue_kyc_credential", {"subject": "0xS"}),
+])
+@pytest.mark.parametrize("enabled", [None, False, "true", 1])
+@pytest.mark.asyncio
+async def test_every_method_refuses_unless_enabled_is_exactly_true(method, kwargs, enabled):
+    """23-D. `services.kyc.enabled` had a WRITER (the shipped config) and NO
+    READERS — enumerated: every config read in the package is provider,
+    endpoint, api_key, secret_key, template_id, level_name, eas_contract,
+    eas_schema. 'enabled' appeared nowhere.
+
+    An operator reading `services.kyc {enabled: false}` concluded the identity
+    service was off. It was not. 19-A's template — and this is the service that
+    most needed it: the same guard already protects a treasury, a token mint
+    and real_estate, while the one making durable claims about NAMED PEOPLE
+    had none.
+
+    §AK.2: all THREE methods, not one."""
+    from runtime.blockchain.services.kyc.service import KYCService
+    cfg = {"services": {"kyc": {"api_key": "k", "secret_key": "s"}}}
+    if enabled is not None:
+        cfg["services"]["kyc"]["enabled"] = enabled
+    out = await getattr(KYCService(cfg), method)(**kwargs)
+    assert "enabled must be true" in str(out.get("missing", ""))
+
+
+@pytest.mark.asyncio
+async def test_an_opted_in_operator_is_not_blocked():
+    """§AQ class 3 — proven by reaching a DIFFERENT refusal."""
+    from runtime.blockchain.services.kyc.service import KYCService
+    cfg = {"services": {"kyc": {"enabled": True, "api_key": "k", "secret_key": "s"}}}
+    out = await KYCService(cfg).check_aml_risk(applicant_id="TEST_ENTITY_001")
+    assert "enabled must be true" not in str(out.get("missing", ""))
