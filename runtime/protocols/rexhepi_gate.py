@@ -2,13 +2,30 @@ from __future__ import annotations
 
 """
 Rexhepi Framework Execution Gate — every decision passes through this gate.
-The public interface to the closed-source framework.
+
+The gate is the runtime front door to the Unified Rexhepi Framework (URF)
+operational layer. Its reasoning core is the six-gate URF reasoning loop
+(:mod:`runtime.protocols.urf`), which scores Clarity, Feasibility, Risk,
+Uncertainty, Value, and Capability Expansion and resolves exactly one
+canonical outcome (EXECUTE / PROBE / ASK / DEFER / ABORT). On top of that
+scored decision, the gate layers the concrete platform safety checks —
+sanctions, authorization, rate limits, fee validation, address screening —
+that populate the URF hard rules and the Risk/Feasibility gates with real
+signals. A hard safety failure removes the trajectory from the feasible
+set (URF §13) and forces a non-EXECUTE outcome regardless of scores.
 """
 
 import logging
 import time
 import uuid
 from typing import Any
+
+from runtime.protocols.urf import (
+    GateScores,
+    Outcome,
+    TimeSensitivity,
+    URFReasoningLoop,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +38,10 @@ class RexhepiGate:
     """Unified execution gate. Every platform operation MUST pass
     through this gate before execution.
 
-    Checks: safety, compliance, user authorization, rate limits,
-    fee validation.  Logs every evaluation for audit.
+    The scored decision is produced by the URF reasoning loop; the safety,
+    compliance, authorization, rate-limit, fee-validation, and
+    address-screening checks feed that loop and can force the trajectory
+    out of the feasible set. Logs every evaluation for audit.
     """
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
@@ -42,18 +61,25 @@ class RexhepiGate:
             self.config.get("blocked_action_types", [])
         )
         self._max_audit_log = self.config.get("max_audit_log", 5000)
-        logger.info("RexhepiGate initialised")
+        # The reasoning core — the URF operational layer as a loop.
+        self.urf = URFReasoningLoop(self.config)
+        logger.info("RexhepiGate initialised (URF reasoning loop engaged)")
 
     # ── Public API ────────────────────────────────────────────────────
 
     async def evaluate(
         self, action: dict[str, Any], context: dict[str, Any]
     ) -> dict[str, Any]:
-        """Evaluate *action* against all gate checks.
+        """Evaluate *action* through the URF reasoning loop plus the
+        platform safety checks.
 
         Returns:
-            approved: bool
-            reason: str (empty if approved)
+            approved: bool                — True only when the URF outcome is EXECUTE
+            outcome: str                  — EXECUTE | PROBE | ASK | DEFER | ABORT
+            scores: dict                  — the seven URF gate scores
+            rationale: str                — the one-line URF rationale
+            decision_line: str            — compact auditable output (URF §12)
+            reason: str                   — denial reason (empty if approved)
             evaluation_id: str
             checks_passed: list[str]
             checks_failed: list[str]
@@ -65,7 +91,8 @@ class RexhepiGate:
         checks_failed: list[str] = []
         denial_reasons: list[str] = []
 
-        # Run all checks
+        # Run all safety checks. These populate the URF Feasibility/Risk
+        # gates and hard rules with concrete platform signals.
         checkers = [
             ("safety", self._check_safety),
             ("compliance", self._check_compliance),
@@ -89,13 +116,38 @@ class RexhepiGate:
                 checks_failed.append(name)
                 denial_reasons.append(f"Internal error in {name} check: {exc}")
 
-        approved = len(checks_failed) == 0
+        # ── URF reasoning loop ─────────────────────────────────────
+        # A failed safety check is a hard-rule violation: the trajectory
+        # leaves the feasible set (URF §13), which the loop expresses as an
+        # F=0 (ABORT) or, for authorization, an approval-required ASK.
+        urf_action = dict(action)
+        if checks_failed:
+            # Authorization failure on a high-risk action is an approval gate
+            # (ASK), not an outright ABORT.
+            auth_only = checks_failed == ["authorization"]
+            if auth_only:
+                urf_action.setdefault("risk_level", "high")
+            else:
+                urf_action["blocked"] = True
+
+        decision = self.urf.decide(urf_action, context, task=self._describe(action))
+
+        approved = decision.approved and not checks_failed
         combined_reason = "; ".join(denial_reasons) if denial_reasons else ""
+        if not approved and not combined_reason:
+            combined_reason = decision.rationale
 
         result = {
             "approved": approved,
+            "outcome": decision.outcome.value,
+            "scores": decision.scores.to_dict(),
+            "rationale": decision.rationale,
+            "decision_line": decision.compact_line(),
+            "requires_approval": decision.requires_approval,
+            "hard_rule_violations": decision.hard_rule_violations,
             "reason": combined_reason,
             "evaluation_id": evaluation_id,
+            "urf_decision_id": decision.decision_id,
             "checks_passed": checks_passed,
             "checks_failed": checks_failed,
             "timestamp": timestamp,
@@ -108,13 +160,25 @@ class RexhepiGate:
         self._rate_window.append(timestamp)
 
         if approved:
-            logger.info("Gate APPROVED evaluation=%s", evaluation_id)
+            logger.info(
+                "Gate APPROVED evaluation=%s outcome=EXECUTE", evaluation_id
+            )
         else:
             logger.warning(
-                "Gate DENIED evaluation=%s reason=%s", evaluation_id, combined_reason
+                "Gate outcome=%s evaluation=%s reason=%s",
+                decision.outcome.value, evaluation_id, combined_reason,
             )
 
         return result
+
+    @staticmethod
+    def _describe(action: dict[str, Any]) -> str:
+        return str(
+            action.get("action_type")
+            or action.get("type")
+            or action.get("name")
+            or "action"
+        )
 
     # ── Audit access ──────────────────────────────────────────────────
 

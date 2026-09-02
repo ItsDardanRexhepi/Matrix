@@ -370,13 +370,25 @@ class ProtocolStack:
                     )
                     return result
 
-        # Rexhepi gate evaluation
+        # Rexhepi gate evaluation — the URF reasoning loop scores the six
+        # gates and resolves one canonical outcome. Only EXECUTE is a green
+        # light; PROBE/ASK/DEFER/ABORT hold the action and tell the loop what
+        # canonical move to make instead (URF §12).
         if self._rexhepi_gate is not None:
             try:
                 gate_result = await self._rexhepi_gate.evaluate(action, context)
+                result["urf"] = {
+                    "outcome": gate_result.get("outcome"),
+                    "scores": gate_result.get("scores"),
+                    "decision_line": gate_result.get("decision_line"),
+                    "rationale": gate_result.get("rationale"),
+                    "requires_approval": gate_result.get("requires_approval"),
+                }
                 if not gate_result.get("approved", True):
                     result["approved"] = False
-                    result["denial_reason"] = gate_result.get("reason", "Denied by security gate.")
+                    outcome = gate_result.get("outcome", "ABORT")
+                    reason = gate_result.get("reason") or gate_result.get("rationale", "")
+                    result["denial_reason"] = f"[URF: {outcome}] {reason}".strip()
                     return result
             except Exception:
                 logger.exception("RexhepiGate pre-action failed")
