@@ -75,14 +75,15 @@ Matrix is the private runtime Neo runs on — owner only, never public.
 ```bash
 git clone https://github.com/ItsDardanRexhepi/0pnMatrx.git
 cd 0pnMatrx
-python setup.py
+python3 setup.py
 ```
 
-The interactive setup walks you through everything — model provider, blockchain network, agent configuration, API key generation, and security settings. It installs dependencies, verifies connectivity, and writes your config. One command, done.
+The interactive setup walks you through everything — model provider, blockchain network, agent configuration, API key generation, and security settings. It creates a virtual environment in `.venv`, installs dependencies into it, verifies connectivity, and writes your config. One command, done. (Python 3.10 or newer; on macOS `python3` is the command — there is no `python`. Set `OPNMATRX_SETUP_NO_VENV=1` to skip the venv in a container.)
 
 After setup:
 
 ```bash
+source .venv/bin/activate                 # once per terminal; setup created .venv
 python -m gateway.server                  # starts on port 18790 (or $PORT)
 curl http://localhost:18790/health        # {"status": "ok", ...}
 ```
@@ -91,9 +92,9 @@ Need to add a notification channel later (Telegram, Discord, Slack, SMS,
 Email, WhatsApp, iOS push, webhook)?
 
 ```bash
-python setup_communications.py            # interactive menu
-python setup_communications.py telegram   # jump to one channel
-python setup_communications.py --list     # show enabled channels
+python3 setup_communications.py           # interactive menu
+python3 setup_communications.py telegram  # jump to one channel
+python3 setup_communications.py --list    # show enabled channels
 ```
 
 Or use the one-liner install script:

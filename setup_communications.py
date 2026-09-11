@@ -8,21 +8,51 @@ Web chat, iOS push, Webhook). You can run it any time — before, during,
 or after initial setup.
 
 Usage:
-    python setup_communications.py              # interactive menu
-    python setup_communications.py telegram     # jump to one channel
-    python setup_communications.py --list       # show enabled channels
-    python setup_communications.py --help
+    python3 setup_communications.py             # interactive menu
+    python3 setup_communications.py telegram    # jump to one channel
+    python3 setup_communications.py --list      # show enabled channels
+    python3 setup_communications.py --help
+
+Runs inside the .venv that setup.py created, re-launching itself there when
+invoked with another interpreter (set OPNMATRX_SETUP_NO_VENV=1 to opt out).
 """
 
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 from typing import Callable
+
 
 from setup._shared import (
     BOLD, CYAN, DIM, GREEN, RESET, YELLOW,
     ask, error, header, info, load_config, success, warn,
 )
+
+
+def _relaunch_in_venv() -> None:
+    """Run under the .venv that setup.py created, when there is one.
+
+    Same reason as setup.py's bootstrap: the global python3 on macOS is
+    Apple's 3.9 or Homebrew's externally-managed build, neither of which has
+    the dependencies. Only re-launches when .venv exists (setup.py owns its
+    creation); OPNMATRX_SETUP_NO_VENV=1 opts out.
+    """
+    if sys.prefix != getattr(sys, "base_prefix", sys.prefix) or os.environ.get("OPNMATRX_SETUP_NO_VENV") == "1":
+        return
+    if os.environ.get("OPNMATRX_SETUP_BOOTSTRAPPED") == "1":
+        return
+    root = Path(__file__).resolve().parent
+    target = root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python3")
+    if not target.exists():
+        return
+    os.environ["OPNMATRX_SETUP_BOOTSTRAPPED"] = "1"
+    argv = [str(target), str(Path(__file__).resolve()), *sys.argv[1:]]
+    if os.name == "nt":
+        import subprocess
+        sys.exit(subprocess.call(argv))
+    os.execv(str(target), argv)
 
 # Each channel maps to its configure() function.
 CHANNELS: dict[str, tuple[str, str, Callable[[dict], dict]]] = {}
@@ -87,6 +117,7 @@ def show_menu(config: dict) -> str | None:
 
 
 def main() -> int:
+    _relaunch_in_venv()   # under .venv/bin/python3 when setup.py created one
     _register_channels()
     config = load_config()
 

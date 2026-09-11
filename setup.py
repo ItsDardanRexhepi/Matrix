@@ -5,10 +5,17 @@
 Guides you through configuring 0pnMatrx on your machine.
 Run once after cloning:
 
-    python setup.py
+    python3 setup.py          # or ./setup.py — the file is executable
 
-Creates openmatrix.config.json with your settings, installs
-dependencies, verifies connectivity, and boots the platform.
+Creates a virtual environment in .venv next to this file and re-launches
+itself inside it, then creates openmatrix.config.json with your settings,
+installs dependencies, verifies connectivity, and boots the platform.
+
+Why the venv: macOS ships no `python`, and its `python3` is Apple's 3.9 or a
+Homebrew build marked externally managed (PEP 668) that refuses
+`pip install`. Debian and Fedora do the same. A project-local .venv works
+everywhere and leaves the global interpreter alone (install.sh does the same).
+Set OPNMATRX_SETUP_NO_VENV=1 to opt out (containers, CI).
 """
 
 import json
@@ -17,6 +24,86 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+# ─── Interpreter bootstrap ───────────────────────────────────────────────────
+
+PYTHON_FLOOR = (3, 10)   # the code uses `X | None` annotations at import time
+VENV_DIR = ".venv"
+_BOOTSTRAP_ENV = "OPNMATRX_SETUP_BOOTSTRAPPED"   # loop guard for the re-launch
+_NO_VENV_ENV = "OPNMATRX_SETUP_NO_VENV"          # opt-out (containers, CI)
+
+# setuptools executes a project's setup.py as __main__ during every build:
+# `pip install .`, `pip install -e .`, `python -m build`. Those runs arrive
+# with one of these as argv[1]. The wizard must hand them to setuptools
+# instead of asking the operator questions from inside pip (which is exactly
+# what happened before: banner, "Checking environment", EOFError).
+SETUPTOOLS_COMMANDS = frozenset({
+    "egg_info", "dist_info", "bdist_wheel", "editable_wheel", "sdist",
+    "build", "build_py", "build_ext", "develop", "install", "clean",
+    "--name", "--version", "--help-commands",
+})
+
+
+def invoked_by_setuptools(argv=None):
+    argv = sys.argv if argv is None else argv
+    return len(argv) > 1 and argv[1] in SETUPTOOLS_COMMANDS
+
+
+def in_virtualenv():
+    return sys.prefix != getattr(sys, "base_prefix", sys.prefix) or hasattr(sys, "real_prefix")
+
+
+def venv_python(root):
+    root = Path(root)
+    if os.name == "nt":
+        return root / VENV_DIR / "Scripts" / "python.exe"
+    return root / VENV_DIR / "bin" / "python3"
+
+
+def python_meets_floor(v=None):
+    v = sys.version_info if v is None else v
+    return (v[0], v[1]) >= PYTHON_FLOOR
+
+
+def bootstrap_venv(root=None, _exec=os.execv, _run=subprocess.run, _env=os.environ):
+    """Make sure the wizard runs inside the project's own virtual environment.
+
+    Returns True when there is nothing to do (already inside a venv, or the
+    opt-out is set). Otherwise creates .venv if it is missing and replaces
+    this process with the same command under the venv's interpreter — on
+    success this never returns. The `_exec`/`_run`/`_env` seams exist for the
+    tests; production callers pass nothing.
+    """
+    if in_virtualenv() or _env.get(_NO_VENV_ENV) == "1":
+        return True
+    root = Path(__file__).resolve().parent if root is None else Path(root)
+    target = venv_python(root)
+    if _env.get(_BOOTSTRAP_ENV) == "1":
+        fail(f"Re-launched under {target} but still not inside a virtual environment.")
+        info(f"Run it by hand:  python3 -m venv {VENV_DIR} && {target} setup.py")
+        sys.exit(1)
+    if not target.exists():
+        if not python_meets_floor():
+            v = sys.version_info
+            fail(f"Python {PYTHON_FLOOR[0]}.{PYTHON_FLOOR[1]}+ is required to create the environment; "
+                 f"this is {v[0]}.{v[1]}.{v[2]} ({sys.executable}).")
+            info("Install a newer Python (macOS: brew install python) and run:  python3 setup.py")
+            sys.exit(1)
+        info(f"Creating {VENV_DIR}/ with {sys.executable} …")
+        result = _run([sys.executable, "-m", "venv", str(root / VENV_DIR)], capture_output=True, text=True)
+        if result.returncode != 0 or not target.exists():
+            fail("Could not create the virtual environment.")
+            print(f"  {DIM}{(result.stderr or '')[-500:]}{RESET}")
+            sys.exit(1)
+        success(f"Virtual environment created: {root / VENV_DIR}")
+    info(f"Continuing under {target}")
+    _env[_BOOTSTRAP_ENV] = "1"
+    argv = [str(target), str(Path(__file__).resolve()), *sys.argv[1:]]
+    if os.name == "nt":   # execv on Windows spawns and returns; wait for the child instead
+        sys.exit(_run(argv).returncode)
+    _exec(str(target), argv)
+    return False   # reached only when _exec is a test double
+
 
 # ─── ANSI Colors ─────────────────────────────────────────────────────────────
 
@@ -120,30 +207,17 @@ def spinner(text, duration=1.0):
 # ─── Setup Steps ─────────────────────────────────────────────────────────────
 
 def check_python():
-    """Verify Python version.
+    """Verify the interpreter meets the floor.
 
-    If the running interpreter is too old but a suitable venv exists in
-    the project directory, restart under that venv automatically so
-    users who cloned the repo on a system with an older global Python
-    aren't blocked.
+    bootstrap_venv() has already re-launched us inside .venv by the time this
+    runs; an old interpreter here means .venv was created by one.
     """
     v = sys.version_info
-    if v.major >= 3 and v.minor >= 10:
-        success(f"Python {v.major}.{v.minor}.{v.micro}")
+    if python_meets_floor():
+        success(f"Python {v.major}.{v.minor}.{v.micro}  ({sys.executable})")
         return
-
-    # The running Python is too old — check for a usable venv before
-    # giving up.
-    venv_python = Path(__file__).parent / ".venv" / "bin" / "python3"
-    if venv_python.exists():
-        warn(f"System Python is {v.major}.{v.minor}.{v.micro}, but .venv has a newer version.")
-        info("Restarting setup under .venv/bin/python3 …")
-        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
-        # execv replaces the process; this line is never reached.
-
-    fail(f"Python 3.10+ required. You have {v.major}.{v.minor}.{v.micro}")
-    info("Create a venv with a newer Python, or install Python 3.10+:")
-    info("  python3.12 -m venv .venv && source .venv/bin/activate && python setup.py")
+    fail(f"Python {PYTHON_FLOOR[0]}.{PYTHON_FLOOR[1]}+ required. You have {v.major}.{v.minor}.{v.micro}")
+    info(f"Delete {VENV_DIR}/ and re-run with a newer interpreter, e.g.:  python3.12 setup.py")
     sys.exit(1)
 
 
@@ -165,6 +239,19 @@ def install_dependencies():
         capture_output=True, text=True,
     )
     success("All dependencies installed")
+
+    # The package itself, editable, so the `openmatrix` command the closing
+    # banner advertises actually exists (inside .venv). Before this, setup
+    # installed only requirements.txt and the command was never created.
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        warn("Could not install the `openmatrix` command; `python -m cli` does the same job")
+        print(f"  {DIM}{result.stderr[-500:]}{RESET}")
+    else:
+        success("`openmatrix` command installed")
     return True
 
 
@@ -347,12 +434,12 @@ def configure_communications(config):
     iOS push, Webhook) can be added here at first boot — and any of them
     can be added or updated later with:
 
-        python setup_communications.py
+        python3 setup_communications.py
     """
     print(f"""
   {BOLD}How should 0pnMatrx reach you?{RESET}
   {DIM}You can enable any combination of channels. Everything is optional.{RESET}
-  {DIM}Rerun `python setup_communications.py` anytime to add more.{RESET}
+  {DIM}Rerun `python3 setup_communications.py` anytime to add more.{RESET}
 """)
 
     # Lazy imports so this works even before the repo is fully installed.
@@ -394,7 +481,7 @@ def configure_communications(config):
     # Ensure the unified "notifications" block exists even if empty.
     config.setdefault("notifications", {})
     if not config["notifications"]:
-        info("No channels configured. Add them later with: python setup_communications.py")
+        info("No channels configured. Add them later with: python3 setup_communications.py")
 
 
 def configure_extras(config):
@@ -509,7 +596,8 @@ def setup_gitignore():
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    os.chdir(Path(__file__).parent)
+    os.chdir(Path(__file__).resolve().parent)
+    bootstrap_venv()   # re-launches under .venv/bin/python3 unless already inside a venv
     banner()
 
     print(f"  {DIM}This setup will guide you through configuring 0pnMatrx.{RESET}")
@@ -586,6 +674,10 @@ def main():
     ║                                                              ║
     ╚══════════════════════════════════════════════════════════════╝
 {RESET}
+  {BOLD}Activate the environment (once per terminal):{RESET}
+
+    {CYAN}source {VENV_DIR}/bin/activate{RESET}
+
   {BOLD}Start the gateway:{RESET}
 
     {CYAN}openmatrix gateway start{RESET}        Foreground (see logs live)
@@ -611,4 +703,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if invoked_by_setuptools():
+        # A pip/setuptools build is running this file — hand over. All the
+        # package metadata lives in pyproject.toml.
+        from setuptools import setup
+        setup()
+    else:
+        sys.exit(main() or 0)
