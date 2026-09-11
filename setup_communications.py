@@ -54,6 +54,7 @@ def _relaunch_in_venv() -> None:
         sys.exit(subprocess.call(argv))
     os.execv(str(target), argv)
 
+
 # Each channel maps to its configure() function.
 CHANNELS: dict[str, tuple[str, str, Callable[[dict], dict]]] = {}
 
