@@ -14,7 +14,7 @@ version = "0.5.0"
 description = "0pnMatrx — multi-agent crypto-native platform (Trinity, Neo, Morpheus)."
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     { name = "Dardan Rexhepi", email = "242350397+ItsDardanRexhepi@users.noreply.github.com" },
 ]
@@ -26,9 +26,9 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [

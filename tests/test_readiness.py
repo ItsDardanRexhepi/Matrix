@@ -317,7 +317,10 @@ def test_the_shipped_example_config_still_has_no_key():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1]
-    cfg = _json.loads((root / "openmatrix.config.json").read_text())
+    # The SHIPPED file is the .example; openmatrix.config.json is gitignored
+    # (the wizard writes it), so reading that one passed only on a machine
+    # that had run setup — and failed in every fresh clone and in CI.
+    cfg = _json.loads((root / "openmatrix.config.json.example").read_text())
     assert not cfg.get("gateway", {}).get("api_key"), (
         "a credential was committed to the example config"
     )
