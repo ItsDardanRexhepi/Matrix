@@ -78,5 +78,5 @@ jobs:
           branch: chore/changelog-${{ steps.version.outputs.label }}
           base: main
           delete-branch: true
-          author: "Neo <242350397+ItsDardanRexhepi@users.noreply.github.com>"
-          committer: "Neo <242350397+ItsDardanRexhepi@users.noreply.github.com>"
+          author: "Dardan Rexhepi <242350397+ItsDardanRexhepi@users.noreply.github.com>"
+          committer: "Dardan Rexhepi <242350397+ItsDardanRexhepi@users.noreply.github.com>"

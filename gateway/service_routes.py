@@ -19,7 +19,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Awaitable, Callable, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from aiohttp import web
 
