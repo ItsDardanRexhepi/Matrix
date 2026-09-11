@@ -16,7 +16,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
 authors = [
-    { name = "Neo", email = "242350397+ItsDardanRexhepi@users.noreply.github.com" },
+    { name = "Dardan Rexhepi", email = "242350397+ItsDardanRexhepi@users.noreply.github.com" },
 ]
 keywords = ["blockchain", "agents", "react", "sqlite", "gateway"]
 classifiers = [
