@@ -836,7 +836,12 @@ class ServiceRoutes:
         try:
             data = await self._price_feed().eth_usd()
         except PriceUnavailable as exc:
-            _st, _err = client_error(exc, request.get("request_id"), what="Service")
+            # The documented outcome: no source reachable is a dependency
+            # failure (503), not an internal error. Without the explicit code,
+            # client_error() classified PriceUnavailable as internal_error (500)
+            # and the one branch written for this case broke the contract.
+            _st, _err = client_error(exc, request.get("request_id"), what="Service",
+                                     code="upstream_unavailable")
             return web.json_response(_err, status=_st)
         except Exception as exc:
             logger.exception("eth-usd price failed")
