@@ -342,25 +342,46 @@ class GatewayServer:
         self._morpheus = None
         self._security_flush_task: asyncio.Task | None = None
         # Security OTP services — phone verification (owner + consumer phone connect).
+        #
+        # H2's principle applied to THIS branch: a security service that fails to
+        # construct is a normal local state and an unacceptable production one.
+        # Morpheus's own production guards raise here (OPNMATRX_OTP_PEPPER unset,
+        # for one); swallowing them booted a production gateway with phone and
+        # owner verification silently off — /security/phone/* answered 503 and
+        # nothing refused. In production: refuse, naming the cause. Elsewhere:
+        # run without the surface, honestly unavailable.
         try:
             from runtime.security import OTPService, OwnerVerification  # seam → morpheus_security or no-op
             self._otp = OTPService(self.config)
             self._owner = OwnerVerification(self.config, otp_service=self._otp)
-        except Exception:
+        except Exception as exc:
+            if is_production_mode():
+                raise RuntimeError(
+                    "OPNMATRX_ENV=production but the security OTP services failed to "
+                    f"initialise: {exc}. Refusing to start rather than running with "
+                    "phone and owner verification silently unavailable. Fix the named "
+                    "cause, or unset OPNMATRX_ENV for a non-production run."
+                ) from exc
             logger.exception("Failed to initialise security OTP services")
             self._otp = None
             self._owner = None
 
         # App Attest verifier — seam-backed (real when morpheus_security is
         # installed, inert no-op otherwise). Reached only through runtime.security.
+        # If its construction raises (Morpheus's own production guards do, e.g.
+        # OPNMATRX_STATE_BACKEND=memory under production), the backend is
+        # relabelled noop and H2 below refuses — carrying THIS cause, not the
+        # generic "not installed" one, so the loudest message names the real reason.
+        self._security_backend_cause: str | None = None
         try:
             from runtime.security import get_app_attest_verifier, SECURITY_BACKEND
             self._app_attest = get_app_attest_verifier(self.config)
             self._security_backend = SECURITY_BACKEND
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to initialise App Attest verifier")
             self._app_attest = None
             self._security_backend = "noop"
+            self._security_backend_cause = f"the App Attest verifier failed to initialise: {exc}"
 
         # H2/RUN-11: production must not BOOT with no enforcement.
         #
@@ -370,14 +391,15 @@ class GatewayServer:
         # reach. If the deployment is declared production and the security core
         # is not live, the honest outcome is refusing to start: loud, at the
         # earliest possible moment, and impossible to route around.
-        from runtime.config.validation import is_production_mode
-
         if is_production_mode() and self._security_backend == "noop":
+            cause = self._security_backend_cause or (
+                "morpheus_security is not installed or failed to load"
+            )
             raise RuntimeError(
                 "OPNMATRX_ENV=production but the security backend is 'noop' — "
-                "morpheus_security is not installed or failed to load, so nothing "
-                "is enforcing. Refusing to start. Install the private security "
-                "package, or unset OPNMATRX_ENV for a non-production run."
+                f"{cause}, so nothing is enforcing. Refusing to start. Install the "
+                "private security package and fix the named cause, or unset "
+                "OPNMATRX_ENV for a non-production run."
             )
 
         # NEW-26: production must not BOOT with the credential wall down.

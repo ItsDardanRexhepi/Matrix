@@ -338,3 +338,62 @@ def test_ready_is_reachable_without_credentials():
         "/ready sits behind auth; probes cannot authenticate and the pod would "
         "never become ready"
     )
+
+
+# ── T1.1 / T1.2: a security service that fails to construct must not be swallowed
+#    in production, and H2's refusal must name the cause it refused for ──────────
+
+def test_production_refuses_to_start_when_otp_services_fail_to_initialise(monkeypatch):
+    """`OTPService(self.config)` is constructed inside `try/except Exception`
+    with `self._otp = None` on failure. Morpheus's own production guard
+    ("OPNMATRX_OTP_PEPPER is not set under production") raises there — and was
+    swallowed: the boot continued, /security/phone/* answered 503 and owner OTP
+    was silently unavailable. H2's principle on the OTP branch: in production,
+    refuse, naming the cause. (Driven in the census: entry::OTP-PEPPER-SWALLOWED.)
+    """
+    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    _with_live_security(monkeypatch)
+
+    def _pepper_missing(*_a, **_k):
+        raise RuntimeError(
+            "OPNMATRX_OTP_PEPPER is not set under production. A stable pepper is required."
+        )
+    monkeypatch.setattr("runtime.security.OTPService", _pepper_missing, raising=False)
+
+    with pytest.raises(RuntimeError, match=r"OTP.*OPNMATRX_OTP_PEPPER|OPNMATRX_OTP_PEPPER.*OTP"):
+        GatewayServer(PROD_CONFIG)
+
+
+def test_development_runs_without_otp_when_its_service_fails_to_initialise(monkeypatch):
+    """The other direction — a developer without the pepper still gets a gateway,
+    with the OTP surface honestly unavailable (503), not a refusal."""
+    monkeypatch.delenv("OPNMATRX_ENV", raising=False)
+
+    def _pepper_missing(*_a, **_k):
+        raise RuntimeError("OPNMATRX_OTP_PEPPER is not set under production.")
+    monkeypatch.setattr("runtime.security.OTPService", _pepper_missing, raising=False)
+
+    server = GatewayServer(SWEEP_CONFIG)
+    assert server._otp is None and server._owner is None
+
+
+def test_h2_refusal_names_the_cause_that_flipped_the_backend_to_noop(monkeypatch):
+    """When the App Attest verifier's own production guard raises (for example
+    "OPNMATRX_STATE_BACKEND=memory under production"), the gateway relabels the
+    backend `noop` and H2 refuses — but its message said "morpheus_security is
+    not installed or failed to load", naming the wrong cause at the loudest
+    moment. The refusal is right; the message must carry the real reason.
+    (Driven in the census: entry::DEPLOY-DRIVE.)
+    """
+    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    _with_live_security(monkeypatch)
+
+    def _store_refused(*_a, **_k):
+        raise RuntimeError(
+            "OPNMATRX_STATE_BACKEND=memory under production. The in-memory store is "
+            "single-node and loses state on restart. Set OPNMATRX_STATE_BACKEND=redis or sql."
+        )
+    monkeypatch.setattr("runtime.security.get_app_attest_verifier", _store_refused, raising=False)
+
+    with pytest.raises(RuntimeError, match=r"OPNMATRX_STATE_BACKEND=memory"):
+        GatewayServer(PROD_CONFIG)
