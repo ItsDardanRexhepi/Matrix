@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import time
 import uuid
 from typing import Any
@@ -108,6 +109,16 @@ class StablecoinService:
                 "error": f"Unsupported token: {token}. Supported: {sorted(self.supported_tokens)}",
             }
 
+        # DOMAIN 15-D — NaN DEFEATS EVERY COMPARISON GUARD BELOW.
+        # `amount <= 0` is False for NaN, and so is `sender_balance < amount`,
+        # so an UNFUNDED address walked both checks and credited a recipient a
+        # real amount on the next call, having poisoned the ledger with NaN.
+        # This must come BEFORE the sign check, not after: ordering is the whole
+        # fix, since a NaN reaching any `<`/`<=` silently answers False.
+        # json.loads accepts a bare `NaN` literal, so this arrived over HTTP.
+        if not math.isfinite(amount):
+            return {"status": "error", "error": "Amount must be a finite number"}
+
         if amount <= 0:
             return {"status": "error", "error": "Amount must be positive"}
 
@@ -167,9 +178,38 @@ class StablecoinService:
         # Record in rate limiter
         await self._rate_limiter.record_transfer(from_addr, amount)
 
+        # DOMAIN 15-A — "recorded", NOT "completed". NO VALUE LEAVES THIS PROCESS.
+        # `_balances` is a plain in-process dict. There is no signer, no RPC, no
+        # chain write and no tx_hash anywhere in this service; the debit and
+        # credit below move numbers in memory.
+        #
+        # THE NEW-85 TEST, APPLIED: strip the outcome claim — is there work left?
+        # YES, and a lot: tiered fee arithmetic, a real rate limiter that blocks,
+        # and a balance tracker recording inflow/outflow. So this is category 6
+        # (real-local-defective), the custody claim was the only fabricated part,
+        # and the disposition is VOCABULARY, not removal — the same treatment
+        # `cross_border.send_payment` received under NEW-85, whose test
+        # (tests/test_cross_border_send_honesty.py) was scoped to that service by
+        # name and so could never have caught this one. A finding about a pattern
+        # closed by a test about an instance: the RUN-4 shape, again.
+        #
+        # LIFTING CONDITION — what would license "completed" again:
+        #   1. a real settlement leg (ERC-20 transfer or a custodian call) whose
+        #      RESULT sets the status, and
+        #   2. that leg credential-gated with an honest refusal when unconfigured,
+        #      and
+        #   3. the recipient verifiably credited — status DERIVED from the
+        #      settlement result, never asserted alongside it.
         transfer_record = {
             "transfer_id": transfer_id,
-            "status": "completed",
+            "status": "recorded_unsettled",
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "RECORDED, NOT SETTLED. This service keeps an in-process ledger; "
+                "no on-chain transfer was submitted and no tx_hash exists. The "
+                "balances shown are internal bookkeeping only."
+            ),
             "token": token,
             "from": from_addr,
             "to": to_addr,
@@ -183,8 +223,16 @@ class StablecoinService:
         }
         self._transfers.append(transfer_record)
 
+        # DOMAIN 15-E — was "Transfer completed". AN OPERATOR READING LOGS IS A
+        # SURFACE TOO; inert means inert on every surface. 15-A rewrote the
+        # response and left this line asserting the settlement the response now
+        # denies, so one transfer_id joined a record saying settled=False to a
+        # log line saying completed. The cited template (cross_border.send_payment,
+        # NEW-85) fixed BOTH surfaces in one change; copying the disposition and
+        # not the surface list is how the fix half-landed.
         logger.info(
-            "Transfer completed: id=%s %s %.6f %s -> %s (fee=%.6f, net=%.6f)",
+            "Transfer RECORDED (NOT settled — no value moved): "
+            "id=%s %s %.6f %s -> %s (fee=%.6f, net=%.6f)",
             transfer_id, token, amount, from_addr, to_addr, fee, net_amount,
         )
         return transfer_record
@@ -231,6 +279,12 @@ class StablecoinService:
         Returns:
             Dict with fee amount, rate, and tier description.
         """
+        # DOMAIN 15-D, SAME AXIS. `amount < threshold` is False for NaN on every
+        # tier, so a NaN fell through the whole tier loop to the "maximum" tier
+        # and returned fee=NaN as though it had classified the amount.
+        if not math.isfinite(amount):
+            return {"fee": 0.0, "rate": 0.0, "tier": "invalid", "amount": amount}
+
         if amount <= 0:
             return {"fee": 0.0, "rate": 0.0, "tier": "invalid", "amount": amount}
 
@@ -257,7 +311,60 @@ class StablecoinService:
         }
 
     def set_balance(self, address: str, token: str, amount: float) -> None:
-        """Set a balance directly (for funding/testing)."""
+        """Set a balance directly. TEST/FUNDING ONLY — refuses outside tests.
+
+        DOMAIN 15-C. This is an ARBITRARY MINT on a stablecoin ledger: any
+        address, any token, any amount, no authorisation, no audit record. It had
+        zero callers and no ACTION_MAP entry, so it was not live — but that is
+        the `migrate_members` shape, and the ruling there applies verbatim: AN
+        INERT PRIMITIVE ONE LINE FROM LIVE IS NOT SAFE, IT IS UNATTENDED. One
+        ACTION_MAP entry, no config change, no gate to notice.
+
+        NOT DELETED, because it is the only INTENDED way to fund the ledger —
+        removing it would destroy the test path. Gated instead, which keeps the
+        funding path and removes the unattended mint.
+
+        ── CORRECTION, 15-D. THE SENTENCE THAT USED TO BE HERE WAS FALSE. ──
+
+        This docstring claimed set_balance was "the ONLY thing that funds the
+        ledger", and concluded that 15-A was DISARMED BY ABSENCE OF A FUNDING
+        PATH. Both statements were wrong, and a test I wrote in the same commit
+        pinned the second one.
+
+        `transfer` funds the ledger too, for an address with no balance at all:
+        `amount = NaN` makes `amount <= 0` False AND `sender_balance < amount`
+        False, so an unfunded sender walked every guard, wrote NaN into three
+        ledger entries, and on the NEXT call credited a recipient 39,990 USDC —
+        driven end to end through the live ACTION_MAP path, since json.loads
+        accepts a bare `NaN` literal off the wire.
+
+        So 15-A was ARMED, not disarmed, and this gate narrowed the unattended
+        mints from two to one rather than closing the class. The remaining one is
+        closed by the `math.isfinite` guard in `transfer` above.
+
+        WHAT THE ERROR WAS, since it is the transferable part: I verified the
+        premise by driving ONE path (an unfunded transfer of a valid amount
+        returns "Insufficient balance") and generalised it to ALL paths. An
+        absence claim — "nothing can fund this" — is a statement about every
+        input, and a single well-formed input cannot establish it. The standing
+        rule says absence claims are adjudicated, never assumed; I adjudicated
+        this one against a sample of size one and wrote a test that pinned it.
+        """
+        import os
+        import sys
+
+        if not (
+            "PYTEST_CURRENT_TEST" in os.environ
+            or "pytest" in sys.modules
+            or os.environ.get("OPENMATRIX_ALLOW_TEST_MINT") == "1"
+        ):
+            raise RuntimeError(
+                "set_balance is a test-only funding helper and is an arbitrary "
+                "mint on a stablecoin ledger. It is refused outside the test "
+                "environment. To fund balances in a real deployment, build a "
+                "credential-gated issuance path with an audit record."
+            )
+
         token = token.upper()
         self._balances.setdefault(address, {})[token] = amount
         logger.debug("Balance set: %s %s = %.6f", address, token, amount)
@@ -270,8 +377,21 @@ class StablecoinService:
     def _generate_transfer_id(
         from_addr: str, to_addr: str, amount: float, token: str
     ) -> str:
+        # DOMAIN 15-A — THE PREFIX WAS A CLAIM. This returned
+        # `"tx_" + sha256(...)` — locally-generated randomness formatted to read
+        # as a chain transaction hash. A uuid is OPAQUE and asserts nothing;
+        # `tx_63db0c44...` asserts provenance BY ITS FORM, to anyone who sees it
+        # in a UI, a support ticket or a screenshot, without reading the status
+        # field we have been auditing.
+        #
+        # THIRD DETECTION AXIS, and neither existing detector covers it: D6 finds
+        # the METHOD SHAPE (uuid-mint-no-await), D7 finds the CLAIM (what a method
+        # says it did). Neither looks at the FORMAT OF THE IDENTIFIER. Measured
+        # repo-wide: 17 origin-asserting identifiers built from local randomness
+        # across 10 files (0x addresses, ar_ Arweave ids, 0x proof hashes), so it
+        # is a class, not this instance. Registered for a Phase-6 sweep.
         raw = f"{from_addr}:{to_addr}:{amount}:{token}:{time.time()}:{uuid.uuid4().hex}"
-        return "tx_" + hashlib.sha256(raw.encode()).hexdigest()[:24]
+        return "ledger_" + hashlib.sha256(raw.encode()).hexdigest()[:24]
 
     @staticmethod
     def _tier_label(threshold: float) -> str:

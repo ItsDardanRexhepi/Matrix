@@ -10,7 +10,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("SMS (Twilio) Setup")
     existing = config.get("notifications", {}).get("sms", {})
     info_txt = (
@@ -30,7 +30,7 @@ def configure(config: dict) -> dict:
         "from_number": from_num, "to_number": to_num,
     }
     update_channel(config, "sms", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({
         "TWILIO_ACCOUNT_SID": sid,
         "TWILIO_AUTH_TOKEN": token,

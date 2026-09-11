@@ -1,18 +1,108 @@
-"""Deletion Executor - Component 29.
+"""Deletion Executor - Component 29 — OFFLINE (NEW-38).
 
-Executes data deletion requests by removing off-chain data and marking
-on-chain records as deleted. Attests deletion completion via Component 8.
+This module used to claim it "executes data deletion requests by removing
+off-chain data and marking on-chain records as deleted", and to attest that
+completion via Component 8. It did neither. It is now offline: every entry
+point refuses, and no entry point can report success.
+
+WHAT IT ACTUALLY DID
+--------------------
+`execute_deletion` walked a hardcoded nine-item list of category NAMES
+("profile_data", "message_history", ...), and for each one computed
+`sha256(f"{request_id}:{category}:{now}")` and appended
+`{"category": ..., "status": "deleted", "deletion_hash": ...}`. No database,
+no object store, no cache, no chain. Its own comments said so:
+"Simulate deletion of each data type", "In production, this would iterate
+over actual data stores".
+
+The `try` block contained only a hash computation, so `failed_items` could
+never populate, so `success = len(failed_items) == 0` was unconditionally
+True. It reported `"total_deleted": 9` and `"on_chain_status":
+"marked_deleted"` for a user whose data it had never looked for. Reproduced
+end-to-end against an address that has no data anywhere on the platform:
+
+    request_deletion -> request_id=del_947a4c5d0f05, status=pending
+    (elapse cooldown — the only gate)
+    execute_deletion  -> success=True, total_deleted=9, total_failed=0,
+                         on_chain_status='marked_deleted',
+                         request status -> 'completed'
+
+`verify_deletion` then read the same in-memory dict the fake write had just
+populated, concluded `all_verified=True` because each item said "deleted",
+and minted `attestation_uid = f"attest_{uuid4().hex[:16]}"` labelled
+"Component 8 (EAS Attestation)". It was not an attestation; it was a random
+hex string. The pair is the pattern: **a fabricated operation plus a
+fabricated attestation certifying it.** Each one is the other's evidence, so
+neither looks like a stub from the inside.
+
+WHY OFFLINE RATHER THAN FIXED
+-----------------------------
+Real erasure is not a code gap — it is an inventory of every store that
+holds user data, a per-store delete path, and a legal review of what may be
+erased versus what must be retained. That is a project, not a patch, and it
+is the owner's call to schedule. Until then the honest answer to "delete my
+data" is that the platform cannot do it yet, which is a defensible position;
+telling a user their data is gone when it is not is not.
+
+Nothing was drained from the queue in the meantime: `execute_pending_deletion`
+had no internal callers, no cron, and no scheduler, so requests sat in
+`_deletion_requests` until the process died.
+
+CONSTRAINT ON ANY REVIVAL
+-------------------------
+`tests/test_deletion_executor_offline.py` asserts that no path obtains
+`success: true` from this class. Restoring a success-shaped return requires
+that test to be rewritten against a real deletion, with a store that can be
+checked for absence afterwards. Do not re-enable this by deleting the test.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import time
-import uuid
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# NEW-38: the single refusal reason, shared by every entry point so no
+# surface can drift into a softer story than the others.
+_OFFLINE_MESSAGE = (
+    "Data deletion is not available. The platform does not currently have a "
+    "verified erasure path across its data stores, and it will not report a "
+    "deletion it did not perform. No data has been deleted by this call."
+)
+
+
+def _offline(entry_point: str, request_id: str | None = None) -> dict:
+    """The refusal. Never success-shaped, on any surface.
+
+    `status: "error"` + `error_category: "not_implemented"` is the shape the
+    gateway already maps to HTTP 501 (`_ERROR_CATEGORY_HTTP` in
+    gateway/service_routes.py), matching /api/v1/contracts/deploy. Both
+    "error" and "unavailable" are in `_FAILURE_STATUSES`, so the RUN-4
+    envelope refuses to dress this as a 200; 501 is preferred over 503
+    because 503 implies "retry later" and there is nothing to retry.
+
+    `success: False` is explicit rather than merely absent: the previous
+    caller branched on `exec_result.get("success")`, and a missing key
+    happening to be falsy is a coincidence, not a guarantee.
+    """
+    response: dict[str, Any] = {
+        "status": "error",
+        "error_category": "not_implemented",
+        "success": False,
+        "error": "deletion_not_implemented",
+        "message": _OFFLINE_MESSAGE,
+        "entry_point": entry_point,
+        "deleted_items": [],
+        "failed_items": [],
+        "total_deleted": 0,
+        "total_failed": 0,
+        "on_chain_status": "none",
+        "attestation_uid": None,
+    }
+    if request_id is not None:
+        response["request_id"] = request_id
+    return response
 
 # Data types that cannot be deleted under certain conditions
 UNDELETABLE_CONDITIONS = {
@@ -37,157 +127,97 @@ class DeletionExecutor:
         logger.info("DeletionExecutor initialised")
 
     async def execute_deletion(self, request_id: str) -> dict:
-        """Execute a deletion request.
+        """OFFLINE (NEW-38) — refuses. Deletes nothing and says so.
 
-        Removes off-chain data and marks on-chain records as deleted.
+        The refusal lives HERE, in the executor, rather than only in the
+        callers. Two of the six frames this engagement has already broken
+        were caller-enumeration frames: a route can exist that no one
+        registered, and an action can be reachable through a tool surface
+        nobody thought to check. Disabling the callers I could find would
+        leave the guarantee resting on my enumeration being complete. A
+        refusal at the leaf holds for callers that do not exist yet.
 
-        Args:
-            request_id: The deletion request to execute.
-
-        Returns:
-            Dict with success status and details of what was deleted.
+        Nothing is recorded in `self._executions`, so `verify_deletion` and
+        `get_execution_status` have nothing to build a story on top of.
         """
         if not request_id:
             raise ValueError("request_id is required")
 
-        execution_id = f"exec_{uuid.uuid4().hex[:12]}"
-        now = time.time()
-
-        # Simulate deletion of each data type
-        deleted_items = []
-        failed_items = []
-
-        # In production, this would iterate over actual data stores
-        data_categories = [
-            "profile_data",
-            "message_history",
-            "transaction_records",
-            "social_posts",
-            "loyalty_points",
-            "subscription_records",
-            "marketplace_listings",
-            "cashback_records",
-            "brand_reward_records",
-        ]
-
-        for category in data_categories:
-            try:
-                # Simulate deletion (in production: actual DB/storage operations)
-                deletion_hash = hashlib.sha256(
-                    f"{request_id}:{category}:{now}".encode()
-                ).hexdigest()
-                deleted_items.append({
-                    "category": category,
-                    "status": "deleted",
-                    "deletion_hash": deletion_hash,
-                    "deleted_at": now,
-                })
-            except Exception as e:
-                failed_items.append({
-                    "category": category,
-                    "status": "failed",
-                    "error": str(e),
-                })
-                logger.error("Failed to delete %s for request %s: %s", category, request_id, e)
-
-        success = len(failed_items) == 0
-
-        execution = {
-            "execution_id": execution_id,
-            "request_id": request_id,
-            "success": success,
-            "deleted_items": deleted_items,
-            "failed_items": failed_items,
-            "total_deleted": len(deleted_items),
-            "total_failed": len(failed_items),
-            "started_at": now,
-            "completed_at": time.time(),
-            "on_chain_status": "marked_deleted",
-        }
-
-        self._executions[request_id] = execution
-
-        if success:
-            logger.info(
-                "Deletion execution %s completed: %d items deleted",
-                execution_id, len(deleted_items),
-            )
-        else:
-            logger.warning(
-                "Deletion execution %s partial: %d deleted, %d failed",
-                execution_id, len(deleted_items), len(failed_items),
-            )
-
-        return execution
+        logger.warning(
+            "execute_deletion refused for request %s — deletion is OFFLINE "
+            "(NEW-38); no data store was touched",
+            request_id,
+        )
+        return _offline("execute_deletion", request_id)
 
     async def verify_deletion(self, request_id: str) -> dict:
-        """Verify that deletion was completed successfully.
+        """OFFLINE (NEW-38) — refuses. Mints no attestation.
 
-        Checks that all data has been removed and creates an on-chain
-        attestation of deletion via Component 8.
+        This was the second half of the pair: it read back the dict the fake
+        write had just populated, found every item marked "deleted", and
+        issued a random hex string as an EAS attestation UID. There is
+        nothing to verify and no attestation to make.
 
-        Args:
-            request_id: The deletion request to verify.
+        It refuses unconditionally rather than relying on `_executions` being
+        empty. An empty dict is a consequence of the executor above; if a
+        future caller populates `_executions` directly, an
+        absence-based refusal would quietly start attesting again.
+        """
+        logger.warning(
+            "verify_deletion refused for request %s — deletion is OFFLINE "
+            "(NEW-38); no attestation was created",
+            request_id,
+        )
+        return _offline("verify_deletion", request_id)
 
-        Returns:
-            Verification record with attestation UID.
+    async def get_execution_status(self, request_id: str) -> dict:
+        """Report that no execution exists — which is now always the truth.
+
+        The first version of this kept the old relay branch, reasoning that
+        "`_executions` can no longer be populated by this class, so
+        'not_started' is accurate for every request_id."
+
+        That is absence-based reasoning — the exact argument this module
+        rejects two methods above for `verify_deletion`, applied here without
+        noticing. An adversarial pass demonstrated the cost: give
+        `execute_deletion` a body that returns the honest refusal but ALSO
+        writes `{"success": True, "total_deleted": 2}` into `self._executions`,
+        and this method relays `{"status": "executed", "execution": {"success":
+        True, ...}}` to any caller — a fabricated deletion, served by the
+        module that refuses to fabricate deletions, with the pin test still
+        green.
+
+        So it no longer relays. A stored record is reported as PRESENT without
+        reproducing its claims, and flagged, because under NEW-38 nothing
+        legitimate writes that dict: anything in there is a bug or a
+        resurrection attempt, and the honest response is to say so rather than
+        to pass its contents along as status.
         """
         execution = self._executions.get(request_id)
         if not execution:
-            raise ValueError(f"No execution found for request '{request_id}'")
+            return {
+                "request_id": request_id,
+                "status": "not_started",
+                "deletion_available": False,
+                "message": _OFFLINE_MESSAGE,
+            }
 
-        now = time.time()
-        verification_id = f"verify_{uuid.uuid4().hex[:12]}"
-
-        # Verify each deleted item
-        verification_results = []
-        all_verified = True
-
-        for item in execution["deleted_items"]:
-            # In production: verify data is actually gone from all stores
-            verified = item["status"] == "deleted"
-            verification_results.append({
-                "category": item["category"],
-                "verified": verified,
-                "verification_hash": hashlib.sha256(
-                    f"verify:{item['deletion_hash']}:{now}".encode()
-                ).hexdigest(),
-            })
-            if not verified:
-                all_verified = False
-
-        # Create attestation UID (Component 8 integration)
-        attestation_uid = f"attest_{uuid.uuid4().hex[:16]}" if all_verified else None
-
-        verification = {
-            "verification_id": verification_id,
-            "request_id": request_id,
-            "execution_id": execution["execution_id"],
-            "all_verified": all_verified,
-            "verification_results": verification_results,
-            "attestation_uid": attestation_uid,
-            "attested_via": "Component 8 (EAS Attestation)" if attestation_uid else None,
-            "verified_at": now,
-        }
-
-        self._verifications[request_id] = verification
-
-        logger.info(
-            "Deletion verification %s: all_verified=%s, attestation=%s",
-            verification_id, all_verified, attestation_uid,
+        logger.error(
+            "get_execution_status found a stored execution record for %s while "
+            "deletion is OFFLINE (NEW-38). Nothing should populate _executions; "
+            "its contents are NOT being reported as a deletion.",
+            request_id,
         )
-        return verification
-
-    async def get_execution_status(self, request_id: str) -> dict:
-        """Get the current execution status for a request."""
-        execution = self._executions.get(request_id)
-        if not execution:
-            return {"request_id": request_id, "status": "not_started"}
-
-        verification = self._verifications.get(request_id)
         return {
             "request_id": request_id,
-            "status": "verified" if verification else "executed",
-            "execution": execution,
-            "verification": verification,
+            "status": "error",
+            "error_category": "not_implemented",
+            "success": False,
+            "deletion_available": False,
+            "unexpected_execution_record": True,
+            "message": (
+                "An execution record exists for this request, but data deletion "
+                "is not available and no deletion was performed. The record is "
+                "not evidence of a deletion. " + _OFFLINE_MESSAGE
+            ),
         }

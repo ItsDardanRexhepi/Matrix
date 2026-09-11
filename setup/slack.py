@@ -10,7 +10,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("Slack Setup")
     existing = config.get("notifications", {}).get("slack", {})
     url = ask(
@@ -25,7 +25,7 @@ def configure(config: dict) -> dict:
         return {}
     channel_cfg = {"webhook_url": url}
     update_channel(config, "slack", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({"SLACK_WEBHOOK_URL": url})
     result = test_channel_via_dispatcher(config, "slack")
     if result.get("status") == "ok":

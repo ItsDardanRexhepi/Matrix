@@ -16,6 +16,8 @@ import math
 import time
 from typing import Any
 
+from runtime.blockchain.services.nft_services._guards import require_finite_amount
+
 logger = logging.getLogger(__name__)
 
 # Weight factors for valuation components
@@ -86,11 +88,21 @@ class ValuationEngine:
             recent = sorted(sales, key=lambda s: s["timestamp"], reverse=True)[:10]
             recent_avg = sum(s["price"] for s in recent) / len(recent)
 
-        # Rarity (placeholder — real implementation uses get_rarity_score)
-        rarity_multiplier = 1.0
-
-        # Creator reputation
-        creator_rep = 0.5  # neutral default
+        # NEW-92. Rarity and creator reputation are NOT MEASURED. They are
+        # neutral constants, and they carry 0.30 + 0.15 of the declared weight
+        # while floor carries a further 0.25 from a store whose only writer
+        # (update_floor_price) has zero callers. So up to 70% of a "weighted
+        # multi-factor" valuation can rest on nothing observed.
+        #
+        # These are NOT wired here. Wiring update_floor_price/update_creator_score
+        # would move this from visibly low-confidence to CONFIDENTLY WRONG over a
+        # scoring path no one has validated, and estimate_value returns a price a
+        # user acts on immediately — unlike a risk score, which only gates
+        # eligibility. Arming dead machinery is worse here than leaving it dead.
+        #
+        # What changes instead: the response now SAYS which factors carry data.
+        rarity_multiplier = 1.0   # constant, not measured
+        creator_rep = 0.5         # constant, not measured
 
         # Weighted valuation
         components: dict[str, float] = {}
@@ -130,11 +142,58 @@ class ValuationEngine:
             has_volume=volume > 0,
         )
 
+        # NEW-92: name the evidence rather than let the caller infer it from a
+        # number. `measured_factors` is derived from the stores, never asserted.
+        measured = {
+            "floor_price": floor > 0,
+            "recent_sales": recent_avg > 0,
+            "collection_volume": volume > 0,
+            "rarity": False,             # constant 1.0 — never measured
+            "creator_reputation": False,  # constant 0.5 — never measured
+        }
+        measured_weight = sum(
+            self._weights[k] for k, ok in measured.items() if ok
+        )
+        unmeasured = sorted(k for k, ok in measured.items() if not ok)
+
         result = {
             "collection": collection,
             "token_id": token_id,
             "estimated_value_eth": round(estimated_value, 6),
             "confidence": confidence,
+            # NEW-92 — the deliberate part. The 0.6 ceiling used to be an
+            # ACCIDENT of `has_floor` never being true; an accident is not a
+            # control and would not survive someone "improving" the cap.
+            "measured_factors": measured,
+            "measured_weight_fraction": round(measured_weight, 4),
+            "unmeasured_factors": unmeasured,
+            "disclosure": (
+                # 17-C / §AH — A CORRECT PRIOR FIX MAKING A LATER DEFECT MORE
+                # CONVINCING. NEW-92 honestly flagged the three UNMEASURED
+                # factors, and a diligent reader discounts those and leans on
+                # the remainder. The remainder is `recent_sales` +
+                # `collection_volume`, both fed by `record_sale`, whose only
+                # production caller passes the CALLER-SUPPLIED `sale_price`
+                # (17-A). So the disclosure earned the reader's confidence and
+                # spent it on the one component the caller controls.
+                #
+                # NEW-92 asked which factors carry data. Nobody asked whether
+                # the factor that carries data can be trusted. Disclosing the
+                # measured/unmeasured split is not enough: the split makes an
+                # implicit claim it never verified, that "measured" means
+                # "reliable".
+                f"{round(measured_weight * 100)}% of the declared weight is "
+                f"backed by observed data — and that observed data is sale "
+                f"prices REPORTED BY CALLERS, not verified against any chain "
+                f"receipt, escrow or oracle. Treat the measured share as "
+                f"self-reported, not as independent evidence. These factors are "
+                f"NOT measured and contribute constants: {', '.join(unmeasured)}. "
+                "Treat this as an indication, not a price."
+                if unmeasured else
+                ("All declared factors are backed by observed data — which for "
+                 "recent_sales and collection_volume means CALLER-REPORTED "
+                 "sale prices, not independently verified ones.")
+            ),
             "confidence_label": self._confidence_label(confidence),
             "factors": {
                 "floor_price_eth": floor,
@@ -187,6 +246,34 @@ class ValuationEngine:
             Keys: ``rarity_score``, ``rank_estimate``, ``trait_scores``,
             ``rarest_trait``.
         """
+        # C3 / §U — THE SIXTH SELF-ATTESTATION INSTANCE. Measured: the body of
+        # this method contains ZERO `self.` references (enumerated over exactly
+        # those lines) — it reads only its four parameters, so THE REQUESTER
+        # DECIDES HOW RARE THEIR OWN NFT IS. `count: 1` on a supply of 10000
+        # returns rarity 100.0 / rank ~1; `count: 50` returns 53.76 / rank 4623.
+        # There is no trait-distribution index anywhere in the repo to check
+        # against — no store on either side can contradict the claim.
+        #
+        # As with 17-A, there is nothing to verify against, so the fix is
+        # PROVENANCE, not verification. Inventing a check against an index that
+        # does not exist would fabricate a control.
+        #
+        # The unvalidated arithmetic IS fixed, because that needs no external
+        # source: counts must be finite, positive, and no larger than the supply
+        # they are a count within. Pre-fix `count: 0` returned rarity 250.0 on a
+        # declared "0-100 scale", `count: -5` the same, and `count: 100000` with
+        # `total_supply: 100` returned -150.0 with rank_estimate 250 — a rank
+        # larger than the supply it ranks within.
+        total_supply = require_finite_amount(total_supply, "total_supply")
+        for _t, _cfg in (traits or {}).items():
+            if isinstance(_cfg, dict) and _cfg.get("count") is not None:
+                _c = require_finite_amount(_cfg["count"], f"traits[{_t}].count")
+                if _c > total_supply:
+                    raise ValueError(
+                        f"traits[{_t}].count ({_c}) exceeds total_supply "
+                        f"({total_supply}) — a count cannot exceed the supply "
+                        f"it is a count within"
+                    )
         if total_supply <= 0:
             raise ValueError("total_supply must be positive")
 
@@ -221,8 +308,44 @@ class ValuationEngine:
         rank_estimate = max(1, int(total_supply * (1 - normalised_score / 100)))
 
         result = {
+
+            # C3 / §U: every input to this score — the trait counts and the supply
+
+            # — is supplied by the requester, and no trait-distribution index
+
+            # exists in this repo to check them against. Arithmetic on the
+
+            # caller's own numbers, disclosed as such rather than verified.
+
+            "inputs_source": "caller_asserted",
+
+            "inputs_verified": False,
+
+            "rarity_disclosure": (
+
+                "rarity_score and rank_estimate are computed ENTIRELY from the "
+
+                "trait counts and total_supply supplied in this request, and "
+
+                "have NOT been verified against any collection index."
+
+            ),
             "collection": collection,
             "token_id": token_id,
+            # C3 / §U — THE SIXTH SELF-ATTESTATION INSTANCE. Every input to this
+            # score is supplied by the requester, and no trait-distribution
+            # index exists anywhere in the repo to check them against, so the
+            # score is arithmetic on the caller's own numbers. As with 17-A the
+            # fix is PROVENANCE, not verification: inventing a check against an
+            # index that does not exist would fabricate a control.
+            "inputs_source": "caller_asserted",
+            "inputs_verified": False,
+            "rarity_disclosure": (
+                "rarity_score and rank_estimate are computed ENTIRELY from the "
+                "trait counts and total_supply supplied in this request, and "
+                "have NOT been verified against any collection index. Treat "
+                "them as the requester's claim, not an independent ranking."
+            ),
             "rarity_score": round(normalised_score, 2),
             "raw_score": round(total_score, 4),
             "rank_estimate": rank_estimate,
@@ -246,6 +369,11 @@ class ValuationEngine:
     ) -> None:
         """Record a sale for valuation tracking."""
         key = f"{collection}:{token_id}"
+        # 17-B. A NaN price here is PERMANENT: it lands in `_sales_history`
+        # and is added into `_collection_volumes`, and every later
+        # `estimate_value` averages it, so one bad call poisons the collection's
+        # valuation for the process lifetime. Guarded at the writer.
+        price = require_finite_amount(price, "price")
         sales = self._sales_history.setdefault(key, [])
         sales.append({
             "price": price,

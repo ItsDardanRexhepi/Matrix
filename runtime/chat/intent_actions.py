@@ -45,25 +45,52 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
     },
 
+    # NEW-12: deployment is NOT implemented (see RUN-2 —
+    # /api/v1/contracts/deploy returns 501, and `deploy_contract` was removed
+    # from ACTION_MAP). This entry is deliberately KEPT rather than deleted, but
+    # it no longer offers a capability:
+    #
+    #   * It has no `action_name`, so nothing can dispatch it. An agent reading
+    #     this table cannot call platform_action(action='deploy_contract') —
+    #     there is no action to call.
+    #   * `unavailable: True` and the description say plainly that it does not
+    #     work, so the model is never told it can deploy.
+    #   * The keywords stay so "deploy my contract" is still RECOGNISED.
+    #     Deleting the entry would make the request match nothing, and a silent
+    #     non-match is its own dead-end — the user asks and gets a shrug.
+    #   * `follow_up` is the honest answer, and it points at what does work.
+    #
+    # This is product copy, flagged for revision.
     "deploy_contract": {
-        "action_name": "deploy_contract",
-        "description": "Deploy a smart contract to a blockchain.",
-        "required_params": [
-            {"name": "source_code", "type": "string", "description": "The source code of the contract to deploy.", "example": "pragma solidity ^0.8.0; contract MyToken { ... }"},
-            {"name": "source_lang", "type": "string", "description": "Language of the contract (solidity, vyper, rust, move, etc.).", "example": "solidity"},
-            {"name": "target_chain", "type": "string", "description": "Blockchain to deploy to.", "example": "ethereum"},
-        ],
-        "optional_params": [
-            {"name": "constructor_args", "type": "array", "description": "Arguments for the contract constructor.", "default": []},
-            {"name": "optimize", "type": "boolean", "description": "Apply gas optimizations.", "default": True},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY: none. This entry never fabricated anything —
+            # 0pnMatrx has genuinely never deployed contracts, and this
+            # description has always stated the boundary rather than a post-
+            # mortem. It is one of the two worked examples the sanitisation rule
+            # was derived FROM.
+            #
+            # RE-ENABLE BAR: there is nothing to re-enable. If deployment is
+            # ever built, this stops being an `unavailable` entry entirely and
+            # gains an action_name.
+            "NOT AVAILABLE — 0pnMatrx does not deploy contracts. It generates "
+            "Solidity scaffolding from a structured declaration; deploying it is "
+            "a separate step the user performs with their own tooling and signer."
+        ),
+        "required_params": [],
+        "optional_params": [],
         "keywords": ["deploy contract", "deploy smart contract", "publish contract", "launch contract", "put contract on chain", "deploy to ethereum", "deploy to solana"],
-        "follow_up": "I can deploy your contract. Please share the source code, what language it's in, and which blockchain you'd like to deploy to.",
+        "follow_up": (
+            "I can't deploy contracts — that isn't supported yet, and I won't "
+            "pretend otherwise. What I can do is convert your contract into "
+            "Solidity for you, which you can then deploy with your own wallet "
+            "and tooling. Want me to do that?"
+        ),
         "example_conversation": (
             "User: Deploy my token contract to Ethereum\n"
-            "Trinity: Got it! Please share the contract source code and I'll deploy it to Ethereum for you.\n"
-            "User: [pastes Solidity code]\n"
-            "Trinity: [calls platform_action with action='deploy_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'ethereum'}]"
+            "Trinity: I can't deploy contracts yet — that isn't supported. "
+            "I can convert your contract to Solidity so you can deploy it "
+            "yourself. Want me to do that?"
         ),
     },
 
@@ -661,19 +688,35 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "query_attestations": {
-        "action_name": "query_attestations",
-        "description": "Query attestations by schema, attester, or recipient.",
-        "required_params": [],
-        "optional_params": [
-            {"name": "schema_uid", "type": "string", "description": "Filter by schema.", "default": None},
-            {"name": "attester", "type": "string", "description": "Filter by attester address.", "default": None},
-            {"name": "recipient", "type": "string", "description": "Filter by recipient address.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48b). It returned the text of a GraphQL query as if
+            #   it were the query results, so any caller checking the result
+            #   length concluded attestations had been found.
+            #
+            # RE-ENABLE BAR: Do not restore until a subgraph reader actually
+            # executes the query and returns its results.
+            "NOT AVAILABLE — 0pnMatrx has no EAS subgraph reader, so attestations cannot be searched."
+        ),
         "keywords": ["find attestations", "search attestations", "list attestations", "my attestations", "query attestations"],
-        "follow_up": "Would you like to filter by schema, attester, or recipient?",
-        "example_conversation": (
-            "User: Show me all my attestations\n"
-            "Trinity: [calls platform_action with action='query_attestations', params={}]"
+        "follow_up": (
+            "I can't search attestations — 0pnMatrx has no attestation index. "
+            # EXISTENCE IS NOT THE TEST; CONFIGURATION IS. `attestation.verify`
+            # is real code, but under the shipped config it returns "Missing EAS
+            # config: rpc_url, eas_contract, eas_schema, paymaster_private_key,
+            # platform_wallet". Offering it unconditionally promised a user
+            # something a fresh deployment cannot do — the same shape as
+            # available=False not meaning unreachable, one layer up: the thing
+            # exists and the user still cannot have it. The condition is now
+            # named, as arweave_store's Filecoin clause already did.
+            "If you have a specific attestation UID I can verify it on-chain, "
+            "provided this deployment has its EAS configuration in place."
         ),
     },
 
@@ -803,17 +846,34 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "authorize_payment": {
-        "action_name": "authorize_payment",
-        "description": "Authorize a pending x402 payment.",
-        "required_params": [
-            {"name": "payment_id", "type": "string", "description": "Payment ID to authorize.", "example": "pay_abc123"},
-        ],
-        "optional_params": [],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # This text was model-facing and user-elicitable, and it was not a
+            # leak of internal IDs — it was a working description of an
+            # exploitable pattern:
+            #
+            #   "disabled (NEW-53). The method took only a payment_id, with no
+            #    caller identity, so anyone holding an id could authorize a
+            #    spend against another agent's budget."
+            #
+            # KEPT because the reason must sit beside the code it protects.
+            # Three times this engagement a fix was undone or nearly undone
+            # because its reason lived only in commit history, which nobody
+            # greps before restoring a capability as a convenience. NEW-53 is
+            # RE-ENABLE BAR: this is a SECURITY disable. Do not re-enable
+            # authorize_payment or refund_payment until the caller can be
+            # verified as entitled to the payment. Restoring it "because the
+            # method exists" reopens a cross-agent spend.
+            "NOT AVAILABLE — payment authorization is disabled pending caller-identity verification. This is a deliberate security hold, not a missing feature: it returns once a caller can be verified as entitled to the payment."
+        ),
         "keywords": ["authorize payment", "approve payment", "confirm payment"],
-        "follow_up": "Which payment would you like to authorize?",
-        "example_conversation": (
-            "User: Authorize payment pay_abc123\n"
-            "Trinity: [calls platform_action with action='authorize_payment', params={payment_id: 'pay_abc123'}]"
+        "follow_up": (
+            # WAS: "... it accepted a payment id from anyone." That is the
+            # exploit stated plainly, in the one field the model is explicitly
+            # told to relay to the user — the most reachable of the four
+            # strings on these two entries.
+            "I can't authorize payments right now. That action is on a deliberate security hold until the platform can verify that whoever is asking is entitled to the payment. It comes back once caller identity is checked."
         ),
     },
 
@@ -833,19 +893,26 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "refund_payment": {
-        "action_name": "refund_payment",
-        "description": "Refund an x402 payment.",
-        "required_params": [
-            {"name": "payment_id", "type": "string", "description": "Payment ID to refund.", "example": "pay_abc123"},
-        ],
-        "optional_params": [
-            {"name": "reason", "type": "string", "description": "Reason for refund.", "default": ""},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM:
+            #
+            #   "disabled (NEW-53). Same defect as authorize_payment: only a
+            #    payment_id, no caller identity, so anyone with an id could
+            #    refund another agent's payment and silently restore that
+            #    agent's spend headroom."
+            #
+            # The "silently restore that agent's spend headroom" clause is the
+            # part that made this a disclosure rather than a tidiness problem:
+            # it names the effect an attacker would want.
+            #
+            # RE-ENABLE BAR: identical to authorize_payment above — caller
+            # identity must be verified before refunds return.
+            "NOT AVAILABLE — refunds are disabled pending caller-identity verification, for the same reason as authorize_payment. This is a deliberate security hold, not a missing feature."
+        ),
         "keywords": ["refund payment", "reverse payment", "get refund", "cancel payment"],
-        "follow_up": "Which payment would you like to refund?",
-        "example_conversation": (
-            "User: Refund payment pay_abc123\n"
-            "Trinity: [calls platform_action with action='refund_payment', params={payment_id: 'pay_abc123'}]"
+        "follow_up": (
+            "I can't issue refunds right now. That action is disabled because it couldn't verify who was asking. It comes back once caller identity is checked."
         ),
     },
 
@@ -1675,11 +1742,23 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             {"name": "amount_b", "type": "number", "description": "Amount of second token.", "example": 3000},
         ],
         "optional_params": [],
-        # Legacy alias — overlapping keywords ("add liquidity", "provide liquidity",
-        # "liquidity pool") consolidated into liquidity_provide (P3-12), which is the
-        # canonical entry (richer params: price ranges, protocol). Kept reachable by
-        # direct action-name calls and its own non-overlapping keywords.
-        "keywords": ["LP", "become LP"],
+        # NEW-61: canonical again. P3-12 resolved the add_liquidity /
+        # liquidity_provide keyword collision in favour of liquidity_provide,
+        # demoting THIS entry to a "legacy alias" with only ["LP", "become LP"]
+        # — and liquidity_provide was the FABRICATION (uuid + status, no pool,
+        # no shares). The stated reason was that it had "richer params: price
+        # ranges, protocol"; those params were exactly the invented ones, which
+        # the real dex method cannot accept and the fabrication never read. The
+        # collision was resolved toward the fake BECAUSE the fake looked
+        # richer — apparent richness was the tell, not the credential.
+        #
+        # With the fabrication removed, the natural-language keywords return to
+        # the entry backed by the real constant-product AMM
+        # (dex/service.py:217 -> dex/pools.py:151).
+        "keywords": [
+            "add liquidity", "provide liquidity", "liquidity pool",
+            "LP", "become LP",
+        ],
         "follow_up": "Which pair and how much of each token?",
         "example_conversation": (
             "User: Add liquidity to ETH/USDC pool\n"
@@ -2260,18 +2339,43 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # Component 29 — Privacy
     # ===================================================================
 
+    # NEW-38: data deletion is OFFLINE. Both entries follow the NEW-12 idiom —
+    # `unavailable: True`, no `action_name` (so nothing can dispatch them),
+    # keywords KEPT so "delete my data" is still recognised rather than
+    # matching nothing, and the honest answer in `follow_up`.
+    #
+    # Deleting these entries outright would be the worse failure: a user
+    # invoking their erasure rights would match no intent at all, and the model
+    # would improvise an answer about data deletion with nothing grounding it.
     "request_deletion": {
-        "action_name": "request_deletion",
-        "description": "Request deletion of your data.",
-        "required_params": [],
-        "optional_params": [
-            {"name": "scope", "type": "string", "description": "Deletion scope (all, profile, transactions, etc.).", "default": "all"},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY: none for this entry. The fabricating code was
+            # execute_deletion (NEW-38), recorded there; this entry has always
+            # refused honestly. Second of the two worked examples for the rule.
+            #
+            # RE-ENABLE BAR: do not accept deletion requests until a verified
+            # erasure path exists across every data store — the same bar as
+            # execute_deletion. Accepting a request that cannot be honoured is
+            # the fabrication, even if nothing is reported done.
+            "NOT AVAILABLE — 0pnMatrx cannot delete user data. There is no "
+            "verified erasure path across its data stores. Requests are not "
+            "accepted, not queued, and no deletion can be reported as done. Do "
+            "not offer to delete data, and do not describe deletion as pending "
+            "or in progress."
+        ),
         "keywords": ["delete my data", "data deletion", "GDPR", "right to be forgotten", "erase data", "delete account"],
-        "follow_up": "What data would you like deleted? All data or specific categories?",
+        "follow_up": (
+            "I can't delete your data — 0pnMatrx doesn't have a working erasure "
+            "path yet, and I won't tell you it's been deleted when it hasn't. If "
+            "you're exercising a legal right to erasure, contact the operator "
+            "directly so it's handled by a person and on the record."
+        ),
         "example_conversation": (
             "User: I want to delete all my data\n"
-            "Trinity: [calls platform_action with action='request_deletion', params={scope: 'all'}]"
+            "Trinity: I can't do that, and I don't want to pretend otherwise — "
+            "0pnMatrx has no working data-deletion path right now. For a formal "
+            "erasure request, contact the operator directly."
         ),
     },
 
@@ -2315,17 +2419,34 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "execute_deletion": {
-        "action_name": "execute_deletion",
-        "description": "Execute a pending data deletion (irreversible).",
-        "required_params": [
-            {"name": "confirmation", "type": "boolean", "description": "Explicit confirmation.", "example": True},
-        ],
-        "optional_params": [],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed from ACTION_MAP (NEW-38). This used to trigger a deletion
+            #   executor that deleted nothing and reported success for nine data
+            #   categories it never opened, then issued a random identifier as an
+            #   on-chain attestation of the deletion.
+            #
+            # RE-ENABLE BAR: Do not restore until a verified erasure path exists
+            # across every data store. A deletion that cannot be verified must
+            # not be reported as done — that is the whole defect.
+            "NOT AVAILABLE — there is nothing to execute: 0pnMatrx cannot delete user data, so no deletion is ever queued and none can be confirmed."
+        ),
         "keywords": ["execute deletion", "confirm deletion", "proceed with deletion", "finalize deletion"],
-        "follow_up": "Are you sure? This action is irreversible.",
+        "follow_up": (
+            "There's no deletion to execute — 0pnMatrx can't delete user data "
+            "yet, so nothing was queued in the first place. It won't confirm a "
+            "deletion it didn't perform."
+        ),
         "example_conversation": (
             "User: Yes, proceed with deleting my data\n"
-            "Trinity: [calls platform_action with action='execute_deletion', params={confirmation: true}]"
+            "Trinity: There's nothing queued to proceed with. 0pnMatrx has no "
+            "working data-deletion path, so I can't start one or confirm one."
         ),
     },
 
@@ -2427,171 +2548,6 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # DeFi Expanded
     # ===================================================================
 
-    "flash_loan": {
-        "action_name": "flash_loan",
-        "description": "Execute a flash loan — borrow and repay in a single atomic transaction.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The token to borrow.", "example": "USDC"},
-            {"name": "amount", "type": "number", "description": "Amount to borrow.", "example": 50000.0},
-            {"name": "strategy", "type": "string", "description": "Strategy for the flash loan (arbitrage, liquidation, collateral_swap).", "example": "arbitrage"},
-        ],
-        "optional_params": [
-            {"name": "protocol", "type": "string", "description": "Which lending protocol to use (aave, dydx, etc.).", "default": "auto"},
-            {"name": "slippage_tolerance", "type": "number", "description": "Maximum slippage percentage allowed.", "default": 0.5},
-        ],
-        "keywords": ["flash loan", "flash borrow", "atomic loan", "instant borrow", "arbitrage loan", "flash lending"],
-        "follow_up": "Which asset would you like to flash-borrow, how much, and what strategy are you running — arbitrage, liquidation, or a collateral swap?",
-        "example_conversation": (
-            "User: I want to do a flash loan for arbitrage\n"
-            "Trinity: Absolutely. Which token do you want to borrow, and how much? I'll set it up as a single atomic transaction so everything settles in one block.\n"
-            "User: 100,000 USDC\n"
-            "Trinity: Got it — 100k USDC flash loan for arbitrage. Let me execute that for you.\n"
-            "Trinity: [calls platform_action with action='flash_loan', params={asset: 'USDC', amount: 100000.0, strategy: 'arbitrage'}]"
-        ),
-    },
-
-    "yield_optimize": {
-        "action_name": "yield_optimize",
-        "description": "Find and deposit into the best yield-earning opportunity across all protocols.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The token to earn yield on.", "example": "ETH"},
-            {"name": "amount", "type": "number", "description": "Amount to deposit.", "example": 10.0},
-        ],
-        "optional_params": [
-            {"name": "risk_tolerance", "type": "string", "description": "Your risk comfort level (low, medium, high).", "default": "medium"},
-            {"name": "min_apy", "type": "number", "description": "Minimum APY threshold to consider.", "default": 0.0},
-        ],
-        "keywords": ["best yield", "maximize yield", "yield optimize", "earn more", "best rate", "highest apy", "yield farming", "where to earn"],
-        "follow_up": "Which token do you want to earn yield on, and how much are you looking to deposit? I can also factor in your risk tolerance if you'd like.",
-        "example_conversation": (
-            "User: Where can I get the best yield on my ETH?\n"
-            "Trinity: Great question. How much ETH are you looking to put to work? And do you have a risk preference — low, medium, or high?\n"
-            "User: About 5 ETH, and keep it medium risk\n"
-            "Trinity: Perfect. I'll scan all the protocols and find you the best medium-risk opportunity for 5 ETH.\n"
-            "Trinity: [calls platform_action with action='yield_optimize', params={asset: 'ETH', amount: 5.0, risk_tolerance: 'medium'}]"
-        ),
-    },
-
-    "liquidity_provide": {
-        "action_name": "liquidity_provide",
-        "description": "Add liquidity to a trading pool and earn trading fees.",
-        "required_params": [
-            {"name": "token_a", "type": "string", "description": "First token in the pair.", "example": "ETH"},
-            {"name": "token_b", "type": "string", "description": "Second token in the pair.", "example": "USDC"},
-            {"name": "amount_a", "type": "number", "description": "Amount of the first token to provide.", "example": 2.0},
-        ],
-        "optional_params": [
-            {"name": "amount_b", "type": "number", "description": "Amount of the second token (auto-calculated if omitted).", "default": None},
-            {"name": "price_range_lower", "type": "number", "description": "Lower price bound for concentrated liquidity.", "default": None},
-            {"name": "price_range_upper", "type": "number", "description": "Upper price bound for concentrated liquidity.", "default": None},
-            {"name": "protocol", "type": "string", "description": "Which DEX to provide liquidity on.", "default": "auto"},
-        ],
-        "keywords": ["add liquidity", "provide liquidity", "liquidity pool", "LP position", "become liquidity provider", "earn trading fees"],
-        "follow_up": "Which token pair would you like to provide liquidity for, and how much of the first token are you putting in?",
-        "example_conversation": (
-            "User: I want to add liquidity to a pool\n"
-            "Trinity: Sure thing! Which two tokens do you want to pair up, and how much of the first token are you contributing?\n"
-            "User: ETH and USDC, putting in 3 ETH\n"
-            "Trinity: Nice — I'll set up your LP position with 3 ETH paired with USDC. The matching USDC amount will be calculated at the current market ratio.\n"
-            "Trinity: [calls platform_action with action='liquidity_provide', params={token_a: 'ETH', token_b: 'USDC', amount_a: 3.0}]"
-        ),
-    },
-
-    "perp_trade": {
-        "action_name": "perp_trade",
-        "description": "Open a perpetual futures position with leverage.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The asset to trade.", "example": "BTC"},
-            {"name": "direction", "type": "string", "description": "Trade direction (long or short).", "example": "long"},
-            {"name": "size", "type": "number", "description": "Position size in the asset.", "example": 0.5},
-            {"name": "leverage", "type": "number", "description": "Leverage multiplier.", "example": 5.0},
-        ],
-        "optional_params": [
-            {"name": "stop_loss", "type": "number", "description": "Stop-loss price.", "default": None},
-            {"name": "take_profit", "type": "number", "description": "Take-profit price.", "default": None},
-            {"name": "protocol", "type": "string", "description": "Which perps exchange to use.", "default": "auto"},
-        ],
-        "keywords": ["perpetual", "perp trade", "futures", "go long", "go short", "leveraged trade", "perpetual contract"],
-        "follow_up": "Which asset are you trading, do you want to go long or short, how big is the position, and what leverage?",
-        "example_conversation": (
-            "User: I want to go long on BTC with leverage\n"
-            "Trinity: Let's set that up. How much BTC do you want for your position size, and what leverage are you thinking?\n"
-            "User: 0.5 BTC at 10x\n"
-            "Trinity: Got it — opening a 10x long on 0.5 BTC. Would you like to set a stop-loss or take-profit, or just open it as is?\n"
-            "User: Just open it\n"
-            "Trinity: [calls platform_action with action='perp_trade', params={asset: 'BTC', direction: 'long', size: 0.5, leverage: 10.0}]"
-        ),
-    },
-
-    "options_trade": {
-        "action_name": "options_trade",
-        "description": "Trade on-chain options contracts.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The underlying asset.", "example": "ETH"},
-            {"name": "option_type", "type": "string", "description": "Type of option (call or put).", "example": "call"},
-            {"name": "strike_price", "type": "number", "description": "The strike price of the option.", "example": 3500.0},
-            {"name": "expiry", "type": "string", "description": "Expiration date in ISO format.", "example": "2026-05-15"},
-        ],
-        "optional_params": [
-            {"name": "quantity", "type": "number", "description": "Number of option contracts.", "default": 1},
-            {"name": "action", "type": "string", "description": "Whether to buy or sell the option.", "default": "buy"},
-            {"name": "protocol", "type": "string", "description": "Which options protocol to use.", "default": "auto"},
-        ],
-        "keywords": ["options", "call option", "put option", "options trade", "buy calls", "buy puts"],
-        "follow_up": "Which asset do you want options on, call or put, what strike price, and when should it expire?",
-        "example_conversation": (
-            "User: I want to buy some ETH calls\n"
-            "Trinity: Great — what strike price are you targeting, and when do you want them to expire?\n"
-            "User: Strike at 3500, expiring May 15th\n"
-            "Trinity: Perfect. Buying ETH call options with a 3500 strike, expiring 2026-05-15.\n"
-            "Trinity: [calls platform_action with action='options_trade', params={asset: 'ETH', option_type: 'call', strike_price: 3500.0, expiry: '2026-05-15'}]"
-        ),
-    },
-
-    "synthetic_asset": {
-        "action_name": "synthetic_asset",
-        "description": "Create a synthetic asset that tracks the price of any real-world asset.",
-        "required_params": [
-            {"name": "underlying", "type": "string", "description": "The real-world asset to track (e.g. gold, AAPL, oil).", "example": "gold"},
-            {"name": "amount", "type": "number", "description": "Amount of synthetic exposure to create.", "example": 1000.0},
-        ],
-        "optional_params": [
-            {"name": "collateral_asset", "type": "string", "description": "Token used as collateral to back the synthetic.", "default": "USDC"},
-            {"name": "collateral_ratio", "type": "number", "description": "Collateralization ratio as a percentage.", "default": 150.0},
-        ],
-        "keywords": ["synthetic", "synthetic asset", "price tracker", "mirror asset", "tokenized exposure"],
-        "follow_up": "Which real-world asset do you want to track, and how much synthetic exposure would you like to create?",
-        "example_conversation": (
-            "User: I want exposure to gold on-chain\n"
-            "Trinity: Nice choice. How much synthetic gold do you want to create? I'll mint you a token that tracks gold's price in real time.\n"
-            "User: About $5,000 worth\n"
-            "Trinity: Got it — creating $5,000 of synthetic gold exposure backed by collateral.\n"
-            "Trinity: [calls platform_action with action='synthetic_asset', params={underlying: 'gold', amount: 5000.0}]"
-        ),
-    },
-
-    "vault_deposit": {
-        "action_name": "vault_deposit",
-        "description": "Deposit into an automated yield vault that optimizes returns.",
-        "required_params": [
-            {"name": "vault_id", "type": "string", "description": "The identifier of the vault.", "example": "yearn-eth-v3"},
-            {"name": "amount", "type": "number", "description": "Amount to deposit.", "example": 5.0},
-        ],
-        "optional_params": [
-            {"name": "asset", "type": "string", "description": "The deposit token if the vault accepts multiple.", "default": None},
-            {"name": "auto_compound", "type": "boolean", "description": "Whether to auto-compound earnings.", "default": True},
-        ],
-        "keywords": ["vault", "yield vault", "auto compound", "vault deposit", "automated yield"],
-        "follow_up": "Which vault would you like to deposit into, and how much are you putting in?",
-        "example_conversation": (
-            "User: I want to deposit into a yield vault\n"
-            "Trinity: Sure! Which vault are you interested in, and how much do you want to deposit? I'll handle the rest — the vault auto-compounds your earnings.\n"
-            "User: The Yearn ETH v3 vault, 10 ETH\n"
-            "Trinity: Depositing 10 ETH into the Yearn ETH v3 vault with auto-compounding enabled.\n"
-            "Trinity: [calls platform_action with action='vault_deposit', params={vault_id: 'yearn-eth-v3', amount: 10.0}]"
-        ),
-    },
-
     "cross_chain_bridge": {
         "action_name": "cross_chain_bridge",
         "description": "Bridge assets safely from one blockchain network to another.",
@@ -2615,56 +2571,6 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             "Trinity: [calls platform_action with action='cross_chain_bridge', params={asset: 'USDC', amount: 2000.0, from_chain: 'ethereum', to_chain: 'polygon'}]"
         ),
     },
-
-    "leverage_position": {
-        "action_name": "leverage_position",
-        "description": "Open a leveraged position on an asset.",
-        "required_params": [
-            {"name": "asset", "type": "string", "description": "The asset to take a leveraged position on.", "example": "ETH"},
-            {"name": "amount", "type": "number", "description": "Base amount of collateral.", "example": 5.0},
-            {"name": "leverage", "type": "number", "description": "Leverage multiplier.", "example": 3.0},
-            {"name": "direction", "type": "string", "description": "Position direction (long or short).", "example": "long"},
-        ],
-        "optional_params": [
-            {"name": "stop_loss", "type": "number", "description": "Stop-loss price.", "default": None},
-            {"name": "protocol", "type": "string", "description": "Which protocol to open the position on.", "default": "auto"},
-        ],
-        "keywords": ["leverage", "leveraged position", "margin trade", "multiply exposure"],
-        "follow_up": "Which asset, how much collateral, what leverage, and are you going long or short?",
-        "example_conversation": (
-            "User: I want to open a leveraged position on ETH\n"
-            "Trinity: Sounds good. How much ETH are you putting up as collateral, what leverage do you want, and are you going long or short?\n"
-            "User: 3 ETH, 5x long\n"
-            "Trinity: Opening a 5x long on ETH with 3 ETH collateral — that gives you 15 ETH of exposure.\n"
-            "Trinity: [calls platform_action with action='leverage_position', params={asset: 'ETH', amount: 3.0, leverage: 5.0, direction: 'long'}]"
-        ),
-    },
-
-    "collateral_manage": {
-        "action_name": "collateral_manage",
-        "description": "Adjust collateral on an existing loan or leveraged position.",
-        "required_params": [
-            {"name": "position_id", "type": "string", "description": "The ID of the position to adjust.", "example": "pos_abc123"},
-            {"name": "action", "type": "string", "description": "Whether to add or remove collateral.", "example": "add"},
-            {"name": "amount", "type": "number", "description": "Amount of collateral to add or remove.", "example": 2.0},
-        ],
-        "optional_params": [
-            {"name": "asset", "type": "string", "description": "Collateral asset if the position accepts multiple types.", "default": None},
-        ],
-        "keywords": ["collateral", "add collateral", "remove collateral", "adjust collateral", "collateral ratio"],
-        "follow_up": "Which position do you want to adjust, and do you want to add or remove collateral? How much?",
-        "example_conversation": (
-            "User: I need to add collateral to my position\n"
-            "Trinity: Of course. Which position ID, and how much collateral do you want to add?\n"
-            "User: Position pos_abc123, add 2 ETH\n"
-            "Trinity: Adding 2 ETH collateral to position pos_abc123. That should bring your health factor up nicely.\n"
-            "Trinity: [calls platform_action with action='collateral_manage', params={position_id: 'pos_abc123', action: 'add', amount: 2.0}]"
-        ),
-    },
-
-    # ===================================================================
-    # NFT Expanded
-    # ===================================================================
 
     "nft_fractionalize": {
         "action_name": "nft_fractionalize",
@@ -3021,26 +2927,55 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
     },
 
+    # CLUSTER B — DISABLED. The established idiom (see the payment-authorization
+    # and insurance-payout closes): `unavailable`, NO `action_name` so the model
+    # cannot dispatch it, "NOT AVAILABLE" in the description, and KEYWORDS Kept
+    # so the request still matches. NOTE, AND THIS WAS FALSE WHEN WRITTEN: the
+    # claim that Trinity then "answers not available rather than failing to
+    # recognise it at all" did not hold. The only consumer subscripted
+    # `action_name`, raised, and discarded the whole enrichment — measured at
+    # zero for all sixteen unavailable entries. Repaired in the consumer
+    # (runtime/protocols/integration.py); true from that commit onward, false
+    # before it.
+    #
+    # WHAT WAS HERE MATTERED MORE THAN THE ROUTE. The removed entry scripted
+    # Trinity a line to speak — "Initiating a 50,000 USDC transfer from the
+    # Uniswap DAO treasury to 0xrecipient. This will go through the governance
+    # approval flow." There is no governance approval flow, and no transfer was
+    # ever initiated. A fabrication in the guide is worse than one in a handler:
+    # the handler lies once when called, the guide teaches the lie.
     "treasury_transfer": {
-        "action_name": "treasury_transfer",
-        "description": "Transfer funds from a DAO treasury.",
-        "required_params": [
-            {"name": "dao_id", "type": "string", "description": "Identifier of the DAO.", "example": "dao_uniswap"},
-            {"name": "recipient", "type": "string", "description": "Recipient address.", "example": "0xrecipient..."},
-            {"name": "amount", "type": "number", "description": "Amount to transfer.", "example": 10000.0},
-            {"name": "asset", "type": "string", "description": "Token to transfer.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Purpose or memo for the transfer.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   The former handler returned status='transferred' without moving
+            #   any value, without a signer, and without touching the treasury
+            #   balance.
+            #
+            # RE-ENABLE BAR: Do not restore until the platform actually builds
+            # and signs a treasuryWithdraw call. contracts/OpenMatrixDAO.sol:210
+            # declares that function; nothing in runtime/ calls it, and the gap
+            # between those two facts is this entry.
+            "Transfer funds from a DAO treasury. NOT AVAILABLE — the platform has no wired path to the DAO's on-chain treasury function."
+        ),
         "keywords": ["treasury transfer", "dao funds", "treasury send", "dao payment"],
-        "follow_up": "Which DAO, who's the recipient, how much, and which token?",
-        "example_conversation": (
-            "User: We need to send funds from the DAO treasury\n"
-            "Trinity: Got it. Which DAO, who's receiving, how much, and which token?\n"
-            "User: dao_uniswap, send 50,000 USDC to 0xrecipient\n"
-            "Trinity: Initiating a 50,000 USDC transfer from the Uniswap DAO treasury to 0xrecipient. This will go through the governance approval flow.\n"
-            "Trinity: [calls platform_action with action='treasury_transfer', params={dao_id: 'dao_uniswap', recipient: '0xrecipient', amount: 50000.0, asset: 'USDC'}]"
+        # THE PRE-REPOINT READ CAUGHT THIS BEFORE IT WAS EVER SPOKEN. The first
+        # version said "there's no execution path to move treasury funds".
+        # FALSE — contracts/OpenMatrixDAO.sol:210 declares
+        # `treasuryWithdraw(address,uint256)`. Same defect as the queue_timelock
+        # disclosure: a platform-wide negative asserted without grepping, in
+        # caller-visible text. The narrow claim IS verified: no Python caller of
+        # `treasuryWithdraw` exists anywhere in the repo.
+        "follow_up": (
+            "DAO treasury transfers aren't available yet — the platform has no "
+            "wired path to the DAO's on-chain treasury function, so I can't "
+            "move treasury funds. I can help with the proposal side of "
+            "governance instead."
         ),
     },
 
@@ -3159,95 +3094,102 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # ===================================================================
 
     "stream_payment": {
-        "action_name": "stream_payment",
-        "description": "Start a payment stream that sends money continuously by the second.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient wallet address.", "example": "0xrecipient..."},
-            {"name": "rate_per_second", "type": "number", "description": "Amount sent per second.", "example": 0.0001},
-            {"name": "asset", "type": "string", "description": "Token to stream.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "duration_seconds", "type": "integer", "description": "Total stream duration in seconds (indefinite if omitted).", "default": None},
-            {"name": "start_time", "type": "string", "description": "When to start the stream (ISO datetime, defaults to now).", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "Stream a payment continuously over time. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+        ),
         "keywords": ["stream payment", "streaming payment", "pay by second", "continuous payment", "real-time payment", "salary stream"],
-        "follow_up": "Who are you streaming to, at what rate per second, and in which token? Would you like a fixed duration or open-ended?",
-        "example_conversation": (
-            "User: I want to set up a salary stream for a contractor\n"
-            "Trinity: That's a great way to pay — real-time, by the second. Who's the recipient, what rate per second, and which token?\n"
-            "User: 0xcontractor, 0.001 USDC per second, for 30 days\n"
-            "Trinity: Starting a USDC payment stream to 0xcontractor at 0.001 per second for 30 days. That works out to about 2,592 USDC total. They can withdraw anytime.\n"
-            "Trinity: [calls platform_action with action='stream_payment', params={recipient: '0xcontractor', rate_per_second: 0.001, asset: 'USDC', duration_seconds: 2592000}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "recurring_create": {
-        "action_name": "recurring_create",
-        "description": "Set up a recurring automatic payment on a schedule.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient wallet address.", "example": "0xlandlord..."},
-            {"name": "amount", "type": "number", "description": "Amount per payment.", "example": 1500.0},
-            {"name": "asset", "type": "string", "description": "Token to pay with.", "example": "USDC"},
-            {"name": "interval", "type": "string", "description": "Payment frequency (daily, weekly, monthly).", "example": "monthly"},
-        ],
-        "optional_params": [
-            {"name": "start_date", "type": "string", "description": "When to start the recurring payment (ISO date).", "default": None},
-            {"name": "end_date", "type": "string", "description": "When to stop the recurring payment.", "default": None},
-            {"name": "memo", "type": "string", "description": "Payment memo or note.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "Set up a recurring payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+        ),
         "keywords": ["recurring payment", "automatic payment", "autopay", "scheduled payment", "monthly payment"],
-        "follow_up": "Who's the recipient, how much each time, which token, and how often — daily, weekly, or monthly?",
-        "example_conversation": (
-            "User: I want to set up an automatic monthly payment\n"
-            "Trinity: Easy. Who are you paying, how much, and in which token?\n"
-            "User: 1500 USDC to 0xlandlord every month\n"
-            "Trinity: Setting up a monthly recurring payment of 1,500 USDC to 0xlandlord. It'll go out automatically each month until you cancel.\n"
-            "Trinity: [calls platform_action with action='recurring_create', params={recipient: '0xlandlord', amount: 1500.0, asset: 'USDC', interval: 'monthly'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "escrow_milestone": {
-        "action_name": "escrow_milestone",
-        "description": "Create a milestone-based escrow — funds release as milestones are completed.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient who receives funds on milestone completion.", "example": "0xfreelancer..."},
-            {"name": "total_amount", "type": "number", "description": "Total amount to escrow.", "example": 10000.0},
-            {"name": "milestones", "type": "array", "description": "List of milestones with descriptions and amounts.", "example": [{"name": "Design", "amount": 3000}, {"name": "Development", "amount": 5000}, {"name": "Testing", "amount": 2000}]},
-        ],
-        "optional_params": [
-            {"name": "asset", "type": "string", "description": "Token to use for escrow.", "default": "USDC"},
-            {"name": "arbiter", "type": "string", "description": "Optional arbiter address for dispute resolution.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "Release an escrow milestone payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+        ),
         "keywords": ["escrow", "milestone payment", "escrow release", "project payment", "milestone escrow"],
-        "follow_up": "Who's the recipient, what's the total amount, and what are the milestones and their payment amounts?",
-        "example_conversation": (
-            "User: I want to set up a milestone escrow for a freelance project\n"
-            "Trinity: Great way to protect both sides. Who's the freelancer, what's the total budget, and what are the milestones?\n"
-            "User: 0xfreelancer, $10k total — $3k for design, $5k for development, $2k for testing\n"
-            "Trinity: Creating a milestone escrow with 10,000 USDC. Funds release as each milestone is completed — Design ($3k), Development ($5k), Testing ($2k).\n"
-            "Trinity: [calls platform_action with action='escrow_milestone', params={recipient: '0xfreelancer', total_amount: 10000.0, milestones: [{name: 'Design', amount: 3000}, {name: 'Development', amount: 5000}, {name: 'Testing', amount: 2000}]}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "payment_split": {
-        "action_name": "payment_split",
-        "description": "Split a payment among multiple recipients.",
-        "required_params": [
-            {"name": "recipients", "type": "array", "description": "List of recipient addresses.", "example": ["0xalice...", "0xbob...", "0xcharlie..."]},
-            {"name": "amounts", "type": "array", "description": "List of amounts corresponding to each recipient.", "example": [100.0, 200.0, 300.0]},
-            {"name": "asset", "type": "string", "description": "Token to split.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Payment memo or reason.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "Split a payment across several recipients. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+        ),
         "keywords": ["split payment", "divide payment", "split bill", "pay multiple", "shared payment"],
-        "follow_up": "Who are the recipients, how much does each person get, and which token?",
-        "example_conversation": (
-            "User: I need to split a payment between three people\n"
-            "Trinity: Sure thing. Who are the recipients, how much does each one get, and which token?\n"
-            "User: Alice gets 100, Bob gets 200, Charlie gets 300 — all USDC\n"
-            "Trinity: Splitting the payment — 100 USDC to Alice, 200 to Bob, 300 to Charlie. All sent in a single transaction.\n"
-            "Trinity: [calls platform_action with action='payment_split', params={recipients: ['0xalice', '0xbob', '0xcharlie'], amounts: [100.0, 200.0, 300.0], asset: 'USDC'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3276,96 +3218,58 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "invoice_factor": {
-        "action_name": "invoice_factor",
-        "description": "Factor an invoice on-chain — get paid immediately against outstanding invoices.",
-        "required_params": [
-            {"name": "invoice_id", "type": "string", "description": "Identifier of the invoice to factor.", "example": "inv_2024_001"},
-            {"name": "amount", "type": "number", "description": "Invoice amount.", "example": 25000.0},
-            {"name": "due_date", "type": "string", "description": "When the invoice is due (ISO date).", "example": "2026-06-15"},
-        ],
-        "optional_params": [
-            {"name": "discount_rate", "type": "number", "description": "Acceptable discount rate for early payment.", "default": None},
-            {"name": "asset", "type": "string", "description": "Token to receive the advance in.", "default": "USDC"},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "Factor an invoice for early payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+        ),
         "keywords": ["invoice factoring", "factor invoice", "early payment", "invoice financing"],
-        "follow_up": "Which invoice do you want to factor, what's the amount, and when is it due?",
-        "example_conversation": (
-            "User: I need cash now against an outstanding invoice\n"
-            "Trinity: Invoice factoring can help with that. What's the invoice ID, the amount, and when is it due?\n"
-            "User: Invoice inv_2024_001, $25,000, due June 15th\n"
-            "Trinity: Factoring invoice inv_2024_001 for $25,000 due 2026-06-15. You'll get paid upfront at a small discount, and the buyer pays the full amount on the due date.\n"
-            "Trinity: [calls platform_action with action='invoice_factor', params={invoice_id: 'inv_2024_001', amount: 25000.0, due_date: '2026-06-15'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     "payroll_run": {
-        "action_name": "payroll_run",
-        "description": "Execute a crypto payroll run for multiple recipients.",
-        "required_params": [
-            {"name": "payroll_list", "type": "array", "description": "List of payroll entries with recipient and amount.", "example": [{"address": "0xalice", "amount": 5000}, {"address": "0xbob", "amount": 4500}]},
-            {"name": "asset", "type": "string", "description": "Token to pay in.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Payroll memo (e.g. 'April 2026 salaries').", "default": None},
-            {"name": "tax_withholding", "type": "boolean", "description": "Whether to apply tax withholding calculations.", "default": False},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-57). It reported success while moving no value at
+            #   all: no transfer, no counterparty, no disbursement. The follow_up
+            #   added: "the previous one reported success while paying no one."
+            #
+            # RE-ENABLE BAR: Do not restore until a real implementation moves
+            # value through the signed path. The entry existing is not evidence
+            # the operation works — that is precisely what the removed version
+            # pretended.
+            "Run a payroll disbursement. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+        ),
         "keywords": ["payroll", "pay employees", "salary distribution", "mass payment", "batch payroll"],
-        "follow_up": "Who's on the payroll, how much does each person get, and which token?",
-        "example_conversation": (
-            "User: I need to run payroll for my team\n"
-            "Trinity: Let's get everyone paid. How many people, how much each, and which token?\n"
-            "User: Alice gets 5000 USDC, Bob gets 4500 USDC\n"
-            "Trinity: Running payroll — 5,000 USDC to Alice, 4,500 USDC to Bob. All payments go out in a single batch transaction.\n"
-            "Trinity: [calls platform_action with action='payroll_run', params={payroll_list: [{address: '0xalice', amount: 5000}, {address: '0xbob', amount: 4500}], asset: 'USDC'}]"
+        "follow_up": (
+            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
     # ===================================================================
     # Privacy
     # ===================================================================
-
-    "private_transfer": {
-        "action_name": "private_transfer",
-        "description": "Send a private transfer hidden by zero-knowledge cryptography.",
-        "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient address or shielded address.", "example": "0xrecipient..."},
-            {"name": "amount", "type": "number", "description": "Amount to send.", "example": 100.0},
-            {"name": "asset", "type": "string", "description": "Token to send.", "example": "USDC"},
-        ],
-        "optional_params": [
-            {"name": "privacy_level", "type": "string", "description": "Level of privacy (standard, maximum).", "default": "standard"},
-            {"name": "memo", "type": "string", "description": "Encrypted memo visible only to the recipient.", "default": None},
-        ],
-        "keywords": ["private transfer", "anonymous send", "zk transfer", "hidden transfer", "confidential send", "private payment"],
-        "follow_up": "Who are you sending to, how much, and in which token?",
-        "example_conversation": (
-            "User: I want to send funds privately\n"
-            "Trinity: Understood — I'll use zero-knowledge cryptography so the transfer details stay hidden. Who's the recipient, how much, and which token?\n"
-            "User: 500 USDC to 0xrecipient\n"
-            "Trinity: Sending 500 USDC to 0xrecipient via a private ZK transfer. The amount and recipient are shielded from public view.\n"
-            "Trinity: [calls platform_action with action='private_transfer', params={recipient: '0xrecipient', amount: 500.0, asset: 'USDC'}]"
-        ),
-    },
-
-    "stealth_address": {
-        "action_name": "stealth_address",
-        "description": "Generate a one-time stealth address for private receiving.",
-        "required_params": [
-            {"name": "base_address", "type": "string", "description": "Your base wallet address to derive the stealth address from.", "example": "0xmywallet..."},
-        ],
-        "optional_params": [
-            {"name": "label", "type": "string", "description": "Optional label for this stealth address.", "default": None},
-        ],
-        "keywords": ["stealth address", "private receive", "one-time address", "anonymous address"],
-        "follow_up": "What's your base wallet address? I'll generate a fresh one-time stealth address for you.",
-        "example_conversation": (
-            "User: I need a stealth address to receive a payment privately\n"
-            "Trinity: Smart move. Give me your base wallet address and I'll derive a fresh one-time address that can't be linked back to you publicly.\n"
-            "User: 0xmywallet\n"
-            "Trinity: Generating a one-time stealth address from 0xmywallet. Share this with the sender — only you can access funds sent to it.\n"
-            "Trinity: [calls platform_action with action='stealth_address', params={base_address: '0xmywallet'}]"
-        ),
-    },
 
     "zk_proof_generate": {
         "action_name": "zk_proof_generate",
@@ -3389,45 +3293,53 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "private_vote": {
-        "action_name": "private_vote",
-        "description": "Cast a private on-chain vote where your choice is hidden but verifiable.",
-        "required_params": [
-            {"name": "proposal_id", "type": "string", "description": "The proposal to vote on.", "example": "prop_xyz"},
-            {"name": "choice", "type": "integer", "description": "Your choice (option number).", "example": 1},
-        ],
-        "optional_params": [
-            {"name": "weight", "type": "number", "description": "Voting weight to apply.", "default": None},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48). It discarded the vote `choice` entirely, set
+            #   `choice_hash` to a random value that was not a commitment to
+            #   anything, never persisted the vote, and never touched any tally. A
+            #   user who 'voted privately' had not voted.
+            #
+            # RE-ENABLE BAR: Do not restore until a real commitment scheme
+            # persists the vote AND it reaches a tally. A hash committing to
+            # nothing is worse than no privacy, because it looks like privacy.
+            "NOT AVAILABLE — 0pnMatrx has no private-ballot implementation, so a private vote cannot be cast or counted."
+        ),
         "keywords": ["private vote", "anonymous vote", "secret ballot", "hidden vote"],
-        "follow_up": "Which proposal do you want to vote on, and which option?",
-        "example_conversation": (
-            "User: I want to vote on a proposal but keep my choice private\n"
-            "Trinity: No problem — I'll cast a private vote using cryptographic commitments. Nobody can see your choice until voting ends. Which proposal and which option?\n"
-            "User: Proposal prop_xyz, option 1\n"
-            "Trinity: Casting a private vote for option 1 on proposal prop_xyz. Your vote is committed on-chain but your choice stays encrypted until the reveal phase.\n"
-            "Trinity: [calls platform_action with action='private_vote', params={proposal_id: 'prop_xyz', choice: 1}]"
+        "follow_up": (
+            "I can't cast a private vote — 0pnMatrx has no private-ballot implementation, so nothing would be recorded. Use the ordinary governance vote, which is real."
         ),
     },
 
     "confidential_compute": {
-        "action_name": "confidential_compute",
-        "description": "Execute computation on encrypted data without revealing the data.",
-        "required_params": [
-            {"name": "computation", "type": "string", "description": "The computation to run (e.g. 'sum', 'average', custom function).", "example": "average_salary"},
-            {"name": "encrypted_inputs", "type": "object", "description": "Encrypted data inputs for the computation.", "example": {"dataset_ref": "enc_data_001"}},
-        ],
-        "optional_params": [
-            {"name": "output_format", "type": "string", "description": "Format for the result (encrypted, plaintext, proof).", "default": "plaintext"},
-            {"name": "compute_network", "type": "string", "description": "Which confidential compute network to use.", "default": "auto"},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48). It returned status 'completed' and a random
+            #   result hash without performing, scheduling, or dispatching any
+            #   computation.
+            #
+            # RE-ENABLE BAR: Do not restore until a real TEE/FHE backend
+            # dispatches work and returns its output.
+            "NOT AVAILABLE — there is no confidential-compute backend here, so no private computation can be performed or scheduled."
+        ),
         "keywords": ["confidential compute", "private computation", "encrypted execution", "secure compute"],
-        "follow_up": "What computation do you want to run, and on which encrypted data?",
-        "example_conversation": (
-            "User: I need to compute an average across sensitive data without exposing it\n"
-            "Trinity: Confidential compute is built for exactly this. What computation are you running, and where is the encrypted data stored?\n"
-            "User: Average salary computation on dataset enc_data_001\n"
-            "Trinity: Running the average salary computation on encrypted dataset enc_data_001. The data stays encrypted throughout — only the result is revealed.\n"
-            "Trinity: [calls platform_action with action='confidential_compute', params={computation: 'average_salary', encrypted_inputs: {dataset_ref: 'enc_data_001'}}]"
+        "follow_up": (
+            # NARROWED: "no TEE/MPC/FHE implementation on the platform" is
+            # overbroad — an MPCService exists and is registered (threshold
+            # SIGNING, not confidential computation). Scoped to the capability.
+            "I can't run confidential compute — there's no confidential-compute backend here (no TEE, and the MPC service that does exist is for threshold signing, not private computation). Ordinary (non-confidential) compute jobs use a real path once this deployment's compute contracts are deployed."
         ),
     },
 
@@ -3885,12 +3797,38 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     "cover_renew": {
         "action_name": "cover_renew",
         "description": "Renew an existing insurance coverage period.",
+        # 18-O. TWO DEFECTS, ONE ENTRY, AND BOTH ARE ABOUT THE CORPUS RATHER
+        # THAN THE CODE.
+        #
+        # (1) THE PARAMETERS WERE WRONG. This declared `new_period` and
+        #     `updated_coverage`; `InsuranceService.renew_coverage` accepts
+        #     neither. Driving the scripted call produced
+        #     "renew_coverage() got an unexpected keyword argument
+        #     'new_period'" — so the documented chat contract could never
+        #     succeed, while the capability/API path (which uses the real
+        #     signature) reached the method. A shipped example that cannot run
+        #     is a §T.3: written, and not wired.
+        #
+        # (2) THE SCRIPT PROMISED SOMETHING THE METHOD COULD NOT KEEP. The
+        #     example line read "Your coverage continues uninterrupted."
+        #     against a method that, until 18-G, renewed nothing — never
+        #     looked the policy up, never wrote the store, never moved
+        #     `expires_at` — while the holder's cover lapsed on its original
+        #     date. That is §AH one layer ABOVE the code: the instruction
+        #     corpus teaching the assistant to make the exact assurance the
+        #     implementation contradicts. The model is not fabricating here;
+        #     it is repeating a guarantee the platform wrote down for it.
+        #
+        # 18-G made the renewal real, priced and ownership-checked, so the
+        # promise is now keepable — but only if the assistant stops asserting
+        # it BEFORE the call returns. The example now states the outcome after
+        # the result, and names the two things that can refuse it.
         "required_params": [
             {"name": "policy_id", "type": "string", "description": "The policy to renew.", "example": "policy_weather_001"},
-            {"name": "new_period", "type": "string", "description": "New coverage period (e.g. '6m', '1y').", "example": "1y"},
+            {"name": "additional_premium", "type": "number", "description": "Premium paid for the extension. Must meet the quoted amount or the renewal is refused.", "example": 250.0},
         ],
         "optional_params": [
-            {"name": "updated_coverage", "type": "object", "description": "Updated coverage details if changing the terms.", "default": None},
+            {"name": "extension_days", "type": "integer", "description": "Length of the extension in days.", "default": 365},
         ],
         "keywords": ["renew insurance", "extend coverage", "renew policy", "continue coverage"],
         "follow_up": "Which policy do you want to renew, and for how long?",
@@ -3898,8 +3836,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             "User: I need to renew my weather insurance\n"
             "Trinity: Of course. What's the policy ID, and how long do you want the new coverage period to be?\n"
             "User: Policy policy_weather_001, renew for another year\n"
-            "Trinity: Renewing policy_weather_001 for another year with the same terms. Your coverage continues uninterrupted.\n"
-            "Trinity: [calls platform_action with action='cover_renew', params={policy_id: 'policy_weather_001', new_period: '1y'}]"
+            "Trinity: [calls platform_action with action='cover_renew', params={policy_id: 'policy_weather_001', additional_premium: 250.0, extension_days: 365}]\n"
+            "Trinity: Renewed — policy_weather_001 now runs to 12 March 2027. "
+            "A renewal can be refused if the additional premium is below the "
+            "quoted amount, or if the policy has been cancelled or claimed, so "
+            "I check the result before telling you cover continues."
         ),
     },
 
@@ -3995,23 +3936,24 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "arweave_store": {
-        "action_name": "arweave_store",
-        "description": "Store data permanently on Arweave — pay once, stored forever.",
-        "required_params": [
-            {"name": "data", "type": "string", "description": "Data or file reference to store permanently.", "example": "Important document content..."},
-        ],
-        "optional_params": [
-            {"name": "tags", "type": "object", "description": "Key-value tags to associate with the data.", "default": {}},
-            {"name": "content_type", "type": "string", "description": "MIME type of the content.", "default": "text/plain"},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY, MOVED OUT OF THE PROMPT AND KEPT HERE VERBATIM.
+            # A user-facing description states the CURRENT CAPABILITY BOUNDARY;
+            # the defect history belongs beside the code it protects, where the
+            # next person considering a restore will be standing. Commit history
+            # is technically sufficient and practically invisible.
+            #
+            #   removed (NEW-48). It returned a random string as an Arweave
+            #   transaction id for data it never uploaded.
+            #
+            # RE-ENABLE BAR: Do not restore until a real client uploads and
+            # returns a transaction id issued by the Arweave network.
+            "NOT AVAILABLE — 0pnMatrx has no Arweave upload client, so nothing can be stored to Arweave."
+        ),
         "keywords": ["arweave", "permanent storage", "store forever", "arweave upload"],
-        "follow_up": "What data do you want to store permanently on Arweave?",
-        "example_conversation": (
-            "User: I want to store a document permanently\n"
-            "Trinity: Arweave is perfect for that — you pay once and it's stored forever. What's the document or data?\n"
-            "User: My research paper\n"
-            "Trinity: Uploading your research paper to Arweave for permanent storage. It's immutable once stored — nobody can alter or delete it.\n"
-            "Trinity: [calls platform_action with action='arweave_store', params={data: 'research_paper_content'}]"
+        "follow_up": (
+            "I can't store to Arweave — there's no Arweave client here. Filecoin/IPFS storage does reach a real provider if you have storage credentials configured."
         ),
     },
 
@@ -4354,7 +4296,25 @@ def match_intent(user_message: str) -> list[dict[str, Any]]:
         if score > 0:
             scored.append((score, action_name))
 
-    scored.sort(key=lambda x: x[0], reverse=True)
+    # TIE-BREAK: score, then AVAILABILITY, then name.
+    #
+    # A plain score sort left ties to insertion order. `permanent storage`
+    # scores 3.0 for BOTH decentralized_store (works) and arweave_store
+    # (unavailable): today the working one happens to win, decided by dict
+    # order rather than by anything deliberate. One reordering and a working
+    # capability starts answering "NOT AVAILABLE — do not attempt this action".
+    #
+    # That risk is NEW as of the consumer repair. The mis-ranking always
+    # existed, but an unavailable winner used to be SILENT (its guide had no
+    # action_name, the consumer raised, the enrichment was discarded). Making
+    # those entries speak converted a harmless tie into a coin-flip between a
+    # working answer and a refusal. Ranking is the right place to fix it —
+    # accepting a degraded working path because the refusal is honest trades a
+    # feature for a sentence.
+    #
+    # Availability wins ties; the name is a final key so the order is total and
+    # does not depend on dict insertion at all.
+    scored.sort(key=lambda x: (-x[0], bool(INTENT_ACTION_MAP[x[1]].get("unavailable")), x[1]))
     results = []
     for score, action_name in scored[:5]:
         entry = dict(INTENT_ACTION_MAP[action_name])
@@ -4371,6 +4331,11 @@ def get_param_prompt(action_name: str) -> str:
     guide = INTENT_ACTION_MAP.get(action_name)
     if not guide:
         return f"Unknown action '{action_name}'."
+
+    # An `unavailable` guide carries no params; asking for them is meaningless
+    # and subscripting them raised KeyError inside the caller's try/except.
+    if guide.get("unavailable"):
+        return guide.get("follow_up", "") or ""
 
     lines = [f"To {guide['description'].lower().rstrip('.')}, I need the following:"]
     for p in guide["required_params"]:

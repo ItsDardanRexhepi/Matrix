@@ -97,6 +97,22 @@ jobs:
         env:
           PYTHONPATH: .
 
+      # Named separately from the suite above so they cannot be quietly
+      # deselected, and so a red build says WHICH control tripped. Both are
+      # ordinary pytest files and also run in the step above; this step exists
+      # to make them a visible, required gate rather than two tests among 800.
+      - name: Audit detectors (D1 route sweep, D2 handler collapse, D5 action contract, D6 uuid-mint shape, D7 fake delivery, D8 route bindings, D10 discarded refusals)
+        run: |
+          python -m pytest tests/test_route_sweep.py tests/test_handler_collapse.py \
+            tests/test_intent_action_contract.py \
+            tests/test_uuid_mint_fabrication_shape.py \
+            tests/test_fake_delivery_detector.py \
+            tests/test_route_binding_detector.py \
+            tests/test_discarded_refusal_detector.py \
+            -v --tb=short -p no:cacheprovider
+        env:
+          PYTHONPATH: .
+
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -128,8 +144,12 @@ jobs:
           pip-audit --strict || true
 
       - name: Bandit security scan
+        # NEW-2: this step carried a trailing `|| true`, so bandit could report
+        # findings but never fail a build — the same shape as the green Slither
+        # run that missed C1 entirely. A control that only reports is not a
+        # control. The suppression is gone; findings now gate the build.
         run: |
-          bandit -r runtime/ gateway/ hivemind/ -ll --skip B101,B603,B607 -f txt || true
+          bandit -r runtime/ gateway/ hivemind/ -ll --skip B101,B603,B607 -f txt
 
       - name: Check for hardcoded secrets
         run: |

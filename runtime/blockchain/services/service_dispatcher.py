@@ -9,12 +9,68 @@ Trinity's ReAct loop calls tools. This dispatcher registers one mega-tool
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import json
 import logging
 import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# 17-D. The parameter name a service method declares to receive the
+# AUTHENTICATED caller's wallet address from the dispatcher. One constant so
+# the service side and the injection side cannot drift apart.
+CALLER_IDENTITY_PARAM = "caller_identity"
+
+
+@functools.lru_cache(maxsize=1024)
+def _func_accepts_caller_identity(func: Any) -> bool:
+    try:
+        sig = inspect.signature(func)
+    except (TypeError, ValueError):
+        return False
+    param = sig.parameters.get(CALLER_IDENTITY_PARAM)
+    if param is None:
+        return False
+    # An EXPLICITLY DECLARED parameter only. A method whose signature merely
+    # ends in **kwargs has not opted in — it would swallow the identity
+    # silently and forward it somewhere it was never meant to go, which is the
+    # kind of invisible coupling this parameter exists to avoid.
+    return param.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    )
+
+
+def _method_accepts_caller_identity(method: Any) -> bool:
+    """True when *method* declares a `caller_identity` parameter by name.
+
+    Signature inspection is the opt-in mechanism (see DOMAIN 17-D in
+    `ServiceDispatcher.execute`). Anything uninspectable — a builtin, a C
+    callable, an exotic wrapper — is treated as NOT accepting it, so an
+    unreadable signature degrades to today's behaviour instead of raising.
+
+    Caching is keyed on the underlying FUNCTION, not on the bound method:
+    `getattr(instance, name)` mints a fresh bound method on every dispatch, so
+    caching those would both miss every time and pin every service instance
+    the cache ever saw. `__func__` is the module-level function object, which
+    is stable and already immortal.
+    """
+    target = getattr(method, "__func__", method)
+    try:
+        return _func_accepts_caller_identity(target)
+    except TypeError:
+        # Unhashable callable — cannot be cached; answer directly.
+        try:
+            sig = inspect.signature(method)
+        except (TypeError, ValueError):
+            return False
+        param = sig.parameters.get(CALLER_IDENTITY_PARAM)
+        return param is not None and param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +79,6 @@ logger = logging.getLogger(__name__)
 
 ACTION_MAP: dict[str, tuple[str, str]] = {
     # --- Contract Conversion (Component 1) ---
-    "deploy_contract": ("contract_conversion", "convert"),
     "convert_contract": ("contract_conversion", "convert"),
     "estimate_contract_cost": ("contract_conversion", "estimate_cost"),
     "list_templates": ("contract_conversion", "get_available_templates"),
@@ -71,7 +126,8 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "create_attestation": ("attestation", "attest"),
     "verify_attestation": ("attestation", "verify"),
     "revoke_attestation": ("attestation", "revoke"),
-    "query_attestations": ("attestation", "query"),
+    # NEW-48b: "query_attestations" REMOVED — attestation.query returned the
+    # GraphQL query text as if it were results. No EAS subgraph reader exists.
     "batch_attest": ("attestation", "batch_attest"),
 
     # --- Agent Identity (Component 9) ---
@@ -83,15 +139,74 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 
     # --- x402 Payments (Component 10) ---
     "create_payment": ("x402_payments", "create_payment"),
-    "authorize_payment": ("x402_payments", "authorize_payment"),
+    # ── NEW-53: authorize_payment and refund_payment DISABLED ─────────────
+    #
+    # INTERIM DISABLE on an authorization vulnerability, not an honesty fix.
+    #
+    # Both methods take ONLY a payment_id:
+    #     async def authorize_payment(self, payment_id: str)
+    #     async def refund_payment(self, payment_id: str)
+    # No owner, no signature, no caller identity of any kind. The paying agent
+    # is read FROM THE STORED PAYMENT, not from the caller — so the caller is
+    # never compared against anything.
+    #
+    # Payment ids are handed out by create_payment, get_payment and
+    # list_payments. Anyone who reaches the dispatcher with an id could
+    # authorize a spend against ANOTHER agent's budget, or refund another
+    # agent's payment (which also silently restores that agent's spend
+    # headroom — a free budget-reset primitive).
+    #
+    # WHY THE SECURITY GATE DOES NOT COVER THIS — two independent reasons:
+    #
+    #   1. `ServiceDispatcher.execute` never calls `gate_action` at all. Of the
+    #      four entry points that reach it, only gateway/bridge.py:789 gates;
+    #      capabilities/registry.py, agents/handoff.py and tools/dispatcher.py
+    #      reach the dispatcher with no gate call (verified: 0 occurrences of
+    #      `gate_action` in each).
+    #   2. Even the gated path would not help. `gate_action(action_type,
+    #      parameters, context)` is an action-TYPE policy check. It asks "is
+    #      this kind of action allowed for this identity", never "does this
+    #      caller own payment X".
+    #
+    #      Ownership verification is not absent from the codebase — that claim
+    #      was too strong and a test caught it. It exists PER-SERVICE and
+    #      AD-HOC: ip_royalties.verify_ownership compares
+    #      `record["owner"] == claimant`, rwa_tokenization has _find_owner.
+    #      What does not exist is a SHARED primitive or any enforcement at the
+    #      seam, so whether an object is protected depends on whether that
+    #      service's author happened to write a check. x402_payments did not.
+    #      See NEW-54, the systemic finding.
+    #
+    # The real fix is a signature change + an ownership check + plumbing
+    # identity through ServiceDispatcher.execute into three currently-ungated
+    # call sites. That is not one commit, and an unauthenticated money-state
+    # transition does not stay live while it is built — the same reasoning
+    # that took execute_deletion offline (NEW-38).
+    #
+    # Disabling here rather than in the service body is deliberate: ACTION_MAP
+    # is the single choke point all four dispatch entry points share, and
+    # NEITHER method has an HTTP route (verified by router-table read — no
+    # `_call("x402_payments", "authorize_payment"|"refund_payment")` exists in
+    # gateway/service_routes.py). So removing the actions removes every live
+    # path, with no HTTP surface lost.
+    #
+    # The methods themselves are LEFT IN PLACE, unreachable. They are not
+    # fabrications — their expiry checks, state guards and spend accounting are
+    # real work (real-local-defective). They are the starting point for the
+    # authenticated versions, not something to delete.
     "complete_payment": ("x402_payments", "complete_payment"),
-    "refund_payment": ("x402_payments", "refund_payment"),
     "get_payment": ("x402_payments", "get_payment"),
     "list_payments": ("x402_payments", "list_payments"),
 
     # --- Oracle Gateway (Component 11) ---
     "oracle_request": ("oracle_gateway", "request"),
-    "get_price": ("oracle_gateway", "request"),
+    # NEW-10 bug 1 (RUN-2 class): `get_price` pointed at the GENERIC
+    # `request(oracle_type, params, ...)`, which requires an oracle_type a
+    # price-lookup caller has no reason to send — so every `get_price` call
+    # returned a validation error. `oracle_price_query` already used the
+    # dedicated `query_price` correctly; `get_price` now does too, making the
+    # two a genuine alias rather than a collapse that broke one of them.
+    "get_price": ("oracle_gateway", "query_price"),
 
     # --- Supply Chain (Component 12) ---
     "register_product": ("supply_chain", "register_product"),
@@ -209,7 +324,18 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "get_privacy_commitment": ("privacy", "get_privacy_commitment"),
     "check_privacy_dependencies": ("privacy", "check_dependencies"),
     "get_deletion_status": ("privacy", "get_deletion_status"),
-    "execute_deletion": ("privacy", "execute_pending_deletion"),
+    # NEW-38: `execute_deletion` -> privacy.execute_pending_deletion is REMOVED.
+    # It was the trigger for a deletion executor that deleted nothing and
+    # reported success=True with total_deleted=9 for users whose data it never
+    # looked for, then minted a random hex string as an EAS "attestation" of
+    # the deletion. No HTTP route pointed here, which is why it read as inert
+    # — but four call sites reach ACTION_MAP (gateway/bridge.py's tool surface,
+    # capabilities/registry.invoke, agents/handoff, tools/dispatcher), so the
+    # action WAS live and reproducibly returned status=ok.
+    #
+    # `request_deletion` below is deliberately KEPT: the ruling is that it
+    # answers "not available" rather than accepting-and-queuing, so it has to
+    # stay reachable to give that answer. The service method now refuses.
 
     # --- Dispute Resolution (Component 30) ---
     "file_dispute": ("dispute_resolution", "file_dispute"),
@@ -219,17 +345,70 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "appeal_dispute": ("dispute_resolution", "appeal"),
 
     # ── DeFi Expanded ────────────────────────────────────────────
-    "flash_loan": ("defi", "flash_loan"),
-    "yield_optimize": ("defi", "yield_optimize"),
-    "liquidity_provide": ("defi", "liquidity_provide"),
-    "liquidity_remove": ("defi", "liquidity_remove"),
-    "perp_trade": ("defi", "perp_trade"),
-    "options_trade": ("defi", "options_trade"),
-    "synthetic_asset": ("defi", "synthetic_asset"),
-    "vault_deposit": ("defi", "vault_deposit"),
+    # NEW-61: ten fabricated defi actions removed here. Each pointed at a
+    # method that minted a uuid, set a success status and stored the dict —
+    # no chain call, no real arithmetic. Removed: flash_loan, yield_optimize,
+    # perp_trade, options_trade, synthetic_asset, vault_deposit,
+    # leverage_position (twin-path: NONE for all seven), plus
+    # liquidity_provide / liquidity_remove, which were DUPLICATE names
+    # shadowing the real AMM already registered above as add_liquidity /
+    # remove_liquidity -> ("dex", ...). The real capability is unaffected.
+    #
+    # collateral_manage was NOT simply dropped. Its twin is real
+    # (CollateralManager.deposit / withdraw) but was exposed on no surface at
+    # all, so NEW-61 registered deposit_collateral / withdraw_collateral /
+    # get_health_factor here in its place.
+    #
+    # NEW-64: THAT REGISTRATION IS REVERSED. It was wrong, and this is the
+    # correction.
+    #
+    # The twin is real AS COMPUTATION and false AS CUSTODY. CollateralManager
+    # increments a Python dict: no escrow, no chain interaction, no
+    # persistence across a restart. Every other lending entry point on this
+    # service is deployment-gated (create_loan at service.py:94 and its sole
+    # writer LoanManager.create_loan at loans.py:128); these three carried NO
+    # gate, so they were the only live lending surface in the service.
+    #
+    # The aggravating factor: deposit_collateral / withdraw_collateral were
+    # placed in _STATE_MODIFYING_ACTIONS below, and membership in that set is
+    # exactly what triggers _attest_action() plus a fire-and-forget publish to
+    # the public social feed. So a dict increment minted an attestation and
+    # announced custody publicly — strictly worse than the fabrication it
+    # replaced, because the fabrication did not attest.
+    #
+    # LIFTING CONDITION — do not re-register any of these until BOTH hold:
+    #   1. the operation actually holds value (real escrow or a real on-chain
+    #      position), or the response discloses that it does not, in the
+    #      RECORDED_UNSETTLED idiom (settled=False / value_moved=False); AND
+    #   2. [SATISFIED by 16-C, 2026-08-12] NEW-62 is fixed. As written this read:
+    #      "service.py passes repaid_amount (principal plus interest) into a
+    #      principal-only ledger, collateral.py clamps the overshoot with
+    #      max(0, ...), and a zero ledger makes withdraw's
+    #      `total_borrows_usd > 0` conjunct False, disabling the health check
+    #      entirely. Reproduced: repay $10,000 of a $10,202 debt, loan stays
+    #      ACTIVE owing $202, guard reports no_borrows, all collateral
+    #      withdraws."
+    #      16-C replaced `CollateralManager.record_repayment(user, token,
+    #      amount)` — a SUBTRACT fed the wrong quantity — with
+    #      `set_borrow_position(user, token, principal)`, and service.py:196 now
+    #      passes `result["remaining_principal"]`, the loan's own figure, so the
+    #      two ledgers cannot disagree. `record_repayment` no longer exists;
+    #      tests/test_defi_borrow_ledger_matches_the_loan.py pins its absence.
+    #
+    #      16-U. THE STALE CONDITION IS CORRECTED IN PLACE RATHER THAN DELETED,
+    #      because this is a LIFTING CONDITION — it gates future work, and a
+    #      condition naming an already-fixed defect is worse than no condition:
+    #      a reader either leaves the gate shut for a reason that has gone away,
+    #      or goes looking for `record_repayment`, fails to find it, and learns
+    #      to distrust the annotation. This audit's own later fixes invalidate
+    #      this audit's own earlier annotations; §AB's sibling.
+    #
+    #      CLAUSE 1 IS STILL OPEN AND IS ON ITS OWN SUFFICIENT: the operation
+    #      still increments a Python dict with no escrow and no chain position,
+    #      and does not disclose it. Do not re-register on the strength of
+    #      clause 2 alone.
+    # Pinned by tests/test_collateral_actions_unexposed.py.
     "cross_chain_bridge": ("cross_border", "bridge_transfer"),
-    "leverage_position": ("defi", "leverage_position"),
-    "collateral_manage": ("defi", "collateral_manage"),
     # ── NFT Expanded ─────────────────────────────────────────────
     "nft_fractionalize": ("nft_services", "fractionalize"),
     "nft_rent": ("nft_services", "rent"),
@@ -249,7 +428,11 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "multisig_propose": ("governance", "propose_multisig"),
     "multisig_approve": ("governance", "approve_multisig"),
     "snapshot_vote": ("governance", "snapshot_vote"),
-    "treasury_transfer": ("dao_management", "treasury_transfer"),
+    # CLUSTER B: "treasury_transfer" REMOVED. Its gateway route was deleted in
+    # Tier 2 as too dangerous to advertise, and this entry kept it reachable
+    # through POST /api/v1/capabilities/{id}/invoke, which bypasses `_call`.
+    # Deleting a route removes one door of three; the others are here and in
+    # the capability catalog. Lifting condition in dao_management/service.py.
     "parameter_change": ("governance", "parameter_change"),
     # ── RWA Expanded ─────────────────────────────────────────────
     "rwa_tokenize": ("rwa_tokenization", "tokenize_asset"),
@@ -257,19 +440,9 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "rwa_income_claim": ("rwa_tokenization", "claim_income"),
     "rwa_verify": ("rwa_tokenization", "verify_provenance"),
     # ── Payments Expanded ────────────────────────────────────────
-    "stream_payment": ("x402_payments", "create_stream"),
-    "recurring_create": ("x402_payments", "create_recurring"),
-    "escrow_milestone": ("x402_payments", "create_milestone_escrow"),
-    "payment_split": ("x402_payments", "split_payment"),
     "cross_border_remit": ("cross_border", "remit"),
-    "invoice_factor": ("x402_payments", "factor_invoice"),
-    "payroll_run": ("x402_payments", "run_payroll"),
     # ── Privacy ──────────────────────────────────────────────────
-    "private_transfer": ("privacy", "private_transfer"),
-    "stealth_address": ("privacy", "generate_stealth_address"),
     "zk_proof_generate": ("privacy", "generate_zk_proof"),
-    "private_vote": ("privacy", "private_vote"),
-    "confidential_compute": ("privacy", "confidential_compute"),
     # ── Social Expanded ──────────────────────────────────────────
     "social_post": ("social", "publish_post"),
     "social_follow": ("social", "follow_wallet"),
@@ -298,10 +471,16 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "cover_renew": ("insurance", "renew_coverage"),
     "risk_assess": ("insurance", "assess_risk"),
     # ── Compute and Storage ──────────────────────────────────────
+    # NEW-48: private_vote / confidential_compute / arweave_store REMOVED —
+    # their methods are gone (no twin to delegate to; see privacy/service.py).
+    # The three below are KEPT and now delegate to real external clients.
+    # NEW-57: stream_payment / recurring_create / escrow_milestone /
+    # payment_split / invoice_factor / payroll_run REMOVED — all six were
+    # fabrication-live and moved nothing. No twin: payments.py is a
+    # single-transfer primitive, not a batch-disbursement engine.
     "decentralized_store": ("privacy", "decentralized_store"),
     "compute_job_submit": ("privacy", "submit_compute_job"),
     "ipfs_pin": ("privacy", "pin_to_ipfs"),
-    "arweave_store": ("privacy", "store_on_arweave"),
     # ── AI Capabilities ──────────────────────────────────────────
     "ai_agent_register": ("agent_identity", "register_agent"),
     "ai_model_trade": ("agent_identity", "trade_model_access"),
@@ -321,8 +500,215 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
 }
 
 # Actions that modify state and should be attested via EAS
+#: DOMAIN 16-K — statuses that mean NOTHING HAPPENED.
+#: Every one is an idiom this audit either found or shipped:
+#:   not_deployed          the deployment gate refused (NEW-57 family)
+#:   error / failed        the service reported a failure
+#:   blocked / rejected    a control refused (rate limiter, compliance)
+#:   unavailable           the capability is not available in this deployment
+#:   recorded_unsettled    15-A — a local record, NO value moved
+#:   liquidation_due_unsettled   16-E — a determination, NOT an execution
+#:   pending / queued      not yet done; attesting now would assert the future
+#: 16-N. A DENY-LIST WAS A CLOSED-WORLD GUESS ABOUT AN OPEN VOCABULARY.
+#: The first version of this predicate ended `status not in _NON_OUTCOME_STATUSES`,
+#: so any status the list had not anticipated read as a real outcome. On the
+#: status axis it FAILED OPEN — the exact inversion of the docstring above it.
+#: The vocabulary is not open, though: it is finite and it can be counted. An AST
+#: census of every status literal in the 50 packages reachable from
+#: `_STATE_MODIFYING_ACTIONS` returns 115 distinct strings. Both sets below are
+#: that census, classified. `test_refusals_are_not_attested.py` re-derives it and
+#: fails if any status is unclassified, so "unanticipated" is no longer a state
+#: this predicate can be in without the suite saying so.
+_NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    # 23-C. `check_aml_risk` refuses to grade a provider whose response shape
+    # has never been observed. Classified explicitly — a refusal to screen
+    # must never read as a completed screen.
+    "provider_unsupported",
+    # 23-A. `issue_kyc_credential` refuses to attest that a person passed KYC
+    # without a screened verification result. Classified explicitly — this test
+    # exists precisely to stop a new string acquiring a meaning by accident,
+    # and a credential refusal must never read as a credential.
+    "not_verified",
+    # 21-C. `mint_sound`'s off-chain path runs a GraphQL READ for release
+    # metadata and mints nothing. It previously returned "ok" — a REAL-outcome
+    # status — so the dispatcher attested a metadata query and published it to
+    # the public feed under an action named `mint_sound`. Classified
+    # explicitly, not left to the unrecognised-status default, because this
+    # test exists precisely to stop a new string from acquiring a meaning by
+    # accident.
+    "metadata_only",
+    # the platform refused, failed, or had nothing to do
+    "not_deployed", "error", "failed", "failure", "blocked", "rejected",
+    "refused", "declined", "unavailable", "not_available", "unsupported",
+    "chain_error", "provider_error", "invalid", "invalid_request",
+    "compliance_hold", "denied", "needs_changes", "expired", "grace_period",
+    "no_rewards", "no_position", "no_submission", "nothing_to_claim",
+    "not_found", "not_started", "none", "already_released", "unknown",
+    # not yet done — attesting now would assert the future
+    "pending", "queued", "skipped", "noop", "no_op", "pending_verification",
+    # this audit's own unsettled idiom: a record was written, no value moved
+    "recorded_unsettled", "liquidation_due_unsettled", "calculated_unpaid",
+    "recorded_unqueued", "matched_unsettled",
+    # PREPARED, UNSIGNED transactions. `auctions._prepared_response`: "The server
+    # returns to/data/value/chainId only — it does NOT sign and does NOT
+    # broadcast." Identical in kind to `recorded_unsettled`, which was already
+    # here; these were missed because the naming convention differs.
+    "prepared", "prepared_unsigned",
+    # reads and checks. A lookup is not a state change, and attesting one would
+    # record an action that no caller performed.
+    "found", "known", "queried", "reviewed", "checked", "valid", "suspicious",
+    # preconditions unmet / not this deployment's job
+    "not_configured", "not_ready", "not_registered", "not_qualified",
+    "no_rights_supplied",   # 17-E: a request that set nothing
+    "not_settlement", "unresolved", "in_progress", "degraded",
+})
+
+#: The other half of the same census: statuses that report a real state change or
+#: a broadcast transaction, where "this action happened" is a true claim.
+_REAL_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    "submitted", "claim_submitted", "confirmed", "deployed", "executed",
+    "active", "open", "created", "registered", "proposed", "requested",
+    "reserved", "filed", "appealed", "responded", "escalated", "countered",
+    "finalized", "processed", "processing", "pending_review", "flagged",
+    "accepted", "approved", "completed", "resolved", "resolved_paid",
+    "resolved_cancelled", "triggered", "attested", "verified", "assessed",
+    "minted", "listed", "published", "purchased", "invested", "funded",
+    "released", "refunding", "refunded", "retired", "granted", "issued",
+    "sold", "traded", "transferred", "claimed", "deposited", "withdrawn",
+    "repaid", "filled", "passed", "entered", "placed", "rented", "bridged",
+    "fractionalized", "rights_set", "configured", "generated", "stored",
+    "written", "logged", "manufactured", "tracked", "recorded", "sent",
+    "following", "updated", "converted", "cancelled", "deactivated",
+    "deregistered", "renewed", "authorized", "applied", "rolled_back",
+    "reset", "ok", "success", "succeeded", "done",
+    # `runtime/blockchain/*.py` — the shared helpers services return through.
+    # A first scoping of this census covered `services/<pkg>/` only and could not
+    # see them, which is how "success" itself came to be missing from a set whose
+    # whole job is naming successes.
+    "compiled", "verification_submitted", "source_generated", "payment_attested",
+    "routed", "scheduled", "settled", "staked", "unstaked", "supplied",
+    "borrowed", "voted", "revoked", "frozen", "started", "qualified",
+    "validated", "under_escrow",
+})
+
+
+def _normalise_status(status: Any) -> str:
+    """Reduce a status value to the string the classification sets are keyed on.
+
+    `str(LoanStatus.ACTIVE)` is ``"LoanStatus.ACTIVE"``, NOT ``"active"`` — a
+    ``(str, Enum)`` member does not stringify to its value. Seven attested
+    services return enum members directly (`defi/loans.py`, `defi/p2p_lending.py`,
+    `dao_management/treasury.py`, …), so without this every one of them missed
+    both sets. Harmless today because those members happen to be successes; a
+    single failure member on the same pattern would have been attested as real.
+    """
+    return str(getattr(status, "value", status)).strip().lower()
+
+
+def _outcome_is_real(result: Any) -> bool:
+    """Did the action actually happen? DOMAIN 16-K's single predicate.
+
+    Governs BOTH the attestation and the feed publish, so the two cannot drift
+    apart — domain 8 established the feed is keyed on action name rather than
+    result, and gating one without the other is the half-fix this engagement
+    keeps catching.
+
+    REFUSALS ANNOUNCE THEMSELVES; SUCCESSES OFTEN DO NOT. That asymmetry is a
+    measured property of this codebase, not an assumption, and it decides the
+    default.
+
+    MEASURED over the 182 attested actions: 72 carry `status` on every literal
+    return; **17 return a SUCCESS with no `status` key at all** —
+    `dex.add_liquidity` -> {amount_a, amount_b, pool_id, provider, shares_minted},
+    `loyalty.earn_points` -> {points_earned, balance, program_id, ...},
+    `dao_management.join_dao` -> {dao_id, member, member_count}. Meanwhile every
+    refusal idiom this audit found or shipped is EXPLICIT: `not_deployed`,
+    `status: "error"`, `recorded_unsettled`, `liquidation_due_unsettled`.
+
+    So absence of a status field is evidence of SUCCESS, not of refusal.
+
+    A FIRST VERSION OF THIS PREDICATE GOT THAT BACKWARDS, and the mistake is
+    worth keeping. It treated a missing `status` as "cannot tell -> do not
+    attest", reasoning that an unrecorded truth is recoverable while a recorded
+    falsehood is not. That principle is right; it was applied to the wrong axis.
+    Measuring rather than reasoning showed it would have silently stopped
+    attesting 17 genuine actions — inventing an evidence GAP across a sixth of
+    the surface in the name of preventing a false record. "Fail closed" is only
+    safe when you have correctly identified which direction "closed" is.
+
+    THAT ASYMMETRY DECIDES ONE AXIS ONLY, AND A LATER PASS FOUND IT APPLIED TO
+    TWO. Absence of a status is evidence of success. A status that is PRESENT but
+    unrecognised is not evidence of anything, and the first version of this
+    predicate — `status not in _NON_OUTCOME_STATUSES` — read it as success. The
+    deny-list held 18 strings; the services emit 115. So the two axes now have
+    two different defaults, each measured rather than reasoned:
+
+      * no `status` key                -> REAL   (17 of 182 actions; measured)
+      * `status` present, unrecognised -> NOT REAL
+
+    WHY THIS PREDICATE CANNOT BE STRING-BASED AT ALL — the argument, stated here
+    rather than left for a reader to reconstruct. `"pending"` is returned by
+    `insurance.process_claim` to mean "reserve insufficient, the claim was NOT
+    paid", and by `x402.create_payment` to mean "the payment record was created
+    and persisted". **Both are honest. Their meanings are opposite. No
+    classification of the STRING is correct for both**, so the string cannot be
+    the only evidence consulted, and any predicate that tries will be wrong for
+    one of them no matter which way it is set. Only the service can break the
+    tie, by stating positively that it acted — which is what `created: True` is.
+
+    and the classification itself is a census rather than a guess, held in place
+    by a test that re-derives it. 15-A's disclosure flags still outrank both,
+    because they are the field that was added to be honest.
+
+    Non-dicts and None still return False: they are not this codebase's success
+    idiom, they carry no refusal vocabulary to check, and no attested action
+    returns one on its success path.
+    """
+    if not isinstance(result, dict):
+        return False
+
+    # 15-A's disclosure flags outrank the status string: a record that says
+    # settled=False is telling you plainly that nothing moved, even if some
+    # other field reads optimistically.
+    if result.get("settled") is False or result.get("value_moved") is False:
+        return False
+
+    # 16-O. POSITIVE EVIDENCE OUTRANKS A LIFECYCLE STATUS.
+    # A record-creating action reports the NEW RECORD's status, not its own
+    # disposition. `x402.create_payment` mints a payment id, signs the header and
+    # persists the record, then returns the payment's real lifecycle state,
+    # "pending" — because NEW-56, an earlier fix in this same audit, stopped it
+    # overwriting that field with "created". Without this branch, that honesty fix
+    # reads as a refusal and a genuine, durable action loses its record. The two
+    # meanings are not separable from the string: `insurance` returns
+    # "pending" for "reserve insufficient, claim NOT paid" — a true refusal — and
+    # both are correct. Only the service can break the tie, and `created: True` is
+    # it saying so. It does not outrank 15-A's flags: those report that no value
+    # moved, which is a different and stronger claim than "a record now exists".
+    if result.get("created") is True:
+        return True
+
+    status = result.get("status")
+    if status is None:
+        return True  # no refusal vocabulary present -> a plain success shape
+
+    s = _normalise_status(status)
+    if s in _NON_OUTCOME_STATUSES:
+        return False
+    if s in _REAL_OUTCOME_STATUSES:
+        return True
+
+    # PRESENT BUT UNRECOGNISED -> NOT AN OUTCOME. The measured asymmetry that
+    # decides the `status is None` case above does NOT extend to here: a service
+    # that bothered to name a status is precisely the case where absence of
+    # evidence is not evidence. Falling through to True is what let
+    # `compliance_hold` be attested and published to the public feed as a
+    # completed $5,000 payment that compliance had in fact refused.
+    return False
+
+
 _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
-    "deploy_contract", "convert_contract", "create_loan", "repay_loan",
+    "convert_contract", "create_loan", "repay_loan",
     "mint_nft", "create_nft_collection", "transfer_nft", "list_nft_for_sale",
     "buy_nft", "set_nft_rights", "configure_nft_royalty",
     "tokenize_asset", "transfer_rwa_ownership",
@@ -331,7 +717,9 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "transfer_stablecoin",
     "create_attestation", "revoke_attestation", "batch_attest",
     "register_agent", "update_agent", "deregister_agent",
-    "create_payment", "authorize_payment", "complete_payment", "refund_payment",
+    # NEW-53: authorize_payment / refund_payment removed — disabled at
+    # ACTION_MAP pending identity + ownership verification.
+    "create_payment", "complete_payment",
     "register_product", "update_product_status", "transfer_custody",
     "create_insurance", "file_insurance_claim", "cancel_insurance",
     "register_game", "mint_game_asset", "transfer_game_asset", "approve_game",
@@ -349,27 +737,37 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "create_brand_campaign", "distribute_brand_reward",
     "create_subscription_plan", "subscribe", "cancel_subscription",
     "create_social_profile", "update_social_profile", "send_message",
-    "request_deletion", "execute_deletion",
+    # NEW-38: "execute_deletion" removed — no longer an action. "request_deletion"
+    # stays in the state-modifying set even though it now modifies nothing:
+    # over-classifying is the safe direction here, and if a real erasure path is
+    # ever built this is the entry that must already be gated.
+    "request_deletion",
     "file_dispute", "submit_dispute_evidence", "resolve_dispute", "appeal_dispute",
     # ── Expanded state-modifying actions ─────────────────────────
-    "flash_loan", "yield_optimize", "liquidity_provide", "liquidity_remove",
-    "perp_trade", "options_trade", "synthetic_asset", "vault_deposit",
-    "cross_chain_bridge", "leverage_position", "collateral_manage",
+    # NEW-61: the ten removed defi fabrications are gone from here too.
+    #
+    # NEW-64: deposit_collateral / withdraw_collateral removed from this set
+    # as well, not only from ACTION_MAP. Membership here is what makes
+    # execute() call _attest_action() and publish to the social feed, so an
+    # unremoved entry would keep minting attestations for a dict increment
+    # even after the action itself was unregistered. Removing an action from
+    # one table and leaving it in the table that grants it authority is the
+    # same half-removal that left dangling handlers in domain 4.
+    "cross_chain_bridge",
     "nft_fractionalize", "nft_rent", "nft_dynamic_update", "nft_batch_mint",
     "nft_royalty_claim", "nft_bridge", "did_create", "credential_issue",
     "soulbound_mint", "timelock_queue", "multisig_propose", "multisig_approve",
-    "snapshot_vote", "treasury_transfer", "parameter_change",
+    "snapshot_vote", "parameter_change",   # CLUSTER B: treasury_transfer removed
     "rwa_tokenize", "rwa_fractional_buy", "rwa_income_claim",
-    "stream_payment", "recurring_create", "escrow_milestone", "payment_split",
-    "cross_border_remit", "invoice_factor", "payroll_run",
-    "private_transfer", "stealth_address", "zk_proof_generate", "private_vote",
-    "confidential_compute", "social_post", "social_gate", "creator_monetize",
+    "cross_border_remit",
+    "zk_proof_generate",  # NEW-48: private_vote + confidential_compute removed
+    "social_post", "social_gate", "creator_monetize",
     "community_create", "message_encrypt",
     "game_asset_mint", "tournament_enter", "game_item_trade", "achievement_attest",
     "market_create", "market_bet", "market_resolve",
     "provenance_log", "batch_track", "custody_transfer",
     "parametric_policy", "claim_auto_settle", "cover_renew",
-    "decentralized_store", "compute_job_submit", "ipfs_pin", "arweave_store",
+    "decentralized_store", "compute_job_submit", "ipfs_pin",  # NEW-48: arweave_store removed
     "ai_agent_register", "ai_model_trade", "training_data_sell",
     "carbon_credit_buy", "carbon_credit_retire", "renewable_cert_buy", "green_bond_invest",
     "ip_license_grant", "agreement_execute", "dispute_file", "arbitration_request",
@@ -377,7 +775,10 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
 
 ACTION_TO_FEED_EVENT: dict[str, str] = {
     # Existing actions
-    "deploy_contract": "contract_deployed",
+    # NEW-4: `deploy_contract` mapped to a `contract_deployed` feed event
+    # while dispatching to contract_conversion.convert, which deploys
+    # nothing. A conversion was announced to the social feed as a
+    # deployment. Removed with the capability itself.
     "convert_contract": "contract_converted",
     "create_loan": "loan_created",
     "repay_loan": "loan_repaid",
@@ -389,16 +790,30 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "stake": "tokens_staked",
     "create_dao": "dao_created",
     # New expanded actions
-    "yield_optimize": "yield_deposited",
-    "flash_loan": "flash_loan_executed",
-    "cross_chain_bridge": "bridge_completed",
-    "liquidity_provide": "liquidity_added",
-    "vault_deposit": "vault_deposited",
-    "perp_trade": "perp_trade_executed",
+    # NEW-61: yield_optimize / flash_loan / liquidity_provide / vault_deposit
+    # / perp_trade feed events removed with their fabrications. A feed event
+    # is a public claim that something happened; these announced events for
+    # operations that never occurred.
+    # NEW-88: `cross_chain_bridge` -> "bridge_completed" REMOVED. This is an
+    # independent defect from the fabrication behind it and it survives fixing
+    # that method, so it is fixed on its own terms: the method's own literal
+    # was "bridging" — an IN-PROGRESS claim — and this table upgraded it to
+    # COMPLETED and published that upgrade to the public social feed. Even a
+    # perfectly honest bridge that returned "submitted" would have been
+    # announced here as finished.
+    #
+    # LIFTING CONDITION: a feed event for bridging may be restored only when
+    # it is DERIVED from a settlement result (a confirmed destination-chain
+    # receipt), never from the fact that a request was accepted. Same rule as
+    # the NEW-61 removals above.
     "nft_fractionalize": "nft_fractionalized",
     "nft_batch_mint": "nft_batch_minted",
     "nft_bridge": "nft_bridged",
     "rwa_tokenize": "rwa_tokenized",
+    # NEW-10: `tokenize_asset` routes to the SAME service method as
+    # `rwa_tokenize` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "tokenize_asset": "rwa_tokenized",
     "rwa_fractional_buy": "rwa_purchased",
     "did_create": "did_created",
     "credential_issue": "credential_issued",
@@ -408,20 +823,28 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
     "market_resolve": "prediction_market_resolved",
     "carbon_credit_buy": "carbon_credit_purchased",
     "carbon_credit_retire": "carbon_credit_retired",
-    "stream_payment": "payment_streamed",
-    "recurring_create": "recurring_payment_created",
-    "escrow_milestone": "escrow_created",
     "social_post": "social_post_published",
     "community_create": "community_created",
     "ai_agent_register": "ai_agent_registered",
+    # NEW-10: `register_agent` routes to the SAME service method as
+    # `ai_agent_register` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "register_agent": "ai_agent_registered",
     "decentralized_store": "file_stored",
     "ipfs_pin": "ipfs_content_pinned",
-    "arweave_store": "arweave_content_stored",
     "game_asset_mint": "game_asset_minted",
+    # NEW-10: `mint_game_asset` routes to the SAME service method as
+    # `game_asset_mint` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "mint_game_asset": "game_asset_minted",
     "tournament_enter": "tournament_entered",
     "achievement_attest": "achievement_attested",
     "provenance_log": "provenance_logged",
     "custody_transfer": "custody_transferred",
+    # NEW-10: `transfer_custody` routes to the SAME service method as
+    # `custody_transfer` but published nothing, so whether this state change
+    # was recorded depended on which name the caller happened to use.
+    "transfer_custody": "custody_transferred",
     "parametric_policy": "insurance_policy_created",
     "claim_auto_settle": "insurance_claim_settled",
     "ip_license_grant": "ip_license_granted",
@@ -479,8 +902,6 @@ class ServiceDispatcher:
                 "SMART CONTRACTS:\n"
                 "  convert_contract — Convert a contract between chains. "
                     "params: {source_code, source_lang, target_chain}\n"
-                "  deploy_contract — Deploy a contract to a blockchain. "
-                    "params: {source_code, source_lang, target_chain}\n"
                 "  estimate_contract_cost — Estimate deployment cost. "
                     "params: {source_code, target_chain}\n"
                 "  list_templates — Browse available contract templates.\n\n"
@@ -514,8 +935,7 @@ class ServiceDispatcher:
                     "params: {recipient, amount, currency}\n"
                 "  get_payment_quote — Get a cross-border payment quote. "
                     "params: {amount, currency, destination_country}\n"
-                "  create_payment, authorize_payment, complete_payment, "
-                    "refund_payment\n\n"
+                "  create_payment, complete_payment\n\n"
 
                 "STAKING:\n"
                 "  stake — Stake tokens in a pool. params: {amount, pool_id}\n"
@@ -591,8 +1011,11 @@ class ServiceDispatcher:
                 "sell_security), loyalty (earn_loyalty, redeem_loyalty), "
                 "cashback (track_spending, claim_cashback), brand rewards "
                 "(create_brand_campaign), social (create_social_profile), "
-                "privacy (request_deletion), disputes (file_dispute, "
-                "resolve_dispute)."
+                # NEW-38: "privacy (request_deletion)" removed from what the
+                # model is told it can do. The action still exists and still
+                # answers, but the answer is "not available" — advertising it
+                # here would have the agent offer erasure and then dead-end.
+                "disputes (file_dispute, resolve_dispute)."
             ),
             "parameters": {
                 "type": "object",
@@ -677,6 +1100,9 @@ class ServiceDispatcher:
         action: str,
         service: str | None = None,
         params: dict | None = None,
+        *,
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> str:
         """Execute a platform action and return a JSON string result.
 
@@ -688,6 +1114,12 @@ class ServiceDispatcher:
             Optional service-name override (normally inferred from *action*).
         params:
             Keyword arguments forwarded to the underlying service method.
+        caller_identity:
+            The AUTHENTICATED wallet address of the caller, or "" when the
+            entry point has none. See DOMAIN 17-D below. Keyword-only and
+            defaulting to "" so every existing call site — including the
+            positional ``execute(action, None, params)`` in
+            ``runtime/agents/handoff.py`` — keeps working unchanged.
 
         Returns
         -------
@@ -695,8 +1127,53 @@ class ServiceDispatcher:
             JSON-encoded result dict with ``status``, ``action``, ``result``,
             and timing information.
         """
+        # ── DOMAIN 17-D ────────────────────────────────────────────────────
+        # THE CALLER'S IDENTITY WAS KNOWN AND THEN THROWN AWAY.
+        #
+        # `gateway/bridge.py` reads the session's linked wallet and binds it
+        # into the security context (`bind_request_security(identity=...)`)
+        # BEFORE calling this method — and then called `execute(action, params)`
+        # with no identity at all. So the wallet existed, one frame up, and the
+        # service decided without it. Two surfaces went blind at once:
+        #
+        #   AUTHORITY — the service is asked to move an IP right and cannot see
+        #     who asked. `set_rights` grants `commercial` on any token to any
+        #     holder for anyone who can reach the dispatcher.
+        #   EVIDENCE — the actor written to the attestation and to the PUBLIC
+        #     social feed fell back to `""`. The platform's own record said a
+        #     right moved and could not say who moved it.
+        #
+        # Both are fixed here, in one change, because a fix that lands one and
+        # not the other leaves the trail lying about a grant it can still not
+        # attribute.
+        #
+        # WHAT THIS IS NOT. This does not check OWNERSHIP, and must not be read
+        # as doing so. This platform holds NO ownership record — see the NFT
+        # GATING CONDITION in nft_services/service.py: `NFTFactory._collections`
+        # is a cache with a declaration, two reads and ZERO writers (verified
+        # again for this change). Checking a caller against a store that does
+        # not exist would fabricate a control, which is worse than the gap it
+        # covers. This change supplies the IDENTITY an ownership check would
+        # need; the ownership half is deployment-gate-plus-honest-refusal and is
+        # tracked separately.
         start = time.time()
         params = params or {}
+
+        # 17-J. AN EMPTY ACTOR WAS THREE FACTS WEARING ONE VALUE: no human
+        # initiated this (agent hand-off — "" is CORRECT); a human initiated it
+        # and the identity was DROPPED (17-D's defect); a human initiated it and
+        # was anonymous. The first two rendered identically, so THE 17-D FIX
+        # COULD NOT DEMONSTRATE ITS OWN SUCCESS FROM THE TRAIL.
+        #
+        # DERIVED FROM `caller_identity` ALONE, never from `_actor`. `_actor`
+        # falls back to `params["wallet"]`, which is SELF-ASSERTED on the bridge
+        # path — labelling that "authenticated" would be exactly the fabrication
+        # this field exists to prevent. The source describes the CHANNEL the
+        # identity arrived through, not whether some address is present.
+        _actor_source = (
+            "authenticated" if caller_identity
+            else (caller_source or "unauthenticated")
+        )
 
         # Resolve action -> service + method
         if action not in ACTION_MAP:
@@ -713,8 +1190,9 @@ class ServiceDispatcher:
             target_service = service
 
         logger.info(
-            "Dispatching action=%s -> %s.%s  params=%s",
+            "Dispatching action=%s -> %s.%s  params=%s  caller=%s",
             action, target_service, method_name, list(params.keys()),
+            caller_identity or "<unauthenticated>",
         )
 
         try:
@@ -750,23 +1228,122 @@ class ServiceDispatcher:
                     ),
                 })
 
+            # 17-D. HAND THE IDENTITY TO THE SERVICE — ONLY WHERE IT ASKED.
+            #
+            # Injection is gated on the target method's own signature: the
+            # parameter is passed if and only if the method declares a
+            # parameter literally named `caller_identity`. A method that has
+            # not opted in is called exactly as before, so none of the ~219
+            # existing actions can break on this.
+            #
+            # WHY SIGNATURE INJECTION AND NOT A ContextVar. A ContextVar (the
+            # shape `gateway/security_gate.py` uses for the security context)
+            # would be less code, but it is bound at ONE of the four entry
+            # points that reach this dispatcher — the other three
+            # (capabilities/registry.py, agents/handoff.py, tools/dispatcher.py)
+            # never bind it, so a service reading it would silently see the
+            # PREVIOUS request's identity or nothing, with no signature to say
+            # so. Declaring the parameter makes the dependency visible in the
+            # service's own API, works identically from all four entry points,
+            # and is checkable by `inspect`.
+            #
+            # THE AUTHENTICATED VALUE OVERWRITES, IT DOES NOT DEFAULT. `params`
+            # is attacker-controlled — it is the request body on the bridge
+            # path. If a client-supplied `params["caller_identity"]` were left
+            # to stand when the real identity is unknown, this fix would ship a
+            # brand-new spoofing primitive: assert any address, have the
+            # platform record it. So the threaded value ALWAYS wins, including
+            # when it is "" — an unauthenticated call records "unknown", never
+            # a self-asserted address.
+            if _method_accepts_caller_identity(method):
+                params = {**params, "caller_identity": caller_identity or "",
+                          "caller_source": _actor_source}
+
             result = await method(**params)
 
-            # Attest state-modifying actions
+            # 17-D (evidence half). WHO the record says acted.
+            #
+            # This was computed inside the feed block as
+            #     params.get("wallet") or params.get("address") or ""
+            # so `set_nft_rights` — whose params are collection/token_id/rights
+            # and contain neither key — was attested and published with
+            # actor "". Hoisted out of the feed block so the ATTESTATION and
+            # the FEED are attributed from one value: attributing the public
+            # feed and leaving the audit record anonymous is the half-fix.
+            #
+            # Order is deliberate and conservative: the existing params-derived
+            # actor keeps precedence so no currently-attributed action changes
+            # who it names, and the authenticated identity is the FALLBACK that
+            # fills the "" hole. Note the residual — a client-supplied `wallet`
+            # param still outranks the authenticated caller on this surface.
+            # That is a pre-existing attribution weakness, wider than 17-D
+            # (it touches every state-modifying action), and is not narrowed
+            # here.
+            _actor = (
+                params.get("wallet")
+                or params.get("address")
+                or caller_identity
+                or ""
+            )
+
+
+            # ── DOMAIN 16-K ────────────────────────────────────────────────
+            # THE ATTESTATION LAYER DID NOT CHECK WHETHER ANYTHING HAPPENED.
+            # Membership in _STATE_MODIFYING_ACTIONS was the ENTIRE condition;
+            # `result` was read only to pull tx_hash into the feed payload,
+            # never to decide whether to record. So every refusal — every
+            # `not_deployed`, every `status: "error"`, every honest decline this
+            # audit shipped — was attested and published AS AN ACTION TAKEN.
+            #
+            # Measured: 182 attested actions, of which 62 return an honest
+            # refusal. The system's mechanism for recording that something
+            # happened did not check whether it happened.
+            #
+            # KEYED ON THE RESULT, NOT ON DISPOSITION STYLE. A raised refusal
+            # never reached this block (the exception unwinds past it) while a
+            # returned one always did — so the clean subset was clean only
+            # because raise-vs-return was picked on local ergonomics, sixteen
+            # domains deep, never once on attestation behaviour. A style-keyed
+            # rule can be got wrong by accident by a future fix. This one cannot.
+            #
+            # BOTH SURFACES, ONE PREDICATE. Domain 8 established the feed is
+            # keyed on ACTION NAME rather than result, so gating the attestation
+            # alone would leave the feed announcing refusals — the half-fix this
+            # engagement keeps catching (15-A's log line, 16-I's third entry
+            # point). `_outcome_is_real` governs both.
+            #
+            # THE REFUSAL IS STILL RECORDED, AS A REFUSAL. Suppressing it would
+            # trade a false record for no record, which is the same defect facing
+            # the other way: an audit trail must show that the system DECLINED,
+            # not that nothing occurred.
             if action in _STATE_MODIFYING_ACTIONS:
-                await self._attest_action(action, target_service, params, result)
+                _happened = _outcome_is_real(result)
+
+                if _happened:
+                    await self._attest_action(
+                        action, target_service, params, result, actor=_actor,
+                        actor_source=_actor_source,
+                    )
+                else:
+                    await self._attest_refusal(
+                        action, target_service, params, result, actor=_actor,
+                        actor_source=_actor_source,
+                    )
 
                 # Fire-and-forget: publish to the social feed.
                 # Never blocks the response — failures are logged and
                 # swallowed inside SocialFeedEngine.ingest().
-                if self._feed_engine is not None:
+                # A REFUSAL IS NOT AN ACTIVITY: nothing happened, so nothing is
+                # announced. The refusal is still recorded above, where an audit
+                # trail belongs; the public feed is a different surface with a
+                # different contract.
+                if _happened and self._feed_engine is not None:
                     _component_id = None
                     try:
                         from extensions import registry as _reg
                         _component_id = _reg.service_to_component(target_service)
                     except Exception:
                         pass
-                    _actor = params.get("wallet") or params.get("address") or ""
                     _tx = None
                     if isinstance(result, dict):
                         _tx = result.get("tx_hash") or result.get("transaction_hash")
@@ -835,22 +1412,92 @@ class ServiceDispatcher:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    async def _attest_refusal(
+        self,
+        action: str,
+        service_name: str,
+        params: dict,
+        result: Any,
+        *,
+        actor: str = "",
+        actor_source: str = "",
+    ) -> None:
+        """Record that the platform DECLINED to act — as a decline.
+
+        DOMAIN 16-K. The counterpart to `_attest_action`. A refusal that leaves
+        no trace is not an improvement over a refusal recorded as a success: an
+        auditor reading the trail must be able to tell "the system declined" from
+        "nothing was ever asked". Both are answers; only one of them is silence.
+
+        Deliberately a LOG record rather than an EAS attestation. An on-chain
+        attestation costs gas and asserts a fact to third parties; "we declined
+        because contracts are not deployed" is an operational event, not a
+        counterparty-facing claim. If a deployment ever needs refusals on-chain
+        that is a product decision, and this is the seam it would hang from.
+        """
+        # 16-N. REPORT WHAT WAS OBSERVED, NOT THE NEGATIVE FACT IT IMPLIES.
+        # This line used to end "— the platform did not perform this action",
+        # which is an unqualified assertion derived entirely from the predicate.
+        # 16-N found two cases where the predicate was wrong in each direction,
+        # and in the create_payment direction this log was the ONLY output: a
+        # genuine, persisted payment recorded as something that did not happen.
+        # A wrong predicate should leave a gap in the trail, not a falsehood in
+        # it — the same principle the attestation path is built on, applied to
+        # the path that runs when the attestation path declines.
+        _status = result.get("status") if isinstance(result, dict) else None
+        # 17-D. A refusal names WHO was refused. "The system declined" is only
+        # half an audit record if it cannot say who it declined.
+        logger.info(
+            "ACTION DECLINED (not attested, not published): action=%s service=%s "
+            "actor=%s status=%s — no outcome evidence in the service result",
+            action, service_name, actor or "<unknown>", _status,
+        )
+
     async def _attest_action(
         self,
         action: str,
         service_name: str,
         params: dict,
         result: Any,
+        *,
+        actor: str = "",
+        actor_source: str = "",
     ) -> None:
         """Record an EAS attestation for a state-modifying action."""
         try:
             registry = self._get_registry()
             attestation_svc = registry.get("attestation")
+            # NEW-42 (instance 1 of 2): this passed `schema_name=`, but
+            # AttestationService.attest takes `schema_uid`. EVERY call raised
+            # TypeError and was swallowed by the `except` below as a WARNING,
+            # so NO state-modifying action on the platform has ever been
+            # attested. Signature drift plus a silent swallow — the NEW-9
+            # shape. "" resolves to the primary platform schema via
+            # `_resolve_schema`, which is what this call always meant.
+            # 17-D. THE ATTESTATION NOW NAMES THE ACTOR.
+            #
+            # This payload recorded action, service, a params hash and a
+            # timestamp — everything except WHO. An attestation that a right
+            # was granted, with the grantor unrecoverable (a hash is not a
+            # name), is the evidence half of the same defect the authority half
+            # fixes upstream. Empty string is written when the entry point had
+            # no authenticated identity: the record says "unknown", which is a
+            # fact, rather than omitting the field, which reads as "not
+            # applicable".
+            #
+            # `recipient` is deliberately UNCHANGED. In EAS the recipient is the
+            # SUBJECT of the attestation, not its author; repointing it at the
+            # caller would silently redefine what all ~182 attested actions
+            # assert to third parties, which is a product decision and a
+            # separate change. The actor is carried in the payload, where the
+            # authorship claim belongs.
             await attestation_svc.attest(
-                schema_name="platform_action",
+                schema_uid="",
                 data={
                     "action": action,
                     "service": service_name,
+                    "actor": actor or "",
+                    "actor_source": actor_source or "unauthenticated",
                     "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
                     "timestamp": int(time.time()),
                 },

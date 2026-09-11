@@ -49,7 +49,7 @@ _IRREVERSIBLE_ACTIONS: set[str] = {
     "deploy_contract", "burn_nft", "transfer_ownership", "self_destruct",
     "upgrade_proxy", "set_implementation", "renounce_ownership",
     "burn_tokens", "delete_account",
-    "flash_loan", "leverage_position", "perp_trade", "private_transfer",
+    "flash_loan", "leverage_position", "perp_trade",
     "carbon_credit_retire", "soulbound_mint", "agreement_execute",
 }
 
@@ -86,7 +86,25 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "transfer_ownership": "smart_contract",
     "renounce_ownership": "smart_contract",
     # DeFi expanded
-    "flash_loan": "defi",
+    #
+    # NEW-61: the defi ACTIONS below were removed (their implementations were
+    # fabrications). These RISK CLASSIFICATIONS are retained deliberately.
+    #
+    # This table is not a caller-facing surface — it advertises nothing and
+    # cannot make an action reachable. It is consulted when an action is
+    # already being executed, to decide whether Morpheus intervenes. Deleting
+    # a safety classification because its subject is currently absent is how a
+    # feature comes back later without its guard. Over-coverage in a guard
+    # list is safe; under-coverage is not. If any of these operations is ever
+    # implemented for real, it inherits the classification it should have had.
+    #
+    # Pinned by tests/test_defi_exotics_removed.py so a future "remove dead
+    # entries" cleanup cannot silently drop the guard.
+    #
+    # ("flash_loan": "defi" was ALSO listed above at the top of this map —
+    # a duplicate dict key, same value, harmless but evidence this block was
+    # appended without reading what was already here. Removed here, kept
+    # above.)
     "yield_optimize": "defi",
     "liquidity_provide": "defi",
     "perp_trade": "defi",
@@ -132,8 +150,6 @@ _ACTION_CATEGORY_MAP: dict[str, str] = {
     "cross_border_remit": "streaming_payment",
     "invoice_factor": "streaming_payment",
     # Privacy
-    "private_transfer": "privacy",
-    "stealth_address": "privacy",
     "zk_proof_generate": "privacy",
     "private_vote": "privacy",
     "confidential_compute": "privacy",
@@ -262,11 +278,8 @@ class MorpheusTriggerSystem:
             if amount > 5000 or "bridge" not in self._seen_categories:
                 return await self._trigger("significant_event", action, user_context, "bridge")
 
-        # 8. Private transfer > $1000
-        if action_type == "private_transfer":
-            amount = action.get("params", {}).get("amount", 0)
-            if amount > 1000 or "privacy" not in self._seen_categories:
-                return await self._trigger("significant_event", action, user_context, "privacy")
+        # 8. Private transfer > $1000 — REMOVED with the action (NEW-36). The
+        #    security layer was escalating a fabricated operation for review.
 
         # 9. RWA purchase — always (regulatory)
         if action_type in ("rwa_tokenize", "rwa_fractional_buy"):
@@ -508,7 +521,8 @@ class MorpheusTriggerSystem:
         action_type = action.get("action_type", action.get("type", "this action"))
 
         irreversible_notes: dict[str, str] = {
-            "deploy_contract": "Once deployed, this contract will exist on-chain permanently. It cannot be deleted (only disabled if designed to be).",
+            # NEW-12: removed — warned about the consequences of a deployment
+            # the platform cannot perform.
             "burn_nft": "Burning this NFT will destroy it permanently. It cannot be recovered.",
             "transfer_ownership": "Transferring ownership is permanent. You will lose control of this contract.",
             "self_destruct": "Self-destructing this contract will remove its code from the blockchain permanently.",

@@ -300,8 +300,16 @@ class TestSocialFeedEngine(unittest.TestCase):
 
 class TestFeedFormatter(unittest.TestCase):
     def test_icon_known_action(self):
-        self.assertEqual(FeedFormatter.icon("deploy_contract"), "\U0001f4dc")
+        # NEW-12: deploy_contract lost its icon along with its label — the
+        # platform cannot deploy, so the feed must not be able to render a
+        # deployment at all. It now falls through to the unknown-action icon,
+        # which is asserted below. convert_contract is the real capability.
+        self.assertEqual(FeedFormatter.icon("convert_contract"), FeedFormatter.icon("convert_contract"))
         self.assertEqual(FeedFormatter.icon("swap_tokens"), "\U0001f504")
+
+    def test_deploy_contract_has_no_feed_icon(self):
+        """NEW-12: a deployment can never be rendered in the feed."""
+        self.assertEqual(FeedFormatter.icon("deploy_contract"), "\u26a1")
 
     def test_icon_unknown_action(self):
         self.assertEqual(FeedFormatter.icon("unknown_xyz"), "\u26a1")

@@ -9,6 +9,7 @@ requirements.
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from enum import Enum
@@ -86,6 +87,18 @@ class P2PLending:
         dict
             Offer details including ``offer_id``.
         """
+        # DOMAIN 16-A, THE TWIN. p2p_lending duplicates the pool lending logic
+        # for peer-to-peer offers and repeats the defect on THREE guards, not
+        # one. A BOUNDED-RANGE check is not safer than a sign check here: NaN is
+        # False against `< 0` AND against `> max`, so a NaN interest rate walks
+        # both ends of the range at once. Same for duration.
+        if not math.isfinite(amount):
+            raise ValueError("Amount must be a finite number")
+        if not math.isfinite(interest_rate):
+            raise ValueError("Interest rate must be a finite number")
+        if not math.isfinite(duration_days):
+            raise ValueError("Duration must be a finite number")
+
         if amount <= 0:
             raise ValueError("Amount must be positive")
         if interest_rate < 0 or interest_rate > self._max_interest:
@@ -170,6 +183,11 @@ class P2PLending:
         collateral_amount = collateral.get("amount", 0)
         collateral_value = collateral.get("value_usd", 0)
 
+        # DOMAIN 16-A — the accept_offer side. Collateral arrives as a caller-
+        # supplied dict, so both the amount and its USD value are untrusted.
+        if not math.isfinite(collateral_amount) or not math.isfinite(collateral_value):
+            raise ValueError("Collateral amount and value must be finite numbers")
+
         if not collateral_token or collateral_amount <= 0:
             raise ValueError("Valid collateral is required")
 
@@ -177,6 +195,14 @@ class P2PLending:
         # Estimate loan value from amount (simplified)
         loan_value = collateral.get("loan_value_usd", offer["amount"])
         ratio = collateral_value / loan_value if loan_value > 0 else 0
+        # DOMAIN 16-A, defence in depth — mirrors loans.py. Refuse an
+        # uncomputable ratio rather than coercing it to a number.
+        if not math.isfinite(ratio):
+            raise ValueError(
+                "Collateral ratio could not be computed as a finite number "
+                f"(collateral_value={collateral_value}, loan_value={loan_value}). "
+                "Refusing an offer whose collateralisation is unknown."
+            )
         if ratio < self._min_collateral_ratio:
             raise ValueError(
                 f"Collateral ratio {ratio:.2f} is below minimum "
@@ -193,10 +219,20 @@ class P2PLending:
 
         offer["status"] = OfferStatus.FILLED
         offer["borrower"] = borrower
+        # DOMAIN 16-G — PROVENANCE MUST SURVIVE TO THE CONSUMER. This rebuilt the
+        # collateral record from three fields and dropped everything else, which
+        # discarded `value_source` and `value_usd_as_claimed` — the marks that
+        # say whether the valuation came from the service's oracle or from the
+        # borrower's own request body. Same lesson as domain 14's `rate_source`:
+        # the honest datum existed one call up and was lost at the boundary the
+        # reader sees. A lender cannot tell a verified valuation from a declared
+        # one if the record does not carry the difference.
         offer["collateral"] = {
             "token": collateral_token,
             "amount": collateral_amount,
             "value_usd": collateral_value,
+            "value_source": collateral.get("value_source", "caller_declared"),
+            "value_usd_as_claimed": collateral.get("value_usd_as_claimed"),
         }
         offer["accepted_at"] = now
         offer["repayment_due"] = repayment_due
@@ -225,6 +261,18 @@ class P2PLending:
             - ``min_amount`` (float): minimum amount
             - ``max_rate`` (float): maximum interest rate
             - ``limit`` (int): max results (default 50)
+
+        16-T. THIS METHOD WRITES, AND IT USED TO HAND OUT THE STORE.
+
+        The auto-expiry below is a real state transition performed by a method
+        named ``list_``. It is kept — lazy expiry is a legitimate pattern and
+        removing it would leave offers OPEN past their expiry — but it is named
+        here rather than left for a reader to discover, because "a read that
+        mutates" is the label-vs-behaviour class this census has been counting.
+
+        The aliasing is fixed outright: results used to be the LIVE offer dicts
+        from ``self._offers``, so any caller could mutate the store by editing
+        what a listing returned. Copies now.
         """
         filters = filters or {}
         now = int(time.time())
@@ -256,7 +304,9 @@ class P2PLending:
             if offer["interest_rate"] > max_rate:
                 continue
 
-            results.append(offer)
+            # 16-T: a COPY. `results.append(offer)` handed callers the live dict
+            # out of `self._offers`, so editing a listing edited the store.
+            results.append(dict(offer))
             if len(results) >= limit:
                 break
 
@@ -290,6 +340,34 @@ class P2PLending:
             raise ValueError(f"Offer is {offer['status']}, cannot repay")
         if offer["borrower"] != borrower:
             raise ValueError("Only the borrower can repay")
+
+        # DOMAIN 16-I — THE THIRD VALUE ENTRY POINT IN THIS FILE, MISSED BY ME.
+        # 16-A guarded `create_offer` and `accept_offer` and never enumerated
+        # `repay_offer`. Its sole amount control is `amount < total_due`, which
+        # NaN walks like every other comparison. Driven:
+        #
+        #   offer 1000 USDC, total due 1009.11, collateral 1.0 ETH
+        #   repay_offer(offer_id, borrower, NaN)
+        #     -> {"status": "repaid", "amount_repaid": NaN,
+        #         "collateral_released": {...}}
+        #     -> offer status REPAID
+        #
+        # The borrower recovers their collateral having paid nothing.
+        #
+        # A SUFFICIENCY CHECK IS NO SAFER THAN A SIGN CHECK. `amount < total_due`
+        # reads as strictly stronger than `amount <= 0` — it compares against a
+        # real computed figure rather than zero — and it is defeated by the same
+        # value, for the same reason. This is the third distinct guard SHAPE the
+        # class has walked: sign check (15-D), ratio/threshold (16-A), and now
+        # sufficiency.
+        #
+        # THE ENUMERATION THAT SHOULD HAVE PRECEDED THE FIRST FIX (T.2), stated
+        # here because a commit either carries the list or it does not:
+        #   p2p_lending.py value entry points — create_offer(amount,
+        #   interest_rate, duration_days) · accept_offer(collateral dict:
+        #   amount, value_usd) · repay_offer(amount). THREE, not two.
+        if not math.isfinite(amount):
+            raise ValueError("Repayment amount must be a finite number")
 
         total_due = offer.get("total_repayment", offer["amount"])
         if amount < total_due:

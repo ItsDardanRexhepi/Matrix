@@ -53,7 +53,8 @@ RECENCY_HALF_LIFE = 3600.0
 
 # ── Human-readable action labels ─────────────────────────────────────
 ACTION_LABELS: Dict[str, str] = {
-    "deploy_contract": "deployed a smart contract",
+    # NEW-12: no "deployed a smart contract" label — the platform cannot
+    # deploy, so no feed row may ever narrate one.
     "swap_tokens": "swapped tokens",
     "add_liquidity": "added liquidity",
     "remove_liquidity": "removed liquidity",
@@ -66,7 +67,20 @@ ACTION_LABELS: Dict[str, str] = {
     "create_dao": "created a DAO",
     "stake": "staked tokens",
     "unstake": "unstaked tokens",
-    "claim_rewards": "claimed staking rewards",
+    # NEW-97: was "claimed staking rewards". Nothing is transferred — see
+    # StakingService.claim_rewards, which now returns `recorded_unsettled`.
+    #
+    # AND THE LABEL WAS UNREACHABLE, WHICH I GOT WRONG FIRST TIME. `ingest` does
+    # `ACTION_LABELS.get(action, f"performed {action}")` and the dispatcher
+    # passes the ACTION name, "claim_staking_rewards", while this map is keyed
+    # by the SERVICE METHOD name, "claim_rewards". The keys never met, so the
+    # live feed emitted "performed claim_staking_rewards" and the false
+    # sentence was never actually published. The danger was LATENT, not live:
+    # repair the key mismatch with the old text in place and the false claim
+    # goes live that day. Both keys are fixed so neither ordering can surface
+    # it, and the action-keyed entry makes the honest sentence reachable now.
+    "claim_rewards": "recorded a staking reward claim (not settled)",
+    "claim_staking_rewards": "recorded a staking reward claim (not settled)",
     "send_payment": "sent a payment",
     "create_invoice": "created an invoice",
     "register_ip": "registered intellectual property",
@@ -130,7 +144,9 @@ class FeedEvent:
             detail=detail,
             component=row.get("component"),
             tx_hash=row.get("tx_hash"),
-            value_usd=row.get("value_usd"),
+            # 19-D: sanitised on READ too, so a row poisoned before
+            # this fix cannot keep the feed unserialisable.
+            value_usd=sanitize_value_usd(row.get("value_usd")),
             rarity_score=row.get("rarity_score", 0.0),
             timestamp=row.get("timestamp", 0.0),
             ranked_score=row.get("ranked_score", 0.0),
@@ -138,6 +154,48 @@ class FeedEvent:
 
 
 # ── Ranking engine ───────────────────────────────────────────────────
+
+#: 19-D. The declared ceiling for a single feed event's reported value. Not a
+#: risk model — a bound, so one row cannot dominate a public ranking or a
+#: `MAX(value_usd)` statistic. Values above it are recorded AT the ceiling and
+#: flagged, never silently truncated to look ordinary.
+_MAX_EVENT_VALUE_USD = 1_000_000_000.0
+
+
+def sanitize_value_usd(raw: Any) -> Optional[float]:
+    """Coerce a reported event value into something a public feed can hold.
+
+    19-D. `value_usd` arrives from `params[...]` — the request body — through
+    `ServiceDispatcher`'s feed-ingest block, unvalidated and unbounded. Two
+    measured consequences, both from an ordinary well-formed request:
+
+      * `"Infinity"` is a PLAIN JSON STRING that `float()` accepts. Stored as
+        `inf`, it makes the ENTIRE `/social/feed` response invalid JSON —
+        `web.json_response` emits a bare `Infinity` token and `JSON.parse`
+        fails. Not one row: the whole document, for every strict client
+        (`web/social.html`, the MTRX Swift `JSONDecoder`). Unauthenticated,
+        persistent, and it survives until the row is deleted.
+
+      * The value drives `ranked_score`, which is computed at INGEST and stored,
+        so the row keeps its position without ever being re-derived.
+
+    APPLIED AT BOTH ENDS, deliberately. At ingest it stops new poison; at
+    hydration it neutralises rows ALREADY stored, so the feed recovers without
+    a migration. Sanitising only the writer would leave the feed permanently
+    broken by anything written before the fix — and a fix that requires the
+    attack not to have happened yet is not a fix.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None          # inf/-inf/nan are not values; they are not "zero" either
+    if v < 0:
+        return None
+    return min(v, _MAX_EVENT_VALUE_USD)
 
 
 class FeedRankingEngine:
@@ -306,7 +364,7 @@ class SocialFeedEngine:
                 detail=detail or {},
                 component=component,
                 tx_hash=tx_hash,
-                value_usd=value_usd,
+                value_usd=sanitize_value_usd(value_usd),
             )
 
             # Score before persisting

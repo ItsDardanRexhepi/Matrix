@@ -167,13 +167,21 @@ class PlainEnglishFormatter:
 
     def format_portfolio_summary(self, portfolio: dict) -> str:
         """Format a portfolio overview into readable text."""
-        total_value = portfolio.get("total_value_usd", 0)
+        total_value = portfolio.get("total_value_usd")
         token_count = len(portfolio.get("tokens", []))
         nft_count = len(portfolio.get("nfts", []))
         staking_count = len(portfolio.get("staking_positions", []))
         defi_count = len(portfolio.get("defi_positions", []))
 
-        parts = [f"Your portfolio is worth approximately ${_format_amount(total_value)}"]
+        # OMIT THE SENTENCE RATHER THAN PRINT A NUMBER NOBODY COMPUTED. This is
+        # exactly what this file already does for APY — `if apy is not None:` —
+        # and the reason NEW-96 gave for it: a fabricated figure is worse than a
+        # missing one, because the user cannot tell it is missing.
+        parts = []
+        if total_value is not None:
+            parts.append(
+                f"Your portfolio is worth approximately ${_format_amount(total_value)}"
+            )
 
         holdings = []
         if token_count:
@@ -191,6 +199,12 @@ class PlainEnglishFormatter:
 
         if holdings:
             parts.append("You hold " + ", ".join(holdings))
+
+        # With no total AND no holdings there is nothing truthful to say. An
+        # empty `". ".join(...) + "."` would render a bare "." — a summary that
+        # says nothing while looking like it said something.
+        if not parts:
+            return "No holdings found for this account."
 
         return ". ".join(parts) + "."
 

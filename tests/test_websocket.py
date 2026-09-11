@@ -289,7 +289,18 @@ class TestWebSocketErrorHandling:
             await ws.close()
 
         assert payload["type"] == "error"
-        assert "model unavailable" in payload["error"]
+        # RUN-5b: this previously asserted `"model unavailable" in
+        # payload["error"]` — i.e. it PINNED THE LEAK, requiring the raw
+        # exception text to reach the client. The socket now carries the
+        # redacted contract, so the assertion moves with it: an error frame is
+        # still produced (the behaviour this test exists to protect), it is now
+        # redacted, and it carries a correlation id the operator can use to find
+        # "model unavailable" server-side.
+        assert "model unavailable" not in payload["error"], (
+            "the raw exception is back in the frame"
+        )
+        assert payload["code"] and payload["ref"]
+        assert payload["ref"] in payload["error"]
 
 
 class TestWebSocketClientContext:

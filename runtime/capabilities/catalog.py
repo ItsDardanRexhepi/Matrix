@@ -113,10 +113,20 @@ CATEGORIES: list[dict[str, str]] = [
 CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Smart Contracts ────────────────────────────────────────────────────
-    _cap("deploy_contract",        "Deploy Contract",          "contracts", "contract_conversion", "convert",
-         "Convert any description into a deployed smart contract", feed_event="contract_deployed"),
+    # NEW-4: `deploy_contract` used to be declared here as a separate capability
+    # bound to contract_conversion.convert, described as producing "a deployed
+    # smart contract", and emitting a `contract_deployed` feed event. Nothing in
+    # that path deploys anything (auto_deploy defaults False and is set nowhere),
+    # so a successful conversion was broadcast to the social feed as a
+    # deployment. The fake success did not stop at the API.
+    #
+    # The capability is removed rather than renamed: there is exactly one thing
+    # this method does, and `convert_contract` already advertises it honestly.
+    # Deployment gets a capability entry when deployment exists (see RUN-2 —
+    # /api/v1/contracts/deploy now returns 501).
     _cap("convert_contract",       "Convert to Solidity",      "contracts", "contract_conversion", "convert",
-         "Convert natural language to Solidity", feed_event="contract_converted"),
+         "Convert structured declarations (pseudocode, Solidity, Vyper) into Solidity scaffolding",
+         feed_event="contract_converted"),
     _cap("estimate_contract_cost", "Estimate Deployment Cost", "contracts", "contract_conversion", "estimate_cost",
          state_modifying=False, uses_paymaster=False),
     _cap("list_templates",         "List Contract Templates",  "contracts", "contract_conversion", "get_available_templates",
@@ -126,19 +136,27 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("create_loan",      "Borrow Against Collateral", "defi", "defi", "create_loan",  feed_event="loan_created"),
     _cap("repay_loan",       "Repay Loan",                "defi", "defi", "repay_loan",   feed_event="loan_repaid"),
     _cap("get_loan",         "Get Loan Details",          "defi", "defi", "get_loan",     state_modifying=False, uses_paymaster=False),
-    _cap("flash_loan",       "Flash Loan",                "defi", "defi", "flash_loan",   subcategory="flash"),
-    _cap("yield_optimize",   "Yield Optimization",        "defi", "defi", "yield_optimize"),
-    _cap("liquidity_provide","Provide Liquidity",         "defi", "dex",  "add_liquidity"),
-    _cap("liquidity_remove", "Remove Liquidity",          "defi", "dex",  "remove_liquidity"),
     _cap("swap_tokens",      "Swap Tokens",               "defi", "dex",  "swap",         feed_event="tokens_swapped"),
-    _cap("vault_deposit",    "Deposit to Vault",          "defi", "defi", "vault_deposit"),
-    _cap("collateral_manage","Manage Collateral",         "defi", "defi", "collateral_manage"),
+    # NEW-61: flash_loan / yield_optimize / vault_deposit / collateral_manage
+    # removed with their fabrications. liquidity_provide / liquidity_remove
+    # removed too — note their catalog rows named the REAL dex twin
+    # (add_liquidity / remove_liquidity) while ACTION_MAP dispatched them to
+    # the defi fabrication, so this surface described a capability the
+    # dispatcher never used. The real AMM is already catalogued through the
+    # dex actions.
+    #
+    # NEW-64: the three collateral rows NEW-61 added here are removed. The
+    # catalog is served to clients as the list of available capabilities, and
+    # _cap defaults to available=True — so cataloguing them advertised custody
+    # the code does not perform (CollateralManager is an in-process dict: no
+    # escrow, no chain, no persistence). See the lifting condition in
+    # service_dispatcher.py's ACTION_MAP.
 
     # ── DeFi Advanced ──────────────────────────────────────────────────────
-    _cap("perp_trade",              "Open Perpetual Position", "defi_advanced", "defi",       "perp_trade", protocol="gmx"),
-    _cap("options_trade",           "Trade Options",           "defi_advanced", "defi",       "options_trade", protocol="lyra"),
-    _cap("synthetic_asset",         "Mint Synthetic Asset",    "defi_advanced", "defi",       "synthetic_asset", protocol="synthetix"),
-    _cap("leverage_position",       "Leverage Position",       "defi_advanced", "defi",       "leverage_position"),
+    # NEW-61: perp_trade / options_trade / synthetic_asset / leverage_position
+    # removed. Their rows advertised venue protocols (gmx, lyra, synthetix)
+    # that no code in the repo integrates with — no ABI, no client, no URL.
+    # The protocol name was the only thing making them look implemented.
     _cap("place_limit_order",       "Place Limit Order",       "defi_advanced", "auctions",   "place_limit_order", subcategory="orderbook", available=False),
     _cap("cancel_limit_order",      "Cancel Limit Order",      "defi_advanced", "auctions",   "cancel_limit_order", subcategory="orderbook", available=False),
     _cap("pyth_pull_price",         "Pull Pyth Price",         "defi_advanced", "oracles_plus","pyth_pull", protocol="pyth", state_modifying=False, uses_paymaster=False, available=False),
@@ -155,7 +173,17 @@ CAPABILITIES: list[dict[str, Any]] = [
     # ── Staking (core) ─────────────────────────────────────────────────────
     _cap("stake",                   "Stake Tokens",            "staking", "staking", "stake",                 feed_event="tokens_staked"),
     _cap("unstake",                 "Unstake Tokens",          "staking", "staking", "unstake",               feed_event="tokens_unstaked"),
-    _cap("claim_staking_rewards",   "Claim Staking Rewards",   "staking", "staking", "claim_staking_rewards", feed_event="rewards_claimed"),
+    # NEW-97: feed_event "rewards_claimed" -> "rewards_recorded". THE FEED
+    # EVENT IS KEYED ON THE ACTION NAME, NOT THE RESULT — it is emitted
+    # whatever `claim_rewards` returns, so changing the response's status to
+    # `recorded_unsettled` did not touch it. Left alone, the response would
+    # have said "not settled" while the social feed announced that rewards were
+    # claimed, and the feed is the louder surface. This is NEW-85's
+    # `payment_sent` -> `payment_recorded` in a third domain; NEW-88 removed
+    # `bridge_completed` outright because bridging is disabled, whereas this
+    # method does real arithmetic and writes a real ledger line, so it is
+    # renamed rather than removed.
+    _cap("claim_staking_rewards",   "Claim Staking Rewards",   "staking", "staking", "claim_staking_rewards", feed_event="rewards_recorded"),
     _cap("get_staking_position",    "Get Staking Position",    "staking", "staking", "get_position", state_modifying=False, uses_paymaster=False),
 
     # ── NFTs ───────────────────────────────────────────────────────────────
@@ -209,11 +237,31 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("create_proposal",         "Create Proposal",         "governance", "governance", "create_proposal", feed_event="proposal_created"),
     _cap("vote",                    "Vote on Proposal",        "governance", "governance", "vote",            feed_event="vote_cast"),
     _cap("finalize_proposal",       "Finalize Proposal",       "governance", "governance", "finalize"),
-    _cap("snapshot_vote",           "Snapshot Vote",           "governance", "governance", "snapshot_vote",   protocol="snapshot"),
+    _cap("snapshot_vote",           "Snapshot Vote",           "governance", "governance", "snapshot_vote",   protocol="snapshot", available=False),
     _cap("timelock_queue",          "Queue Timelock Action",   "governance", "governance", "timelock_queue"),
     _cap("multisig_propose",        "Propose Multisig Action", "governance", "governance", "multisig_propose"),
-    _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "multisig_approve"),
-    _cap("treasury_transfer",       "Treasury Transfer",       "governance", "governance", "treasury_transfer"),
+    # CLUSTER B FOLLOW-UP: both methods now raise NotImplementedError
+    # unconditionally, so advertising them as available was the five-doors
+    # doctrine stated in this very file and then not walked. They stay ROUTED
+    # (unlike treasury_transfer, which was removed) because an honest 501 with
+    # a lifting condition is a better answer than "unknown action" for a
+    # capability that is intended to exist — but `available` must tell the
+    # truth about whether it works today.
+    _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "multisig_approve", available=False),
+    # CLUSTER B: `treasury_transfer` REMOVED from the catalog — door 3 of 5.
+    # The gateway route went in Tier 2 and the ACTION_MAP literal goes with this
+    # change; this entry alone would have kept the action installed, because
+    # `install_action_map` iterates every capability and never consults
+    # `available`. Marking it unavailable was NOT enough, and finding that out
+    # is a separate platform-wide finding (59 capabilities are flagged
+    # unavailable and all 60 are installed regardless).
+    #
+    # AND THIS ENTRY WAS WRONG. It named service "governance", but
+    # treasury_transfer lives on DAOService in dao_management. The ACTION_MAP
+    # literal `("dao_management", "treasury_transfer")` masked it, because
+    # install_action_map never overrides an existing mapping. Removing the
+    # literal exposed a catalog row resolving to a method that does not exist —
+    # so this door was not merely open, it pointed nowhere.
     _cap("parameter_change",        "Parameter Change",        "governance", "governance", "parameter_change"),
     _cap("vote_escrow",             "Vote-Escrow Lock",        "governance", "advanced_governance", "vote_escrow",          subcategory="veToken",    protocol="curve",  available=False),
     _cap("quadratic_vote",          "Quadratic Vote",          "governance", "advanced_governance", "quadratic_vote",       subcategory="quadratic",  available=False),
@@ -226,7 +274,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("update_social_profile",   "Update Social Profile",   "social", "social", "update_social_profile"),
     _cap("social_post",             "Social Post",             "social", "social", "social_post"),
     _cap("social_gate",             "Gated Social Content",    "social", "social", "social_gate"),
-    _cap("community_create",        "Create Community",        "social", "social", "community_create"),
+    _cap("community_create",        "Create Community",        "social", "social", "create_community"),
     _cap("send_message",            "Send Message (XMTP)",     "social", "social", "send_message",       protocol="xmtp"),
     _cap("message_encrypt",         "Encrypted Message",       "social", "social", "message_encrypt"),
     _cap("create_lens_profile",     "Create Lens Profile",     "social", "social_protocols", "create_lens_profile",     protocol="lens",    available=False),
@@ -247,24 +295,32 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Payments ───────────────────────────────────────────────────────────
     _cap("create_payment",          "Create Payment",          "payments", "x402_payments", "create_payment", feed_event="payment_created"),
-    _cap("authorize_payment",       "Authorize Payment",       "payments", "x402_payments", "authorize"),
+    # NEW-53: authorize_payment / refund_payment capabilities removed — the
+    # actions are disabled pending identity + ownership verification.
     _cap("complete_payment",        "Complete Payment",        "payments", "x402_payments", "complete"),
-    _cap("refund_payment",          "Refund Payment",          "payments", "x402_payments", "refund"),
-    _cap("send_payment",            "Send Payment",            "payments", "stablecoin",    "send_payment",  feed_event="payment_sent"),
+    # NEW-85: feed_event was "payment_sent". This action resolves through
+    # ACTION_MAP to cross_border.send_payment, which RECORDS a payment
+    # instruction and moves no value — so announcing "payment_sent" to the
+    # PUBLIC FEED was the loudest surface of the claim. Inert means inert on
+    # every surface. (The descriptor's service="stablecoin" is a separate,
+    # unfixed defect: ACTION_MAP wins and lands on cross_border. Left for the
+    # 49-binding work rather than silently corrected here.)
+    _cap("send_payment",            "Send Payment",            "payments", "stablecoin",    "send_payment",  feed_event="payment_recorded"),
     _cap("transfer_stablecoin",     "Transfer Stablecoin",     "payments", "stablecoin",    "transfer",      feed_event="stablecoin_sent"),
-    _cap("stream_payment",          "Stream Payment",          "payments", "x402_payments", "stream_payment",   protocol="superfluid"),
-    _cap("recurring_create",        "Create Recurring Payment","payments", "x402_payments", "recurring_create"),
-    _cap("escrow_milestone",        "Milestone Escrow",        "payments", "x402_payments", "escrow_milestone"),
-    _cap("payment_split",           "Split Payment",           "payments", "x402_payments", "payment_split"),
-    _cap("invoice_factor",          "Factor Invoice",          "payments", "x402_payments", "invoice_factor"),
-    _cap("payroll_run",             "Run Payroll",             "payments", "x402_payments", "payroll_run"),
     _cap("cross_border_remit",      "Cross-border Remit",      "payments", "cross_border",  "cross_border_remit"),
     _cap("open_channel",            "Open Payment Channel",    "payments", "payment_channels", "open_channel",  subcategory="state_channels", available=False),
     _cap("route_payment",           "Route via Channel",       "payments", "payment_channels", "route_payment", subcategory="state_channels", available=False),
     _cap("close_channel",           "Close Payment Channel",   "payments", "payment_channels", "close_channel", subcategory="state_channels", available=False),
 
     # ── Cross-chain / Bridging ─────────────────────────────────────────────
-    _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "cross_chain_bridge"),
+    # NEW-87 / NEW-88 — THE CATALOG INVERSION, and it is visible on this
+    # screen: the SIX honest CCIP/Hyperlane/Wormhole/Axelar/Stargate bridges
+    # below are all available=False, while THIS ONE — which never bridged
+    # anything, had zero awaits and validated nothing — was the only bridging
+    # capability advertised as available=True. The fabrication was the one
+    # offered to clients and to the model; the real implementations were the
+    # ones marked unavailable. Now False, matching its honest siblings.
+    _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "cross_chain_bridge", available=False),
     _cap("bridge_token_ccip",       "Bridge via CCIP",         "bridging", "ccip",         "bridge_token_ccip",       protocol="ccip",      available=False),
     _cap("send_cross_chain_message","Cross-chain Message",     "bridging", "ccip",         "send_cross_chain_message",protocol="ccip",      available=False),
     _cap("bridge_hyperlane",        "Bridge via Hyperlane",    "bridging", "ccip",         "bridge_hyperlane",        protocol="hyperlane", available=False),
@@ -274,16 +330,18 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("query_remote_chain",      "Query Remote Chain",      "bridging", "ccip",         "query_remote_chain",      state_modifying=False, uses_paymaster=False, available=False),
 
     # ── Privacy & ZK ───────────────────────────────────────────────────────
-    _cap("private_transfer",        "Private Transfer",        "privacy", "privacy", "private_transfer"),
-    _cap("stealth_address",         "Stealth Address",         "privacy", "privacy", "stealth_address"),
     _cap("zk_proof_generate",       "Generate ZK Proof",       "privacy", "privacy", "zk_proof_generate"),
-    _cap("private_vote",            "Private Vote",            "privacy", "privacy", "private_vote"),
-    _cap("confidential_compute",    "Confidential Compute",    "privacy", "privacy", "confidential_compute"),
     _cap("mpc_sign",                "MPC Sign",                "privacy", "mpc", "mpc_sign",           subcategory="mpc", available=False),
     _cap("recover_wallet",          "Social Recovery",         "privacy", "mpc", "recover_wallet",     subcategory="recovery", available=False),
     _cap("create_session_key",      "Create Session Key",      "privacy", "mpc", "create_session_key", subcategory="session_keys", available=False),
-    _cap("request_deletion",        "Request Deletion",        "privacy", "privacy", "request_deletion"),
-    _cap("execute_deletion",        "Execute Deletion",        "privacy", "privacy", "execute_deletion"),
+    # NEW-38: data deletion is OFFLINE. `request_deletion` stays listed but
+    # available=False — it is reachable and answers, and the answer is "not
+    # available". The `execute_deletion` capability is REMOVED outright: its
+    # ACTION_MAP entry is gone, so a descriptor for it would be a broken
+    # pointer, and `available=False` is only metadata (registry.list filters on
+    # it; `invoke` does not consult it) so it could not have disabled anything
+    # on its own.
+    _cap("request_deletion",        "Request Deletion",        "privacy", "privacy", "request_deletion", available=False),
 
     # ── Oracles & Data ─────────────────────────────────────────────────────
     _cap("oracle_price_query",      "Query Oracle Price",      "oracles", "oracle_gateway", "query_price",  state_modifying=False, uses_paymaster=False),
@@ -296,7 +354,6 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Storage ────────────────────────────────────────────────────────────
     _cap("ipfs_pin",                "Pin to IPFS",             "storage", "privacy", "ipfs_pin"),
-    _cap("arweave_store",           "Store on Arweave",        "storage", "privacy", "arweave_store"),
     _cap("store_filecoin",          "Store on Filecoin",       "storage", "storage", "store_filecoin",   protocol="filecoin", available=False),
     _cap("ceramic_stream_create",   "Create Ceramic Stream",   "storage", "storage", "ceramic_stream_create", protocol="ceramic", available=False),
     _cap("orbit_db_write",          "Write to OrbitDB",        "storage", "storage", "orbit_db_write",   protocol="orbitdb", available=False),
@@ -338,7 +395,13 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("trigger_refunds",         "Trigger Refunds",         "markets", "fundraising", "trigger_refunds"),
     _cap("create_security",         "Create Security Token",   "markets", "securities_exchange", "create_security"),
     _cap("list_security",           "List Security",           "markets", "securities_exchange", "list_security"),
-    _cap("buy_security",            "Buy Security",            "markets", "securities_exchange", "buy_security"),
+    # DOMAIN 13-A FOLLOW-UP: buy() now raises NotImplementedError
+    # unconditionally (no settlement path exists), so advertising it available
+    # was the five-doors doctrine unwalked in the commit that applied it — the
+    # SAME miss as multisig_approve/snapshot_vote in domain 11. It stays ROUTED
+    # so callers get an honest 501 with the lifting condition rather than
+    # "unknown action".
+    _cap("buy_security",            "Buy Security",            "markets", "securities_exchange", "buy_security", available=False),
     _cap("sell_security",           "Sell Security",           "markets", "securities_exchange", "sell_security"),
 
     # ── Gaming ─────────────────────────────────────────────────────────────

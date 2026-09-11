@@ -35,8 +35,12 @@ contract Hello0pnMatrx {
     }
 }
 '''
-    result = await client.deploy_contract(contract_source)
-    print(f"Result: {result['response'][:200]}")
+    # NEW-12: this called client.deploy_contract(), which now raises
+    # NotImplementedError — the platform does not deploy contracts. The real
+    # capability is conversion: it returns Solidity scaffolding you deploy
+    # yourself with your own tooling and signer.
+    result = await client.convert_contract(contract_source, source_lang="solidity")
+    print(f"Result: {str(result)[:200]}")
 
     # 3. Send a payment
     print("\n── Send Payment ──")

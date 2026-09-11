@@ -1,0 +1,658 @@
+"""DOMAIN 21 — the creator_platforms guards: who may act, what is acted on,
+and what the outside world actually did.
+
+Every finding here is on a path that MINTS A TOKEN or PUBLISHES TO A THIRD-PARTY
+PLATFORM using the platform's own credentials. Like domain 20's carbon
+retirement, THE COUNTERPARTY FOR THESE RECORDS IS OUTSIDE THE PLATFORM — a
+minted token and a published post are representations other people rely on, and
+a fix that stops new false records does not retract the old ones.
+
+21-A  WHO MAY ACT        `services.creator_platforms.enabled` had ZERO READERS
+                         while the SHIPPED EXAMPLE CONFIG WRITES IT `false`.
+                         An operator following our own documentation believes
+                         this service is off, and all three actions execute:
+                         minting with the platform paymaster and publishing
+                         with the platform's Mirror/Paragraph credentials.
+
+                         §AP's most misleading variant (19-x): a document
+                         points at the dead control. This is 19-A's twin, and
+                         the measurement is worse — 42 OF 44 SERVICES have an
+                         `enabled` key with zero readers, and 13 of those are
+                         set to `false` by the shipped example. That count is a
+                         PLATFORM finding and goes to the register under Rule M
+                         with its measurement intact; this gate is the
+                         domain-scoped refusal that does not wait for it.
+
+                         Reachability, measured at 3ff5a029: all three actions
+                         are in ACTION_MAP (253 entries) and in
+                         _STATE_MODIFYING_ACTIONS. `catalog.py` marks all three
+                         `available=False` and `install_action_map` NEVER
+                         CONSULTS IT — the same defect domain 19 measured. With
+                         `morpheus_security` absent (the shipped default)
+                         `gate_action` returns observe, blocked=False. So the
+                         domain was LIVE and remotely dispatchable.
+
+21-B  WHAT IS ACTED ON   The caller chose the contract the platform paymaster
+                         signs against. `edition_address` was read from
+                         `params` FIRST:
+
+                             params.get("edition_address")
+                                 or cfg.get("sound_edition_address")
+
+                         so a caller-supplied address BEAT the operator's
+                         configured one, and — because that same value is the
+                         only branch selector — a caller could switch ON the
+                         on-chain signing path against an operator who had
+                         deliberately configured API-only access.
+
+                         Seven census lenses reached this independently.
+
+                         The same shape governs WHO IS NAMED: `author` on
+                         Mirror and `publication` on both publishers were
+                         caller-supplied, so caller A could publish under
+                         author B's byline into B's publication, permanently
+                         on Arweave, using the platform's credential.
+
+                         §AH, and the reason it survived reading: the module
+                         header's NON-CUSTODIAL note is prominent and truthful
+                         — "gas/payment is settled by the platform paymaster,
+                         never a user's wallet" answers *whose money leaves*.
+                         It is silent on *what gets signed and who is named*,
+                         and the defect is entirely on the second question.
+                         Identical to 19-B, arrived at independently.
+
+21-C  WHAT HAPPENED      `status: "minted"` was returned on BROADCAST alone —
+                         `send_transaction` returns before any receipt, and
+                         `wait_for_receipt` (which has existed on Web3Manager
+                         the whole time) was never called. `status:
+                         "published"` was returned on ANY HTTP 2xx, without
+                         reading whether the gateway returned an id.
+
+                         And the same field carried the opposite error: a
+                         transport fault AFTER the request reached the third
+                         party returned the CREDENTIAL-GATED refusal shape,
+                         byte-identical to a fault that never left the process.
+                         So a Mirror post that IS LIVE on Arweave was recorded
+                         as "the platform declined, go configure your API key".
+
+                         §AC's completed form again: a status field carrying
+                         two opposite errors simultaneously proves the field
+                         cannot be the evidence. BOTH HALVES ARE FIXED
+                         TOGETHER (17-D's standard) — an over-claim is visible
+                         to the claimant, AN UNDER-CLAIM IS VISIBLE TO NOBODY.
+
+                         `settled` and `value_moved` appeared NOWHERE in this
+                         module (`settled` occurs once, in a comment), so
+                         `_outcome_is_real`'s highest-priority override never
+                         fired and all four success shapes were attested.
+                         Measured: "minted", "ok", "published", "published"
+                         all returned True from `_outcome_is_real`.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+from runtime.blockchain.web3_manager import not_deployed_response
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "require_creator_platforms_enabled",
+    "resolve_edition_address",
+    "resolve_attributed_party",
+    "settle_publish",
+    "publish_unknown",
+    "publish_rejected",
+    "publish_not_sent",
+    "classify_transport_fault",
+    "refusal_response",
+    "log_cancelled_dispatch",
+    "require_mint_quantity",
+    "require_text",
+    "safe_endpoint",
+    "safe_text",
+]
+
+#: How long to wait for a mint receipt before reporting the outcome as UNKNOWN.
+#: A timeout is not a failure and must not be recorded as one.
+RECEIPT_TIMEOUT_S = 120
+
+
+def require_creator_platforms_enabled(
+    service_name: str, config: dict, method: str
+) -> dict | None:
+    """Return a refusal unless `services.<name>.enabled` is explicitly true.
+
+    21-A. FAILS CLOSED. The key defaults to absent, and absent means refuse —
+    because the alternative is what shipped: a config key the example sets to
+    `false`, nothing reads, and which therefore cannot turn anything off.
+
+    NAMED `require_creator_platforms_enabled`, NOT `require_enabled`. The
+    refusal registry matches by SUBSTRING, and a short name silently
+    reclassifies every unrelated `_require_enabled` in the repo as a refusal
+    wrapper — a measured false positive that manufactured two findings in
+    domain 19. Register domain-qualified names.
+    """
+    # The traversal is defensive because MEASURED, an earlier version of this
+    # guard RAISED rather than refused: `services` as a string, or a service
+    # body that is a string or a list, produced
+    # `AttributeError: 'str' object has no attribute 'get'`.
+    #
+    # That still failed closed in EFFECT — nothing minted — but it destroyed
+    # the thing this gate exists to deliver. 21-A's whole product is the
+    # DISCLOSURE: "set services.creator_platforms.enabled to true". An
+    # operator with a malformed config got an opaque traceback instead, which
+    # is §AC at the guard layer — an AttributeError is indistinguishable from
+    # any other bug, so the one shape that tells the operator what to do is
+    # exactly the shape they do not receive.
+    #
+    # Any config we cannot read is a config that did not say `enabled: true`,
+    # and that is a refusal.
+    svc_cfg: Any = config.get("services") if isinstance(config, dict) else None
+    svc_cfg = svc_cfg.get(service_name) if isinstance(svc_cfg, dict) else None
+    if isinstance(svc_cfg, dict) and svc_cfg.get("enabled") is True:
+        return None
+    return not_deployed_response(service_name, extra={
+        "method": method,
+        "missing": f"services.{service_name}.enabled must be set to true",
+        "reason": (
+            "This service mints tokens and publishes to third-party platforms "
+            "using the platform's own credentials, and is disabled by default. "
+            "Setting `enabled: true` is an explicit, auditable opt-in by an "
+            "operator — it is not implied by populating credentials."
+        ),
+    })
+
+
+def resolve_edition_address(params: dict, configured: str) -> str:
+    """The contract the platform's key signs against is the OPERATOR'S choice.
+
+    21-B. A caller-supplied `edition_address` is REFUSED rather than ignored.
+    Silently dropping it would let a caller believe they had named an edition
+    and leave them to discover otherwise; refusing says which contract the
+    platform will sign against and why the caller does not get to pick.
+
+    Config wins unconditionally. If the operator configured nothing, there is
+    nothing to sign against and the caller cannot supply one — that is the
+    whole point: `edition_address` was ALSO the branch selector, so accepting
+    it let a caller turn on on-chain signing for an operator who had
+    deliberately configured API-only access.
+    """
+    requested = params.get("edition_address")
+    if requested and str(requested).strip():
+        if not configured or str(requested).strip().lower() != str(configured).strip().lower():
+            raise PermissionError(
+                f"edition_address {requested!r} is not the operator-configured "
+                f"edition. This mint is signed and gas-paid by the platform "
+                f"paymaster, so the contract it is sent to is an operator "
+                f"decision, not a caller's. A caller-named contract would make "
+                f"the platform's key sign a mint anywhere that key holds a "
+                f"minter role — and it would switch on on-chain signing for an "
+                f"operator who configured API access only. Set "
+                f"services.creator_platforms.sound_edition_address."
+            )
+    return configured
+
+
+def resolve_attributed_party(
+    params: dict, key: str, configured: str | None, what: str
+) -> str | None:
+    """A byline or target publication is the OPERATOR'S, not the caller's.
+
+    21-B. `author` (Mirror) and `publication` (Mirror, Paragraph) were
+    caller-supplied and reached the third-party request body. Mirror entries
+    are stored PERMANENTLY ON ARWEAVE, so a caller could publish under another
+    person's byline, into another person's publication, using the platform's
+    credential, irreversibly, and to an audience outside this platform.
+
+    Refused rather than overridden, for the same reason as 19-B: a caller who
+    believes they named a byline and did not is worse off than one who is told
+    they may not.
+
+    ONE EXCEPTION, STATED BECAUSE THE PARAGRAPH ABOVE OTHERWISE OVERSTATES IT:
+    a falsy or whitespace-only value (``None``, ``""``, ``0``, ``False``,
+    ``"   "``) is treated as NOT SUPPLIED and is silently ignored, not refused.
+    That is the right behaviour — an absent key and an empty one mean the same
+    thing to a caller — but "refused rather than ignored" was written as an
+    absolute and the code has always ignored this class. Saying so here is the
+    difference between a contract and a slogan (§AM.3 applied to my own
+    docstring: a comment that names the hazard reads as immune to it).
+    """
+    requested = params.get(key)
+    if requested and str(requested).strip():
+        if not configured or str(requested).strip().lower() != str(configured).strip().lower():
+            raise PermissionError(
+                f"{key}={requested!r} is not the operator-configured {what}. "
+                f"This request is published with the PLATFORM'S credential, so "
+                f"the {what} it is attributed to is an operator decision. A "
+                f"caller-supplied {what} would let one caller publish under "
+                f"another party's name — permanently, on a third-party "
+                f"platform, and to readers who cannot see this platform's "
+                f"internal records."
+            )
+    return configured
+
+
+def settle_publish(
+    *,
+    base: dict[str, Any],
+    id_value: Any,
+    id_field: str,
+    response_body: Any,
+) -> dict[str, Any]:
+    """Turn an HTTP 2xx into a settled, honest outcome. 21-C, publish half.
+
+    The status vocabulary is the dispatcher's own, used for what it means:
+
+        2xx WITH an id      -> "published"  REAL outcome, settled, it exists
+        2xx WITHOUT an id   -> "pending"    NON-outcome. The gateway accepted
+                                            the request and named nothing we
+                                            can point at, so we cannot assert
+                                            the post exists.
+
+    The third case — a transport fault after the request reached the third
+    party — is NOT handled here because it must not reach a success path at
+    all; see `publish_unknown` usage at the call sites, which returns "pending"
+    with `dispatched: True` rather than the credential-gated refusal shape.
+    """
+    if id_value:
+        # `value_moved` IS DELIBERATELY ABSENT HERE, and the reason is a hole
+        # found by driving this guard rather than reading it.
+        #
+        # `_outcome_is_real`'s FIRST clause is
+        # `settled is False or value_moved is False -> not real`, and it
+        # outranks everything, including `created is True`. The predicate's own
+        # comment says those flags report THAT NO VALUE MOVED, "a different and
+        # stronger claim than 'a record now exists'".
+        #
+        # A confirmed publish moves no value and IS a real, durable outcome. So
+        # stamping `value_moved: False` here — factually true of money —
+        # suppressed the attestation and the feed record for a post that really
+        # exists on Arweave. That is an UNDER-CLAIM manufactured inside the fix
+        # for under-claims: the genuine act loses its audit trail, and an
+        # under-claim is visible to nobody.
+        #
+        # `settled: True` with no `value_moved` key is the honest shape: the
+        # outcome is confirmed, and this action was never about value.
+        return {
+            **base,
+            "status": "published",
+            "settled": True,
+            id_field: id_value,
+            "gateway_response": response_body,
+        }
+    return {
+        **base,
+        "status": "pending",
+        "settled": False,
+        # Same reasoning as the confirmed branch, opposite direction:
+        # `settled: False` is what suppresses this, and it is CORRECT here —
+        # we cannot point a reader at anything.
+        id_field: None,
+        "gateway_response": response_body,
+        "disclosure": (
+            "The gateway returned a success code but named no identifier for "
+            "the published entry. This is NOT a confirmation: without an id "
+            "there is nothing to point a reader at and nothing to verify the "
+            "post against. It is also NOT a refusal — the content may be live."
+        ),
+    }
+
+
+def log_cancelled_dispatch(method: str, endpoint: str, service_name: str) -> None:
+    """A request was issued and the task was CANCELLED. 21-H.
+
+    `asyncio.CancelledError` inherits from BaseException, NOT Exception, so
+    every `except Exception` in this module missed it. MEASURED: the POST was
+    issued, cancellation propagated, and the service returned NOTHING.
+
+    That is the under-claim in its purest form — not a wrong record, NO RECORD.
+    A mint or a permanent Arweave entry may be in flight and the platform holds
+    no trace that it was ever attempted. The batch route's per-item ceiling
+    (gateway/service_routes.py) cancels exactly this way, so it is not a
+    hypothetical.
+
+    THE LOG IS THE ONLY CHANNEL AVAILABLE and that is a real limitation, stated
+    rather than hidden: cancellation MUST propagate — swallowing it to return a
+    dict would break every caller's timeout — and a cancelled caller is not
+    waiting for a return value. So the record goes where something can still
+    read it, at ERROR level, and the caller still gets its cancellation.
+    """
+    logger.error(
+        "%s.%s CANCELLED AFTER DISPATCH to %s — the request was issued and the "
+        "outcome is UNKNOWN. A token may be minting or a post may be live. "
+        "There is no idempotency key on this path: check the provider before "
+        "any retry, because a retry will act again.",
+        service_name, method, endpoint,
+    )
+
+
+def require_mint_quantity(raw: Any, maximum: int) -> int:
+    """A mint quantity must be a whole positive number, and bounded. 21-K.
+
+    `int(params.get("quantity", 1) or 1)` — MEASURED:
+
+        quantity=0        -> mints 1      the `or 1` bypass: the caller asked
+        quantity=False    -> mints 1      for none and got one
+        quantity=-5       -> mints -5     straight into mint(to, uint256)
+        quantity=1.9      -> mints 1      silent truncation
+        quantity=10**30   -> mints 10**30 unbounded
+        quantity="  7  "  -> mints 7      string coercion
+
+    This feeds a REAL on-chain mint paid for by the platform paymaster, so an
+    unbounded caller-supplied count is an unbounded caller-directed spend.
+
+    The bound is OPERATOR-CONFIGURABLE and written into the shipped example
+    config, because 21-F is what happens when a fix invents a key nobody can
+    find.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise PermissionError(
+            f"quantity must be a whole number, got {type(raw).__name__} "
+            f"{raw!r}. It is not coerced: a float truncates silently and a "
+            f"string hides a typo in a value that spends platform gas."
+        )
+    if raw < 1:
+        raise PermissionError(
+            f"quantity must be at least 1, got {raw}. Zero previously minted "
+            f"ONE — the `or 1` default fired on any falsy value — and a "
+            f"negative went straight into mint(to, uint256)."
+        )
+    if raw > maximum:
+        raise PermissionError(
+            f"quantity {raw} exceeds the configured maximum {maximum}. This "
+            f"mint is paid for by the platform paymaster, so the cap is an "
+            f"operator decision: services.creator_platforms.max_mint_quantity."
+        )
+    return raw
+
+
+def require_text(value: Any, name: str) -> str:
+    """A title or body must be a non-empty string. 21-K.
+
+    `is_placeholder_value` returns **False for every non-string** (it is a
+    CONFIG-placeholder detector and correct at that job), so the
+    "missing required params" guard admitted `0`, `[]`, `{}` and every other
+    non-string — which then went into the third-party request body.
+
+    §I.13's shape: the guard answered a different question than the consumer
+    asked. The consumer needs "is this publishable text"; the guard answers "is
+    this an unfilled config template".
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise PermissionError(
+            f"{name} must be a non-empty string, got "
+            f"{type(value).__name__} {value!r}. This value is published to a "
+            f"third party."
+        )
+    return value
+
+
+#: Query parameter names whose VALUE is a credential. Not exhaustive by
+#: construction — see safe_endpoint's note on what cannot be detected.
+_SECRET_QUERY_KEYS = frozenset({
+    "token", "key", "api_key", "apikey", "access_token", "auth", "secret",
+    "password", "passwd", "pwd", "signature", "sig", "bearer", "session",
+})
+
+
+def safe_endpoint(url: Any) -> str:
+    """Strip credentials from a URL before it is RECORDED. 21-M.
+
+    MEASURED: with `mirror_endpoint` set to
+    `https://user:SUPERSECRET@gw.example/base`, the returned record carried
+
+        endpoint: https://user:SUPERSECRET@gw.example/base/tx
+
+    and that record has `settled: True`, so `_outcome_is_real` attests it AND
+    the dispatcher publishes it to the PUBLIC SOCIAL FEED. The census scored
+    this LATENT; driven, it is LIVE and it publishes.
+
+    Userinfo in a URL is a normal way to configure a bundler or self-hosted
+    gateway, so this is not operator error — it is a shape the config
+    legitimately takes, and the record is the wrong place for it.
+
+    THE REQUEST STILL USES THE FULL URL. Only what is written into the record,
+    the log and the feed is redacted: the credential must still reach the host
+    that issued it, and must not reach anyone else.
+
+    WHAT THIS CANNOT DO, stated because a redactor that implies completeness is
+    worse than one that does not. Driven against my own first version, three
+    evasions worked; two are fixed here and the third is UNDECIDABLE:
+
+      * `user:SECRET@host` with NO scheme       -> FIXED
+      * `https://host/p?token=SECRET`           -> FIXED for the key names in
+                                                   _SECRET_QUERY_KEYS, which is
+                                                   a DENYLIST and therefore
+                                                   incomplete by construction
+                                                   (R-21.5's shape, and named
+                                                   as such rather than trusted)
+      * `https://host/SECRET/tx`                -> NOT DETECTABLE. A secret in
+                                                   a path segment is
+                                                   indistinguishable from a
+                                                   route. An operator must not
+                                                   put a credential in the path
+                                                   of a configured endpoint;
+                                                   nothing here can save them
+                                                   if they do.
+    """
+    text = str(url or "")
+    if not text:
+        return ""
+
+    # ---- query: redact the VALUE of any credential-ish key ----
+    head, sep, query = text.partition("?")
+    if sep and query:
+        parts = []
+        for pair in query.split("&"):
+            name, eq, _value = pair.partition("=")
+            if eq and name.strip().lower() in _SECRET_QUERY_KEYS:
+                parts.append(f"{name}=***")
+            else:
+                parts.append(pair)
+        text = head + "?" + "&".join(parts)
+
+    # ---- userinfo: works with or without a scheme ----
+    if "@" not in text:
+        return text
+    scheme, sep, rest = text.partition("://")
+    if not sep:                      # schemeless `user:SECRET@host` still leaks
+        scheme, rest = "", text
+    userinfo, at, hostpart = rest.partition("@")
+    if not at or "/" in userinfo:    # the '@' is in the path, not the authority
+        return text
+    prefix = f"{scheme}://" if sep else ""
+    # A userinfo with NO colon IS the credential — `https://TOKEN@host` is how
+    # bearer-style gateway URLs are written. Only `user:password` has a
+    # non-secret half.
+    if ":" not in userinfo:
+        return f"{prefix}***@{hostpart}"
+    user = userinfo.split(":", 1)[0]
+    return f"{prefix}{user}:***@{hostpart}" if user else f"{prefix}***@{hostpart}"
+
+
+_URL_IN_TEXT = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s\"'<>]+")
+
+
+def safe_text(value: Any) -> str:
+    """Redact any credentialed URL EMBEDDED IN FREE TEXT. 21-O.
+
+    §AK.2 INSIDE 21-M. 21-M redacted the `endpoint` FIELD and left the field
+    beside it untouched. MEASURED at the previous commit:
+
+        endpoint : https://user:***@gw.example/base/tx        <- redacted
+        error    : failed connecting to
+                   https://user:SUPERSECRET@gw.example/base/tx <- NOT redacted
+
+    httpx puts the request URL in its exception messages, so every
+    `"error": str(exc)` in this module — and every logger line that formats an
+    exception — carried the credential that the field next to it had just been
+    scrubbed of. The record was redacted; the record was still a leak.
+
+    A redactor applied per-field is only as good as the enumeration of fields.
+    This one is applied to the TEXT, so a URL is scrubbed wherever it appears.
+    """
+    text = str(value or "")
+    if "://" not in text:
+        return text
+    return _URL_IN_TEXT.sub(lambda m: safe_endpoint(m.group(0)), text)
+
+
+def refusal_response(service_name: str, method: str, exc: PermissionError) -> dict:
+    """Turn a 21-B PermissionError into a RETURNED refusal. 21-E.
+
+    MEASURED through the real ServiceDispatcher: a RAISED refusal unwinds past
+    the attestation block, so `execute` reported
+    `{"status": "error", "error_category": "service_error", "degraded": true}`
+    and wrote ZERO attestations — while a RETURNED refusal in the same run
+    produced `ATTEST_REFUSAL`. The dispatcher says so itself at
+    service_dispatcher.py:1288-1292.
+
+    So the 21-B guards, which exist to stop a caller hijacking a byline, a
+    publication or the contract the platform signs against, LEFT NO RECORD
+    THAT THE ATTEMPT HAPPENED — and reported it as an internal fault of ours.
+    An audit trail must show that the system DECLINED, and a hijack attempt is
+    precisely the event it must show.
+    """
+    return not_deployed_response(service_name, extra={
+        "method": method,
+        "refused": True,
+        "reason": str(exc),
+        "disclosure": (
+            "The request named a party or a contract that the operator did not "
+            "configure. Nothing was signed, sent or published. This is a "
+            "REFUSAL BY POLICY, not a fault."
+        ),
+    })
+
+
+def classify_transport_fault(exc: Exception) -> str:
+    """Did the request REACH the third party? 21-E.
+
+    21-C collapsed every fault into "dispatched, may be live". Driven, that was
+    wrong in both directions at one call site:
+
+      * connection refused / DNS failure / a caller-supplied unserialisable
+        param are PROOF THE REQUEST NEVER LEFT THIS PROCESS, and were reported
+        as "the post may be live ... a retry may publish a second copy" —
+        which discourages the one correct remedy. Caller-controllable, too: any
+        unserialisable value in `subtitle` minted an unresolvable record.
+      * an HTTP 401/422 is the STRONGEST EVIDENCE that the gateway received the
+        request and stored nothing, and it was reported as unknown — throwing
+        away the credential diagnosis that the whole `_gate` machinery exists
+        to produce.
+
+    So the over-claim and the under-claim were BOTH manufactured inside the fix
+    for under-claims, at the same `except Exception`. The exception type was
+    never inspected; it carries the answer.
+
+    Returns one of: "not_sent" · "rejected" · "unknown".
+    """
+    import json as _json
+
+    # Proof it never left: encoding failed before any socket write.
+    if isinstance(exc, (TypeError, ValueError)) and not isinstance(exc, OSError):
+        return "not_sent"
+    if isinstance(exc, _json.JSONDecodeError):
+        # A decode fault happens AFTER a response arrived — the post may exist.
+        return "unknown"
+
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        # The gateway answered. 4xx means it received and stored nothing.
+        if 400 <= status < 500:
+            return "rejected"
+        return "unknown"  # 5xx may have been written before the error
+
+    name = type(exc).__name__
+    if name in {"ConnectError", "ConnectTimeout", "UnsupportedProtocol",
+                "InvalidURL", "ProxyError"}:
+        return "not_sent"
+    if isinstance(exc, (ConnectionRefusedError, ConnectionError)):
+        return "not_sent"
+    return "unknown"
+
+
+def publish_rejected(
+    *, base: dict[str, Any], endpoint: str, exc: Exception, missing: str
+) -> dict[str, Any]:
+    """The gateway ANSWERED and refused. 21-E.
+
+    A 4xx is knowable, and the actionable answer is the credential one. Naming
+    the config key is what `_gate` does for a MISSING credential; a PRESENT but
+    invalid one deserves the same answer, not "outcome unknown".
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return {
+        **base,
+        "status": "failed",
+        "settled": True,
+        "value_moved": False,
+        "dispatched": True,
+        "http_status": status,
+        "endpoint": endpoint,
+        "missing": missing,
+        "error": safe_text(exc),
+        "disclosure": (
+            f"The gateway received the request and REJECTED it"
+            f"{f' with HTTP {status}' if status else ''}. Nothing was "
+            f"published. This is not an unknown outcome — retrying without "
+            f"changing the credential will fail the same way."
+        ),
+    }
+
+
+def publish_not_sent(
+    *, base: dict[str, Any], endpoint: str, exc: Exception
+) -> dict[str, Any]:
+    """The request never left this process. 21-E.
+
+    Reported as a plain failure, NOT as "may be live". Retrying is safe here,
+    and saying otherwise discourages the correct remedy.
+    """
+    return {
+        **base,
+        "status": "failed",
+        "settled": True,
+        "value_moved": False,
+        "dispatched": False,
+        "endpoint": endpoint,
+        "error": safe_text(exc),
+        "disclosure": (
+            "The request was NOT sent — it failed before reaching the "
+            "gateway. Nothing was published and retrying is safe."
+        ),
+    }
+
+
+def publish_unknown(
+    *, base: dict[str, Any], endpoint: str, exc: Exception
+) -> dict[str, Any]:
+    """A fault AFTER the request left this process. 21-C, the under-claim half.
+
+    This previously returned `not_deployed_response` — the CREDENTIAL-GATED
+    shape — which told an operator to go configure an API key for a request
+    that may already have published permanently to Arweave. That is the
+    under-claim, and it is the worse half: an over-claim is visible to the
+    claimant, an under-claim is visible to nobody.
+    """
+    return {
+        **base,
+        "status": "pending",
+        "settled": False,
+        "value_moved": False,
+        "dispatched": True,
+        "endpoint": endpoint,
+        "error": safe_text(exc),
+        "disclosure": (
+            "The request was DISPATCHED to the third-party gateway and the "
+            "outcome is unknown — the fault occurred after it left this "
+            "process. This is NOT a refusal and NOT a credential problem: the "
+            "post may be live. Check the gateway before retrying, because "
+            "there is no idempotency key on this path and a retry may publish "
+            "a second copy."
+        ),
+    }

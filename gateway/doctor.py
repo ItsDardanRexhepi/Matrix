@@ -58,6 +58,10 @@ def _filled(value) -> bool:
 # ── Checks — each returns (name, status, detail). Pure functions of config. ──
 
 READY, UNCONFIGURED, HALF, STUB = "READY", "UNCONFIGURED", "HALF-CONFIGURED", "STUB"
+# RUN-11: distinct from READY on purpose. READY claims the thing works;
+# CONFIGURED claims only that settings are present. Doctor does not dial the
+# RPC, so it cannot honestly say more than CONFIGURED about it.
+CONFIGURED = "CONFIGURED"
 
 
 def check_config_file(config: dict) -> tuple:
@@ -74,7 +78,12 @@ def check_chain(config: dict) -> tuple:
     rpc = chain.get("rpc_url") or config.get("rpc_url")
     if not _filled(rpc):
         return ("chain rpc", UNCONFIGURED, "no rpc_url — on-chain routes are no-ops")
-    return ("chain rpc", READY, f"rpc configured (chain_id={chain.get('chain_id', '?')})")
+    # RUN-11: reported READY. Doctor never dials the RPC, so all it knows is
+    # that a URL is present in config — a dead endpoint or a typo reads exactly
+    # the same. READY invites an operator to treat on-chain routes as working;
+    # CONFIGURED says only what was actually checked.
+    return ("chain rpc", CONFIGURED,
+            f"rpc_url set, NOT dialled (chain_id={chain.get('chain_id', '?')})")
 
 
 def check_paymaster(config: dict) -> tuple:
@@ -126,16 +135,43 @@ def check_push(config: dict) -> tuple:
 
 
 def check_security_backend(config: dict) -> tuple:
-    # Static import probe — does NOT construct the verifier or touch state.
+    """Report the backend that is ACTUALLY ACTIVE, not the one that is installed.
+
+    H2/RUN-11: this used `importlib.util.find_spec` — a static probe answering
+    "is the package on disk?". That is not the question an operator is asking.
+    The seam decides the live backend at import time, and a package that is
+    present but fails to load still yields SECURITY_BACKEND == "noop". So doctor
+    could report READY while the running gateway had no enforcement at all —
+    the tool meant to catch a misconfiguration agreeing with the misconfigured
+    system. It now reads the same value the runtime uses.
+    """
+    from runtime.config.validation import is_production_mode
+    from runtime.security import SECURITY_BACKEND
+
+    installed = False
     try:
         import importlib.util
+
         installed = importlib.util.find_spec("morpheus_security") is not None
-    except Exception:
+    except (ImportError, ModuleNotFoundError, ValueError):
         installed = False
+
+    if SECURITY_BACKEND == "morpheus_security":
+        return ("security backend", READY,
+                "morpheus_security ACTIVE (real enforcement available)")
+
     if installed:
-        return ("security backend", READY, "morpheus_security installed (real verifier)")
-    return ("security backend", STUB,
-            "morpheus_security NOT installed — App Attest / OTP soft-fail (noop seam)")
+        # Present on disk, not the live backend — the divergence the old check
+        # could not see, and the one worth shouting about.
+        return ("security backend", STUB,
+                "morpheus_security is INSTALLED but the live backend is 'noop' — "
+                "it failed to load; enforcement is OFF")
+
+    detail = ("morpheus_security NOT installed — App Attest / OTP soft-fail "
+              "(noop seam)")
+    if is_production_mode():
+        detail += " — FATAL in production (OPNMATRX_ENV=production)"
+    return ("security backend", STUB, detail)
 
 
 def check_route_table(config: dict) -> tuple:

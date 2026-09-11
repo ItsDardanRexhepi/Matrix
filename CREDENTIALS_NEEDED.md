@@ -47,6 +47,41 @@ Set under `services.<name>.*` in `openmatrix.config.json`. Each service returns 
 | ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + per-bridge addresses | CCIP/Hyperlane/Wormhole/Axelar/Stargate |
 | auctions | `services.auctions.auction_address` + `.orderbook_address` | Dutch/English/sealed-bid + orderbook |
 
+## 6b. Per-deployment secrets that have a WORKING DEFAULT — set these or they hold
+
+**These are the dangerous ones**, because nothing fails when you skip them. A
+credential you forget usually announces itself: a feature returns "needs config"
+and you go and set it. A secret with a working default does not — the feature
+functions, no test fails, no log complains, and the value protecting it is the
+one printed in a public repository.
+
+| Credential | Set in | Default if unset | Why it matters |
+|---|---|---|---|
+| **QR verification secret** | platform `supply_chain.qr_secret` | `"0pnmatrx-default-qr-secret"` — **published in this public repo** | The entire secret in the product-authenticity hash (`qr_codes.py:200`, `sha256(product_id\|timestamp\|qr_secret)`). Left unset, **anyone who can read this repository can forge a valid product verification hash for any product id.** Set it to a long random per-deployment value. |
+
+**DEPLOYMENT PREREQUISITE — ordering matters, as it did for `blockchain.eas_schema`.**
+Set `supply_chain.qr_secret` **before** issuing any product QR code you intend to
+treat as authoritative.
+
+**READ THIS BEFORE SETTING THE KEY — it has a cost, and the cost lands on
+physical goods.** Verification hashes are computed from the secret, so changing
+the secret changes every hash. **Rotating does not repair codes minted under the
+default; it invalidates them.** Every QR code already generated stops verifying
+the moment you set this key.
+
+So the operational consequence, stated plainly:
+
+- **Set it before your first production QR code** → costs nothing.
+- **Set it after** → **every code already printed, applied to a product, shipped,
+  or sitting in a warehouse becomes invalid**, and each one must be re-generated
+  and physically re-applied. The bill is labour and relabelling, not engineering.
+- **Never set it** → the codes verify, and anyone who can read this public
+  repository can forge a valid one for any product id.
+
+There is no option where you keep both the already-printed codes and a secret
+worth having. **Whoever sets this key needs to know it obsoletes every code
+already in circulation.**
+
 ## 8. Sign in with Apple — server credentials (P1-8)
 
 | Credential | Where | Unlocks |

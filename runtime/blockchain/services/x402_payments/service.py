@@ -21,9 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 class PaymentStatus(str, Enum):
+    """Lifecycle states of an x402 payment RECORD.
+
+    NEW-55: the terminal state was `COMPLETED = "completed"`. Nothing in this
+    service moves value — no ledger, no web3 call, no external payment API
+    anywhere in it — so "completed" asserted a settlement that never happened.
+    Renamed rather than re-documented: fixing the docstring while leaving the
+    enum would be a differently-worded version of the same claim, and a status
+    that half-changes is a coherent-looking lie, worse than an obvious one.
+
+    RECORDED_UNSETTLED is deliberately ugly. "recorded" alone could be read as
+    "recorded on-chain"; this cannot be misread as money having moved.
+    """
+
     PENDING = "pending"
     AUTHORIZED = "authorized"
-    COMPLETED = "completed"
+    RECORDED_UNSETTLED = "recorded_unsettled"
     REJECTED = "rejected"
     EXPIRED = "expired"
     REFUNDED = "refunded"
@@ -102,7 +115,7 @@ class X402PaymentService:
         Create a new x402 payment request.
 
         The payment is created in PENDING status and must be authorised
-        before it can be completed. Spend limits are checked at creation.
+        before its record can be closed. Spend limits are checked at creation.
 
         Args:
             agent_id: The paying agent's identifier.
@@ -172,7 +185,10 @@ class X402PaymentService:
             "created_at": timestamp,
             "expires_at": timestamp + self.payment_expiry,
             "authorized_at": None,
-            "completed_at": None,
+            # NEW-55: was `completed_at`, renamed with the terminal status it
+            # belongs to. A field named completed_at on an unsettled record is
+            # the same claim in a different place.
+            "recorded_at": None,
             "network": self.network,
             "on_chain_hash": self._compute_payment_hash(
                 payment_id, agent_id, recipient, amount, token
@@ -187,10 +203,11 @@ class X402PaymentService:
             payment_id, agent_id, recipient, amount, token,
         )
 
-        return {
-            **payment,
-            "status": "created",
-        }
+        # NEW-56: was `"status": "created"`, OVERWRITING the record's real
+        # lifecycle status ("pending"). The caller got a status describing the
+        # API call rather than the payment, so a client could never see the
+        # state it needed. Real status returned; "created" moves to its own key.
+        return {**payment, "created": True}
 
     async def authorize_payment(self, payment_id: str) -> dict[str, Any]:
         """
@@ -285,7 +302,12 @@ class X402PaymentService:
         ):
             payment["status"] = PaymentStatus.EXPIRED.value
 
-        return {**payment, "status": "found"}
+        # NEW-56: was `"status": "found"`, clobbering the real lifecycle status
+        # on EVERY lookup of EVERY payment — a client polling for settlement
+        # state could never observe pending / authorized / recorded_unsettled /
+        # expired / refunded. "found" is a fact about the LOOKUP, not the
+        # payment, so it moves to its own key.
+        return {**payment, "found": True}
 
     async def list_payments(
         self,
@@ -342,7 +364,26 @@ class X402PaymentService:
         return payments
 
     async def complete_payment(self, payment_id: str) -> dict[str, Any]:
-        """Mark an authorised payment as completed (on-chain settlement done)."""
+        """Close an authorised payment RECORD. Moves no value (NEW-55).
+
+        This docstring used to read "(on-chain settlement done)". It was not:
+        the method's entire former action was a single status assignment. No
+        web3 call, no external payment API, no ledger debit or credit — this
+        service has no ledger at all. The payer's balance was untouched and the
+        recipient received nothing.
+
+        Classified real-local-defective rather than fabrication: the state
+        guards ARE real (unknown id and wrong-state are genuinely rejected).
+        The work is real; the settlement guarantee was fiction.
+
+        REAL SETTLEMENT EXISTS ELSEWHERE and is deliberately NOT wired here.
+        runtime/blockchain/payments.py `_send_eth` / `_send_token` build, sign
+        and broadcast genuine transactions. Delegating means live chain
+        transactions, which is out of remediation scope — so this tells the
+        truth about being a record-keeper instead of quietly becoming a mover.
+        Logged on the deferred register as a real-build project (wiring this
+        record-keeper to the payments.py transaction path).
+        """
         payment = self._payments.get(payment_id)
         if payment is None:
             return {"status": "error", "error": f"Payment not found: {payment_id}"}
@@ -350,29 +391,47 @@ class X402PaymentService:
         if payment["status"] != PaymentStatus.AUTHORIZED.value:
             return {
                 "status": "error",
-                "error": f"Only authorised payments can be completed. Current: {payment['status']}",
+                "error": (
+                    "Only authorised payments can be recorded as closed. "
+                    f"Current: {payment['status']}"
+                ),
             }
 
-        payment["status"] = PaymentStatus.COMPLETED.value
-        payment["completed_at"] = int(time.time())
+        payment["status"] = PaymentStatus.RECORDED_UNSETTLED.value
+        payment["recorded_at"] = int(time.time())
 
-        logger.info("Payment completed: id=%s", payment_id)
+        logger.info(
+            "Payment record closed (NOT settled — no value moved): id=%s", payment_id
+        )
 
         return {
-            "status": "completed",
+            "status": PaymentStatus.RECORDED_UNSETTLED.value,
             "payment_id": payment_id,
-            "completed_at": payment["completed_at"],
+            "recorded_at": payment["recorded_at"],
+            "settled": False,
+            "value_moved": False,
+            "disclosure": (
+                "NOT SETTLED. This closes the payment RECORD only. No value was "
+                "transferred: this service holds no ledger and makes no on-chain "
+                "or payment-provider call. The payer has not been debited and "
+                "the recipient has not been credited."
+            ),
         }
 
     async def refund_payment(self, payment_id: str) -> dict[str, Any]:
-        """Refund a completed or authorised payment."""
+        """Refund an authorised or recorded payment RECORD.
+
+        NEW-53: DISABLED at ACTION_MAP — it took only a payment_id, with no
+        caller identity. NEW-55: it reverses a spend COUNTER, not money; no
+        value ever left anyone.
+        """
         payment = self._payments.get(payment_id)
         if payment is None:
             return {"status": "error", "error": f"Payment not found: {payment_id}"}
 
         if payment["status"] not in (
             PaymentStatus.AUTHORIZED.value,
-            PaymentStatus.COMPLETED.value,
+            PaymentStatus.RECORDED_UNSETTLED.value,
         ):
             return {
                 "status": "error",
@@ -431,131 +490,36 @@ class X402PaymentService:
         payload = f"{payment_id}|{agent_id}|{recipient}|{amount}|{token}"
         return "0x" + hashlib.sha256(payload.encode()).hexdigest()
 
-    # ------------------------------------------------------------------
-    # Expanded payment operations
-    # ------------------------------------------------------------------
-
-    async def create_stream(
-        self, sender: str, recipient: str, amount: float, token: str, duration_seconds: int,
-    ) -> dict[str, Any]:
-        """Create a streaming payment (Sablier/Superfluid-style)."""
-        stream_id = f"stream_{uuid.uuid4().hex[:16]}"
-        now = int(time.time())
-        record: dict[str, Any] = {
-            "id": stream_id,
-            "status": "streaming",
-            "sender": sender,
-            "recipient": recipient,
-            "total_amount": amount,
-            "token": token.upper(),
-            "duration_seconds": duration_seconds,
-            "rate_per_second": round(amount / duration_seconds, 8) if duration_seconds else 0,
-            "started_at": now,
-            "ends_at": now + duration_seconds,
-        }
-        self._payments[stream_id] = record
-        logger.info("Payment stream created: id=%s", stream_id)
-        return record
-
-    async def create_recurring(
-        self, payer: str, recipient: str, amount: float, token: str, interval_days: int, count: int,
-    ) -> dict[str, Any]:
-        """Create a recurring payment schedule."""
-        rec_id = f"rec_{uuid.uuid4().hex[:16]}"
-        now = int(time.time())
-        record: dict[str, Any] = {
-            "id": rec_id,
-            "status": "active",
-            "payer": payer,
-            "recipient": recipient,
-            "amount": amount,
-            "token": token.upper(),
-            "interval_days": interval_days,
-            "total_payments": count,
-            "payments_made": 0,
-            "next_payment_at": now + interval_days * 86400,
-            "created_at": now,
-        }
-        self._payments[rec_id] = record
-        logger.info("Recurring payment created: id=%s", rec_id)
-        return record
-
-    async def create_milestone_escrow(
-        self, payer: str, recipient: str, amount: float, token: str, milestones: list[str],
-    ) -> dict[str, Any]:
-        """Create a milestone-based escrow payment."""
-        escrow_id = f"escrow_{uuid.uuid4().hex[:16]}"
-        now = int(time.time())
-        record: dict[str, Any] = {
-            "id": escrow_id,
-            "status": "funded",
-            "payer": payer,
-            "recipient": recipient,
-            "total_amount": amount,
-            "token": token.upper(),
-            "milestones": [{"name": m, "status": "pending"} for m in milestones],
-            "released": 0.0,
-            "created_at": now,
-        }
-        self._payments[escrow_id] = record
-        logger.info("Milestone escrow created: id=%s", escrow_id)
-        return record
-
-    async def split_payment(
-        self, sender: str, recipients: list[dict[str, Any]], total_amount: float, token: str,
-    ) -> dict[str, Any]:
-        """Split a payment among multiple recipients."""
-        split_id = f"split_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": split_id,
-            "status": "completed",
-            "sender": sender,
-            "recipients": recipients,
-            "total_amount": total_amount,
-            "token": token.upper(),
-            "split_count": len(recipients),
-            "created_at": int(time.time()),
-        }
-        self._payments[split_id] = record
-        logger.info("Payment split: id=%s count=%d", split_id, len(recipients))
-        return record
-
-    async def factor_invoice(
-        self, seller: str, invoice_amount: float, token: str, discount_pct: float = 2.0,
-    ) -> dict[str, Any]:
-        """Factor an invoice for immediate liquidity."""
-        factor_id = f"inv_{uuid.uuid4().hex[:16]}"
-        advance = round(invoice_amount * (1 - discount_pct / 100.0), 6)
-        record: dict[str, Any] = {
-            "id": factor_id,
-            "status": "factored",
-            "seller": seller,
-            "invoice_amount": invoice_amount,
-            "token": token.upper(),
-            "discount_pct": discount_pct,
-            "advance_amount": advance,
-            "created_at": int(time.time()),
-        }
-        self._payments[factor_id] = record
-        logger.info("Invoice factored: id=%s", factor_id)
-        return record
-
-    async def run_payroll(
-        self, employer: str, employees: list[dict[str, Any]], token: str, period: str = "monthly",
-    ) -> dict[str, Any]:
-        """Execute a payroll batch payment."""
-        payroll_id = f"payroll_{uuid.uuid4().hex[:16]}"
-        total = sum(e.get("amount", 0) for e in employees)
-        record: dict[str, Any] = {
-            "id": payroll_id,
-            "status": "processed",
-            "employer": employer,
-            "employee_count": len(employees),
-            "total_amount": round(total, 6),
-            "token": token.upper(),
-            "period": period,
-            "created_at": int(time.time()),
-        }
-        self._payments[payroll_id] = record
-        logger.info("Payroll processed: id=%s employees=%d", payroll_id, len(employees))
-        return record
+    # ── REMOVED: the six "expanded" payment operations (NEW-57) ──────────
+    #
+    # create_stream, create_recurring, create_milestone_escrow, split_payment,
+    # factor_invoice, run_payroll. All six were fabrication-live — reachable
+    # through ACTION_MAP — and every one moved NOTHING.
+    #
+    #   split_payment     never read the per-recipient amounts at all, only
+    #                     len(recipients), so the split arithmetic did not even
+    #                     happen. Returned "status": "completed".
+    #   run_payroll       summed the caller's own input and returned
+    #                     "status": "processed". Not one employee was paid.
+    #   factor_invoice    computed an advance_amount and returned "factored".
+    #                     Invoice factoring IS the advancing of cash; there was
+    #                     no funder, no counterparty, no transfer.
+    #   create_stream     no Sablier/Superfluid contract, no stream.
+    #   create_recurring  no scheduler exists; no first payment, and none ever.
+    #   create_milestone_escrow  claimed to hold funds in escrow, held nothing,
+    #                     and bypassed the SpendEnforcer that gates every other
+    #                     payment path.
+    #
+    # TWIN CHECK, per method — none of the six has one.
+    # runtime/blockchain/payments.py is REAL (_send_eth / _send_token build,
+    # sign and broadcast genuine transactions), which is why complete_payment's
+    # settlement gap is a wiring question. But it is a SINGLE-TRANSFER
+    # primitive. split_payment and run_payroll are batch disbursement: N
+    # transfers with partial-failure, atomicity and gas semantics that exist
+    # nowhere in this repo. A loop over a real primitive is a DESIGN, not a
+    # twin — calling it one would repeat the publish_mirror_post error
+    # (NEW-48), where a name-adjacent neighbour was mistaken for the same
+    # operation. Batch disbursement is logged on the deferred register.
+    #
+    # Removed rather than gated: a credential-gated stub would imply a real
+    # implementation waits behind a key. None does.

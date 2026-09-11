@@ -1,5 +1,5 @@
 """
-DataAggregator — collects and aggregates data from all 0pnMatrx services
+DashboardAggregator — collects and aggregates data from all 0pnMatrx services
 for the unified dashboard.
 
 For staking APY: uses Component 16's canonical APY calculator exclusively.
@@ -14,8 +14,14 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class DataAggregator:
+class DashboardAggregator:
     """Aggregates portfolio and activity data across all platform components.
+
+    RUN-6: renamed from ``DataAggregator``. Two unrelated classes shared
+    that name — this one and
+    ``runtime.blockchain.protocol_abstraction.data_aggregator.DataAggregator``
+    — with different methods. Three gateway handlers called methods that
+    existed on neither, and the collision is what made that look plausible.
 
     Config keys (under ``config["dashboard"]``):
         activity_limit (int): Default activity items to return (default 50).
@@ -37,7 +43,7 @@ class DataAggregator:
         self._cache: dict[str, tuple[int, Any]] = {}
 
         logger.info(
-            "DataAggregator initialised (services=%d, cache_ttl=%ds).",
+            "DashboardAggregator initialised (services=%d, cache_ttl=%ds).",
             len(self._services), self._cache_ttl,
         )
 
@@ -86,7 +92,23 @@ class DataAggregator:
             "rwa_holdings": [],
             "securities": [],
             "liquidity_positions": [],
-            "total_value_usd": 0.0,
+            # NONE, NOT 0.0 — NOTHING EVER SUMS THIS. The only two references to
+            # `total_value_usd` in the whole package are this initialiser and the
+            # formatter that renders it; no code path assigns a computed total.
+            # At 0.0 the formatter printed "Your portfolio is worth
+            # approximately $0.00." over real holdings — a fabricated figure, and
+            # the SECOND instance of the fabricated-zero class after the APY
+            # field in this same file (NEW-96), whose comment already says "0.0
+            # was never a safe default". That fix landed on one field of this
+            # object and not its sibling.
+            #
+            # DELIBERATELY NOT SUMMED. `_services` is empty under the shipped
+            # config (the NEW-59 gap, on the register), so a computed total would
+            # be an equally-wrong 0.0 that is HARDER to spot. The fabricated zero
+            # and the empty aggregator are the same defect from two ends; the
+            # honest display is correct precisely because the data is not there
+            # yet, and stays correct once it is.
+            "total_value_usd": None,
             "aggregated_at": int(time.time()),
         }
 
@@ -101,11 +123,54 @@ class DataAggregator:
                     staking_entry = dict(pos)
                     # Use Component 16's canonical APY calculator exclusively
                     apy_calculator = staking_svc.apy_calculator
+                    # NEW-96. THREE INDEPENDENT PATHS REACHED THE SAME VISIBLE
+                    # 0.0 HERE, and fixing fewer than all three leaves the
+                    # dashboard showing 0.0 anyway — which is how a correct fix
+                    # gets reverted as ineffective.
+                    #
+                    #   1. the calculator read a throwaway pool manager, so its
+                    #      APY was genuinely always 0.0  (fixed in
+                    #      apy_calculator.py — the shadow)
+                    #   2. this line read `apy_data["apy"]`; the calculator has
+                    #      always returned `current_apy`. The service's own
+                    #      caller (StakingService.get_position) reads
+                    #      `current_apy`, which is what makes this a misspelling
+                    #      rather than a second convention
+                    #   3. the bare `except` below substituted 0.0 for any
+                    #      failure
+                    #
+                    # AND 0.0 WAS NEVER A SAFE DEFAULT. `formatters.py` already
+                    # does the honest thing — `if apy is not None:` — and omits
+                    # the yield sentence entirely. Defaulting to 0.0 forced it
+                    # to print "Your current annual yield is 0.0%", a fabricated
+                    # yield claim, over a downstream component that was already
+                    # written to say nothing. None restores it.
                     try:
                         apy_data = await apy_calculator.calculate_apy(pool_id)
-                        staking_entry["apy"] = apy_data.get("apy", 0.0)
-                    except Exception:
-                        staking_entry["apy"] = 0.0
+                        apy_value = (
+                            apy_data.get("current_apy")
+                            if isinstance(apy_data, dict) else None
+                        )
+                        if isinstance(apy_value, (int, float)) and not isinstance(
+                            apy_value, bool
+                        ):
+                            staking_entry["apy"] = apy_value
+                        else:
+                            staking_entry["apy"] = None
+                            staking_entry["apy_unavailable"] = (
+                                apy_data.get("reason")
+                                or apy_data.get("error")
+                                or apy_data.get("status")
+                                or "calculator returned no current_apy"
+                            ) if isinstance(apy_data, dict) else (
+                                "calculator returned no APY"
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "APY calculation failed for pool %s: %s", pool_id, exc
+                        )
+                        staking_entry["apy"] = None
+                        staking_entry["apy_unavailable"] = f"calculation failed: {exc}"
                     portfolio["staking_positions"].append(staking_entry)
             except Exception as exc:
                 logger.warning("Failed to aggregate staking data: %s", exc)
@@ -187,18 +252,34 @@ class DataAggregator:
         # Collect from each registered service that exposes activity
         for svc_name, svc in self._services.items():
             try:
+                # COPY BEFORE STAMPING. These dicts belong to the SUB-SERVICE.
+                # `item["component"] = svc_name` wrote into whatever the service
+                # returned — and services in this platform return their stored
+                # records BY REFERENCE, so a dashboard READ permanently added a
+                # `component` key to another service's state, for every
+                # registered service, on every page view. Reproduced against a
+                # service's own `_records` list before the fix.
+                #
+                # The stamped value is benign; the PRIMITIVE is not. A proven
+                # ability to hold and mutate references to foreign services'
+                # records is an arbitrary write one refactor away.
+                #
+                # SHALLOW copy deliberately: it closes the measured defect. A
+                # deep copy would assert that nested state is also safe without
+                # anyone having measured whether any service returns nested
+                # mutables — an unverified negative, the same shape as the
+                # queue_timelock disclosure. Deep-aliasing is on the register as
+                # a candidate to COUNT, not to pre-empt.
                 if hasattr(svc, "get_activity"):
                     svc_activity = await svc.get_activity(address)
                     if isinstance(svc_activity, list):
                         for item in svc_activity:
-                            item["component"] = svc_name
-                            activities.append(item)
+                            activities.append({**item, "component": svc_name})
                 elif hasattr(svc, "get_transactions"):
                     txs = await svc.get_transactions(address)
                     if isinstance(txs, list):
                         for tx in txs:
-                            tx["component"] = svc_name
-                            activities.append(tx)
+                            activities.append({**tx, "component": svc_name})
             except Exception as exc:
                 logger.warning(
                     "Failed to aggregate activity from %s: %s", svc_name, exc,

@@ -7,6 +7,7 @@ still catches any NEW collision a future edit introduces without failing on the
 known set.
 """
 
+import inspect
 from collections import defaultdict
 
 from runtime.chat.intent_actions import INTENT_ACTION_MAP
@@ -35,13 +36,53 @@ KNOWN_PREEXISTING_COLLISIONS = {
 
 
 def test_liquidity_keywords_do_not_overlap():
-    """Hard gate: the P3-12 fix — liquidity_provide is canonical."""
+    """Hard gate: single owner for the liquidity keywords.
+
+    NEW-61 CHANGED THE EXPECTED OWNER, and the reason matters — this is a
+    correction, not an accommodation. The invariant under test is unchanged
+    (exactly one owner, so routing stays deterministic); what changed is WHICH
+    action is canonical.
+
+    P3-12 made liquidity_provide canonical and demoted add_liquidity to a
+    legacy alias, on the stated grounds that liquidity_provide had "richer
+    params: price ranges, protocol". liquidity_provide was a fabrication —
+    uuid + status string, no pool, no reserves, no shares — and those richer
+    params were the invented ones: the real dex method cannot accept them and
+    the fabrication never read them. So the collision was resolved toward the
+    fake precisely because the fake advertised more.
+
+    add_liquidity is backed by a real constant-product AMM
+    (dex/service.py:217 -> dex/pools.py:151), and is canonical again.
+    """
     owners = _keyword_owners()
     for kw in ("add liquidity", "provide liquidity", "liquidity pool"):
-        assert owners.get(kw, set()) == {"liquidity_provide"}, (
-            f"'{kw}' must map only to liquidity_provide, got {owners.get(kw)}"
+        assert owners.get(kw, set()) == {"add_liquidity"}, (
+            f"'{kw}' must map only to add_liquidity (the real AMM), "
+            f"got {owners.get(kw)}"
         )
     assert "add_liquidity" in owners.get("become lp", set())
+
+
+def test_the_liquidity_keywords_route_to_a_real_implementation():
+    """The point of the correction, asserted directly rather than implied.
+
+    Owning the keywords is worthless if the owner is another fabrication, so
+    resolve the action through the dispatch table and assert the target is the
+    real AMM.
+    """
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+
+    owners = _keyword_owners()
+    action = next(iter(owners["add liquidity"]))
+    assert ACTION_MAP[action] == ("dex", "add_liquidity")
+
+    from runtime.blockchain.services.dex.pools import LiquidityPoolManager
+
+    src = inspect.getsource(LiquidityPoolManager.add_liquidity)
+    assert "total_lp_shares" in src and "reserve_a" in src, (
+        "the canonical liquidity action no longer resolves to code that "
+        "maintains real pool reserves and LP shares"
+    )
 
 
 def test_no_new_keyword_collisions():

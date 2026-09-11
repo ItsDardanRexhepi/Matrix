@@ -110,6 +110,50 @@ class ExchangeContract:
         )
         return dict(order)
 
+    def committed_sell_amount(self, security_id: str, trader: str) -> int:
+        """Units this trader already has promised via OPEN sell orders.
+
+        DOMAIN 13-B. `SecuritiesExchangeService.sell` validated against the raw
+        balance and reserved nothing, so N orders each passed against the same
+        unreduced position. This is the reservation the caller needs to subtract.
+        Counts `remaining_amount` (not `original_amount`) so partially-matched
+        orders only reserve what is still outstanding.
+        """
+        # 13-B AND 13-C CANCELLED EACH OTHER, AND THE SUITE DID NOT NOTICE.
+        # The first version counted only status == "open" and summed
+        # remaining_amount. 13-C — in the same commit — moved matched orders to
+        # "matched_unsettled" and drove remaining_amount to 0. So MATCHING
+        # RELEASED THE RESERVATION while, by 13-C's own thesis, nothing settled:
+        # sell 100, match it, sell 100 again, both accepted against a balance of
+        # 100. The exact over-commitment 13-B was written to close.
+        #
+        # Two fixes each correct alone, interacting to reopen one of them. No
+        # test combined them because each had its own test.
+        #
+        # THE HONEST RULE WHILE NOTHING SETTLES: a sell order commits its units
+        # until it is CANCELLED. Matching does not release them, because matching
+        # moves nothing — the units are still in the holder's balance and still
+        # promised. So count ORIGINAL_AMOUNT for every order that is neither
+        # cancelled nor settled, not the remaining_amount, which tracks matching
+        # progress rather than delivery.
+        #
+        # WHEN SETTLEMENT EXISTS THIS MUST CHANGE: at that point matched units
+        # really do leave the balance, remaining_amount becomes the right
+        # measure, and counting original_amount would double-reserve. Pinned by
+        # test_the_matching_engine_still_cannot_reach_balances — if that fails,
+        # revisit this.
+        UNSETTLED = ("open", "matched_unsettled", "partially_filled")
+        total = 0
+        for order in self._orders.values():
+            if (
+                order.get("security_id") == security_id
+                and order.get("trader") == trader
+                and order.get("side") == "sell"
+                and order.get("status") in UNSETTLED
+            ):
+                total += int(order.get("original_amount", 0))
+        return total
+
     async def cancel_order(self, order_id: str) -> dict:
         """Cancel an open order.
 
@@ -209,7 +253,20 @@ class ExchangeContract:
                 "seller": best_ask["trader"],
                 "buy_order_id": best_bid["order_id"],
                 "sell_order_id": best_ask["order_id"],
-                "executed_at": int(time.time()),
+                # DOMAIN 13-C — "matched", NOT "executed". This engine transfers
+                # NOTHING: it holds no reference to the service's `_balances`
+                # (see __init__ — config, order books, trades only), so it is
+                # structurally incapable of settling what it matches. Measured:
+                # one trade reported executed, balances unchanged, counterparty
+                # holding 0 afterwards. The order-book bookkeeping below is real
+                # work; the EXECUTION claim was the lie.
+                "matched_at": int(time.time()),
+                "settled": False,
+                "settlement": (
+                    "NOT SETTLED — this exchange has no settlement path. The "
+                    "match is a price/quantity agreement only; no security and "
+                    "no payment has moved."
+                ),
             }
             trades.append(trade)
             self._trades.append(trade)
@@ -222,19 +279,19 @@ class ExchangeContract:
 
             now = int(time.time())
             if best_bid["remaining_amount"] == 0:
-                best_bid["status"] = "filled"
+                best_bid["status"] = "matched_unsettled"
                 best_bid["updated_at"] = now
             else:
                 best_bid["updated_at"] = now
 
             if best_ask["remaining_amount"] == 0:
-                best_ask["status"] = "filled"
+                best_ask["status"] = "matched_unsettled"
                 best_ask["updated_at"] = now
             else:
                 best_ask["updated_at"] = now
 
             logger.info(
-                "Trade executed: id=%s security=%s price=%.4f amount=%d buyer=%s seller=%s",
+                "Trade MATCHED (unsettled): id=%s security=%s price=%.4f amount=%d buyer=%s seller=%s",
                 trade["trade_id"], security_id, exec_price, fill_qty,
                 best_bid["trader"], best_ask["trader"],
             )
@@ -248,5 +305,21 @@ class ExchangeContract:
     def get_trades(self, security_id: str, limit: int = 50) -> list[dict]:
         """Return recent trades for a security."""
         filtered = [t for t in self._trades if t["security_id"] == security_id]
-        filtered.sort(key=lambda t: t["executed_at"], reverse=True)
+        # THE RENAME BROKE THIS READER, 45 LINES FROM THE WRITE. 13-C renamed the
+        # trade key executed_at -> matched_at in match_orders and left this sort
+        # untouched, so get_trades raised KeyError for any security that had ever
+        # matched. THE SURFACE RULE, failed in the commit that invoked it: when a
+        # finding renames a field, check every reader of that field — and "the
+        # same file" is not a small enough scope to skip the check.
+        #
+        # The empty case masked it: an empty list never calls the sort key, so
+        # get_trades on a security with no trades still returned []. Same masking
+        # shape as the mutable-default in domain 12 — harmless on the first call.
+        #
+        # `.get` with the legacy key so any record written before the rename
+        # still sorts rather than crashing.
+        filtered.sort(
+            key=lambda t: t.get("matched_at", t.get("executed_at", 0)),
+            reverse=True,
+        )
         return filtered[:limit]

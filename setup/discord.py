@@ -10,7 +10,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("Discord Setup")
     existing = config.get("notifications", {}).get("discord", {})
     url = ask("Discord webhook URL (Server Settings → Integrations → Webhooks)",
@@ -24,7 +24,7 @@ def configure(config: dict) -> dict:
     username = ask("Bot username shown in Discord", default=existing.get("username", "0pnMatrx"))
     channel_cfg = {"webhook_url": url, "username": username}
     update_channel(config, "discord", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({"DISCORD_WEBHOOK_URL": url})
     result = test_channel_via_dispatcher(config, "discord")
     if result.get("status") == "ok":

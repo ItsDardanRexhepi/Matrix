@@ -89,3 +89,43 @@ async def test_route_503_under_no_source(aiohttp_client, tmp_path):
         assert body["source"] in ("chainlink", "coinbase")
         assert float(body["price"]) > 0
         assert "sample" not in str(body).lower() and "demo" not in str(body).lower()
+
+
+async def test_route_answers_the_documented_503_when_no_source_is_reachable(aiohttp_client, tmp_path, monkeypatch):
+    """The handler's docstring promises 503 when no price source is reachable —
+    "never a stale/invented number". The specific `except PriceUnavailable`
+    branch routed the exception through `client_error`, which had no
+    classification for it and therefore answered 500 (`internal_error`): the
+    documented case was the one that broke the contract, and every online sweep
+    flew past it because Coinbase answered. Deterministic: both fetchers are
+    made to fail on the class, so the REAL `eth_usd` raises `PriceUnavailable`
+    on whichever handler serves the route; no network is touched.
+    """
+    from tests.test_gateway import _build_mock_server
+    from runtime.blockchain import price_feed as _pf
+
+    async def _no_chainlink(self):
+        return None
+
+    async def _coinbase_down(self):
+        raise ConnectionError("simulated: api.coinbase.com unreachable")
+
+    monkeypatch.setattr(_pf.PriceFeed, "_default_chainlink", _no_chainlink)
+    monkeypatch.setattr(_pf.PriceFeed, "_default_coinbase", _coinbase_down)
+
+    cfg = {
+        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "workspace": str(tmp_path), "timezone": "UTC",
+        "model": {"provider": "ollama", "providers": {}},
+        "agents": {"neo": {"enabled": True}},
+        "gateway": {"api_key": "", "rate_limit_rpm": 60, "rate_limit_burst": 10},
+        "security": {}, "blockchain": {"chain_id": 84532},
+    }
+    server = _build_mock_server(cfg)
+    server._app_attest = None
+    server._security_backend = "noop"
+    client = await aiohttp_client(server.create_app())
+    r = await client.get("/api/v1/price/eth-usd")
+    body = await r.json()
+    assert r.status == 503, f"documented outcome is 503; got {r.status} {body}"
+    assert body.get("code") == "upstream_unavailable"

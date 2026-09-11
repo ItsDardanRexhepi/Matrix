@@ -39,41 +39,36 @@ class ClaimsProcessor:
         claim_id: str,
         claim: dict[str, Any],
         policy: dict[str, Any],
+        *,
+        verified: bool,
+        reason: str = "",
     ) -> dict:
-        """Process a claim by verifying trigger data against the policy.
+        """Approve or deny a claim on an ALREADY-MADE verification decision.
 
-        If the trigger data satisfies the parametric condition, the claim
-        is auto-approved and a payout is issued from the reserve fund.
+        NEW-78: this used to decide for itself, by calling _verify_trigger on
+        `claim["trigger_data"]` — the CLAIMANT'S OWN dict. That method is
+        deleted, not guarded: it compared caller-supplied numbers against the
+        policy's parametric condition, a condition the claimant can read and
+        then satisfy. Its own docstring admitted the gap — "operates on the
+        claim's submitted trigger data rather than live oracle data."
 
-        Args:
-            claim_id: Unique claim identifier.
-            claim: Claim record (includes trigger_data).
-            policy: The associated policy record.
+        Verification now happens in InsuranceService._verify_via_oracle, which
+        routes through TriggerManager -> OracleGateway and fails closed. The
+        verdict arrives here as a required keyword, so this class can no
+        longer decide a payout from anything the caller wrote. Making
+        `verified` keyword-only and non-defaulting is deliberate: a caller
+        that forgets it gets a TypeError, not a silent approval.
 
-        Returns:
-            Updated claim fields (status, payout_amount, etc.).
+        Deleting _verify_trigger also removes a DUPLICATE evaluator — the same
+        per-policy-type threshold logic lives in TriggerManager._eval_*, and
+        the two had already drifted.
         """
-        trigger_data = claim.get("trigger_data", {})
-
-        # Validate trigger data is present
-        if not trigger_data:
-            return await self.deny_claim(
-                claim_id, "No trigger data provided",
-            )
-
-        # Verify the parametric condition
-        verified = self._verify_trigger(
-            policy.get("policy_type", ""),
-            policy.get("coverage", {}),
-            trigger_data,
-        )
-
         if verified:
             payout = float(policy["coverage"]["amount"])
             return await self.approve_claim(claim_id, payout)
 
         return await self.deny_claim(
-            claim_id, "Trigger conditions not met by oracle data",
+            claim_id, reason or "Trigger conditions not met by oracle data",
         )
 
     async def approve_claim(self, claim_id: str, payout_amount: float) -> dict:
@@ -144,57 +139,17 @@ class ClaimsProcessor:
     # Trigger verification
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _verify_trigger(
-        policy_type: str,
-        coverage: dict[str, Any],
-        trigger_data: dict[str, Any],
-    ) -> bool:
-        """Verify that trigger data satisfies the policy's parametric condition.
-
-        This mirrors the TriggerManager logic but operates on the claim's
-        submitted trigger data rather than live oracle data.
-        """
-        if policy_type == "weather":
-            metric = coverage.get("metric", "temperature")
-            threshold = float(coverage.get("threshold", 0))
-            comparator = coverage.get("comparator", "gt")
-            value = trigger_data.get(metric)
-            if value is None:
-                return False
-            value = float(value)
-            if comparator == "gt":
-                return value > threshold
-            elif comparator == "lt":
-                return value < threshold
-            elif comparator == "gte":
-                return value >= threshold
-            elif comparator == "lte":
-                return value <= threshold
-            return value == threshold
-
-        elif policy_type == "flight_delay":
-            delay_thresh = int(coverage.get("delay_minutes", 120))
-            actual = int(trigger_data.get("delay_minutes", 0))
-            return actual >= delay_thresh
-
-        elif policy_type == "crop":
-            threshold = float(coverage.get("rainfall_threshold_mm", 50))
-            actual = float(trigger_data.get("rainfall_mm", 999))
-            return actual < threshold
-
-        elif policy_type == "earthquake":
-            threshold = float(coverage.get("magnitude_threshold", 5.0))
-            magnitude = float(trigger_data.get("magnitude", 0))
-            return magnitude >= threshold
-
-        elif policy_type == "smart_contract_hack":
-            loss_threshold = float(coverage.get("loss_threshold", 0))
-            loss = float(trigger_data.get("loss_amount", 0))
-            hacked = trigger_data.get("hack_detected", False)
-            return bool(hacked) and loss >= loss_threshold
-
-        return False
+        # NEW-78: _verify_trigger DELETED, not guarded.
+    #
+    # It read the decision values straight out of the claimant's own
+    # trigger_data dict — no signature, no oracle, no provenance — and its
+    # docstring said so: "operates on the claim's submitted trigger data
+    # rather than live oracle data." A guarded-but-present version would be
+    # one refactor from being the live path again, which is exactly how the
+    # fundraising oracle fallback became live.
+    #
+    # The equivalent threshold logic already exists, correctly fed, in
+    # TriggerManager._eval_* against OracleGateway data.
 
     # ------------------------------------------------------------------
     # Attestation

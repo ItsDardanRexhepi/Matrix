@@ -10,7 +10,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("WhatsApp (Twilio) Setup")
     info("Uses Twilio's WhatsApp API. Sandbox is free; production requires approved sender.")
     existing = config.get("notifications", {}).get("whatsapp", {})
@@ -28,7 +28,7 @@ def configure(config: dict) -> dict:
         "from_number": from_num, "to_number": to_num,
     }
     update_channel(config, "whatsapp", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({
         "TWILIO_WHATSAPP_FROM": from_num,
         "TWILIO_WHATSAPP_TO": to_num,

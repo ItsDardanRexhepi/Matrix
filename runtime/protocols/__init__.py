@@ -14,6 +14,15 @@ from runtime.protocols.trajectory import TrajectoryEngine
 from runtime.protocols.outcome_learning import OutcomeLearning
 from runtime.protocols.morpheus_triggers import MorpheusTriggerSystem
 from runtime.protocols.rexhepi_gate import RexhepiGate
+from runtime.protocols.urf import (
+    Gate,
+    GateScores,
+    HardRule,
+    Outcome,
+    TimeSensitivity,
+    URFDecision,
+    URFReasoningLoop,
+)
 from runtime.protocols.integration import ProtocolStack
 from runtime.protocols.omniversal import OmniversalProtocol
 from runtime.protocols.hivemind import HiveMindProtocol
@@ -35,6 +44,13 @@ __all__ = [
     "OutcomeLearning",
     "MorpheusTriggerSystem",
     "RexhepiGate",
+    "Gate",
+    "GateScores",
+    "HardRule",
+    "Outcome",
+    "TimeSensitivity",
+    "URFDecision",
+    "URFReasoningLoop",
     "ProtocolStack",
     "OmniversalProtocol",
     "HiveMindProtocol",

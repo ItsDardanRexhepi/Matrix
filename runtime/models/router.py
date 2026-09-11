@@ -13,6 +13,7 @@ complex tasks to the most capable, and critical tasks always route to
 the best model regardless of cost.
 """
 
+import asyncio
 import logging
 
 from runtime.models.model_interface import ModelInterface, ModelResponse
@@ -29,6 +30,33 @@ _COMPLEXITY_MODEL_MAP = {
     "complex": "best",
     "critical": "best",
 }
+
+
+def _is_unreachable(exc: Exception) -> bool:
+    """True when *exc* means the provider cannot be reached at all.
+
+    RUN-5: a connection refusal does not heal between two attempts a
+    millisecond apart, so retrying one is pure latency — and it is why a single
+    failed chat produced the SAME provider error three times over. A 5xx or a
+    malformed reply is worth a retry; "nothing is listening on that port" is
+    not.
+    """
+    # A timeout is NOT unreachable, and the distinction is easy to lose:
+    # TimeoutError subclasses OSError, and since 3.11 asyncio.TimeoutError IS
+    # TimeoutError — so a bare `isinstance(exc, OSError)` silently swallows
+    # every timeout and makes genuinely transient failures non-retryable. A
+    # slow provider may well answer on the second attempt; a refused
+    # connection will not. Check timeouts first and keep them retryable.
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return False
+    if isinstance(exc, (ConnectionError, ConnectionRefusedError, OSError)):
+        return True
+    text = str(exc).lower()
+    return any(
+        m in text
+        for m in ("cannot connect to host", "connection refused",
+                  "connect call failed", "name or service not known")
+    )
 
 
 class ModelRouter:
@@ -191,6 +219,9 @@ class ModelRouter:
                 except Exception as e:
                     logger.warning(f"[{agent_name}] {self.primary_name} attempt {attempt}/{MAX_RETRIES} failed: {e}")
                     errors.append(f"{self.primary_name}: {e}")
+                    if _is_unreachable(e):
+                        # RUN-5: unreachable does not heal between attempts.
+                        break
 
         # Fall through remaining providers
         for name, provider in self.providers.items():
@@ -204,6 +235,8 @@ class ModelRouter:
                 except Exception as e:
                     logger.warning(f"[{agent_name}] {name} attempt {attempt}/{MAX_RETRIES} failed: {e}")
                     errors.append(f"{name}: {e}")
+                    if _is_unreachable(e):
+                        break
 
         raise RuntimeError(f"All model providers failed: {'; '.join(errors)}")
 

@@ -238,14 +238,26 @@ class NeoSafeRouter:
     async def _attest_fee(self, entry: dict[str, Any]) -> str | None:
         """Create an EAS attestation for a fee payment.
 
-        Returns the attestation UID or ``None`` on failure.
+        Returns the attestation TRANSACTION HASH when the attestation was
+        actually submitted on-chain, else ``None``.
+
+        NEW-42: this previously documented "the attestation UID", which no
+        code path has ever produced — `AttestationService.attest` returns
+        `attestation_tx` on the time-critical branch and a queue disclosure on
+        the batch branch. Deriving a real EAS uid means reading the receipt
+        logs, which nothing here does. The docstring described the imagined
+        return shape the caller was written against.
         """
         svc = self._get_attestation_svc()
         if svc is None:
             return None
         try:
+            # NEW-42 (instance 2 of 2): same `schema_name=` drift as
+            # service_dispatcher._attest_action — TypeError on every call,
+            # swallowed by the `except` below, so no platform fee has ever
+            # been attested.
             result = await svc.attest(
-                schema_name="platform_fee",
+                schema_uid="",
                 data={
                     "amount": entry["amount"],
                     "token": entry["token"],
@@ -255,9 +267,32 @@ class NeoSafeRouter:
                 },
                 recipient=self._platform_wallet,
             )
-            uid = result.get("uid") if isinstance(result, dict) else None
-            logger.debug("Fee attestation created: %s", uid)
-            return uid
+            # NEW-42, second half: this read `result.get("uid")` — a key
+            # `attest` NEVER returns on ANY branch. Read from the source
+            # rather than assumed:
+            #   time-critical success -> {"status": "attested",
+            #                             "attestation_tx": <tx hash>, ...}
+            #   time-critical failure -> {"status": "failed"|"skipped", ...}
+            #   batch path            -> the NEW-51 queue disclosure
+            # There is no attestation UID anywhere. The EAS uid is derivable
+            # only by reading the receipt logs, which nothing here does.
+            #
+            # So even once the TypeError above was fixed, this would have
+            # returned None forever — the caller was written against an
+            # IMAGINED return shape. (I first "fixed" it to
+            # `result.get("attestation_uid")`, which is equally invented;
+            # checking time_critical.py's actual returns is what caught it.)
+            if not isinstance(result, dict):
+                return None
+            tx_hash = result.get("attestation_tx")
+            if result.get("status") == "attested" and tx_hash:
+                logger.debug("Fee attestation submitted: tx=%s", tx_hash)
+                return tx_hash
+            logger.debug(
+                "Fee attestation NOT submitted (%s)",
+                result.get("disclosure") or result.get("error") or result.get("status"),
+            )
+            return None
         except Exception:
             logger.warning("Fee attestation failed", exc_info=True)
             return None

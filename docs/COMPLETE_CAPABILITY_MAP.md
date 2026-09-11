@@ -245,9 +245,9 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Data Deletion (request / execute) | Request deletion of personal data | Free | POST /api/v1/privacy/delete | custom |
-| Private Transfer | Send tokens with privacy shielding | Pro | POST /api/v1/privacy/transfer | Railgun, Aztec |
-| Stealth Address | Generate a one-time stealth address for receiving | Pro | POST /api/v1/privacy/stealth-address | ERC-5564 |
+| ~~Data Deletion~~ **NOT AVAILABLE** | No verified erasure path exists. The endpoint answers 501; nothing is queued and no deletion is ever reported (NEW-38). | — | POST /api/v1/privacy/delete → 501 | — |
+| ~~Private Transfer~~ **REMOVED** | Moved no balance, hardcoded `"shielded": true`, echoed amounts in plaintext (NEW-36). Removed, not gated — Railgun/Aztec were never integrated. | — | — | — |
+| ~~Stealth Address~~ **REMOVED** | Returned `0x` + random hex — an address with no key anyone holds; funds sent there were unrecoverable. Declared ERC-5564, implemented nothing. | — | — | — |
 | ZK Proof Generate | Generate a zero-knowledge proof | Pro | via capability registry | Semaphore, zkSNARK |
 | Private Vote | Vote privately on a proposal | Pro | via capability registry | Semaphore |
 | Confidential Compute | Run a confidential compute job | Pro | via capability registry | TEE, MPC |

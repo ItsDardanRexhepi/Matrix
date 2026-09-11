@@ -12,6 +12,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.services.nft_services._guards import require_finite_amount
+
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 from runtime.blockchain.services.nft_services.factory import NFTFactory
@@ -20,6 +22,72 @@ from runtime.blockchain.services.nft_services.royalty_enforcement import Royalty
 from runtime.blockchain.services.nft_services.valuation import ValuationEngine
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# NFT GATING CONDITION — read before setting `nft.contract_address` (NEW-93)
+# ─────────────────────────────────────────────────────────────────────────
+#
+# ONE config key arms SEVEN fabrications at once. Each of the following opens
+# with `if not self._web3.available or self._web3.is_placeholder(...)` and
+# returns not_deployed TODAY — that gate is the only reason they are inert:
+#
+#     fractionalize      -> "fractionalized"   writes self._fractions
+#     rent               -> "rented"           writes self._rentals
+#     mint_soulbound     -> "minted"           writes self._soulbound
+#     batch_mint         -> "minted"
+#     royalty_claim      -> "claimed"
+#     bridge_nft         -> "bridged"
+#     dynamic_update     -> "updated"
+#
+# None of them touches a chain, a signer, or a token record. Setting the key
+# does not make them work; it makes them ANSWER.
+#
+# WHY THIS DOMAIN'S ARMING IS DIFFERENT FROM EVERY PRIOR ONE. In insurance,
+# deployment supplied an already-running consumer with its first objects — the
+# claim surface existed and was merely idle. Here, deployment arms claims about
+# PROPERTY THAT NOTHING CAN REFUTE:
+#
+#   * this platform holds NO ownership record. `NFTFactory._collections` is
+#     declared "cache for in-process queries" and is NEVER WRITTEN — three
+#     occurrences package-wide, one declaration and two reads. Ownership lives
+#     on-chain in OpenMatrixNFT.sol, which is not deployed.
+#   * so when `fractionalize` reports a token split into 10 shares, there is no
+#     store on EITHER side that can say the caller never owned it.
+#   * and `buy_nft` — already live, already ungated on
+#     POST /api/v1/capabilities/buy_nft/invoke — is in _STATE_MODIFYING_ACTIONS
+#     with ACTION_TO_FEED_EVENT "nft_purchased", so every sale that transfers
+#     nothing is BROADCAST to the public social feed as a purchase.
+#
+# A false claim about money is contradicted by a balance. A false claim about
+# property, with no title record on either side, is contradicted by nothing.
+#
+# LIFTING CONDITION — all five, or leave `nft.contract_address` unset:
+#
+#   1. OWNERSHIP IS READABLE. `NFTFactory.get_token` must return a real owner —
+#      from the chain, not from `_collections`, which is a cache with no writer.
+#      PARTIAL-STATE FAILURE MODE: every method below acts on tokens whose
+#      ownership it cannot check, so any caller can fractionalize, rent or
+#      bridge a token they do not hold.
+#   2. EACH OF THE SEVEN EITHER PERFORMS ITS OPERATION OR REFUSES. Writing a
+#      dict and returning "fractionalized" is not fractionalising.
+#      PARTIAL-STATE FAILURE MODE: seven confident receipts for nothing.
+#   3. `buy_nft`'s FEED EVENT IS DERIVED FROM SETTLEMENT, not from the request
+#      being accepted — the NEW-88 rule, which this domain has not yet applied.
+#      PARTIAL-STATE FAILURE MODE: the public feed becomes the loudest surface
+#      of the fabrication, exactly as `bridge_completed` was.
+#   4. OWNERSHIP IS CHECKED BEFORE ACTING. A caller must be shown to hold a
+#      token before its rights, rents or fractions are altered (rule 27 —
+#      every sibling authority path, not just one).
+#      PARTIAL-STATE FAILURE MODE: NEW-78's hole, on property instead of claims.
+#   5. `estimate_value` STILL DISCLOSES its unmeasured factors (NEW-92), because
+#      arming the contract does not populate `_floor_prices` or `_creator_scores`
+#      — their writers still have zero callers.
+#      PARTIAL-STATE FAILURE MODE: a deployed marketplace quoting prices from a
+#      model whose majority weight is constants.
+#
+# Satisfying four of five is not four-fifths safe. Clause 1 is load-bearing for
+# 2 and 4 — without a readable owner, neither can be implemented at all.
 
 
 class NFTService:
@@ -116,13 +184,70 @@ class NFTService:
                 )
 
             # Configure collection-wide royalty
+            # 22-B. THE FACTORY REFUSES HONESTLY AND THIS CALLER INDEXED A
+            # SUCCESS-ONLY KEY. MEASURED at pin 84a6c3e under the SHIPPED
+            # config (which has no top-level `nft` block at all):
+            #
+            #   deploy_erc721(...) -> {status: 'not_deployed', action_required,
+            #                          deployment_guide, message, operation,
+            #                          requested, service}   NO 'collection_address'
+            #   this line          -> result["collection_address"]  ->  KeyError
+            #
+            # The gate WORKS and the consumer DEFEATS IT: a correct refusal
+            # becomes a crash, and the crash is what made the whole
+            # create -> mint -> list -> sell chain unreachable at step one.
+            # Two sites share this exact shape (§AK.2), so both are fixed
+            # together; fixing one would have left the chain dead one link
+            # further down.
+            if result.get("status") == "not_deployed" or "collection_address" not in result:
+                # The refusal is RE-ORIGINATED here rather than passed through,
+                # and the reason is a control, not style. D6 classifies a
+                # method as able-to-refuse by looking for a CALL to a
+                # registered refusal primitive; a method that merely
+                # PROPAGATES a callee's refusal is invisible to it, so
+                # returning `result` directly left this method counted as an
+                # ungated state-modifying sibling of one that gates.
+                #
+                # The alternative was to teach the detector about propagation
+                # — which touches tests/, making it a P-3 register item, and
+                # which would weaken a control to accommodate this change.
+                # Re-originating keeps the detector strict and costs nothing:
+                # the factory's own diagnosis is carried through verbatim.
+                return not_deployed_response("nft_services", {
+                    "method": "create_collection",
+                    "missing": "nft.factory_address (NFT factory contract)",
+                    "reason": (
+                        "The NFT factory refused: no contract is deployed. "
+                        "This method previously indexed a success-only key on "
+                        "that refusal and raised KeyError instead."
+                    ),
+                    "factory_response": result,
+                })
             collection_address = result["collection_address"]
-            await self._royalty.configure_royalty(
+            # 22-A. The return is CAPTURED, not discarded. Before 22-A
+            # `configure_royalty` could not refuse, so a bare `await` was
+            # harmless; it can now, and D10 caught this the moment the
+            # capability appeared. A caller that discards a refusal reports a
+            # success the refusal never authorised.
+            #
+            # These two sites each write a FRESH key so the 22-A authority
+            # check cannot refuse them — but `configure_royalty` also rejects a
+            # malformed recipient or an out-of-range bps, and THOSE were always
+            # possible. The discard was latent before and is closed now.
+            _royalty_result = await self._royalty.configure_royalty(
                 collection=collection_address,
                 token_id=-1,  # collection-wide
                 recipient=creator,
                 bps=royalty_bps,
             )
+            if isinstance(_royalty_result, dict) and _royalty_result.get("refused"):
+                result["royalty_configured"] = False
+                result["disclosure"] = (
+                    "The collection was created but its royalty was NOT "
+                    "configured: " + str(_royalty_result.get("reason", ""))
+                )
+            else:
+                result["royalty_configured"] = True
 
             logger.info(
                 "Collection created: address=%s type=%s name=%s creator=%s",
@@ -168,18 +293,80 @@ class NFTService:
                 metadata=metadata,
             )
 
+            # 22-B. THE FACTORY REFUSES HONESTLY AND THIS CALLER INDEXED A
+            # SUCCESS-ONLY KEY. MEASURED at pin 84a6c3e under the SHIPPED
+            # config (which has no top-level `nft` block at all):
+            #
+            #   deploy_erc721(...) -> {status: 'not_deployed', action_required,
+            #                          deployment_guide, message, operation,
+            #                          requested, service}   NO 'token_id'
+            #   this line          -> result["token_id"]  ->  KeyError
+            #
+            # The gate WORKS and the consumer DEFEATS IT: a correct refusal
+            # becomes a crash, and the crash is what made the whole
+            # create -> mint -> list -> sell chain unreachable at step one.
+            # Two sites share this exact shape (§AK.2), so both are fixed
+            # together; fixing one would have left the chain dead one link
+            # further down.
+            if result.get("status") == "not_deployed" or "token_id" not in result:
+                # The refusal is RE-ORIGINATED here rather than passed through,
+                # and the reason is a control, not style. D6 classifies a
+                # method as able-to-refuse by looking for a CALL to a
+                # registered refusal primitive; a method that merely
+                # PROPAGATES a callee's refusal is invisible to it, so
+                # returning `result` directly left this method counted as an
+                # ungated state-modifying sibling of one that gates.
+                #
+                # The alternative was to teach the detector about propagation
+                # — which touches tests/, making it a P-3 register item, and
+                # which would weaken a control to accommodate this change.
+                # Re-originating keeps the detector strict and costs nothing:
+                # the factory's own diagnosis is carried through verbatim.
+                return not_deployed_response("nft_services", {
+                    "method": "mint",
+                    "missing": "nft.factory_address (NFT factory contract)",
+                    "reason": (
+                        "The NFT factory refused: no contract is deployed. "
+                        "This method previously indexed a success-only key on "
+                        "that refusal and raised KeyError instead."
+                    ),
+                    "factory_response": result,
+                })
             token_id = result["token_id"]
 
             # Configure token-specific royalty
-            await self._royalty.configure_royalty(
+            # 22-A. The return is CAPTURED, not discarded. Before 22-A
+            # `configure_royalty` could not refuse, so a bare `await` was
+            # harmless; it can now, and D10 caught this the moment the
+            # capability appeared. A caller that discards a refusal reports a
+            # success the refusal never authorised.
+            #
+            # These two sites each write a FRESH key so the 22-A authority
+            # check cannot refuse them — but `configure_royalty` also rejects a
+            # malformed recipient or an out-of-range bps, and THOSE were always
+            # possible. The discard was latent before and is closed now.
+            _royalty_result = await self._royalty.configure_royalty(
                 collection=collection,
                 token_id=token_id,
                 recipient=creator,
                 bps=royalty_bps,
             )
+            if isinstance(_royalty_result, dict) and _royalty_result.get("refused"):
+                result["royalty_configured"] = False
+                result["disclosure"] = (
+                    "The token was minted but its royalty was NOT configured: "
+                    + str(_royalty_result.get("reason", ""))
+                )
+            else:
+                result["royalty_configured"] = True
 
-            # Set default rights
-            await self._rights.set_rights(
+            # Set default rights. Captured, not discarded — 22-C gives
+            # set_rights the ability to refuse, and D10 flags a bare `await`
+            # the moment that becomes true (it did so for configure_royalty in
+            # 22-A). This site creates a FRESH key for a newly minted token,
+            # so the 22-C check cannot refuse it; the capture closes the
+            # latent discard rather than an active one.
+            _rights_result = await self._rights.set_rights(
                 collection=collection,
                 token_id=token_id,
                 rights={
@@ -237,17 +424,68 @@ class NFTService:
                 to_addr=to_addr,
             )
 
-            # Transfer display rights to new owner
-            try:
-                await self._rights.transfer_rights(
-                    collection=collection,
-                    token_id=token_id,
-                    new_holder=to_addr,
-                    rights=["display"],
-                )
-            except KeyError:
-                # No rights record yet — that's fine for simple transfers
-                pass
+            # 17-I. THIS RAN UNCONDITIONALLY WHILE THE TRANSFER REFUSED.
+            # `transfer_token` returns not_deployed on BOTH branches today, so
+            # this method returned the factory's honest refusal WHILE MOVING THE
+            # DISPLAY RIGHT TO to_addr — leaving a transfer-history row and
+            # `check_nft_rights` reporting source:"explicit".
+            #
+            # IT IS THE MIRROR IMAGE OF 16-K. `transfer_nft` is in
+            # _STATE_MODIFYING_ACTIONS and returns not_deployed, so
+            # `_outcome_is_real` is False and the dispatcher writes "ACTION
+            # DECLINED (not attested, not published)" — for a call that DID
+            # mutate state. 16-K was a false POSITIVE in the trail, a refusal
+            # recorded as an action. This was a false NEGATIVE: an action
+            # recorded as a refusal.
+            #
+            # §AK: the predicate is correct and was being told the truth about a
+            # lie. A result-based gate can never be more honest than the result,
+            # so this class is only fixable AT THE METHOD, never at the
+            # chokepoint — no dispatcher-level fix reaches it.
+            #
+            # 17-G gated the identical call in `process_sale` and MISSED THIS
+            # SIBLING: the enumeration was real and its scope was one method.
+            # §AK.2 requires the call-site count and each disposition:
+            #   transfer_rights — 3 sites in this file, BY ENCLOSING METHOD:
+            #     transfer()        GATED on `transferred`   (this one)
+            #     process_sale()    GATED on `transferred`   (17-G)
+            #     NFTService.transfer_rights()
+            #                       UNREACHABLE — in no ACTION_MAP entry, no
+            #                       capability catalog id and no gateway route
+            #                       (re-enumerated at 84a6c3e: 253 ACTION_MAP
+            #                       entries, 195 catalog capabilities, and the
+            #                       dispatcher resolves method names only from
+            #                       ACTION_MAP). Gate it before it is exposed;
+            #                       it is the same shape.
+            #
+            # 22-E. CITED BY METHOD, NOT BY LINE NUMBER, AND THE REASON IS A
+            # MEASURED FAILURE. This block previously read ":310 / :470 / :591".
+            # Re-derived by AST at 84a6c3e the sites are :462, :622, :817 —
+            # THE COUNT WAS RIGHT AND EVERY LINE NUMBER WAS STALE, drifted
+            # +152/+152/+226 by fixes inserted above them. A reader following
+            # ":310" lands on unrelated code and concludes the enumeration is
+            # wrong; it was right when written.
+            #
+            # A LINE NUMBER IN A COMMENT IS A CLAIM THAT DECAYS WITHOUT ANYONE
+            # EDITING IT — the same family as §AJ.8 (HEAD is a query, not an
+            # identifier). A method name is stable under insertion, and if it
+            # is renamed the reference breaks loudly instead of pointing
+            # somewhere plausible and wrong.
+            transferred = (
+                isinstance(result, dict)
+                and result.get("status") not in (None, "not_deployed", "error")
+            )
+            if transferred:
+                try:
+                    await self._rights.transfer_rights(
+                        collection=collection,
+                        token_id=token_id,
+                        new_holder=to_addr,
+                        rights=["display"],
+                    )
+                except KeyError:
+                    # No rights record yet — fine for a simple transfer.
+                    pass
 
             return result
 
@@ -279,6 +517,9 @@ class NFTService:
         dict
             Listing confirmation with price breakdown.
         """
+        # 17-B: `nan <= 0` is False, so the sign check below passes a NaN
+        # listing price straight into the listing record.
+        price = require_finite_amount(price, "price")
         if price <= 0:
             raise ValueError("Price must be positive")
 
@@ -289,6 +530,32 @@ class NFTService:
 
         token = self._factory.get_token(collection, token_id)
         if token is None:
+            # 22-F. §AC — THE ERROR NAMED THE PROXIMATE CAUSE AND HID THE
+            # ACTUAL ONE. Under the SHIPPED config no token can exist at all:
+            # `mint` refuses because the factory is not deployed, so the store
+            # is necessarily empty and EVERY call to this live ACTION_MAP
+            # action raised "Token 1 not found in 0xCOLL". An operator reads
+            # that as "I used the wrong token id" and goes looking for a token,
+            # when the real answer is "no NFT contract is deployed".
+            #
+            # This was the last of the three crashes the reachability recast
+            # found. The other two (22-B) indexed a success-only key on a
+            # refusal shape; this one raises an honest-but-misleading message.
+            # Different mechanism, same consequence: a live action whose
+            # failure does not name what to fix.
+            #
+            # Returned, not raised (21-E/AQ::9), so the dispatcher records a
+            # refusal rather than `service_error, degraded: true`.
+            if not self._factory._is_ready():
+                return not_deployed_response("nft_services", {
+                    "method": "list_for_sale",
+                    "missing": "nft.factory_address (NFT factory contract)",
+                    "reason": (
+                        f"Token {token_id} is not in {collection}, and it "
+                        f"cannot be: no NFT contract is deployed, so nothing "
+                        f"has been minted. The token id is not the problem."
+                    ),
+                })
             raise KeyError(f"Token {token_id} not found in {collection}")
 
         # Calculate fee breakdown
@@ -350,29 +617,165 @@ class NFTService:
             buyer=buyer,
         )
 
-        # Transfer NFT
-        await self._factory.transfer_token(
+        # Transfer NFT.
+        #
+        # NEW-90: this was a BARE `await` — the return value was DISCARDED and
+        # `nft_transferred` was set True twelve lines below regardless.
+        # `NFTFactory.transfer_token` refuses on BOTH branches, including when
+        # `_is_ready()` is true ("factory ABI not yet wired into runtime"), so
+        # the one component honest enough to say "I cannot do this" was called,
+        # ignored, and contradicted by its own caller.
+        #
+        # The factory is CORRECT. `_collections` is declared in its own comment
+        # as a "cache for in-process queries"; ownership lives on-chain in
+        # OpenMatrixNFT.sol (a real ERC721), and refusing while that contract is
+        # undeployed is the right behaviour. The defect was never a missing
+        # implementation — it was an implemented refusal being overwritten,
+        # which is worse than a stub because someone did the work correctly and
+        # the caller unmade it.
+        transfer_result = await self._factory.transfer_token(
             collection=collection,
             token_id=token_id,
             from_addr=seller,
             to_addr=buyer,
         )
+        transferred = (
+            isinstance(transfer_result, dict)
+            and transfer_result.get("status") not in (None, "not_deployed", "error")
+        )
 
-        # Transfer display rights
-        try:
-            await self._rights.transfer_rights(
-                collection=collection,
-                token_id=token_id,
-                new_holder=buyer,
-                rights=["display"],
+        # 17-G / 17-H. BOTH OF THESE USED TO RUN UNCONDITIONALLY, ABOVE AND
+        # OUTSIDE the `if not transferred:` block twenty lines below — so a sale
+        # the platform REFUSED still moved the display right to the buyer and
+        # still wrote the buyer's asking price into the valuation evidence store.
+        if transferred:
+            # 17-G — THE AUTHORITY SURFACE. Moving the display right is a
+            # rights-ledger write, and it ran even when `transfer_token` refused
+            # on both branches. Measured pre-fix: after a refused buy,
+            # `_rights['<coll>:<id>']['rights']['display']['holder']` was the
+            # BUYER, with a transfer-history row, and `check_nft_rights`
+            # reported `source: "explicit"`.
+            #
+            # The disclosure this method returns says ownership is unchanged and
+            # "this platform holds no ownership record of its own" — accurate
+            # about VALUE and false about AUTHORITY, in one response, from one
+            # method. That is §AI's second axis: a method writes more than one
+            # KIND of state, and a disclosure scoped to one reads as scoped to
+            # all of them.
+            try:
+                await self._rights.transfer_rights(
+                    collection=collection,
+                    token_id=token_id,
+                    new_holder=buyer,
+                    rights=["display"],
+                )
+            except KeyError:
+                pass
+
+            # 17-H — THE EVIDENCE SURFACE, and the sharpest §AG/§AH instance the
+            # engagement produced. `record_sale` is the ONLY production writer of
+            # the valuation evidence store, and it was fed the caller's asking
+            # price for a sale that did not happen. `estimate_value` then
+            # reported that price as `measured_factors: {recent_sales: True}`
+            # behind NEW-92's disclosure "30% of the declared weight is backed by
+            # observed data" — and six repeats crossed `_min_sales` and lifted
+            # the confidence label to "medium".
+            #
+            # Verified verbatim by the finder and upheld at HIGH: armed
+            # "precisely BECAUSE the NFT contract is undeployed". THE HONEST
+            # REFUSAL WAS THE ATTACK PATH — NEW-90/91's refusal produced the
+            # unsettled sale, this line recorded it as evidence, and NEW-92's
+            # disclosure vouched for it. Three correct fixes composing into one
+            # defect that none of them contains.
+            self._valuation.record_sale(collection, token_id, sale_price)
+
+        # NEW-90: derived from what the factory actually returned, never
+        # asserted alongside it. The factory's own answer is carried through so
+        # a caller can see WHY, not just that the answer was no.
+        #
+        # COPY FIRST. `RoyaltyEnforcement.process_sale` returns the SAME dict
+        # object it appended to its own `_sales` ledger, so mutating it here
+        # would rewrite a stored royalty record from the outside — and would
+        # clobber that record's own NEW-91 disclosure. Caught by a test that
+        # read the stored record rather than the returned one.
+        sale_result = dict(sale_result)
+        sale_result["nft_transferred"] = transferred
+        sale_result["transfer_result"] = transfer_result
+        # 22-D. THE SETTLED BRANCH HAD NO FLAGS OF ITS OWN, so it inherited
+        # the ROYALTY module's — and those mean something narrower.
+        #
+        # `RoyaltyEnforcement.process_sale` sets settled/value_moved False to
+        # say "the split was COMPUTED, not PAID" (NEW-91). That is true of the
+        # royalty leg. It is NOT true of the sale: when the NFT transfer
+        # succeeds, a token changed hands. Passing the royalty leg's flags
+        # through unchanged makes `_outcome_is_real` read a REAL TRANSFER as
+        # "this did not happen", so a settled sale is recorded and published as
+        # a declined action. Armed-only: under the shipped config `transferred`
+        # is False and the branch below is correct.
+        #
+        # ===================================================================
+        # DO NOT "FIX" AC::2/AH::4 BY WRITING settled/value_moved=False ONTO
+        # THE SEVEN ARMED METHODS.
+        # ===================================================================
+        # That is the obvious reading — those methods omit the two fields the
+        # honesty predicate reads — and it REPRODUCES THIS DEFECT SEVENFOLD,
+        # driven and measured. `value_moved: False` is the strongest "this did
+        # not happen" signal in `_outcome_is_real`; it outranks every other
+        # clause. It means NO VALUE MOVED. It must never be used to mean:
+        #   * "this is an internal record"  (domain 21 made exactly this error
+        #     in 21-C and erased the attestation of posts that really existed)
+        #   * "one leg of this action did not pay"  (this defect)
+        #
+        # An action that genuinely happens without moving value takes
+        # `settled: True` AND OMITS `value_moved`. The omission is the point:
+        # the field is a claim, and a claim not made is not a claim of False.
+        # THE FIELD WAS SERVING TWO MASTERS, and both prior authors were right.
+        #
+        # A deliberate earlier decision (tests/test_nft_sale_honesty.py:146)
+        # kept `value_moved: False` on a SETTLED sale, reasoning: "the token
+        # moved, the ROYALTY did not... the two claims are independent". That
+        # is correct AS A STATEMENT ABOUT THE RECORD.
+        #
+        # AC::1 is also correct: `_outcome_is_real` reads `value_moved: False`
+        # as the strongest "this did not happen" signal, outranking every other
+        # clause — so that semantic claim silently suppressed the ATTESTATION
+        # of a real transfer.
+        #
+        # Neither author was wrong; the FIELD is overloaded (§AJ.7 — a value
+        # without an admissibility test will itself overload). One name carried
+        # a per-record semantic claim AND a dispatcher-level control, and the
+        # two readers disagree about what it means.
+        #
+        # SPLIT, so each reader gets a field that answers ITS question:
+        #   value_moved  -> the dispatcher's control: did this action happen
+        #   royalty_paid -> the record's claim: was the royalty actually paid
+        # The earlier reasoning is preserved in full; only its ENCODING moved
+        # off a field that another component was already reading for something
+        # else.
+        if transferred:
+            sale_result["settled"] = True
+            sale_result.pop("value_moved", None)
+            sale_result["royalty_paid"] = False
+            sale_result["royalty_disclosure"] = (
+                "The NFT transfer settled. The royalty and fee figures on this "
+                "record were COMPUTED AND RECORDED, not paid — this service "
+                "holds no wallet or payout rail. Those two facts are separate "
+                "and are reported separately."
             )
-        except KeyError:
-            pass
-
-        # Update valuation data
-        self._valuation.record_sale(collection, token_id, sale_price)
-
-        sale_result["nft_transferred"] = True
+        if not transferred:
+            sale_result["status"] = "recorded_unsettled"
+            sale_result["settled"] = False
+            sale_result["value_moved"] = False
+            sale_result["disclosure"] = (
+                "NOT SETTLED. The royalty split, platform fee and seller "
+                "proceeds below are real arithmetic over the configured "
+                "royalty, and this sale has been RECORDED — but the NFT was "
+                "NOT transferred and no value moved. Ownership of this token "
+                "is unchanged, and this platform holds no ownership record of "
+                "its own: token ownership lives on-chain in the NFT contract, "
+                "which is not deployed. Nothing was paid to the royalty "
+                "recipient, the platform wallet, or the seller."
+            )
         return sale_result
 
     # ── Valuation ────────────────────────────────────────────────────
@@ -398,10 +801,48 @@ class NFTService:
     # ── Rights Management ────────────────────────────────────────────
 
     async def set_rights(
-        self, collection: str, token_id: int, rights: dict[str, Any]
+        self,
+        collection: str,
+        token_id: int,
+        rights: dict[str, Any],
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict[str, Any]:
-        """Set IP rights for an NFT."""
-        return await self._rights.set_rights(collection, token_id, rights)
+        """Set IP rights for an NFT.
+
+        `caller_identity` is the authenticated wallet of the caller, injected
+        by `ServiceDispatcher.execute` because this signature DECLARES it
+        (DOMAIN 17-D). This is the dispatch target for the `set_nft_rights`
+        action, so declaring the parameter here is what makes the identity
+        reach `RightsManagement` at all — the dispatcher injects by signature
+        and never by guesswork.
+
+        Optional, defaulting to "": entry points with no authenticated caller
+        still work and the grant is recorded as `set_by: ""` (unknown) rather
+        than being refused or attributed to someone.
+
+        NOT an ownership check. Nothing here verifies the caller holds the
+        token — this platform has no ownership record to check against (see
+        the NFT GATING CONDITION at the top of this file). This threads WHO,
+        which is the input such a check would need, and records it.
+        """
+        # 22-C. RETURNED, NOT RAISED — 21-E/AQ::9, same as 22-A.
+        try:
+            return await self._rights.set_rights(
+                collection, token_id, rights, caller_identity=caller_identity,
+                caller_source=caller_source,
+            )
+        except PermissionError as exc:
+            return not_deployed_response("nft_services", {
+                "method": "set_rights",
+                "refused": True,
+                "reason": str(exc),
+                "disclosure": (
+                    "Rights for this token were established by another party. "
+                    "Nothing was changed. This is a REFUSAL BY POLICY, not a "
+                    "fault."
+                ),
+            })
 
     async def check_rights(
         self, collection: str, token_id: int, right_type: str
@@ -424,12 +865,39 @@ class NFTService:
     # ── Royalty Management ───────────────────────────────────────────
 
     async def configure_royalty(
-        self, collection: str, token_id: int, recipient: str, bps: int
+        self,
+        collection: str,
+        token_id: int,
+        recipient: str,
+        bps: int,
+        caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict[str, Any]:
         """Configure royalty for a token or collection."""
-        return await self._royalty.configure_royalty(
-            collection, token_id, recipient, bps
-        )
+        # 22-A. RETURNED, NOT RAISED — domain 21's AQ::9 lesson, transferred.
+        # MEASURED there through the real ServiceDispatcher: a RAISED refusal
+        # unwinds past the attestation block, so `execute` reports
+        # `{"status":"error","error_category":"service_error","degraded":true}`
+        # and writes ZERO attestations, while a RETURNED refusal produces
+        # ATTEST_REFUSAL. A guard that exists to stop a royalty hijack must
+        # leave a record that one was attempted — and must not report the
+        # attempt as an internal fault of ours.
+        try:
+            return await self._royalty.configure_royalty(
+                collection, token_id, recipient, bps,
+                caller_identity=caller_identity, caller_source=caller_source,
+            )
+        except PermissionError as exc:
+            return not_deployed_response("nft_services", {
+                "method": "configure_royalty",
+                "refused": True,
+                "reason": str(exc),
+                "disclosure": (
+                    "The royalty destination was already configured and this "
+                    "caller is not the party that configured it. Nothing was "
+                    "changed. This is a REFUSAL BY POLICY, not a fault."
+                ),
+            })
 
     async def get_royalty_info(
         self, collection: str, token_id: int, sale_price: float = 1.0

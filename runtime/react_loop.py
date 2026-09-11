@@ -260,6 +260,7 @@ class ReActLoop:
                         "tool": tool_name,
                         "arguments": arguments,
                         "result_preview": f"[SKIPPED] {emergency_stop_reason}",
+                        "success": False,
                     })
                     continue
 
@@ -286,6 +287,7 @@ class ReActLoop:
                                 "tool": tool_name,
                                 "arguments": arguments,
                                 "result_preview": f"[DENIED] {denial}",
+                                "success": False,
                             })
                             confidence_scores.append(0.2)
                             continue  # skip execution, let the model see the denial
@@ -297,15 +299,33 @@ class ReActLoop:
                 logger.info(f"[{context.agent_name}] calling tool: {tool_name}({list(arguments.keys())})")
                 # Pass the TRUSTED agent identity (gateway-validated context) so the
                 # dispatcher enforces the per-agent tool boundary regardless of prompt.
-                result = await self.dispatcher.dispatch(tool_name, arguments, agent_name=context.agent_name)
+                outcome = await self.dispatcher.dispatch(
+                    tool_name, arguments, agent_name=context.agent_name)
 
-                tool_result_str = str(result)
-                display_result = morpheus_prefix + tool_result_str if morpheus_prefix else tool_result_str
+                # NEW-27: three audiences, three values. These used to be one
+                # string, which is why a tool failure could ship its exception
+                # text to a client on the success path.
+                #
+                #   display_result — for the MODEL. Carries the failure detail
+                #       so the agent can correct itself and try again.
+                #   client_preview — for a CLIENT. Redacted, with the ref.
+                #   outcome.ok     — stated by the dispatcher, never inferred.
+                tool_result_str = outcome.model_text
+                display_result = (
+                    morpheus_prefix + tool_result_str if morpheus_prefix else tool_result_str
+                )
+                client_preview = (
+                    morpheus_prefix + outcome.client_preview
+                    if morpheus_prefix else outcome.client_preview
+                )
 
                 all_tool_calls.append({
                     "tool": tool_name,
                     "arguments": arguments,
-                    "result_preview": display_result[:200],
+                    "result_preview": client_preview[:200],
+                    # Fills a field the iOS client has always declared
+                    # (ToolCallResult.success) and the server never sent.
+                    "success": outcome.ok,
                 })
 
                 messages.append(Message(
@@ -316,7 +336,15 @@ class ReActLoop:
                 ))
 
                 # ── Confidence estimation ──────────────────────────
-                tool_succeeded = "error" not in tool_result_str.lower()[:100]
+                # NEW-27: was `"error" not in tool_result_str.lower()[:100]`.
+                # Sniffing the word "error" out of the result is the same root
+                # as the leak — it treats one string as both content and
+                # outcome — and it is wrong in both directions: a tool that
+                # legitimately returns text containing "error" scored as failed,
+                # while a laundered exception whose first 100 chars happened not
+                # to contain the word scored as SUCCESS. The dispatcher knows;
+                # ask it.
+                tool_succeeded = outcome.ok
                 confidence = 0.8 if tool_succeeded else 0.3
                 confidence_scores.append(confidence)
 

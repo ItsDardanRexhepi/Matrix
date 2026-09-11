@@ -17,6 +17,7 @@ the backend's internal formats. All responses are JSON with consistent
 envelope: {"ok": true, "data": {...}} or {"ok": false, "error": "..."}.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -25,6 +26,8 @@ import uuid
 from typing import Any
 
 from aiohttp import web
+
+from gateway.error_contract import client_error
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +41,36 @@ class MobileResponse:
         return web.json_response(body)
 
     @staticmethod
-    def error(message: str, code: int = 400) -> web.Response:
+    def error(
+        message: str,
+        code: int = 400,
+        *,
+        error_code: str | None = None,
+        ref: str | None = None,
+    ) -> web.Response:
         body = {"ok": False, "error": message, "timestamp": time.time()}
+        # RUN-5: `code` and `ref` are part of the error contract. Passing only
+        # the sentence made the bridge agree on STATUS while diverging on
+        # SHAPE — a client could not read a machine code or a correlation id
+        # here, though it could on every other channel.
+        if error_code:
+            body["code"] = error_code
+        if ref:
+            body["ref"] = ref
         return web.json_response(body, status=code)
+
+    @staticmethod
+    def from_exception(exc: BaseException, *, what: str = "Bridge") -> web.Response:
+        """The one way this channel turns an exception into a response.
+
+        Every bridge failure goes through `client_error`, so classification,
+        redaction and the correlation id are decided in exactly one place
+        rather than re-derived per call site.
+        """
+        status, err = client_error(exc, None, what=what)
+        return MobileResponse.error(
+            err["error"], status, error_code=err["code"], ref=err["ref"]
+        )
 
 
 # ─── Service Catalog for iOS ────────────────────────────────────────────────
@@ -52,7 +82,8 @@ SERVICE_CATALOG = [
         "icon": "doc.text.magnifyingglass",
         "description": "Convert any agreement into a self-executing smart contract.",
         "category": "core",
-        "actions": ["convert_contract", "deploy_contract", "estimate_contract_cost", "list_templates"],
+        # NEW-12: deploy_contract removed — the platform does not deploy.
+        "actions": ["convert_contract", "estimate_contract_cost", "list_templates"],
     },
     {
         "id": "defi",
@@ -637,8 +668,22 @@ class BridgeRoutes:
             result = await self._handle_chat_internal(message, agent, session_id, body)
             return MobileResponse.ok(result)
         except Exception as e:
-            logger.error(f"Bridge chat error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
+            # exception text WAS the response body, so a model-provider failure
+            # shipped internal hostnames, ports, and model names to the client.
+            # It also answered 500 where /chat answers 503 for the identical
+            # condition, so two channels disagreed on the same event.
+            #
+            # Now: one contract — and it must be USED, not re-derived. The first
+            # version of this fix hand-rolled the classification here, which
+            # reproduced three defects the contract module exists to remove:
+            # it read `request.get("request_id")` (the middleware stores the id
+            # in a contextvar, so the ref was always "-"); it classed timeouts
+            # as unreachable via `isinstance(e, OSError)` (TimeoutError
+            # subclasses OSError) so a 504 condition answered 503; and it
+            # returned no machine code at all. Status agreed with /chat while
+            # the SHAPE did not.
+            return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
         self, message: str, agent: str, session_id: str, body: dict,
@@ -753,7 +798,43 @@ class BridgeRoutes:
             if dispatcher is None:
                 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
                 dispatcher = ServiceDispatcher(self._config)   # cold fallback: works, but no feed
-            result = await dispatcher.execute(action, params)
+            # 17-D. THREAD THE WALLET WE ALREADY BOUND, TWENTY LINES UP.
+            # `linked.get("address", "")` was read above and handed to
+            # `bind_request_security(identity=...)` for the gate — and then
+            # dropped, so the service decided who could grant an IP right
+            # without ever being told who was asking, and the attestation and
+            # public feed recorded the grant with actor "". The identity was
+            # never missing; it was discarded at this line.
+            #
+            # ── ARGUMENT SLOT BUG, found while making that change ───────────
+            # This line read `dispatcher.execute(action, params)`, but the
+            # signature is `execute(action, service=None, params=None)` — so
+            # `params` landed in the SERVICE-OVERRIDE slot and the real params
+            # defaulted to {}. `if service: target_service = service` then set
+            # the target service to a dict, and the registry lookup raised
+            # `unhashable type: 'dict'`.
+            #
+            # MEASURED, not inferred. Replaying this exact call shape:
+            #   execute("set_nft_rights", {"collection": ..., "rights": ...})
+            #     -> {"status": "error", "error_category": "validation",
+            #         "error": "Invalid parameters for set_nft_rights:
+            #                   unhashable type: 'dict'"}
+            #   execute("set_nft_rights", None, {...same params...})
+            #     -> {"status": "ok", ... "rights_set" ...}
+            # So EVERY direct bridge action carrying parameters failed, and
+            # only zero-parameter actions (falsy dict -> `if service` false)
+            # ever reached their service.
+            #
+            # It is fixed here rather than filed because 17-D is unreachable
+            # without it: `set_rights` always carries params, so on this path
+            # the request died before the service was called, and a caller
+            # identity threaded into a call that never happens is not a fix.
+            # Passing by keyword so the slot cannot be misaligned again.
+            result = await dispatcher.execute(
+                action,
+                params=params,
+                caller_identity=linked.get("address", ""),
+            )
             return MobileResponse.ok(result)
         except KeyError as e:
             return MobileResponse.error(f"Unknown action: {action}", 404)
@@ -761,7 +842,8 @@ class BridgeRoutes:
             return MobileResponse.error(f"Invalid parameters: {e}", 422)
         except Exception as e:
             logger.error(f"Bridge action error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            return MobileResponse.from_exception(e, what='Bridge')
 
     # ─── Push notifications ─────────────────────────────────────────────────
 
@@ -895,7 +977,8 @@ class BridgeRoutes:
             return MobileResponse.ok({"components": components})
         except Exception as e:
             logger.error(f"Bridge get_components error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            return MobileResponse.from_exception(e, what='Bridge')
 
     async def get_component(self, request: web.Request) -> web.Response:
         """Return a single component by ID with its full UI schema."""
@@ -922,7 +1005,8 @@ class BridgeRoutes:
             return MobileResponse.ok({"component": component})
         except Exception as e:
             logger.error(f"Bridge get_component error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            return MobileResponse.from_exception(e, what='Bridge')
 
     async def get_components_manifest(self, request: web.Request) -> web.Response:
         """
@@ -943,7 +1027,8 @@ class BridgeRoutes:
             return MobileResponse.ok({"manifest": manifest})
         except Exception as e:
             logger.error(f"Bridge get_components_manifest error: {e}", exc_info=True)
-            return MobileResponse.error(str(e), 500)
+            # RUN-5: was the raw exception as the response body.
+            return MobileResponse.from_exception(e, what='Bridge')
 
     # ─── Dashboard ────────────────────────────────────────────────────────
 

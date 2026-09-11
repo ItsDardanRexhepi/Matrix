@@ -10,7 +10,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("Email (SMTP) Setup")
     existing = config.get("notifications", {}).get("email", {})
     host = ask("SMTP host (e.g. smtp.gmail.com)", default=existing.get("smtp_host", ""))
@@ -29,7 +29,7 @@ def configure(config: dict) -> dict:
         "from": from_addr, "to": to_addr, "use_ssl": use_ssl,
     }
     update_channel(config, "email", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({
         "SMTP_HOST": host, "SMTP_PORT": str(port),
         "SMTP_USER": user, "SMTP_PASS": password,

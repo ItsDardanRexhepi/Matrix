@@ -19,9 +19,11 @@ import json
 import logging
 import re
 import time
-from typing import Any, Awaitable, Callable, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from aiohttp import web
+
+from gateway.error_contract import client_error
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -286,16 +288,17 @@ class ServiceRoutes:
         app.router.add_get("/api/v1/attestation/verify/{uid}", self._handle_attestation_verify)
 
         # ── DeFi Expanded ────────────────────────────────────────────
-        app.router.add_post("/api/v1/defi/yield/optimize", self._handle_yield_optimize)
         app.router.add_post("/api/v1/defi/swap/route", self._handle_swap_route)
         app.router.add_post("/api/v1/defi/swap/execute", self._handle_swap_execute)
         app.router.add_post("/api/v1/defi/bridge/quote", self._handle_bridge_quote)
         app.router.add_post("/api/v1/defi/bridge/execute", self._handle_bridge_execute)
-        app.router.add_post("/api/v1/defi/flash-loan/execute", self._handle_flash_loan)
-        app.router.add_post("/api/v1/defi/vault/deposit", self._handle_vault_deposit)
-        app.router.add_post("/api/v1/defi/liquidity/provide", self._handle_liquidity_provide)
-        app.router.add_post("/api/v1/defi/perp/trade", self._handle_perp_trade)
-        app.router.add_post("/api/v1/defi/collateral/manage", self._handle_collateral_manage)
+        # NEW-61: five defi routes unregistered with their fabrications
+        # (flash-loan/execute, vault/deposit, liquidity/provide, perp/trade,
+        # collateral/manage). flash-loan/execute was ALSO permanently dead: it
+        # dispatched to "flash_loan_execute", a method that never existed.
+        # Real liquidity lives on the dex routes; real collateral management is
+        # now reachable through the deposit_collateral / withdraw_collateral
+        # actions.
 
         # ── NFT Expanded ─────────────────────────────────────────────
         app.router.add_post("/api/v1/nft/fractionalize", self._handle_nft_fractionalize)
@@ -309,7 +312,6 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/identity/credential/issue", self._handle_credential_issue)
         app.router.add_post("/api/v1/identity/credential/verify", self._handle_credential_verify)
         app.router.add_post("/api/v1/identity/zk-proof/generate", self._handle_zk_proof)
-        app.router.add_post("/api/v1/identity/soulbound/mint", self._handle_soulbound_mint)
 
         # ── Social ───────────────────────────────────────────────────
         app.router.add_post("/api/v1/social/post", self._handle_social_post)
@@ -319,11 +321,6 @@ class ServiceRoutes:
         app.router.add_get("/api/v1/social/feed/{wallet}", self._handle_social_feed)
 
         # ── Payments Expanded ────────────────────────────────────────
-        app.router.add_post("/api/v1/payments/stream/create", self._handle_stream_create)
-        app.router.add_post("/api/v1/payments/recurring/create", self._handle_recurring_create)
-        app.router.add_post("/api/v1/payments/escrow/milestone", self._handle_escrow_milestone)
-        app.router.add_post("/api/v1/payments/split", self._handle_payment_split)
-        app.router.add_post("/api/v1/payments/payroll", self._handle_payroll_run)
 
         # ── Compute & Storage ────────────────────────────────────────
         app.router.add_post("/api/v1/compute/store", self._handle_decentralized_store)
@@ -331,24 +328,15 @@ class ServiceRoutes:
         app.router.add_post("/api/v1/compute/arweave/store", self._handle_arweave_store)
 
         # ── RWA ──────────────────────────────────────────────────────
-        app.router.add_post("/api/v1/rwa/fractional/buy", self._handle_rwa_fractional_buy)
         app.router.add_get("/api/v1/rwa/listings", self._handle_rwa_listings)
 
         # ── Prediction Markets ──────────────────────────────────────
-        app.router.add_post("/api/v1/prediction/market/create", self._handle_market_create)
-        app.router.add_post("/api/v1/prediction/market/bet", self._handle_market_bet)
-        app.router.add_get("/api/v1/prediction/market/list", self._handle_market_list)
 
         # ── Energy ───────────────────────────────────────────────────
-        app.router.add_post("/api/v1/energy/carbon/buy", self._handle_carbon_buy)
-        app.router.add_post("/api/v1/energy/carbon/retire", self._handle_carbon_retire)
-        app.router.add_get("/api/v1/energy/carbon/prices", self._handle_carbon_prices)
 
         # ── Governance Expanded ──────────────────────────────────────
-        app.router.add_post("/api/v1/governance/multisig/propose", self._handle_multisig_propose)
         app.router.add_post("/api/v1/governance/multisig/approve", self._handle_multisig_approve)
         app.router.add_post("/api/v1/governance/snapshot/vote", self._handle_snapshot_vote)
-        app.router.add_post("/api/v1/governance/treasury/transfer", self._handle_treasury_transfer)
 
         # ── Portfolio ────────────────────────────────────────────────
         app.router.add_get("/api/v1/portfolio/complete/{wallet}", self._handle_portfolio_complete)
@@ -361,13 +349,8 @@ class ServiceRoutes:
         app.router.add_get("/api/v1/intent/summary/{plan_id}", self._handle_intent_summary)
 
         # ── Legal ────────────────────────────────────────────────────
-        app.router.add_post("/api/v1/legal/license/grant", self._handle_license_grant)
-        app.router.add_post("/api/v1/legal/agreement/execute", self._handle_agreement_execute)
-        app.router.add_post("/api/v1/legal/dispute/file", self._handle_legal_dispute_file)
 
         # ── AI ───────────────────────────────────────────────────────
-        app.router.add_post("/api/v1/ai/agent/register", self._handle_ai_agent_register)
-        app.router.add_post("/api/v1/ai/model/trade", self._handle_ai_model_trade)
 
         # ── Supply Chain Expanded ────────────────────────────────────
         app.router.add_post("/api/v1/supply-chain/provenance/log", self._handle_provenance_log)
@@ -376,11 +359,14 @@ class ServiceRoutes:
 
         # ── Insurance Expanded ───────────────────────────────────────
         app.router.add_post("/api/v1/insurance/parametric/create", self._handle_parametric_policy)
-        app.router.add_post("/api/v1/insurance/claim/settle", self._handle_claim_settle)
+        # NEW-81: /api/v1/insurance/claim/settle removed from BOTH tables.
+        # Its handler called insurance.settle_claim — a method that has never
+        # existed (the real one is auto_settle_claim) — so the route returned
+        # 404 on every request since it was written. Its params were wrong
+        # twice over (claim_id/settlement_amount vs policy_id), and settlement
+        # now requires an owner and oracle verification it never supplied.
 
         # ── Privacy ──────────────────────────────────────────────────
-        app.router.add_post("/api/v1/privacy/transfer", self._handle_private_transfer)
-        app.router.add_post("/api/v1/privacy/stealth-address", self._handle_stealth_address)
 
         # ── Capability Registry (data-driven Web3 capability surface) ──
         app.router.add_get("/api/v1/capabilities",                    self._handle_capabilities_list)
@@ -494,16 +480,11 @@ class ServiceRoutes:
             ("GET",  "/api/v1/oracle/price/{pair}", self._handle_oracle_price),
             ("GET",  "/api/v1/attestation/verify/{uid}", self._handle_attestation_verify),
             # ── Expanded routes ──────────────────────────────────────
-            ("POST", "/api/v1/defi/yield/optimize", self._handle_yield_optimize),
             ("POST", "/api/v1/defi/swap/route", self._handle_swap_route),
             ("POST", "/api/v1/defi/swap/execute", self._handle_swap_execute),
             ("POST", "/api/v1/defi/bridge/quote", self._handle_bridge_quote),
             ("POST", "/api/v1/defi/bridge/execute", self._handle_bridge_execute),
-            ("POST", "/api/v1/defi/flash-loan/execute", self._handle_flash_loan),
-            ("POST", "/api/v1/defi/vault/deposit", self._handle_vault_deposit),
-            ("POST", "/api/v1/defi/liquidity/provide", self._handle_liquidity_provide),
-            ("POST", "/api/v1/defi/perp/trade", self._handle_perp_trade),
-            ("POST", "/api/v1/defi/collateral/manage", self._handle_collateral_manage),
+            # NEW-61: same five removed from the SECOND registration table.
             ("POST", "/api/v1/nft/fractionalize", self._handle_nft_fractionalize),
             ("POST", "/api/v1/nft/rent", self._handle_nft_rent),
             ("POST", "/api/v1/nft/batch-mint", self._handle_nft_batch_mint),
@@ -513,50 +494,28 @@ class ServiceRoutes:
             ("POST", "/api/v1/identity/credential/issue", self._handle_credential_issue),
             ("POST", "/api/v1/identity/credential/verify", self._handle_credential_verify),
             ("POST", "/api/v1/identity/zk-proof/generate", self._handle_zk_proof),
-            ("POST", "/api/v1/identity/soulbound/mint", self._handle_soulbound_mint),
             ("POST", "/api/v1/social/post", self._handle_social_post),
             ("POST", "/api/v1/social/message/send", self._handle_social_message_send),
             ("POST", "/api/v1/social/gate/create", self._handle_social_gate),
             ("POST", "/api/v1/social/community/create", self._handle_community_create),
             ("GET",  "/api/v1/social/feed/{wallet}", self._handle_social_feed),
-            ("POST", "/api/v1/payments/stream/create", self._handle_stream_create),
-            ("POST", "/api/v1/payments/recurring/create", self._handle_recurring_create),
-            ("POST", "/api/v1/payments/escrow/milestone", self._handle_escrow_milestone),
-            ("POST", "/api/v1/payments/split", self._handle_payment_split),
-            ("POST", "/api/v1/payments/payroll", self._handle_payroll_run),
             ("POST", "/api/v1/compute/store", self._handle_decentralized_store),
             ("POST", "/api/v1/compute/ipfs/pin", self._handle_ipfs_pin),
             ("POST", "/api/v1/compute/arweave/store", self._handle_arweave_store),
-            ("POST", "/api/v1/rwa/fractional/buy", self._handle_rwa_fractional_buy),
             ("GET",  "/api/v1/rwa/listings", self._handle_rwa_listings),
-            ("POST", "/api/v1/prediction/market/create", self._handle_market_create),
-            ("POST", "/api/v1/prediction/market/bet", self._handle_market_bet),
-            ("GET",  "/api/v1/prediction/market/list", self._handle_market_list),
-            ("POST", "/api/v1/energy/carbon/buy", self._handle_carbon_buy),
-            ("POST", "/api/v1/energy/carbon/retire", self._handle_carbon_retire),
-            ("GET",  "/api/v1/energy/carbon/prices", self._handle_carbon_prices),
-            ("POST", "/api/v1/governance/multisig/propose", self._handle_multisig_propose),
             ("POST", "/api/v1/governance/multisig/approve", self._handle_multisig_approve),
             ("POST", "/api/v1/governance/snapshot/vote", self._handle_snapshot_vote),
-            ("POST", "/api/v1/governance/treasury/transfer", self._handle_treasury_transfer),
             ("GET",  "/api/v1/portfolio/complete/{wallet}", self._handle_portfolio_complete),
             ("GET",  "/api/v1/portfolio/positions/{wallet}", self._handle_portfolio_positions),
             ("GET",  "/api/v1/portfolio/history/{wallet}", self._handle_portfolio_history),
             ("POST", "/api/v1/intent/resolve", self._handle_intent_resolve),
             ("POST", "/api/v1/intent/execute", self._handle_intent_execute),
             ("GET",  "/api/v1/intent/summary/{plan_id}", self._handle_intent_summary),
-            ("POST", "/api/v1/legal/license/grant", self._handle_license_grant),
-            ("POST", "/api/v1/legal/agreement/execute", self._handle_agreement_execute),
-            ("POST", "/api/v1/legal/dispute/file", self._handle_legal_dispute_file),
-            ("POST", "/api/v1/ai/agent/register", self._handle_ai_agent_register),
-            ("POST", "/api/v1/ai/model/trade", self._handle_ai_model_trade),
             ("POST", "/api/v1/supply-chain/provenance/log", self._handle_provenance_log),
             ("POST", "/api/v1/supply-chain/verify", self._handle_authenticity_verify),
             ("POST", "/api/v1/supply-chain/custody/transfer", self._handle_custody_transfer),
             ("POST", "/api/v1/insurance/parametric/create", self._handle_parametric_policy),
-            ("POST", "/api/v1/insurance/claim/settle", self._handle_claim_settle),
-            ("POST", "/api/v1/privacy/transfer", self._handle_private_transfer),
-            ("POST", "/api/v1/privacy/stealth-address", self._handle_stealth_address),
+            # NEW-81: claim/settle route removed (see note above).
             ("POST", "/api/v1/realestate/properties", self._handle_re_property_create),
             ("GET",  "/api/v1/realestate/properties", self._handle_re_property_list),
             ("GET",  "/api/v1/realestate/properties/{id}", self._handle_re_property_get),
@@ -647,7 +606,57 @@ class ServiceRoutes:
                 content_type="application/json",
             )
 
+    # RUN-4: inner status -> HTTP status. Only the two values that mean "the
+    # operation did not happen" are failures.
+    #
+    # Deliberately NOT in this set: submitted, active, pending, completed,
+    # verified, registered, updated, rejected, failed. Those are legitimate
+    # DOMAIN outcomes the caller asked about — a rejected claim or a failed
+    # transaction is a real answer, not a transport error. Treating them as
+    # HTTP failures would break working flows and is the opposite mistake to
+    # the one RUN-4 fixes.
+    _FAILURE_STATUSES = frozenset({"error", "unavailable"})
+
+    # When the service says WHY, honour it; otherwise 422 — the request was
+    # well-formed but the operation could not be completed.
+    _ERROR_CATEGORY_HTTP = {
+        "validation": 400,
+        "bad_request": 400,
+        "not_found": 404,
+        "forbidden": 403,
+        "not_implemented": 501,
+        "service_unavailable": 503,
+        "service_error": 502,
+        "timeout": 504,
+    }
+
     def _ok(self, data: Any) -> web.Response:
+        """Wrap a service result — but never dress a failure as a success.
+
+        RUN-4: this used to return HTTP 200 with {"status":"ok","data":...}
+        unconditionally, including when `data` itself said
+        {"status":"error"}. The transport claimed success while the payload
+        reported failure, and every SDK believes the transport: the Python
+        client checks only `resp.status != 200`, the Swift client decodes the
+        outer envelope and discards its status, and 9 sdk-js methods check
+        nothing at all. A caller therefore received an error dictionary and
+        proceeded as though the call had worked — which on the iOS side meant
+        a failed transfer closed the send sheet and cleared the form (NEW-21).
+
+        A failing payload now gets a real HTTP status so the failure is
+        impossible to miss, and the body keeps the service's own detail so
+        callers lose nothing they had before.
+        """
+        status = data.get("status") if isinstance(data, dict) else None
+        if isinstance(status, str) and status in self._FAILURE_STATUSES:
+            category = data.get("error_category")
+            if status == "unavailable":
+                http_status = 503
+            else:
+                http_status = self._ERROR_CATEGORY_HTTP.get(category, 422)
+            return web.json_response(
+                {"status": status, "data": data}, status=http_status
+            )
         return web.json_response({"status": "ok", "data": data})
 
     async def _call(self, service_name: str, method_name: str, **kwargs) -> Any:
@@ -689,9 +698,18 @@ class ServiceRoutes:
         try:
             result = await method(**kwargs)
         except TypeError as exc:
+            # RUN-5b: was `f"Invalid parameters: {exc}"`. A TypeError from
+            # `method(**kwargs)` quotes the INTERNAL Python signature back at
+            # the caller ("...got an unexpected keyword argument 'x'",
+            # "missing 1 required positional argument: 'user_id'"), which maps
+            # the service layer for anyone probing the seam. Still a 400 — it
+            # genuinely is a caller error — but the signature stays server-side
+            # against the ref.
             logger.error("Bad params for %s.%s: %s", service_name, method_name, exc)
+            _st, _err = client_error(
+                exc, None, what=f"{service_name}.{method_name}", code="invalid_request")
             raise web.HTTPBadRequest(
-                text=json.dumps({"error": f"Invalid parameters: {exc}"}),
+                text=json.dumps(_err),
                 content_type="application/json",
             )
         except ValueError as exc:
@@ -700,6 +718,34 @@ class ServiceRoutes:
             logger.info("Rejected %s.%s: %s", service_name, method_name, exc)
             raise web.HTTPBadRequest(
                 text=json.dumps({"error": str(exc)}),
+                content_type="application/json",
+            )
+        except NotImplementedError as exc:
+            # A DELIBERATE REFUSAL — the capability does not exist and never
+            # will until it is built. Without this clause it fell to the generic
+            # handler below as HTTP 500 + an ERROR-level stack trace: a
+            # permanently-unavailable capability reported as the server
+            # malfunctioning, which retry layers treat as transient.
+            #
+            # THIS CLAUSE IS HALF OF A PAIR. The dispatcher maps
+            # NotImplementedError -> "not_implemented"/501 and everything else
+            # to "service_error"/502; this gateway maps ValueError -> 400 and
+            # everything else to 500. The two ladders disagree, so changing a
+            # refusal's exception type improves one surface and regresses the
+            # other unless both move together. Converting the governance
+            # refusals to NotImplementedError took the dispatcher 502 -> 501 and
+            # this route 400 -> 500; adding the clause here is what makes the
+            # change a net improvement rather than a traded defect.
+            # tests/test_refusal_classification.py asserts BOTH surfaces agree.
+            logger.info(
+                "Refused %s.%s (capability unavailable): %s",
+                service_name, method_name, exc,
+            )
+            raise web.HTTPNotImplemented(
+                text=json.dumps({
+                    "error": str(exc),
+                    "error_category": "not_implemented",
+                }),
                 content_type="application/json",
             )
         except Exception as exc:
@@ -790,7 +836,13 @@ class ServiceRoutes:
         try:
             data = await self._price_feed().eth_usd()
         except PriceUnavailable as exc:
-            return web.json_response({"error": str(exc)}, status=503)
+            # The documented outcome: no source reachable is a dependency
+            # failure (503), not an internal error. Without the explicit code,
+            # client_error() classified PriceUnavailable as internal_error (500)
+            # and the one branch written for this case broke the contract.
+            _st, _err = client_error(exc, request.get("request_id"), what="Service",
+                                     code="upstream_unavailable")
+            return web.json_response(_err, status=_st)
         except Exception as exc:
             logger.exception("eth-usd price failed")
             return web.json_response({"error": "price unavailable"}, status=503)
@@ -838,6 +890,20 @@ class ServiceRoutes:
             v = str(body.get(key, "") or "")
             return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
 
+        # RUN-5b: this was ONE `try` around both halves, ending in
+        # `{"error": f"sign failed: {exc}"}` at 400. Two separate defects.
+        #
+        # (a) The exception text was the response body, and the second half
+        #     calls `sign_digest(digest, str(pcfg.get("signer_key")))` — a
+        #     malformed key raises with THE KEY VALUE in its message. That is
+        #     signing-key material on a client-visible money path.
+        #
+        # (b) The blanket 400 told the caller their request was bad when the
+        #     real fault was our own signer configuration, which both misleads
+        #     the client and hides an operational problem behind a 4xx.
+        #
+        # Split: caller-supplied input is a 400, our signing is a 5xx, and
+        # neither returns the exception.
         try:
             digest = compute_paymaster_digest(
                 sender=str(body.get("sender", "")),
@@ -854,12 +920,21 @@ class ServiceRoutes:
                 valid_until=_int("valid_until"),
                 valid_after=_int("valid_after"),
             )
+        except Exception as exc:
+            logger.exception("paymaster digest rejected caller input")
+            _st, _err = client_error(
+                exc, None, what="Paymaster sign", code="invalid_request")
+            return web.json_response(_err, status=_st)
+
+        try:
             sig = sign_digest(digest, str(pcfg.get("signer_key")))
             pnd = build_paymaster_and_data(
                 str(pcfg.get("address")), _int("valid_until"), _int("valid_after"), sig)
         except Exception as exc:
-            logger.exception("paymaster sign failed")
-            return web.json_response({"error": f"sign failed: {exc}"}, status=400)
+            logger.exception("paymaster signing failed — check the configured signer key")
+            _st, _err = client_error(
+                exc, None, what="Paymaster sign", code="internal_error")
+            return web.json_response(_err, status=_st)
 
         return web.json_response({"paymasterAndData": pnd})
 
@@ -918,15 +993,34 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_contract_deploy(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "source_code", "source_lang")
-        result = await self._call(
-            "contract_conversion", "convert",
-            source_code=body["source_code"],
-            source_lang=body["source_lang"],
-            target_chain=body.get("target_chain", "base"),
+        """RUN-2: deployment is not implemented. Say so, in the status line.
+
+        This handler used to be byte-identical to _handle_contract_convert and
+        dispatched to the same contract_conversion.convert. The service has no
+        deploy method at all — nothing in the path touched a chain, a wallet or
+        a signer. A client POSTing here got HTTP 200 with status ok and
+        concluded a contract had been deployed. That was wrong 100% of the time.
+
+        501 is the honest answer: the route is recognised, the capability is not
+        built. Implementing real deployment is a feature with real risk (key
+        custody, gas, chain selection, failure semantics) and needs its own
+        design pass — deliberately NOT smuggled in behind a bug fix.
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Contract deployment is not implemented.",
+                "detail": (
+                    "This endpoint previously returned a converted contract and "
+                    "reported success, which read as a completed deployment. It "
+                    "never deployed anything. Use POST /api/v1/contracts/convert "
+                    "to generate Solidity; deploying it is a separate step you "
+                    "currently perform with your own tooling and signer."
+                ),
+                "see": "/api/v1/contracts/convert",
+            },
+            status=501,
         )
-        return self._ok(result)
 
     # -- DeFi --
 
@@ -969,13 +1063,17 @@ class ServiceRoutes:
 
     async def _handle_nft_collection_create(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "creator", "name", "symbol")
+        # NEW-89 CONTRACT-GAP + DROPPED-INTENT: `collection_type` is required
+        # by the service and was never collected; `metadata` was collected and
+        # is not accepted. Neither substitutes for the other.
+        self._require(body, "creator", "name", "symbol", "collection_type")
         result = await self._call(
             "nft_services", "create_collection",
             creator=body["creator"],
             name=body["name"],
             symbol=body["symbol"],
-            metadata=body.get("metadata", {}),
+            collection_type=body["collection_type"],
+            royalty_bps=int(body.get("royalty_bps", 500)),
         )
         return self._ok(result)
 
@@ -1097,12 +1195,22 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_insurance_claim(self, request: web.Request) -> web.Response:
+        # NEW-78: `trigger_data` is gone — it was the claimant's own "proof"
+        # of the covered event, and the claim decision now comes from oracle
+        # data instead. The caller is bound to the wallet the security
+        # middleware authenticated for THIS request, following the same idiom
+        # as _handle_governance_vote: an authenticated identity always wins,
+        # a body-supplied holder is a dev fallback only, and an absent caller
+        # is refused by assert_owner rather than silently skipped.
         body = await self._parse_body(request)
-        self._require(body, "policy_id", "trigger_data")
+        self._require(body, "policy_id")
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
+        caller = authed or str(body.get("holder") or "")
         result = await self._call(
             "insurance", "file_claim",
             policy_id=body["policy_id"],
-            trigger_data=body["trigger_data"],
+            caller=caller,
         )
         return self._ok(result)
 
@@ -1333,12 +1441,28 @@ class ServiceRoutes:
     # -- Privacy --
 
     async def _handle_privacy_delete(self, request: web.Request) -> web.Response:
+        """POST /api/v1/privacy/delete — answers 501, queues nothing (NEW-38).
+
+        The route is deliberately KEPT rather than unregistered. An erasure
+        endpoint that 404s reads as "wrong URL"; this one states plainly that
+        the platform cannot delete data. `request_deletion` now refuses, and
+        its {"status": "error", "error_category": "not_implemented"} maps to
+        HTTP 501 through `_ok`'s RUN-4 failure branch — the same code
+        /api/v1/contracts/deploy returns.
+        """
         body = await self._parse_body(request)
-        self._require(body, "user", "data_types")
+        # `_require(body, "user", "data_types")` is dropped: it answered 400
+        # "missing field" — a claim about the request — when the truth is a
+        # fact about the platform, and it made the honest 501 conditional on
+        # the caller correctly filling in a form for an operation that cannot
+        # run. Defaults keep the call bindable so this cannot become a 500.
+        #
+        # Still routed through `_call` rather than short-circuited here, so the
+        # security seam continues to observe the attempt.
         result = await self._call(
             "privacy", "request_deletion",
-            user=body["user"],
-            data_types=body["data_types"],
+            user=body.get("user", ""),
+            data_types=body.get("data_types") or [],
         )
         return self._ok(result)
 
@@ -1353,8 +1477,9 @@ class ServiceRoutes:
             sender=body["sender"],
             recipient=body["recipient"],
             amount=float(body["amount"]),
-            source_currency=body["source_currency"],
-            destination_currency=body["destination_currency"],
+            # NEW-89 RENAME: the service spells these from_/to_currency.
+            from_currency=body["source_currency"],
+            to_currency=body["destination_currency"],
         )
         return self._ok(result)
 
@@ -1425,14 +1550,27 @@ class ServiceRoutes:
     # -- x402 Payments --
 
     async def _handle_payment_create(self, request: web.Request) -> web.Response:
+        """POST /api/v1/payments/create — reconciled to the method (NEW-58).
+
+        This route was PERMANENTLY DEAD. It sent payer/payee/amount/token to
+        `create_payment(agent_id, recipient, amount, token, purpose)`, so every
+        call raised TypeError on the unexpected `payer`/`payee` and the
+        required `purpose` was never supplied. The x402 payment-creation
+        endpoint has never worked over HTTP; only the ACTION_MAP path did.
+
+        The body keys stay payer/payee for wire compatibility (nothing that
+        works today is broken by keeping them) and are mapped to the method's
+        real parameter names here.
+        """
         body = await self._parse_body(request)
         self._require(body, "payer", "payee", "amount", "token")
         result = await self._call(
             "x402_payments", "create_payment",
-            payer=body["payer"],
-            payee=body["payee"],
+            agent_id=body["payer"],
+            recipient=body["payee"],
             amount=float(body["amount"]),
             token=body["token"],
+            purpose=body.get("purpose", ""),
         )
         return self._ok(result)
 
@@ -1457,9 +1595,15 @@ class ServiceRoutes:
             try:
                 return web.json_response(await self._price_feed().eth_usd())
             except PriceUnavailable as exc:
-                return web.json_response({"error": str(exc)}, status=503)
-            except Exception:
-                return web.json_response({"error": "price unavailable"}, status=503)
+                _st, _err = client_error(
+                    exc, request.get("request_id"), what="PriceFeed"
+                )
+                return web.json_response(_err, status=_st)
+            except Exception as exc:
+                _st, _err = client_error(
+                    exc, request.get("request_id"), what="PriceFeed"
+                )
+                return web.json_response(_err, status=_st)
         try:
             result = await self._call(
                 "oracle_gateway", "request",
@@ -1488,16 +1632,6 @@ class ServiceRoutes:
 
     # -- DeFi Expanded --
 
-    async def _handle_yield_optimize(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "asset", "amount")
-        result = await self._call(
-            "defi", "yield_optimize",
-            asset=body["asset"],
-            amount=body["amount"],
-            risk_tolerance=body.get("risk_tolerance", "medium"),
-        )
-        return self._ok(result)
 
     async def _handle_swap_route(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
@@ -1544,74 +1678,35 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
-    async def _handle_flash_loan(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "token", "amount", "operations")
-        result = await self._call(
-            "defi", "flash_loan_execute",
-            token=body["token"],
-            amount=body["amount"],
-            operations=body["operations"],
-            wallet=body.get("wallet", ""),
-        )
-        return self._ok(result)
-
-    async def _handle_vault_deposit(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "vault_id", "amount")
-        result = await self._call(
-            "defi", "vault_deposit",
-            wallet=body["wallet"],
-            vault_id=body["vault_id"],
-            amount=body["amount"],
-        )
-        return self._ok(result)
-
-    async def _handle_liquidity_provide(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "pool_id", "token_a_amount", "token_b_amount")
-        result = await self._call(
-            "defi", "liquidity_provide",
-            wallet=body["wallet"],
-            pool_id=body["pool_id"],
-            token_a_amount=body["token_a_amount"],
-            token_b_amount=body["token_b_amount"],
-        )
-        return self._ok(result)
-
-    async def _handle_perp_trade(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "market", "side", "size")
-        result = await self._call(
-            "defi", "perp_trade",
-            wallet=body["wallet"],
-            market=body["market"],
-            side=body["side"],
-            size=body["size"],
-            leverage=body.get("leverage", 1),
-        )
-        return self._ok(result)
-
-    async def _handle_collateral_manage(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "wallet", "action", "token", "amount")
-        result = await self._call(
-            "defi", "collateral_manage",
-            wallet=body["wallet"],
-            action=body["action"],
-            token=body["token"],
-            amount=body["amount"],
-        )
-        return self._ok(result)
+    # NEW-61: five handler bodies removed with their routes
+    # (_handle_flash_loan, _handle_vault_deposit, _handle_liquidity_provide,
+    # _handle_perp_trade, _handle_collateral_manage). An unregistered handler
+    # is still a callable path, so the bodies go with the registrations.
+    #
+    # ALL FIVE WERE PERMANENTLY DEAD, independently of the fabrications behind
+    # them — every one forwarded parameter names its target could not accept:
+    #   flash_loan        -> "flash_loan_execute" (no such method) with
+    #                        token/operations vs the method's asset/strategy
+    #   vault_deposit     -> wallet, vault_id     vs vault, asset
+    #   liquidity_provide -> wallet, pool_id, token_a_amount, token_b_amount
+    #                        vs token_a, token_b, amount_a, amount_b
+    #   perp_trade        -> wallet, market, side vs asset, direction
+    #   collateral_manage -> wallet, token        vs asset, position_id
+    # so every HTTP call raised TypeError at dispatch. Not one of these
+    # endpoints has ever completed a request. (Domain 4 found one dead route
+    # of this shape; this is five in a row, in one block.)
 
     # -- NFT Expanded --
 
     async def _handle_nft_fractionalize(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "owner", "token_id", "fractions")
+        # NEW-89 CONTRACT-GAP: `collection` was never collected. `owner` is
+        # NOT the collection — binding it there would fix the TypeError and
+        # fractionalise a token in whatever collection is named by an address.
+        self._require(body, "owner", "token_id", "fractions", "collection")
         result = await self._call(
             "nft_services", "fractionalize",
-            owner=body["owner"],
+            collection=body["collection"],
             token_id=body["token_id"],
             fractions=int(body["fractions"]),
             price_per_fraction=body.get("price_per_fraction"),
@@ -1620,45 +1715,71 @@ class ServiceRoutes:
 
     async def _handle_nft_rent(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "renter", "token_id", "duration")
+        # NEW-89 CONTRACT-GAP: `collection` was never collected.
+        self._require(body, "renter", "token_id", "duration", "collection")
         result = await self._call(
             "nft_services", "rent",
-            renter=body["renter"],
+            collection=body["collection"],
             token_id=body["token_id"],
-            duration=body["duration"],
+            renter=body["renter"],
+            duration_days=body["duration"],
             price=body.get("price"),
         )
         return self._ok(result)
 
     async def _handle_nft_batch_mint(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "creator", "collection_id", "items")
+        # NEW-89 DROPPED-INTENT: the route took a per-item list; the service
+        # mints `count` copies of one `metadata_template`. Collapsing a list of
+        # distinct items into a count would mint the WRONG TOKENS — every one
+        # carrying the first item's metadata. The contract changes rather than
+        # the data being mangled to fit.
+        self._require(body, "creator", "collection_id", "count", "metadata_template")
+        if body.get("items"):
+            return web.json_response(status=501, data={
+                "error": "not_implemented",
+                "capability": "per-item batch mint",
+                "detail": (
+                    "nft_services.batch_mint mints `count` copies of a single "
+                    "`metadata_template`. It cannot mint a list of distinct "
+                    "items; sending `items` would silently mint duplicates."
+                ),
+            })
         result = await self._call(
             "nft_services", "batch_mint",
+            collection=body["collection_id"],
             creator=body["creator"],
-            collection_id=body["collection_id"],
-            items=body["items"],
+            count=int(body["count"]),
+            metadata_template=body["metadata_template"],
         )
         return self._ok(result)
 
     async def _handle_nft_royalty_claim(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "creator", "token_id")
+        # NEW-89 CONTRACT-GAP: `collection` was never collected. `creator`
+        # maps to `claimer` — the party claiming, which the service checks.
+        self._require(body, "creator", "token_id", "collection")
         result = await self._call(
             "nft_services", "royalty_claim",
-            creator=body["creator"],
+            collection=body["collection"],
             token_id=body["token_id"],
+            claimer=body["creator"],
         )
         return self._ok(result)
 
     async def _handle_nft_bridge(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "owner", "token_id", "dest_chain")
+        # NEW-89 CONTRACT-GAP: `collection` was never collected. An NFT is
+        # identified by (collection, token_id); a token_id alone is ambiguous
+        # across collections. Adding it is a public-contract change, taken
+        # deliberately rather than binding `owner` into the collection slot.
+        self._require(body, "owner", "token_id", "dest_chain", "collection")
         result = await self._call(
             "nft_services", "bridge_nft",
-            owner=body["owner"],
+            collection=body["collection"],
             token_id=body["token_id"],
-            dest_chain=body["dest_chain"],
+            destination_chain=body["dest_chain"],
+            owner=body["owner"],
         )
         return self._ok(result)
 
@@ -1679,8 +1800,9 @@ class ServiceRoutes:
         self._require(body, "issuer", "subject", "credential_type", "claims")
         result = await self._call(
             "did_identity", "issue_credential",
-            issuer=body["issuer"],
-            subject=body["subject"],
+            # NEW-89 RENAME: the service spells these *_did.
+            issuer_did=body["issuer"],
+            subject_did=body["subject"],
             credential_type=body["credential_type"],
             claims=body["claims"],
         )
@@ -1706,16 +1828,6 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
-    async def _handle_soulbound_mint(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "issuer", "recipient", "metadata")
-        result = await self._call(
-            "did_identity", "mint_soulbound",
-            issuer=body["issuer"],
-            recipient=body["recipient"],
-            metadata=body["metadata"],
-        )
-        return self._ok(result)
 
     # -- Social Expanded --
 
@@ -1746,35 +1858,62 @@ class ServiceRoutes:
 
     async def _handle_social_message_send(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
+        # NEW-89 HONEST-501: social.send_message does not exist. The only
+        # near-twin, send_encrypted_message, is a D7 FAKE-DELIVERY instance —
+        # it returns "sent" with a uuid content_hash and contacts no XMTP
+        # client. Repointing would turn a 404 into a convincing fake.
         self._require(body, "sender", "recipient", "content")
-        result = await self._call(
-            "social", "send_message",
-            sender=body["sender"],
-            recipient=body["recipient"],
-            content=body["content"],
-            encrypted=body.get("encrypted", True),
-        )
-        return self._ok(result)
+        return web.json_response(status=501, data={
+            "error": "not_implemented",
+            "capability": "direct messaging",
+            "detail": (
+                "No message-sending implementation exists. The route is "
+                "answered honestly rather than pointed at a method that "
+                "reports delivery without delivering."
+            ),
+        })
 
     async def _handle_social_gate(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
+        # NEW-89 HONEST-501: social.create_gate does not exist. The real
+        # method, create_token_gate(creator, token_address, min_balance,
+        # resource), is TOKEN-BALANCE-ONLY — it cannot express an arbitrary
+        # gate_type/criteria pair, so a repoint would silently narrow every
+        # gate to a token-balance check.
         self._require(body, "owner", "gate_type", "criteria")
-        result = await self._call(
-            "social", "create_gate",
-            owner=body["owner"],
-            gate_type=body["gate_type"],
-            criteria=body["criteria"],
-        )
-        return self._ok(result)
+        return web.json_response(status=501, data={
+            "error": "not_implemented",
+            "capability": "general-purpose social gates",
+            "detail": (
+                "Only token-balance gating exists "
+                "(social.create_token_gate). Arbitrary gate_type/criteria "
+                "gating is unbuilt."
+            ),
+        })
 
     async def _handle_community_create(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "creator", "name", "rules")
+        # NEW-89 DROPPED-INTENT: `rules` was REQUIRED here and the service has
+        # no rules concept at all — create_community stores creator/name/
+        # description/token_gate and nothing enforces anything. Mapping rules ->
+        # description would return 200 with the caller's rules sitting in a
+        # descriptive field that governs nothing. Refuse instead of pretending.
+        self._require(body, "creator", "name")
+        if body.get("rules"):
+            return web.json_response(status=501, data={
+                "error": "not_implemented",
+                "capability": "community rules",
+                "detail": (
+                    "social.create_community records a community; it does not "
+                    "store or enforce rules. Omit `rules` to create the "
+                    "community, or the rules would be silently unenforced."
+                ),
+            })
         result = await self._call(
             "social", "create_community",
             creator=body["creator"],
             name=body["name"],
-            rules=body["rules"],
+            description=body.get("description", ""),
             token_gate=body.get("token_gate"),
         )
         return self._ok(result)
@@ -1971,69 +2110,22 @@ class ServiceRoutes:
 
     # -- Payments Expanded --
 
-    async def _handle_stream_create(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "sender", "recipient", "token", "total_amount", "duration")
-        result = await self._call(
-            "x402_payments", "create_stream",
-            sender=body["sender"],
-            recipient=body["recipient"],
-            token=body["token"],
-            total_amount=float(body["total_amount"]),
-            duration=body["duration"],
-        )
-        return self._ok(result)
 
-    async def _handle_recurring_create(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "payer", "payee", "token", "amount", "interval")
-        result = await self._call(
-            "x402_payments", "create_recurring",
-            payer=body["payer"],
-            payee=body["payee"],
-            token=body["token"],
-            amount=float(body["amount"]),
-            interval=body["interval"],
-        )
-        return self._ok(result)
 
-    async def _handle_escrow_milestone(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "escrow_id", "milestone_id", "action")
-        result = await self._call(
-            "x402_payments", "escrow_milestone",
-            escrow_id=body["escrow_id"],
-            milestone_id=body["milestone_id"],
-            action=body["action"],
-        )
-        return self._ok(result)
 
-    async def _handle_payment_split(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "payer", "recipients", "token", "total_amount")
-        result = await self._call(
-            "x402_payments", "split_payment",
-            payer=body["payer"],
-            recipients=body["recipients"],
-            token=body["token"],
-            total_amount=float(body["total_amount"]),
-        )
-        return self._ok(result)
 
-    async def _handle_payroll_run(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "employer", "employees", "token")
-        result = await self._call(
-            "x402_payments", "run_payroll",
-            employer=body["employer"],
-            employees=body["employees"],
-            token=body["token"],
-        )
-        return self._ok(result)
 
     # -- Compute & Storage --
 
     async def _handle_decentralized_store(self, request: web.Request) -> web.Response:
+        """POST /api/v1/compute/store — now reaches the real Filecoin client.
+
+        NEW-48: `content` is forwarded. The service method delegates to
+        `storage.store_filecoin`, which uploads BYTES; forwarding only
+        `data_hash` (as this handler used to) would make the delegation
+        permanently unsatisfiable from HTTP — a route wired to a real client it
+        can never feed is half a fix.
+        """
         body = await self._parse_body(request)
         self._require(body, "owner", "data", "storage_type")
         result = await self._call(
@@ -2041,10 +2133,13 @@ class ServiceRoutes:
             uploader=body["owner"],
             data_hash=body["data"],
             storage_provider=body["storage_type"],
+            content=body.get("content"),
+            filename=body.get("filename", "upload.bin"),
         )
         return self._ok(result)
 
     async def _handle_ipfs_pin(self, request: web.Request) -> web.Response:
+        """POST /api/v1/compute/ipfs/pin — now reaches the real pinning client."""
         body = await self._parse_body(request)
         self._require(body, "cid")
         result = await self._call(
@@ -2052,19 +2147,39 @@ class ServiceRoutes:
             uploader=body.get("owner", ""),
             data_hash=body["cid"],
             pin_name=body.get("name", ""),
+            content=body.get("content"),
         )
         return self._ok(result)
 
     async def _handle_arweave_store(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner", "data")
-        result = await self._call(
-            "privacy", "store_on_arweave",
-            uploader=body["owner"],
-            data_hash=body["data"],
-            content_type=body.get("content_type", "application/octet-stream"),
+        """POST /api/v1/compute/arweave/store — 501, uploads nothing (NEW-48).
+
+        The backing method minted `arweave_tx = f"ar_{uuid4().hex}"` for data
+        it never uploaded. No real Arweave blob-storage client exists anywhere
+        in the platform — `creator_platforms.publish_mirror_post` writes to
+        Arweave but publishes a titled Mirror ENTRY, which is a different act
+        with different visibility, so it is not a valid delegation target.
+
+        The route is kept and answers honestly rather than 404-ing, so a
+        caller learns the capability is absent instead of guessing the URL.
+        """
+        return web.json_response(
+            {
+                "status": "error",
+                "data": {
+                    "status": "error",
+                    "error_category": "not_implemented",
+                    "error": "arweave_storage_not_implemented",
+                    "message": (
+                        "Arweave storage is not available. The platform has no "
+                        "Arweave upload client; the previous implementation "
+                        "returned a random string as a transaction id for data "
+                        "it never uploaded. Nothing was stored by this call."
+                    ),
+                },
+            },
+            status=501,
         )
-        return self._ok(result)
 
     # ------------------------------------------------------------------
     # P2 — Route completion
@@ -2248,16 +2363,6 @@ class ServiceRoutes:
 
     # -- RWA Expanded --
 
-    async def _handle_rwa_fractional_buy(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "buyer", "asset_id", "fractions")
-        result = await self._call(
-            "rwa_tokenization", "buy_fractions",
-            buyer=body["buyer"],
-            asset_id=body["asset_id"],
-            fractions=int(body["fractions"]),
-        )
-        return self._ok(result)
 
     async def _handle_rwa_listings(self, request: web.Request) -> web.Response:
         result = await self._call(
@@ -2267,113 +2372,59 @@ class ServiceRoutes:
 
     # -- Prediction Markets --
 
-    async def _handle_market_create(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "creator", "question", "outcomes", "resolution_date")
-        result = await self._call(
-            "prediction", "create_market",
-            creator=body["creator"],
-            question=body["question"],
-            outcomes=body["outcomes"],
-            resolution_date=body["resolution_date"],
-        )
-        return self._ok(result)
 
-    async def _handle_market_bet(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "bettor", "market_id", "outcome", "amount")
-        result = await self._call(
-            "prediction", "place_bet",
-            bettor=body["bettor"],
-            market_id=body["market_id"],
-            outcome=body["outcome"],
-            amount=float(body["amount"]),
-        )
-        return self._ok(result)
 
-    async def _handle_market_list(self, request: web.Request) -> web.Response:
-        result = await self._call(
-            "prediction", "list_markets",
-        )
-        return self._ok(result)
 
     # -- Energy --
 
-    async def _handle_carbon_buy(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "buyer", "tonnes", "project_id")
-        result = await self._call(
-            "energy", "buy_carbon_credits",
-            buyer=body["buyer"],
-            tonnes=float(body["tonnes"]),
-            project_id=body["project_id"],
-        )
-        return self._ok(result)
 
-    async def _handle_carbon_retire(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner", "credit_ids")
-        result = await self._call(
-            "energy", "retire_carbon",
-            owner=body["owner"],
-            credit_ids=body["credit_ids"],
-        )
-        return self._ok(result)
 
-    async def _handle_carbon_prices(self, request: web.Request) -> web.Response:
-        result = await self._call(
-            "energy", "get_carbon_prices",
-        )
-        return self._ok(result)
 
     # -- Governance Expanded --
 
-    async def _handle_multisig_propose(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "proposer", "multisig_address", "action", "params")
-        result = await self._call(
-            "governance", "multisig_propose",
-            proposer=body["proposer"],
-            multisig_address=body["multisig_address"],
-            action=body["action"],
-            params=body["params"],
-        )
-        return self._ok(result)
 
     async def _handle_multisig_approve(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
+        # NEW-89 HONEST-501: multisig_approve does not exist. The nearest real
+        # method, approve_multisig(multisig_id, signer), approves a MULTISIG —
+        # it has no proposal parameter, so this route's `proposal_id` would be
+        # discarded and the approval recorded against the wrong subject.
         self._require(body, "approver", "multisig_address", "proposal_id")
-        result = await self._call(
-            "governance", "multisig_approve",
-            approver=body["approver"],
-            multisig_address=body["multisig_address"],
-            proposal_id=body["proposal_id"],
-        )
-        return self._ok(result)
+        return web.json_response(status=501, data={
+            "error": "not_implemented",
+            "capability": "multisig proposal approval",
+            "detail": (
+                "governance.approve_multisig approves a multisig, not a "
+                "proposal within one. Approving per-proposal is unbuilt."
+            ),
+        })
 
     async def _handle_snapshot_vote(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
-        self._require(body, "voter", "space", "proposal_id", "choice")
+        # NEW-89 DROPPED-INTENT: `space` (the Snapshot namespace) has no
+        # parameter on the service. Its only free parameter, `block_number`, is
+        # a voting-power snapshot block — not a namespace — so space ->
+        # block_number is rejected. Dropping `space` silently would record the
+        # vote against a proposal id in NO named space.
+        self._require(body, "voter", "proposal_id", "choice")
+        if body.get("space"):
+            return web.json_response(status=501, data={
+                "error": "not_implemented",
+                "capability": "Snapshot spaces",
+                "detail": (
+                    "governance.snapshot_vote records a vote against a "
+                    "proposal id and has no notion of a Snapshot space. "
+                    "Omit `space`; it would otherwise be discarded."
+                ),
+            })
         result = await self._call(
             "governance", "snapshot_vote",
-            voter=body["voter"],
-            space=body["space"],
             proposal_id=body["proposal_id"],
+            voter=body["voter"],
             choice=body["choice"],
         )
         return self._ok(result)
 
-    async def _handle_treasury_transfer(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "dao_address", "recipient", "token", "amount")
-        result = await self._call(
-            "governance", "treasury_transfer",
-            dao_address=body["dao_address"],
-            recipient=body["recipient"],
-            token=body["token"],
-            amount=float(body["amount"]),
-        )
-        return self._ok(result)
 
     # -- Portfolio --
 
@@ -2389,26 +2440,72 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_portfolio_positions(self, request: web.Request) -> web.Response:
+        """RUN-6: was calling DataAggregator.get_positions(), which does not exist.
+
+        The class it reached has no such method — the call raised AttributeError
+        every time and the handler returned HTTP 200 with the Python error text
+        as the payload. Positions ARE genuinely derivable: get_user_portfolio()
+        computes them from a real chain balance, so this is a repoint to the
+        real method plus a projection of the position-bearing fields, not a
+        fabricated answer.
+        """
         wallet = request.match_info["wallet"]
         try:
-            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
+            from runtime.blockchain.protocol_abstraction.data_aggregator import (
+                DataAggregator,
+            )
             aggregator = DataAggregator(self._config)
-            result = await aggregator.get_positions(wallet)
+            portfolio = await aggregator.get_user_portfolio(wallet)
         except Exception as e:
-            logger.warning("Portfolio positions failed: %s", e)
-            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
-        return self._ok(result)
+            # RUN-5 shape: the reason is logged server-side, never returned.
+            logger.warning("Portfolio positions failed for %s: %s", wallet, e)
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({
+                    "status": "unavailable",
+                    "error": "Portfolio positions are unavailable right now.",
+                }),
+                content_type="application/json",
+            )
+
+        return self._ok({
+            "wallet": wallet,
+            "total_value_usd": portfolio.get("total_value_usd", 0.0),
+            "positions": {
+                "tokens": portfolio.get("tokens", []),
+                "nfts": portfolio.get("nfts", []),
+                "defi": portfolio.get("defi_positions", []),
+                "staking": portfolio.get("staking_positions", []),
+                "streams": portfolio.get("streams", []),
+                "rwa": portfolio.get("rwa_positions", []),
+            },
+            "cached": portfolio.get("cached", False),
+        })
 
     async def _handle_portfolio_history(self, request: web.Request) -> web.Response:
-        wallet = request.match_info["wallet"]
-        try:
-            from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
-            aggregator = DataAggregator(self._config)
-            result = await aggregator.get_history(wallet)
-        except Exception as e:
-            logger.warning("Portfolio history failed: %s", e)
-            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
-        return self._ok(result)
+        """RUN-6: historical portfolio data does not exist to serve.
+
+        This called DataAggregator.get_history(), which was never implemented on
+        either class of that name. Unlike positions, history cannot be derived
+        from what the platform has: every aggregator method returns a CURRENT
+        snapshot, and nothing records time-series. Serving it needs an indexer —
+        a feature, not a bug fix — so the honest answer is 501, the same shape
+        as /contracts/deploy (RUN-2).
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Portfolio history is not implemented.",
+                "detail": (
+                    "This endpoint previously returned HTTP 200 with an internal "
+                    "error as its payload. No time-series portfolio data is "
+                    "recorded anywhere in the platform; serving history requires "
+                    "an indexer that does not exist yet. Use "
+                    "/api/v1/portfolio/positions/{wallet} for the current snapshot."
+                ),
+                "see": "/api/v1/portfolio/positions/{wallet}",
+            },
+            status=501,
+        )
 
     # -- Intent Resolution --
 
@@ -2445,78 +2542,44 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_intent_summary(self, request: web.Request) -> web.Response:
-        plan_id = request.match_info["plan_id"]
-        try:
-            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
-            resolver = IntentResolver(self._config)
-            result = await resolver.get_summary(plan_id=plan_id)
-        except Exception as e:
-            logger.warning("Intent summary failed: %s", e)
-            result = {"plan_id": plan_id, "status": "unavailable", "message": str(e)}
-        return self._ok(result)
+        """RUN-6: summary-by-plan-id cannot be served, and never could.
+
+        This called IntentResolver.get_summary(plan_id=...), which does not
+        exist, so every request returned HTTP 200 carrying the AttributeError.
+
+        Repointing it is not possible: the real method is
+        get_plan_summary(plan: dict) — it takes the plan OBJECT — and
+        IntentResolver is stateless. resolve() mints a plan_id with uuid4() and
+        never persists the plan, so there is nothing anywhere to look a plan_id
+        up in. Serving this needs a plan store, which is a feature, not a repair.
+
+        501 rather than a repoint, because the alternative would be inventing
+        persistence behind a bug fix. Callers that hold the plan from
+        /intent/resolve already have everything the summary would describe.
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Intent summary by plan id is not implemented.",
+                "detail": (
+                    "Plans are not persisted: /api/v1/intent/resolve returns the "
+                    "full plan and the resolver keeps no store, so a plan_id "
+                    "cannot be looked up. Keep the plan object from the resolve "
+                    "response rather than re-fetching it by id."
+                ),
+                "see": "/api/v1/intent/resolve",
+            },
+            status=501,
+        )
 
     # -- Legal --
 
-    async def _handle_license_grant(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "licensor", "licensee", "ip_id", "terms")
-        result = await self._call(
-            "legal", "grant_license",
-            licensor=body["licensor"],
-            licensee=body["licensee"],
-            ip_id=body["ip_id"],
-            terms=body["terms"],
-        )
-        return self._ok(result)
 
-    async def _handle_agreement_execute(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "parties", "agreement_type", "terms")
-        result = await self._call(
-            "legal", "execute_agreement",
-            parties=body["parties"],
-            agreement_type=body["agreement_type"],
-            terms=body["terms"],
-        )
-        return self._ok(result)
 
-    async def _handle_legal_dispute_file(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "complainant", "respondent", "dispute_type", "description")
-        result = await self._call(
-            "legal", "file_dispute",
-            complainant=body["complainant"],
-            respondent=body["respondent"],
-            dispute_type=body["dispute_type"],
-            description=body["description"],
-        )
-        return self._ok(result)
 
     # -- AI --
 
-    async def _handle_ai_agent_register(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner", "agent_name", "capabilities")
-        result = await self._call(
-            "ai", "register_agent",
-            owner=body["owner"],
-            agent_name=body["agent_name"],
-            capabilities=body["capabilities"],
-            model=body.get("model", ""),
-        )
-        return self._ok(result)
 
-    async def _handle_ai_model_trade(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "seller", "buyer", "model_id", "price")
-        result = await self._call(
-            "ai", "trade_model",
-            seller=body["seller"],
-            buyer=body["buyer"],
-            model_id=body["model_id"],
-            price=float(body["price"]),
-        )
-        return self._ok(result)
 
     # -- Supply Chain Expanded --
 
@@ -2524,7 +2587,9 @@ class ServiceRoutes:
         body = await self._parse_body(request)
         self._require(body, "product_id", "event_type", "data")
         result = await self._call(
-            "supply_chain", "log_provenance",
+            # NEW-89 REPOINT: log_provenance never existed; log_event is the
+            # real method and its signature matches exactly.
+            "supply_chain", "log_event",
             product_id=body["product_id"],
             event_type=body["event_type"],
             data=body["data"],
@@ -2546,8 +2611,9 @@ class ServiceRoutes:
         result = await self._call(
             "supply_chain", "transfer_custody",
             product_id=body["product_id"],
-            from_holder=body["from_holder"],
-            to_holder=body["to_holder"],
+            # NEW-89 RENAME: same concepts, the service spells them *_handler.
+            from_handler=body["from_holder"],
+            to_handler=body["to_holder"],
         )
         return self._ok(result)
 
@@ -2566,38 +2632,10 @@ class ServiceRoutes:
         )
         return self._ok(result)
 
-    async def _handle_claim_settle(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "claim_id", "settlement_amount")
-        result = await self._call(
-            "insurance", "settle_claim",
-            claim_id=body["claim_id"],
-            settlement_amount=float(body["settlement_amount"]),
-        )
-        return self._ok(result)
+    # NEW-81: _handle_claim_settle removed with its route — an
+    # unregistered handler is still a callable path.
 
     # -- Privacy Expanded --
-
-    async def _handle_private_transfer(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "sender", "recipient", "amount", "token")
-        result = await self._call(
-            "privacy", "private_transfer",
-            sender=body["sender"],
-            recipient=body["recipient"],
-            amount=float(body["amount"]),
-            token=body["token"],
-        )
-        return self._ok(result)
-
-    async def _handle_stealth_address(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "owner")
-        result = await self._call(
-            "privacy", "generate_stealth_address",
-            owner=body["owner"],
-        )
-        return self._ok(result)
 
     # ------------------------------------------------------------------
     # Capability Registry (data-driven Web3 capability surface)
@@ -2651,7 +2689,19 @@ class ServiceRoutes:
             body = {}
         params = body.get("params", {}) if isinstance(body, dict) else {}
         reg = self._capability_registry()
-        result = await reg.invoke(capability_id, params)
+        # 17-D. This route reaches the SAME ServiceDispatcher as gateway/bridge.py
+        # — `set_nft_rights` is a catalog capability id — and it dropped the
+        # caller for exactly the same reason: nobody asked for it. The identity
+        # is already bound for every POST /api/v1/* by
+        # `GatewayServer._security_context_middleware`, so it is read here from
+        # the request-scoped context rather than from the body, following the
+        # idiom `_handle_governance_vote` and `_handle_insurance_claim` already
+        # use: an authenticated identity always wins, and a body-supplied
+        # address is never promoted to fact. Absent identity degrades to ""
+        # ("unknown"), never to a self-asserted address, and never to a refusal.
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
+        result = await reg.invoke(capability_id, params, caller_identity=authed)
         status = 200 if result.get("status") == "ok" else 400
         return web.json_response(result, status=status)
 

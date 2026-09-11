@@ -250,69 +250,36 @@ class ConversionWizard:
         )
         return conversion
 
-    async def migrate_members(self, dao_id: str, members: list[dict]) -> dict:
-        """Migrate a list of members into an existing DAO.
+    # ── CLUSTER B: `migrate_members` REMOVED.
+    #
+    # It reported `"migrated": N` with a per-member `migrated_at` timestamp for
+    # a `dao_id` it never located, looping the caller's own list and appending
+    # to a LOCAL list that was returned and discarded. It wrote no store,
+    # awaited nothing, and never touched `DAOService._daos` — the only
+    # membership truth in the system. Strip the claim and a ROLE_MAPPING
+    # lookup remains, which `analyze_org` and `convert` already return.
+    #
+    # REMOVED RATHER THAN REFUSED, because unlike the multisig case there is no
+    # substrate here to build on and no caller to serve: `migrate_members`
+    # appears exactly once in the repo — its own definition. `DAOService.join_dao`
+    # is the real operation, with five validations and three store writes.
+    #
+    # AND IT WAS THE CHEAPEST OF THE FOUR TO ARM. Not in ACTION_MAP, not in the
+    # catalog, no route — inert only because nobody wired it. ONE ACTION_MAP
+    # LINE would have made it live, with no config change and no gate to
+    # notice. An inert fabrication one line from live is not safe, it is
+    # unattended, and leaving dead fabricating code in place is leaving a
+    # loaded surface for whoever next goes looking for a batch-membership API.
 
-        Parameters
-        ----------
-        dao_id : str
-            Target DAO identifier.
-        members : list[dict]
-            Each must have ``name``, ``address``, ``role``.
-            Optional: ``shares`` (float), ``stake`` (float).
-
-        Returns
-        -------
-        dict
-            Migration result with per-member status.
-        """
-        if not members:
-            raise ValueError("Members list must not be empty")
-
-        migrated: list[dict] = []
-        errors: list[dict] = []
-
-        for m in members:
-            addr = m.get("address")
-            name = m.get("name", "unknown")
-            role = m.get("role", "member").lower()
-
-            if not addr:
-                errors.append({"name": name, "error": "Missing address"})
-                continue
-
-            dao_role = ROLE_MAPPING.get(role, "member")
-
-            migrated.append({
-                "address": addr,
-                "name": name,
-                "traditional_role": role,
-                "dao_role": dao_role,
-                "stake": m.get("stake", 0.0),
-                "shares": m.get("shares", 0.0),
-                "migrated_at": time.time(),
-            })
-
-        result = {
-            "dao_id": dao_id,
-            "total_submitted": len(members),
-            "migrated": len(migrated),
-            "failed": len(errors),
-            "members": migrated,
-            "errors": errors,
-            "completed_at": time.time(),
-        }
-
-        logger.info(
-            "Member migration to DAO %s: %d migrated, %d failed",
-            dao_id, len(migrated), len(errors),
-        )
-        return result
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
+    # RESTORED. The `migrate_members` deletion hunk ended on this decorator and
+    # took it with the removed method, so `convert()`'s `self._calculate_voting_power(
+    # shares, total, governance_type)` began passing FOUR arguments to a
+    # three-parameter function and raised TypeError on every call. Working code,
+    # killed by a deletion that looked local — and the suite stayed green because
+    # nothing exercised `convert()`. Both halves are now covered:
+    # tests/test_conversion_wizard_convert.py drives the method, and
+    # tests/test_bound_call_arity.py catches the SHAPE for every class in the
+    # tree, so the next lost decorator fails a test rather than a caller.
     @staticmethod
     def _calculate_voting_power(
         shares: float, total_shares: float, governance_type: str

@@ -97,7 +97,7 @@ export class OpenMatrixClient {
       throw new Error(`Chat failed (${resp.status}): ${error.error || resp.statusText}`);
     }
 
-    return resp.json();
+    return this.unwrap(resp, 'chat');
   }
 
   /**
@@ -141,11 +141,45 @@ export class OpenMatrixClient {
   }
 
   /**
+   * RUN-4 — turn a failed response into a thrown error.
+   *
+   * These methods used to end in a bare `return resp.json()`, checking
+   * neither the HTTP status nor the payload's own status. The gateway wrapped
+   * failures as HTTP 200 `{"status":"ok","data":{"status":"error"}}`, so a
+   * caller received an error object typed as the success shape and carried on.
+   * The server no longer inverts the envelope; this is the client half, and it
+   * also protects a caller running against an older gateway.
+   */
+  private async unwrap<T>(resp: Response, what: string): Promise<T> {
+    const body: unknown = await resp.json().catch(() => null);
+
+    if (!resp.ok) {
+      const detail =
+        body && typeof body === 'object' && 'error' in body
+          ? String((body as { error: unknown }).error)
+          : resp.statusText;
+      throw new Error(`${what} failed (${resp.status}): ${detail}`);
+    }
+
+    // Defence in depth: an older gateway may still report failure at HTTP 200.
+    if (body && typeof body === 'object') {
+      const outer = (body as { status?: unknown }).status;
+      const inner = (body as { data?: { status?: unknown } }).data?.status;
+      for (const s of [outer, inner]) {
+        if (typeof s === 'string' && (s === 'error' || s === 'unavailable')) {
+          throw new Error(`${what} failed: server reported status "${s}"`);
+        }
+      }
+    }
+    return body as T;
+  }
+
+  /**
    * Check gateway health.
    */
   async health(): Promise<HealthResponse> {
     const resp = await fetch(`${this.baseUrl}/health`);
-    return resp.json();
+    return this.unwrap(resp, 'health');
   }
 
   /**
@@ -155,7 +189,7 @@ export class OpenMatrixClient {
     const resp = await fetch(`${this.baseUrl}/status`, {
       headers: this.headers(),
     });
-    return resp.json();
+    return this.unwrap(resp, 'status');
   }
 
   /**
@@ -167,7 +201,7 @@ export class OpenMatrixClient {
       headers: this.headers(),
       body: JSON.stringify({ agent }),
     });
-    return resp.json();
+    return this.unwrap(resp, 'readMemory');
   }
 
   /**
@@ -183,7 +217,7 @@ export class OpenMatrixClient {
       headers: this.headers(),
       body: JSON.stringify({ agent, key, value }),
     });
-    return resp.json();
+    return this.unwrap(resp, 'writeMemory');
   }
 
   /**
@@ -191,7 +225,7 @@ export class OpenMatrixClient {
    */
   async getComponents(): Promise<ComponentManifest> {
     const resp = await fetch(`${this.baseUrl}/extensions/registry`);
-    return resp.json();
+    return this.unwrap(resp, 'getComponents');
   }
 
   /**
@@ -201,7 +235,7 @@ export class OpenMatrixClient {
     const resp = await fetch(
       `${this.baseUrl}/extensions/registry/${componentId}`
     );
-    return resp.json();
+    return this.unwrap(resp, 'getComponent');
   }
 
   /**
@@ -211,7 +245,7 @@ export class OpenMatrixClient {
     const resp = await fetch(`${this.baseUrl}/subscription/status`, {
       headers: this.headers(),
     });
-    return resp.json();
+    return this.unwrap(resp, 'subscriptionStatus');
   }
 
   /**
@@ -230,7 +264,7 @@ export class OpenMatrixClient {
         cancel_url: options.cancelUrl || `${this.baseUrl}/pricing?status=cancelled`,
       }),
     });
-    return resp.json();
+    return this.unwrap(resp, 'checkout');
   }
 
   /**
@@ -258,7 +292,7 @@ export class OpenMatrixClient {
       headers: this.headers(),
       body: JSON.stringify({ signedTransaction }),
     });
-    return resp.json();
+    return this.unwrap(resp, 'verifyIap');
   }
 
   /**

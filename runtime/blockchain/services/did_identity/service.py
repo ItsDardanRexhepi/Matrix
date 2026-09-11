@@ -253,54 +253,127 @@ class DIDService:
     async def issue_credential(
         self, issuer_did: str, subject_did: str, credential_type: str, claims: dict,
     ) -> dict:
-        """Issue a verifiable credential."""
-        cred_id = f"vc_{uuid.uuid4().hex[:16]}"
-        now = time.time()
-        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-        record = {
-            "id": cred_id,
-            "status": "issued",
-            "issuer": issuer_did,
-            "subject": subject_did,
-            "credential_type": credential_type,
-            "claims": claims,
-            "issued_at": now_iso,
-        }
-        self.credential_vault._credentials[cred_id] = record
-        logger.info("Credential issued: id=%s", cred_id)
-        return record
+        """Issue a verifiable credential via the real vault issuer.
+
+        THE OTHER HALF OF THE SHADOW, and it made the pair a complete fake
+        credential system. This method built a record with NO ``proof``, no
+        ``@context``, no ``type``, no ``expirationDate``, and wrote it directly
+        into ``credential_vault._credentials`` — the vault's private dict —
+        bypassing ``_holder_index`` (so ``list_credentials`` would never return
+        it) and the per-DID cap.
+
+        Its signature is IDENTICAL to ``credential_vault.issue_credential``,
+        which computes a real sha256 ``proofValue`` and indexes the holder. So
+        this was a pure shadow: same call, real one right there, fake one
+        winning. Together with the shadowed verifier it meant a user could issue
+        a credential that was not verifiable and verify a credential that was
+        not issued, with nothing real in between.
+
+        And it POISONED THE SHARED STORE. It did not merely fail to do its job —
+        it injected malformed records into the real vault's `_credentials`, and
+        the real verifier rejects every one of them (missing `@context`, `type`,
+        `proof.proofValue`). It does NOT crash on them: the proof read is
+        guarded by `proof.get("proofValue")`, so it degrades to an error list.
+        That is worse than a crash, because a crash is loud. Instead a user who
+        "issued" a credential held a vault record that every honest verification
+        rejects, with nothing at issuance time to say so.
+
+        Which is what made the pair coherent rather than merely broken: the fake
+        verifier's unconditional `valid: True` would "rescue" exactly the poison
+        records the real verifier rejects. The two fakes covered for each other.
+        """
+        return await self.credential_vault.issue_credential(
+            issuer_did=issuer_did,
+            subject_did=subject_did,
+            credential_type=credential_type,
+            claims=claims,
+        )
 
     async def verify_credential(
         self, credential_id: str, verifier_did: str = "",
     ) -> dict:
-        """Verify a credential's validity."""
-        verify_id = f"vcv_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": verify_id,
-            "status": "verified",
-            "credential_id": credential_id,
-            "verifier": verifier_did,
-            "valid": True,
-            "verified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
-        logger.info("Credential verified: id=%s", verify_id)
-        return record
+        """Verify a credential by delegating to the real vault verifier.
+
+        THE SHADOW. This method used to mint a uuid and return
+        ``{"valid": True, "status": "verified"}`` for ANY string — no vault
+        lookup, no expiry check, no revocation check, no proof comparison.
+        There was no input that could fail it. Meanwhile
+        ``credential_vault.verify_credential`` right beside it does the real
+        work: structural validity, ``proof.proofValue``, expiry, and the
+        revocation set. The fake shadowed the real one.
+
+        It is worse than the other fabrications found in this phase, and the
+        reason is precise: every one of those sat behind a signature mismatch
+        that errored the call out before the fabrication could run — accidental
+        safety. This one's declared parameters MATCHED, so it was never in the
+        NEW-13 broken set and has been live and callable all along. Anything
+        gating on a credential was gating on the constant ``True``: a revoked
+        credential verified, an expired one verified, a forged one verified,
+        one that was never issued verified.
+
+        Now: look the credential up, and verify it for real. Unknown ids fail
+        closed rather than passing — the whole point is that some input must be
+        able to fail.
+        """
+        credential = self.credential_vault._credentials.get(credential_id)
+        if credential is None:
+            return {
+                "status": "invalid",
+                "credential_id": credential_id,
+                "verifier": verifier_did,
+                "valid": False,
+                "errors": ["Credential not found"],
+                "verified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+        result = await self.credential_vault.verify_credential(credential)
+        result.setdefault("credential_id", credential_id)
+        result["verifier"] = verifier_did
+        return result
 
     async def selective_disclose(
         self, did: str, credential_id: str, fields: list[str], verifier_did: str = "",
     ) -> dict:
-        """Generate a selective disclosure proof."""
-        proof_id = f"sd_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": proof_id,
-            "status": "disclosed",
-            "did": did,
-            "credential_id": credential_id,
-            "disclosed_fields": fields,
-            "verifier": verifier_did,
-        }
-        logger.info("Selective disclosure: id=%s", proof_id)
-        return record
+        """Build a real selective-disclosure presentation via SelectiveDisclosure.
+
+        THE THIRD SHADOW, and the one I initially got wrong. This method minted
+        ``sd_<uuid4>``, returned ``"status": "disclosed"`` with the requested
+        field names echoed back, and produced NO PROOF: it read no credential,
+        verified nothing, stored nothing. Like the shadowed verifier its
+        parameters MATCHED, so nothing was holding it inert — it was live.
+
+        My first repair marked it unavailable, on the reasoning that selective
+        disclosure needs BBS+ or equivalent and none was implemented. That was
+        wrong, and starting the Phase 3.8 census is what caught it: this package
+        contains ``selective_disclosure.py``, a real ``SelectiveDisclosure``
+        already instantiated at ``self.selective_disclosure``, which validates
+        its inputs, raises on an unknown credential, and replaces undisclosed
+        field values with salted sha256 commitments. It even documents that its
+        credential store is "populated externally by DIDService" — the wiring
+        this shadow was standing in for and never did.
+
+        So this is a delegation, not a removal: the capability is real, only the
+        wiring was fake. The credential is fetched from the vault and registered
+        with the disclosure module first, which is the step the shadow skipped.
+        """
+        credential = self.credential_vault._credentials.get(credential_id)
+        if credential is None:
+            return {
+                "status": "error",
+                "error_category": "not_found",
+                "error": f"Credential {credential_id} not found",
+                "did": did,
+                "credential_id": credential_id,
+            }
+
+        self.selective_disclosure.register_credential(credential)
+        presentation = await self.selective_disclosure.create_presentation(
+            holder_did=did,
+            credential_ids=[credential_id],
+            disclosed_fields={credential_id: list(fields)},
+        )
+        if isinstance(presentation, dict):
+            presentation.setdefault("verifier", verifier_did)
+        return presentation
 
     async def query_reputation(self, did: str) -> dict:
         """Query the on-chain reputation score for a DID."""

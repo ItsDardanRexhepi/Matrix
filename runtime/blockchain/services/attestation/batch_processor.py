@@ -69,6 +69,23 @@ class BatchProcessor:
         """Number of attestations waiting in the queue."""
         return len(self._queue)
 
+    @property
+    def is_running(self) -> bool:
+        """True only when the interval auto-flush task is actually running.
+
+        NEW-51: added so `AttestationService.attest` can state the truth about
+        submission rather than implying one. This distinguishes the two drain
+        paths: the SIZE-THRESHOLD flush in `add()` works unconditionally, but
+        the INTERVAL flush requires `start()` — which currently has no caller
+        anywhere in the repo, so this returns False in production.
+
+        Checks the task as well as the flag: `_running` is set to True by
+        `start()` before the task is created, so the flag alone would report a
+        running loop during a window where none exists, and would keep
+        reporting one if the task died.
+        """
+        return self._running and self._flush_task is not None and not self._flush_task.done()
+
     async def start(self) -> None:
         """Start the background auto-flush task."""
         if self._running:

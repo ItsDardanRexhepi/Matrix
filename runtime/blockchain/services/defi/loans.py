@@ -76,7 +76,17 @@ class LoanManager:
 
         self._web3 = Web3Manager.get_shared(config)
 
-        # In-memory loan storage (used only when contracts are not deployed)
+        # DOMAIN 16-L — THIS COMMENT SAID THE OPPOSITE OF THE TRUTH.
+        # It read "used only when contracts are not deployed". The reverse is
+        # the case: `create_loan`'s gate returns not_deployed BEFORE reaching
+        # the line that writes here, so this store is populated ONLY when
+        # contracts ARE deployed. Verified — under the shipped config the store
+        # stays empty and every read raises KeyError.
+        #
+        # The inversion matters because it is load-bearing for severity: a
+        # reader trusting it would conclude this is throwaway state for the
+        # undeployed case, when it is in fact the live ledger of the deployed
+        # one — the store that 16-C's collateral-release defect ran through.
         self._loans: dict[str, dict[str, Any]] = {}
         # Pool utilisation tracking per token
         self._pool_total: dict[str, float] = {}     # total deposited
@@ -122,6 +132,20 @@ class LoanManager:
         ValueError
             If collateralisation ratio is below minimum.
         """
+        # DOMAIN 16-A — ARMED BY DEPLOYMENT. Under the shipped config the gate
+        # below returns not_deployed and nothing here runs; the moment contracts
+        # are deployed this becomes the live borrow path, and NaN walked ALL of
+        # it. Driven against a simulated-deployed install: a NaN collateral
+        # amount passed this sign check, passed the deployment gate, and then
+        # passed the MINIMUM-COLLATERALISATION check below — issuing a real
+        # 1000 USDC loan with collateral_ratio recorded as NaN.
+        #
+        # THAT IS THE PRIMARY SAFETY PROPERTY OF A LENDING PROTOCOL. It is not
+        # defeated by a clever exploit; it is defeated by a value for which every
+        # `<` answers False.
+        if not math.isfinite(collateral_amount) or not math.isfinite(borrow_amount):
+            raise ValueError("Amounts must be finite numbers")
+
         if collateral_amount <= 0 or borrow_amount <= 0:
             raise ValueError("Amounts must be positive")
 
@@ -147,6 +171,21 @@ class LoanManager:
         collateral_value = collateral_amount * collateral_price
         borrow_value = borrow_amount * borrow_price
         collateral_ratio = collateral_value / borrow_value if borrow_value > 0 else 0
+
+        # DOMAIN 16-A, DEFENCE IN DEPTH. Guarding the inputs is not sufficient:
+        # the ratio is a QUOTIENT OF PRICES, and a non-finite price from the
+        # oracle produces a non-finite ratio from finite inputs. A ratio that is
+        # not a number cannot be below a minimum — `NaN < 1.5` is False — so the
+        # check would pass without ever comparing anything.
+        # REFUSE, do not coerce: a ratio we cannot compute is not a ratio of 0,
+        # and silently substituting one would replace an unanswerable question
+        # with a confident wrong answer.
+        if not math.isfinite(collateral_ratio):
+            raise ValueError(
+                "Collateral ratio could not be computed as a finite number "
+                f"(collateral_value={collateral_value}, borrow_value={borrow_value}). "
+                "Refusing to issue a loan whose collateralisation is unknown."
+            )
 
         if collateral_ratio < self._min_collateral_ratio:
             raise ValueError(
@@ -199,13 +238,32 @@ class LoanManager:
         KeyError
             If loan_id is not found.
         """
+        # DOMAIN 16-H — A READ THAT WROTE, WHILE THE CATALOG SAID IT DID NOT.
+        # `get_loan` is registered `state_modifying=False` (catalog.py:138), and
+        # that flag is what decides whether the dispatcher attests the action and
+        # publishes it. Meanwhile the body called `_accrue_interest(loan)`, which
+        # writes `accrued_interest` and re-bases `last_interest_update` on the
+        # stored record. Driven: two `get_loan` calls one second apart mutated
+        # both fields. It also returned `self._loans[loan_id]` BY REFERENCE, so
+        # any consumer that wrote to the result edited the ledger.
+        #
+        # The catalog was not wrong about what a read SHOULD do — the code was
+        # wrong about what this read DID. Fixed on the code side: interest is
+        # computed for the response on a COPY, and nothing is persisted.
+        #
+        # THIS IS ALSO MORE CORRECT ARITHMETIC, not merely more honest. Accrual
+        # re-based the clock on every read, so interest was compounded once per
+        # observation: reading a loan ten times charged more than reading it once.
+        # Computing from the un-rebased `last_interest_update` makes the answer a
+        # function of the loan and the clock, not of how often anyone looked.
         if loan_id not in self._loans:
             raise KeyError(f"Loan '{loan_id}' not found")
 
-        loan = self._loans[loan_id]
-        if loan["status"] == LoanStatus.ACTIVE:
-            self._accrue_interest(loan)
-        return loan
+        stored = self._loans[loan_id]
+        view = dict(stored)
+        if view["status"] == LoanStatus.ACTIVE:
+            self._accrue_interest(view)
+        return view
 
     async def repay_loan(
         self, loan_id: str, amount: float
@@ -234,6 +292,23 @@ class LoanManager:
         self._accrue_interest(loan)
         total_owed = loan["borrow_amount"] + loan["accrued_interest"]
 
+        # DOMAIN 16-D — THE GUARD WAS AT THE WRONG LAYER, AND IT WAS MY MISS.
+        # 16-C put an isfinite check on `set_borrow_position`, which correctly
+        # refused a NaN repayment — but only AFTER this method had already
+        # mutated the loan. Driven: a refused NaN repay left the loan carrying
+        # `borrow_amount = nan`, i.e. the ledger was protected and the loan was
+        # corrupted. A torn write, produced by guarding the second writer and
+        # not the first.
+        #
+        # `min(nan, total_owed)` returns nan, and `nan <= accrued_interest` is
+        # False, so the NaN flowed into the principal branch.
+        #
+        # THE RULE: validate at the FIRST writer of the transaction, not the
+        # last. A guard downstream of a mutation converts silent corruption into
+        # loud corruption — an improvement, but not a fix.
+        if not math.isfinite(amount):
+            raise ValueError("Repayment amount must be a finite number")
+
         if amount <= 0:
             raise ValueError("Repayment amount must be positive")
 
@@ -242,14 +317,27 @@ class LoanManager:
         # Apply repayment: first to interest, then principal
         if repay_amount <= loan["accrued_interest"]:
             loan["accrued_interest"] -= repay_amount
+            principal_repaid = 0.0
         else:
             remainder = repay_amount - loan["accrued_interest"]
             loan["accrued_interest"] = 0.0
             loan["borrow_amount"] -= remainder
+            principal_repaid = remainder
 
-        # Update pool
+        # 16-R. THE LEDGER WAS INCREMENTED BY PRINCIPAL AND DECREMENTED BY
+        # PRINCIPAL PLUS INTEREST. `create_loan` adds `borrow_amount` to
+        # `_pool_borrowed`; this line used to subtract the whole `repay_amount`,
+        # which pays interest first. Every repayment of a loan that had accrued
+        # any interest removed more from the pool than the loan ever put in, so
+        # `_pool_borrowed` drifted DOWN — understating outstanding borrowings,
+        # and with it utilisation, and with it the rate charged to every
+        # subsequent borrower. `max(0, ...)` hid the drift from ever going
+        # visibly negative, which is why it reads as correct.
+        #
+        # Only the PRINCIPAL portion is a change in what is borrowed. Interest is
+        # a payment on the debt, not a reduction of the amount lent out.
         self._pool_borrowed[loan["borrow_token"]] = max(
-            0, self._pool_borrowed.get(loan["borrow_token"], 0) - repay_amount
+            0, self._pool_borrowed.get(loan["borrow_token"], 0) - principal_repaid
         )
 
         # Check if fully repaid
@@ -305,6 +393,33 @@ class LoanManager:
         if loan["status"] != LoanStatus.ACTIVE:
             raise ValueError(f"Loan '{loan_id}' is {loan['status']}, cannot liquidate")
 
+        # 16-P. THE NON-FINITE CLASS, THIRD GUARD SHAPE — an eligibility test.
+        # 16-A walked the sign check (`amount <= 0`) and the ratio check
+        # (`collateral_ratio < min`); this is `current_ratio >= threshold`, and it
+        # fails the same way for the same reason. With a NaN price the ratio is
+        # NaN, `NaN >= threshold` is FALSE, and the "not eligible, refuse" branch
+        # is skipped — so A LOAN THAT IS PERFECTLY HEALTHY IS MARKED
+        # LIQUIDATION-DUE. The guard reads as a protection and inverts into the
+        # attack: the safe direction is the one NaN cannot reach.
+        #
+        # A zero collateral price is a separate defect on the same inputs: the
+        # seizure arithmetic divides by `collateral_price` and raises
+        # ZeroDivisionError from inside a method that has already accrued
+        # interest. Both are rejected HERE, before `_accrue_interest` mutates the
+        # loan, because 16-F established that validation after mutation leaves
+        # the record changed by a call that refused.
+        for _label, _price in (("collateral", collateral_price),
+                               ("borrow", borrow_price)):
+            if not math.isfinite(_price):
+                raise ValueError(
+                    f"{_label.capitalize()} price must be a finite number; "
+                    f"liquidation eligibility cannot be decided from {_price!r}"
+                )
+            if _price <= 0:
+                raise ValueError(
+                    f"{_label.capitalize()} price must be positive, got {_price}"
+                )
+
         self._accrue_interest(loan)
 
         collateral_value = loan["collateral_amount"] * collateral_price
@@ -325,28 +440,75 @@ class LoanManager:
 
         collateral_remaining = loan["collateral_amount"] - collateral_seized
 
-        loan["status"] = LoanStatus.LIQUIDATED
-        loan["collateral_amount"] = collateral_remaining
-        loan["borrow_amount"] = 0.0
-        loan["accrued_interest"] = 0.0
+        # DOMAIN 16-E, AND THIS HALF WAS WORSE THAN THE RETURN VALUE. The
+        # method used to mark the loan LIQUIDATED, reduce its recorded
+        # collateral, and set borrow_amount and accrued_interest to 0.0 — i.e.
+        # it ERASED THE DEBT while the borrower still held every unit of
+        # collateral. A lender reading this record sees a closed, settled
+        # position; the borrower has the asset and owes nothing on the books.
+        #
+        # The state must record that a liquidation is DUE, and must not pretend
+        # one occurred. Debt and collateral are left exactly as they are,
+        # because nothing about them changed.
+        loan["status"] = LoanStatus.ACTIVE
+        loan["liquidation_due"] = True
+        loan["liquidation_due_at"] = int(time.time())
+        loan["liquidation_ratio_at_determination"] = round(current_ratio, 4)
 
-        # Update pool
-        self._pool_borrowed[loan["borrow_token"]] = max(
-            0, self._pool_borrowed.get(loan["borrow_token"], 0) - total_owed
-        )
+        # The pool figure is NOT decremented. It was reduced by `total_owed` on
+        # the theory that the debt had been repaid out of seized collateral. No
+        # collateral was seized and no debt was repaid, so decrementing it
+        # understated outstanding borrowings by the full loan value.
 
+        # DOMAIN 16-E — "seized" WAS A CLAIM ABOUT SOMETHING THAT NEVER HAPPENED.
+        # LoanManager has no reference to CollateralManager's balances, so this
+        # method CANNOT move collateral — the same structural fact domain 13
+        # established for the securities exchange. Driven, on an eligible loan:
+        #
+        #   returned:  collateral_seized 1.0, collateral_remaining 0.0,
+        #              debt_repaid 1200.0, status "liquidated"
+        #   actual:    borrower's collateral ledger UNCHANGED at ETH 1.0,
+        #              borrow ledger UNCHANGED at USDC 1200.0
+        #
+        # Nothing was seized, nothing was repaid, and the borrower kept both the
+        # collateral and the debt. This is the LENDER'S ONLY REMEDY reporting
+        # success over an action it is structurally unable to perform.
+        #
+        # DISPOSITION — the NEW-85 test, and domain 13's `match_orders` ruling
+        # applied verbatim. Strip the outcome claim: is there work left? YES —
+        # the eligibility determination is real (price fetch, ratio computation,
+        # threshold comparison) and is the useful half. So this is category 6:
+        # the method stops claiming to have EXECUTED a liquidation and starts
+        # reporting what it actually did, which is DETERMINE that one is due.
+        #
+        # The amounts are kept as what they are — a QUOTE of what a real
+        # liquidation would take — under names that cannot be misread as a
+        # completed transfer.
         result = {
             "loan_id": loan_id,
-            "status": LoanStatus.LIQUIDATED,
-            "collateral_seized": round(collateral_seized, 8),
-            "collateral_remaining": round(collateral_remaining, 8),
-            "debt_repaid": round(total_owed, 8),
+            "status": "liquidation_due_unsettled",
+            "seized": False,
+            "value_moved": False,
+            "collateral_seizable": round(collateral_seized, 8),
+            "collateral_would_remain": round(collateral_remaining, 8),
+            "debt_outstanding": round(total_owed, 8),
             "liquidation_penalty": round(penalty, 8),
             "ratio_at_liquidation": round(current_ratio, 4),
+            "disclosure": (
+                "DETERMINED, NOT EXECUTED. This loan is eligible for "
+                "liquidation and the amounts above are what a liquidation "
+                "WOULD take. No collateral has been seized and no debt has "
+                "been repaid: LoanManager holds no reference to the collateral "
+                "ledger and cannot move it. A real liquidation requires a "
+                "settlement path that does not exist in this service."
+            ),
         }
 
+        # An operator reading logs is a surface too — inert means inert on every
+        # surface. Was "Loan liquidated: ... seized=...".
         logger.info(
-            "Loan liquidated: id=%s seized=%.6f %s ratio=%.2f",
+            "Liquidation DUE (NOT executed — no collateral moved): "
+            "id=%s seizable=%.6f %s ratio=%.2f",
             loan_id, collateral_seized, loan["collateral_token"], current_ratio,
         )
         return result
@@ -395,6 +557,35 @@ class LoanManager:
 
     # ── Interest rate model ───────────────────────────────────────────
 
+    def _utilisation(self, token: str) -> float:
+        """Pool utilisation. ONE definition, because there used to be two.
+
+        16-Q. `_calculate_interest_rate` read ``self._pool_total.get(token, 1.0)``
+        and `get_rates` read ``self._pool_total.get(token, 0.0)`` — the same
+        quantity, two defaults, in the same file. For a token with no pool entry
+        and any outstanding borrowing, the rate was computed from utilisation
+        **1.0** (the maximum kink, via a fabricated denominator of one unit)
+        while `get_rates` returned ``"utilisation": 0.0`` in the same dict as the
+        rate derived from it. A borrower was charged the maximum rate by an API
+        that reported the pool as idle.
+
+        The finding this came from was filed as "the rate model reads a control
+        nothing feeds". That premise is FALSE and the correction is recorded
+        rather than quietly dropped: `_pool_total` has a writer,
+        `update_pool_total`, reached from four call sites in `defi/service.py`.
+        The defect is not an unfed control, it is a DIVERGENT one — which is the
+        harder version, because every reader looks correct on its own.
+
+        An empty pool with borrowings against it is fully drawn, so utilisation
+        is 1.0 — not zero, and not a made-up denominator. The rate is unchanged
+        by this fix on every input; only the reported number becomes true.
+        """
+        total = self._pool_total.get(token, 0.0)
+        borrowed = self._pool_borrowed.get(token, 0.0)
+        if total <= 0:
+            return 1.0 if borrowed > 0 else 0.0
+        return min(borrowed / total, 1.0)
+
     def _calculate_interest_rate(self, token: str) -> float:
         """Calculate variable interest rate based on pool utilisation.
 
@@ -403,9 +594,7 @@ class LoanManager:
         - Above optimal utilisation: base_rate + optimal * slope1 +
           (utilisation - optimal) * slope2
         """
-        total = self._pool_total.get(token, 1.0)
-        borrowed = self._pool_borrowed.get(token, 0.0)
-        utilisation = min(borrowed / total, 1.0) if total > 0 else 0.0
+        utilisation = self._utilisation(token)
 
         if utilisation <= _OPTIMAL_UTILISATION:
             rate = self._base_rate + utilisation * _SLOPE_1
@@ -445,7 +634,10 @@ class LoanManager:
         """
         total = self._pool_total.get(token, 0.0)
         borrowed = self._pool_borrowed.get(token, 0.0)
-        utilisation = borrowed / total if total > 0 else 0.0
+        # 16-Q: the SAME utilisation the rate was computed from. These were two
+        # separate expressions with different defaults, so this dict could report
+        # a rate derived from utilisation 1.0 next to `"utilisation": 0.0`.
+        utilisation = self._utilisation(token)
         rate = self._calculate_interest_rate(token)
 
         return {

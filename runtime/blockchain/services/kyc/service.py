@@ -152,6 +152,47 @@ class KYCService:
 
     # ── Methods ──────────────────────────────────────────────────────
 
+    def require_kyc_enabled(self, method: str) -> dict | None:
+        """23-D. Refuse unless services.kyc.enabled is explicitly true.
+
+        NAMED `require_kyc_enabled`, not `require_enabled`: the refusal
+        registry matches by SUBSTRING, and a short name silently
+        reclassifies every unrelated `_require_enabled` in the repo — a
+        measured false positive that manufactured two findings in
+        domain 19. Domain-qualified names only.
+        """
+        # 23-D. `services.kyc.enabled` HAD A WRITER AND NO READERS.
+        # Writer set = {openmatrix.config.json.example}; reader set inside this
+        # package = EMPTY (enumerated: every config read is provider, endpoint,
+        # api_key, secret_key, template_id, level_name, eas_contract,
+        # eas_schema — 'enabled' appears nowhere). An operator reading the
+        # shipped config sees `services.kyc {enabled: false}` and concludes the
+        # identity service is off. It was not.
+        #
+        # 19-A's template, and this service is the one that most needed it: the
+        # same guard already protects a treasury (restaking), a token mint
+        # (creator_platforms) and real_estate. The service that makes durable
+        # claims about NAMED PEOPLE did not have it.
+        #
+        # FAILS CLOSED. Absent means refuse — the alternative is what shipped.
+        # PLATFORM SCOPE IS NOT FIXED HERE: 42 of 44 services have the same
+        # dead key (R-21.1). That rename touches every service and is a scoping
+        # decision, not a remediation — registered, not done (P-3).
+        if (self._config.get("services", {}) or {}).get(
+                self.service_name, {}).get("enabled") is not True:
+            return not_deployed_response(self.service_name, extra={
+                "method": method,
+                "missing": f"services.{self.service_name}.enabled must be true",
+                "reason": (
+                    "This service returns AML/sanctions verdicts about named "
+                    "individuals and issues durable identity credentials. It "
+                    "is disabled by default; enabling it is an explicit, "
+                    "auditable operator decision, not implied by populating "
+                    "provider credentials."
+                ),
+            })
+        return None
+
     async def start_kyc(self, **params: Any) -> dict:
         """Start a KYC verification flow for a user via the configured provider.
 
@@ -163,7 +204,12 @@ class KYCService:
         Expected params: ``external_user_id`` (str, your opaque user ref),
         optional ``level_name`` (Sumsub verification level).
         """
+        _gate = self.require_kyc_enabled("start_kyc")
+        if _gate is not None:
+            return _gate
+
         cfg = self._cfg()
+
         api_key = cfg.get("api_key")
         secret_key = cfg.get("secret_key")
 
@@ -267,6 +313,10 @@ class KYCService:
         Expected params: ``applicant_id`` (provider applicant id from
         ``start_kyc``).
         """
+        _gate = self.require_kyc_enabled("check_aml_risk")
+        if _gate is not None:
+            return _gate
+
         cfg = self._cfg()
         api_key = cfg.get("api_key")
         secret_key = cfg.get("secret_key")
@@ -302,6 +352,58 @@ class KYCService:
                 "error": "applicant_id is required (from start_kyc)",
             }
 
+        # ===================================================================
+        # 23-B. THE APPLICANT ID CHOSE WHICH RECORD THE VERDICT DESCRIBED.
+        # ===================================================================
+        # MEASURED at pin 42c9b19, synthetic placeholders only:
+        #
+        #   applicant_id = "TEST_ENTITY_A/../TEST_ENTITY_B"
+        #   path actually served : /resources/applicants/TEST_ENTITY_B/status
+        #   applicant_id returned: TEST_ENTITY_A/../TEST_ENTITY_B
+        #   risk / review_answer : high / RED
+        #
+        # A RED SANCTIONS VERDICT BELONGING TO ONE RECORD WAS RETURNED BEARING
+        # ANOTHER IDENTIFIER. That is the harm the standing constraint names —
+        # a false positive on a sanctions screen, attaching to a real person.
+        # And `_sumsub_headers` signs `ts+METHOD+path+body` over the SAME
+        # unencoded string, so the injected path is VALIDLY HMAC-SIGNED with
+        # the platform's own provider credentials.
+        #
+        # THIS IS A REFUSAL, NOT A SANITISER, AND THE DISTINCTION IS THE POINT.
+        # Percent-encoding or stripping this input would be A GUESS ABOUT THE
+        # PROVIDER'S PARSER — we do not know how Sumsub or Persona normalise a
+        # path, and R-23.2 records that NO REAL PROVIDER RESPONSE HAS EVER BEEN
+        # OBSERVED IN THIS ENGAGEMENT. A transform we cannot validate against
+        # the receiving parser is a second guess layered on the first.
+        #
+        # So: anything not plainly an opaque identifier is REFUSED, and the
+        # request is never sent.
+        #
+        # LIFTING CONDITION — what would let this widen: the provider's own
+        # DOCUMENTED identifier grammar, or an opaque handle THIS PLATFORM
+        # issued and can therefore vouch for. Neither exists today. Until one
+        # does, the conservative set is the only honest bound.
+        _bad = [c for c in str(applicant_id) if not (c.isalnum() or c in "-_")]
+        if _bad:
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "check_aml_risk",
+                "refused": True,
+                "applicant_id": applicant_id,
+                "reason": (
+                    "applicant_id must be an opaque identifier "
+                    "([A-Za-z0-9_-] only). It is interpolated into the "
+                    "provider request path and HMAC-signed with this "
+                    "platform's credentials, so a value containing path or "
+                    "query characters selects WHICH PERSON'S RECORD the "
+                    "returned verdict describes. Refused rather than "
+                    "rewritten: encoding it would be a guess about the "
+                    "provider's parser."
+                ),
+                "rejected_characters": sorted(set(_bad)),
+            }
+
         provider = self._provider()
         base_url = self._base_url()
 
@@ -332,10 +434,65 @@ class KYCService:
             except Exception:  # noqa: BLE001
                 data = {"raw": resp.text[:500]}
 
+            # ===============================================================
+            # 23-C. ONE PARSER, KEYED FOR ONE PROVIDER — AND IT GRADES BOTH.
+            # ===============================================================
+            # §AK.4, counted before proposing: the provider is selected for the
+            # REQUEST at two sites, and the response is graded at exactly ONE
+            # (here), using SUMSUB-ONLY KEYS unconditionally. So this is one
+            # grading site and one defect — separate from 23-B, which is the
+            # outbound path. Two fixes; neither subsumes the other.
+            #
+            # MEASURED at pin 42c9b19 under provider="persona":
+            #   {"data":{"attributes":{"status":"declined",
+            #                          "failure-reason":"watchlist-hit"}}}
+            #     -> status='checked', risk='unknown', review_answer=None
+            #   {"data":{"attributes":{"status":"approved"}}}
+            #     -> status='checked', risk='unknown', review_answer=None
+            # BYTE-IDENTICAL VERDICT FIELDS FOR APPROVED AND DECLINED. A
+            # watchlist hit on a named person silently downgraded to 'unknown'
+            # while the response affirmatively claims the check ran.
+            #
+            # WE DO NOT WRITE A PERSONA PARSER, AND THAT IS THE POINT.
+            # R-23.2 records that NO REAL PROVIDER RESPONSE HAS EVER BEEN
+            # OBSERVED IN THIS ENGAGEMENT — every envelope tested is one we
+            # authored. Writing a grader for a shape we have never seen is the
+            # same guess 23-B refused, and it would be worse here: the guess
+            # would produce a VERDICT ABOUT A PERSON rather than a request path.
+            #
+            # So an ungradeable provider is REFUSED, not graded to 'unknown'
+            # under a 'checked' status. LIFTING CONDITION: a captured, real
+            # response from that provider, and a grader written against it.
+            if provider != "sumsub":
+                return {
+                    "status": "provider_unsupported",
+                    "service": self.service_name,
+                    "method": "check_aml_risk",
+                    "refused": True,
+                    "provider": provider_name,
+                    "applicant_id": applicant_id,
+                    "sanctions_screened": False,
+                    "sanctions_disclosure": (
+                        "NOT SCREENED — no verdict was derived. This service "
+                        "can only grade Sumsub review envelopes, and the "
+                        "configured provider is "
+                        f"{provider_name}. Its response was fetched and NOT "
+                        "interpreted. Do not treat this as a completed "
+                        "sanctions or PEP screen."
+                    ),
+                    "provider_response": data,
+                }
+
             # Sumsub: reviewResult.reviewAnswer is GREEN (clear) / RED (hit).
             review_result = data.get("reviewResult", {}) if isinstance(data, dict) else {}
             review_answer = review_result.get("reviewAnswer")
             reject_labels = review_result.get("rejectLabels", [])
+            # 23-C. Ported from cross_border/compliance.py:205 — the honest
+            # version already existed in this repository and was stated only at
+            # that scope (§AI.1). A GREEN review answer is the provider's
+            # adjudication; it is NOT by itself evidence that a sanctions or
+            # PEP list was consulted.
+            _screened = review_answer in ("GREEN", "RED")
             if review_answer == "GREEN":
                 risk = "low"
             elif review_answer == "RED":
@@ -344,6 +501,14 @@ class KYCService:
                 risk = "unknown"
 
             return {
+                "sanctions_screened": _screened,
+                "sanctions_disclosure": (
+                    None if _screened else
+                    "NOT SCREENED — the provider returned no review "
+                    "adjudication for this applicant, so no sanctions or PEP "
+                    "determination exists. Do not treat this result as a "
+                    "completed screen."
+                ),
                 "status": "checked" if ok else "provider_error",
                 "service": self.service_name,
                 "method": "check_aml_risk",
@@ -382,6 +547,113 @@ class KYCService:
           - ``blockchain.eas_contract`` — EAS contract address (chain-level)
           - ``blockchain.eas_schema``   — registered KYC schema UID
         """
+        _gate = self.require_kyc_enabled("issue_kyc_credential")
+        if _gate is not None:
+            return _gate
+
+        # 23-A / SR-2. AUTHORIZATION BEFORE CONFIGURATION. This block was
+        # BELOW the chain-config gates, so an attempt to mint a credential with
+        # NO verification result came back as "rpc_url missing" — masking the
+        # attempt and, worse, telling the caller what to configure to make it
+        # work. A config problem is the operator's own state; an attempt to
+        # obtain an unearned credential about a person is someone acting. When
+        # both are true the second is the one that must be reported.
+        subject = params.get("subject") or params.get("recipient") or params.get("holder")
+        if is_placeholder_value(subject):
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "issue_kyc_credential",
+                "error": "subject (holder wallet address) is required",
+            }
+
+        kyc_level = str(params.get("kyc_level", "verified"))
+        expiration = int(params.get("expiration", 0) or 0)
+
+        # ===================================================================
+        # 23-A. `passed` WAS THE SOURCE LITERAL `True`.
+        # ===================================================================
+        # MEASURED at pin 42c9b19 by decoding the calldata actually handed to
+        # `contract.functions.attest()`:
+        #
+        #     encode(["string","bool","uint256"], [kyc_level, True, issued_at])
+        #                                                     ^^^^ a LITERAL
+        #
+        # and enumerated over this method's own source: `applicant_id`,
+        # `check_aml_risk`, `review_answer`, `reviewResult`, `risk`,
+        # `reject_labels`, `sanction`, `pep`, `start_kyc` — EVERY ONE ABSENT.
+        # A caller supplied an address and a free-text level, and the
+        # platform's paymaster key notarised onto a PUBLIC ATTESTATION
+        # REGISTRY that this person PASSED KYC at that level. Driven with
+        # kyc_level='enhanced-aml-cleared-sanctions-screened' -> attested.
+        #
+        # §U in its purest form: the party bound by the decision supplied the
+        # entire content of the decision. And unlike a carbon registry entry,
+        # AN IDENTITY CREDENTIAL ON A WALLET CANNOT BE RECALLED FROM PARTIES
+        # WHO ALREADY RELIED ON IT.
+        #
+        # THIS IS A DELIBERATE REFUSAL, NOT A PASS-THROUGH, AND THE ORDER
+        # MATTERS — DO NOT "FIX" THIS BY WIRING `check_aml_risk` INTO IT.
+        # That method cannot yet distinguish "screened and clear" from "never
+        # screened" (its 11-key response was enumerated; no such field
+        # exists). Wiring it would attest an UNSCREENED person as passed with
+        # one more step of indirection AND a provider name attached to lend it
+        # credibility (§AH). The honest fields must be ported from
+        # `cross_border/compliance.py:205` — `sanctions_screened` plus the
+        # "ran against an empty list and cannot have matched" disclosure —
+        # BEFORE the attestation has anything true to carry.
+        #
+        # SEQUENCING — RE-MEASURED AFTER THIS FIX LANDED, AND THE WARNING IS
+        # NOW STALE IN THE SAFE DIRECTION. It originally read: wiring
+        # `blockchain.schemas.identity` (AP::5 / AC::2) uses a UID ALREADY
+        # SHIPPED AND POPULATED, so doing that first would ARM this cluster.
+        #
+        # DRIVEN with rpc_url, eas_schema and paymaster_private_key ALL
+        # populated and no verification supplied: status='not_verified',
+        # refused=True. THIS GATE DOMINATES EVERY CHAIN-CONFIG PATH, so the
+        # schema wiring can no longer arm the cluster.
+        #
+        # Kept, corrected rather than deleted, because a stale warning that
+        # names a hazard which no longer exists READS AS AUTHORITATIVE (§AM.3)
+        # — and because the ordering claim is still true of any deployment
+        # that reverts this gate.
+        #
+        # LIFTING CONDITION — what must exist before this refusal is removed:
+        # a verification result the SUBJECT DID NOT SUPPLY, carrying (a) the
+        # provider's own adjudication, (b) an explicit field stating that
+        # sanctions/PEP screening ran, and (c) the applicant record it
+        # describes. A caller-supplied `kyc_level` string is none of those.
+        _verification = params.get("verification_result")
+        _screened = bool(
+            isinstance(_verification, dict)
+            and _verification.get("sanctions_screened") is True
+            and _verification.get("review_answer") == "GREEN"
+        )
+        if not _screened:
+            return {
+                "status": "not_verified",
+                "service": self.service_name,
+                "method": "issue_kyc_credential",
+                "refused": True,
+                "subject": subject,
+                "requested_level": kyc_level,
+                "reason": (
+                    "No verification result was supplied that establishes this "
+                    "subject passed screening. The platform will not attest "
+                    "`passed` on a public registry from a caller-supplied "
+                    "level string alone — that would be a signed statement "
+                    "about a person's regulatory status with nothing behind "
+                    "it, readable by every downstream verifier and not "
+                    "recallable from anyone who relied on it."
+                ),
+                "required": (
+                    "verification_result{sanctions_screened: true, "
+                    "review_answer: 'GREEN'} originating from the provider, "
+                    "not from the caller"
+                ),
+            }
+        _passed = True
+
         bc = self._config.get("blockchain", {})
         eas_contract = bc.get("eas_contract", "")
         eas_schema = bc.get("eas_schema", "")
@@ -412,17 +684,6 @@ class KYCService:
                 "protocol": "EAS (Ethereum Attestation Service) verifiable credential",
             })
 
-        subject = params.get("subject") or params.get("recipient") or params.get("holder")
-        if is_placeholder_value(subject):
-            return {
-                "status": "invalid_request",
-                "service": self.service_name,
-                "method": "issue_kyc_credential",
-                "error": "subject (holder wallet address) is required",
-            }
-
-        kyc_level = str(params.get("kyc_level", "verified"))
-        expiration = int(params.get("expiration", 0) or 0)
 
         try:
             from web3 import Web3  # noqa: PLC0415
@@ -450,7 +711,9 @@ class KYCService:
             issued_at = int(time.time())
             encoded_data = encode(
                 ["string", "bool", "uint256"],
-                [kyc_level, True, issued_at],
+                # 23-A. Derived, not asserted. `_passed` is reachable only
+                # through the screened-verification gate above.
+                [kyc_level, _passed, issued_at],
             )
             schema_bytes = bytes.fromhex(str(eas_schema).replace("0x", ""))
 

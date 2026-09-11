@@ -250,7 +250,7 @@ rate limiting as the public surface but return iOS-friendly envelopes.
 | `POST` | `/bridge/v1/session/create`             | Create a new mobile session                             |
 | `POST` | `/bridge/v1/session/resume`             | Resume an existing session by token                     |
 | `POST` | `/bridge/v1/chat`                       | Chat with an agent (same semantics as `/chat`)          |
-| `POST` | `/bridge/v1/action`                     | Execute a named action (e.g. `deploy_contract`)         |
+| `POST` | `/bridge/v1/action`                     | Execute a named action (e.g. `convert_contract`)        |
 | `POST` | `/bridge/v1/wallet/link`                | Link a wallet to the session                            |
 | `GET`  | `/bridge/v1/wallet/status`              | Get the currently linked wallet and balance             |
 | `GET`  | `/bridge/v1/config`                     | Fetch client-safe config (network, feature flags)       |

@@ -3,13 +3,13 @@
   "platform": "0pnMatrx",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
-  "total_capabilities": 221,
+  "total_capabilities": 195,
   "total_categories": 20,
   "components": [
     {
       "id": "contracts",
       "name": "Smart Contracts",
-      "description": "4 capabilities in the Smart Contracts category",
+      "description": "3 capabilities in the Smart Contracts category",
       "category": "contracts",
       "min_tier": "free",
       "limits": {
@@ -21,18 +21,17 @@
       },
       "gateway_actions": [
         "convert_contract",
-        "deploy_contract",
         "estimate_contract_cost",
         "list_templates"
       ],
       "icon": "doc.text.fill",
       "available": true,
-      "capability_count": 4
+      "capability_count": 3
     },
     {
       "id": "defi",
       "name": "DeFi",
-      "description": "10 capabilities in the DeFi category",
+      "description": "4 capabilities in the DeFi category",
       "category": "defi",
       "min_tier": "free",
       "limits": {
@@ -43,25 +42,19 @@
         }
       },
       "gateway_actions": [
-        "collateral_manage",
         "create_loan",
-        "flash_loan",
         "get_loan",
-        "liquidity_provide",
-        "liquidity_remove",
         "repay_loan",
-        "swap_tokens",
-        "vault_deposit",
-        "yield_optimize"
+        "swap_tokens"
       ],
       "icon": "chart.line.uptrend.xyaxis",
       "available": true,
-      "capability_count": 10
+      "capability_count": 4
     },
     {
       "id": "defi_advanced",
       "name": "DeFi (Advanced)",
-      "description": "7 capabilities in the DeFi (Advanced) category",
+      "description": "3 capabilities in the DeFi (Advanced) category",
       "category": "defi_advanced",
       "min_tier": "free",
       "limits": {
@@ -73,16 +66,12 @@
       },
       "gateway_actions": [
         "cancel_limit_order",
-        "leverage_position",
-        "options_trade",
-        "perp_trade",
         "place_limit_order",
-        "pyth_pull_price",
-        "synthetic_asset"
+        "pyth_pull_price"
       ],
       "icon": "chart.bar.xaxis",
       "available": true,
-      "capability_count": 7
+      "capability_count": 3
     },
     {
       "id": "nft",
@@ -211,13 +200,12 @@
         "submit_dispute_evidence",
         "submit_retropgf",
         "timelock_queue",
-        "treasury_transfer",
         "vote",
         "vote_escrow"
       ],
       "icon": "person.3.fill",
       "available": true,
-      "capability_count": 23
+      "capability_count": 22
     },
     {
       "id": "social",
@@ -280,7 +268,7 @@
     {
       "id": "payments",
       "name": "Payments",
-      "description": "16 capabilities in the Payments category",
+      "description": "8 capabilities in the Payments category",
       "category": "payments",
       "min_tier": "free",
       "limits": {
@@ -291,26 +279,18 @@
         }
       },
       "gateway_actions": [
-        "authorize_payment",
         "close_channel",
         "complete_payment",
         "create_payment",
         "cross_border_remit",
-        "escrow_milestone",
-        "invoice_factor",
         "open_channel",
-        "payment_split",
-        "payroll_run",
-        "recurring_create",
-        "refund_payment",
         "route_payment",
         "send_payment",
-        "stream_payment",
         "transfer_stablecoin"
       ],
       "icon": "creditcard",
       "available": true,
-      "capability_count": 16
+      "capability_count": 8
     },
     {
       "id": "bridging",
@@ -372,7 +352,7 @@
     {
       "id": "privacy",
       "name": "Privacy & ZK",
-      "description": "10 capabilities in the Privacy & ZK category",
+      "description": "5 capabilities in the Privacy & ZK category",
       "category": "privacy",
       "min_tier": "free",
       "limits": {
@@ -383,20 +363,15 @@
         }
       },
       "gateway_actions": [
-        "confidential_compute",
         "create_session_key",
-        "execute_deletion",
         "mpc_sign",
-        "private_transfer",
-        "private_vote",
         "recover_wallet",
         "request_deletion",
-        "stealth_address",
         "zk_proof_generate"
       ],
       "icon": "lock.shield",
       "available": true,
-      "capability_count": 10
+      "capability_count": 5
     },
     {
       "id": "oracles",
@@ -427,7 +402,7 @@
     {
       "id": "storage",
       "name": "Storage",
-      "description": "6 capabilities in the Storage category",
+      "description": "5 capabilities in the Storage category",
       "category": "storage",
       "min_tier": "free",
       "limits": {
@@ -438,7 +413,6 @@
         }
       },
       "gateway_actions": [
-        "arweave_store",
         "ceramic_stream_create",
         "decentralized_store",
         "ipfs_pin",
@@ -447,7 +421,7 @@
       ],
       "icon": "externaldrive",
       "available": true,
-      "capability_count": 6
+      "capability_count": 5
     },
     {
       "id": "compute",

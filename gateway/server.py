@@ -21,6 +21,8 @@ from pathlib import Path
 
 from aiohttp import web
 
+from gateway.error_contract import client_error, sse_error_frame
+
 from runtime.react_loop import ReActLoop, ReActContext, Message
 from runtime.time.temporal_context import TemporalContext
 from runtime.auth.session_store import (
@@ -296,6 +298,13 @@ class GatewayServer:
         self.auth_enabled = bool(self.api_key)
         # Endpoints that don't require auth
         self._public_paths = {
+            # RUN-7: /ready must be public for the same reason /health is — a
+            # kubelet probe sends no Authorization header, so a /ready behind
+            # auth would 401 every readiness check and NO POD WOULD EVER BECOME
+            # READY once a key is configured. That is precisely why its body
+            # carries no detail (see handle_ready): the endpoint has to be
+            # reachable anonymously, so it must disclose nothing.
+            "/ready",
             "/health", "/auth/nonce", "/auth/verify",
             "/security/phone/request", "/security/phone/verify",
             "/security/appattest/challenge", "/security/appattest/attest",
@@ -333,25 +342,92 @@ class GatewayServer:
         self._morpheus = None
         self._security_flush_task: asyncio.Task | None = None
         # Security OTP services — phone verification (owner + consumer phone connect).
+        #
+        # H2's principle applied to THIS branch: a security service that fails to
+        # construct is a normal local state and an unacceptable production one.
+        # Morpheus's own production guards raise here (OPNMATRX_OTP_PEPPER unset,
+        # for one); swallowing them booted a production gateway with phone and
+        # owner verification silently off — /security/phone/* answered 503 and
+        # nothing refused. In production: refuse, naming the cause. Elsewhere:
+        # run without the surface, honestly unavailable.
         try:
             from runtime.security import OTPService, OwnerVerification  # seam → morpheus_security or no-op
             self._otp = OTPService(self.config)
             self._owner = OwnerVerification(self.config, otp_service=self._otp)
-        except Exception:
+        except Exception as exc:
+            if is_production_mode():
+                raise RuntimeError(
+                    "OPNMATRX_ENV=production but the security OTP services failed to "
+                    f"initialise: {exc}. Refusing to start rather than running with "
+                    "phone and owner verification silently unavailable. Fix the named "
+                    "cause, or unset OPNMATRX_ENV for a non-production run."
+                ) from exc
             logger.exception("Failed to initialise security OTP services")
             self._otp = None
             self._owner = None
 
         # App Attest verifier — seam-backed (real when morpheus_security is
         # installed, inert no-op otherwise). Reached only through runtime.security.
+        # If its construction raises (Morpheus's own production guards do, e.g.
+        # OPNMATRX_STATE_BACKEND=memory under production), the backend is
+        # relabelled noop and H2 below refuses — carrying THIS cause, not the
+        # generic "not installed" one, so the loudest message names the real reason.
+        self._security_backend_cause: str | None = None
         try:
             from runtime.security import get_app_attest_verifier, SECURITY_BACKEND
             self._app_attest = get_app_attest_verifier(self.config)
             self._security_backend = SECURITY_BACKEND
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to initialise App Attest verifier")
             self._app_attest = None
             self._security_backend = "noop"
+            self._security_backend_cause = f"the App Attest verifier failed to initialise: {exc}"
+
+        # H2/RUN-11: production must not BOOT with no enforcement.
+        #
+        # /ready (RUN-7) takes such an instance out of rotation, but that is a
+        # second line of defence — it depends on an orchestrator actually
+        # probing it, and a process that is running is a process something can
+        # reach. If the deployment is declared production and the security core
+        # is not live, the honest outcome is refusing to start: loud, at the
+        # earliest possible moment, and impossible to route around.
+        if is_production_mode() and self._security_backend == "noop":
+            cause = self._security_backend_cause or (
+                "morpheus_security is not installed or failed to load"
+            )
+            raise RuntimeError(
+                "OPNMATRX_ENV=production but the security backend is 'noop' — "
+                f"{cause}, so nothing is enforcing. Refusing to start. Install the "
+                "private security package and fix the named cause, or unset "
+                "OPNMATRX_ENV for a non-production run."
+            )
+
+        # NEW-26: production must not BOOT with the credential wall down.
+        #
+        # `auth_enabled = bool(self.api_key)`, and `_auth_middleware` opens with
+        # `if not self.auth_enabled: return await handler(request)` — it waves
+        # EVERY protected route through when no key is configured. The shipped
+        # openmatrix.config.json carries `"api_key": ""`, so an operator who
+        # copies the example and starts the gateway without OPENMATRIX_API_KEY
+        # serves the entire surface anonymously, having chosen nothing.
+        #
+        # This is H2's disease one layer up: a fail-open where nothing refuses
+        # to serve. The fix is the same shape and uses the same
+        # is_production_mode() convention as RUN-7 and H2 rather than inventing
+        # a new one. Anonymous in dev is useful; anonymous in production that
+        # nobody selected is the bug.
+        #
+        # Note the deliberate non-fix: shipping a key in the example config
+        # would be its own vulnerability — a public credential — and would trade
+        # one hole for another. The example stays empty; production refuses.
+        if is_production_mode() and not self.auth_enabled:
+            raise RuntimeError(
+                "OPNMATRX_ENV=production but no gateway API key is configured, so "
+                "authentication is DISABLED and every protected route would serve "
+                "anonymously. Refusing to start. Set OPENMATRIX_API_KEY (or "
+                "gateway.api_key in the config), or unset OPNMATRX_ENV for a "
+                "non-production run."
+            )
 
         # Sign in with Apple — JWKS cache for identity-token verification (P1-8).
         from gateway.apple_auth import AppleJWKSCache
@@ -521,14 +597,22 @@ class GatewayServer:
             with self.metrics.timer("chat.latency"):
                 result = await self.react_loop.run(context)
         except RuntimeError as e:
+            # RUN-5: `"error": str(e)` shipped the whole provider failure chain
+            # to the caller — host, port, model names, retry structure. In the
+            # sandbox that was localhost:11434; with Anthropic or OpenAI
+            # configured the same field carries endpoint URLs, org ids, key
+            # prefixes and quota detail. The graceful `response` string was
+            # always fine; the field beside it was the leak.
             self.metrics.incr("chat.errors.model")
-            logger.error(f"[{agent}] model error: {e}")
+            status, err = client_error(
+                e, request.get("request_id"), what=f"Chat[{agent}]"
+            )
             return web.json_response({
                 "response": "I'm having trouble connecting to my language model right now. Please try again shortly.",
-                "error": str(e),
+                **err,
                 "agent": agent,
                 "session_id": session_id,
-            }, status=503)
+            }, status=status)
 
         response_text = result.response
         if first_boot:
@@ -558,7 +642,20 @@ class GatewayServer:
         })
 
     async def handle_health(self, request: web.Request) -> web.Response:
-        """GET /health — health check"""
+        """GET /health — LIVENESS only. 200 whenever the process can serve.
+
+        Deliberately unconditional: liveness answers "should I restart this
+        process?", and restarting will not make an unreachable model provider
+        reachable. Whether this instance should receive TRAFFIC is a different
+        question, answered by ``/ready``.
+
+        RUN-7: before that split existed, this route was the only health
+        surface and every Kubernetes probe — liveness, readiness AND startup —
+        pointed at it. Because it returns a literal ``"status": "ok"`` no matter
+        what ``model_health`` says, readiness could never fail, so traffic was
+        routed to instances with zero working providers. The reported model
+        health was right there in the body and nothing consulted it.
+        """
         model_health = await self.react_loop.router.health_check()
         agents_config = self.config.get("agents", {})
         active = [name for name, cfg in agents_config.items() if cfg.get("enabled")]
@@ -570,6 +667,78 @@ class GatewayServer:
             "model_provider": provider,
             "models": model_health,
         })
+
+    async def handle_ready(self, request: web.Request) -> web.Response:
+        """GET /ready — READINESS. 503 when this instance must not take traffic.
+
+        RUN-7. The audit described ``/ready`` as returning 200 when it should
+        not; in fact **no readiness endpoint existed at all** — the symptom was
+        real and worse than the diagnosis, because every probe shared the
+        always-ok liveness route. This is the missing half.
+
+        Two conditions fail closed:
+
+        * **No model provider reachable.** Every chat path terminates at the
+          router; an instance whose providers are all down cannot serve its
+          primary function and should be taken out of rotation, not restarted.
+        * **``SECURITY_BACKEND == "noop"`` in production.** The no-op backend
+          means the private ``morpheus_security`` package failed to load and
+          the platform is running with security in OBSERVE — no enforcement.
+          That is a legitimate local/dev state and a NON-STARTER in production,
+          so it is only fatal when ``OPNMATRX_ENV=production``.
+
+        THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
+        endpoint returned each check with its values — `"backend": "noop"`,
+        the full model-provider inventory, whether the instance considers
+        itself production. A review of that first version
+        caught it: a readiness probe that announces `backend: "noop"` is telling
+        any caller that NOTHING IS ENFORCING, which is a targeting signal, not a
+        health signal. Combined with NEW-26 (auth disabled whenever no key is
+        set) that caller need not be authenticated at all.
+
+        So `/ready` answers the question it exists to answer — ready or not —
+        and nothing else. The reason a probe failed is logged server-side
+        against the correlation id, exactly as RUN-5 relocates error detail:
+        the information is not destroyed, it moves to where only the operator
+        can reach it.
+        """
+        from runtime.config.validation import is_production_mode
+        from runtime.logging.json_formatter import get_request_id
+
+        failed: list[str] = []
+
+        model_health = await self.react_loop.router.health_check()
+        providers_up = [name for name, ok in model_health.items() if ok]
+        if not providers_up:
+            failed.append("model_providers")
+
+        backend = getattr(self, "_security_backend", None)
+        if backend is None:
+            try:
+                from runtime.security import SECURITY_BACKEND
+
+                backend = SECURITY_BACKEND
+            except (ImportError, ModuleNotFoundError):
+                backend = "noop"
+        production = is_production_mode()
+        if production and backend == "noop":
+            failed.append("security_backend")
+
+        ready = not failed
+        ref = get_request_id() or "-"
+        if not ready:
+            # Full detail, server-side only, correlated by the same ref the
+            # client can quote.
+            logger.error(
+                "Readiness FAILED [ref=%s] checks=%s | providers_reachable=%s "
+                "probed=%s | security_backend=%s production=%s",
+                ref, failed, providers_up, sorted(model_health), backend, production,
+            )
+
+        return web.json_response(
+            {"ready": ready, "ref": ref},
+            status=200 if ready else 503,
+        )
 
     async def handle_status(self, request: web.Request) -> web.Response:
         """GET /status — full platform status"""
@@ -1191,8 +1360,22 @@ class GatewayServer:
 
         try:
             result = await self.react_loop.run(context)
-        except RuntimeError as e:
-            await emit("error", {"error": str(e)})
+        except Exception as e:
+            # NEW-17 / RUN-5b: this was `emit("error", {"error": str(e)})` — the
+            # raw exception went straight into the stream. RUN-5 missed it
+            # because it grepped for str(e) in json_response call shapes and an
+            # SSE frame is neither.
+            #
+            # A stream cannot set a status once its headers are out, so the
+            # contract travels IN the frame: same redaction, same ref, plus the
+            # status the request would have carried.
+            #
+            # Widened from `except RuntimeError` deliberately. A non-RuntimeError
+            # escaping here aborted the stream with NO error frame at all,
+            # leaving the client on a truncated response with nothing to show —
+            # the streaming equivalent of a silent failure.
+            _status, _err = client_error(e, None, what="Chat stream")
+            await emit("error", {**_err, "status": _status})
             await emit("done", {})
             await response.write_eof()
             return response
@@ -1298,8 +1481,14 @@ class GatewayServer:
 
             try:
                 result = await self.react_loop.run(context)
-            except RuntimeError as e:
-                await ws.send_json({"type": "error", "error": str(e)})
+            except Exception as e:
+                # NEW-17 / RUN-5b: same leak as /chat/stream, on the channel
+                # RUN-5 never looked at. A WebSocket has no status after the
+                # handshake, so — as with SSE — the contract travels in the
+                # payload. Widened from RuntimeError for the same reason: an
+                # unexpected exception here killed the socket silently.
+                _status, _err = client_error(e, None, what="WebSocket chat")
+                await ws.send_json({"type": "error", **_err, "status": _status})
                 continue
 
             text = result.response
@@ -1491,11 +1680,34 @@ class GatewayServer:
             await response.write(b"event: error\ndata: {\"error\":\"broadcaster not available\"}\n\n")
             return response
 
+        # NEW-6: this called broadcaster.register(ip=...) synchronously. Three
+        # faults in one line: the parameter is `remote_ip`, not `ip`; register
+        # is `async` and was never awaited; and BroadcasterCapacityError — which
+        # the method's own docstring tells callers to translate — was unhandled.
+        # The TypeError fired after response.prepare(), so the client saw a
+        # truncated SSE stream rather than an error. A real bug, not a missing
+        # feature: the broadcaster works, the call site had drifted.
+        from gateway.event_broadcaster import BroadcasterCapacityError
+
         peer = request.remote or "unknown"
-        sub = broadcaster.register(
-            ip=peer,
-            types={"feed.new_event"},
-        )
+        try:
+            sub = await broadcaster.register(
+                remote_ip=peer,
+                types={"feed.new_event"},
+            )
+        except BroadcasterCapacityError as exc:
+            # Per the broadcaster's contract: global cap -> 503, per-IP -> 429.
+            code = 429 if exc.scope == "per_ip" else 503
+            await response.write(
+                b'event: error\ndata: '
+                + json.dumps({
+                    "error": "Feed stream is at capacity. Try again shortly.",
+                    "retry_after_s": 30,
+                    "code": code,
+                }).encode()
+                + b"\n\n"
+            )
+            return response
 
         try:
             async for event in broadcaster.iter_events(sub):
@@ -1644,19 +1856,57 @@ class GatewayServer:
         return self._serve_html("web/badge.html")
 
     async def handle_badge_status(self, request: web.Request) -> web.Response:
-        """GET /badge/{badge_id}/status — JSON badge status."""
+        """GET /badge/{badge_id}/status — JSON badge status.
+
+        NEW-7: an unknown badge id produced HTTP 500. The badge subsystem is
+        not broken and nothing is missing — verify_badge() correctly raises
+        ValueError("Badge '<id>' not found"), which is the right domain
+        behaviour. The handler simply never caught it, so a legitimate
+        not-found escaped as an unhandled server error. 404 is the answer;
+        the reason stays server-side (RUN-5 shape).
+        """
         if not self.badge_manager:
             return web.json_response({"status": "not_available"}, status=503)
         badge_id = request.match_info.get("badge_id", "")
-        result = await self.badge_manager.verify_badge(badge_id)
+        try:
+            result = await self.badge_manager.verify_badge(badge_id)
+        except ValueError:
+            return web.json_response(
+                {"status": "not_found", "badge_id": badge_id,
+                 "error": "No badge with that id."},
+                status=404,
+            )
+        except Exception:
+            logger.exception("Badge status failed for %s", badge_id)
+            return web.json_response(
+                {"status": "error", "error": "Badge status is unavailable."},
+                status=503,
+            )
         return web.json_response(result)
 
     async def handle_badge_embed(self, request: web.Request) -> web.Response:
-        """GET /badge/{badge_id}/embed — return embed code."""
+        """GET /badge/{badge_id}/embed — return embed code.
+
+        NEW-7: same shape as handle_badge_status — an unknown id raised out of
+        the handler as a 500 instead of an honest 404.
+        """
         if not self.badge_manager:
             return web.json_response({"status": "not_available"}, status=503)
         badge_id = request.match_info.get("badge_id", "")
-        code = await self.badge_manager.get_badge_embed_code(badge_id)
+        try:
+            code = await self.badge_manager.get_badge_embed_code(badge_id)
+        except ValueError:
+            return web.json_response(
+                {"status": "not_found", "badge_id": badge_id,
+                 "error": "No badge with that id."},
+                status=404,
+            )
+        except Exception:
+            logger.exception("Badge embed failed for %s", badge_id)
+            return web.json_response(
+                {"status": "error", "error": "Badge embed is unavailable."},
+                status=503,
+            )
         return web.json_response({"badge_id": badge_id, "embed_code": code})
 
     async def handle_badge_widget_js(self, request: web.Request) -> web.Response:
@@ -1686,13 +1936,29 @@ class GatewayServer:
             body = await request.json()
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
-        result = await self.badge_manager.issue_badge(
-            contract_address=str(body.get("contract_address", "")),
-            contract_name=str(body.get("contract_name", "")),
-            audit_report=body.get("audit_report", {}),
-            contact_email=str(body.get("contact_email", "")),
-            project_url=str(body.get("project_url", "")),
-        )
+        # NEW-7: issue_badge raises ValueError on a rejected/invalid request
+        # (e.g. a missing contract address or an audit report that does not
+        # qualify). Uncaught, that surfaced as HTTP 500 — the server blaming
+        # itself for the caller's bad input. 400 is the honest code.
+        try:
+            result = await self.badge_manager.issue_badge(
+                contract_address=str(body.get("contract_address", "")),
+                contract_name=str(body.get("contract_name", "")),
+                audit_report=body.get("audit_report", {}),
+                contact_email=str(body.get("contact_email", "")),
+                project_url=str(body.get("project_url", "")),
+            )
+        except ValueError as exc:
+            # The message here describes the CALLER's input, not our internals.
+            return web.json_response(
+                {"status": "rejected", "error": str(exc)}, status=400
+            )
+        except Exception:
+            logger.exception("Badge issue failed")
+            return web.json_response(
+                {"status": "error", "error": "Badge issuance is unavailable."},
+                status=503,
+            )
         return web.json_response(result)
 
     # ─── Learn & Certification ───────────────────────────────────
@@ -2051,6 +2317,7 @@ class GatewayServer:
         app.router.add_post("/chat/stream", self.handle_chat_stream)
         app.router.add_get("/ws", self.handle_websocket)
         app.router.add_get("/health", self.handle_health)
+        app.router.add_get("/ready", self.handle_ready)
         app.router.add_get("/status", self.handle_status)
         app.router.add_post("/memory/read", self.handle_memory_read)
         app.router.add_post("/memory/write", self.handle_memory_write)

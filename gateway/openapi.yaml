@@ -838,10 +838,17 @@ paths:
 
   /api/v1/privacy/delete:
     post:
-      summary: Component 29 — privacy-aware delete
+      summary: Component 29 — data deletion (NOT AVAILABLE)
+      description: >-
+        Data deletion is not implemented. The platform has no verified erasure
+        path across its data stores, so this endpoint accepts nothing, queues
+        nothing, and always answers 501 (NEW-38). It previously documented a
+        200 "Delete scheduled", which told every SDK generator and integrator
+        that scheduling succeeded.
       responses:
-        "200":
-          description: Delete scheduled
+        "501":
+          description: >-
+            Not implemented — deletion is unavailable and nothing was queued.
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ServiceEnvelope"}

@@ -76,8 +76,29 @@ def load_config() -> dict:
     return {}
 
 
-def save_config(config: dict) -> None:
-    CONFIG_PATH.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+def save_config(config: dict, persist: bool = True) -> None:
+    """Persist *config*, atomically — unless the caller owns the write.
+
+    ``persist=False`` is how the setup wizard says "I will do the writing".
+    Channel modules mutate the dict and hand it back; only the wizard's
+    ``write_config()`` touches disk, and only after the operator has agreed to
+    overwrite. This is RUN-1: nine channel modules each called an unconditional
+    ``write_text`` from inside step 7, so an existing config was already
+    destroyed by the time the wizard printed "Existing config preserved".
+
+    The default stays ``True`` so the modules remain independently runnable
+    (``python setup_communications.py telegram``).
+
+    The write is temp-file-plus-rename so an interrupted run cannot leave a
+    truncated config behind — a half-written config is worse than either
+    outcome, and the previous direct ``write_text`` had that window.
+    """
+    if not persist:
+        return
+
+    tmp = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+    tmp.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, CONFIG_PATH)
 
 
 def update_channel(config: dict, channel_name: str, channel_cfg: dict) -> None:

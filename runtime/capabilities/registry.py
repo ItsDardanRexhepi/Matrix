@@ -67,13 +67,51 @@ class CapabilityRegistry:
 
     # ── Invocation ────────────────────────────────────────────────────────
 
-    async def invoke(self, capability_id: str, params: dict | None = None) -> dict:
+    async def invoke(
+        self,
+        capability_id: str,
+        params: dict | None = None,
+        *,
+        caller_identity: str = "",
+    ) -> dict:
         """Execute a capability via its descriptor.
 
         Translates the capability id to its ACTION_MAP action and delegates
         to the underlying ServiceDispatcher. If no dispatcher was injected,
         lazy-loads one from the standard registry.
+
+        Parameters
+        ----------
+        caller_identity:
+            The AUTHENTICATED wallet address of whoever is invoking, or "" when
+            the caller has none. See DOMAIN 17-D below. Keyword-only and
+            defaulting to "" so the existing two-argument call sites keep
+            working unchanged.
         """
+        # ── DOMAIN 17-D, SECOND GATEWAY ENTRY POINT ───────────────────────
+        # `gateway/bridge.py` was not the only live HTTP path that knew the
+        # caller and threw the answer away. This method backs
+        # ``POST /api/v1/capabilities/{id}/invoke``
+        # (gateway/service_routes.py:_handle_capability_invoke), and
+        # ``set_nft_rights`` is capability id 'set_nft_rights' in the catalog —
+        # so the same IP-rights grant is reachable here, through the same
+        # dispatcher, as on the bridge.
+        #
+        # The identity is NOT missing on this path either. `gateway/server.py`'s
+        # `_security_context_middleware` binds it for EVERY ``POST /api/v1/*``
+        # request, so `current_request_security()["wallet"]` is populated at the
+        # moment this runs. Measured before this change: invoking
+        # `set_nft_rights` through this route with a bound identity recorded
+        # `set_by: ""` — the wallet was one frame up and never asked for.
+        #
+        # It is READ IN THE HANDLER, not here. `runtime/` does not import
+        # `gateway.security_gate` — and the repo already has the idiom for it
+        # (`_handle_governance_vote`, `_handle_insurance_claim`:
+        # "an authenticated identity always wins, a body-supplied field is a
+        # dev fallback only"). Taking it as a parameter keeps that direction of
+        # dependency and keeps the three non-HTTP callers, which have no
+        # authenticated caller, working with the honest "" default.
+
         cap = catalog.get_by_id(capability_id)
         if cap is None:
             return {
@@ -88,25 +126,41 @@ class CapabilityRegistry:
             from runtime.blockchain.services.service_dispatcher import (
                 ServiceDispatcher,
             )
-            from runtime.blockchain.services.registry import ServiceRegistry
 
-            service_registry = ServiceRegistry(self._config)
-            dispatcher = ServiceDispatcher(self._config, service_registry)
+            # NEW-9: this passed a freshly-built ServiceRegistry as a second
+            # positional argument. ServiceDispatcher.__init__ takes only
+            # (self, config) and resolves its own registry lazily, so every
+            # capability invocation raised
+            #   TypeError: ServiceDispatcher.__init__() takes 2 positional
+            #   arguments but 3 were given
+            # and POST /api/v1/capabilities/{id}/invoke answered 500 — the whole
+            # capability-invoke surface was dead. Signature drift, not a missing
+            # feature: the dispatcher works, the call site was wrong.
+            dispatcher = ServiceDispatcher(self._config)
             self._dispatcher = dispatcher
 
         action = cap["action"]
-        payload = {"action": action, "params": params or {}}
 
-        try:
-            result = await dispatcher.execute(payload)
-        except AttributeError:
-            # Fall back to the lower-level dispatch method if execute()
-            # isn't present under that name in older builds.
-            raw = await dispatcher.dispatch_tool(
-                tool_name="platform_action",
-                arguments={"action": action, "params": params or {}},
-            )
-            result = raw
+        # NEW-9 (second fault in the same call): execute() is
+        # `execute(action: str, service=None, params=None)`, but this passed a
+        # single {"action":..., "params":...} dict as the first positional arg.
+        # `action` was therefore a dict, and the `action not in ACTION_MAP`
+        # membership test raised `TypeError: unhashable type: 'dict'`. Fixing
+        # the constructor arity above only moved the failure here; both had to
+        # go for the capability-invoke surface to work at all.
+        #
+        # The old `except AttributeError` fallback to dispatch_tool is removed:
+        # execute() exists, the fallback never fired for the real fault (a
+        # TypeError), and a silent fallback around a broken call is exactly the
+        # shape that let this survive unnoticed. If execute() ever disappears,
+        # an AttributeError should be loud.
+        # 17-D: `caller_identity` is threaded, not derived from `params`.
+        # `params` is the request body on this route — a body-supplied value
+        # would be a self-asserted address, which is the spoofing primitive the
+        # dispatcher-side injection exists to refuse.
+        result = await dispatcher.execute(
+            action=action, params=params or {}, caller_identity=caller_identity,
+        )
         return {
             "status": "ok",
             "capability_id": capability_id,

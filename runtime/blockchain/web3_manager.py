@@ -21,8 +21,13 @@ when the caller has explicitly opted into a real on-chain operation.
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 from typing import Any, Optional
+
+#: 21-S. How long a single blocking receipt poll may occupy a worker thread.
+#: Bounds the thread orphaned by a cancellation; it does not shorten the wait.
+_RECEIPT_POLL_SLICE_S = 5
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +110,55 @@ class Web3Manager:
 
     @classmethod
     def get_shared(cls, config: dict | None = None) -> "Web3Manager":
-        """Return the process-wide shared Web3Manager, creating it if needed."""
+        """Return the process-wide shared Web3Manager, creating it if needed.
+
+        21-J. THE `config` ARGUMENT IS IGNORED AFTER THE FIRST CALL, and it was
+        ignored SILENTLY. MEASURED with two services and two configs:
+
+            same object returned?  True
+            service A (first)      rpc=rpc-A  chain=1
+            service B (asked B)    rpc=rpc-A  chain=1
+
+        Whichever service constructs first decides the RPC, THE NETWORK and THE
+        PAYMASTER KEY that every later service signs with. `creator_platforms`
+        gates its mint on `self._web3.paymaster_key` — so 21-C's paymaster
+        check can be reading a key that came from a different service's config,
+        and a mint intended for one chain can be signed on another.
+
+        WHAT THIS DOES AND DELIBERATELY DOES NOT DO. It does not change which
+        instance is returned: making the singleton config-aware would alter
+        process-wide behaviour for every service at once, which is a platform
+        decision and not this domain's to make (Rule M). It makes the
+        divergence LOUD. In normal operation every service is handed the same
+        top-level config dict, so this is silent; it fires only when the
+        configs genuinely disagree, which is exactly when someone needs to
+        know.
+
+        A silent bleed and a logged one are the same defect. Only one of them
+        can be noticed.
+        """
         if cls._instance is None:
             cls._instance = Web3Manager(config or {})
+            return cls._instance
+
+        if config:
+            live = cls._instance
+            incoming = (config.get("blockchain", {}) or {}) if isinstance(config, dict) else {}
+            divergent = {
+                key: (getattr(live, attr, None), incoming.get(key))
+                for key, attr in (("rpc_url", "rpc_url"), ("chain_id", "chain_id"))
+                if incoming.get(key) is not None
+                and str(incoming.get(key)) != str(getattr(live, attr, None))
+            }
+            if divergent:
+                logger.error(
+                    "Web3Manager.get_shared IGNORED a divergent config: %s. The "
+                    "process-wide instance was built by an earlier caller and "
+                    "its RPC, network and PAYMASTER KEY are what every service "
+                    "signs with — including this one. Fields shown as "
+                    "(in-use, requested-and-ignored).",
+                    divergent,
+                )
         return cls._instance
 
     @classmethod
@@ -119,12 +170,43 @@ class Web3Manager:
         """Return True if *value* is empty or looks like a config placeholder."""
         return is_placeholder_value(value)
 
-    def explorer_url(self, tx_hash: str) -> str:
-        """Return the Base Sepolia (or matching network) block-explorer URL."""
-        base = "https://sepolia.basescan.org/tx/"
-        if self.network and "mainnet" in self.network.lower():
-            base = "https://basescan.org/tx/"
-        return f"{base}{tx_hash}"
+    #: chain_id -> block-explorer tx base. Only chains we can name honestly.
+    _EXPLORERS: dict[int, str] = {
+        1: "https://etherscan.io/tx/",
+        8453: "https://basescan.org/tx/",
+        84532: "https://sepolia.basescan.org/tx/",
+        11155111: "https://sepolia.etherscan.io/tx/",
+        137: "https://polygonscan.com/tx/",
+        42161: "https://arbiscan.io/tx/",
+        10: "https://optimistic.etherscan.io/tx/",
+    }
+
+    def explorer_url(self, tx_hash: str) -> str | None:
+        """Return a block-explorer URL, or None when we cannot build a real one.
+
+        21-L. THIS ALWAYS RETURNED A BASE URL, FOR EVERY CHAIN. The base was
+        `sepolia.basescan.org` unless `self.network` contained "mainnet", in
+        which case `basescan.org` — so a transaction on Ethereum, Polygon,
+        Arbitrum or Optimism got a link to Base's explorer, where it does not
+        exist. It also read `self.network`, an attribute that is not always
+        set, raising AttributeError on an instance built without it.
+
+        Combined with the unprefixed hash (register R-21.3: `.hex()` drops the
+        `0x` under the installed hexbytes 1.3.1), the durable success record of
+        a mint carried A LINK TO THE WRONG EXPLORER FOR A MALFORMED HASH —
+        while reading as evidence that the transaction is inspectable.
+
+        `None` is the honest answer for a chain we have no explorer for. A URL
+        that does not resolve is worse than no URL: the absent field says "look
+        it up yourself", and the broken one says "here is the proof" and is not.
+        """
+        if not tx_hash:
+            return None
+        h = str(tx_hash)
+        if not h.startswith("0x"):
+            h = "0x" + h          # R-21.3's domain consequence, fixed here
+        base = self._EXPLORERS.get(int(getattr(self, "chain_id", 0) or 0))
+        return f"{base}{h}" if base else None
 
     def get_account(self):
         """Return an ``eth_account.LocalAccount`` for the configured paymaster key."""
@@ -189,10 +271,75 @@ class Web3Manager:
                 raise
 
     async def wait_for_receipt(self, tx_hash: str, timeout: int = 120):
-        """Wait for a transaction receipt. Returns the receipt or raises."""
+        """Wait for a transaction receipt. Returns the receipt or raises.
+
+        21-I. THE OFFLOAD IS THE POINT. `w3.eth.wait_for_transaction_receipt`
+        is SYNCHRONOUS — it polls in a loop and sleeps. This method was
+        declared `async` and called it directly, with no await and no thread,
+        so awaiting it BLOCKED THE ENTIRE EVENT LOOP for up to `timeout`
+        seconds. An `async def` that never awaits is a function lying about
+        its concurrency contract, and the signature is exactly what stops a
+        caller noticing.
+
+        THIS ENGAGEMENT INTRODUCED THE STALL. Enumerated at the time of the
+        fix, `wait_for_receipt` had ZERO callers until 19-C and 21-C added the
+        only two — both of them ours, both added to stop a service claiming an
+        outcome it had not confirmed. The mechanism was real and orphaned; we
+        called it, correctly, and in doing so activated a latent defect inside
+        it.
+
+        §AG's after-form in its sharpest version so far: not "our fix made a
+        neighbour load-bearing" but "our fix ACTIVATED A LATENT DEFECT IN THE
+        MECHANISM IT CALLED". A fix that reaches for an unused facility inherits
+        whatever is wrong with it, and nothing about the facility's own history
+        will warn you — it had no callers precisely because nobody had tested
+        it.
+        """
         if not self.available or self.w3 is None:
             raise RuntimeError("Web3Manager not available")
-        return self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout)
+
+        # 21-S. THE WAIT IS SLICED BECAUSE `asyncio.to_thread` WORK IS NOT
+        # CANCELLABLE. Cancelling the awaiting task frees the caller and leaves
+        # the worker thread polling to completion — MEASURED: cancelled at
+        # 0.4s, the thread was still running afterwards and exited only on its
+        # own schedule.
+        #
+        # With the default 120s and the platform's own 20s batch-route ceiling,
+        # every cancelled batch mint orphaned a pool thread for up to 100s.
+        # Enough of them exhaust the default executor and stall every other
+        # `to_thread` caller in the process — a availability failure introduced
+        # by 21-I, which is itself the fix that stopped this call blocking the
+        # event loop. Both facts are true: the offload was right, and it moved
+        # the cost rather than removing it.
+        #
+        # Slicing bounds the orphan to one slice instead of the full timeout.
+        # It does NOT make the thread cancellable — nothing can — so the
+        # docstring says what it actually achieves.
+        deadline = time.monotonic() + max(0, int(timeout or 0))
+        slice_s = min(_RECEIPT_POLL_SLICE_S, max(1, int(timeout or 1)))
+        last_exc: Exception | None = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                return await asyncio.to_thread(
+                    self.w3.eth.wait_for_transaction_receipt,
+                    tx_hash,
+                    timeout=min(slice_s, remaining),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # A slice expiring is expected; anything else is not, but we
+                # cannot reliably name web3's timeout type across versions, so
+                # the DEADLINE decides and the last error is re-raised at it.
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+        raise TimeoutError(
+            f"no receipt for {tx_hash} within {timeout}s"
+        )
 
     def get_balance_eth(self, address: str | None = None) -> float:
         """Return the ETH balance of *address* (paymaster by default)."""

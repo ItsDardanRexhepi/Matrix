@@ -11,7 +11,7 @@ from setup._shared import (
 )
 
 
-def configure(config: dict) -> dict:
+def configure(config: dict, persist: bool = True) -> dict:
     header("iOS Push (APNs) Setup")
     info("You need: APNs .p8 auth key, Key ID, Team ID, and your app's Bundle ID.")
     info("Generate these at developer.apple.com → Certificates, Identifiers & Profiles → Keys.")
@@ -42,7 +42,7 @@ def configure(config: dict) -> dict:
         "device_tokens": existing.get("device_tokens", []),
     }
     update_channel(config, "ios_push", channel_cfg)
-    save_config(config)
+    save_config(config, persist=persist)
     update_env({
         "APNS_KEY_ID": key_id,
         "APNS_TEAM_ID": team_id,
