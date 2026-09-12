@@ -303,11 +303,12 @@ class GatewayServer:
         self.config = config
         self.react_loop = ReActLoop(config)
         self.temporal = TemporalContext(config.get("timezone", "America/Los_Angeles"))
+        # The working set of conversation histories: completed turns only,
+        # hydrated from the store on first touch, bounded in the number of
+        # conversations (see _conversation_history).
         self.conversations: dict[str, list[Message]] = {}
+        self._conversation_cap = max(1, int(config.get("conversation_cache", 1024)))
         self.request_count = 0
-
-        # Hydrate conversations cache from disk
-        self._conv_loaded: set[str] = set()
 
         # Auth: API key from config or environment
         gw = config.get("gateway", {})
@@ -562,26 +563,11 @@ class GatewayServer:
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
 
-        # Load conversation from disk on first access (write-through cache)
-        if session_id not in self._conv_loaded:
-            stored = self.react_loop.memory.load_conversation(session_id)
-            if stored:
-                self.conversations[session_id] = [
-                    Message(role=m["role"], content=m["content"]) for m in stored
-                ]
-            else:
-                self.conversations[session_id] = []
-            self._conv_loaded.add(session_id)
-        elif session_id not in self.conversations:
-            self.conversations[session_id] = []
-
         # Trinity first-boot message — once per session
         first_boot = None
         if agent == "trinity" and not self.react_loop.memory.is_first_boot_sent(session_id):
             await self.react_loop.memory.mark_first_boot_sent(session_id)
             first_boot = "Hi, my name is Trinity\n\nWelcome to the world of 0pnMatrx, I'll be by your side the entire time if you need me"
-
-        self.conversations[session_id].append(Message(role="user", content=message))
 
         system_prompt = self.react_loop.get_agent_prompt(agent)
         time_context = self.temporal.get_context_string()
@@ -589,7 +575,7 @@ class GatewayServer:
 
         context = ReActContext(
             agent_name=agent,
-            conversation=self.conversations[session_id].copy(),
+            conversation=self._turn_conversation(session_id, message),
             system_prompt=full_prompt,
         )
 
@@ -626,21 +612,7 @@ class GatewayServer:
         if first_boot:
             response_text = f"{first_boot}\n\n{response_text}"
 
-        self.conversations[session_id].append(Message(role="assistant", content=result.response))
-
-        # Trim conversation history
-        if len(self.conversations[session_id]) > 100:
-            self.conversations[session_id] = self.conversations[session_id][-50:]
-
-        # Persist updated conversation to disk
-        try:
-            await self.react_loop.memory.save_conversation(
-                    session_id,
-                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-                    owner=self.react_loop.memory.conversation_owner(session_id),
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to persist conversation {session_id}: {exc}")
+        await self._record_turn(session_id, message, result.response)
 
         return web.json_response({
             "response": response_text,
@@ -1103,7 +1075,11 @@ class GatewayServer:
         if session is not None:
             try:
                 subject = str(session.get("address", ""))
-                await self.react_loop.memory.erase_owner(subject)
+                erased = await self.react_loop.memory.erase_owner(subject)
+                # The store and the memory manager's cache were cleared; the
+                # gateway's own working-set copy was not, so the next caller to
+                # name the id — ownerless now — was handed the history.
+                self._forget_conversations(erased)
             except Exception:
                 logger.debug("account delete: conversation erasure skipped")
 
@@ -1351,21 +1327,6 @@ class GatewayServer:
             payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
             await response.write(payload.encode("utf-8"))
 
-        # Hydrate conversation
-        if session_id not in self._conv_loaded:
-            stored = self.react_loop.memory.load_conversation(session_id)
-            if stored:
-                self.conversations[session_id] = [
-                    Message(role=m["role"], content=m["content"]) for m in stored
-                ]
-            else:
-                self.conversations[session_id] = []
-            self._conv_loaded.add(session_id)
-        elif session_id not in self.conversations:
-            self.conversations[session_id] = []
-
-        self.conversations[session_id].append(Message(role="user", content=message))
-
         await emit("start", {"session_id": session_id, "agent": agent})
 
         system_prompt = self.react_loop.get_agent_prompt(agent)
@@ -1374,7 +1335,7 @@ class GatewayServer:
 
         context = ReActContext(
             agent_name=agent,
-            conversation=self.conversations[session_id].copy(),
+            conversation=self._turn_conversation(session_id, message),
             system_prompt=full_prompt,
         )
         context.metadata["user_context"] = self._chat_user_context(
@@ -1409,17 +1370,7 @@ class GatewayServer:
         for i in range(0, len(text), chunk_size):
             await emit("token", {"text": text[i:i + chunk_size]})
 
-        self.conversations[session_id].append(Message(role="assistant", content=text))
-        if len(self.conversations[session_id]) > 100:
-            self.conversations[session_id] = self.conversations[session_id][-50:]
-        try:
-            await self.react_loop.memory.save_conversation(
-                    session_id,
-                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-                    owner=self.react_loop.memory.conversation_owner(session_id),
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to persist streamed conversation {session_id}: {exc}")
+        await self._record_turn(session_id, message, text)
 
         await emit("done", {
             "session_id": session_id,
@@ -1476,24 +1427,13 @@ class GatewayServer:
                 await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
                 continue
 
-            if session_id not in self._conv_loaded:
-                stored = self.react_loop.memory.load_conversation(session_id)
-                self.conversations[session_id] = [
-                    Message(role=m["role"], content=m["content"]) for m in stored
-                ] if stored else []
-                self._conv_loaded.add(session_id)
-            elif session_id not in self.conversations:
-                self.conversations[session_id] = []
-
-            self.conversations[session_id].append(Message(role="user", content=message))
-
             system_prompt = self.react_loop.get_agent_prompt(agent)
             time_context = self.temporal.get_context_string()
             full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
 
             context = ReActContext(
                 agent_name=agent,
-                conversation=self.conversations[session_id].copy(),
+                conversation=self._turn_conversation(session_id, message),
                 system_prompt=full_prompt,
             )
             # The handshake request carries the session (Authorization /
@@ -1518,17 +1458,7 @@ class GatewayServer:
             for i in range(0, len(text), 80):
                 await ws.send_json({"type": "token", "text": text[i:i + 80]})
 
-            self.conversations[session_id].append(Message(role="assistant", content=text))
-            if len(self.conversations[session_id]) > 100:
-                self.conversations[session_id] = self.conversations[session_id][-50:]
-            try:
-                await self.react_loop.memory.save_conversation(
-                    session_id,
-                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-                    owner=self.react_loop.memory.conversation_owner(session_id),
-                )
-            except Exception as exc:
-                logger.warning(f"Failed to persist ws conversation {session_id}: {exc}")
+            await self._record_turn(session_id, message, text)
 
             await ws.send_json({
                 "type": "done",
@@ -2654,6 +2584,65 @@ class GatewayServer:
     #: Morpheus steps in. Only the operator's body may state them.
     _OPERATOR_STATED_CONTEXT = ("wallet_connected", "network", "balance",
                                 "jurisdiction", "total_transactions")
+
+    #: Default when a server is built without __init__ (unit-test fakes).
+    _conversation_cap = 1024
+
+    def _conversation_history(self, session_id: str) -> list:
+        """The completed turns of *session_id*: the working-set entry,
+        hydrated from the store on a miss — one path for all four entrances.
+
+        Bounded in the number of conversations. Each entrance takes the id from
+        the caller and created the entry on first touch; the history of one
+        conversation was trimmed, the number held never was, so every id any
+        caller named stayed in memory for the life of the process. Dict order
+        is recency (a touch re-inserts the key) and the least recently used
+        entry past ``conversation_cache`` is dropped. That loses nothing: an
+        entry only ever holds turns _record_turn has persisted, and a miss
+        reloads them (the owner reloads with them — see claim_conversation).
+        """
+        conversations = self.conversations
+        history = conversations.pop(session_id, None)
+        if history is None:
+            stored = self.react_loop.memory.load_conversation(session_id)
+            history = [Message(role=m["role"], content=m["content"]) for m in stored or []]
+        conversations[session_id] = history
+        cap = max(1, int(getattr(self, "_conversation_cap", 1024)))
+        while len(conversations) > cap:
+            oldest = next(iter(conversations))
+            if oldest == session_id:
+                break
+            del conversations[oldest]
+        return history
+
+    def _turn_conversation(self, session_id: str, message: str) -> list:
+        """What the model sees for this turn: the history plus the new message.
+        The message joins the stored history only when the turn completes, so
+        a failed turn leaves nothing behind that the store does not also hold."""
+        return [*self._conversation_history(session_id), Message(role="user", content=message)]
+
+    async def _record_turn(self, session_id: str, message: str, reply: str) -> None:
+        """Append a completed turn, trim, and write the conversation through to
+        the store with its owner."""
+        history = self._conversation_history(session_id)
+        history.append(Message(role="user", content=message))
+        history.append(Message(role="assistant", content=reply))
+        if len(history) > 100:
+            del history[:-50]
+        memory = self.react_loop.memory
+        try:
+            await memory.save_conversation(
+                session_id,
+                [{"role": m.role, "content": m.content} for m in history],
+                owner=memory.conversation_owner(session_id),
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to persist conversation {session_id}: {exc}")
+
+    def _forget_conversations(self, session_ids) -> None:
+        """Drop the working-set copies of *session_ids* (account erasure)."""
+        for sid in session_ids or ():
+            self.conversations.pop(sid, None)
 
     @staticmethod
     def _chat_turn_input(body):

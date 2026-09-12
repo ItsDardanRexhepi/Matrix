@@ -393,6 +393,20 @@ class Database:
             logger.error("DB fetchone failed: %s | sql=%s", exc, sql.strip()[:120])
             raise
 
+    def execute_sync(self, sql: str, params: Sequence[Any] | None = None) -> None:
+        """One synchronous statement, for sync callers that must write now.
+
+        The connection is in autocommit mode and the event loop is single
+        threaded, so a statement run here cannot interleave with another
+        statement; it can land between two awaited statements of a coroutine
+        holding the write lock, so use it only for a self-contained write."""
+        conn = self._require_conn()
+        try:
+            conn.execute(sql, params or ())
+        except sqlite3.Error as exc:
+            logger.error("DB execute_sync failed: %s | sql=%s", exc, sql.strip()[:120])
+            raise
+
     # Convenience: synchronous reads for cold-cache lookups during init
     def fetchall_sync(self, sql: str, params: Sequence[Any] | None = None) -> list[sqlite3.Row]:
         conn = self._require_conn()

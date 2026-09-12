@@ -7,8 +7,9 @@ care that we now write to SQLite. Specifically:
 - :meth:`read`, :meth:`get` are sync (with an in-process cache)
 - :meth:`write`, :meth:`save_turn`, :meth:`save_conversation`,
   :meth:`mark_first_boot_sent` are async
-- :meth:`get_context`, :meth:`load_conversation`,
-  :meth:`is_first_boot_sent` are sync reads served from cache
+- :meth:`get_context`, :meth:`load_conversation` are sync reads served from
+  a bounded cache (least recently used keys are dropped and reload from disk);
+  :meth:`is_first_boot_sent` is a sync primary-key lookup
 
 Concurrency is handled by SQLite WAL mode, so we no longer keep per-agent
 asyncio locks. The in-process cache is best-effort: if two coroutines
@@ -55,14 +56,23 @@ class MemoryManager:
 
         self.db = Database(db_config)
 
-        # Caches — populated lazily on first read.
+        # Caches — populated lazily on first read, write-through to SQLite, and
+        # BOUNDED in the number of keys. Every key here is caller-named: a
+        # conversation id, or ``agent@scope`` where an anonymous caller's scope
+        # IS its conversation id. Unbounded, each id any caller ever named held
+        # an entry for the life of the process. Dict order is recency (an
+        # access re-inserts the key); past the cap the least recently used key
+        # is dropped, which loses nothing: the rows are on disk and the next
+        # access reloads them — including the owner, because a claim is written
+        # to disk when it is made (claim_conversation), not only at next save.
         self._kv_cache: dict[str, dict] = {}        # agent -> {key: value}
-        self._turn_cache: dict[str, list[dict]] = {}  # agent -> [{user, agent, ts}, ...]
-        self._conv_cache: dict[str, list[dict]] = {}  # session -> [{role, content}, ...]
+        self._turn_cache: dict[str, list[dict]] = {}  # agent -> [{user, agent, ts}, ...]  (recency order)
+        self._conv_cache: dict[str, list[dict]] = {}  # session -> [{role, content}, ...]  (recency order)
         self._conv_owner: dict[str, str] = {}         # session -> owner subject ("" = nobody yet)
-        self._first_boot_cache: set[str] | None = None
         self._loaded_agents: set[str] = set()
         self._loaded_conversations: set[str] = set()
+        self._conversation_cap = max(1, int(config.get("conversation_cache", 1024)))
+        self._agent_cap = max(1, int(config.get("agent_memory_cache", 1024)))
 
         # Back-compat: some legacy code paths still reference memory_dir.
         # Keep it pointed at the directory containing the SQLite file so
@@ -149,8 +159,10 @@ class MemoryManager:
 
         # Trim cache to last MAX_AGENT_TURNS
         if len(turns) > MAX_AGENT_TURNS:
-            self._turn_cache[agent] = turns[-MAX_AGENT_TURNS:]
-            # Re-number on disk too — easier than partial deletes.
+            kept = turns[-MAX_AGENT_TURNS:]
+            self._turn_cache[agent] = kept
+            # Re-number on disk too — easier than partial deletes. `kept`, not
+            # the cache entry: the entry may be evicted while this awaits.
             await self.db.execute("DELETE FROM agent_turns WHERE agent = ?", (agent,))
             await self.db.executemany(
                 """
@@ -159,7 +171,7 @@ class MemoryManager:
                 """,
                 [
                     (agent, i, t["user"], t["agent"], t["ts"])
-                    for i, t in enumerate(self._turn_cache[agent])
+                    for i, t in enumerate(kept)
                 ],
             )
         else:
@@ -313,8 +325,10 @@ class MemoryManager:
         if owner is None:
             owner = self._conv_owner.get(session_id, "")
         self._conv_owner[session_id] = owner
+        self._conv_cache.pop(session_id, None)
         self._conv_cache[session_id] = list(messages)
         self._loaded_conversations.add(session_id)
+        self._evict_conversations(keep=session_id)
         # Replace strategy: delete then bulk insert. Simple and correct.
         await self.db.execute(
             "DELETE FROM conversation_turns WHERE session_id = ?",
@@ -347,22 +361,38 @@ class MemoryManager:
         return self._conv_owner.get(session_id, "")
 
     def claim_conversation(self, session_id: str, owner: str) -> None:
-        """Bind an ownerless conversation to *owner* (persisted at the next
-        save; the in-memory claim already gates every continuation)."""
+        """Bind an ownerless conversation to *owner*.
+
+        Written to the stored rows NOW, not at the next save: the cache is
+        bounded, and a claim held only in an evictable entry would revert to
+        ownerless when the entry is dropped — for instance when the claiming
+        turn's model call failed, so no save ever carried the owner. A
+        conversation with no stored rows has nothing to write; its claim gates
+        continuation in memory and reaches disk with its first save."""
         self._load_conversation_sync(session_id)
         if owner and not self._conv_owner.get(session_id):
             self._conv_owner[session_id] = owner
+            self.db.execute_sync(
+                "UPDATE conversation_turns SET owner = ? "
+                "WHERE session_id = ? AND (owner IS NULL OR owner = '')",
+                (owner, session_id),
+            )
 
-    async def erase_owner(self, owner: str) -> None:
+    async def erase_owner(self, owner: str) -> list[str]:
         """Delete every conversation owned by *owner* and every scoped agent
-        memory written for it — what account deletion must be able to do."""
+        memory written for it — what account deletion must be able to do.
+
+        Returns the conversation ids erased, so a caller holding its own copy
+        of those conversations (the gateway's working set) can drop it too."""
         if not owner:
-            return
+            return []
+        rows = await self.db.fetchall(
+            "SELECT DISTINCT session_id FROM conversation_turns WHERE owner = ?", (owner,))
+        erased = {r["session_id"] for r in rows}
+        erased |= {s for s, o in self._conv_owner.items() if o == owner}
         await self.db.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
-        for sid in [s for s, o in self._conv_owner.items() if o == owner]:
-            self._conv_cache.pop(sid, None)
-            self._conv_owner.pop(sid, None)
-            self._loaded_conversations.discard(sid)
+        for sid in erased:
+            self._forget_conversation(sid)
         suffix = f"@{owner}"
         keys = {k for k in list(self._turn_cache) + list(self._kv_cache) if k.endswith(suffix)}
         keys |= {self.memory_key(a, owner) for a in ("neo", "trinity", "morpheus")}
@@ -372,10 +402,12 @@ class MemoryManager:
             self._turn_cache.pop(key, None)
             self._kv_cache.pop(key, None)
             self._loaded_agents.discard(key)
+        return sorted(erased)
 
     async def load_conversation_async(self, session_id: str) -> list[dict]:
         """Async load — fetches from SQLite if not cached."""
         if session_id in self._loaded_conversations:
+            self._touch_conversation(session_id)
             return list(self._conv_cache.get(session_id, []))
         rows = await self.db.fetchall(
             """
@@ -390,15 +422,16 @@ class MemoryManager:
         if rows:
             self._conv_owner[session_id] = str(rows[0]["owner"] or "")
         self._loaded_conversations.add(session_id)
+        self._evict_conversations(keep=session_id)
         return list(msgs)
 
     # ── First-boot tracking ────────────────────────────────────────
 
+    # Looked up per session against the primary key rather than held as a set
+    # of every session ever greeted (which grew by one caller-named id per
+    # conversation for the life of the process).
+
     async def mark_first_boot_sent(self, session_id: str) -> None:
-        await self._ensure_first_boot_loaded()
-        if self._first_boot_cache is None:
-            self._first_boot_cache = set()
-        self._first_boot_cache.add(session_id)
         await self.db.execute(
             """
             INSERT INTO first_boot (session_id, sent_at)
@@ -409,8 +442,8 @@ class MemoryManager:
         )
 
     def is_first_boot_sent(self, session_id: str) -> bool:
-        self._load_first_boot_sync()
-        return session_id in (self._first_boot_cache or set())
+        return bool(self.db.fetchall_sync(
+            "SELECT 1 FROM first_boot WHERE session_id = ? LIMIT 1", (session_id,)))
 
     # ── Internal loaders ───────────────────────────────────────────
 
@@ -421,6 +454,7 @@ class MemoryManager:
         Safe to call from both sync and async code paths.
         """
         if agent in self._loaded_agents:
+            self._touch_agent(agent)
             return
         kv_rows = self.db.fetchall_sync(
             "SELECT key, value FROM agent_memory WHERE agent = ?",
@@ -447,15 +481,45 @@ class MemoryManager:
             for r in turn_rows
         ]
         self._loaded_agents.add(agent)
+        self._evict_agents(keep=agent)
 
-    def _load_first_boot_sync(self) -> None:
-        if self._first_boot_cache is not None:
-            return
-        rows = self.db.fetchall_sync("SELECT session_id FROM first_boot")
-        self._first_boot_cache = {r["session_id"] for r in rows}
+
+    # ── Bounded caches: recency and eviction ──────────────────────
+
+    def _touch_conversation(self, session_id: str) -> None:
+        if session_id in self._conv_cache:
+            self._conv_cache[session_id] = self._conv_cache.pop(session_id)
+
+    def _forget_conversation(self, session_id: str) -> None:
+        self._conv_cache.pop(session_id, None)
+        self._conv_owner.pop(session_id, None)
+        self._loaded_conversations.discard(session_id)
+
+    def _evict_conversations(self, keep: str) -> None:
+        """Drop least-recently-used conversations past the cap (never *keep*)."""
+        while len(self._conv_cache) > self._conversation_cap:
+            oldest = next(iter(self._conv_cache))
+            if oldest == keep:
+                break
+            self._forget_conversation(oldest)
+
+    def _touch_agent(self, agent: str) -> None:
+        if agent in self._turn_cache:
+            self._turn_cache[agent] = self._turn_cache.pop(agent)
+
+    def _evict_agents(self, keep: str) -> None:
+        """Drop least-recently-used ``agent@scope`` memories past the cap."""
+        while len(self._turn_cache) > self._agent_cap:
+            oldest = next(iter(self._turn_cache))
+            if oldest == keep:
+                break
+            self._turn_cache.pop(oldest, None)
+            self._kv_cache.pop(oldest, None)
+            self._loaded_agents.discard(oldest)
 
     def _load_conversation_sync(self, session_id: str) -> None:
         if session_id in self._loaded_conversations:
+            self._touch_conversation(session_id)
             return
         rows = self.db.fetchall_sync(
             """
@@ -471,9 +535,11 @@ class MemoryManager:
         if rows:
             self._conv_owner[session_id] = str(rows[0]["owner"] or "")
         self._loaded_conversations.add(session_id)
+        self._evict_conversations(keep=session_id)
 
     async def _ensure_agent_loaded(self, agent: str) -> None:
         if agent in self._loaded_agents:
+            self._touch_agent(agent)
             return
         kv_rows = await self.db.fetchall(
             "SELECT key, value FROM agent_memory WHERE agent = ?",
@@ -500,9 +566,5 @@ class MemoryManager:
             for r in turn_rows
         ]
         self._loaded_agents.add(agent)
+        self._evict_agents(keep=agent)
 
-    async def _ensure_first_boot_loaded(self) -> None:
-        if self._first_boot_cache is not None:
-            return
-        rows = await self.db.fetchall("SELECT session_id FROM first_boot")
-        self._first_boot_cache = {r["session_id"] for r in rows}

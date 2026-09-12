@@ -631,8 +631,13 @@ class BridgeRoutes:
         device_id = body.get("device_id", "")
         app_version = body.get("app_version", "")
 
-        # Store session metadata
-        self._server.conversations[session_id] = []
+        # Open the (empty) conversation in the working set, through the same
+        # bounded path every chat entrance uses.
+        history = getattr(self._server, "_conversation_history", None)
+        if history is not None:
+            history(session_id)
+        else:  # a bare server without the shared helper (unit-test fakes)
+            self._server.conversations[session_id] = []
 
         return MobileResponse.ok({
             "session_id": session_id,
@@ -669,11 +674,23 @@ class BridgeRoutes:
         if held:
             return MobileResponse.error(held, 403)
 
-        exists = session_id in self._server.conversations
+        # From the working set, else the store: the working set is bounded, so
+        # "not in memory" does not mean "does not exist" (it never did across a
+        # restart). Keyed as the chat entrances key it (_resolve_session_id).
+        session_id = str(session_id).strip()[:100]
+        cached = self._server.conversations.get(session_id)
+        if cached is not None:
+            exists, count = True, len(cached)
+        else:
+            try:
+                stored = self._server.react_loop.memory.load_conversation(str(session_id))
+            except Exception:
+                stored = []
+            exists, count = bool(stored), len(stored)
         return MobileResponse.ok({
             "session_id": session_id,
             "resumed": exists,
-            "message_count": len(self._server.conversations.get(session_id, [])),
+            "message_count": count,
         })
 
     # ─── Chat ─────────────────────────────────────────────────────────────
@@ -746,12 +763,17 @@ class BridgeRoutes:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
 
-        if session_id not in self._server.conversations:
-            self._server.conversations[session_id] = []
-
-        self._server.conversations[session_id].append(
-            Message(role="user", content=message)
-        )
+        # The same working set, hydration and write-through as /chat, /chat/
+        # stream and /ws. This entrance neither loaded the stored history nor
+        # saved its turns: a conversation begun here existed only in memory,
+        # and the first other entrance to touch it replaced it with the (empty)
+        # stored copy.
+        shared = getattr(self._server, "_turn_conversation", None)
+        if shared is not None:
+            conversation = shared(session_id, message)
+        else:  # a bare server without the shared helpers (unit-test fakes)
+            conversation = [*self._server.conversations.setdefault(session_id, []),
+                            Message(role="user", content=message)]
 
         system_prompt = self._server.react_loop.get_agent_prompt(agent)
         time_context = self._server.temporal.get_context_string()
@@ -760,7 +782,7 @@ class BridgeRoutes:
         from runtime.react_loop import ReActContext
         context = ReActContext(
             agent_name=agent,
-            conversation=self._server.conversations[session_id].copy(),
+            conversation=conversation,
             system_prompt=full_prompt,
         )
 
@@ -782,14 +804,12 @@ class BridgeRoutes:
 
         result = await self._server.react_loop.run(context)
 
-        self._server.conversations[session_id].append(
-            Message(role="assistant", content=result.response)
-        )
-
-        # Trim history
-        if len(self._server.conversations[session_id]) > 100:
-            self._server.conversations[session_id] = \
-                self._server.conversations[session_id][-50:]
+        record = getattr(self._server, "_record_turn", None)
+        if record is not None:
+            await record(session_id, message, result.response)
+        else:
+            self._server.conversations[session_id].extend(
+                conversation[-1:] + [Message(role="assistant", content=result.response)])
 
         return {
             "response": result.response,
