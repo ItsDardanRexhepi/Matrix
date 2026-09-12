@@ -23,6 +23,15 @@ from runtime.blockchain.services.nft_services.valuation import ValuationEngine
 
 logger = logging.getLogger(__name__)
 
+# Minimal ABI for the one read the ownership check needs.
+ERC721_OWNER_ABI = [{
+    "inputs": [{"name": "tokenId", "type": "uint256"}],
+    "name": "ownerOf",
+    "outputs": [{"name": "", "type": "address"}],
+    "stateMutability": "view",
+    "type": "function",
+}]
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # NFT GATING CONDITION — read before setting `nft.contract_address` (NEW-93)
@@ -911,13 +920,27 @@ class NFTService:
 
     async def fractionalize(
         self, collection: str, token_id: int, fractions: int, price_per_fraction: float,
+        owner: str = "",
     ) -> dict[str, Any]:
-        """Fractionalize an NFT into fungible shares."""
+        """Fractionalize an NFT into fungible shares.
+
+        ``owner`` is the caller the route authenticated. The route demanded it
+        and then dropped it — an authorization input that governed nothing
+        (the audit's §CD sibling pass over NEW-89). It is recorded here and
+        checked against the token's on-chain owner the moment a live contract
+        makes that readable; until then the record names who claimed it, so a
+        fractionalisation can never be attributed to nobody.
+        """
         if not self._web3.available or self._web3.is_placeholder(self._nft_contract):
             return not_deployed_response("nft_services", {
                 "operation": "fractionalize",
-                "requested": {"collection": collection, "token_id": token_id, "fractions": fractions},
+                "requested": {"collection": collection, "token_id": token_id,
+                              "fractions": fractions, "owner": owner},
             })
+        on_chain_owner = await self._owner_of(collection, token_id)
+        if on_chain_owner and owner and on_chain_owner.lower() != owner.lower():
+            return {"status": "error", "error": "not_token_owner",
+                    "detail": "only the token's owner may fractionalize it"}
         frac_id = f"frac_{uuid.uuid4().hex[:16]}"
         record: dict[str, Any] = {
             "id": frac_id,
@@ -927,10 +950,20 @@ class NFTService:
             "total_fractions": fractions,
             "price_per_fraction": price_per_fraction,
             "sold_fractions": 0,
+            "owner": owner,
         }
         self._fractions[frac_id] = record
         logger.info("NFT fractionalized: id=%s", frac_id)
         return record
+
+    async def _owner_of(self, collection: str, token_id: int) -> str:
+        """The token's on-chain owner, or "" when it cannot be read."""
+        try:
+            contract = self._web3.load_contract(collection, ERC721_OWNER_ABI)
+            return str(contract.functions.ownerOf(int(token_id)).call())
+        except Exception as exc:   # unreadable chain / wrong ABI / missing token
+            logger.debug("ownerOf unavailable for %s#%s: %s", collection, token_id, exc)
+            return ""
 
     async def rent(
         self, collection: str, token_id: int, renter: str, duration_days: int, price: float,
