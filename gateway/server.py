@@ -2647,6 +2647,18 @@ class GatewayServer:
             memory.claim_conversation(session_id, identity)
         return None
 
+    def _conversation_held_elsewhere(self, request: web.Request, session_id: str):
+        """The read-only half of ``_conversation_denied``: the refusal message
+        when *session_id* names a conversation another account owns, else None.
+        Claims nothing — for the legs of the flow that describe a conversation
+        or attach something to it without continuing it."""
+        if not session_id:
+            return None
+        owner = self.react_loop.memory.conversation_owner(session_id)
+        if owner and owner != self._session_subject(request):
+            return "this conversation belongs to another account"
+        return None
+
     # ─── One chat turn, four entrances ───────────────────────────────────
 
     #: Body fields that DESCRIBE the caller to the gates: ``wallet_connected``,

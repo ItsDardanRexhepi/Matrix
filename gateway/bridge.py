@@ -524,8 +524,35 @@ class BridgeRoutes:
     def __init__(self, config: dict, gateway_server):
         self._config = config
         self._server = gateway_server
-        self._linked_wallets: dict[str, dict] = {}  # session_id → wallet info
+        # session_id → wallet info, including the `subject` of the wallet
+        # session that linked it. A session id is a name the caller chooses, so
+        # a link is shown to, and speaks for, only the account that made it.
+        self._linked_wallets: dict[str, dict] = {}
         self._web3_manager = None  # lazy; built on first balance lookup
+
+    # ─── Whose is this session id? ────────────────────────────────────────
+
+    def _held_elsewhere(self, request, session_id: str):
+        """Refusal message when *session_id* is a conversation another account
+        owns (never claims it); None otherwise, or on a server without T3."""
+        check = getattr(self._server, "_conversation_held_elsewhere", None)
+        return check(request, session_id) if check is not None else None
+
+    def _visible_link(self, request, session_id: str) -> dict:
+        """The wallet linked to *session_id*, if the request may see it: the
+        account whose wallet session made the link, or the operator. ``{}``
+        otherwise — including when the link belongs to someone else."""
+        record = self._linked_wallets.get(session_id) or {}
+        if not record:
+            return {}
+        subject_of = getattr(self._server, "_session_subject", None)
+        is_operator = getattr(self._server, "_is_operator", None)
+        if subject_of is None or is_operator is None:
+            return record  # a bare server without T2 (unit-test fakes)
+        subject = subject_of(request)
+        if subject:
+            return record if record.get("subject") == subject else {}
+        return record if is_operator(request) else {}
 
     def _get_web3_manager(self):
         """Lazily instantiate a :class:`Web3Manager` for balance reads.
@@ -637,6 +664,10 @@ class BridgeRoutes:
         session_id = body.get("session_id", "")
         if not session_id:
             return MobileResponse.error("session_id required")
+        # Existence and length of someone else's conversation are theirs.
+        held = self._held_elsewhere(request, str(session_id))
+        if held:
+            return MobileResponse.error(held, 403)
 
         exists = session_id in self._server.conversations
         return MobileResponse.ok({
@@ -788,12 +819,16 @@ class BridgeRoutes:
             bind_request_security, current_request_security, gate_action,
             generic_denial, is_blocked,
         )
-        linked = self._linked_wallets.get(session_id) or {}
         # T2: the session the request presents (the app's Apple Bearer) names
-        # the caller; the bridge-session's linked wallet is the fallback.
+        # the caller. The wallet linked to the session id in the body is the
+        # fallback only for a request with no session (the operator) or when
+        # the link is the caller's own — a session id is a name the caller
+        # chose, not a credential.
         session_identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
+        linked = self._visible_link(request, str(session_id))
+        identity = session_identity or linked.get("address", "")
         bind_request_security(
-            identity=session_identity or linked.get("address", ""),
+            identity=identity,
             app_attest=body.get("app_attest"),
             session_id=session_id,
         )
@@ -841,10 +876,18 @@ class BridgeRoutes:
             # the request died before the service was called, and a caller
             # identity threaded into a call that never happens is not a fix.
             # Passing by keyword so the slot cannot be misaligned again.
+            #
+            # ── ONE IDENTITY, NOT TWO ───────────────────────────────────────
+            # This passed `linked.get("address", "")` while the gate above was
+            # bound to `session_identity or linked`. So a request presenting
+            # account B's session and naming the session id account W had
+            # linked a wallet to was GATED as B and EXECUTED as W: the service
+            # decided ownership for the account that linked, not the one that
+            # asked. The dispatcher now gets exactly the identity the gate saw.
             result = await dispatcher.execute(
                 action,
                 params=params,
-                caller_identity=linked.get("address", ""),
+                caller_identity=identity,
             )
             return MobileResponse.ok(result)
         except KeyError as e:
@@ -879,8 +922,16 @@ class BridgeRoutes:
             session_id, session_error = resolve(request, session_id)
             if session_error:
                 return MobileResponse.error(session_error, 400)
-        linked = self._linked_wallets.get(session_id) or {}
-        wallet = linked.get("address", "")
+        # A device token attached to someone else's conversation would receive
+        # what is sent for it.
+        held = self._held_elsewhere(request, session_id)
+        if held:
+            return MobileResponse.error(held, 403)
+        # The wallet the token is filed under is the caller's — derived from the
+        # presented session — never the wallet linked to a session id it named.
+        identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
+        wallet = (identity if identity and not identity.startswith("apple:")
+                  else self._visible_link(request, session_id).get("address", ""))
         try:
             from runtime.notifications.token_store import PushTokenStore
             db = self._server.react_loop.memory.db
@@ -929,8 +980,20 @@ class BridgeRoutes:
             return MobileResponse.error("session_id required")
 
         address = wallet_session["address"]
+        # The address came from the session (above); the session id did not —
+        # it is whatever the body named. Linking into a conversation another
+        # account owns, or over a link another account made, is refused.
+        # (The X-Wallet-Session is read first, so the request's subject here is
+        # `address`.)
+        held = self._held_elsewhere(request, str(session_id))
+        if held:
+            return MobileResponse.error(held, 403)
+        existing = self._linked_wallets.get(session_id)
+        if existing and existing.get("subject") not in (None, address):
+            return MobileResponse.error("this session is linked to another account", 403)
         self._linked_wallets[session_id] = {
             "address": address,
+            "subject": address,
             "linked_at": time.time(),
             "network": body.get("network", "base-sepolia"),
             "verified": True,
@@ -945,7 +1008,9 @@ class BridgeRoutes:
     async def wallet_status(self, request: web.Request) -> web.Response:
         """Get wallet status for a session."""
         session_id = request.query.get("session_id", "")
-        wallet = self._linked_wallets.get(session_id)
+        if self._linked_wallets.get(session_id) and not self._visible_link(request, session_id):
+            return MobileResponse.error("this session is linked to another account", 403)
+        wallet = self._visible_link(request, session_id)
 
         if not wallet:
             return MobileResponse.ok({"linked": False})
@@ -1057,7 +1122,9 @@ class BridgeRoutes:
         Returns wallet balance, recent activity, active positions, and suggestions.
         """
         session_id = request.query.get("session_id", "")
-        wallet = self._linked_wallets.get(session_id)
+        # The caller's own link only; another account's address and balance
+        # are not part of this caller's home screen.
+        wallet = self._visible_link(request, session_id)
 
         dashboard = {
             "wallet": None,
