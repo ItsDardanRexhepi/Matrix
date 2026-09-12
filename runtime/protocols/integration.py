@@ -373,11 +373,37 @@ class ProtocolStack:
             "risk": None,
         }
 
+        # What the call DOES, not what the tool is called (§DL.4): the twin
+        # tools take their real verb in arguments.action, and a contract
+        # deployment or an ERC-20 approve signed with the platform key must
+        # reach the gate as a signing action, not as "smart_contract".
+        from runtime.security.action_map import (
+            allowance_violation, beneficiary_violation, canonical_action,
+        )
+        action_type, signs = canonical_action(tool_name, arguments)
         action = {
-            "action_type": tool_name,
-            "type": tool_name,
+            "action_type": action_type,
+            "type": action_type,
+            "tool": tool_name,
+            "tool_action": (arguments.get("action") if isinstance(arguments, dict) else None),
+            "signs_with_platform_key": bool(signs),
             "parameters": arguments,
         }
+
+        # Seam-level refusals that need no gate: a platform-signed action
+        # pointed at somebody else's address, and a platform-key approve
+        # without an operator-set cap.
+        if signs:
+            identity = str(
+                (context or {}).get("wallet") or (context or {}).get("wallet_address")
+                or (context or {}).get("identity") or ""
+            ).strip()
+            refusal = (beneficiary_violation(tool_name, arguments, identity)
+                       or allowance_violation(tool_name, arguments, self.config))
+            if refusal:
+                result["approved"] = False
+                result["denial_reason"] = refusal
+                return result
 
         # Morpheus — the security spine. Runs FIRST, so every execution path
         # passes him. Authoritative server-side allow/deny (binding only in
@@ -400,11 +426,10 @@ class ProtocolStack:
                 # continue so a transient fault doesn't break it. Coarse public label
                 # only; for the platform_action mega-tool the real action is in the
                 # arguments. The authoritative classification lives in the private gate.
-                gated_label = tool_name
-                if tool_name == "platform_action" and isinstance(arguments, dict):
-                    gated_label = arguments.get("action") or tool_name
+                # The canonical action type carries the twins' real verb and
+                # platform_action's inner action alike.
                 from runtime.access_policy import could_move_value
-                if could_move_value(gated_label):
+                if could_move_value(action_type):
                     result["approved"] = False
                     result["denial_reason"] = (
                         "This action couldn't be authorized right now. Please try again."
@@ -518,9 +543,14 @@ class ProtocolStack:
         context: dict,
     ) -> None:
         """Record outcomes and update state after a tool call completes."""
+        from runtime.security.action_map import canonical_action
+        action_type, signs = canonical_action(tool_name, arguments)
         action = {
-            "action_type": tool_name,
-            "type": tool_name,
+            "action_type": action_type,
+            "type": action_type,
+            "tool": tool_name,
+            "tool_action": (arguments.get("action") if isinstance(arguments, dict) else None),
+            "signs_with_platform_key": bool(signs),
             "parameters": arguments,
         }
         outcome = {
