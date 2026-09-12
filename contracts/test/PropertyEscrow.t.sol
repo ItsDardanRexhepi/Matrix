@@ -103,6 +103,9 @@ contract PropertyEscrowTest is Test {
         tokenId = deed.mint(seller, "prop_test", "ipfs://bundle");
         vm.prank(seller);
         deed.approve(address(escrow), tokenId); // listing-time approval
+        // The seller's terms, on-chain (P4-4-DEED-1WEI): an open listing at PRICE.
+        vm.prank(seller);
+        escrow.listDeed(ESCROW_ID, address(deed), tokenId, PRICE, address(0));
     }
 
     // ── One-tap atomic settlement ───────────────────────────────────────
@@ -156,6 +159,8 @@ contract PropertyEscrowTest is Test {
         uint256 badToken = deed.mint(address(bad), "prop_bad", "ipfs://x");
         vm.prank(address(bad));
         deed.approve(address(escrow), badToken);
+        vm.prank(address(bad));
+        escrow.listDeed(keccak256("resc_bad"), address(deed), badToken, PRICE, address(0));
 
         vm.prank(buyer);
         vm.expectRevert("Payment transfer failed");
@@ -171,6 +176,8 @@ contract PropertyEscrowTest is Test {
         // A rogue deed whose transferFrom does nothing must NOT let funds
         // release: the post-transfer ownerOf check catches the missing move.
         NoOpDeed rogue = new NoOpDeed(seller);
+        vm.prank(seller);
+        escrow.listDeed(keccak256("resc_rogue"), address(rogue), 1, PRICE, address(0));
         uint256 sellerBefore = seller.balance;
         vm.prank(buyer);
         vm.expectRevert("Deed not received");
@@ -188,6 +195,8 @@ contract PropertyEscrowTest is Test {
         vm.prank(address(attacker));
         deed.approve(address(escrow), atkToken);
         bytes32 atkId = keccak256("resc_atk");
+        vm.prank(address(attacker));
+        escrow.listDeed(atkId, address(deed), atkToken, PRICE, address(0));
         attacker.arm(escrow, atkId);
 
         vm.prank(buyer);
@@ -329,5 +338,72 @@ contract PropertyEscrowTest is Test {
     function test_Constructor_TimeoutFloor() public {
         vm.expectRevert("Timeout too short");
         new PropertyEscrow(30 minutes);
+    }
+
+    // ── The listing binds price and buyer (P4-4-DEED-1WEI) ──────────────
+
+    function test_Listing_WrongPrice_Reverts() public {
+        vm.prank(stranger);
+        vm.expectRevert("Wrong price");
+        escrow.lockAndSettle{ value: 1 }(ESCROW_ID, seller, address(deed), tokenId, READINESS);
+        assertEq(deed.ownerOf(tokenId), seller, "deed stays with the seller");
+    }
+
+    function test_Listing_NamedBuyer_OnlyThatBuyer() public {
+        bytes32 id2 = keccak256("resc_named");
+        uint256 token2 = deed.mint(seller, "prop_2", "ipfs://y");
+        vm.prank(seller);
+        deed.approve(address(escrow), token2);
+        vm.prank(seller);
+        escrow.listDeed(id2, address(deed), token2, PRICE, buyer);
+
+        vm.prank(stranger);
+        vm.expectRevert("Not the buyer");
+        escrow.lockAndSettle{ value: PRICE }(id2, seller, address(deed), token2, READINESS);
+
+        vm.prank(buyer);
+        escrow.lockAndSettle{ value: PRICE }(id2, seller, address(deed), token2, READINESS);
+        assertEq(deed.ownerOf(token2), buyer);
+    }
+
+    function test_Listing_MismatchedDeed_Reverts() public {
+        uint256 token2 = deed.mint(seller, "prop_3", "ipfs://z");
+        vm.prank(buyer);
+        vm.expectRevert("Listing mismatch");
+        escrow.lockAndSettle{ value: PRICE }(ESCROW_ID, seller, address(deed), token2, READINESS);
+    }
+
+    function test_Listing_OnlyDeedOwnerCanList() public {
+        vm.prank(stranger);
+        vm.expectRevert("Not the deed owner");
+        escrow.listDeed(keccak256("resc_squat"), address(deed), tokenId, 1, address(0));
+    }
+
+    function test_Listing_UnlistedId_CannotBeLocked() public {
+        // The medium sibling: an id nobody listed cannot be squatted.
+        vm.prank(stranger);
+        vm.expectRevert("No listing");
+        escrow.lockFunds{ value: PRICE }(keccak256("resc_unlisted"), seller, address(deed), tokenId);
+    }
+
+    function test_Listing_ConsumedByLock() public {
+        vm.prank(buyer);
+        escrow.lockFunds{ value: PRICE }(ESCROW_ID, seller, address(deed), tokenId);
+        (, , , , , bool active) = escrow.listings(ESCROW_ID);
+        assertFalse(active, "the lock consumed the listing");
+        vm.prank(stranger);
+        vm.expectRevert("Escrow exists");
+        escrow.lockFunds{ value: PRICE }(ESCROW_ID, seller, address(deed), tokenId);
+    }
+
+    function test_Listing_CancelSellerOnly() public {
+        vm.prank(stranger);
+        vm.expectRevert("Only seller");
+        escrow.cancelListing(ESCROW_ID);
+        vm.prank(seller);
+        escrow.cancelListing(ESCROW_ID);
+        vm.prank(buyer);
+        vm.expectRevert("No listing");
+        escrow.lockFunds{ value: PRICE }(ESCROW_ID, seller, address(deed), tokenId);
     }
 }
