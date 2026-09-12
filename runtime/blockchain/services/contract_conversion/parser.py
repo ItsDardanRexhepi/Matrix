@@ -251,19 +251,55 @@ class SourceParser:
             })
 
         # Functions
-        func_pattern = re.compile(
-            r"@(external|internal|view|pure|payable|nonreentrant\([^)]*\))\s*\n"
-            r"(?:@(\w+)[^\n]*\n)*"
-            r"def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?\s*:",
+        #
+        # CAPTURE THE WHOLE DECORATOR STACK, not the first and the last.
+        #
+        # This was one pattern whose middle group was `(?:@(\w+)[^\n]*\n)*`.
+        # In Python's `re` a repeated group retains only its FINAL repetition,
+        # so a function written the idiomatic Vyper way —
+        #
+        #     @external
+        #     @payable
+        #     @nonreentrant("lock")
+        #     def deposit(): ...
+        #
+        # yielded ["external", "nonreentrant"] and `payable` was simply gone.
+        # The function was then emitted as a NONPAYABLE Solidity function: a
+        # deposit endpoint that reverts on every call carrying value, from a
+        # converter whose output a user is invited to deploy. It is the same
+        # silent mutability loss part 1 fixed on the pseudocode branch, on the
+        # sibling language.
+        #
+        # Two steps instead of one clever regex: find the `def`, then read the
+        # contiguous decorator lines immediately above it.
+        def_pattern = re.compile(
+            r"^[ \t]*def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?\s*:",
             re.MULTILINE,
         )
-        for m in func_pattern.finditer(source):
-            decorators = [m.group(1)]
-            if m.group(2):
-                decorators.append(m.group(2))
-            name = m.group(3)
-            params_raw = m.group(4).strip()
-            returns = m.group(5).strip() if m.group(5) else None
+        decorator_line = re.compile(r"^[ \t]*@(\w+)")
+        source_lines = source.splitlines()
+
+        for m in def_pattern.finditer(source):
+            line_no = source.count("\n", 0, m.start())
+            decorators: list[str] = []
+            i = line_no - 1
+            while i >= 0:
+                raw = source_lines[i].strip()
+                if not raw:
+                    i -= 1
+                    continue
+                d = decorator_line.match(source_lines[i])
+                if not d:
+                    break
+                decorators.insert(0, d.group(1))
+                i -= 1
+            if not decorators:
+                # Not a Vyper external/internal function — skip, as the old
+                # pattern did by requiring a leading decorator.
+                continue
+            name = m.group(1)
+            params_raw = m.group(2).strip()
+            returns = m.group(3).strip() if m.group(3) else None
 
             visibility = "public"
             mutability = "nonpayable"

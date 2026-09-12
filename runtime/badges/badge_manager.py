@@ -75,11 +75,46 @@ class BadgeManager:
 
     # ── Issuance ────────────────────────────────────────────────────
 
+    def _platform_audit(self, source_code: str, contract_name: str = "",
+                        *, what: str = "Badge") -> dict:
+        """Audit the source here, and return a report nobody else authored.
+
+        There is deliberately no parameter anywhere on this class through which
+        a caller can supply a verdict. The returned dict is what gets hashed
+        into `audit_report_hash`, so the stored record of "what was audited" is
+        an audit rather than an assertion.
+        """
+        from runtime.security.audit import ContractAuditor
+
+        if not (source_code or "").strip():
+            raise ValueError(
+                "Contract source is required: a badge is issued on an audit "
+                "this platform performs, not on a report supplied with the "
+                "request."
+            )
+
+        report = ContractAuditor(self.config).audit(source_code, contract_name)
+        if not report.auditable:
+            raise ValueError(
+                f"{what} refused: this source declares no executable function "
+                "body, so the behavioural checks had nothing to examine. A "
+                "badge on an artifact nobody could judge is the claim this "
+                "will not make."
+            )
+        if not report.passed:
+            raise ValueError(f"{what} refused — audit did not pass: {report.summary}")
+
+        out = report.to_dict()
+        out["status"] = "passed"
+        out["audited_by"] = "openmatrix-glasswing"
+        out["audited_at"] = time.time()
+        return out
+
     async def issue_badge(
         self,
         contract_address: str,
         contract_name: str,
-        audit_report: dict,
+        source_code: str,
         contact_email: str,
         project_url: str = "",
     ) -> dict:
@@ -91,8 +126,23 @@ class BadgeManager:
             The audited contract's on-chain address.
         contract_name : str
             Human-readable contract name.
-        audit_report : dict
-            The full audit report; must have a passing ``status``.
+        source_code : str
+            The contract source. This method AUDITS IT ITSELF and issues on its
+            own verdict.
+
+            It used to take an ``audit_report`` dict instead, which the HTTP
+            handler passed straight out of the request body. A badge is the
+            platform's most public security claim — it carries a verification
+            URL, an embed snippet and a slot in the public /badges registry —
+            and the only thing standing between a caller and one was writing
+            ``{"status": "passed"}`` in their own request. The same
+            caller-authored dict was then hashed and stored as the record of
+            what had been audited, so the audit trail attested the assertion
+            rather than any audit.
+
+            Taking the source instead of a verdict is what makes that
+            unreachable: there is no longer a parameter in which a caller can
+            supply a conclusion.
         contact_email : str
             Contact email for the project team.
         project_url : str, optional
@@ -109,12 +159,7 @@ class BadgeManager:
         ValueError
             If the audit report does not have a passing status.
         """
-        status = audit_report.get("status", "")
-        if status not in _PASSING_STATUSES:
-            raise ValueError(
-                f"Audit report status '{status}' is not passing. "
-                f"Must be one of: {', '.join(_PASSING_STATUSES)}"
-            )
+        audit_report = self._platform_audit(source_code, contract_name)
 
         now = time.time()
         year = datetime.fromtimestamp(now, tz=timezone.utc).year
@@ -165,6 +210,9 @@ class BadgeManager:
             "project_url": project_url,
             "verification_url": verification_url,
             "embed_code": embed_code,
+            # What was actually audited, returned so the holder can see the
+            # verdict their badge rests on rather than the one they sent.
+            "audit_report": audit_report,
         }
 
     # ── Verification ────────────────────────────────────────────────
@@ -229,15 +277,20 @@ class BadgeManager:
 
     # ── Renewal ─────────────────────────────────────────────────────
 
-    async def renew_badge(self, badge_id: str, new_audit_report: dict) -> dict:
-        """Renew an existing badge with a fresh audit.
+    async def renew_badge(self, badge_id: str, source_code: str) -> dict:
+        """Renew an existing badge on a FRESH audit this platform performs.
 
         Parameters
         ----------
         badge_id : str
             The badge to renew.
-        new_audit_report : dict
-            The new audit report; must have a passing status.
+        source_code : str
+            The current contract source. Like :meth:`issue_badge`, this took a
+            caller-supplied report and checked only that the caller had written
+            ``status: "passed"`` — the same hole, on the path whose entire
+            purpose is to re-establish that the claim is still true. Renewal is
+            where a stale badge is supposed to be caught, so accepting the
+            holder's own verdict there made the expiry decorative.
 
         Returns
         -------
@@ -249,12 +302,7 @@ class BadgeManager:
         ValueError
             If the badge does not exist or the new audit does not pass.
         """
-        status = new_audit_report.get("status", "")
-        if status not in _PASSING_STATUSES:
-            raise ValueError(
-                f"New audit report status '{status}' is not passing. "
-                f"Must be one of: {', '.join(_PASSING_STATUSES)}"
-            )
+        new_audit_report = self._platform_audit(source_code, what="Renewal")
 
         row = await self.db.fetchone(
             "SELECT * FROM security_badges WHERE badge_id = ?",
@@ -299,6 +347,7 @@ class BadgeManager:
             "contact_email": row["contact_email"],
             "project_url": row["project_url"],
             "verification_url": f"{_VERIFICATION_BASE}/{badge_id}",
+            "audit_report": new_audit_report,
         }
 
     # ── Revocation ──────────────────────────────────────────────────

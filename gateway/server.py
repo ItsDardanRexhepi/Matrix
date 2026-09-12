@@ -1976,7 +1976,11 @@ class GatewayServer:
         return web.json_response({"badges": badges})
 
     async def handle_badge_issue(self, request: web.Request) -> web.Response:
-        """POST /badge/issue — issue a badge after audit payment."""
+        """POST /badge/issue — issue a badge after audit payment.
+
+        Takes `source_code`, not an `audit_report`: the platform runs the audit
+        and issues on its own verdict. See BadgeManager.issue_badge.
+        """
         if not self.badge_manager:
             return web.json_response({"status": "not_available"}, status=503)
         try:
@@ -1988,10 +1992,17 @@ class GatewayServer:
         # qualify). Uncaught, that surfaced as HTTP 500 — the server blaming
         # itself for the caller's bad input. 400 is the honest code.
         try:
+            if "audit_report" in body:
+                # Not honoured, and not silently dropped either: a caller that
+                # sends one is trying to supply the conclusion the badge is
+                # supposed to attest.
+                logger.warning(
+                    "badge issue: ignoring a caller-supplied audit_report — the "
+                    "platform audits the source itself")
             result = await self.badge_manager.issue_badge(
                 contract_address=str(body.get("contract_address", "")),
                 contract_name=str(body.get("contract_name", "")),
-                audit_report=body.get("audit_report", {}),
+                source_code=str(body.get("source_code", "")),
                 contact_email=str(body.get("contact_email", "")),
                 project_url=str(body.get("project_url", "")),
             )
