@@ -169,26 +169,21 @@ def _openzeppelin_dir():
 
 
 @pytest.fixture(scope="module")
-def compiled_templates(tmp_path_factory):
-    """Compile every template with forge against the pinned OpenZeppelin
-    (contracts/lib, or OPENZEPPELIN_CONTRACTS_DIR). Skips when either is absent:
-    the submodule is not checked out in every clone."""
+def forge_build(tmp_path_factory):
+    """A forge project against the pinned OpenZeppelin (contracts/lib, or
+    OPENZEPPELIN_CONTRACTS_DIR). Returns build(name, source) -> (abi, error).
+    Skips when forge, solc 0.8.20 or the submodule is absent: the submodule is
+    not checked out in every clone."""
     import json
     import shutil
     import subprocess
-
-    from runtime.blockchain.services.contract_conversion.templates import TEMPLATES
 
     oz = _openzeppelin_dir()
     forge = shutil.which("forge")
     if oz is None or forge is None:
         pytest.skip("forge or the OpenZeppelin submodule is not available")
-    root = tmp_path_factory.mktemp("templates")
+    root = tmp_path_factory.mktemp("forge")
     (root / "src").mkdir()
-    for name, text in TEMPLATES.items():
-        (root / "src" / f"T_{name}.sol").write_text(
-            text.replace("{{NAME}}", f"T_{name}").replace("{{SYMBOL}}", "TT")
-                .replace("{{MAX_SUPPLY}}", "10000"))
     (root / "foundry.toml").write_text(
         '[profile.default]\nsrc = "src"\nout = "out"\ncache_path = "cache"\nlibs = []\n'
         'solc_version = "0.8.20"\noffline = true\n'
@@ -200,19 +195,37 @@ def compiled_templates(tmp_path_factory):
                            cwd=root, capture_output=True, text=True, timeout=300)
     if probe.returncode != 0:
         pytest.skip(f"forge cannot compile offline with solc 0.8.20: {probe.stderr[-300:]}")
-    # One build per template: a single build fails as a whole, which would make
-    # one broken template look like all of them.
-    abis, errors = {}, {}
-    for name in TEMPLATES:
+
+    def build(name: str, source: str):
+        # One build per contract: a single build fails as a whole, which would
+        # make one broken source look like all of them.
+        (root / "src" / f"{name}.sol").write_text(source)
         run = subprocess.run(
-            [forge, "build", "--offline", "--contracts", f"src/T_{name}.sol"],
+            [forge, "build", "--offline", "--contracts", f"src/{name}.sol"],
             cwd=root, capture_output=True, text=True, timeout=300)
-        artifact = root / "out" / f"T_{name}.sol" / f"T_{name}.json"
+        artifact = root / "out" / f"{name}.sol" / f"{name}.json"
         if run.returncode == 0 and artifact.is_file():
-            abis[name] = json.loads(artifact.read_text())["abi"]
-        else:
-            abis[name] = None
-            errors[name] = (run.stderr or run.stdout)[-1500:]
+            return json.loads(artifact.read_text())["abi"], None
+        return None, (run.stderr or run.stdout)[-1500:]
+
+    return build
+
+
+def _filled(name: str, text: str) -> str:
+    return (text.replace("{{NAME}}", name).replace("{{SYMBOL}}", "TT")
+                .replace("{{MAX_SUPPLY}}", "10000"))
+
+
+@pytest.fixture(scope="module")
+def compiled_templates(forge_build):
+    from runtime.blockchain.services.contract_conversion.templates import TEMPLATES
+
+    abis, errors = {}, {}
+    for name, text in TEMPLATES.items():
+        abi, err = forge_build(f"T_{name}", _filled(f"T_{name}", text))
+        abis[name] = abi
+        if err is not None:
+            errors[name] = err
     return errors, abis
 
 
@@ -234,3 +247,66 @@ def test_the_recorded_external_functions_are_the_compiled_abi(compiled_templates
         compiled = {e["name"] for e in abi if e.get("type") == "function"}
         assert set(TEMPLATE_EXTERNAL_FUNCTIONS[name]) == compiled, (
             name, sorted(compiled ^ set(TEMPLATE_EXTERNAL_FUNCTIONS[name])))
+
+
+# ── what convert() returns when a fee recipient is configured ────────────
+#
+# Round-2 review: `conversion.inject_fees` defaults to True and takes effect as
+# soon as `blockchain.platform_wallet` is set. RevenueEnforcer then adds
+# `_collectERC20Fee`, which called `IERC20(token).transfer(...)` in templates
+# that never import IERC20. convert() reported the result as status "success",
+# audit passed, and forge rejected it: Error (7576) Undeclared identifier.
+# Every control above ran with config {}, where fee injection is skipped, so the
+# contract production returns was never compiled.
+
+FEE_CONFIG = {"blockchain": {"platform_wallet": "0x000000000000000000000000000000000000bEEF"}}
+
+MUSIC_PSEUDOCODE = """contract AlbumDrop
+music album with songs and audio tracks, royalty for the artist
+function mint(to: address, id: uint256, amount: uint256)
+"""
+
+
+def _reachable_templates():
+    """Every template convert() can emit: the artist classifier's map, plus its
+    erc721 default. Read from the classifier so a new mapping is covered."""
+    from runtime.blockchain.services.contract_conversion import artist_classifier
+
+    return sorted(set(artist_classifier._TEMPLATE_MAP.values()) | {"erc721"})
+
+
+def test_every_reachable_template_compiles_after_fee_injection(forge_build):
+    from runtime.blockchain.services.contract_conversion.revenue_enforcer import (
+        RevenueEnforcer,
+    )
+    from runtime.blockchain.services.contract_conversion.templates import TEMPLATES
+
+    failed = {}
+    for name in _reachable_templates():
+        contract = f"F_{name}"
+        injected = RevenueEnforcer(FEE_CONFIG).inject_fee_logic(
+            _filled(contract, TEMPLATES[name]))
+        assert "_collectERC20Fee" in injected, "fee injection did not run"
+        abi, err = forge_build(contract, injected)
+        if abi is None:
+            failed[name] = err
+    assert not failed, f"fee-injected templates that do not compile: {sorted(failed)}\n{failed}"
+
+
+@pytest.mark.parametrize("pseudocode,template", [
+    (ARTIST_PSEUDOCODE, "erc721"),
+    (MUSIC_PSEUDOCODE, "erc1155"),
+])
+async def test_the_fee_injected_contract_convert_returns_compiles(forge_build, pseudocode,
+                                                                   template):
+    result = await ContractConversionService(config=FEE_CONFIG).convert(
+        pseudocode, "pseudocode")
+    assert result.get("template_used") == template, (
+        result.get("template_used"), result.get("artist_info"))
+    source = result["generated_source"]
+    assert "platformFeeRecipient" in source, "fee injection did not run"
+    abi, err = forge_build(result["contract_name"], source)
+    assert abi is not None, (
+        f"convert() returned status {result['status']!r}, audit_passed "
+        f"{result['audit_passed']!r} for a contract that does not compile:\n{err}")
+    assert result["status"] == "success", (result["status"], result["unimplemented"])

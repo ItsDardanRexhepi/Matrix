@@ -37,11 +37,33 @@ _FEE_MODIFIER = """\
     }}
 """
 
+# The ERC-20 helper called `IERC20(token).transfer(...)`, but nothing injected
+# declares IERC20, and the contracts this is injected into do not all have it in
+# scope: the erc721 and erc1155 templates import neither IERC20.sol nor anything
+# that re-exports it, so a fee-injected template failed to compile (solc Error
+# 7576, Undeclared identifier) while convert() reported it as a success.
+#
+# The fix declares the one function the helper calls, at file level, under a
+# name no OpenZeppelin or template source uses, so it cannot collide with an
+# IERC20 that IS in scope. The declaration matches OpenZeppelin's IERC20.transfer
+# (same signature, same `returns (bool)`), so the external call, its selector,
+# and how its return data is decoded are unchanged. The fee arithmetic, the
+# recipient and the bps are untouched.
+_FEE_TOKEN_INTERFACE_NAME = "IOpenMatrixFeeToken"
+
+_FEE_TOKEN_INTERFACE = """\
+/// Minimal ERC-20 surface used by the injected platform-fee helper.
+interface IOpenMatrixFeeToken {
+    function transfer(address to, uint256 value) external returns (bool);
+}
+
+"""
+
 _ERC20_FEE_FUNCTION = """\
     function _collectERC20Fee(address token, uint256 amount) internal returns (uint256) {{
         uint256 fee = (amount * platformFeeBps) / 10000;
         if (fee > 0) {{
-            IERC20(token).transfer(platformFeeRecipient, fee);
+            IOpenMatrixFeeToken(token).transfer(platformFeeRecipient, fee);
         }}
         return amount - fee;
     }}
@@ -87,7 +109,9 @@ class RevenueEnforcer:
         The method:
         1. Adds ``platformFeeRecipient`` and ``platformFeeBps`` state vars.
         2. Adds the ``collectPlatformFee`` modifier.
-        3. Adds ``_collectERC20Fee`` internal helper.
+        3. Adds ``_collectERC20Fee`` internal helper, and declares the one
+           ERC-20 function it calls (``IOpenMatrixFeeToken.transfer``) at file
+           level, so the helper compiles whether or not IERC20 is in scope.
         4. Adds owner-only setters for recipient and bps.
         5. Initialises fee recipient in the constructor.
         6. Applies ``collectPlatformFee`` to all ``payable`` functions.
@@ -123,8 +147,9 @@ class RevenueEnforcer:
         # 2. Inject modifier
         source = self._inject_before_first_function(source, _FEE_MODIFIER)
 
-        # 3. Inject ERC-20 fee helper
+        # 3. Inject ERC-20 fee helper, and declare the token call it makes
         source = self._inject_before_closing_brace(source, _ERC20_FEE_FUNCTION)
+        source = self._declare_fee_token_interface(source)
 
         # 4. Inject setters
         source = self._inject_before_closing_brace(source, _SET_FEE_RECIPIENT)
@@ -155,6 +180,20 @@ class RevenueEnforcer:
             pos = match.end()
             return source[:pos] + "\n" + snippet + source[pos:]
         return source
+
+    @staticmethod
+    def _declare_fee_token_interface(source: str) -> str:
+        """Declare IOpenMatrixFeeToken at file level, on its own line just
+        before the first contract declaration (after the pragma and imports).
+        Once only."""
+        if re.search(rf"\binterface\s+{_FEE_TOKEN_INTERFACE_NAME}\b", source):
+            return source
+        match = re.search(r"^[ \t]*(?:abstract[ \t]+)?contract\s+\w+[^{]*\{",
+                          source, re.MULTILINE)
+        if match:
+            pos = match.start()
+            return source[:pos] + _FEE_TOKEN_INTERFACE + source[pos:]
+        return _FEE_TOKEN_INTERFACE + source
 
     @staticmethod
     def _inject_before_first_function(source: str, snippet: str) -> str:
