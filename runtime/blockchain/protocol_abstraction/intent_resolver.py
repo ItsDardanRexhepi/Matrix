@@ -223,8 +223,12 @@ class IntentResolver:
                 "summary": summary,
             }
         except Exception as exc:
+            # This used to return {"status": "error", "message": str(exc)}, so
+            # the exception text became the HTTP body and the route could not
+            # tell a dependency outage from a bug. Log and re-raise: the caller
+            # (gateway/service_routes.py) owns what the client is allowed to see.
             self._logger.error("resolve failed: %s", exc, exc_info=True)
-            return {"status": "error", "message": str(exc)}
+            raise
 
     # ── Plan execution ───────────────────────────────────────────────
 
@@ -291,8 +295,10 @@ class IntentResolver:
                 "total_steps": len(steps),
             }
         except Exception as exc:
+            # Same as resolve(): the exception is the caller's to redact, not a
+            # result to hand back verbatim.
             self._logger.error("execute_plan failed: %s", exc, exc_info=True)
-            return {"status": "error", "message": str(exc)}
+            raise
 
     # ── Human-readable summary ───────────────────────────────────────
 

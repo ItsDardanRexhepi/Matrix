@@ -2562,14 +2562,29 @@ class ServiceRoutes:
     # -- Portfolio --
 
     async def _handle_portfolio_complete(self, request: web.Request) -> web.Response:
+        """The last copy of the RUN-6 shape on the portfolio pair.
+
+        This returned `{"wallet", "status": "unavailable", "message": str(e)}`
+        — the exact body RUN-6 removed from /portfolio/positions two handlers
+        below. RUN-4's `_ok` already turned that inner `unavailable` into a 503,
+        so the status was honest; the body was not: the exception text (an RPC
+        URL, a provider error) went to the caller. Same answer as positions now:
+        the reason is logged server-side, the client gets a fixed sentence.
+        """
         wallet = request.match_info["wallet"]
         try:
             from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
             aggregator = DataAggregator(self._config)
             result = await aggregator.get_user_portfolio(wallet)
         except Exception as e:
-            logger.warning("Portfolio aggregation failed: %s", e)
-            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
+            logger.warning("Portfolio aggregation failed for %s: %s", wallet, e)
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({
+                    "status": "unavailable",
+                    "error": "The portfolio is unavailable right now.",
+                }),
+                content_type="application/json",
+            )
         return self._ok(result)
 
     async def _handle_portfolio_positions(self, request: web.Request) -> web.Response:
@@ -2642,37 +2657,96 @@ class ServiceRoutes:
 
     # -- Intent Resolution --
 
+    # Entity fields IntentResolver.resolve reads as text. Anything else in
+    # `entities` is passed through untouched.
+    _INTENT_TEXT_ENTITIES = ("asset", "from_chain", "to_chain", "token_out",
+                             "collateral", "data_ref")
+
+    @staticmethod
+    def _bad_request(message: str) -> web.Response:
+        return web.json_response(
+            {"error": message, "code": "invalid_request"}, status=400)
+
     async def _handle_intent_resolve(self, request: web.Request) -> web.Response:
+        """POST /api/v1/intent/resolve — an exception is not a plan.
+
+        Both this handler and IntentResolver.resolve itself caught every
+        exception and returned `{"status": "error", "message": str(exc)}`.
+        RUN-4's `_ok` made that a 422 rather than a 200, but the body still
+        carried the exception text, and 422 said "your request was
+        unprocessable" for what was usually our own fault. It also said the same
+        422 — with Python's own wording — for input that genuinely WAS the
+        caller's fault (`entities.amount: "abc"`, `entities: [...]`).
+
+        Now: the caller's malformed input is a 400 checked here, before the
+        resolver runs; anything that fails after that goes through
+        client_error — logged in full against a ref, redacted to the client,
+        503/504 when a dependency is what failed and 500 otherwise.
+        `unresolved` stays a 200: it is an answer to the question asked.
+        """
         body = await self._parse_body(request)
         self._require(body, "intent")
+        intent = body.get("intent")
+        if not isinstance(intent, str) or not intent.strip():
+            return self._bad_request("intent must be a non-empty string")
+        entities = body.get("entities")
+        if entities is None:
+            entities = {}
+        if not isinstance(entities, dict):
+            return self._bad_request("entities must be an object")
+        if "amount" in entities:
+            try:
+                float(entities["amount"])
+            except (TypeError, ValueError):
+                return self._bad_request("entities.amount must be a number")
+        for key in self._INTENT_TEXT_ENTITIES:
+            if key in entities and not isinstance(entities[key], str):
+                return self._bad_request(f"entities.{key} must be a string")
         try:
             from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
             resolver = IntentResolver(self._config)
             result = await resolver.resolve(
-                intent=body["intent"],
-                entities=body.get("entities", {}),
-                wallet=body.get("wallet", ""),
-                tier=body.get("tier", "free"),
+                intent=intent,
+                entities=entities,
+                wallet=str(body.get("wallet", "") or ""),
+                tier=str(body.get("tier", "free") or "free"),
             )
-        except Exception as e:
-            logger.warning("Intent resolution failed: %s", e)
-            result = {"status": "error", "message": str(e)}
+        except Exception as exc:
+            _st, _err = client_error(exc, None, what="Intent resolution")
+            return web.json_response(_err, status=_st)
         return self._ok(result)
 
     async def _handle_intent_execute(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "plan_id", "wallet")
-        try:
-            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
-            resolver = IntentResolver(self._config)
-            result = await resolver.execute(
-                plan_id=body["plan_id"],
-                wallet=body["wallet"],
-            )
-        except Exception as e:
-            logger.warning("Intent execution failed: %s", e)
-            result = {"status": "error", "message": str(e)}
-        return self._ok(result)
+        """POST /api/v1/intent/execute — executing a plan by id is not built.
+
+        This called IntentResolver.execute(plan_id=..., wallet=...), which does
+        not exist, so every well-formed request raised AttributeError and the
+        handler returned it as the body (422 after RUN-4, 200 before). It
+        survived the route sweep because the sweep's generic body carries no
+        `plan_id`, so the sweep only ever saw the 400 for a missing field.
+
+        Same reason as /intent/summary, and the same answer: plans are not
+        persisted — resolve() mints a uuid4 plan_id and keeps nothing — so
+        there is no plan to look up by id. The real method,
+        execute_plan(plan: dict, wallet), takes the plan OBJECT. Repointing to it
+        would mean executing a plan the caller wrote into its own request body,
+        on a fund-moving path, which is not a repair. 501 until a plan store and
+        a gated execution path exist.
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Executing an intent plan by id is not implemented.",
+                "detail": (
+                    "Plans are not persisted: /api/v1/intent/resolve returns the "
+                    "full plan and the resolver keeps no store, so a plan_id "
+                    "cannot be looked up, and nothing executes a resolved plan "
+                    "from this endpoint."
+                ),
+                "see": "/api/v1/intent/resolve",
+            },
+            status=501,
+        )
 
     async def _handle_intent_summary(self, request: web.Request) -> web.Response:
         """RUN-6: summary-by-plan-id cannot be served, and never could.

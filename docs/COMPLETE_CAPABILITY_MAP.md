@@ -384,7 +384,7 @@ The sections below organise every capability by its high-level category. Older c
 | Dashboard | Get a complete dashboard for a wallet address | Free | GET /api/v1/dashboard/{address} | custom |
 | Complete Portfolio | Aggregated portfolio view across all protocols | Free | GET /api/v1/portfolio/complete/{wallet} | Protocol Abstraction Layer |
 | Open Positions | View all open DeFi positions for a wallet | Free | GET /api/v1/portfolio/positions/{wallet} | Protocol Abstraction Layer |
-| Transaction History | Full transaction history for a wallet | Free | GET /api/v1/portfolio/history/{wallet} | Protocol Abstraction Layer |
+| ~~Transaction History~~ **NOT AVAILABLE** | No time-series portfolio data is recorded; serving history needs an indexer that does not exist. The endpoint answers 501. | — | GET /api/v1/portfolio/history/{wallet} → 501 | — |
 | Oracle Price | Get the current price for a trading pair | Free | GET /api/v1/oracle/price/{pair} | Chainlink, Pyth, Band |
 | Social Feed | View the activity feed for a wallet | Free | GET /api/v1/social/feed/{wallet} | custom |
 
@@ -395,8 +395,8 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
 | Resolve Intent | Parse a natural-language intent into an execution plan | Free | POST /api/v1/intent/resolve | Intent Resolver |
-| Execute Intent | Execute a previously resolved intent plan | Free | POST /api/v1/intent/execute | Intent Resolver |
-| Intent Summary | Get the summary and status of an intent plan | Free | GET /api/v1/intent/summary/{plan_id} | Intent Resolver |
+| ~~Execute Intent~~ **NOT AVAILABLE** | Plans are not persisted, so nothing can execute one by id. The endpoint answers 501; keep the plan returned by Resolve Intent. | — | POST /api/v1/intent/execute → 501 | — |
+| ~~Intent Summary~~ **NOT AVAILABLE** | Plans are not persisted, so there is no plan to summarise by id. The endpoint answers 501; the Resolve Intent response already carries the summary. | — | GET /api/v1/intent/summary/{plan_id} → 501 | — |
 
 ---
 
