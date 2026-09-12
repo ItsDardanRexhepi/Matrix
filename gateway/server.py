@@ -1085,6 +1085,12 @@ class GatewayServer:
                 # gateway's own working-set copy was not, so the next caller to
                 # name the id — ownerless now — was handed the history.
                 self._forget_conversations(erased)
+                # Nor were the protocol stacks: Jarvis renders a scope's "User
+                # said: …" patterns into its next prompt, and the same subject
+                # signing in again was shown what the deleted account said.
+                memory = self.react_loop.memory
+                self.react_loop.forget_scopes(
+                    [subject, *(memory.conversation_scope(sid) for sid in erased)])
             except Exception:
                 logger.debug("account delete: conversation erasure skipped")
 
@@ -2613,8 +2619,15 @@ class GatewayServer:
 
     def _memory_scope(self, request: web.Request, session_id: str) -> str:
         """What the agent's memory and protocol state are keyed by for this
-        caller: the account subject when signed in, else the conversation."""
-        return self._session_subject(request) or session_id
+        caller: the account subject when signed in, else the conversation —
+        as ``conv:<session_id>`` (MemoryManager.conversation_scope), never the
+        bare id. The bare id shared one namespace with subjects: an anonymous
+        caller naming an account's subject (a SIWE address is public) as its
+        session id was shown the account's memory and wrote into it."""
+        subject = self._session_subject(request)
+        if subject:
+            return subject
+        return self.react_loop.memory.conversation_scope(session_id)
 
     def _conversation_denied(self, request: web.Request, session_id: str):
         """Ownership (C2b): a conversation with an owner is continued only by

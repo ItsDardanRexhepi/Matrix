@@ -137,6 +137,21 @@ class MemoryManager:
 
     # ── Conversation Turns (per-agent log) ─────────────────────────
 
+    #: The scope of an anonymous conversation's agent memory and protocol
+    #: state: ``conv:<session_id>``. An account's scope is its subject — a SIWE
+    #: address (``0x…``, the address a signature recovered to) or
+    #: ``apple:<sub>`` — and neither begins with this prefix, so no session id
+    #: a caller chooses can name an account's scope. They were one namespace:
+    #: an anonymous caller who sent an account's subject as its session id was
+    #: shown that account's memory and wrote into it.
+    CONVERSATION_SCOPE_PREFIX = "conv:"
+
+    @classmethod
+    def conversation_scope(cls, session_id: str) -> str:
+        """The memory scope of the conversation *session_id* for a caller who
+        has no account."""
+        return f"{cls.CONVERSATION_SCOPE_PREFIX}{session_id}"
+
     @staticmethod
     def memory_key(agent: str, scope: str = "") -> str:
         """Agent memory is namespaced by the caller: ``agent@scope``.
@@ -437,18 +452,27 @@ class MemoryManager:
         for sid in erased:
             self._forget_conversation(sid)
         await self.erase_scoped_memory(owner)
+        # The memory the account's conversations wrote before it claimed them
+        # (anonymous turns, scoped to the conversation) goes with them.
+        for sid in erased:
+            await self.erase_scoped_memory(self.conversation_scope(sid))
         return sorted(erased)
 
-    async def erase_scoped_memory(self, owner: str) -> None:
-        """Delete every agent memory scoped to *owner* (``agent@owner``)."""
-        if not owner:
+    async def erase_scoped_memory(self, scope: str) -> None:
+        """Delete every agent memory scoped to exactly *scope*
+        (``agent@scope``, for every agent).
+
+        Matched on the whole scope, not on the key's ending: "ends with
+        ``@apple:x``" also named ``trinity@conv:notes@apple:x`` — an anonymous
+        conversation whose id happens to end in the account's subject."""
+        if not scope:
             return
-        suffix = f"@{owner}"
-        keys = {k for k in list(self._turn_cache) + list(self._kv_cache) if k.endswith(suffix)}
-        keys |= {self.memory_key(a, owner) for a in ("neo", "trinity", "morpheus")}
+        where = "instr(agent, '@') > 0 AND substr(agent, instr(agent, '@') + 1) = ?"
+        await self.db.execute(f"DELETE FROM agent_turns WHERE {where}", (scope,))
+        await self.db.execute(f"DELETE FROM agent_memory WHERE {where}", (scope,))
+        keys = {k for k in list(self._turn_cache) + list(self._kv_cache)
+                if "@" in k and k.split("@", 1)[1] == scope}
         for key in keys:
-            await self.db.execute("DELETE FROM agent_turns WHERE agent = ?", (key,))
-            await self.db.execute("DELETE FROM agent_memory WHERE agent = ?", (key,))
             self._turn_cache.pop(key, None)
             self._kv_cache.pop(key, None)
             self._loaded_agents.discard(key)

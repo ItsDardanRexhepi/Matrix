@@ -137,6 +137,14 @@ class ReActLoop:
             self._protocol_stacks.popitem(last=False)
         return stack
 
+    def forget_scopes(self, scopes) -> None:
+        """Drop the protocol stacks of *scopes*, for every agent (account
+        erasure). A turn still running keeps the stack it started with; the
+        next turn in the scope starts from an empty one."""
+        gone = {s for s in scopes or () if s}
+        for key in [k for k in self._protocol_stacks if k[1] in gone]:
+            del self._protocol_stacks[key]
+
     @staticmethod
     def _scope_of(context: "ReActContext") -> str:
         """The caller's memory scope: set by the gateway from the presented

@@ -225,7 +225,8 @@ async def test_a_body_wallet_no_longer_satisfies_the_beneficiary_check_on_public
     a public route, naming the target as your own ``wallet`` passed that check.
     Driven through the real ProtocolStack.pre_action; its decision is read."""
     server = _server(api_key=KEY, stub="router")
-    stack = server.react_loop._get_protocol_stack("trinity", "conv-benef")
+    stack = server.react_loop._get_protocol_stack(
+        "trinity", server.react_loop.memory.conversation_scope("conv-benef"))
     decisions: list[dict] = []
     real_pre_action = stack.pre_action
 

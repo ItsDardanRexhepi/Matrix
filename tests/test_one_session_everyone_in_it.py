@@ -237,4 +237,6 @@ def test_protocol_stacks_are_per_scope_with_a_cap():
 
 def test_memory_scope_is_the_account_when_signed_in_else_the_conversation():
     server = _server()
-    assert server._memory_scope(_FakeRequest(), "conv-9") == "conv-9"
+    assert server._memory_scope(_FakeRequest(), "conv-9") == "conv:conv-9"
+    # An anonymous id spelled like an account subject still names a conversation.
+    assert server._memory_scope(_FakeRequest(), "apple:X") == "conv:apple:X"
