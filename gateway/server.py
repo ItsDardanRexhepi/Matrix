@@ -1617,6 +1617,42 @@ class GatewayServer:
         Uses the :class:`EventBroadcaster` to push new
         ``feed.new_event`` broadcasts to connected clients.
         """
+        # Refuse BEFORE preparing the response, as /api/v1/events/stream does:
+        # once a 200 text/event-stream is out, a rejection can only travel as a
+        # field inside an error event on a successful response. This prepared
+        # first, so the broadcaster's mandated 429/503 — and a missing
+        # broadcaster — reached every client and proxy as 200.
+        broadcaster = getattr(self, "event_broadcaster", None)
+        if broadcaster is None:
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({"error": "Feed stream is unavailable."}),
+                content_type="application/json",
+                headers={"Retry-After": "30"},
+            )
+
+        # NEW-6: this called broadcaster.register(ip=...) synchronously. Three
+        # faults in one line: the parameter is `remote_ip`, not `ip`; register
+        # is `async` and was never awaited; and BroadcasterCapacityError — which
+        # the method's own docstring tells callers to translate — was unhandled.
+        from gateway.event_broadcaster import BroadcasterCapacityError
+
+        peer = request.remote or "unknown"
+        try:
+            sub = await broadcaster.register(
+                remote_ip=peer,
+                types={"feed.new_event"},
+            )
+        except BroadcasterCapacityError as exc:
+            # Per the broadcaster's contract: global cap -> 503, per-IP -> 429
+            # (Retry-After as the sibling route sets it).
+            error = web.HTTPTooManyRequests if exc.scope == "per_ip" else web.HTTPServiceUnavailable
+            raise error(
+                text=json.dumps({"error": "Feed stream is at capacity. Try again shortly.",
+                                 "scope": exc.scope}),
+                content_type="application/json",
+                headers={"Retry-After": "30" if exc.scope == "per_ip" else "5"},
+            )
+
         response = web.StreamResponse(
             status=200,
             reason="OK",
@@ -1627,51 +1663,31 @@ class GatewayServer:
                 "X-Accel-Buffering": "no",
             },
         )
-        await response.prepare(request)
-
-        broadcaster = getattr(self, "event_broadcaster", None)
-        if broadcaster is None:
-            await response.write(b"event: error\ndata: {\"error\":\"broadcaster not available\"}\n\n")
-            return response
-
-        # NEW-6: this called broadcaster.register(ip=...) synchronously. Three
-        # faults in one line: the parameter is `remote_ip`, not `ip`; register
-        # is `async` and was never awaited; and BroadcasterCapacityError — which
-        # the method's own docstring tells callers to translate — was unhandled.
-        # The TypeError fired after response.prepare(), so the client saw a
-        # truncated SSE stream rather than an error. A real bug, not a missing
-        # feature: the broadcaster works, the call site had drifted.
-        from gateway.event_broadcaster import BroadcasterCapacityError
-
-        peer = request.remote or "unknown"
         try:
-            sub = await broadcaster.register(
-                remote_ip=peer,
-                types={"feed.new_event"},
-            )
-        except BroadcasterCapacityError as exc:
-            # Per the broadcaster's contract: global cap -> 503, per-IP -> 429.
-            code = 429 if exc.scope == "per_ip" else 503
-            await response.write(
-                b'event: error\ndata: '
-                + json.dumps({
-                    "error": "Feed stream is at capacity. Try again shortly.",
-                    "retry_after_s": 30,
-                    "code": code,
-                }).encode()
-                + b"\n\n"
-            )
-            return response
+            await response.prepare(request)
+        except BaseException:
+            await broadcaster.unregister(sub)
+            raise
 
+        # The slot this stream holds is given back however it ends. Two faults
+        # kept it: the broadcaster's unregister is async and was called without
+        # await (the coroutine never ran, so the subscriber was never removed),
+        # and iter_events yields None as a keep-alive every quiet interval,
+        # which this loop dereferenced — so every feed stream died after 15
+        # quiet seconds, leaking its slot on the way out. The broadcaster is
+        # shared with /api/v1/events/stream and caps slots per peer address.
         try:
             async for event in broadcaster.iter_events(sub):
-                payload = json.dumps(event.to_dict())
-                chunk = f"id: {event.event_id}\nevent: feed\ndata: {payload}\n\n"
+                if event is None:
+                    chunk = ": keepalive\n\n"
+                else:
+                    payload = json.dumps(event.to_dict())
+                    chunk = f"id: {event.event_id}\nevent: feed\ndata: {payload}\n\n"
                 await response.write(chunk.encode())
         except (asyncio.CancelledError, ConnectionResetError):
             pass
         finally:
-            broadcaster.unregister(sub)
+            await broadcaster.unregister(sub)
 
         return response
 

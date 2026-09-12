@@ -3146,7 +3146,13 @@ class ServiceRoutes:
                 "X-Accel-Buffering": "no",  # disable nginx/Caddy buffering
             },
         )
-        await response.prepare(request)
+        # The subscriber is registered: a client gone before the headers must
+        # not keep its slot (the caps count slots per peer address).
+        try:
+            await response.prepare(request)
+        except BaseException:
+            await self._broadcaster.unregister(sub)
+            raise
 
         # Replay any events the client missed during the reconnect window.
         if last_event_id:
