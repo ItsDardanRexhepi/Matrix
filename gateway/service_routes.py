@@ -981,9 +981,9 @@ class ServiceRoutes:
         if identity and body_sender and body_sender.lower() != identity.lower():
             logger.warning(
                 "paymaster sign refused: body sender does not match the "
-                "authenticated caller")
+                "identity bound to this request")
             return web.json_response(
-                {"error": "sender does not match the authenticated caller"},
+                {"error": "sender does not match the wallet this request is bound to"},
                 status=403)
         sender = identity or body_sender
 
@@ -1882,7 +1882,11 @@ class ServiceRoutes:
         # §CD sibling pass: `owner` was required and then never forwarded — the
         # route advertised an authorization input that governed nothing. It is
         # bound the way every other identity on this funnel is: the wallet the
-        # middleware authenticated wins, the body field is the dev fallback.
+        # security middleware bound for this request wins (a session's identity,
+        # else the caller-written X-Wallet-Address header or a body wallet/from/
+        # sender/account field), and the body `owner` is the fallback when none
+        # of those is present. Bound, not authenticated: without a session it is
+        # what the request wrote.
         from gateway.security_gate import current_request_security
         authed = str((current_request_security() or {}).get("wallet") or "")
         result = await self._call(
@@ -3035,11 +3039,15 @@ class ServiceRoutes:
         # caller for exactly the same reason: nobody asked for it. The identity
         # is already bound for every POST /api/v1/* by
         # `GatewayServer._security_context_middleware`, so it is read here from
-        # the request-scoped context rather than from the body, following the
+        # the request-scoped context rather than from `params`, following the
         # idiom `_handle_governance_vote` and `_handle_insurance_claim` already
-        # use: an authenticated identity always wins, and a body-supplied
-        # address is never promoted to fact. Absent identity degrades to ""
-        # ("unknown"), never to a self-asserted address, and never to a refusal.
+        # use, and passed to the registry as `caller_identity` rather than read
+        # from `params`. Bound, not authenticated. The middleware binds a session's identity
+        # when one is presented; without one, the X-Wallet-Address header; and
+        # without that, a body `wallet`, `from`, `sender` or `account` field or
+        # `params.from` — so a self-asserted address DOES become the identity
+        # when the request carries no session and no header. With none of
+        # those, the identity is "" ("unknown"), never a refusal.
         from gateway.security_gate import (
             current_request_security, gate_action, generic_denial, is_blocked,
         )

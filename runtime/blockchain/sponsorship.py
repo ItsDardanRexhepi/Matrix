@@ -363,9 +363,12 @@ class SponsorshipPolicy:
 # the route takes it from the X-Wallet-Address header or the body `sender`, both
 # written by the caller; with a SIWE session it is an address whose key the
 # caller holds, and keys cost nothing to make. Each new address starts with a
-# fresh cap. The cap bounds sponsored spend per address, not per caller, and
-# nothing in this repo bounds the total a caller who rotates addresses can draw
-# except the EntryPoint deposit itself.
+# fresh cap. (With an Apple session the identity is the wallet linked to that
+# Apple user, or `apple:<sub>` when none is linked, not an address chosen per
+# request; what rotating those costs a caller is not measured here.) The cap
+# bounds sponsored spend per address, not per caller, and nothing in this repo
+# bounds the total a caller who rotates addresses can draw except the
+# EntryPoint deposit itself.
 
 # Past this many calls in one batch the operation is one label, so neither the
 # label list nor anything built from it grows with the caller's input.
@@ -606,8 +609,10 @@ def canonical_identity(identity: Any) -> str:
 
 
 def set_caller_identity(identity: str):
-    """Bind the authenticated caller for the current dispatch. Returns the token
-    to reset with — callers should reset in a `finally`."""
+    """Bind the caller identity for the current dispatch: whatever identity the
+    entry point bound, which is authenticated only if that entry point derived
+    it from a session. Returns the token to reset with — callers should reset in
+    a `finally`."""
     return _caller_identity.set(canonical_identity(identity))
 
 
@@ -624,9 +629,10 @@ def resolve_caller_identity() -> str:
     """The identity to meter this signature against.
 
     Two sources, in order: the tool dispatch that is running (set by the tool
-    dispatcher), then the authenticated HTTP request (set by the security
-    middleware). Empty when neither exists — which a configured cap treats as a
-    denial rather than as a free pass.
+    dispatcher), then the identity the security middleware bound for the HTTP
+    request (a session's identity, else the caller-written X-Wallet-Address
+    header or a body field). Empty when neither exists — which a configured cap
+    treats as a denial rather than as a free pass.
     """
     who = _caller_identity.get()
     if who:

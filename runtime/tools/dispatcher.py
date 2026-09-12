@@ -234,8 +234,9 @@ class ToolDispatcher:
     #: arguments are authored by the model from its context, and its context
     #: includes tool output and user text — so anything the model can write is
     #: caller-controlled. `ServiceDispatcher.execute` takes a keyword-only
-    #: `caller_identity`, the authenticated address the HTTP and bridge entry
-    #: points deliberately DERIVE rather than accept; registering that method
+    #: `caller_identity`, the identity the HTTP and bridge entry points bind
+    #: from the request (a session, a header, a body field) and never from
+    #: tool arguments; registering that method
     #: as the `platform_action` tool and invoking it as `handler(**arguments)`
     #: let a model-authored key bind it. Found by the §CD sibling-axes pass.
     RESERVED_ARGUMENTS = frozenset({"caller_identity", "caller_source"})

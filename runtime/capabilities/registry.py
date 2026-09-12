@@ -83,8 +83,10 @@ class CapabilityRegistry:
         Parameters
         ----------
         caller_identity:
-            The AUTHENTICATED wallet address of whoever is invoking, or "" when
-            the caller has none. See DOMAIN 17-D below. Keyword-only and
+            The identity the gateway bound for this request, or "" when there is
+            none: a session's identity when a session is presented, otherwise
+            the caller-written X-Wallet-Address header or a body field, so it is
+            authenticated only in the first case. See DOMAIN 17-D below. Keyword-only and
             defaulting to "" so the existing two-argument call sites keep
             working unchanged.
         """
@@ -106,11 +108,11 @@ class CapabilityRegistry:
         #
         # It is READ IN THE HANDLER, not here. `runtime/` does not import
         # `gateway.security_gate` — and the repo already has the idiom for it
-        # (`_handle_governance_vote`, `_handle_insurance_claim`:
-        # "an authenticated identity always wins, a body-supplied field is a
-        # dev fallback only"). Taking it as a parameter keeps that direction of
-        # dependency and keeps the three non-HTTP callers, which have no
-        # authenticated caller, working with the honest "" default.
+        # (`_handle_governance_vote`, `_handle_insurance_claim`: "a bound
+        # identity always wins, a body-supplied field is a dev fallback only").
+        # Taking it as a parameter keeps that direction of dependency and keeps
+        # the three non-HTTP callers, which bind no caller identity, working
+        # with the honest "" default.
 
         cap = catalog.get_by_id(capability_id)
         if cap is None:

@@ -1120,8 +1120,14 @@ class ServiceDispatcher:
         params:
             Keyword arguments forwarded to the underlying service method.
         caller_identity:
-            The AUTHENTICATED wallet address of the caller, or "" when the
-            entry point has none. See DOMAIN 17-D below. Keyword-only and
+            The wallet address the entry point bound for the caller, or "" when
+            it binds none: on the bridge, the wallet linked to the SIWE
+            session; on POST /api/v1/capabilities/{id}/invoke, the security
+            middleware's binding (a session's identity, else the caller-written
+            X-Wallet-Address header or a body field). Never taken from
+            ``params``. It is authenticated only when a session was its source,
+            although the ``caller_source`` recorded for it says "authenticated"
+            either way (see 17-J below). See DOMAIN 17-D below. Keyword-only and
             defaulting to "" so every existing call site — including the
             positional ``execute(action, None, params)`` in
             ``runtime/agents/handoff.py`` — keeps working unchanged.

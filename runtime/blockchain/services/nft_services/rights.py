@@ -80,8 +80,10 @@ class RightsManagement:
             dicts with ``granted`` (bool), ``holder`` (str),
             ``expires_at`` (int, optional), ``terms`` (str, optional).
         caller_identity : str, optional
-            The AUTHENTICATED wallet address of whoever is setting these
-            rights, threaded from the dispatcher (DOMAIN 17-D). Optional and
+            The identity the entry point bound for whoever is setting these
+            rights, threaded from the dispatcher (DOMAIN 17-D). It is
+            authenticated only when that entry point derived it from a session;
+            see `ServiceDispatcher.execute`. Optional and
             defaulting to "" so existing callers — including this package's own
             `NFTService.mint`, which writes the default rights grant — keep
             working unchanged. "" is recorded as "" and means UNKNOWN.
