@@ -410,7 +410,7 @@ class PrivacyService:
     # On instantiating the target services here rather than resolving them
     # through a registry: both are STATELESS — they hold only `_config`, a
     # shared Web3Manager, and a lazy gas sponsor, and keep no user data. The
-    # C1 registry-multiplicity problem (documented in Matrix/DELETION_STORE_MAP.md)
+    # C1 registry-multiplicity problem (documented in the audit register's deletion-store map)
     # is a problem about DIVERGENT STATE across copies; it does not apply to a
     # config-only HTTP client, where every instance behaves identically. If
     # either service ever gains user state, this must move to a shared

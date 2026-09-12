@@ -43,3 +43,16 @@ visible in the run's status again.
 | `ops.sh routes-check` | Fail if `ROUTES.md` is stale | none |
 | `ops.sh abis` | ABI doc/source drift audit | none |
 | `ops.sh health [URL]` | `curl` the gateway `/health` | none |
+
+## Deploy (private deployment — side-effectful, run deliberately)
+
+The production stack (gateway + redis + optional Caddy TLS) is assembled outside
+this repository, in the operator's private deployment, together with the private
+security package. What this gateway requires of that stack is stated here because
+it is this code's behaviour: Redis is **required** under `OPNMATRX_ENV=production`
+(the in-memory state backend is refused), and the APNs `.p8` is mounted read-only
+at `/run/secrets/apns_key.p8`; the gateway reads its contents into the push
+channel at startup, and push stays an honest no-op if the file is absent.
+
+Never commit the real `.env`, `secrets/`, or `openmatrix.config.json` — only
+the `.example` files are tracked.
