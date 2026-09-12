@@ -149,7 +149,9 @@ into live on-chain behavior.
 
 ## The Security Layer
 
-0pnMatrx has a closed-source security layer that governs all agent behavior. This layer is not in this repository by design. See `SECURITY_STUB.md` for details.
+0pnMatrx is built to run behind a closed-source security layer, consulted through a public seam before privileged actions. The layer is not in this repository by design, and a clone without it enforces nothing: the seam allows and logs every action (OBSERVE). See `SECURITY_STUB.md` for what the layer covers and its current status.
+
+**Reporting a vulnerability:** do not open a public issue. Follow [.github/SECURITY.md](.github/SECURITY.md) — a way around the security layer is in scope.
 
 ---
 

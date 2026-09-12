@@ -47,6 +47,10 @@ The following are closed source and are never exposed to contributors:
 
 These boundaries exist by design. You do not need access to any of them to build on 0pnMatrx. The open source runtime connects to the security layer through a documented interface at `runtime/security/SECURITY_INTERFACE.md`.
 
+### Reporting a security vulnerability
+
+Do not open a public issue or pull request for a vulnerability. Report it privately as described in [.github/SECURITY.md](.github/SECURITY.md). That includes a way around the closed-source security layer: you cannot see its source, but a bypass of its enforcement is in scope.
+
 ---
 
 ## How to Submit
