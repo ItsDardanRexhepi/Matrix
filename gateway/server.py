@@ -2471,8 +2471,8 @@ class GatewayServer:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             return auth_header[7:]
-        # getattr: /api/v1/batch replays a bridge item as a header-less
-        # _BatchSubRequest with no `query`; it presents no key.
+        # getattr: a request object without `query` presents no key. (A
+        # /api/v1/batch item is header-less; its `query` is the item path's.)
         return getattr(request, "query", {}).get("api_key", "") or ""
 
     def _is_operator(self, request: web.Request) -> bool:

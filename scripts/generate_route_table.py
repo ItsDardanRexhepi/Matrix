@@ -98,8 +98,10 @@ def collect() -> tuple[list[tuple], set[str]]:
     routes: list[tuple] = []
     for src in ROUTE_SOURCES:
         routes += _routes_from(src, _ADD_RE)
-    # service_routes.py also registers via a (METHOD, path, handler) tuple table.
+    # service_routes.py and bridge.py also register via (METHOD, path, handler)
+    # tuple tables (bridge.py's route_specs is read by the router and batch).
     routes += _routes_from(SERVICE_ROUTES, _TUPLE_RE)
+    routes += _routes_from(BRIDGE, _TUPLE_RE)
     # De-dupe on (method, route): service_routes both add_*'s and tuple-lists the
     # same paths; keep the first source seen.
     seen: dict[tuple, tuple] = {}

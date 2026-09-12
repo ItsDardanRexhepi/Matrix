@@ -585,37 +585,47 @@ class BridgeRoutes:
             logger.warning("Balance lookup failed for %s: %s", address, exc)
             return None
 
+    def route_specs(self) -> list[tuple[str, str, Any]]:
+        """Every bridge endpoint, as ``(method, path, handler)`` — the ONE table
+        both entrances read: the HTTP router (register_routes) and
+        POST /api/v1/batch (ServiceRoutes._build_batch_route_map).
+
+        They were two hand-kept lists. e1232ca removed /bridge/v1/push/register
+        from the batch copy when its handler was deleted; P1-6 brought the
+        handler back on the router only, so the same call succeeded direct and
+        answered 404 "No route" through batch.
+        """
+        return [
+            # Session
+            ("POST", "/bridge/v1/session/create", self.create_session),
+            ("POST", "/bridge/v1/session/resume", self.resume_session),
+            # Chat
+            ("POST", "/bridge/v1/chat", self.chat),
+            # Direct actions (bypass chat, call services directly)
+            ("POST", "/bridge/v1/action", self.execute_action),
+            # Wallet
+            ("POST", "/bridge/v1/wallet/link", self.link_wallet),
+            ("GET", "/bridge/v1/wallet/status", self.wallet_status),
+            # Push notification registration (P1-6)
+            ("POST", "/bridge/v1/push/register", self.register_push),
+            # App config
+            ("GET", "/bridge/v1/config", self.get_config),
+            ("GET", "/bridge/v1/services", self.get_services),
+            # Dashboard (aggregated data for iOS home screen)
+            ("GET", "/bridge/v1/dashboard", self.get_dashboard),
+            # Component registry (dynamic UI schemas)
+            ("GET", "/bridge/v1/components", self.get_components),
+            ("GET", "/bridge/v1/components/manifest", self.get_components_manifest),
+            ("GET", "/bridge/v1/components/{component_id}", self.get_component),
+        ]
+
     def register_routes(self, app: web.Application) -> None:
-        """Register all bridge endpoints."""
-        # Session
-        app.router.add_post("/bridge/v1/session/create", self.create_session)
-        app.router.add_post("/bridge/v1/session/resume", self.resume_session)
-
-        # Chat
-        app.router.add_post("/bridge/v1/chat", self.chat)
-
-        # Direct actions (bypass chat, call services directly)
-        app.router.add_post("/bridge/v1/action", self.execute_action)
-
-        # Wallet
-        app.router.add_post("/bridge/v1/wallet/link", self.link_wallet)
-        app.router.add_get("/bridge/v1/wallet/status", self.wallet_status)
-
-        # Push notification registration (P1-6)
-        app.router.add_post("/bridge/v1/push/register", self.register_push)
-
-        # App config
-        app.router.add_get("/bridge/v1/config", self.get_config)
-        app.router.add_get("/bridge/v1/services", self.get_services)
-
-        # Dashboard (aggregated data for iOS home screen)
-        app.router.add_get("/bridge/v1/dashboard", self.get_dashboard)
-
-        # Component registry (dynamic UI schemas)
-        app.router.add_get("/bridge/v1/components", self.get_components)
-        app.router.add_get("/bridge/v1/components/manifest", self.get_components_manifest)
-        app.router.add_get("/bridge/v1/components/{component_id}", self.get_component)
-
+        """Register all bridge endpoints (from route_specs)."""
+        for method, path, handler in self.route_specs():
+            if method == "GET":
+                app.router.add_get(path, handler)   # GET also answers HEAD
+            else:
+                app.router.add_route(method, path, handler)
         logger.info("Bridge routes registered under /bridge/v1/")
 
     # ─── Session ──────────────────────────────────────────────────────────
