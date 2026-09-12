@@ -142,6 +142,9 @@ def _build_mock_server(config):
     from pathlib import Path as _P
     mock_loop.memory.memory_dir = _P("memory")
     server.react_loop = mock_loop
+    # T3: conversations carry an owner; the double owns none and claims nothing.
+    server.react_loop.memory.conversation_owner = MagicMock(return_value="")
+    server.react_loop.memory.claim_conversation = MagicMock()
 
     # Mock temporal context
     mock_temporal = MagicMock()

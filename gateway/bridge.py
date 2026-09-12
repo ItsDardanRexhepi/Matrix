@@ -671,7 +671,19 @@ class BridgeRoutes:
         apple_sub = getattr(self._server, "_session_apple_id", lambda _r: "")(request)
         if apple_sub:
             body = {**body, "apple_id": apple_sub}
-        session_id = body.get("session_id", "default")
+        # T3: never the shared "default" — the body's own id, else a session
+        # derived from the presented wallet session, else refused in production.
+        resolve = getattr(self._server, "_resolve_session_id", None)
+        if resolve is not None:
+            session_id, session_error = resolve(request, body.get("session_id"))
+            if session_error:
+                return MobileResponse.error(session_error, 400)
+            denied = self._server._conversation_denied(request, session_id)
+            if denied:
+                return MobileResponse.error(denied, 403)
+            body = {**body, "memory_scope": self._server._memory_scope(request, session_id)}
+        else:
+            session_id = body.get("session_id", "default")
 
         try:
             result = await self._handle_chat_internal(message, agent, session_id, body)
@@ -726,6 +738,7 @@ class BridgeRoutes:
 
         context.metadata["user_context"] = {
             "session_id": session_id,
+            "memory_scope": body.get("memory_scope") or session_id,
             "agent": agent,
             "wallet_connected": body.get("wallet_connected", False),
             "network": body.get("network"),
@@ -872,6 +885,14 @@ class BridgeRoutes:
         session_id = str(body.get("session_id", "")).strip()
         if not push_token:
             return MobileResponse.error("push_token required")
+        # T3: a token registered under the shared "default" (or no) session
+        # belonged to everyone; derive the session from the presented wallet
+        # session, or refuse in production.
+        resolve = getattr(self._server, "_resolve_session_id", None)
+        if resolve is not None:
+            session_id, session_error = resolve(request, session_id)
+            if session_error:
+                return MobileResponse.error(session_error, 400)
         linked = self._linked_wallets.get(session_id) or {}
         wallet = linked.get("address", "")
         try:

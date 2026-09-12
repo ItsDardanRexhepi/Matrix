@@ -26,6 +26,7 @@ Enhanced features:
 - Quality check before returning the final response
 """
 
+from collections import OrderedDict
 import json
 import logging
 import time
@@ -90,24 +91,41 @@ class ReActLoop:
         self._agent_prompts: dict[str, str] = {}
         self._load_agent_prompts()
 
-        # ── Protocol stacks (one per agent, lazily created) ──────────
-        self._protocol_stacks: dict[str, Any] = {}
+        # ── Protocol stacks, one per (agent, scope), lazily created ───
+        # A stack holds Jarvis's conversation patterns and active plan. Keyed
+        # by agent name alone, one caller's "User said: …" rendered into the
+        # next caller's system prompt (register entry::B3-JARVIS-PATTERN-LEAK).
+        # The scope is the caller's own (user subject or conversation session);
+        # an empty scope keeps the per-agent stack for development runs.
+        self._protocol_stacks: OrderedDict[tuple[str, str], Any] = OrderedDict()
+        self._protocol_stack_cap = int(config.get("protocol_stack_cache", 256))
 
-    def _get_protocol_stack(self, agent_name: str):
-        """Return the ProtocolStack for *agent_name*, creating it on first
-        access.  Returns None if the integration module is unavailable."""
-        if agent_name in self._protocol_stacks:
-            return self._protocol_stacks[agent_name]
+    def _get_protocol_stack(self, agent_name: str, scope: str = ""):
+        """Return the ProtocolStack for (*agent_name*, *scope*), creating it on
+        first access; least-recently-used stacks are evicted past the cap.
+        Returns None if the integration module is unavailable."""
+        key = (agent_name, scope or "")
+        if key in self._protocol_stacks:
+            self._protocol_stacks.move_to_end(key)
+            return self._protocol_stacks[key]
 
         try:
             from runtime.protocols.integration import ProtocolStack
             stack = ProtocolStack(self.config, agent_name)
-            self._protocol_stacks[agent_name] = stack
-            return stack
         except Exception:
             logger.exception("Failed to create ProtocolStack for agent=%s", agent_name)
-            self._protocol_stacks[agent_name] = None
-            return None
+            stack = None
+        self._protocol_stacks[key] = stack
+        while len(self._protocol_stacks) > self._protocol_stack_cap:
+            self._protocol_stacks.popitem(last=False)
+        return stack
+
+    @staticmethod
+    def _scope_of(context: "ReActContext") -> str:
+        """The caller's memory scope: set by the gateway from the presented
+        session (user subject) or the conversation session; "" when neither."""
+        user_context = context.metadata.get("user_context") or {}
+        return str(user_context.get("memory_scope") or "")
 
     def _load_agent_prompts(self):
         agents_dir = Path("agents")
@@ -142,7 +160,7 @@ class ReActLoop:
         or hits the step limit. Returns response text and all tool calls made.
         """
         # ── Protocol pre-process ─────────────────────────────────────
-        protocol_stack = self._get_protocol_stack(context.agent_name)
+        protocol_stack = self._get_protocol_stack(context.agent_name, self._scope_of(context))
         if protocol_stack is not None:
             try:
                 context = await protocol_stack.pre_process(context)
@@ -205,7 +223,8 @@ class ReActLoop:
                         logger.exception("Protocol post-process failed for agent=%s", context.agent_name)
 
                 user_msg = context.conversation[-1].content if context.conversation else ""
-                await self.memory.save_turn(context.agent_name, user_msg, final_text)
+                await self.memory.save_turn(context.agent_name, user_msg, final_text,
+                                            scope=self._scope_of(context))
                 return ReActResult(
                     response=final_text,
                     tool_calls=all_tool_calls,
@@ -441,7 +460,9 @@ class ReActLoop:
             messages.append(Message(role="system", content="\n\n".join(system_parts)))
 
         # Memory context
-        memory_context = self.memory.get_context(context.agent_name)
+        # Scoped to the caller: an agent's memory keyed by name alone carried
+        # every user's facts ([User Facts], last turns) into every prompt (§D3.6).
+        memory_context = self.memory.get_context(context.agent_name, scope=self._scope_of(context))
         if memory_context:
             messages.append(Message(role="system", content=f"Relevant memory:\n{memory_context}"))
 
