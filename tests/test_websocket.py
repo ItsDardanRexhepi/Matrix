@@ -316,8 +316,8 @@ class TestWebSocketClientContext:
     context its REST path sends — /ws must hand it to the model.
 
     It used to be folded INTO ``system_prompt``. It now travels as the turn's
-    ``client_context`` and reaches the model in its own message under the
-    platform's CLIENT_CONTEXT_FENCE, identically on all four chat entrances
+    ``client_context`` and reaches the model prefixed to the turn's user
+    message under the platform's CLIENT_CONTEXT_FENCE, identically on all four chat entrances
     (tests/test_chat_entrances_one_posture.py drives that to the model call).
     These assertions follow the field; the platform prompt no longer changes
     with what a caller sends."""

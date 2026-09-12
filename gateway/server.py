@@ -2787,9 +2787,10 @@ class GatewayServer:
         /ws and the bridge appended it to the system prompt; /chat and
         /chat/stream dropped it, so the same body produced a different prompt
         depending on the transport. Decided once: it reaches the model on every
-        entrance, in its own message under CLIENT_CONTEXT_FENCE (runtime/
-        react_loop.py) rather than spliced into the platform's instructions —
-        caller-authored text is carried, and labelled as caller-authored.
+        entrance, prefixed to that turn's user message between the platform's
+        CLIENT_CONTEXT_FENCE and CLIENT_CONTEXT_END (runtime/react_loop.py) —
+        at the user role, the trust level of the rest of what the caller
+        writes, and never as system text on any provider.
         """
         if not isinstance(body, dict):
             return ""
