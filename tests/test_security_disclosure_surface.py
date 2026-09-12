@@ -209,3 +209,178 @@ def test_public_statements_do_not_say_the_gate_is_consulted_first():
     assert not hits, (
         "pre_action reaches seam-level refusals before it evaluates the gate, so these "
         "statements are false:\n" + "\n".join(hits))
+
+
+# ── 4. COMPLETE ABOUT WHAT STILL REFUSES ────────────────────────────────────
+#
+# The phrase checks above rule out statements that UNDERSTATE by a known
+# phrase. They could not catch an "only X applies" list that leaves checks
+# out: the startup warning said "only the public per-agent tool boundary
+# applies" while pre_action also refused through the seam-level refusals, the
+# Rexhepi (URF) gate and the Glasswing audit block, and owner verification and
+# OTP failed closed. So the set of public components that can refuse is derived
+# from code, and every statement of what runs without the private package must
+# name each one.
+#
+# Refusing components of pre_action are found by reading its source: every
+# top-level statement that sets result["approved"] = False is attributed to a
+# component by a marker in that statement. A refusal no marker explains fails
+# the test, so a new refusing check cannot be added without the statements
+# being brought up to date.
+
+_REFUSAL_MARKERS = [
+    ("beneficiary_violation(", "seam-level refusals"),
+    ("_morpheus_init_failed", "morpheus gate"),
+    ("_morpheus_security.evaluate(", "morpheus gate"),
+    ("_rexhepi_gate", "rexhepi gate"),
+    ("_auditor", "glasswing audit block"),
+]
+
+# How a statement names each component (lower-cased text).
+_COMPONENT_NAMES = {
+    "seam-level refusals": r"seam-level",
+    "morpheus gate": r"no-op|\bnoop\b|blocks nothing",
+    "rexhepi gate": r"rexhepi",
+    "glasswing audit block": r"glasswing",
+    "per-agent tool boundary": r"per-agent",
+    "fail-closed owner verification": r"owner",
+    "fail-closed otp": r"\botp\b",
+}
+
+_CLOSED_LIST = re.compile(r"only the public (?:per-agent|checks)[^.]*\bappl(?:y|ies)\b", re.I)
+
+
+def _pre_action_refusing_components() -> set[str]:
+    import ast
+    import textwrap
+    from runtime.protocols.integration import ProtocolStack
+
+    source = textwrap.dedent(inspect.getsource(ProtocolStack.pre_action))
+    func = ast.parse(source).body[0]
+    found: set[str] = set()
+    unexplained: list[str] = []
+    for stmt in func.body:
+        refuses = any(
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant)
+                    and t.slice.value == "approved" for t in node.targets)
+            and isinstance(node.value, ast.Constant) and node.value.value is False
+            for node in ast.walk(stmt))
+        if not refuses:
+            continue
+        segment = ast.get_source_segment(source, stmt) or ""
+        names = [name for marker, name in _REFUSAL_MARKERS if marker in segment]
+        if not names:
+            unexplained.append(segment.splitlines()[0])
+        found.update(names[:1])
+    assert not unexplained, (
+        "pre_action refuses in a statement no marker explains; add the component to "
+        "_REFUSAL_MARKERS and to every statement of what still applies: "
+        + "; ".join(unexplained))
+    return found
+
+
+def _measured_refusers_without_the_package() -> set[str]:
+    """Components measured to refuse on this checkout's noop backend."""
+    from runtime.protocols.integration import ProtocolStack
+    from runtime.security import OTPService, OwnerVerification, SECURITY_BACKEND
+    if SECURITY_BACKEND != "noop":
+        return set()
+    measured: set[str] = set()
+    if _noop_boundary_refuses_trinity_bash():
+        measured.add("per-agent tool boundary")
+    if not asyncio.run(OwnerVerification().authorize_owner_action()).get("authorized"):
+        measured.add("fail-closed owner verification")
+    if not asyncio.run(OTPService().verify()).get("verified"):
+        measured.add("fail-closed otp")
+
+    stack = ProtocolStack({}, "neo")
+
+    async def run(tool, args, ctx):
+        return await stack.pre_action(tool, args, ctx)
+
+    urf = asyncio.run(run("platform_action",
+                          {"action": "transfer_stablecoin", "amount": 1e9, "to": "0xdead"}, {}))
+    if not urf["approved"] and str(urf["denial_reason"]).startswith("[URF"):
+        measured.add("rexhepi gate")
+    vulnerable = ("pragma solidity ^0.8.0; contract A { mapping(address=>uint) b; "
+                  "function w() public { msg.sender.call{value: 1}(\"\"); b[msg.sender] = 0; } "
+                  "function k() public { selfdestruct(payable(msg.sender)); } }")
+    gw = asyncio.run(run("smart_contract", {"action": "deploy", "source_code": vulnerable,
+                                            "contract_name": "A"},
+                         {"wallet": "0x" + "1" * 40}))
+    if not gw["approved"] and "Glasswing" in str(gw["denial_reason"]):
+        measured.add("glasswing audit block")
+    return measured
+
+
+def _noop_warning_text() -> str:
+    import ast
+    source = (ROOT / "runtime" / "security" / "__init__.py").read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(source)):
+        if (isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "warning"
+                and node.args and isinstance(node.args[0], ast.Constant)
+                and "Security backend: noop" in str(node.args[0].value)):
+            return str(node.args[0].value)
+    raise AssertionError("the noop startup warning was not found; re-derive this check")
+
+
+def _what_still_applies_statements() -> dict[str, str]:
+    import ast
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    creds = (ROOT / "CREDENTIALS_NEEDED.md").read_text(encoding="utf-8")
+    seam = (ROOT / "runtime" / "security" / "__init__.py").read_text(encoding="utf-8")
+    statements = {
+        "runtime/security/__init__.py startup warning": _noop_warning_text(),
+        "runtime/security/__init__.py docstring": ast.get_docstring(ast.parse(seam)) or "",
+        "README.md#The Security Layer": _section(readme, "The Security Layer"),
+        "SECURITY_STUB.md#What is true today": _section(
+            STUB.read_text(encoding="utf-8"), "What is true today"),
+        ".github/SECURITY.md#Scope": _section(POLICY.read_text(encoding="utf-8"), "Scope"),
+        "runtime/security/SECURITY_INTERFACE.md#Two backends": _section(
+            (ROOT / "runtime" / "security" / "SECURITY_INTERFACE.md").read_text(encoding="utf-8"),
+            "Two backends"),
+        "CREDENTIALS_NEEDED.md noop row": "\n".join(
+            line for line in creds.splitlines() if "SECURITY_BACKEND=noop" in line),
+    }
+    for where, text in statements.items():
+        assert text.strip(), f"{where} is empty; re-derive this check"
+    return statements
+
+
+def _missing_components(text: str, required: set[str]) -> list[str]:
+    low = text.lower()
+    return sorted(c for c in required if not re.search(_COMPONENT_NAMES[c], low))
+
+
+def test_the_completeness_check_catches_the_old_closed_list():
+    """Planted positive: the warning as it read before this check names one of
+    the components that refuse, and fails; the closed-list phrase is caught."""
+    old = ("Security backend: noop. The private morpheus_security package is not "
+           "installed; the Morpheus gate is an OBSERVE no-op (it blocks nothing) and "
+           "only the public per-agent tool boundary applies.")
+    required = set(_COMPONENT_NAMES)
+    assert _missing_components(old, required) == sorted(
+        required - {"morpheus gate", "per-agent tool boundary"})
+    assert _CLOSED_LIST.search(old)
+
+
+def test_every_statement_of_what_runs_without_the_package_names_every_refusing_check():
+    measured = _measured_refusers_without_the_package()
+    if not measured:
+        return  # a real backend is installed here; the measured default differs
+    required = _pre_action_refusing_components() | measured
+    # The measurements must agree with the source reading: a check the source
+    # says can refuse but that did not refuse here would mean a stale marker.
+    for component in ("rexhepi gate", "glasswing audit block"):
+        assert component in _pre_action_refusing_components(), component
+        assert component in measured, f"{component} did not refuse on the noop backend"
+    offenders = []
+    for where, text in _what_still_applies_statements().items():
+        missing = _missing_components(text, required)
+        if missing:
+            offenders.append(f"{where} leaves out: {', '.join(missing)}")
+        if _CLOSED_LIST.search(text):
+            offenders.append(f"{where} presents a closed list: "
+                             f"{_CLOSED_LIST.search(text).group(0)!r}")
+    assert not offenders, "\n".join(offenders)

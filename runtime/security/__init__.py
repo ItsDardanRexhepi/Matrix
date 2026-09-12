@@ -7,14 +7,18 @@ installed**. If it is not — an open-source clone, or local dev — the gate fa
 back to an inert OBSERVE no-op that allows every action it evaluates; the
 per-agent tool boundary falls back to the public coarse default
 (``runtime.access_policy``), which still refuses; OTP and owner verification
-fail closed. The platform boots either way.
+fail closed. The other public checks keep running too, among them the
+seam-level refusals, the Rexhepi (URF) gate and the Glasswing audit block in
+``ProtocolStack.pre_action``. The platform boots either way.
 
 A developer reading this repo can see that security IS invoked and where; the
 rules for HOW it decides (detection, classification, bans, owner/OTP internals,
 sanitizer patterns) live only in the private package and never appear here.
 
   - Real enforcement  → install ``morpheus_security`` (private), co-located at deploy.
-  - No private package → OBSERVE no-op gate (blocks nothing) + public per-agent boundary.
+  - No private package → OBSERVE no-op gate (blocks nothing); the public checks
+    still run (per-agent boundary, seam-level refusals, Rexhepi gate, Glasswing
+    audit block, fail-closed owner verification and OTP).
 
 The Glasswing contract auditor (``audit.py``) is a separate, open feature and is
 imported directly as ``runtime.security.audit`` — it does not pass through here.
@@ -68,8 +72,11 @@ except (ImportError, ModuleNotFoundError):
     _private_agent_access = None
     logger.warning(
         "Security backend: noop. The private morpheus_security package is not "
-        "installed; the Morpheus gate is an OBSERVE no-op (it blocks nothing) and "
-        "only the public per-agent tool boundary applies. "
+        "installed; the Morpheus gate is an OBSERVE no-op (it blocks nothing). "
+        "The public checks in this repository still run, including the per-agent "
+        "tool boundary, the seam-level refusals on platform-signed actions, the "
+        "Rexhepi (URF) gate, the Glasswing audit block on contract deployments, "
+        "and fail-closed owner verification and OTP. "
         "Install morpheus_security for real enforcement (see SECURITY_INTERFACE.md)."
     )
 

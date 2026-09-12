@@ -149,7 +149,7 @@ into live on-chain behavior.
 
 ## The Security Layer
 
-0pnMatrx is built to run behind a closed-source security layer, consulted through a public seam before privileged actions. The layer is not in this repository by design. Without it, the Morpheus gate is an OBSERVE no-op that blocks nothing, and only the public checks in this repository apply: the coarse per-agent tool boundary, two seam-level refusals on platform-signed actions, and owner verification and OTP failing closed. See `SECURITY_STUB.md` for what the layer covers and its current status.
+0pnMatrx is built to run behind a closed-source security layer, consulted through a public seam before privileged actions. The layer is not in this repository by design. Without it, the Morpheus gate is an OBSERVE no-op that blocks nothing and none of the layer's own checks run. The public checks in this repository still run; among those that can refuse an action are the coarse per-agent tool boundary, two seam-level refusals on platform-signed actions, the Rexhepi (URF) gate, the Glasswing audit block on contract deployments, and owner verification and OTP, which fail closed. See `SECURITY_STUB.md` for what the layer covers and its current status.
 
 **Reporting a vulnerability:** do not open a public issue. Follow [.github/SECURITY.md](.github/SECURITY.md) — a way around the security layer is in scope.
 

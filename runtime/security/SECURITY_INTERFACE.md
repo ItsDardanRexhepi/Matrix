@@ -28,7 +28,8 @@ owners, or sanitizes — are **not in this repository** and never will be.
 - **not installed** (open-source clone, local dev) → the gate is an inert
   **OBSERVE no-op** that allows every action it evaluates. The per-agent tool
   boundary falls back to the public coarse default (`runtime/access_policy.py`),
-  which still refuses; the seam-level refusals still run; OTP and owner
+  which still refuses; the seam-level refusals, the Rexhepi (URF) gate and the
+  Glasswing audit block in `ProtocolStack.pre_action` still run; OTP and owner
   verification fail closed. The platform boots and runs normally; it simply has
   no private security layer.
 
