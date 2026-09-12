@@ -124,7 +124,12 @@ def allowance_violation(tool_name: str, arguments: Any, config: Any) -> str | No
     verb = str(args.get("action") or "").strip().lower()
     if (tool_name, verb) not in ALLOWANCE_ACTIONS:
         return None
-    security = (config or {}).get("security", {}) if isinstance(config, dict) else {}
+    security = config.get("security") if isinstance(config, dict) else None
+    # `security:` with no value in YAML is None, and `.get` on it raised out of
+    # pre_action — a refusal check that faulted instead of refusing. A section
+    # that is not a mapping sets no cap, so the approve is refused.
+    if not isinstance(security, dict):
+        security = {}
     try:
         cap = float(security.get("platform_allowance_cap", 0) or 0)
     except (TypeError, ValueError):

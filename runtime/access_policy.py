@@ -87,12 +87,22 @@ def could_move_value(action_type: str | None) -> bool:
     unreachable: ``True`` → fail CLOSED (deny), ``False`` → safe to observe-allow.
     Anything that is not CLEARLY a benign read (incl. unknown/empty labels) is treated
     as value-moving and fails closed. No thresholds, no allowlists, no private action
-    sets — just generic read verbs. The authoritative classification still lives in
+    sets — generic read verbs, overridden by the dispatcher's PUBLIC state-modifying
+    set (a state change is never a read, however it is spelled). The authoritative classification still lives in
     the private gate; this only decides the safe direction on a gateway fault.
     """
     a = (action_type or "").strip().lower()
     if not a:
         return True  # unknown → safest direction: treat as value-moving
+    # A read VERB is a guess from the label's spelling, and the spelling can lie:
+    # `list_nft_for_sale`, `list_marketplace` and `list_security` start with
+    # `list_` and each one CHANGES state (lists an item for sale / on an
+    # exchange). The dispatcher's own state-modifying set is the table dispatch
+    # attests by, so an action in it is never a benign read, whatever its prefix.
+    # Checked BEFORE the verb heuristic; if the set cannot load, the heuristic is
+    # not trusted either (fail closed).
+    if _is_state_modifying(a):
+        return True
     if a in _BENIGN_READ_LABELS or a.startswith(_BENIGN_READ_PREFIXES):
         return False  # clearly a benign read → a transient fault may observe-allow it
     return True       # value-moving / owner-gated / unrecognised → fail closed

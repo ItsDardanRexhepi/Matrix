@@ -105,7 +105,11 @@ class ContractAuditor:
 
     def __init__(self, config: dict | None = None) -> None:
         config = config or {}
-        sec_cfg = config.get("security", {})
+        sec_cfg = config.get("security")
+        # A bare `security:` YAML key is None; read it as "no overrides" (the
+        # blocking defaults below), not as a constructor fault.
+        if not isinstance(sec_cfg, dict):
+            sec_cfg = {}
         self._block_critical: bool = sec_cfg.get("block_on_critical", True)
         self._block_high: bool = sec_cfg.get("block_on_high", False)
 

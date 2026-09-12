@@ -578,18 +578,27 @@ class ProtocolStack:
                         return result
                     audit_report, blocked = None, False
                 if audit_report is not None:
-                    result["audit"] = audit_report.to_dict()
+                    # Reporting is bookkeeping and runs AFTER the verdict is
+                    # known: a report that cannot render must neither raise out
+                    # of pre_action nor turn a block into an approval.
+                    try:
+                        result["audit"] = audit_report.to_dict()
+                        summary = str(audit_report.summary)
+                        findings = audit_report.findings
+                    except Exception:
+                        logger.exception("Glasswing audit report could not be rendered")
+                        summary, findings = "the audit report could not be rendered.", None
                     if blocked:
                         result["approved"] = False
                         result["denial_reason"] = (
-                            f"Glasswing audit blocked deployment: {audit_report.summary}"
+                            f"Glasswing audit blocked deployment: {summary}"
                         )
                         result["morpheus_message"] = (
-                            f"[Morpheus] Security audit failed. {audit_report.summary} "
+                            f"[Morpheus] Security audit failed. {summary} "
                             "Review the findings and fix the vulnerabilities before deploying."
                         )
                         return result
-                    if audit_report.findings and result.get("risk"):
+                    if findings and result.get("risk"):
                         # Findings exist but not blocking — feed to Morpheus as
                         # context. Bookkeeping, not a decision: its failure is
                         # logged and never changes the verdict.
