@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -2635,6 +2636,17 @@ class ServiceRoutes:
         so the status was honest; the body was not: the exception text (an RPC
         URL, a provider error) went to the caller. Same answer as positions now:
         the reason is logged server-side, the client gets a fixed sentence.
+
+        That `except` was not where the real failures went, though.
+        DataAggregator.get_user_portfolio caught everything itself — and
+        Web3Manager.get_balance_eth turned a failed RPC read into 0.0 below it —
+        so an RPC outage, a timeout, or no RPC configured at all came back as a
+        200 all-zero portfolio identical to an empty wallet, and was cached.
+        Both now raise (PortfolioUnavailable / BalanceUnavailable), nothing
+        failed is cached, and a balance is valued only at a live ETH/USD quote,
+        so every one of those reaches this 503. A 200 now means the native
+        balance was actually read; `covered` / `not_covered` say that it is the
+        only thing read.
         """
         wallet = request.match_info["wallet"]
         try:
@@ -2691,6 +2703,8 @@ class ServiceRoutes:
                 "streams": portfolio.get("streams", []),
                 "rwa": portfolio.get("rwa_positions", []),
             },
+            "covered": portfolio.get("covered", []),
+            "not_covered": portfolio.get("not_covered", []),
             "cached": portfolio.get("cached", False),
         })
 
@@ -2743,11 +2757,25 @@ class ServiceRoutes:
         422 — with Python's own wording — for input that genuinely WAS the
         caller's fault (`entities.amount: "abc"`, `entities: [...]`).
 
-        Now: the caller's malformed input is a 400 checked here, before the
-        resolver runs; anything that fails after that goes through
-        client_error — logged in full against a ref, redacted to the client,
-        503/504 when a dependency is what failed and 500 otherwise.
+        Now:
+          * the caller's malformed input is a 400 checked here, before the
+            resolver runs, and so is a bridge between unsupported or identical
+            chains, which the resolver reports as `error_category: validation`;
+          * a router the plan needs that is not configured, or that failed
+            (the routers catch their own exceptions and answer
+            `status: error`), is a 503 `{"status": "unavailable", "reason",
+            "error"}` with a fixed sentence. resolve() used to fill the
+            router's missing numbers with defaults ($3.00, "uniswap", "aave",
+            "hop") and this route answered 200 ok with that plan;
+          * an exception that escapes the resolver goes through client_error —
+            logged in full against a ref, redacted to the client, 503/504 when
+            its type or text says a dependency was unreachable or timed out,
+            500 otherwise.
         `unresolved` stays a 200: it is an answer to the question asked.
+        A 200 plan's figures are the routers' own `ok` answers, which are
+        static per-protocol tables in defi_router.py / cross_chain_router.py,
+        not live quotes; `value_usd` is None and `requires_confirmation` True
+        whenever no live price exists for the asset.
         """
         body = await self._parse_body(request)
         self._require(body, "intent")
@@ -2761,9 +2789,12 @@ class ServiceRoutes:
             return self._bad_request("entities must be an object")
         if "amount" in entities:
             try:
-                float(entities["amount"])
+                amount = float(entities["amount"])
             except (TypeError, ValueError):
                 return self._bad_request("entities.amount must be a number")
+            if not math.isfinite(amount) or amount < 0:
+                return self._bad_request(
+                    "entities.amount must be a finite, non-negative number")
         for key in self._INTENT_TEXT_ENTITIES:
             if key in entities and not isinstance(entities[key], str):
                 return self._bad_request(f"entities.{key} must be a string")
@@ -2779,6 +2810,18 @@ class ServiceRoutes:
         except Exception as exc:
             _st, _err = client_error(exc, None, what="Intent resolution")
             return web.json_response(_err, status=_st)
+        status = result.get("status") if isinstance(result, dict) else None
+        if status == "unavailable":
+            # A top-level string `error`: the Swift client's extractErrorMessage
+            # reads nothing else. The resolver's message is a fixed sentence.
+            return web.json_response({
+                "status": "unavailable",
+                "reason": result.get("reason", "dependency_failed"),
+                "action": result.get("action"),
+                "error": result.get("message", "Intent resolution is unavailable right now."),
+            }, status=503)
+        if status == "error" and result.get("error_category") == "validation":
+            return self._bad_request(str(result.get("message", "invalid intent")))
         return self._ok(result)
 
     async def _handle_intent_execute(self, request: web.Request) -> web.Response:

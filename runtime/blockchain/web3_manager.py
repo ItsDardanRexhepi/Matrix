@@ -15,7 +15,9 @@ A single instance is shared across services. It is responsible for:
 Web3Manager never raises an unhandled exception from public methods —
 errors are caught, logged, and surfaced as boolean availability or
 explicit ``RuntimeError`` from ``get_account``/``send_transaction``
-when the caller has explicitly opted into a real on-chain operation.
+when the caller has explicitly opted into a real on-chain operation, and
+``BalanceUnavailable`` (a ``RuntimeError``) from ``get_balance_eth`` when no
+balance was read, because a 0.0 there is indistinguishable from an empty wallet.
 """
 
 from __future__ import annotations
@@ -343,9 +345,18 @@ class Web3Manager:
         )
 
     def get_balance_eth(self, address: str | None = None) -> float:
-        """Return the ETH balance of *address* (paymaster by default)."""
+        """Return the ETH balance of *address* (paymaster by default).
+
+        Raises BalanceUnavailable when no balance was read. This returned 0.0
+        both when the chain was not configured and when the RPC read failed, so
+        "unreachable" and "empty wallet" were the same float: DataAggregator
+        served that zero as a portfolio, and gateway/bridge.py's
+        `_lookup_balance_eth`, documented as "None if unavailable", could never
+        see None for a failed read. A balance is a statement about money; one
+        nobody read is not zero.
+        """
         if not self.available or self.w3 is None:
-            return 0.0
+            raise BalanceUnavailable("blockchain not configured")
         try:
             if address is None:
                 address = self.get_account().address
@@ -353,7 +364,12 @@ class Web3Manager:
             return float(self.w3.from_wei(wei, "ether"))
         except Exception as exc:
             logger.warning("get_balance_eth failed: %s", exc)
-            return 0.0
+            raise BalanceUnavailable("balance read failed") from exc
+
+
+class BalanceUnavailable(RuntimeError):
+    """No balance was read — the chain is not configured or the RPC failed.
+    The message is fixed; the underlying exception is chained, not embedded."""
 
 
 # Standardised "not deployed" response shape used across services.
