@@ -199,7 +199,7 @@ class SmartContracts(BlockchainInterface):
             return f"Call failed: {e}"
 
     async def _send(self, params: dict) -> str:
-        """Write to a contract. Gas covered by platform."""
+        """Write to a contract. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

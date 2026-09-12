@@ -127,7 +127,13 @@ class ContractConversionService:
             return {"status": "error", "stage": "compile", "error": "empty bytecode"}
 
         try:
-            account = self._web3.get_account()
+            from runtime.blockchain.sponsorship import platform_signer
+
+            # Metered like every other platform signature: this used to sign
+            # with Web3Manager.get_account() directly, so an auto-deploy
+            # reached no cap, allowlist or identity check.
+            account = await platform_signer(self._config, "contract_conversion.deploy",
+                                            key=self._web3.paymaster_key)
             w3 = self._web3.w3
             contract = w3.eth.contract(abi=abi, bytecode=bytecode)
             tx = contract.constructor().build_transaction({

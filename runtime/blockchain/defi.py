@@ -118,7 +118,7 @@ class DeFi(BlockchainInterface):
         return await handler(kwargs)
 
     async def _supply(self, params: dict) -> str:
-        """Supply tokens to Aave lending pool. Gas covered by platform."""
+        """Supply tokens to Aave lending pool. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -168,7 +168,7 @@ class DeFi(BlockchainInterface):
             return f"Supply failed: {e}"
 
     async def _borrow(self, params: dict) -> str:
-        """Borrow tokens from Aave. Gas covered by platform."""
+        """Borrow tokens from Aave. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -219,7 +219,7 @@ class DeFi(BlockchainInterface):
             return f"Borrow failed: {e}"
 
     async def _withdraw(self, params: dict) -> str:
-        """Withdraw supplied tokens from Aave. Gas covered by platform."""
+        """Withdraw supplied tokens from Aave. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -265,7 +265,7 @@ class DeFi(BlockchainInterface):
             return f"Withdraw failed: {e}"
 
     async def _repay(self, params: dict) -> str:
-        """Repay borrowed tokens to Aave. Gas covered by platform."""
+        """Repay borrowed tokens to Aave. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

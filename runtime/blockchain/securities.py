@@ -22,7 +22,7 @@ class Securities(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Tokenized securities: create security tokens, manage compliance, investor whitelist. Gas covered by platform."
+        return "Tokenized securities: create security tokens, manage compliance, investor whitelist. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -103,7 +103,7 @@ contract {symbol}Security is ERC20, Ownable {{
             "total_supply": supply,
             "source": source,
             "features": ["whitelist-only transfers", "account freezing", "owner controls"],
-            "note": "Deploy via smart_contract capability. Gas covered by platform.",
+            "note": "Deploy via smart_contract capability. Gas is paid by the platform within its sponsorship policy.",
         }, indent=2)
 
     async def _whitelist(self, params: dict) -> str:
@@ -123,7 +123,7 @@ contract {symbol}Security is ERC20, Ownable {{
         return json.dumps(result, indent=2, default=str)
 
     async def _transfer(self, params: dict) -> str:
-        """Transfer security tokens (requires whitelisted sender and recipient). Gas covered by platform."""
+        """Transfer security tokens (requires whitelisted sender and recipient). Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -241,7 +241,7 @@ contract {symbol}Security is ERC20, Ownable {{
             return f"Token info query failed: {e}"
 
     async def _freeze(self, params: dict) -> str:
-        """Freeze an account on a security token contract. Gas covered by platform."""
+        """Freeze an account on a security token contract. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

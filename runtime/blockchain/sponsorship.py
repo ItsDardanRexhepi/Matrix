@@ -306,15 +306,25 @@ def describe_gas_policy(config: dict) -> dict:
     """What gas sponsorship this deployment actually provides, for a user.
 
     Every tool that used to promise a user unconditional gas coverage returns
-    this instead. It is derived from the same config the signer reads (`policy_settings`, `paymaster_private_key`, the
-    `/paymaster/sign` signer), so what a user is told cannot drift from what
-    the signer does. It reads configuration only: no ledger is opened, no
-    price is fetched.
+    this instead. It reads the same settings parser (`policy_settings`) and the
+    same key resolver (`resolve_paymaster_key`, `is_placeholder_value`) as the
+    signers, and states the policy as MeteredSigner applies it:
+
+      * with a daily cap, every platform-signed operation is checked against the
+        allowlist (by its `<capability>.<method>` name), the cap, and an
+        attributable identity, and refused otherwise;
+      * with no cap, MeteredSigner does not consult the policy at all, so the
+        allowlist applies only to user operations sent to /api/v1/paymaster/sign.
+
+    tests/test_gas_claims_follow_the_sponsorship_policy.py measures each of
+    those against SponsorshipPolicy and MeteredSigner for five configurations,
+    including the example config's allowlisted policy. It reads configuration
+    only: no ledger is opened, no price is fetched.
     """
+    from runtime.blockchain.web3_manager import is_placeholder_value, resolve_paymaster_key
+
     cfg = config or {}
-    bc = cfg.get("blockchain", {}) or {}
-    flat_key = str(bc.get("paymaster_private_key") or "")
-    platform_signs = bool(flat_key) and not flat_key.startswith("YOUR_")
+    platform_signs = not is_placeholder_value(resolve_paymaster_key(cfg))
     try:
         from gateway.paymaster import paymaster_config, signer_configured
         user_ops = bool(signer_configured(cfg) and paymaster_config(cfg).get("address"))
@@ -322,24 +332,37 @@ def describe_gas_policy(config: dict) -> dict:
         user_ops = False
     sponsored = platform_signs or user_ops
     allowed, cap = policy_settings(cfg)
+    listed = ", ".join(str(a) for a in allowed) if allowed is not None else ""
 
     if not sponsored:
         statement = ("Gas sponsorship is not configured on this deployment, so the "
                      "platform pays no gas here.")
         cap = None
+        allowed = None
     elif cap is not None:
-        statement = (f"The platform pays gas for your operations up to ${cap:.2f} per "
-                     "identity in a rolling 24 hours. Past that the platform stops "
-                     "sponsoring: an operation it would sign for you is refused, with "
-                     "the reason, rather than charged to you.")
+        scope = (f"only for the actions its allowlist names ({listed})"
+                 if allowed is not None else "for your operations")
+        statement = (f"The platform pays gas {scope}, up to ${cap:.2f} per identity in a "
+                     "rolling 24 hours. An operation the platform would sign for you is "
+                     "refused, with the reason, rather than charged to you when "
+                     + ("its action is not on that list, " if allowed is not None else "")
+                     + "when it would cross the cap, or when it cannot be attributed to a "
+                     "signed-in identity.")
     else:
-        statement = ("The platform pays gas for your operations; this deployment sets "
-                     "no daily cap.")
+        statement = ("The platform pays gas for operations it signs for you; this "
+                     "deployment sets no daily cap.")
+        if allowed is not None:
+            statement += (f" Its action allowlist ({listed}) is applied only to app-signed "
+                          "user operations sent to /api/v1/paymaster/sign, not to "
+                          "operations the platform signs.")
+    capped = sponsored and cap is not None
     return {
         "sponsored": sponsored,
         "daily_cap_usd": cap,
         "cap_window": "rolling 24h" if cap is not None else None,
-        "sponsored_actions": allowed if sponsored else None,
+        "allowed_actions": allowed,
+        "allowlist_applies_to_platform_signed": bool(capped and allowed is not None),
+        "identity_required": capped,
         "statement": statement,
     }
 
@@ -422,8 +445,12 @@ UNMETERED_PLATFORM_OPERATIONS = {
     "eas.attest_time_critical": "the same write on the time-critical path",
     "eas.revoke": "revoking an attestation the platform itself issued",
     "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
-    "web3.platform_account": "shared account handle; every USE of it is a call "
-                             "site metered on its own",
+    "web3.platform_account": "shared account handle for the platform ADDRESS; "
+                             "signing with it is refused by "
+                             "tests/test_sponsorship_policy_is_enforced.py (f2), and "
+                             "Web3Manager.send_transaction signs through platform_signer",
+    "neosafe.route_revenue": "moving the platform's own revenue to its treasury "
+                             "multisig; no caller's operation, so no caller's cap",
 }
 
 
@@ -508,8 +535,8 @@ async def platform_signer(config: dict, action: str, *, key: Optional[str] = Non
     from eth_account import Account
 
     cfg = config or {}
-    bc = cfg.get("blockchain", {}) or {}
-    raw_key = key if key is not None else bc.get("paymaster_private_key", "")
+    from runtime.blockchain.web3_manager import resolve_paymaster_key
+    raw_key = key if key is not None else resolve_paymaster_key(cfg)
     account = Account.from_key(raw_key)
 
     if not metered:

@@ -22,7 +22,7 @@ class Insurance(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain insurance: create policies, file claims, process payouts. Gas covered by platform."
+        return "On-chain insurance: create policies, file claims, process payouts. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

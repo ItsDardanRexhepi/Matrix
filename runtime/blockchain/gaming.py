@@ -27,7 +27,7 @@ class Gaming(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain gaming: manage game items (ERC-1155), achievements, transfers. Gas covered by platform."
+        return "On-chain gaming: manage game items (ERC-1155), achievements, transfers. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

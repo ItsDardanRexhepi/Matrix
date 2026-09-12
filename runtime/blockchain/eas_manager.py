@@ -2,7 +2,7 @@
 EAS Manager — high-level attestation management for 0pnMatrx.
 
 Wraps the EAS client to provide schema creation, attestation querying,
-batch attestations, and revocation. Gas covered by the platform.
+batch attestations, and revocation. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -21,7 +21,7 @@ class EASManager(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Manage EAS attestations: create schemas, attest actions, query attestations, revoke. Gas covered by platform."
+        return "Manage EAS attestations: create schemas, attest actions, query attestations, revoke. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -54,7 +54,7 @@ class EASManager(BlockchainInterface):
         return f"Unknown EAS action: {action}"
 
     async def _create_schema(self, params: dict) -> str:
-        """Create a new EAS schema on-chain via the SchemaRegistry. Gas covered by platform."""
+        """Create a new EAS schema on-chain via the SchemaRegistry. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -117,7 +117,7 @@ class EASManager(BlockchainInterface):
             return f"Schema creation failed: {e}"
 
     async def _attest(self, params: dict) -> str:
-        """Create an attestation. Gas covered by platform."""
+        """Create an attestation. Gas is paid by the platform within its sponsorship policy."""
         from runtime.blockchain.eas_client import EASClient
         client = EASClient(self.config)
         data = params.get("data", {})
@@ -139,7 +139,7 @@ class EASManager(BlockchainInterface):
         })
 
     async def _revoke(self, params: dict) -> str:
-        """Revoke an attestation on-chain via EAS. Gas covered by platform."""
+        """Revoke an attestation on-chain via EAS. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -209,7 +209,7 @@ class EASManager(BlockchainInterface):
             return f"Revocation failed: {e}"
 
     async def _batch_attest(self, params: dict) -> str:
-        """Create multiple attestations. Gas covered by platform."""
+        """Create multiple attestations. Gas is paid by the platform within its sponsorship policy."""
         attestations = params.get("attestations", [])
         results = []
         from runtime.blockchain.eas_client import EASClient

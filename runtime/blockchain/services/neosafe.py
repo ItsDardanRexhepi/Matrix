@@ -164,7 +164,7 @@ class NeoSafeRouter:
                 "to": w3.to_checksum_address(self._neosafe_wallet),
                 "value": amount_wei,
                 "gas": 21000,
-            })
+            }, action="neosafe.route_revenue", metered=False)
             logger.info(
                 "Revenue routed: %s ETH from %s, tx=%s",
                 amount_eth, source_action, tx_hash_hex,

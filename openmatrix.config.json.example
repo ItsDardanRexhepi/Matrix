@@ -89,7 +89,7 @@
       "eth_usd": ""
     },
     "paymaster": {
-      "//": "P4 verifying-paymaster gas sponsorship. address = deployed OpenMatrixVerifyingPaymaster; signer_key = the platform signing key (env/secret, never user funds); policy.allowed_actions gates which action types get sponsored (omit = allow all). Unset signer/address -> /api/v1/paymaster/sign returns 503.",
+      "//": "P4 verifying-paymaster gas sponsorship. address = deployed OpenMatrixVerifyingPaymaster; signer_key = the platform signing key (env/secret, never user funds); policy.allowed_actions gates which action types get sponsored (omit = allow all): /api/v1/paymaster/sign matches the request's action type; when daily_cap_usd is also set, platform-signed operations are matched by their <capability>.<method> name (e.g. daos.vote, web3.send_transaction), which ['transfer','swap'] does not contain, so this example policy refuses every platform-signed operation. Unset signer/address -> /api/v1/paymaster/sign returns 503.",
       "address": "0x0E393e90af2DAb65e60318F110270f045B125880",
       "signer_key": "",
       "bundler_url": "",

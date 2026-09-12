@@ -70,7 +70,7 @@ class NFTs(BlockchainInterface):
         return await handler(kwargs)
 
     async def _mint(self, params: dict) -> str:
-        """Mint an NFT. Gas covered by platform."""
+        """Mint an NFT. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -125,7 +125,7 @@ class NFTs(BlockchainInterface):
             return f"Mint failed: {e}"
 
     async def _transfer(self, params: dict) -> str:
-        """Transfer an NFT. Gas covered by platform."""
+        """Transfer an NFT. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -209,7 +209,7 @@ class NFTs(BlockchainInterface):
             return f"Balance check failed: {e}"
 
     async def _deploy_collection(self, params: dict) -> str:
-        """Deploy a new ERC-721 collection. Gas covered by platform."""
+        """Deploy a new ERC-721 collection. Gas is paid by the platform within its sponsorship policy."""
         name = params.get("name", "0pnMatrx Collection")
         symbol = params.get("symbol", "MTRX")
         source = f'''// SPDX-License-Identifier: MIT
@@ -234,5 +234,5 @@ contract {symbol}NFT is ERC721URIStorage, Ownable {{
             "name": name,
             "symbol": symbol,
             "source": source,
-            "note": "Use smart_contract deploy action to deploy this contract. Gas covered by platform.",
+            "note": "Use smart_contract deploy action to deploy this contract. Gas is paid by the platform within its sponsorship policy.",
         }, indent=2)

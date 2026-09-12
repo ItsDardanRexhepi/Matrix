@@ -3,7 +3,7 @@ Agent Identity — on-chain identity for AI agents in 0pnMatrx.
 
 Each agent (Neo, Trinity, Morpheus) can have an on-chain identity
 attested via EAS, enabling verifiable agent actions.
-Gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -30,7 +30,7 @@ class AgentIdentity(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Manage on-chain agent identities: register, verify, attest agent actions. Gas covered by platform."
+        return "Manage on-chain agent identities: register, verify, attest agent actions. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

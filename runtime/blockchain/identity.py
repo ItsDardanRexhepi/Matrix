@@ -21,7 +21,7 @@ class Identity(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain identity verification: resolve names, create identity attestations, manage wallet mappings. Gas covered by platform."
+        return "On-chain identity verification: resolve names, create identity attestations, manage wallet mappings. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -62,7 +62,7 @@ class Identity(BlockchainInterface):
             return f"Resolve failed: {e}"
 
     async def _register(self, params: dict) -> str:
-        """Register an identity attestation on-chain via EAS. Gas covered by platform."""
+        """Register an identity attestation on-chain via EAS. Gas is paid by the platform within its sponsorship policy."""
         name = params.get("name", "")
         address = params.get("address", self.platform_wallet)
         claims = params.get("claims", {})

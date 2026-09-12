@@ -181,6 +181,45 @@ def test_f_no_blockchain_capability_constructs_a_platform_signer_directly():
         + "\n".join(offenders))
 
 
+def test_f2_every_function_that_signs_obtains_its_signer_from_the_policy_door():
+    """§CD, second axis. test_f only saw `Account.from_key(`. Web3Manager hands
+    out the paymaster account through `get_account()` (a listed exemption meant
+    for its address), and Web3Manager.send_transaction and contract_conversion's
+    auto-deploy signed with that handle directly: 14 registry services' platform
+    signatures reached no policy. A function that calls `.sign_transaction(`
+    must obtain the signer from `platform_signer(` / `_platform_signer(` /
+    `unmetered_platform_signer(` in the same function. (A static check: it
+    proves the door is called there, not that the object signing is the one it
+    returned.)"""
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted((ROOT / "runtime" / "blockchain").rglob("*.py")):
+        if path.name == "sponsorship.py":
+            continue
+        source = path.read_text()
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name == "sign_transaction":
+                continue
+            called = set()
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    fn = sub.func
+                    called.add(fn.attr if isinstance(fn, ast.Attribute)
+                               else getattr(fn, "id", ""))
+            if "sign_transaction" not in called:
+                continue
+            if not any(name.endswith("platform_signer") for name in called):
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}: {node.name}")
+    # Nested functions are reported with their parent; de-duplicate by line.
+    assert not offenders, (
+        "functions sign a platform transaction with a signer the policy did not "
+        "issue:\n" + "\n".join(sorted(set(offenders))))
+
+
 # ── the OTHER branch, resolved rather than argued ─────────────────────────
 #
 # D-045 pre-registered this: the cap could be enforced and still be useless if

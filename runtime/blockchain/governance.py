@@ -27,7 +27,7 @@ class Governance(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain governance: timelock operations, access control, role management. Gas covered by platform."
+        return "On-chain governance: timelock operations, access control, role management. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -105,7 +105,7 @@ class Governance(BlockchainInterface):
             return f"Schedule failed: {e}"
 
     async def _execute_op(self, params: dict) -> str:
-        """Execute a scheduled timelock operation. Gas covered by platform."""
+        """Execute a scheduled timelock operation. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -162,7 +162,7 @@ class Governance(BlockchainInterface):
             return f"Delay check failed: {e}"
 
     async def _grant_role(self, params: dict) -> str:
-        """Grant a role via AccessControl contract. Gas covered by platform."""
+        """Grant a role via AccessControl contract. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -215,7 +215,7 @@ class Governance(BlockchainInterface):
             return f"Grant role failed: {e}"
 
     async def _revoke_role(self, params: dict) -> str:
-        """Revoke a role via AccessControl contract. Gas covered by platform."""
+        """Revoke a role via AccessControl contract. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

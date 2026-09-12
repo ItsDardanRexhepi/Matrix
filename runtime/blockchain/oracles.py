@@ -2,7 +2,7 @@
 Oracles — query and interact with on-chain oracles on Base L2.
 
 Supports Chainlink price feeds and custom oracle contracts.
-Read operations are gas-free. Write operations have gas covered by platform.
+Read operations are gas-free. Write operations are signed by the platform, which pays their gas within its sponsorship policy.
 """
 
 import json

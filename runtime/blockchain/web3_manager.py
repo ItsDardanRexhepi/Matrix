@@ -44,6 +44,18 @@ def is_placeholder_value(value: Any) -> bool:
     return stripped.startswith("YOUR_") or stripped.upper().startswith("YOUR_")
 
 
+def resolve_paymaster_key(config: dict | None) -> str:
+    """The platform signing key under either of its two accepted names.
+
+    One resolver for Web3Manager, the sponsorship signer and the gas-policy
+    description, so what a user is told about sponsorship reads the key the
+    same way the code that signs does.
+    """
+    bc = (config or {}).get("blockchain", {}) if isinstance(config, dict) else {}
+    bc = bc if isinstance(bc, dict) else {}
+    return str(bc.get("paymaster_private_key") or bc.get("paymaster_key") or "")
+
+
 class Web3Manager:
     """Singleton-style shared web3 connection manager.
 
@@ -62,11 +74,7 @@ class Web3Manager:
         self.rpc_url: str = bc.get("rpc_url", "") or ""
         self.chain_id: int = int(bc.get("chain_id", 84532) or 84532)
         self.platform_wallet: str = bc.get("platform_wallet", "") or ""
-        self.paymaster_key: str = (
-            bc.get("paymaster_private_key")
-            or bc.get("paymaster_key")
-            or ""
-        )
+        self.paymaster_key: str = resolve_paymaster_key(self.config)
         self.eas_contract: str = bc.get("eas_contract", "") or ""
         self.eas_schema: str = bc.get("eas_schema", "") or ""
         self.network: str = bc.get("network", "base-sepolia") or "base-sepolia"
@@ -237,17 +245,30 @@ class Web3Manager:
             raise ValueError(f"Invalid contract address {address!r}: {exc}") from exc
         return self.w3.eth.contract(address=checksum, abi=abi)
 
-    async def send_transaction(self, tx: dict) -> str:
+    async def send_transaction(self, tx: dict, *, action: str = "web3.send_transaction",
+                               metered: bool = True) -> str:
         """Sign *tx* with the paymaster key, broadcast, and return the tx hash hex.
 
         Handles nonce management automatically. Caller may pass any subset
         of standard transaction fields; missing ``nonce``, ``chainId``,
         ``from``, ``gas``, ``gasPrice`` will be filled in.
+
+        The signature is authorised by the sponsorship policy, exactly as a
+        tool-axis signature is: this used to sign with ``get_account()``
+        directly, so the 14 registry services that sign through here reached
+        no cap, allowlist or identity check. ``action`` is the name the
+        allowlist and a denial use; ``metered=False`` is honoured only for an
+        action listed in ``UNMETERED_PLATFORM_OPERATIONS``. A refusal raises
+        ``SponsorshipDenied`` before anything is signed or broadcast.
         """
         if not self.available or self.w3 is None:
             raise RuntimeError("Web3Manager not available — cannot send transaction")
 
+        from runtime.blockchain.sponsorship import platform_signer
+
         account = self.get_account()
+        signer = await platform_signer(self.config, action, key=self.paymaster_key,
+                                       metered=metered)
         async with self._get_nonce_lock():
             try:
                 tx_to_sign = dict(tx)
@@ -263,7 +284,7 @@ class Web3Manager:
                     except Exception:
                         tx_to_sign["gas"] = 500_000
 
-                signed = account.sign_transaction(tx_to_sign)
+                signed = signer.sign_transaction(tx_to_sign)
                 raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
                 tx_hash = self.w3.eth.send_raw_transaction(raw)
                 return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)

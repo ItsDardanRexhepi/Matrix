@@ -41,9 +41,10 @@ The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-val
 When an operator configures the platform paymaster, the platform pays gas for users' operations — within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`):
 
 - **Per-identity daily cap.** A USD amount per identity over a rolling 24 hours (`paymaster.policy.daily_cap_usd`; the example config sets 50). Past it, the platform stops sponsoring: an operation the platform would sign is refused with the reason rather than charged to the user, and a user-operation sponsorship request to `/api/v1/paymaster/sign` is declined with `403`. A deployment that sets no cap sponsors without a daily limit.
-- **Action allowlist.** `paymaster.policy.allowed_actions` limits which action types are sponsored. It is checked on every `/api/v1/paymaster/sign` request, and on platform-signed capabilities when a daily cap is also set.
+- **Action allowlist.** `paymaster.policy.allowed_actions` limits which action types are sponsored. It is checked on every `/api/v1/paymaster/sign` request (against the request's action type), and on platform-signed operations only when a daily cap is also set. A platform-signed operation is matched by its `<capability>.<method>` name (for example `daos.vote`, `stablecoins.transfer`; registry services that sign through `Web3Manager.send_transaction` use `web3.send_transaction`). The example config's list (`transfer`, `swap`) names none of those, so under the example policy every platform-signed operation is refused.
+- **Identity.** With a cap set, an operation that cannot be attributed to a signed-in identity is refused: a per-identity cap cannot meter spend it cannot attribute.
+- **Not metered.** Writes the platform makes on its own behalf are listed in `UNMETERED_PLATFORM_OPERATIONS` (EAS attestations and their revocation, moving platform revenue to its treasury multisig); they are not counted against any user's cap.
 - **No paymaster configured, no sponsorship.** The platform pays no gas there; an app-signed user operation pays its own.
-- The platform's own record-keeping writes (EAS attestations) are not metered against any user's cap.
 
 What a particular deployment provides is returned by the dashboard, payments and cross-border tools as `gas_policy`, derived from the same configuration the signer reads.
 

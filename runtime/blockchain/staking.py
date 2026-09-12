@@ -29,7 +29,7 @@ class Staking(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Stake and unstake tokens, claim rewards on Base L2. Gas covered by platform."
+        return "Stake and unstake tokens, claim rewards on Base L2. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

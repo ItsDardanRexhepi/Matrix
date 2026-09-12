@@ -74,7 +74,7 @@ class Tokenization(BlockchainInterface):
         return await handler(kwargs)
 
     async def _deploy(self, params: dict) -> str:
-        """Deploy a new ERC-20 token. Gas covered by platform."""
+        """Deploy a new ERC-20 token. Gas is paid by the platform within its sponsorship policy."""
         name = params.get("token_name", "OpenMatrixToken")
         symbol = params.get("token_symbol", "MTRX")
         supply = params.get("initial_supply", "1000000")

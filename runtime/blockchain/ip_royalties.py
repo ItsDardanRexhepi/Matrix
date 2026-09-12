@@ -22,7 +22,7 @@ class IPRoyalties(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "IP management and royalty distribution: register IP, set royalty splits, distribute payments. Gas covered by platform."
+        return "IP management and royalty distribution: register IP, set royalty splits, distribute payments. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -81,11 +81,11 @@ class IPRoyalties(BlockchainInterface):
             "royalty_config": recipients,
             "total_bps": total_bps,
             "status": "configured",
-            "note": "Royalty distribution will use this split. Gas covered by platform.",
+            "note": "Royalty distribution will use this split. Gas is paid by the platform within its sponsorship policy.",
         }, indent=2)
 
     async def _distribute(self, params: dict) -> str:
-        """Distribute royalty payments to recipients. Gas covered by platform."""
+        """Distribute royalty payments to recipients. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

@@ -21,6 +21,18 @@ Two kinds of control, neither keyed on the prose it judges:
     built from a capped config and asked to authorise a request above the cap.
     Only because that is refused may no public surface promise unconditional
     sponsorship.
+
+The first describer described the cap and forgot the rest of the policy it
+claimed to mirror. Under the shipped example policy (allowed_actions
+["transfer", "swap"], cap $50) it told a user "The platform pays gas for your
+operations up to $50.00", while the signer refuses every platform-signed
+capability, because those are metered under `<capability>.<method>` names that
+list does not contain. Without a cap it reported the allowlist as
+`sponsored_actions`, though MeteredSigner skips the policy entirely then. It
+never mentioned the identity requirement, read the platform key under one of
+the two names Web3Manager accepts, and Web3Manager.send_transaction — the
+signer 14 registry services use — consulted no policy at all. Each of those is
+now measured against the signer and SponsorshipPolicy, not asserted.
 """
 
 from __future__ import annotations
@@ -51,7 +63,15 @@ CAPPED = {"blockchain": {"rpc_url": "http://rpc.invalid", "paymaster_private_key
                                        "policy": {"daily_cap_usd": 50}}}}
 UNCAPPED = {"blockchain": {"rpc_url": "http://rpc.invalid", "paymaster_private_key": KEY,
                            "paymaster": {"address": ADDR}}}
-CONFIGS = {"no_paymaster": NO_PAYMASTER, "capped": CAPPED, "uncapped": UNCAPPED}
+# The policy the public example config ships.
+EXAMPLE_POLICY = {"allowed_actions": ["transfer", "swap"], "daily_cap_usd": 50}
+CAPPED_ALLOWLIST = {"blockchain": {"rpc_url": "http://rpc.invalid", "paymaster_private_key": KEY,
+                                   "paymaster": {"address": ADDR, "policy": dict(EXAMPLE_POLICY)}}}
+UNCAPPED_ALLOWLIST = {"blockchain": {"rpc_url": "http://rpc.invalid", "paymaster_private_key": KEY,
+                                     "paymaster": {"address": ADDR,
+                                                   "policy": {"allowed_actions": ["transfer", "swap"]}}}}
+CONFIGS = {"no_paymaster": NO_PAYMASTER, "capped": CAPPED, "uncapped": UNCAPPED,
+           "capped_allowlist": CAPPED_ALLOWLIST, "uncapped_allowlist": UNCAPPED_ALLOWLIST}
 
 
 # ── the description itself ──────────────────────────────────────────────────
@@ -76,6 +96,114 @@ def test_no_cap_is_described_as_no_cap():
     assert d["sponsored"] is True
     assert d["daily_cap_usd"] is None
     assert "no daily cap" in d["statement"]
+
+
+def test_example_config_policy_matches_what_this_test_calls_the_example():
+    example = json.loads((ROOT / "openmatrix.config.json.example").read_text(encoding="utf-8"))
+    assert example["blockchain"]["paymaster"]["policy"] == EXAMPLE_POLICY
+
+
+def _measured(config, tmp_path):
+    """What the signer and the policy actually do for this config."""
+    from runtime.blockchain.sponsorship import MeteredSigner, SponsorshipPolicy, policy_settings
+
+    allowed, cap = policy_settings(config)
+    policy = SponsorshipPolicy(allowed_actions=allowed, daily_cap_usd=cap,
+                               db_path=tmp_path / "m.db")
+    unlisted = policy.authorize_and_reserve("zz_capability.unlisted", identity="0xabc", est_usd=0.01)
+    anonymous = policy.authorize_and_reserve((allowed or ["x"])[0], identity="", est_usd=0.01)
+
+    class _Account:
+        address = ADDR
+
+        def sign_transaction(self, tx):
+            return "signed"
+
+    try:
+        signer_skips_allowlist = MeteredSigner(
+            _Account(), policy, "zz_capability.unlisted", "0xabc", 2000.0
+        ).sign_transaction({"gas": 1, "gasPrice": 1}) == "signed"
+    except Exception:
+        signer_skips_allowlist = False
+    return {
+        "platform_signed_unlisted_refused": (not unlisted.allowed
+                                             and unlisted.code == "action_not_allowed"
+                                             and not signer_skips_allowlist),
+        "anonymous_refused": (not anonymous.allowed and anonymous.code == "identity_required"),
+        "allowlist": allowed,
+    }
+
+
+@pytest.mark.parametrize("name", sorted(CONFIGS))
+def test_the_description_states_the_policy_the_signer_applies(name, tmp_path):
+    config = CONFIGS[name]
+    d = describe_gas_policy(config)
+    if not d["sponsored"]:
+        return
+    facts = _measured(config, tmp_path)
+    statement = d["statement"].lower()
+    if facts["platform_signed_unlisted_refused"]:
+        assert d["allowlist_applies_to_platform_signed"] is True, d
+        assert d["allowed_actions"] == facts["allowlist"], d
+        assert "only" in statement and ", ".join(facts["allowlist"]) in d["statement"], d
+    else:
+        assert d["allowlist_applies_to_platform_signed"] is False, d
+        if facts["allowlist"] is not None:
+            assert "paymaster/sign" in d["statement"], (
+                "the allowlist is not applied to platform-signed operations here; the "
+                "statement must say where it is applied", d)
+    if facts["anonymous_refused"]:
+        assert d["identity_required"] is True, d
+        assert "identity" in statement, d
+    else:
+        assert d["identity_required"] is False, d
+
+
+def test_the_platform_key_is_resolved_as_web3manager_resolves_it():
+    from runtime.blockchain.web3_manager import Web3Manager
+    alias_only = {"blockchain": {"rpc_url": "", "paymaster_key": KEY}}
+    padded_placeholder = {"blockchain": {"rpc_url": "", "paymaster_private_key": "  YOUR_KEY "}}
+    assert Web3Manager(alias_only).paymaster_key == KEY
+    assert describe_gas_policy(alias_only)["sponsored"] is True
+    manager = Web3Manager(padded_placeholder)
+    from runtime.blockchain.web3_manager import is_placeholder_value
+    assert is_placeholder_value(manager.paymaster_key)
+    assert describe_gas_policy(padded_placeholder)["sponsored"] is False
+
+
+async def test_web3manager_send_transaction_consults_the_policy(tmp_path, monkeypatch):
+    """14 registry services sign through Web3Manager.send_transaction. With a cap
+    configured and no attributable caller, it must refuse before anything is
+    signed or broadcast, exactly as a tool-axis signer does."""
+    from runtime.blockchain.sponsorship import SponsorshipDenied
+    from runtime.blockchain.web3_manager import Web3Manager
+
+    class _FixedPrice:
+        def __init__(self, *a, **kw): pass
+        async def eth_usd(self, **kw): return {"price": 2000.0}
+
+    monkeypatch.setattr("runtime.blockchain.price_feed.PriceFeed", _FixedPrice)
+    broadcast = []
+
+    class _Eth:
+        gas_price = 1_000_000_000
+
+        def get_transaction_count(self, _a): return 0
+        def estimate_gas(self, _tx): return 21_000
+        def send_raw_transaction(self, raw):
+            broadcast.append(raw)
+            return b"\x01" * 32
+
+    config = {"blockchain": {"rpc_url": "", "paymaster_private_key": KEY,
+                             "paymaster": {"address": ADDR, "policy": {"daily_cap_usd": 50}}},
+              "database": {"path": str(tmp_path / "x.db")}}
+    manager = Web3Manager(config)
+    manager.available = True
+    manager.w3 = type("W3", (), {"eth": _Eth()})()
+    with pytest.raises(SponsorshipDenied) as denied:
+        await manager.send_transaction({"to": ADDR, "value": 0})
+    assert denied.value.decision.code == "identity_required"
+    assert broadcast == [], "a refused signature was broadcast"
 
 
 def test_description_reads_config_without_touching_disk(tmp_path, monkeypatch):
@@ -197,6 +325,14 @@ _UNCONDITIONAL = [
     r"(?:buyer|user)s? pays? no gas",
     r"never hold or spend native tokens",
     r"\bno gas fees\b",
+    # "Gas covered by platform." in 12 model-facing tool descriptions and ~30
+    # method docstrings said it with no condition. `gas_paid_by` result fields
+    # are not matched: they are written after the platform signed and paid for
+    # that transaction, which is what they report.
+    r"gas covered by (?:the )?platform",
+    r"have gas covered",
+    r"platform absorbs gas",
+    r"pays them within its daily sponsorship cap",
 ]
 
 # Legal copy is changed only by counsel (redlines travel separately); contract
@@ -234,8 +370,33 @@ def test_no_published_surface_promises_unconditional_gas_sponsorship(tmp_path):
 
 def test_the_agent_prompt_describes_gas_as_the_policy_does():
     """What the model is told: agents/trinity/identity.md is the file the ReAct
-    loop loads as Trinity's system prompt (runtime/react_loop.py)."""
+    loop loads as Trinity's system prompt (runtime/react_loop.py). The prompt
+    reaches the model before any tool result, so every gas rule in it must be
+    conditional on gas_policy: the no-paymaster description says the platform
+    pays no gas, and the no-cap description has no cap."""
     prompt = (ROOT / "agents" / "trinity" / "identity.md").read_text(encoding="utf-8").lower()
     assert "daily cap" in prompt or "daily sponsorship" in prompt
+    assert describe_gas_policy(NO_PAYMASTER)["sponsored"] is False  # measured premise
+    for line in prompt.splitlines():
+        if "gas" in line and "platform pays" in line:
+            assert "sponsored" in line and ("false" in line or "not" in line), (
+                f"a gas rule says the platform pays without the no-sponsorship case: {line!r}")
     assert not re.search(r"batch transactions for savings|suggest optimal timing", prompt), (
         "the prompt offers gas-saving services no tool provides")
+
+
+def test_every_registered_tool_description_states_gas_with_its_condition():
+    """What the model reads before calling a tool. A description that mentions
+    gas must carry the sponsorship condition, not "Gas covered by platform."."""
+    from runtime.blockchain.registry import CAPABILITY_CLASSES
+    offenders = []
+    for cls in CAPABILITY_CLASSES:
+        try:
+            tool = cls(CAPPED)
+        except Exception:
+            continue
+        text = str(tool.description)
+        low = text.lower()
+        if "gas" in low and "sponsorship" not in low and "no gas needed" not in low:
+            offenders.append(f"{cls.__name__}: {text}")
+    assert not offenders, "\n".join(offenders)
