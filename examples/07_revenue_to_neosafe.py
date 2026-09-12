@@ -11,15 +11,17 @@ Demonstrates how 0pnMatrx routes revenue to the NeoSafe multisig wallet:
   4. An EAS attestation is created for the payment
   5. Revenue totals are queried from the ledger
 
-Every fee-generating action across all 44 services / 221 capabilities follows this pattern.
-The platform wallet (NeoSafe) is the single point of revenue collection.
+No service follows this pattern today: nothing outside this example calls
+NeoSafeRouter.route_fee or route_revenue, and the platform's fees go where
+docs/blockchain.md lists them under Fees (each contract's platformFeeRecipient,
+blockchain.platform_wallet for injected conversion fees, service ledgers).
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 
 NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
 ``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
-``status='queued'``. Once the chain is live, the same call will execute
-the actual transfer and EAS attestation. See ROADMAP.md "Blockchain
+``status='queued'``; nothing later executes a queued entry. Once the chain is
+live, the same call executes the transfer and EAS attestation. See ROADMAP.md "Blockchain
 Activation".
 
 Usage:

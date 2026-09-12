@@ -1,4 +1,9 @@
-"""Revenue routing — all platform fees go to the NeoSafe multisig.
+"""NeoSafe revenue router — records fees and can send ETH to the NeoSafe multisig.
+
+No service calls it: `route_fee` and `route_revenue` are reached only from
+examples/07_revenue_to_neosafe.py, so platform fees do not reach NeoSafe through
+this module. Where each fee actually goes is listed under Fees in
+docs/blockchain.md.
 
 The canonical NeoSafe address is ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 That value is used when ``blockchain.neosafe_wallet`` is not set in config.
@@ -18,11 +23,12 @@ NEOSAFE_DEFAULT_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 
 
 class NeoSafeRouter:
-    """Route all platform fees to the NeoSafe wallet.
+    """Record fees and route ETH revenue to the NeoSafe wallet, when called.
 
-    Every fee-generating action across the 44 services calls
-    :meth:`route_fee` to record and forward fees. An EAS attestation is
-    created for each payment so there is a permanent on-chain receipt.
+    Nothing in the services calls it. :meth:`route_fee` appends to an in-memory
+    ledger (lost on restart) and attests the entry; it moves no value.
+    :meth:`route_revenue` sends ETH to the multisig when a chain is configured,
+    and otherwise appends a queued entry that nothing later executes.
 
     Config keys used:
         - ``blockchain.platform_wallet`` — the NeoSafe wallet address

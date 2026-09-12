@@ -907,8 +907,9 @@ class ServiceDispatcher:
                 "SMART CONTRACTS:\n"
                 "  convert_contract — Convert a contract between chains. "
                     "params: {source_code, source_lang, target_chain}\n"
-                "  estimate_contract_cost — Estimate deployment cost. "
-                    "params: {source_code, target_chain}\n"
+                "  estimate_contract_cost — Quote the conversion tier fee for a "
+                    "contract (a quote only: nothing collects it, and it is not a gas "
+                    "estimate). params: {source_code}\n"
                 "  list_templates — Browse available contract templates.\n\n"
 
                 "DEFI & LOANS:\n"

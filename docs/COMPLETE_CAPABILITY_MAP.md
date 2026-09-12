@@ -33,7 +33,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Convert Contract | Convert plain-English or pseudocode into Solidity | Free | POST /api/v1/contracts/convert | Solidity, Vyper |
 | Deploy Contract | Compile and deploy a smart contract | Free | POST /api/v1/contracts/deploy | Base, EVM |
-| Estimate Deployment Cost | Estimate gas and paymaster coverage for a deployment | Free | via capability registry | Base, EVM |
+| Quote Conversion Tier Fee | Quote the conversion tier fee for a contract's size and complexity; a quote only, not collected and not a gas estimate | Free | via capability registry | Base, EVM |
 | List Contract Templates | Browse built-in templates | Free | via capability registry | — |
 
 ---

@@ -134,14 +134,14 @@ What works today, no chain required:
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
   fabricated transaction hashes
-- **NeoSafe revenue routing** — queues fees in-memory until live
+- **NeoSafe revenue router** — present, but no service calls it: fees are not routed to NeoSafe (where each fee goes is under Fees in `docs/blockchain.md`)
 - **Gateway** — REST + WebSocket, rate limiting, background cleanup,
   graceful shutdown, full middleware chain
 - **EAS attestation client** — skips gracefully when offline
 
 What activates the moment a chain is configured: actual contract
-deployment, on-chain attestations, paymaster gas sponsorship, and the
-NeoSafe ETH transfer. Populate `blockchain.*` in `openmatrix.config.json`
+deployment, on-chain attestations and paymaster gas sponsorship. The
+NeoSafe ETH transfer does not, because nothing calls it. Populate `blockchain.*` in `openmatrix.config.json`
 and run `python -m contracts.deploy` to flip any "not_deployed" response
 into live on-chain behavior.
 

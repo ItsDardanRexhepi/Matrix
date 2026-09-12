@@ -51,7 +51,7 @@ What a particular deployment provides is returned by the dashboard, payments and
 
 ## Fees
 
-The platform does take fees on some operations. They are separate from gas sponsorship (above). `tests/test_fee_disclosure_matches_code.py` derives each rate below from the file cited next to it and fails if a row disagrees. It also sweeps `runtime/`, `gateway/` and `contracts/` for files that define a fee-named constant or default, a fee tier table, or a transfer to the platform fee recipient, and fails if one is neither in this table nor recorded in the test as not charged (for example, third-party bridge fees a route estimate only quotes). The sweep matches names: a fee computed under a name that says neither "fee" nor "commission" would not be found.
+The platform does take fees on some operations. They are separate from gas sponsorship (above). `tests/test_fee_disclosure_matches_code.py` derives each rate below from the file cited next to it and fails if a row disagrees. It also sweeps `runtime/`, `gateway/` and `contracts/` for files that define a fee-named constant or default, a tier table, or a transfer to the platform fee recipient, and fails if one is neither in these tables nor recorded in the test as not charged (for example, third-party bridge fees a route estimate only quotes, or the insurance premium schedule, which prices cover rather than taking a fee). The sweep matches names: a fee computed under a name that says neither "fee" nor "commission" would not be found.
 
 ### On-chain, in the platform contracts
 
@@ -89,5 +89,11 @@ Computed by the service on the operation it performs. Defaults are shown; each i
 | Operation | Fee | Source |
 |---|---|---|
 | Token swap through the service's pools (`swap_tokens`, `get_swap_quote`) | 0.3% of the input at each pool hop by default, kept by the pool; the platform takes none, and quotes and trades report it as `user_fee` | `runtime/blockchain/services/dex/pools.py` (`dex.default_fee_tier`) |
+
+### Quoted, not collected
+
+| Operation | Quote | Source |
+|---|---|---|
+| Contract conversion tier (`estimate_contract_cost`, and the `tier` in a conversion result) | 0.01 ETH below 100 non-blank lines; 0.05 ETH below 500; 0.1 ETH above; "negotiated" past a complexity score of 200. Nothing collects it: no route or service takes a payment for a conversion | `runtime/blockchain/services/contract_conversion/tier_manager.py` (`_TIERS`; `conversion.tier_overrides`) |
 
 Paid plugin sales are not live (the purchase route answers `501`); their commission is the operator's `plugin_marketplace.commission_rate`. Subscriptions (Pro, Enterprise) are sold in the MTRX app through Apple In-App Purchase.

@@ -181,6 +181,18 @@ NOT_CHARGED = {
         lambda: len(re.findall(r"self\._platform_fee\b", _src(
             "runtime/blockchain/services/gaming/service.py"))) <= 2
         and "runtime/blockchain/services/gaming/revenue_share.py" in FEE_SOURCES),
+    "runtime/blockchain/services/dispute_resolution/appeals.py": (
+        "APPEAL_TIERS holds juror counts and stake multipliers for an appeal; "
+        "no entry carries a fee",
+        lambda: "fee" not in re.search(r"APPEAL_TIERS[^=]*=\s*\[(.*?)\n\]", _src(
+            "runtime/blockchain/services/dispute_resolution/appeals.py"), re.S).group(1).lower()),
+    "runtime/blockchain/services/insurance/fee_engine.py": (
+        "`_TIERS` is the premium schedule, the price of the cover a policy buys, "
+        "not a fee on an operation; the insurance service's platform take is the "
+        "cancellation withholding, which is listed",
+        lambda: "calculate_premium" in _src("runtime/blockchain/services/insurance/fee_engine.py")
+        and "platform_fee" not in _src("runtime/blockchain/services/insurance/fee_engine.py")
+        and "runtime/blockchain/services/insurance/service.py" in FEE_SOURCES),
     "runtime/blockchain/services/rwa_tokenization/service.py": (
         "a docstring example of the pooled-purchase config; the fee is taken in "
         "rwa_tokenization/pooled_purchase.py, which is listed",
@@ -189,6 +201,36 @@ NOT_CHARGED = {
             "runtime/blockchain/services/rwa_tokenization/service.py"), flags=re.S)),
 }
 
+def _conversion_tier_quotes() -> list[float]:
+    from runtime.blockchain.services.contract_conversion.tier_manager import _TIERS
+    return [fee for _name, _max, fee in _TIERS]
+
+
+def _conversion_quote_is_not_collected() -> bool:
+    """Nothing outside the quoting code reads the quoted amount: no payment,
+    transfer or ledger path takes `fee_eth`."""
+    out = subprocess.check_output(["git", "ls-files", "runtime/*.py", "gateway/*.py"],
+                                  cwd=ROOT, text=True)
+    quoting = {"runtime/blockchain/services/contract_conversion/tier_manager.py",
+               "runtime/blockchain/services/contract_conversion/service.py"}
+    for rel in out.splitlines():
+        if rel in quoting or not (ROOT / rel).is_file():
+            continue
+        # a read of the quoted amount out of a result: ["fee_eth"] or .get("fee_eth")
+        if re.search(r"""(?:\[|\.get\()\s*["']fee_eth["']""", (ROOT / rel).read_text(encoding="utf-8")):
+            return False
+    service = _src("runtime/blockchain/services/contract_conversion/service.py")
+    return not re.search(r"fee_eth\b[^\n]*(?:transfer|send|charge|collect|pay)", service, re.I)
+
+
+# Files that quote a fee the platform does not collect. Each is disclosed under
+# "Quoted, not collected" at its derived amounts, and its reason is checked.
+QUOTED_NOT_COLLECTED = {
+    "runtime/blockchain/services/contract_conversion/tier_manager.py": (
+        _conversion_tier_quotes, _conversion_quote_is_not_collected),
+}
+
+
 _FEE_NAME = r"(?:[A-Za-z]+_)*_?(?:fee|fees|commission)(?:_[A-Za-z]+)*"
 _NONZERO = r"(?!0(?:\.0+)?(?![\d.]))(\d+(?:\.\d+)?)"
 _SWEEP_PY = [
@@ -196,6 +238,9 @@ _SWEEP_PY = [
     re.compile(rf"""\.get\(\s*["']{_FEE_NAME}["']\s*,\s*{_NONZERO}""", re.I),
     re.compile(rf"""["']{_FEE_NAME}["']\s*:\s*{_NONZERO}""", re.I),
     re.compile(r"\b[A-Z_]*FEE_TIERS\s*(?::[^=\n]*)?="),
+    # A tier table whose entries carry a fee but whose name does not say so
+    # (contract_conversion's `_TIERS`, one `fee_eth` per tier) passed the sweep.
+    re.compile(r"\b_?[A-Z]*_?TIERS\s*(?::[^=\n]*)?=\s*\["),
     re.compile(r"\*\s*0\.\d+\s*#.*\b(?:fee|commission)\b", re.I),
     re.compile(r"\b_COMMISSION_PCT\s*="),
 ]
@@ -222,6 +267,7 @@ def _sweep_fee_files(files: dict[str, str]) -> set[str]:
 
 def test_the_fee_sweep_is_not_vacuous():
     planted = {
+        "h.py": '_TIERS: list[tuple[str, int | None, float]] = [',
         "a.py": 'self._fee_pct: float = float(cfg.get("fee_pct", 0.5))',
         "b.py": 'refund = paid * ratio * 0.9  # 10% cancellation fee',
         "c.py": '_FEE_TIERS: list = [(1, 2)]',
@@ -230,7 +276,7 @@ def test_the_fee_sweep_is_not_vacuous():
         "f.py": 'fee = 0',
         "g.py": 'max_fee_per_gas = 30',
     }
-    assert _sweep_fee_files(planted) == {"a.py", "b.py", "c.py", "d.sol"}
+    assert _sweep_fee_files(planted) == {"a.py", "b.py", "c.py", "d.sol", "h.py"}
 
 
 def test_every_file_that_defines_a_fee_is_disclosed_or_classified():
@@ -239,10 +285,13 @@ def test_every_file_that_defines_a_fee_is_disclosed_or_classified():
     files = {rel: (ROOT / rel).read_text(encoding="utf-8") for rel in out.splitlines()
              if not rel.startswith("contracts/test/") and (ROOT / rel).is_file()}
     found = _sweep_fee_files(files)
-    unclassified = sorted(found - set(FEE_SOURCES) - set(NOT_CHARGED))
+    unclassified = sorted(found - set(FEE_SOURCES) - set(NOT_CHARGED)
+                          - set(QUOTED_NOT_COLLECTED))
     assert not unclassified, (
         "files define a fee the disclosure neither lists nor classifies as not charged:\n"
         + "\n".join(unclassified))
+    unclassified = sorted(found - set(FEE_SOURCES) - set(NOT_CHARGED) - set(QUOTED_NOT_COLLECTED))
+    assert not unclassified, unclassified
     stale = sorted(set(NOT_CHARGED) - found)
     assert not stale, f"NOT_CHARGED lists files the sweep no longer finds: {stale}"
     broken = sorted(rel for rel, (_why, holds) in NOT_CHARGED.items() if not holds())
@@ -336,4 +385,84 @@ def test_no_public_surface_says_there_are_no_fees():
             low = line.lower()
             if any(re.search(p, low) for p in _NO_FEE_CLAIMS):
                 offenders.append(f"{rel}:{lineno}: {line.strip()[:110]}")
+    assert not offenders, "\n".join(offenders)
+
+
+def _eth(amount: float) -> str:
+    return f"{amount:g} ETH"
+
+
+def test_every_quoted_fee_is_disclosed_as_not_collected():
+    text = DISCLOSURE.read_text(encoding="utf-8")
+    section = re.search(r"^### Quoted, not collected\s*$(.*?)(?=^#{2,3} |\Z)", text, re.M | re.S)
+    assert section, "docs/blockchain.md has no 'Quoted, not collected' section"
+    rows = [ln for ln in section.group(1).splitlines() if ln.startswith("|")]
+    problems = []
+    for source, (derive, not_collected) in QUOTED_NOT_COLLECTED.items():
+        assert not_collected(), f"{source}: its quote is read by a collection path now"
+        row = " ".join(r for r in rows if f"`{source}`" in r)
+        if not row:
+            problems.append(f"no 'Quoted, not collected' row cites `{source}`")
+            continue
+        for amount in derive():
+            if _eth(amount) not in row:
+                problems.append(f"`{source}` quotes {_eth(amount)}; its row does not say so")
+        if "collect" not in row.lower():
+            problems.append(f"`{source}` row does not say the quote is not collected")
+    assert not problems, "\n".join(problems)
+
+
+# ── where fees go: nothing routes them to NeoSafe ───────────────────────────
+
+_NEOSAFE_ROUTING_CLAIMS = [
+    r"(?:fees?|revenue)\b[^.|]{0,60}\broutes? to (?:the )?neosafe(?! [^.]*\bno\b)",
+    r"all platform fees (?:go|route|automatically route) to the neosafe",
+    r"fee-generating action[^.]{0,60}calls\s+:?(?:meth:)?`?route_fee",
+    r"queues fees in-memory until live",
+    r"activates[^.]{0,200}neosafe eth transfer",
+    r"single point of revenue collection",
+]
+
+
+def _calls_the_neosafe_router(text: str) -> bool:
+    return bool(re.search(r"\.route_(?:fee|revenue)\(", text))
+
+
+def _neosafe_router_has_no_caller() -> bool:
+    out = subprocess.check_output(["git", "ls-files", "*.py"], cwd=ROOT, text=True)
+    for rel in out.splitlines():
+        if (rel.startswith(("tests/", "examples/")) or rel == "runtime/blockchain/services/neosafe.py"
+                or not (ROOT / rel).is_file()):
+            continue
+        if _calls_the_neosafe_router((ROOT / rel).read_text(encoding="utf-8")):
+            return False
+    return True
+
+
+def test_the_neosafe_claim_scan_catches_the_old_copy():
+    old = ("Revenue from all fee-generating actions routes to NeoSafe automatically. "
+           "All platform fees automatically route to the NeoSafe multisig via RevenueEnforcer. "
+           "Every fee-generating action across the 44 services calls :meth:`route_fee` to record.")
+    low = old.lower()
+    assert sum(bool(re.search(p, low)) for p in _NEOSAFE_ROUTING_CLAIMS) >= 3
+
+
+def test_no_public_surface_says_fees_are_routed_to_neosafe():
+    if not _neosafe_router_has_no_caller():
+        return  # something routes fees now; the claim is not contradicted
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html", "*.py"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel.startswith(("tests/", "contracts/")) or rel in _NOT_EDITABLE_HERE:
+            continue
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        raw = path.read_text(encoding="utf-8")
+        if _calls_the_neosafe_router(raw):
+            continue  # a file that calls the router is demonstrating what it does
+        flat = re.sub(r"\s*\n\s*(?:#+\s*|//\s*|\*\s*)?", " ", raw).lower()
+        for pattern in _NEOSAFE_ROUTING_CLAIMS:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 20]}...")
     assert not offenders, "\n".join(offenders)
