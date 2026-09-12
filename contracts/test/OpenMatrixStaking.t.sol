@@ -127,4 +127,58 @@ contract OpenMatrixStakingTest is Test {
         // Same deposit, same duration — rewards must match.
         assertEq(aliceNet, bobNet);
     }
+
+    // ── rewards from the reserve only; owed, never erased; fees never block ──
+
+    function test_Rewards_ComeOnlyFromTheReserve_AndAreOwedWhenItIsEmpty() public {
+        OpenMatrixStaking bare = new OpenMatrixStaking(feeRecipient);   // no fundRewards
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        bare.stake{value: 1 ether}();
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(alice);
+        bare.claimRewards();                       // accrued, but nothing funded
+        assertEq(alice.balance, 0, "no principal was touched to pay a reward");
+        assertGt(bare.owedRewards(alice), 0, "the reward is owed, not paid from principal");
+        assertEq(address(bare).balance, 1 ether, "the pool still holds the principal");
+    }
+
+    function test_OwedRewards_ArePaidWhenTheReserveIsFunded() public {
+        OpenMatrixStaking bare = new OpenMatrixStaking(feeRecipient);
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        bare.stake{value: 1 ether}();
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(alice);
+        bare.unstake();                            // principal back; rewards owed
+        assertEq(alice.balance, 1 ether);
+        assertGt(bare.owedRewards(alice), 0, "the unfunded reward is owed, not erased");
+        vm.deal(address(this), 5 ether);
+        bare.fundRewards{value: 5 ether}();
+        vm.prank(alice);
+        bare.claimRewards();
+        assertGt(alice.balance, 1 ether, "paid once funded");
+        assertEq(bare.owedRewards(alice), 0);
+    }
+
+    function test_PendingFees_ArePulledLater() public {
+        RevertingFeeRecipient bad = new RevertingFeeRecipient();
+        staking.updateFeeRecipient(address(bad));
+        vm.deal(alice, 1 ether);
+        vm.prank(alice);
+        staking.stake{value: 1 ether}();
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(alice);
+        staking.claimRewards();
+        assertGt(staking.pendingFees(), 0, "the commission waits instead of blocking");
+        staking.updateFeeRecipient(feeRecipient);
+        uint256 before = feeRecipient.balance;
+        staking.withdrawFees();
+        assertGt(feeRecipient.balance, before);
+        assertEq(staking.pendingFees(), 0);
+    }
+}
+
+contract RevertingFeeRecipient {
+    receive() external payable { revert("no"); }
 }

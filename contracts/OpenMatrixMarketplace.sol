@@ -113,11 +113,17 @@ contract OpenMatrixMarketplace is ReentrancyGuard, Ownable {
 
     /**
      * @notice Buy a listed item. 5% fee goes to platformFeeRecipient.
+     * @param expectedPrice The price the buyer agreed to. The ETH branch was
+     *        bound by msg.value; the ERC-20 branch charged whatever the price
+     *        was AT EXECUTION, so a seller front-running with updatePrice
+     *        charged a buyer up to their whole allowance (audit entry
+     *        B3-MKT-ERC20-NO-PRICE-BOUND). Both branches are bound now.
      */
-    function buyItem(uint256 listingId) external payable nonReentrant {
+    function buyItem(uint256 listingId, uint256 expectedPrice) external payable nonReentrant {
         Listing storage listing = listings[listingId];
         require(listing.active, "Not active");
         require(msg.sender != listing.seller, "Seller cannot buy own item");
+        require(listing.price == expectedPrice, "Price changed");
 
         uint256 fee = (listing.price * PLATFORM_FEE_BPS) / BPS_DENOMINATOR;
         uint256 sellerProceeds = listing.price - fee;
