@@ -27,7 +27,7 @@ from typing import Any
 
 from aiohttp import web
 
-from gateway.error_contract import client_error
+from gateway.error_contract import client_error, dispatcher_failure
 
 logger = logging.getLogger(__name__)
 
@@ -832,13 +832,27 @@ class BridgeRoutes:
             body = await request.json()
         except Exception:
             return MobileResponse.error("Invalid JSON")
+        if not isinstance(body, dict):
+            return MobileResponse.error("request body must be a JSON object", 400)
 
         action = body.get("action", "")
-        params = body.get("params", {})
+        params = body.get("params")
         session_id = body.get("session_id", "")
 
         if not action:
             return MobileResponse.error("action required")
+        # The caller's own mistakes, named as the caller's, before the gate or
+        # the dispatcher sees them. An unvalidated dict action (NEW-9's shape,
+        # from the wire) reached `action not in ACTION_MAP` and came back as a
+        # TypeError the handler below reported as "Invalid parameters: unhashable
+        # type"; list or string params raised AttributeError inside execute.
+        if not isinstance(action, str):
+            return MobileResponse.error("action must be a string", 400)
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return MobileResponse.error("params must be an object", 400)
+        session_id = str(session_id or "")
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.
@@ -861,8 +875,7 @@ class BridgeRoutes:
             app_attest=body.get("app_attest"),
             session_id=session_id,
         )
-        decision = await gate_action(action, params if isinstance(params, dict) else {},
-                                     current_request_security())
+        decision = await gate_action(action, params, current_request_security())
         if is_blocked(decision):
             return MobileResponse.error(generic_denial(decision), 403)
 
@@ -918,15 +931,29 @@ class BridgeRoutes:
                 params=params,
                 caller_identity=identity,
             )
-            return MobileResponse.ok(result)
-        except KeyError as e:
-            return MobileResponse.error(f"Unknown action: {action}", 404)
-        except TypeError as e:
-            return MobileResponse.error(f"Invalid parameters: {e}", 422)
         except Exception as e:
-            logger.error(f"Bridge action error: {e}", exc_info=True)
-            # RUN-5: was the raw exception as the response body.
-            return MobileResponse.from_exception(e, what='Bridge')
+            # RUN-5: was the raw exception as the response body. And this
+            # caught TypeError as "Invalid parameters" (422, the raw binding
+            # message quoted back) and KeyError as "Unknown action" (404) —
+            # but the dispatcher returns every caller-attributable failure as a
+            # payload; an exception that escapes it is an internal defect,
+            # which is what the error contract says: internal_error, a ref.
+            return MobileResponse.from_exception(e, what="Bridge action")
+        return self._action_response(action, result)
+
+    @staticmethod
+    def _action_response(action: str, result) -> web.Response:
+        """Relay the dispatcher's payload with the status it means.
+
+        Every payload was HTTP 200 ``ok: true`` — including
+        ``{"status": "error"}`` — the RUN-4 inversion ServiceRoutes._ok fixed
+        for /api/v1 and never reached here. A success is relayed exactly as
+        before; a failure is decided by error_contract.dispatcher_failure."""
+        failure = dispatcher_failure(result, what=f"Bridge action {action}")
+        if failure is None:
+            return MobileResponse.ok(result)
+        status, err = failure
+        return MobileResponse.error(err["error"], status, error_code=err.get("code"), ref=err.get("ref"))
 
     # ─── Push notifications ─────────────────────────────────────────────────
 

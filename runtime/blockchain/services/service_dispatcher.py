@@ -1224,9 +1224,14 @@ class ServiceDispatcher:
 
             method = getattr(svc_instance, method_name, None)
             if method is None:
+                # ACTION_MAP names a method the service does not have: a
+                # platform defect, not an action the caller got wrong — so not
+                # "not_found", which a route relays as the caller's 404.
+                logger.error("ACTION_MAP drift: %s -> %s.%s does not exist",
+                             action, target_service, method_name)
                 return json.dumps({
                     "status": "error",
-                    "error_category": "not_found",
+                    "error_category": "service_error",
                     "degraded": False,
                     "error": (
                         f"Service '{target_service}' has no method '{method_name}'"
@@ -1263,6 +1268,25 @@ class ServiceDispatcher:
             if _method_accepts_caller_identity(method):
                 params = {**params, "caller_identity": caller_identity or "",
                           "caller_source": _actor_source}
+
+            # The caller's arguments either bind to the method or they do not,
+            # and that is decided HERE, before the call — not inferred from a
+            # TypeError afterwards, which is also what a service's own bug
+            # raises (`None["x"]`, a bad `len()`), so every crash inside a
+            # service was reported as "Invalid parameters" — to the model,
+            # which then rewrote a correct call, and to every route relaying it.
+            try:
+                inspect.signature(method).bind(**params)
+            except TypeError as exc:
+                logger.error("Bad params for %s.%s: %s", target_service, method_name, exc)
+                return json.dumps({
+                    "status": "error",
+                    "error_category": "validation",
+                    "degraded": False,
+                    "error": f"Invalid parameters for {action}: {exc}",
+                })
+            except ValueError:
+                pass  # no introspectable signature; the call decides
 
             result = await method(**params)
 
@@ -1387,14 +1411,6 @@ class ServiceDispatcher:
                 "elapsed_ms": int(elapsed * 1000),
             })
 
-        except TypeError as exc:
-            logger.error("Bad params for %s.%s: %s", target_service, method_name, exc)
-            return json.dumps({
-                "status": "error",
-                "error_category": "validation",
-                "degraded": False,
-                "error": f"Invalid parameters for {action}: {exc}",
-            })
         except NotImplementedError as exc:
             logger.warning("Action %s not implemented: %s", action, exc)
             return json.dumps({

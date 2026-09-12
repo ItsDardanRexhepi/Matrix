@@ -248,8 +248,16 @@ unknown ids.
 
 ### `POST /api/v1/capabilities/{id}/invoke`
 
-Execute a capability. The body's `params` object is validated against
-the capability's `params_schema` before dispatch.
+Execute a capability. `params` must be an object (**400** otherwise). Before
+the call, `params` is bound against the target service method's signature —
+not against the capability's published `params_schema`, which many
+capabilities do not yet match — and arguments that do not bind answer **400**
+with `code: "validation"`. Any other failure the dispatcher reports carries its
+status (`not_found` 404, `not_implemented` 501, `service_unavailable` 503,
+`service_error` 502); where the underlying message is internal (a binding
+message, a service's exception text) the body is the redacted
+`{error, code, ref}` shape instead. `POST /bridge/v1/action` relays the
+dispatcher the same way.
 
 ```json
 { "params": { "token_in": "USDC", "token_out": "WETH", "amount": "1000" } }

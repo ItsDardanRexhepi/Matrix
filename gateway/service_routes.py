@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from aiohttp import web
 
-from gateway.error_contract import client_error
+from gateway.error_contract import DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -619,16 +619,7 @@ class ServiceRoutes:
 
     # When the service says WHY, honour it; otherwise 422 — the request was
     # well-formed but the operation could not be completed.
-    _ERROR_CATEGORY_HTTP = {
-        "validation": 400,
-        "bad_request": 400,
-        "not_found": 404,
-        "forbidden": 403,
-        "not_implemented": 501,
-        "service_unavailable": 503,
-        "service_error": 502,
-        "timeout": 504,
-    }
+    _ERROR_CATEGORY_HTTP = DISPATCHER_CATEGORY_HTTP
 
     def _ok(self, data: Any) -> web.Response:
         """Wrap a service result — but never dress a failure as a success.
@@ -2786,7 +2777,12 @@ class ServiceRoutes:
             body = await request.json()
         except Exception:
             body = {}
-        params = body.get("params", {}) if isinstance(body, dict) else {}
+        params = body.get("params") if isinstance(body, dict) else None
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            # Reached the dispatcher as-is and raised AttributeError there (500).
+            return web.json_response({"error": "params must be an object"}, status=400)
         reg = self._capability_registry()
         # 17-D. This route reaches the SAME ServiceDispatcher as gateway/bridge.py
         # — `set_nft_rights` is a catalog capability id — and it dropped the
@@ -2826,12 +2822,21 @@ class ServiceRoutes:
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
-        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security)
+        decision = await gate_action(action_label, params, security)
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
         result = await reg.invoke(capability_id, params, caller_identity=authed)
-        status = 200 if result.get("status") == "ok" else 400
-        return web.json_response(result, status=status)
+        if result.get("status") != "ok":
+            return web.json_response(result, status=400)
+        # The registry wraps the dispatcher's payload as {"status": "ok",
+        # "result": <payload>} whatever the payload says, so a crashed service
+        # answered 200 with its exception text inside (RUN-4 and RUN-5 at once,
+        # on the other route that relays the dispatcher; see bridge.py).
+        failure = dispatcher_failure(result.get("result"), what=f"Capability {capability_id}")
+        if failure is not None:
+            status, err = failure
+            return web.json_response({**err, "capability_id": capability_id}, status=status)
+        return web.json_response(result, status=200)
 
     # ------------------------------------------------------------------
     # Batch dispatch

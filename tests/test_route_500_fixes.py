@@ -145,8 +145,16 @@ async def test_capability_invoke_reaches_the_dispatcher(client):
     resp = await client.post(
         "/api/v1/capabilities/send_payment/invoke", json={"params": {}}, headers=AUTH
     )
-    assert resp.status == 200, f"capability invoke -> {resp.status}, expected 200"
     body = await resp.text()
+    # "Reached the dispatcher" used to be observable as 200, because the route
+    # wrapped every dispatcher answer — failures included — in 200. It now
+    # carries a dispatcher refusal with the status it means, so the evidence is
+    # the dispatcher's own category: here send_payment's missing arguments.
+    if resp.status != 200:
+        import json as _json
+        parsed = _json.loads(body)
+        assert resp.status == 400 and parsed.get("code") == "validation", (
+            f"capability invoke -> {resp.status} {body[:300]}: not an answer from the dispatcher")
     for leak in ("unhashable type", "takes 2 positional arguments",
                  "has no attribute", "Traceback"):
         assert leak not in body, f"capability invoke leaked {leak!r}"
