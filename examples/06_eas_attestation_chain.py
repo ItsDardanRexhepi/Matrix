@@ -9,8 +9,7 @@ create permanent, verifiable on-chain records for every platform action:
   1. Deploy a contract -> attestation
   2. Transfer ownership -> attestation
   3. Create an insurance policy -> attestation
-  4. Query all attestations for an address
-  5. Verify a specific attestation on-chain
+  4. Verify a specific attestation on-chain
 
 This is the trust layer of 0pnMatrx: every state-modifying capability is attested on-chain automatically.
 
@@ -208,36 +207,14 @@ async def main():
     except Exception as e:
         warn(f"Batch attestation: {e}")
 
-    # ── Step 5: Query attestations for address ──────────────────────
-    step(5, "Querying all attestations for wallet address...")
+    # (A "query all attestations for this address" step stood here. It
+    # dispatched `query_attestations`, which NEW-48b removed: it returned the
+    # GraphQL query TEXT as if it were results, and no EAS subgraph reader
+    # exists in this repo. The example printed "Unknown action" and then listed
+    # the query among the "Actions demonstrated".)
 
-    try:
-        result = await dispatcher.execute(
-            action="query_attestations",
-            params={
-                "recipient": wallet,
-                "limit": 20,
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            attestations = data["result"]
-            if isinstance(attestations, list):
-                ok(f"Found {len(attestations)} attestations for {wallet[:12]}...")
-                for att in attestations[:5]:
-                    print(f"    {DIM}[{att.get('action', att.get('schema', 'N/A'))}] "
-                          f"uid={str(att.get('uid', 'N/A'))[:16]}... "
-                          f"time={att.get('timestamp', 'N/A')}{RESET}")
-            elif isinstance(attestations, dict):
-                items = attestations.get("attestations", attestations.get("items", []))
-                ok(f"Found {len(items)} attestations")
-        else:
-            warn(f"Query: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Query: {e}")
-
-    # ── Step 6: Verify a specific attestation ───────────────────────
-    step(6, "Verifying attestation on-chain...")
+    # ── Step 5: Verify a specific attestation ───────────────────────
+    step(5, "Verifying attestation on-chain...")
 
     if attestation_uids:
         uid_to_verify = attestation_uids[0]
@@ -293,8 +270,7 @@ async def main():
     2. create_attestation  - Ownership transfer attestation
     3. create_attestation  - Insurance policy attestation
     4. batch_attest        - Multiple attestations in one tx
-    5. query_attestations  - Find all attestations for address
-    6. verify_attestation  - Verify attestation on-chain
+    5. verify_attestation  - Verify attestation on-chain
 
   {BOLD}Key insight:{RESET}
     Every state-modifying action across all 221 capabilities

@@ -15,12 +15,14 @@ Runnable scripts that prove the platform works on-chain (Base Sepolia).
    ```
    Fill in at minimum:
    - `blockchain.rpc_url` — Base Sepolia RPC (get one free at [Alchemy](https://www.alchemy.com/))
-   - `blockchain.demo_wallet_private_key` — private key for a test wallet
-   - `blockchain.demo_wallet_address` — corresponding address
+   - `blockchain.demo_wallet_address` — the address the examples act for
    - `blockchain.platform_wallet` — NeoSafe multisig address
 
-3. **Fund your test wallet:**
-   Get Base Sepolia ETH from https://www.alchemy.com/faucets/base-sepolia
+   None of these examples reads `blockchain.demo_wallet_private_key` or signs
+   anything with it — leave it unset for them. `demo.py` (repo root) is the
+   script that deploys with that key; use a dedicated **testnet** wallet there,
+   never one holding real funds. tests/test_examples_are_honest.py runs every
+   example and fails if one reads a signing key.
 
 ## Running
 
@@ -39,12 +41,12 @@ will print a warning and continue with the remaining steps.
 
 | # | Script | What it demonstrates | Components |
 |---|--------|---------------------|------------|
-| 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit -> deploy -> attest | 1, 8 |
+| 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit (deploying it is yours to do) | 1 |
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
 | 05 | `05_marketplace_flow.py` | List item, search, buy via atomic escrow, fee routing | 24 |
-| 06 | `06_eas_attestation_chain.py` | Every action creates an EAS attestation; batch attest; query; verify | 8 |
+| 06 | `06_eas_attestation_chain.py` | Every action creates an EAS attestation; batch attest; verify | 8 |
 | 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee routing | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
@@ -90,7 +92,7 @@ Every example works on mainnet with zero code changes — just update your confi
 ```
 
 **Before going to mainnet:**
-- All examples run Glasswing security audit before deployment
+- Contract conversion runs the Glasswing security audit on generated Solidity; the platform does not deploy it
 - EAS attestations are created for every state-modifying action
 - Revenue from all fee-generating actions routes to NeoSafe automatically
 - Oracle data feeds switch to mainnet Chainlink contracts automatically

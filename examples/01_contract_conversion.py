@@ -3,22 +3,16 @@ from __future__ import annotations
 """
 01 — Contract Conversion: End-to-End Pipeline
 
-Demonstrates the full 0pnMatrx contract conversion flow on Base Sepolia:
+Demonstrates the 0pnMatrx contract conversion flow, targeting Base:
 
   1. Takes a plain English rental agreement description
-  2. Converts it to optimised Solidity via ContractConversionService
-  3. Runs Glasswing (Morpheus) security audit
-  4. Deploys the compiled contract to Base Sepolia
-  5. Creates an EAS attestation for the deployment
+  2. Estimates the conversion cost
+  3. Converts it to Solidity via ContractConversionService, which runs the
+     Glasswing (Morpheus) security audit on the result
+  4. Hands the Solidity back to you — 0pnMatrx does not deploy it
 
-This is the core value proposition of 0pnMatrx: describe a contract in
-plain English and the platform handles parsing, generation, auditing,
-compilation, deployment, and attestation.
-
-NOTE: Until ``blockchain.rpc_url`` is configured AND
-``contract_conversion.auto_deploy`` is set to ``True``, the example will
-generate Solidity but skip the on-chain deploy step and return
-``status='not_deployed'``. See ROADMAP.md "Blockchain Activation".
+This example needs no private key and signs nothing. demo.py is the script
+that deploys, with a dedicated testnet wallet of your own.
 
 Usage:
     python examples/01_contract_conversion.py
@@ -205,92 +199,27 @@ async def main():
         fail("Make sure all dependencies are installed: pip install web3 eth-account py-solc-x")
         sys.exit(1)
 
-    # ── Step 4: Deploy to Base Sepolia ──────────────────────────────
-    step(4, "Deploying to Base Sepolia...")
-    bc = config.get("blockchain", {})
-    rpc_url = bc.get("rpc_url", "")
-    private_key = bc.get("demo_wallet_private_key", "")
-
-    if not rpc_url or rpc_url.startswith("YOUR_"):
-        warn("Skipping deployment: blockchain.rpc_url not configured.")
-        warn("Set blockchain.rpc_url in openmatrix.config.json to deploy.")
-    elif not private_key or private_key.startswith("YOUR_"):
-        warn("Skipping deployment: blockchain.demo_wallet_private_key not configured.")
-        warn("Set blockchain.demo_wallet_private_key in openmatrix.config.json to deploy.")
+    # ── Step 4: What happens to the Solidity ────────────────────────
+    # This step used to read blockchain.demo_wallet_private_key, print
+    # "Deploying to Base Sepolia..." and dispatch `deploy_contract` — an action
+    # the platform removed (NEW-4). It could never deploy anything, and it
+    # explained the certain failure as an unfunded wallet. The platform
+    # generates Solidity; deploying it is yours to do, with your own tooling.
+    step(4, "Deployment")
+    deployment = conv.get("deployment") if isinstance(conv, dict) else None
+    if isinstance(deployment, dict):
+        # Only present when the operator turned on contract_conversion.auto_deploy.
+        # Relayed exactly as the conversion service reported it.
+        detail = deployment.get("contract_address") or deployment.get("reason") or deployment.get("error", "")
+        warn(f"Conversion service deployment status: {deployment.get('status', 'unknown')} {detail}".rstrip())
     else:
-        try:
-            deploy_result = await dispatcher.execute(
-                action="deploy_contract",
-                params={
-                    "source_code": generated,
-                    "source_lang": "solidity",
-                    "target_chain": "base",
-                },
-            )
-            deploy = json.loads(deploy_result)
-            if deploy.get("status") == "ok":
-                dep = deploy["result"]
-                ok(f"Contract deployed at: {dep.get('contract_address', 'N/A')}")
-                ok(f"Tx hash: {dep.get('tx_hash', 'N/A')}")
-                ok(f"Block: {dep.get('block_number', 'N/A')}")
-                ok(f"Gas used: {dep.get('gas_used', 'N/A')}")
-                ok(f"Gas paid by: {dep.get('gas_paid_by', 'platform')}")
+        ok("Not deployed. 0pnMatrx generates the contract; it does not deploy it for you.")
+        ok("Deploy the Solidity above with your own tooling (Foundry, Hardhat, Remix).")
+        ok("demo.py shows one way, using a dedicated TESTNET wallet you configure —")
+        ok("never a wallet holding real funds.")
 
-                contract_address = dep.get("contract_address", "")
-
-                # ── Step 5: Create EAS attestation ──────────────────
-                step(5, "Creating EAS attestation for deployment...")
-                try:
-                    attest_result = await dispatcher.execute(
-                        action="create_attestation",
-                        params={
-                            "schema_name": "contract_deployment",
-                            "data": {
-                                "contract_address": contract_address,
-                                "contract_name": conv.get("contract_name", "RentalAgreement"),
-                                "deployer": bc.get("demo_wallet_address", ""),
-                                "chain": "base-sepolia",
-                                "audit_passed": audit_passed,
-                            },
-                            "recipient": bc.get("demo_wallet_address", "0x0"),
-                        },
-                    )
-                    attest = json.loads(attest_result)
-                    if attest.get("status") == "ok":
-                        att = attest["result"]
-                        ok(f"Attestation created: {att.get('uid', att.get('attestation_tx', 'N/A'))}")
-                        ok(f"Attestation status: {att.get('status', 'ok')}")
-                    else:
-                        warn(f"Attestation: {attest.get('error', 'failed')}")
-                except Exception as e:
-                    warn(f"EAS attestation failed (non-critical): {e}")
-
-                # ── Summary ─────────────────────────────────────────
-                explorer = "https://sepolia.basescan.org"
-                print(f"""
-{GREEN}{BOLD}{'=' * 60}
-  PIPELINE COMPLETE
-{'=' * 60}{RESET}
-
-  {BOLD}Input:{RESET}       Plain English rental agreement (pseudocode)
-  {BOLD}Output:{RESET}      Deployed + Attested Solidity contract
-  {BOLD}Contract:{RESET}    {contract_address}
-  {BOLD}Explorer:{RESET}    {explorer}/address/{contract_address}
-  {BOLD}Network:{RESET}     Base Sepolia (chain 84532)
-  {BOLD}Audit:{RESET}       {"PASSED" if audit_passed else "COMPLETED"}
-
-{GREEN}{'=' * 60}{RESET}
-""")
-            else:
-                warn(f"Deployment returned: {deploy.get('error', 'unknown')}")
-                warn("This may be expected if your wallet lacks Base Sepolia ETH.")
-                warn("Get test ETH: https://www.alchemy.com/faucets/base-sepolia")
-        except Exception as e:
-            warn(f"Deployment failed: {e}")
-            warn("Ensure you have Base Sepolia ETH in your demo wallet.")
-
-    print(f"\n{DIM}Pipeline complete. This example demonstrated the full")
-    print(f"contract conversion flow: pseudocode -> Solidity -> audit -> deploy -> attest.{RESET}\n")
+    print(f"\n{DIM}Pipeline complete. This example demonstrated the contract")
+    print(f"conversion flow: pseudocode -> Solidity -> audit.{RESET}\n")
 
 
 if __name__ == "__main__":
