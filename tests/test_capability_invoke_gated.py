@@ -110,3 +110,55 @@ async def test_an_unknown_capability_is_still_answered_by_the_registry(monkeypat
         resp = await client.post("/api/v1/capabilities/no_such_capability/invoke", json={"params": {}})
         assert resp.status == 400
         assert (await resp.json()).get("error") == "unknown_capability"
+
+
+# ── the allowlist is about OPERATIONS, not URLs ───────────────────────────────
+
+async def test_a_session_cannot_reach_a_refused_route_through_a_capability(invoked):
+    """`/api/v1/capabilities/{id}/invoke` is a dispatcher: allowlisting the URL
+    is not allowlisting the operation. A session gets 403 on
+    /api/v1/nft/collection/create and must not get 200 on the capability that
+    calls the identical nft_services.create_collection."""
+    import time
+
+    from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST
+    assert CAPABILITIES_OFF_ALLOWLIST, "the escape set must be derived, not empty"
+
+    server = GatewayServer({**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}})
+    async with TestClient(TestServer(server.create_app())) as client:
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        for cap_id in CAPABILITIES_OFF_ALLOWLIST:
+            resp = await client.post(f"/api/v1/capabilities/{cap_id}/invoke",
+                                     headers={"Authorization": "Bearer 0xTEST_SESSION"},
+                                     json={"params": {}})
+            assert resp.status == 403, (cap_id, resp.status)
+    assert invoked == [], "no escaping capability reached the dispatcher"
+
+
+async def test_the_operator_key_still_invokes_them(monkeypatch, invoked):
+    from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda: _Gate(allow=True))
+    server = GatewayServer({**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}})
+    async with TestClient(TestServer(server.create_app())) as client:
+        cap_id = sorted(CAPABILITIES_OFF_ALLOWLIST)[0]
+        resp = await client.post(f"/api/v1/capabilities/{cap_id}/invoke",
+                                 headers={"Authorization": "Bearer k"}, json={"params": {}})
+        assert resp.status == 200, await resp.text()
+    assert [c[0] for c in invoked] == [cap_id]
+
+
+def test_the_escape_set_is_current():
+    """Regenerate and compare — a new capability whose route is off the allowlist
+    must land in the set rather than silently becoming reachable."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    r = subprocess.run([sys.executable, "scripts/generate_session_routes.py", "--check"],
+                       cwd=root, capture_output=True, text=True, timeout=120)
+    if "client not found" in (r.stderr or ""):
+        import pytest
+        pytest.skip("MTRX checkout not present (CI): the committed module is used as is")
+    assert r.returncode == 0, r.stderr or r.stdout

@@ -2715,6 +2715,22 @@ class ServiceRoutes:
         # /api/v1 funnel (`_call`) consults — `settle_auction` and every other
         # catalog write was reachable ungated here. The capability's ACTION_MAP
         # verb is the label the gate classifies; a block is the generic denial.
+        # The invoke route is on the session allowlist because the app calls it,
+        # but it is a DISPATCHER into the same ServiceDispatcher the dedicated
+        # /api/v1 routes use. Allowlisting the URL is not allowlisting the
+        # operation: seven catalog ids reach a service method whose own route
+        # answers 403 to a session. A session is refused those explicitly; the
+        # operator key is unaffected.
+        from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST, session_may_invoke
+        # aiohttp's Request is a mapping; the suite's fake request objects are not.
+        auth = (request.get("auth") if hasattr(request, "get") else None) or {}
+        if auth.get("kind") == "session" and not session_may_invoke(capability_id):
+            return web.json_response(
+                {"error": "forbidden",
+                 "message": "This capability is not available to a user session; "
+                            f"its route ({CAPABILITIES_OFF_ALLOWLIST[capability_id]}) requires the operator key."},
+                status=403)
+
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
