@@ -99,6 +99,24 @@ EXCLUDED_FROM_SESSION: frozenset[str] = frozenset({
     "/memory/write",
 })
 
+# A session may invoke a catalog capability EXCEPT one that would reach a
+# service method whose own route is refused to it. The invoke route is a
+# dispatcher, so allowlisting the URL is not allowlisting the operation.
+CAPABILITIES_OFF_ALLOWLIST: dict[str, str] = {
+    "community_create": "/api/v1/social/community/create",
+    "create_nft_collection": "/api/v1/nft/collection/create",
+    "decentralized_store": "/api/v1/compute/store",
+    "request_deletion": "/api/v1/privacy/delete",
+    "snapshot_vote": "/api/v1/governance/snapshot/vote",
+    "track_spending": "/api/v1/cashback/track",
+    "transfer_custody": "/api/v1/supply-chain/custody/transfer",
+}
+
+
+def session_may_invoke(capability_id: str) -> bool:
+    """False when this capability would reach a route the session is refused."""
+    return capability_id not in CAPABILITIES_OFF_ALLOWLIST
+
 
 def session_may_reach(canonical_route: str) -> bool:
     """True when a per-user session is a sufficient credential for this route.
