@@ -17,15 +17,28 @@ _AMBIENT_SWITCH_PREFIXES = ("OPNMATRX_", "OPENMATRIX_")
 _TEST_OTP_PEPPER = "test-suite-otp-pepper-not-a-secret"
 
 
-def _reset_ambient_security_switches(mp):
-    for name in list(os.environ):
-        if name.startswith(_AMBIENT_SWITCH_PREFIXES):
-            mp.delenv(name, raising=False)
-    mp.setenv("OPNMATRX_OTP_PEPPER", _TEST_OTP_PEPPER)
+def _clear_ambient_security_switches():
+    """Put os.environ's switch variables back to the documented default: every
+    OPNMATRX_* / OPENMATRIX_* variable removed, then the test pepper. Written to
+    os.environ directly, NOT through monkeypatch: a monkeypatch reset records
+    whatever it removes and puts it back at teardown, so a value code under test
+    wrote directly was restored into os.environ between tests."""
+    for name in [n for n in os.environ if n.startswith(_AMBIENT_SWITCH_PREFIXES)]:
+        del os.environ[name]
+    os.environ["OPNMATRX_OTP_PEPPER"] = _TEST_OTP_PEPPER
+
+
+def _pin_backend_label():
     # Decided at import by package importability; pinned to the open-checkout
     # value. This pins the LABEL the gateway decides on (production refusal,
     # /ready) — it does not swap the seam's implementation classes.
-    mp.setattr("runtime.security.SECURITY_BACKEND", "noop", raising=False)
+    import runtime.security as seam
+    seam.SECURITY_BACKEND = "noop"
+
+
+def _no_dotenv(*args, **kwargs):
+    """Stands in for python-dotenv's load_dotenv for the whole session."""
+    return False
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -39,6 +52,17 @@ def _ambient_security_switches_session():
     that build a server: OPNMATRX_ENV=production -> 65 failed + 552 errors;
     OPENMATRIX_API_KEY set -> 12 failed; private package importable -> 6 failed.
 
+    Three ambient SOURCES, all isolated here:
+      * the shell's variables — cleared by prefix;
+      * the .env FILE — load_config calls gateway.server._load_dotenv, which
+        loads ./.env with override=False into variables this fixture just
+        cleared, so a developer's `.env` holding OPNMATRX_ENV=production decided
+        the suite (measured: test_apns_env_override then test_route_sweep ->
+        547 errors). python-dotenv's load_dotenv is a no-op for the session,
+        patched on the package so any loader that imports it at call time is
+        covered, not only this one;
+      * package importability — the backend label is pinned.
+
     SESSION scope, because a module-scoped fixture is built before any
     function-scoped one runs: test_route_sweep's `sweep_results` constructs the
     gateway all 547 sweep cases judge, and a function-scoped reset never reached
@@ -48,17 +72,40 @@ def _ambient_security_switches_session():
     (test_readiness._with_live_security, test_security_backend_honesty).
     tests/test_ambient_security_isolation.py is the control.
     """
+    saved = {n: v for n, v in os.environ.items() if n.startswith(_AMBIENT_SWITCH_PREFIXES)}
     with pytest.MonkeyPatch.context() as mp:
-        _reset_ambient_security_switches(mp)
-        yield
+        for target in ("dotenv.load_dotenv", "dotenv.main.load_dotenv"):
+            try:
+                mp.setattr(target, _no_dotenv)
+            except (ImportError, AttributeError):
+                pass  # python-dotenv absent: nothing can load a .env
+        mp.setattr("runtime.security.SECURITY_BACKEND", "noop", raising=False)
+        _clear_ambient_security_switches()
+        try:
+            yield
+        finally:
+            _clear_ambient_security_switches()
+            del os.environ["OPNMATRX_OTP_PEPPER"]
+            os.environ.update(saved)
 
 
 @pytest.fixture(autouse=True)
-def _ambient_security_switches(_ambient_security_switches_session, monkeypatch):
-    """Re-asserted per test: code under test can write os.environ directly
-    (load_config's dotenv loader does), and that must not leak into the next."""
-    _reset_ambient_security_switches(monkeypatch)
+def _ambient_security_switches(_ambient_security_switches_session):
+    """Re-asserted around EVERY test, at setup and at teardown.
+
+    Teardown is the half that matters for leaks: code under test can write
+    os.environ directly (a loader, a service), and a variable it ADDS was never
+    recorded by anyone. Clearing at teardown means nothing written during a test
+    is in os.environ when the next module-scoped fixture is built. This fixture
+    deliberately does not request `monkeypatch`: autouse fixtures are set up
+    before a test's own fixtures and torn down after them, so this teardown runs
+    after the test's monkeypatch has undone its own changes.
+    """
+    _clear_ambient_security_switches()
+    _pin_backend_label()
     yield
+    _clear_ambient_security_switches()
+    _pin_backend_label()
 
 
 @pytest.fixture
