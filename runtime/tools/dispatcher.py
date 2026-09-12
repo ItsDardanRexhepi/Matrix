@@ -230,8 +230,19 @@ class ToolDispatcher:
     def get_tool_schemas(self) -> list[dict]:
         return self._schemas.copy()
 
+    #: Parameters a HANDLER may accept but a MODEL may never supply. The tool
+    #: arguments are authored by the model from its context, and its context
+    #: includes tool output and user text — so anything the model can write is
+    #: caller-controlled. `ServiceDispatcher.execute` takes a keyword-only
+    #: `caller_identity`, the authenticated address the HTTP and bridge entry
+    #: points deliberately DERIVE rather than accept; registering that method
+    #: as the `platform_action` tool and invoking it as `handler(**arguments)`
+    #: let a model-authored key bind it. Found by the §CD sibling-axes pass.
+    RESERVED_ARGUMENTS = frozenset({"caller_identity", "caller_source"})
+
     async def dispatch(
-        self, tool_name: str, arguments: dict, agent_name: str | None = None
+        self, tool_name: str, arguments: dict, agent_name: str | None = None,
+        caller_identity: str = "", caller_source: str = "",
     ) -> ToolOutcome:
         """Run one tool. Returns a typed outcome — see ToolOutcome for why.
 
@@ -268,6 +279,24 @@ class ToolDispatcher:
             return ToolOutcome.failure(
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
+
+        # Strip anything the model may not assert, then inject the TRUSTED value
+        # the caller passed in — the same treatment agent_name already gets.
+        supplied = set(arguments) & self.RESERVED_ARGUMENTS
+        if supplied:
+            logger.warning("Tool '%s' call carried reserved argument(s) %s — stripped; "
+                           "identity is derived, never asserted", tool_name, sorted(supplied))
+            arguments = {k: v for k, v in arguments.items() if k not in self.RESERVED_ARGUMENTS}
+        if caller_identity or caller_source:
+            import inspect
+            try:
+                accepted = inspect.signature(handler).parameters
+            except (TypeError, ValueError):
+                accepted = {}
+            if "caller_identity" in accepted and caller_identity:
+                arguments["caller_identity"] = caller_identity
+            if "caller_source" in accepted and caller_source:
+                arguments["caller_source"] = caller_source
 
         logger.info(f"Tool call: {tool_name}({list(arguments.keys())})")
 

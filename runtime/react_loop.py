@@ -318,8 +318,14 @@ class ReActLoop:
                 logger.info(f"[{context.agent_name}] calling tool: {tool_name}({list(arguments.keys())})")
                 # Pass the TRUSTED agent identity (gateway-validated context) so the
                 # dispatcher enforces the per-agent tool boundary regardless of prompt.
+                # The trusted caller identity travels the same way the trusted
+                # agent name does: from the gateway-bound context, never from the
+                # model's arguments (§CD sibling axis of the identity class).
+                _uc = context.metadata.get("user_context") or {}
                 outcome = await self.dispatcher.dispatch(
-                    tool_name, arguments, agent_name=context.agent_name)
+                    tool_name, arguments, agent_name=context.agent_name,
+                    caller_identity=str(_uc.get("wallet_address") or ""),
+                    caller_source="agent")
 
                 # NEW-27: three audiences, three values. These used to be one
                 # string, which is why a tool failure could ship its exception
