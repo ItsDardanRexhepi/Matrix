@@ -740,14 +740,16 @@ class BridgeRoutes:
             session_id, session_error = resolve(request, body.get("session_id"))
             if session_error:
                 return MobileResponse.error(session_error, 400)
-            denied = self._server._conversation_denied(request, session_id)
+            turn_owner, denied = self._server._open_turn(request, session_id)
             if denied:
                 return MobileResponse.error(denied, 403)
         else:
             session_id = body.get("session_id", "default")
+            turn_owner = ""
 
         try:
-            result = await self._handle_chat_internal(message, agent, session_id, body, request)
+            result = await self._handle_chat_internal(message, agent, session_id, body, request,
+                                                      owner=turn_owner)
             return MobileResponse.ok(result)
         except Exception as e:
             # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
@@ -768,7 +770,7 @@ class BridgeRoutes:
             return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
-        self, message: str, agent: str, session_id: str, body: dict, request,
+        self, message: str, agent: str, session_id: str, body: dict, request, *, owner: str = "",
     ) -> dict:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
@@ -816,7 +818,7 @@ class BridgeRoutes:
 
         record = getattr(self._server, "_record_turn", None)
         if record is not None:
-            await record(session_id, message, result.response)
+            await record(session_id, message, result.response, owner=owner)
         else:
             self._server.conversations[session_id].extend(
                 conversation[-1:] + [Message(role="assistant", content=result.response)])

@@ -197,6 +197,34 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        5,
+        "conversation_owners — a claim is durable when it is made, rows or not",
+        [
+            # v4 stored the owner only ON the turn rows, so a conversation with
+            # no rows yet (a signed-in caller's first turn, model call still
+            # running) had its owner in an evictable cache and nowhere else.
+            # One row per claimed conversation; the PRIMARY KEY makes the first
+            # claim win at the store, not in a cache.
+            """
+            CREATE TABLE IF NOT EXISTS conversation_owners (
+                session_id  TEXT PRIMARY KEY,
+                owner       TEXT NOT NULL,
+                claimed_at  REAL NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_owners_owner
+                ON conversation_owners (owner)
+            """,
+            """
+            INSERT OR IGNORE INTO conversation_owners (session_id, owner, claimed_at)
+                SELECT session_id, MAX(owner), MIN(ts) FROM conversation_turns
+                WHERE owner IS NOT NULL AND owner <> ''
+                GROUP BY session_id
+            """,
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class
@@ -392,6 +420,28 @@ class Database:
         except sqlite3.Error as exc:
             logger.error("DB fetchone failed: %s | sql=%s", exc, sql.strip()[:120])
             raise
+
+    async def run_in_transaction(self, work):
+        """Run ``work(conn)`` — synchronous statements only — as ONE transaction
+        under the write lock, and return what it returns.
+
+        :meth:`execute` and :meth:`executemany` take the lock per statement, so
+        two of them in a row leave a gap another coroutine queued on the lock
+        runs in, and the connection autocommits each statement, so a crash in
+        that gap keeps the first. A replace written as DELETE-then-INSERT that
+        way was observable (and survivable) half done. Nothing awaits inside
+        *work*, so nothing interleaves; an exception rolls the whole of it back.
+        """
+        async with self._get_lock():
+            conn = self._require_conn()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                result = work(conn)
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+            return result
 
     def execute_sync(self, sql: str, params: Sequence[Any] | None = None) -> None:
         """One synchronous statement, for sync callers that must write now.

@@ -576,7 +576,7 @@ class GatewayServer:
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
             return web.json_response({"error": "session_required", "message": session_error}, status=400)
-        denied = self._conversation_denied(request, session_id)
+        turn_owner, denied = self._open_turn(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
 
@@ -629,7 +629,7 @@ class GatewayServer:
         if first_boot:
             response_text = f"{first_boot}\n\n{response_text}"
 
-        await self._record_turn(session_id, message, result.response)
+        await self._record_turn(session_id, message, result.response, owner=turn_owner)
 
         return web.json_response({
             "response": response_text,
@@ -1325,7 +1325,7 @@ class GatewayServer:
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
             return web.json_response({"error": "session_required", "message": session_error}, status=400)
-        denied = self._conversation_denied(request, session_id)
+        turn_owner, denied = self._open_turn(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
 
@@ -1387,7 +1387,7 @@ class GatewayServer:
         for i in range(0, len(text), chunk_size):
             await emit("token", {"text": text[i:i + chunk_size]})
 
-        await self._record_turn(session_id, message, text)
+        await self._record_turn(session_id, message, text, owner=turn_owner)
 
         await emit("done", {
             "session_id": session_id,
@@ -1439,7 +1439,7 @@ class GatewayServer:
             if session_error:
                 await ws.send_json({"type": "error", "error": "session_required", "message": session_error})
                 continue
-            denied = self._conversation_denied(request, session_id)
+            turn_owner, denied = self._open_turn(request, session_id)
             if denied:
                 await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
                 continue
@@ -1475,7 +1475,7 @@ class GatewayServer:
             for i in range(0, len(text), 80):
                 await ws.send_json({"type": "token", "text": text[i:i + 80]})
 
-            await self._record_turn(session_id, message, text)
+            await self._record_turn(session_id, message, text, owner=turn_owner)
 
             await ws.send_json({
                 "type": "done",
@@ -2605,14 +2605,25 @@ class GatewayServer:
         """Ownership (C2b): a conversation with an owner is continued only by
         that identity; an ownerless one is claimed by the first signed-in
         caller. Returns the refusal message, or None."""
+        return self._open_turn(request, session_id)[1]
+
+    def _open_turn(self, request: web.Request, session_id: str):
+        """``(owner, refusal)`` for a chat turn on *session_id*: the check and
+        claim of ``_conversation_denied``, plus the owner the turn was admitted
+        under. ``_record_turn`` stores the turn only if that is still the
+        owner when the model call returns — read then, it was whatever a
+        deletion or another claim had made it in the meantime."""
         memory = self.react_loop.memory
-        owner = memory.conversation_owner(session_id)
         identity = self._session_subject(request)
+        owner = memory.conversation_owner(session_id)
         if owner and owner != identity:
-            return "this conversation belongs to another account"
+            return owner, "this conversation belongs to another account"
         if not owner and identity:
-            memory.claim_conversation(session_id, identity)
-        return None
+            claimed = memory.claim_conversation(session_id, identity)
+            owner = claimed if isinstance(claimed, str) and claimed else identity
+            if owner != identity:  # another claim landed first
+                return owner, "this conversation belongs to another account"
+        return owner, None
 
     def _conversation_held_elsewhere(self, request: web.Request, session_id: str):
         """The read-only half of ``_conversation_denied``: the refusal message
@@ -2649,7 +2660,7 @@ class GatewayServer:
         is recency (a touch re-inserts the key) and the least recently used
         entry past ``conversation_cache`` is dropped. That loses nothing: an
         entry only ever holds turns _record_turn has persisted, and a miss
-        reloads them (the owner reloads with them — see claim_conversation).
+        reloads them (the owner is its own durable row — see claim_conversation).
         """
         conversations = self.conversations
         history = conversations.pop(session_id, None)
@@ -2671,9 +2682,18 @@ class GatewayServer:
         a failed turn leaves nothing behind that the store does not also hold."""
         return [*self._conversation_history(session_id), Message(role="user", content=message)]
 
-    async def _record_turn(self, session_id: str, message: str, reply: str) -> None:
+    async def _record_turn(self, session_id: str, message: str, reply: str, *, owner: str) -> None:
         """Append a completed turn, trim, and write the conversation through to
-        the store with its owner."""
+        the store — only while it still belongs to *owner*, the owner the turn
+        was admitted under (``_open_turn``).
+
+        This used to save with the owner re-read here, after the model call.
+        That read came from an evictable cache (a first turn's claim could be
+        gone, so the turn was stored ownerless) and, even when durable, from
+        after whatever happened during the call: an account deleted mid-turn
+        had its conversation written back, unowned. A turn the store refuses
+        is dropped from the working set as well, which holds only stored turns.
+        """
         history = self._conversation_history(session_id)
         history.append(Message(role="user", content=message))
         history.append(Message(role="assistant", content=reply))
@@ -2681,13 +2701,27 @@ class GatewayServer:
             del history[:-50]
         memory = self.react_loop.memory
         try:
-            await memory.save_conversation(
+            stored = await memory.save_conversation(
                 session_id,
                 [{"role": m.role, "content": m.content} for m in history],
-                owner=memory.conversation_owner(session_id),
+                expect_owner=owner,
             )
         except Exception as exc:
             logger.warning(f"Failed to persist conversation {session_id}: {exc}")
+            self.conversations.pop(session_id, None)
+            return
+        if stored is not False:
+            return
+        self.conversations.pop(session_id, None)
+        if owner:
+            # A claim is never replaced, only erased: a signed-in turn refused
+            # here outlived its account's deletion. The loop has already saved
+            # the turn into the account's scoped agent memory (save_turn runs
+            # inside react_loop.run), which the deletion had cleared.
+            try:
+                await memory.erase_scoped_memory(owner)
+            except Exception as exc:
+                logger.warning(f"Failed to clear scoped memory of an erased account: {exc}")
 
     def _forget_conversations(self, session_ids) -> None:
         """Drop the working-set copies of *session_ids* (account erasure)."""

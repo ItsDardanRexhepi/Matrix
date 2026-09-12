@@ -63,8 +63,10 @@ class MemoryManager:
         # an entry for the life of the process. Dict order is recency (an
         # access re-inserts the key); past the cap the least recently used key
         # is dropped, which loses nothing: the rows are on disk and the next
-        # access reloads them — including the owner, because a claim is written
-        # to disk when it is made (claim_conversation), not only at next save.
+        # access reloads them — including the owner, which lives in its own
+        # table (conversation_owners) from the moment it is claimed, whether or
+        # not the conversation has any stored turns yet. The cached owner is a
+        # copy of that row, never the only record of it.
         self._kv_cache: dict[str, dict] = {}        # agent -> {key: value}
         self._turn_cache: dict[str, list[dict]] = {}  # agent -> [{user, agent, ts}, ...]  (recency order)
         self._conv_cache: dict[str, list[dict]] = {}  # session -> [{role, content}, ...]  (recency order)
@@ -316,39 +318,61 @@ class MemoryManager:
     # ── Per-session conversation persistence ───────────────────────
 
     async def save_conversation(self, session_id: str, messages: list[dict],
-                                owner: str | None = None) -> None:
+                                owner: str | None = None, *,
+                                expect_owner: str | None = None) -> bool:
         """Replace the stored conversation for *session_id* with *messages*.
 
-        *owner* is the account the conversation belongs to (C2b); None keeps
-        the owner already known for the session ("" when nobody has claimed it).
+        The owner is the durable claim (``conversation_owners``), read inside
+        the same transaction as the write. *owner* claims an unclaimed
+        conversation; it never replaces another account's claim. With
+        *expect_owner*, the write happens only if the durable owner is still
+        exactly that — the owner the caller checked before its model call.
+        A turn whose conversation was erased (account deletion) or claimed by
+        someone else while it ran is refused rather than written back into it.
+
+        Returns whether anything was written. Replace is DELETE + INSERT in
+        ONE transaction: done in two lock acquisitions, a request queued on
+        the lock read the conversation with no rows and no owner in between.
         """
-        if owner is None:
-            owner = self._conv_owner.get(session_id, "")
-        self._conv_owner[session_id] = owner
+        rows = [(m.get("role", ""), m.get("content", "")) for m in messages]
+
+        def work(conn):
+            current = self._owner_in(conn, session_id)
+            if expect_owner is not None and current != expect_owner:
+                return None
+            if owner and current and owner != current:
+                return None
+            effective = current or (owner or "")
+            if effective and not current:
+                conn.execute(
+                    "INSERT INTO conversation_owners (session_id, owner, claimed_at) VALUES (?, ?, ?)",
+                    (session_id, effective, time.time()))
+            conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (session_id,))
+            if rows:
+                now = time.time()
+                conn.executemany(
+                    """
+                    INSERT INTO conversation_turns (session_id, seq, role, content, ts, owner)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [(session_id, i, role, content, now, effective)
+                     for i, (role, content) in enumerate(rows)],
+                )
+            return effective
+
+        effective = await self.db.run_in_transaction(work)
+        if effective is None:
+            # What the cache showed is no longer what the store holds.
+            self._forget_conversation(session_id)
+            logger.info("conversation %s changed owner while a turn ran; the turn was not stored",
+                        session_id)
+            return False
+        self._conv_owner[session_id] = effective
         self._conv_cache.pop(session_id, None)
         self._conv_cache[session_id] = list(messages)
         self._loaded_conversations.add(session_id)
         self._evict_conversations(keep=session_id)
-        # Replace strategy: delete then bulk insert. Simple and correct.
-        await self.db.execute(
-            "DELETE FROM conversation_turns WHERE session_id = ?",
-            (session_id,),
-            commit=False,
-        )
-        if messages:
-            await self.db.executemany(
-                """
-                INSERT INTO conversation_turns (session_id, seq, role, content, ts, owner)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (session_id, i, m.get("role", ""), m.get("content", ""), time.time(), owner)
-                    for i, m in enumerate(messages)
-                ],
-            )
-        else:
-            # No rows to insert, but we still need to commit the DELETE.
-            await self.db.execute("SELECT 1", commit=True)
+        return True
 
     def load_conversation(self, session_id: str) -> list[dict]:
         """Return cached conversation messages, lazy-loading from SQLite if needed."""
@@ -360,39 +384,65 @@ class MemoryManager:
         self._load_conversation_sync(session_id)
         return self._conv_owner.get(session_id, "")
 
-    def claim_conversation(self, session_id: str, owner: str) -> None:
-        """Bind an ownerless conversation to *owner*.
+    def claim_conversation(self, session_id: str, owner: str) -> str:
+        """Bind an unclaimed conversation to *owner*; return the owner it has.
 
-        Written to the stored rows NOW, not at the next save: the cache is
-        bounded, and a claim held only in an evictable entry would revert to
-        ownerless when the entry is dropped — for instance when the claiming
-        turn's model call failed, so no save ever carried the owner. A
-        conversation with no stored rows has nothing to write; its claim gates
-        continuation in memory and reaches disk with its first save."""
+        The claim is written to ``conversation_owners`` NOW, rows or not. It
+        used to reach disk only through existing turn rows, so a conversation
+        with none — a signed-in caller's first turn, model call in flight —
+        was owned by an evictable cache entry alone: evicted, the turn was
+        saved ownerless and the next anonymous caller naming the id was handed
+        it. The primary key makes the first claim win in the store."""
         self._load_conversation_sync(session_id)
-        if owner and not self._conv_owner.get(session_id):
-            self._conv_owner[session_id] = owner
-            self.db.execute_sync(
-                "UPDATE conversation_turns SET owner = ? "
-                "WHERE session_id = ? AND (owner IS NULL OR owner = '')",
-                (owner, session_id),
-            )
+        if not owner or self._conv_owner.get(session_id):
+            return self._conv_owner.get(session_id, "")
+        self.db.execute_sync(
+            "INSERT OR IGNORE INTO conversation_owners (session_id, owner, claimed_at) VALUES (?, ?, ?)",
+            (session_id, owner, time.time()),
+        )
+        held = self._owner_in(self.db._require_conn(), session_id)
+        self._conv_owner[session_id] = held
+        self.db.execute_sync(
+            "UPDATE conversation_turns SET owner = ? "
+            "WHERE session_id = ? AND (owner IS NULL OR owner = '')",
+            (held, session_id),
+        )
+        return held
 
     async def erase_owner(self, owner: str) -> list[str]:
         """Delete every conversation owned by *owner* and every scoped agent
         memory written for it — what account deletion must be able to do.
 
         Returns the conversation ids erased, so a caller holding its own copy
-        of those conversations (the gateway's working set) can drop it too."""
+        of those conversations (the gateway's working set) can drop it too.
+        The conversations and their claims go in one transaction; a turn of
+        the account still running finds its conversation unowned when it
+        saves, and is refused (save_conversation's *expect_owner*)."""
         if not owner:
             return []
-        rows = await self.db.fetchall(
-            "SELECT DISTINCT session_id FROM conversation_turns WHERE owner = ?", (owner,))
-        erased = {r["session_id"] for r in rows}
+
+        def work(conn):
+            ids = {r[0] for r in conn.execute(
+                "SELECT session_id FROM conversation_owners WHERE owner = ?", (owner,))}
+            ids |= {r[0] for r in conn.execute(
+                "SELECT DISTINCT session_id FROM conversation_turns WHERE owner = ?", (owner,))}
+            conn.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
+            for sid in ids:
+                conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (sid,))
+            conn.execute("DELETE FROM conversation_owners WHERE owner = ?", (owner,))
+            return ids
+
+        erased = await self.db.run_in_transaction(work)
         erased |= {s for s, o in self._conv_owner.items() if o == owner}
-        await self.db.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
         for sid in erased:
             self._forget_conversation(sid)
+        await self.erase_scoped_memory(owner)
+        return sorted(erased)
+
+    async def erase_scoped_memory(self, owner: str) -> None:
+        """Delete every agent memory scoped to *owner* (``agent@owner``)."""
+        if not owner:
+            return
         suffix = f"@{owner}"
         keys = {k for k in list(self._turn_cache) + list(self._kv_cache) if k.endswith(suffix)}
         keys |= {self.memory_key(a, owner) for a in ("neo", "trinity", "morpheus")}
@@ -402,28 +452,18 @@ class MemoryManager:
             self._turn_cache.pop(key, None)
             self._kv_cache.pop(key, None)
             self._loaded_agents.discard(key)
-        return sorted(erased)
 
     async def load_conversation_async(self, session_id: str) -> list[dict]:
         """Async load — fetches from SQLite if not cached."""
-        if session_id in self._loaded_conversations:
-            self._touch_conversation(session_id)
-            return list(self._conv_cache.get(session_id, []))
-        rows = await self.db.fetchall(
-            """
-            SELECT role, content, owner FROM conversation_turns
-            WHERE session_id = ?
-            ORDER BY seq ASC
-            """,
-            (session_id,),
-        )
-        msgs = [{"role": r["role"], "content": r["content"]} for r in rows]
-        self._conv_cache[session_id] = msgs
-        if rows:
-            self._conv_owner[session_id] = str(rows[0]["owner"] or "")
-        self._loaded_conversations.add(session_id)
-        self._evict_conversations(keep=session_id)
-        return list(msgs)
+        self._load_conversation_sync(session_id)
+        return list(self._conv_cache.get(session_id, []))
+
+    @staticmethod
+    def _owner_in(conn, session_id: str) -> str:
+        """The durable owner of *session_id* ("" when unclaimed)."""
+        row = conn.execute(
+            "SELECT owner FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
+        return str(row[0] or "") if row else ""
 
     # ── First-boot tracking ────────────────────────────────────────
 
@@ -532,8 +572,8 @@ class MemoryManager:
         self._conv_cache[session_id] = [
             {"role": r["role"], "content": r["content"]} for r in rows
         ]
-        if rows:
-            self._conv_owner[session_id] = str(rows[0]["owner"] or "")
+        # The owner from its own table: it exists before the first stored turn.
+        self._conv_owner[session_id] = self._owner_in(self.db._require_conn(), session_id)
         self._loaded_conversations.add(session_id)
         self._evict_conversations(keep=session_id)
 
