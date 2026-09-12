@@ -172,7 +172,7 @@ class JurorPool:
 
         if len(selected) < count:
             raise RuntimeError(
-                f"Could not select {count} unique jurors from pool"
+                f"Could not select {count} unique jurors from pool"  # nosec B608 — an error message, not SQL; bandit matches the f-string shape
             )
 
         for juror in selected:

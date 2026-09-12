@@ -12,6 +12,7 @@ Run: python -m hivemind.test_orchestration
 """
 
 import asyncio
+import tempfile
 import json
 import sys
 import os
@@ -99,6 +100,17 @@ passed = 0
 failed = 0
 
 
+
+def _scratch() -> str:
+    """A private temporary workspace.
+
+    A hardcoded /tmp path is world-writable and predictable: another user on the
+    same host can pre-create or replace it between runs. mkdtemp gets a fresh
+    0700 directory instead.
+    """
+    return tempfile.mkdtemp(prefix="hivemind-test-")
+
+
 def report(name: str, ok: bool, detail: str = ""):
     global passed, failed
     status = "✓ PASS" if ok else "✗ FAIL"
@@ -172,7 +184,7 @@ async def test_task_router():
 async def test_orchestrator_handle_message():
     print("\n── Orchestrator: handle_message ──")
     mock_loop = MockReActLoop()
-    config = {"workspace": "/tmp/test_hivemind", "agents": {}}
+    config = {"workspace": _scratch(), "agents": {}}
     orch = HivemindOrchestrator(config, mock_loop)
 
     # Normal conversation — should route to Trinity
@@ -189,7 +201,7 @@ async def test_orchestrator_handle_message():
 async def test_orchestrator_morpheus_triggers():
     print("\n── Orchestrator: Morpheus Triggers ──")
     mock_loop = MockReActLoop()
-    config = {"workspace": "/tmp/test_hivemind", "agents": {}}
+    config = {"workspace": _scratch(), "agents": {}}
     orch = HivemindOrchestrator(config, mock_loop)
 
     # On-demand Morpheus
@@ -221,7 +233,7 @@ async def test_orchestrator_morpheus_triggers():
 async def test_delegate_task():
     print("\n── Orchestrator: Task Delegation ──")
     mock_loop = MockReActLoop()
-    config = {"workspace": "/tmp/test_hivemind", "agents": {}}
+    config = {"workspace": _scratch(), "agents": {}}
     orch = HivemindOrchestrator(config, mock_loop)
 
     # Trinity delegates bash execution to Neo

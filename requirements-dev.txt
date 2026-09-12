@@ -22,7 +22,13 @@ pdoc~=15.0
 
 # Security
 pip-audit~=2.7
-bandit~=1.7
+# PINNED, not ~=. bandit gates the build (NEW-2 removed its `|| true`), so the
+# version IS part of what a green security job claims. `~=1.7` accepted 1.9.4,
+# whose rule set differs from the one the gate was written against — the same
+# shape as the SwiftLint drift that failed a tree-identical commit next door
+# (Matrix register entry::UNREPRODUCIBLE-GREEN). Bump deliberately and fix what
+# the new version finds in the same change.
+bandit==1.9.4
 
 # Lint
 flake8~=7.1
