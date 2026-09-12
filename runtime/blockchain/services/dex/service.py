@@ -2,7 +2,11 @@
 DEXService — native decentralized exchange for the 0pnMatrx platform.
 
 Uniswap wrapper with native constant-product AMM fallback.
-ZERO FEES to users (platform absorbs gas costs).
+
+Fees: the platform takes no swap fee, but every pool hop deducts its fee tier
+from the input (LiquidityPoolManager, default 0.3%) and the fee stays in the
+pool. Quotes and trades report that as ``user_fee`` and the platform's share as
+``platform_fee`` (always 0.0).
 """
 
 from __future__ import annotations
@@ -20,12 +24,13 @@ logger = logging.getLogger(__name__)
 
 
 class DEXService:
-    """Native DEX service with zero user fees.
-
-    Gas costs are absorbed by the platform. Users pay nothing for swaps.
+    """Native DEX service. The platform takes no swap fee; the pools' fee tier
+    is deducted from the input (see the module docstring).
 
     Config keys (under ``config["dex"]``):
-        platform_wallet (str): Wallet that absorbs gas costs.
+        platform_wallet (str): Read for configuration compatibility. A swap here
+            executes against the in-memory pools and signs no transaction, so
+            there is no gas for anyone to absorb.
         All keys from LiquidityPoolManager and SwapRouter are also supported.
 
     Config keys (under ``config["blockchain"]``):
@@ -52,7 +57,7 @@ class DEXService:
         # (provider, pool_id) -> position tracking
         self._user_positions: dict[str, list[dict]] = {}
 
-        logger.info("DEXService initialised (zero-fee mode, gas absorbed by platform).")
+        logger.info("DEXService initialised (no platform swap fee; pool fee tiers apply).")
 
     @property
     def pools(self) -> LiquidityPoolManager:
@@ -74,9 +79,8 @@ class DEXService:
         amount_in: float,
         slippage: float = 0.5,
     ) -> dict:
-        """Execute a token swap with zero fees to the user.
-
-        Platform absorbs all gas costs.
+        """Execute a token swap. The platform takes no fee; each pool hop
+        deducts its fee tier from the input.
 
         Args:
             trader: Trader wallet address.
@@ -162,16 +166,19 @@ class DEXService:
             "route": route["route"],
             "hops": route["hops"],
             "slippage_tolerance": slippage,
-            "user_fee": 0.0,  # ZERO FEES to users
-            "gas_absorbed_by": self._platform_wallet,
+            # The pools' fee, deducted from the input at each hop (in each
+            # hop's input token) and kept by the pool; the platform takes none.
+            "user_fee": route.get("total_fees", 0.0),
+            "platform_fee": 0.0,
             "executed_at": int(time.time()),
             "status": "confirmed",
         }
 
         self._trades.append(trade)
         logger.info(
-            "Swap executed: trader=%s %s %.6f %s -> %.6f %s (0 user fees)",
+            "Swap executed: trader=%s %s %.6f %s -> %.6f %s (pool fees %.6f, platform fee 0)",
             trader, token_in, amount_in, token_out, actual_output, token_out,
+            route.get("total_fees", 0.0),
         )
         return trade
 
@@ -205,7 +212,8 @@ class DEXService:
             "price_impact_pct": route["price_impact_pct"],
             "route": route["route"],
             "hops": route["hops"],
-            "user_fee": 0.0,  # ZERO FEES
+            "user_fee": route.get("total_fees", 0.0),
+            "platform_fee": 0.0,
             "available": True,
             "warning": route.get("warning"),
         }

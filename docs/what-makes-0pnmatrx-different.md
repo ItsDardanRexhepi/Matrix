@@ -2,7 +2,7 @@
 
 ## Free to Start, Fees Stated
 
-The software is open source and free to run. Using the platform has a free tier; Pro and Enterprise subscriptions are sold in the MTRX app. Gas is paid by the platform when an operator configures sponsorship, up to a per-identity daily cap — past that cap an operation is refused rather than charged to you. Some operations carry a platform fee (marketplace sales, staking rewards, stablecoin transfers and others); every one, at its rate, is listed in `docs/blockchain.md` under **Fees**.
+The software is open source and free to run. Using the platform has a free tier; Pro and Enterprise subscriptions are sold in the MTRX app. Gas is paid by the platform when an operator configures sponsorship, up to a per-identity daily cap — past that cap an operation is refused rather than charged to you. Some operations carry a platform fee (marketplace sales, staking rewards, stablecoin transfers, cross-border payments and others); the fees and their rates are listed in `docs/blockchain.md` under **Fees**, together with how that list is checked against the code and what the check cannot see.
 
 ## Everything Is Conversation
 

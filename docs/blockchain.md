@@ -49,7 +49,7 @@ What a particular deployment provides is returned by the dashboard, payments and
 
 ## Fees
 
-The platform does take fees on some operations. They are separate from gas sponsorship (above). Every rate below is read from the code that charges it, and `tests/test_fee_disclosure_matches_code.py` fails if the code and this table drift apart.
+The platform does take fees on some operations. They are separate from gas sponsorship (above). `tests/test_fee_disclosure_matches_code.py` derives each rate below from the file cited next to it and fails if a row disagrees. It also sweeps `runtime/`, `gateway/` and `contracts/` for files that define a fee-named constant or default, a fee tier table, or a transfer to the platform fee recipient, and fails if one is neither in this table nor recorded in the test as not charged (for example, third-party bridge fees a route estimate only quotes). The sweep matches names: a fee computed under a name that says neither "fee" nor "commission" would not be found.
 
 ### On-chain, in the platform contracts
 
@@ -58,7 +58,7 @@ The platform does take fees on some operations. They are separate from gas spons
 | Marketplace purchase | 5% of the sale price | `contracts/OpenMatrixMarketplace.sol` (`PLATFORM_FEE_BPS`) |
 | Staking rewards | 5% of rewards, when claimed or paid out on unstake | `contracts/OpenMatrixStaking.sol` (`COMMISSION_BPS`) |
 | DAO treasury withdrawal | 1% below 10,000 gwei; 0.5% up to 100,000 gwei; 0.25% above | `contracts/OpenMatrixDAO.sol` (`_tieredFeeBps`) |
-| NFT mint | the whole mint price (`mintPrice`, set at deployment); the platform is also the default royalty receiver when a minter sets no royalty | `contracts/OpenMatrixNFT.sol` |
+| NFT mint | everything sent with the mint (`msg.value`, which must be at least `mintPrice`, set at deployment — an overpayment is kept too); the platform is also the default royalty receiver when a minter sets no royalty | `contracts/OpenMatrixNFT.sol` |
 | Insurance | premiums stay in the pool; the owner can withdraw the balance above the reserve and outstanding coverage to the platform | `contracts/OpenMatrixInsurance.sol` (`withdrawExcess`) |
 
 Token swaps on `contracts/OpenMatrixDEX.sol` are not charged a platform fee.
@@ -76,6 +76,16 @@ Computed by the service on the operation it performs. Defaults are shown; each i
 | Pooled real-world-asset purchase | 1% of the amount raised, on finalise | `runtime/blockchain/services/rwa_tokenization/pooled_purchase.py` (`platform_fee_pct`) |
 | NFT sale | 2.5% of the sale price | `runtime/blockchain/services/nft_services/royalty_enforcement.py`, `runtime/blockchain/services/nft_services/service.py` (`blockchain.platform_fee_bps`) |
 | P2P loan | 0.5% of the principal, added to the repayment | `runtime/blockchain/services/defi/p2p_lending.py` (`defi.p2p.platform_fee_bps`) |
+| Cross-border payment (`send_payment`, `get_payment_quote`, `cross_border_remit`) | 0.5% of the amount, deducted before conversion; the payment is recorded, not settled — no value moves | `runtime/blockchain/services/cross_border/service.py` (`cross_border.fee_pct`) |
+| Staking rewards (service ledger) | 5% of rewards claimed, recorded on the claim; nothing is transferred | `runtime/blockchain/services/staking/service.py` (`staking.commission_pct`) |
+| DAO treasury deposit or executed spend (a `create_dao` initial deposit, a `join_dao` stake) | on the service's treasury ledger, deducted from a deposit and added to a spend: 1% below 10,000; 0.5% below 100,000; 0.25% above | `runtime/blockchain/services/dao_management/treasury.py` (`_FEE_TIERS`) |
+| Insurance policy cancellation | 10% of the pro-rata premium refund is withheld | `runtime/blockchain/services/insurance/service.py` (`cancel_policy`) |
 | Contract conversion | when `blockchain.platform_wallet` is set, the generated contract gets a 2.5% fee on value sent to each `payable` function, paid to that wallet (its owner can change it, up to 10%); on by default (`conversion.inject_fees`) | `runtime/blockchain/services/contract_conversion/revenue_enforcer.py` (`blockchain.platform_fee_bps`) |
+
+### Paid to others, through platform services
+
+| Operation | Fee | Source |
+|---|---|---|
+| Token swap through the service's pools (`swap_tokens`, `get_swap_quote`) | 0.3% of the input at each pool hop by default, kept by the pool; the platform takes none, and quotes and trades report it as `user_fee` | `runtime/blockchain/services/dex/pools.py` (`dex.default_fee_tier`) |
 
 Paid plugin sales are not live (the purchase route answers `501`); their commission is the operator's `plugin_marketplace.commission_rate`. Subscriptions (Pro, Enterprise) are sold in the MTRX app through Apple In-App Purchase.

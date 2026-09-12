@@ -25,7 +25,7 @@ What you can do on 0pnMatrx:
 - Co-own property, vehicles, and real-world assets with anyone in the world through legally enforceable smart contracts
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world instantly, with the platform fee stated up front (see Fees in `docs/blockchain.md`)
+- Quote and record cross-border payments, with a 0.5% platform fee by default (see Fees in `docs/blockchain.md`); settlement is not built yet, so a recorded payment moves no money
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves ownership forever
 - Build and deploy blockchain applications and games, no Solidity required
 - Trade tokenized securities 24 hours a day, 7 days a week, globally, with instant settlement
@@ -187,7 +187,7 @@ curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 Gas for platform-signed transactions is sponsored by the platform paymaster
 within the operator's policy — a per-identity daily cap when one is set; past
 it an operation is refused rather than charged to the user. Some operations
-carry a platform fee, each listed with its rate under Fees in
+carry a platform fee; the fees and their rates are listed under Fees in
 `docs/blockchain.md`. Capabilities return `{"status": "not_deployed", ...}`
 until contracts are deployed, keeping every flow safe to exercise offline.
 

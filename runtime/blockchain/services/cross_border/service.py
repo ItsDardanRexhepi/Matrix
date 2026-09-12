@@ -48,6 +48,13 @@ class CrossBorderService:
             self._fee_pct, self._max_payment,
         )
 
+    def fee_for(self, amount: float) -> dict[str, float]:
+        """The platform fee on a payment of ``amount``: the one computation
+        send_payment, get_quote and any published estimate share, so a quoted
+        fee cannot differ from the fee a payment record carries."""
+        fee = amount * (self._fee_pct / 100.0)
+        return {"fee_pct": self._fee_pct, "fee_amount": fee, "net_amount": amount - fee}
+
     @property
     def conversion(self) -> FiatETHConversion:
         return self._conversion
@@ -147,8 +154,8 @@ class CrossBorderService:
         quote = await self.get_quote(amount, from_currency, to_currency)
 
         # Calculate fees
-        fee = amount * (self._fee_pct / 100.0)
-        net_amount = amount - fee
+        fee_info = self.fee_for(amount)
+        fee, net_amount = fee_info["fee_amount"], fee_info["net_amount"]
 
         # Convert
         conversion_result = await self._conversion.convert(
@@ -242,8 +249,8 @@ class CrossBorderService:
         rate_source = rate_data.get("source", "unknown")
         rate_is_market = rate_source not in ("fallback", "unknown")
 
-        fee = amount * (self._fee_pct / 100.0)
-        net = amount - fee
+        fee_info = self.fee_for(amount)
+        fee, net = fee_info["fee_amount"], fee_info["net_amount"]
         converted = net * rate
 
         return {

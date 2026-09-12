@@ -136,17 +136,40 @@ async def test_crossborder_estimate_carries_the_configured_policy(name):
     assert out["gas_policy"] == describe_gas_policy(CONFIGS[name])
 
 
-async def test_crossborder_estimate_quotes_the_transfer_fee_the_transfer_charges():
-    """The estimate named the stablecoin transfer as the next step and quoted
-    "$0.00 (no platform fee)" for it; that transfer charges a tiered fee. The
-    quoted fee must be the one StablecoinService computes for the same amount."""
+def _stablecoin_tool_transfers_the_full_amount() -> bool:
+    """Measured from source: the `stablecoin` tool's _transfer sends the amount it
+    was given (scaled to decimals) with no fee subtracted."""
+    import inspect
+    from runtime.blockchain.stablecoins import Stablecoins
+    src = inspect.getsource(Stablecoins._transfer)
+    return ('amount = int(float(params.get("amount", "0")) * 10**decimals)' in src
+            and "fee" not in src.lower()
+            and re.search(r"functions\.transfer\(\s*Web3\.to_checksum_address\(params\[\"to\"\]\),\s*amount", src))
+
+
+async def test_crossborder_estimate_quotes_the_fee_of_each_path():
+    """The estimate quoted "$0.00 (no platform fee)"; the first correction quoted
+    the transfer_stablecoin capability's tiered fee, while `_send` names the
+    `stablecoin` tool, which charges nothing, and the send_payment capability
+    charges the cross-border fee. Each quoted fee must come from the code that
+    charges it, and the headline fee must be the path `_send` names."""
     from runtime.blockchain.crossborder import CrossBorderPayments
+    from runtime.blockchain.services.cross_border.service import CrossBorderService
     from runtime.blockchain.services.stablecoin.service import StablecoinService
 
+    assert _stablecoin_tool_transfers_the_full_amount()
     out = json.loads(await CrossBorderPayments(CAPPED)._estimate({"amount": "500"}))
+    by_path = out["fees_by_path"]
+    assert out["transfer_fee"] == by_path["stablecoin_tool_transfer"]
+    assert by_path["stablecoin_tool_transfer"]["fee"] == 0.0
     expected = await StablecoinService(CAPPED).get_fee(500.0)
-    assert out["transfer_fee"]["fee"] == expected["fee"] > 0
-    assert out["transfer_fee"]["rate"] == expected["rate"]
+    assert by_path["transfer_stablecoin_capability"]["fee"] == expected["fee"] > 0
+    cb = CrossBorderService(CAPPED).fee_for(500.0)
+    assert by_path["send_payment_capability"]["fee_amount"] == cb["fee_amount"] > 0
+    # _send attests on-chain before it answers, so its named next step is read
+    # from source rather than by running it.
+    import inspect
+    assert "`stablecoin` tool" in inspect.getsource(CrossBorderPayments._send)
 
 
 @pytest.mark.parametrize("name", sorted(CONFIGS))

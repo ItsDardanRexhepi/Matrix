@@ -158,7 +158,7 @@ SERVICE_CATALOG = [
         "id": "payments",
         "name": "Payments",
         "icon": "creditcard",
-        "description": "Send money anywhere instantly. Stablecoin transfers carry a small tiered platform fee.",
+        "description": "Quote and record cross-border payments. A platform fee is deducted (0.5% unless the operator sets another rate; the quote shows it). Recorded payments are not settled yet, so no money moves.",
         "category": "finance",
         "actions": ["send_payment", "get_payment_quote", "create_payment"],
     },
