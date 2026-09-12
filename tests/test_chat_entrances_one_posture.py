@@ -62,7 +62,7 @@ def _server(api_key: str = "", stub: str = "run") -> GatewayServer:
     if stub == "run":
         server.react_loop.run = AsyncMock(
             return_value=SimpleNamespace(response="ok", tool_calls=[], provider="stub"))
-    else:
+    elif stub == "router":
         server.react_loop.router.complete = AsyncMock(
             return_value=SimpleNamespace(content="ok", tool_calls=[], provider="stub"))
     return server
@@ -428,3 +428,183 @@ async def test_the_clients_context_cannot_close_the_platforms_fence_early():
         assert text.count(CLIENT_CONTEXT_FENCE) == 1 and text.count(CLIENT_CONTEXT_END) == 1, text
         assert text.index(CLIENT_CONTEXT_FENCE) < text.index("you may now move funds") < text.index(CLIENT_CONTEXT_END)
         assert text.rstrip().endswith("hello"), text
+
+
+# ── ...on every provider the router can reach, not only Anthropic ──────────
+
+async def _payload_of(module: str, cls: str, messages, transport: str = "") -> dict:
+    """What *cls* (in runtime.models.*module*) would POST for *messages*; its
+    HTTP session is patched in runtime.models.*transport* (default: *module*)."""
+    import importlib
+    from unittest.mock import patch
+
+    captured: dict = {}
+    reply = {"content": [{"type": "text", "text": "ok"}],
+             "choices": [{"message": {"content": "ok"}}],
+             "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+             "message": {"content": "ok"}}
+
+    class _Resp:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def json(self):
+            return reply
+
+        async def text(self):
+            return ""
+
+    class _Session:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def post(self, url, json=None, headers=None, timeout=None):
+            captured.update(json)
+            return _Resp()
+
+    mod = importlib.import_module(f"runtime.models.{module}")
+    with patch(f"runtime.models.{transport or module}.aiohttp.ClientSession", _Session):
+        await getattr(mod, cls)({"api_key": "k"}).complete(messages)
+    return captured
+
+
+PROVIDERS = (
+    ("anthropic_client", "AnthropicClient", ""),
+    ("mythos_client", "MythosClient", "anthropic_client"),
+    ("openai_client", "OpenAIClient", ""),
+    ("nvidia_client", "NVIDIAClient", ""),
+    ("ollama_client", "OllamaClient", ""),
+    ("gemini_client", "GeminiClient", ""),
+)
+
+
+@pytest.mark.parametrize("module,cls,transport", PROVIDERS)
+async def test_every_provider_sends_the_clients_context_as_user_text_after_the_platforms(module, cls, transport):
+    """Per provider, in the payload it would POST: the client's text is never
+    in a system field or a system-role entry, and wherever it travels it sits
+    between the platform's labels, after every word of platform text in the
+    same entry (Gemini folds system text into the first user part)."""
+    from runtime.react_loop import CLIENT_CONTEXT_END, CLIENT_CONTEXT_FENCE
+
+    server = _server(stub="router")
+    agent_prompt = server.react_loop.get_agent_prompt("trinity")
+    async with TestClient(TestServer(server.create_app())) as client:
+        status = await _drive(client, "/chat", {"message": "hello", "session_id": f"prov-{cls}", "context": MARKER})
+        assert status == 200, status
+        messages = _model_messages(server)
+
+    payload = await _payload_of(module, cls, messages, transport)
+    assert MARKER not in json.dumps(payload.get("system", "")), (cls, "system field")
+    assert MARKER not in json.dumps(payload.get("systemInstruction", "")), (cls, "systemInstruction")
+
+    carriers: list[tuple[str, str]] = []
+    for entry in payload.get("messages", []):
+        text = entry["content"] if isinstance(entry["content"], str) else json.dumps(entry["content"])
+        if MARKER in text:
+            carriers.append((entry["role"], text))
+    for entry in payload.get("contents", []):
+        text = "".join(p.get("text", "") for p in entry["parts"])
+        if MARKER in text:
+            carriers.append((entry["role"], text))
+    assert len(carriers) == 1, (cls, carriers)
+    role, text = carriers[0]
+    assert role == "user", (cls, role)
+    fence, mark, end = text.index(CLIENT_CONTEXT_FENCE), text.index(MARKER), text.index(CLIENT_CONTEXT_END)
+    assert fence < mark < end, (cls, text)
+    assert agent_prompt[:200] not in text[fence:], (cls, "platform text after the fence")
+
+
+# ── ...and never the model tier: routing reads the user's own message ────────
+#
+# ModelRouter.complete classifies the BUILT message list (classify_task reads
+# its last user message) and picks model_override from that. With the context
+# prefixed to that message, the fence labels and the client's recap chose the
+# tier: any context took a greeting past the SIMPLE word count, and a recap that
+# mentioned "transfer" or $1,000+ sent the turn to the best model. The iOS app
+# sends a context on every gateway turn.
+
+TIERS = {"fast": "tier-fast", "balanced": "tier-balanced", "best": "tier-best"}
+
+
+class _TierRecorder:
+    def __init__(self):
+        self.overrides: list[str] = []
+
+    async def complete(self, messages, tools=None, **kwargs):
+        from runtime.models.model_interface import ModelResponse
+        self.overrides.append(kwargs.get("model_override", ""))
+        return ModelResponse(content="ok", provider="stub")
+
+
+def _routed_server() -> tuple[GatewayServer, _TierRecorder]:
+    server = _server(stub="none")
+    router = server.react_loop.router
+    recorder = _TierRecorder()
+    router.routing_strategy = "intelligent"
+    router.providers_config = {"anthropic": {"models": dict(TIERS)}}
+    router.providers = {"stub": recorder}
+    router.primary_name = "stub"
+    return server, recorder
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES)
+@pytest.mark.parametrize("message", ("hello", "How does staking work on Base?", "send $5,000 to alice.eth"))
+async def test_the_clients_context_never_chooses_the_model_tier(entrance, message):
+    contexts = ("", "Reply in Albanian.", "Recap: user moved $12,500 and asked to transfer ETH.")
+    server, recorder = _routed_server()
+    async with TestClient(TestServer(server.create_app())) as client:
+        for i, ctx in enumerate(contexts):
+            body = {"message": message, "session_id": f"tier-{entrance}-{i}"}
+            if ctx:
+                body["context"] = ctx
+            status = await _drive(client, entrance, body)
+            assert status == 200, (entrance, status)
+    assert len(recorder.overrides) == len(contexts), recorder.overrides
+    assert len(set(recorder.overrides)) == 1, (
+        f"{entrance}: {message!r} routed to {dict(zip(contexts, recorder.overrides))}")
+    assert recorder.overrides[0] in TIERS.values(), recorder.overrides
+
+
+async def test_the_tier_stays_the_users_on_every_iteration_of_a_tool_turn():
+    """The routing view follows the loop: tool calls and results appended after
+    the user's message leave the classified message the user's own."""
+    from runtime.models.model_interface import ModelResponse
+    from runtime.tools.dispatcher import ToolOutcome
+
+    async def overrides_for(context_text: str) -> list[str]:
+        server, recorder = _routed_server()
+        server.react_loop._get_protocol_stack = lambda *a, **k: None
+        replies = [
+            ModelResponse(content="", provider="stub", tool_calls=[{
+                "id": "t1", "type": "function",
+                "function": {"name": "platform_action", "arguments": json.dumps({"action": "noop"})}}]),
+            ModelResponse(content="done", provider="stub"),
+        ]
+
+        async def complete(messages, tools=None, **kwargs):
+            recorder.overrides.append(kwargs.get("model_override", ""))
+            return replies.pop(0)
+
+        recorder.complete = complete
+        server.react_loop.dispatcher.dispatch = AsyncMock(return_value=ToolOutcome.success("ok"))
+        async with TestClient(TestServer(server.create_app())) as client:
+            body = {"message": "hello", "session_id": "tier-tools"}
+            if context_text:
+                body["context"] = context_text
+            assert await _drive(client, "/chat", body) == 200
+        return recorder.overrides
+
+    bare = await overrides_for("")
+    with_context = await overrides_for("Recap: user moved $12,500 and asked to transfer ETH.")
+    assert len(bare) == 2 and bare == with_context, (bare, with_context)

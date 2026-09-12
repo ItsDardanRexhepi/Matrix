@@ -184,7 +184,7 @@ class ReActLoop:
             except Exception:
                 logger.exception("Protocol pre-process failed for agent=%s", context.agent_name)
 
-        messages = self._build_messages(context)
+        messages, attached = self._build_turn_messages(context)
         tools_schema = self.dispatcher.get_tool_schemas() if context.tools_enabled else []
         all_tool_calls: list[dict] = []
         provider_used = ""
@@ -217,6 +217,7 @@ class ReActLoop:
                 messages=messages,
                 tools=tools_schema if tools_schema else None,
                 agent_name=context.agent_name,
+                routing_messages=self._routing_view(messages, attached),
             )
             elapsed = time.monotonic() - start
             provider_used = response.provider or provider_used
@@ -455,11 +456,18 @@ class ReActLoop:
 
     async def run_without_tools(self, context: ReActContext) -> str:
         """Single-pass generation with no tool access."""
-        messages = self._build_messages(context)
-        response = await self.router.complete(messages=messages, tools=None, agent_name=context.agent_name)
+        messages, attached = self._build_turn_messages(context)
+        response = await self.router.complete(messages=messages, tools=None, agent_name=context.agent_name,
+                                              routing_messages=self._routing_view(messages, attached))
         return response.content or ""
 
     def _build_messages(self, context: ReActContext) -> list[Message]:
+        return self._build_turn_messages(context)[0]
+
+    def _build_turn_messages(self, context: ReActContext):
+        """``(messages, attached)``: what the model is sent, and where the
+        client's context was attached to it (see _attach_client_context), so
+        the router can be shown the turn as the user wrote it."""
         messages = []
 
         # System prompt with agent identity
@@ -490,13 +498,39 @@ class ReActLoop:
             messages.append(Message(role="system", content=f"Relevant memory:\n{memory_context}"))
 
         messages.extend(context.conversation)
-        self._attach_client_context(messages, context.metadata.get("client_context"))
-        return messages
+        attached = self._attach_client_context(messages, context.metadata.get("client_context"))
+        return messages, attached
 
     @staticmethod
-    def _attach_client_context(messages: list[Message], client_context) -> None:
+    def _routing_view(messages: list[Message], attached) -> list[Message]:
+        """What the router classifies the turn on: *messages* with the user's
+        message as the user wrote it.
+
+        ModelRouter.complete picks the model tier from the last user message of
+        the list it is handed (task_classifier.classify_task). Handed the list
+        the model is sent, the client's per-turn context and the platform's own
+        labels chose the tier: any context took a greeting past the SIMPLE word
+        count, a recap mentioning a transfer or $1,000 sent the turn to the best
+        model. The context is not part of what the user asked. Positional, from
+        _attach_client_context — never found by looking for the labels in the
+        text, which the user can also write.
+        """
+        if attached is None:
+            return messages
+        index, original = attached
+        view = list(messages)
+        if original is None:
+            del view[index]
+        else:
+            view[index] = original
+        return view
+
+    @staticmethod
+    def _attach_client_context(messages: list[Message], client_context):
         """Prefix the client's per-turn context to this turn's user message,
-        between the platform's labels.
+        between the platform's labels. Returns ``(index, original)`` — where it
+        went and the message it replaced (None when it was appended as a
+        message of its own) — or None when there was no context.
 
         A COPY of that message: context.conversation — what the turn stores
         (the gateway's _record_turn), what save_turn remembers and what the
@@ -517,7 +551,7 @@ class ReActLoop:
             text = stripped
         text = text.strip()[:CLIENT_CONTEXT_MAX_CHARS].strip()
         if not text:
-            return
+            return None
         for i in range(len(messages) - 1, -1, -1):
             if messages[i].role == "user":
                 turn = messages[i]
@@ -526,5 +560,6 @@ class ReActLoop:
                     content=f"{CLIENT_CONTEXT_FENCE}\n{text}\n{CLIENT_CONTEXT_END}\n\n{turn.content or ''}",
                     tool_calls=turn.tool_calls, tool_call_id=turn.tool_call_id, name=turn.name,
                 )
-                return
+                return i, turn
         messages.append(Message(role="user", content=f"{CLIENT_CONTEXT_FENCE}\n{text}\n{CLIENT_CONTEXT_END}"))
+        return len(messages) - 1, None
