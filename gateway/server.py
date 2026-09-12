@@ -1864,6 +1864,10 @@ class GatewayServer:
         plugin_id = request.match_info.get("plugin_id", "")
         wallet = self._caller_identity(request) or "anonymous"
         result = await self.plugin_marketplace.purchase(wallet, plugin_id)
+        if result.get("status") == "not_built":
+            # A paid purchase has no path to completion; 501, not a 200 that
+            # reads as "go finish this elsewhere".
+            return web.json_response(result, status=501)
         return web.json_response(result)
 
     async def handle_marketplace_submit(self, request: web.Request) -> web.Response:

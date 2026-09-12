@@ -425,7 +425,7 @@ Professional certifications backed by on-chain attestations:
 
 ## Plugin Development
 
-Build and sell plugins for 0pnMatrx. Developers keep 90% of revenue.
+Build plugins for 0pnMatrx. Free plugins install today; paid plugin sales are not live yet — no purchase path completes one. The platform commission on them is an operator setting (`plugin_marketplace.commission_rate`); the published Terms of Service state 10%.
 
 ```bash
 # See the example plugin

@@ -1,14 +1,18 @@
 """Plugin marketplace store with SQLite persistence.
 
 Manages plugin listings, purchases, and download tracking.
-Supports free and paid plugins with Stripe integration for
-payment processing.
+
+Free plugins install. Paid plugin purchases are NOT built: there is no App
+Store product for a plugin (gateway/iap.py) and no server path that records a
+paid plugin purchase, so the paid branch answers `not_built` rather than
+pointing the caller at a checkout that does not exist.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -16,8 +20,31 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Platform commission on paid plugins
-PLATFORM_COMMISSION = 0.10  # 10%
+
+
+def platform_commission_rate(config: dict | None) -> float | None:
+    """The commission this deployment applies to paid plugin sales, or None.
+
+    Configuration (`plugin_marketplace.commission_rate`, a fraction in [0, 1]),
+    not a constant in the public repository — the same reason subscription
+    prices left runtime/subscriptions. Unset is unknown, and so is anything
+    that is not a finite fraction: reporting a guessed rate as the platform's
+    term would be worse than reporting none.
+    """
+    raw = ((config or {}).get("plugin_marketplace") or {}).get("commission_rate")
+    if raw is None or raw == "":
+        return None
+    try:
+        rate = float(raw)
+    except (TypeError, ValueError):
+        logger.error("plugin_marketplace.commission_rate is %r, not a number; "
+                     "treating the commission as unknown", raw)
+        return None
+    if not math.isfinite(rate) or not 0.0 <= rate <= 1.0:
+        logger.error("plugin_marketplace.commission_rate is %r, not a fraction "
+                     "in [0, 1]; treating the commission as unknown", raw)
+        return None
+    return rate
 
 
 @dataclass
@@ -117,9 +144,8 @@ class PluginMarketplace:
         db : Database, optional
             SQLite database for persistence.
 
-        Paid plugin purchases are handled client-side in the MTRX iOS app
-        via Apple IAP. The backend records ownership after the app reports
-        a successful purchase.
+        Paid plugin purchases are not built (see the module docstring):
+        nothing on this server records one.
         """
         self.config = config or {}
         self.db = db
@@ -227,8 +253,8 @@ class PluginMarketplace:
     ) -> dict:
         """Initiate a plugin purchase.
 
-        For free plugins, completes immediately. For paid plugins,
-        creates a Stripe checkout session.
+        For free plugins, completes immediately. For paid plugins, answers
+        ``status: not_built`` — no purchase path exists to complete one.
 
         Parameters
         ----------
@@ -240,7 +266,7 @@ class PluginMarketplace:
         Returns
         -------
         dict
-            Purchase result with checkout URL for paid plugins.
+            Purchase result; ``not_built`` for a paid plugin.
         """
         listing = self.listings.get(plugin_id)
         if not listing:
@@ -260,16 +286,24 @@ class PluginMarketplace:
                 "price_paid": 0.0,
             }
 
-        # Paid plugins — purchase flow lives in the MTRX iOS app (Apple IAP).
-        # Clients should initiate the purchase via StoreKit and then call
-        # `record_purchase` with the verified transaction.
+        # Paid plugins. This used to answer `requires_iap` with a 10/90 split
+        # of the sticker price and "complete the purchase in the MTRX iOS app".
+        # There is no App Store product for a plugin, /api/v1/iap/verify never
+        # records plugin ownership, and `_record_purchase` is reached only from
+        # the free branch above — so that purchase could not be completed, and
+        # the "developer_revenue" figure ignored the App Store commission that
+        # comes off an IAP sale first. No proceeds figure is returned: there is
+        # no sale to have proceeds.
         return {
-            "status": "requires_iap",
+            "status": "not_built",
             "plugin_id": plugin_id,
             "price_usd": listing.price_usd,
-            "platform_fee": round(listing.price_usd * PLATFORM_COMMISSION, 2),
-            "developer_revenue": round(listing.price_usd * (1 - PLATFORM_COMMISSION), 2),
-            "message": "Complete the purchase in the MTRX iOS app.",
+            "platform_commission_rate": platform_commission_rate(self.config),
+            "message": (
+                "Paid plugin purchases are not available: no App Store product "
+                "exists for a plugin and no server path records a paid plugin "
+                "purchase, so nothing can complete or verify one yet."
+            ),
         }
 
     async def has_purchased(self, wallet_address: str, plugin_id: str) -> bool:

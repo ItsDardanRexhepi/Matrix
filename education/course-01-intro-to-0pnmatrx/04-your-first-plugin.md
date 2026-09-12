@@ -4,7 +4,7 @@
 
 Plugins extend 0pnMatrx with new capabilities. A plugin can add custom commands to the MTRX CLI, provide new tools that Neo can invoke during task execution, or integrate external services into the platform. Plugins are Python packages that follow a standard interface.
 
-The 0pnMatrx plugin marketplace uses a **90/10 revenue split** -- plugin developers keep 90% of all revenue. The marketplace handles distribution, installation, updates, and payments.
+The 0pnMatrx plugin marketplace handles distribution and installation of free plugins. Paid plugin sales are not live yet: no purchase path completes one. When they are, the platform commission is an operator setting (the published Terms state 10%), and a sale through Apple In-App Purchase also pays the App Store's commission first.
 
 ## The Plugin Directory Structure
 
@@ -208,7 +208,7 @@ The review process checks for:
 - Stability: no uncaught exceptions, proper error handling
 - Quality: working functionality, clear documentation
 
-Once approved, your plugin appears in the marketplace. Revenue from paid plugins follows the 90/10 split -- you receive 90% of every sale.
+Once approved, your plugin appears in the marketplace. Paid plugins cannot be bought yet (the purchase route answers 501), so list a free plugin if you want it installed today.
 
 ## Common Patterns
 
@@ -223,7 +223,7 @@ Once approved, your plugin appears in the marketplace. Revenue from paid plugins
 - Plugins extend 0pnMatrx via the `OpenMatrixPlugin` base class
 - Four methods: `on_load`, `on_unload`, `get_tools`, `get_commands`
 - Tools are used by Neo; commands are used by humans via CLI
-- The marketplace uses a 90/10 revenue split favoring developers
+- Free plugins install today; paid plugin sales are not live yet
 - Test plugins locally before submitting
 
 ---

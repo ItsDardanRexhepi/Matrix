@@ -74,10 +74,14 @@ async def handle_tool(self, input: str, **kwargs) -> str:
 
 ### Revenue Share
 
-**You keep 90%. We take 10%.**
+**Paid plugin sales are not live yet.** `POST /marketplace/plugins/{plugin_id}/purchase`
+answers `501 not_built` for a paid plugin: there is no App Store product for a
+plugin and no server path that records a paid purchase. Free plugins install.
 
-Set your price when submitting. Free plugins are always welcome and don't require
-any revenue share.
+When paid sales exist, the platform commission is the operator's
+`plugin_marketplace.commission_rate` setting (the published Terms of Service state
+10%). A sale made through Apple In-App Purchase also pays the App Store's
+commission, which comes off before any platform split.
 
 ### Pricing Options
 

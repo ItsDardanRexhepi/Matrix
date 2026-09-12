@@ -382,7 +382,10 @@ Get details for a single plugin.
 
 Purchase or install a plugin. No body: the plugin comes from the path, and the
 buyer is the caller's session identity (or, with no session, the
-`X-Wallet-Address` header).
+`X-Wallet-Address` header). A free plugin returns `200`. A paid plugin returns
+`501` with `status: "not_built"` — paid purchases have no completion path — and
+reports `platform_commission_rate` from `plugin_marketplace.commission_rate`
+(`null` when unset).
 
 ### `POST /marketplace/plugins/submit`
 
