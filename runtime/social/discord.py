@@ -124,7 +124,7 @@ class DiscordClient:
         description : str
             Embed description.
         color : int
-            Embed colour (default: matrix green).
+            Embed colour (default: 0x00FF41, the brand green).
         fields : list[dict], optional
             Embed fields: ``[{"name": "...", "value": "...", "inline": True}]``.
         channel : str

@@ -54,7 +54,7 @@ class CrossChainRouter:
         self._web3 = Web3Manager.get_shared(config)
         self._logger = logging.getLogger(__name__)
 
-        # Build the route matrix — every chain-pair gets all bridges.
+        # Build the route table — every chain-pair gets all bridges.
         SUPPORTED_ROUTES.clear()
         chain_names = list(SUPPORTED_CHAINS.keys())
         for src in chain_names:

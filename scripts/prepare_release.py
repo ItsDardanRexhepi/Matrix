@@ -3,10 +3,9 @@
 0pnMatrx Release Preparation — standalone wrapper around the OpenMatrix
 release CLI that defaults the workspace to *this* repository.
 
-The canonical release scanner lives in the OpenMatrix iOS repo under
-``matrix/cli/prepare_release.py``; this script vendors just enough of it
-to be self-contained here, so operators don't need the iOS checkout on
-the same machine.
+The canonical release scanner lives in a separate, private repository;
+this script vendors just enough of it to be self-contained here, so
+operators don't need that checkout on the same machine.
 
 Usage::
 
@@ -16,7 +15,7 @@ Usage::
 
 All commands implicitly target the 0pnMatrx workspace (the parent
 directory of this file). Pass ``--workspace /path/to/repo`` to target a
-different checkout — the same semantics as the OpenMatrix version.
+different checkout — the same semantics as the canonical scanner.
 """
 from __future__ import annotations
 
