@@ -2606,14 +2606,20 @@ class GatewayServer:
         key, or auth off — development, where whoever runs the gateway is the
         operator), ``"session"`` (a live wallet session), else ``"anonymous"``.
 
-        Computed here from the presented credential, never read from a body
-        field, and NOT from ``request["auth"]``: the chat surfaces (/chat, /ws,
-        /bridge/v1/chat) are public paths the auth wall passes straight through,
-        so it records nothing for them. Carried into a chat's user_context so the
+        Never read from a body field. ``request["auth"]`` is used when the auth
+        wall recorded one, but it is not enough on its own: the chat surfaces
+        (/chat, /ws, /bridge/v1/chat) are public paths the wall passes straight
+        through, so for them the kind is derived from the presented credential. Carried into a chat's user_context so the
         tool dispatcher refuses a non-operator caller the operations a session's
         own routes refuse (gateway/session_routes.py) — an anonymous caller is
         refused at least what a signed-in one is.
         """
+        # A non-public route already passed the wall, which recorded the kind it
+        # accepted (a batch sub-request inherits its batch's). Public paths
+        # record nothing and are derived from the presented credential.
+        recorded = (request.get("auth") if hasattr(request, "get") else None) or {}
+        if recorded.get("kind") in ("operator", "session"):
+            return str(recorded["kind"])
         if self._is_operator(request):
             return "operator"
         if self._wallet_session_from_request(request) is not None:

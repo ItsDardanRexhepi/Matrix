@@ -473,3 +473,29 @@ async def test_a_gateway_context_without_a_caller_kind_is_not_an_operator():
         outcome = await d.dispatch("platform_action", {"action": action}, agent_name="neo",
                                    caller_kind=kind)
         assert bool(ran) is expect_ran, (kind, outcome)
+
+
+async def test_the_operator_batch_still_reaches_the_bridge_dispatchers(monkeypatch, tmp_path):
+    """POST /api/v1/batch (operator-only) forwards /bridge/v1/* items to the bridge
+    handlers with a synthetic sub-request that carries no credential of its own.
+    The boundary must read the batch's credential, not refuse the operator — and
+    must not crash on a sub-request that has no query string."""
+    import sys
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+    action = sorted(_actions_reaching_a_refused_pair())[0]
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+    async with TestClient(TestServer(server.create_app())) as client:
+        resp = await client.post("/api/v1/batch", headers={"Authorization": "Bearer k"}, json={
+            "requests": [{"id": "a", "method": "POST", "path": "/bridge/v1/action",
+                          "body": {"action": action, "params": {}, "session_id": "s1"}}]})
+        assert resp.status == 200, await resp.text()
+        results = (await resp.json())["results"]
+        assert results[0]["status"] == 200, results
+        assert recorder.calls == [action]

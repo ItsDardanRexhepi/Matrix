@@ -55,7 +55,7 @@ class _BatchSubRequest:
     invoke them directly without spinning up an actual HTTP round trip.
     """
 
-    __slots__ = ("_body", "match_info", "headers", "method", "path")
+    __slots__ = ("_body", "match_info", "headers", "method", "path", "query", "_state")
 
     def __init__(
         self,
@@ -65,12 +65,22 @@ class _BatchSubRequest:
         method: str,
         path: str,
         headers: Optional[dict] = None,
+        auth: Optional[dict] = None,
     ) -> None:
         self._body = body if body is not None else {}
         self.match_info = match_info
         self.headers = headers or {}
         self.method = method
         self.path = path
+        self.query: dict = {}
+        # The credential the auth wall accepted for the BATCH, inherited by each
+        # item: the sub-request carries no header of its own, and a handler that
+        # asks who is calling (GatewayServer._caller_kind) must get the batch's
+        # answer, not "anonymous".
+        self._state = {"auth": auth} if auth else {}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._state.get(key, default)
 
     async def json(self) -> Any:
         return self._body
@@ -2873,6 +2883,7 @@ class ServiceRoutes:
 
         start_wall = time.monotonic()
         self._metric_incr("batch.requests")
+        outer_auth = request.get("auth") if hasattr(request, "get") else None
         body = await self._parse_body(request)
         self._require(body, "requests")
 
@@ -2905,10 +2916,10 @@ class ServiceRoutes:
 
         if sequential:
             self._metric_incr("batch.mode.sequential")
-            results = await self._run_batch_sequential(items, abort_on_failure)
+            results = await self._run_batch_sequential(items, abort_on_failure, auth=outer_auth)
         else:
             self._metric_incr("batch.mode.parallel")
-            results = await self._run_batch_parallel(items, abort_on_failure)
+            results = await self._run_batch_parallel(items, abort_on_failure, auth=outer_auth)
 
         total_ms = int((time.monotonic() - start_wall) * 1000)
         self._metric_observe("batch.duration_ms", float(total_ms))
@@ -2946,10 +2957,11 @@ class ServiceRoutes:
         self,
         items: list,
         abort_on_failure: bool,
+        auth: Optional[dict] = None,
     ) -> List[dict]:
         results: List[dict] = []
         for item in items:
-            result = await self._dispatch_batch_item(item)
+            result = await self._dispatch_batch_item(item, auth=auth)
             results.append(result)
             if abort_on_failure and not (200 <= result["status"] < 300):
                 # Pad remaining items so the response shape stays aligned
@@ -2969,8 +2981,9 @@ class ServiceRoutes:
         self,
         items: list,
         abort_on_failure: bool,
+        auth: Optional[dict] = None,
     ) -> List[dict]:
-        tasks = [self._dispatch_batch_item(item) for item in items]
+        tasks = [self._dispatch_batch_item(item, auth=auth) for item in items]
         results = await asyncio.gather(*tasks)
         if abort_on_failure:
             # For parallel mode abort_on_failure is a no-op by design —
@@ -2979,7 +2992,7 @@ class ServiceRoutes:
             pass
         return results
 
-    async def _dispatch_batch_item(self, item: Any) -> dict:
+    async def _dispatch_batch_item(self, item: Any, auth: Optional[dict] = None) -> dict:
         """Run one batch item and return a ``BatchItemResult`` dict."""
 
         if not isinstance(item, dict):
@@ -3018,6 +3031,7 @@ class ServiceRoutes:
             match_info=match_info,
             method=method,
             path=path,
+            auth=auth,
         )
 
         try:
