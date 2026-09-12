@@ -666,11 +666,6 @@ class BridgeRoutes:
         forbidden = forbid(request, agent) if forbid else None
         if forbidden:
             return MobileResponse.error(forbidden, 403)
-        # T2: the Apple user behind the presented session is the apple_id the
-        # Morpheus gate sees — not a value the body asserts.
-        apple_sub = getattr(self._server, "_session_apple_id", lambda _r: "")(request)
-        if apple_sub:
-            body = {**body, "apple_id": apple_sub}
         # T3: never the shared "default" — the body's own id, else a session
         # derived from the presented wallet session, else refused in production.
         resolve = getattr(self._server, "_resolve_session_id", None)
@@ -681,12 +676,11 @@ class BridgeRoutes:
             denied = self._server._conversation_denied(request, session_id)
             if denied:
                 return MobileResponse.error(denied, 403)
-            body = {**body, "memory_scope": self._server._memory_scope(request, session_id)}
         else:
             session_id = body.get("session_id", "default")
 
         try:
-            result = await self._handle_chat_internal(message, agent, session_id, body)
+            result = await self._handle_chat_internal(message, agent, session_id, body, request)
             return MobileResponse.ok(result)
         except Exception as e:
             # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
@@ -707,7 +701,7 @@ class BridgeRoutes:
             return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
-        self, message: str, agent: str, session_id: str, body: dict,
+        self, message: str, agent: str, session_id: str, body: dict, request,
     ) -> dict:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
@@ -722,12 +716,6 @@ class BridgeRoutes:
         system_prompt = self._server.react_loop.get_agent_prompt(agent)
         time_context = self._server.temporal.get_context_string()
         full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
-        # Honor the client's per-turn context exactly like the WS handler does
-        # (language mirroring, conversation recap, portfolio line) — the REST
-        # fallback must not be lower-fidelity than /ws for the same chat.
-        client_context = str(body.get("context", ""))[:8000].strip()
-        if client_context:
-            full_prompt = f"{full_prompt}\n\n{client_context}"
 
         from runtime.react_loop import ReActContext
         context = ReActContext(
@@ -736,23 +724,21 @@ class BridgeRoutes:
             system_prompt=full_prompt,
         )
 
+        # The same builder /chat, /chat/stream and /ws use: identity from the
+        # presented session, never from the body or from whatever wallet was
+        # linked to the session id this caller chose to name.
+        #
+        # This used to inject `_linked_wallets[session_id]` as wallet_address.
+        # /bridge/v1/chat is public, so ANYONE naming a session id inherited
+        # the wallet a SIWE holder had linked to it — as the dispatcher's
+        # caller identity. The holder who linked gets that identity anyway by
+        # presenting their session: `_session_identity` derives it.
         context.metadata["user_context"] = {
-            "session_id": session_id,
-            "memory_scope": body.get("memory_scope") or session_id,
-            "agent": agent,
-            "wallet_connected": body.get("wallet_connected", False),
-            "network": body.get("network"),
+            **self._server._chat_user_context(
+                request, session_id=session_id, agent=agent, body=body),
             "platform": "ios",
-            # Threaded so the Morpheus gate in pre_action can verify the request.
-            "apple_id": body.get("apple_id", ""),
-            "app_attest": body.get("app_attest"),
         }
-
-        # Inject linked wallet if available
-        wallet = self._linked_wallets.get(session_id)
-        if wallet:
-            context.metadata["user_context"]["wallet_address"] = wallet.get("address")
-            context.metadata["user_context"]["wallet_connected"] = True
+        context.metadata["client_context"] = self._server._client_turn_context(body)
 
         result = await self._server.react_loop.run(context)
 

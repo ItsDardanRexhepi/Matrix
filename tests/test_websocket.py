@@ -313,7 +313,14 @@ class TestWebSocketErrorHandling:
 
 class TestWebSocketClientContext:
     """Phase 6: the iOS realtime client sends the same temporal/language
-    context its REST path sends — /ws must fold it into the system prompt."""
+    context its REST path sends — /ws must hand it to the model.
+
+    It used to be folded INTO ``system_prompt``. It now travels as the turn's
+    ``client_context`` and reaches the model in its own message under the
+    platform's CLIENT_CONTEXT_FENCE, identically on all four chat entrances
+    (tests/test_chat_entrances_one_posture.py drives that to the model call).
+    These assertions follow the field; the platform prompt no longer changes
+    with what a caller sends."""
 
     @pytest.mark.asyncio
     async def test_context_field_reaches_the_prompt(self, ws_client):
@@ -330,7 +337,8 @@ class TestWebSocketClientContext:
             await ws.close()
 
         ctx = server.react_loop.run.call_args.args[0]
-        assert "Reply in the user's language: Spanish." in ctx.system_prompt
+        assert ctx.metadata["client_context"] == "Reply in the user's language: Spanish."
+        assert "Spanish" not in ctx.system_prompt
 
     @pytest.mark.asyncio
     async def test_context_is_bounded_and_optional(self, ws_client):
@@ -342,7 +350,8 @@ class TestWebSocketClientContext:
                 "agent": "trinity", "session_id": "ws-noctx",
             })
             await _drain_until_done(ws)
-            no_ctx_prompt = server.react_loop.run.call_args.args[0].system_prompt
+            no_ctx = server.react_loop.run.call_args.args[0]
+            no_ctx_prompt = no_ctx.system_prompt
 
             # Oversized context is truncated to 8000 chars, never rejected.
             await ws.send_json({
@@ -351,8 +360,10 @@ class TestWebSocketClientContext:
                 "context": "x" * 20000,
             })
             await _drain_until_done(ws)
-            big_ctx_prompt = server.react_loop.run.call_args.args[0].system_prompt
+            big_ctx = server.react_loop.run.call_args.args[0]
             await ws.close()
 
         assert not no_ctx_prompt.endswith("\n\n")
-        assert len(big_ctx_prompt) <= len(no_ctx_prompt) + 8000 + 2
+        assert no_ctx.metadata["client_context"] == ""
+        assert len(big_ctx.metadata["client_context"]) == 8000
+        assert big_ctx.system_prompt == no_ctx_prompt

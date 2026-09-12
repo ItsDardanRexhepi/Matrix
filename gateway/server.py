@@ -23,7 +23,9 @@ from aiohttp import web
 
 from gateway.error_contract import client_error, sse_error_frame
 
-from runtime.react_loop import ReActLoop, ReActContext, Message
+from runtime.react_loop import (  # noqa: F401 — CLIENT_CONTEXT_FENCE re-exported
+    CLIENT_CONTEXT_FENCE, CLIENT_CONTEXT_MAX_CHARS, ReActLoop, ReActContext, Message,
+)
 from runtime.time.temporal_context import TemporalContext
 from runtime.auth.session_store import (
     WalletSessionStore,
@@ -54,6 +56,14 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "openmatrix.config.json"
 START_TIME = time.time()
+
+#: The four entrances to the one chat flow. They share ONE auth posture (all
+#: public — see ``_public_paths``) and ONE per-turn context
+#: (``GatewayServer._chat_user_context``). Written once so an entrance cannot
+#: be left behind again: /chat/stream was, and the gateway's own public web
+#: chat page (GET /chat → web/index.html) calls it, so that page answered 401
+#: on every gateway with a key configured.
+CHAT_ENTRANCES: tuple[str, ...] = ("/chat", "/chat/stream", "/ws", "/bridge/v1/chat")
 
 # ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -314,17 +324,18 @@ class GatewayServer:
             # IAP routes authenticate via the signed JWS chain itself (Apple's
             # webhook cannot send our API key; the app sends a session token).
             "/api/v1/iap/verify", "/api/v1/iap/asn",
-            # Realtime (Phase 6): /ws serves the SAME public chat as POST /chat
-            # (already public below); the SSE event stream carries feed/price
-            # broadcasts and enforces its own per-IP capacity caps.
-            "/ws", "/api/v1/events/stream",
-            # The iOS app's REST chat fallback — the SAME public chat as /chat
-            # and /ws, so it must match their auth posture. Without this, a
-            # hosted gateway with OPENMATRIX_API_KEY set 401s the app whenever
-            # the WebSocket path degrades to REST (the app doesn't carry the
-            # operator key — clients are anonymous; rate limiting caps abuse).
-            "/bridge/v1/chat",
-            "/", "/chat", "/audit", "/marketplace",
+            # The chat: POST /chat, POST /chat/stream, GET /ws, POST
+            # /bridge/v1/chat — one flow, one posture (CHAT_ENTRANCES). Clients
+            # are anonymous (the iOS app and the web chat page carry no
+            # operator key; rate limiting caps abuse). Public admits the turn;
+            # it grants no identity — that comes only from a presented session
+            # (_chat_user_context), and naming Neo or Morpheus still takes the
+            # operator key. GET /chat is also the web chat page.
+            *CHAT_ENTRANCES,
+            # The SSE event stream carries feed/price broadcasts and enforces
+            # its own per-IP capacity caps.
+            "/api/v1/events/stream",
+            "/", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
             "/a2a/services",
@@ -588,22 +599,11 @@ class GatewayServer:
 
         logger.info(f"[{agent}] session={session_id} message={message[:100]}")
 
-        # Inject user context metadata so protocols can access it. The identity and
-        # client App Attest assertion are threaded so the Morpheus gate consulted in
-        # ProtocolStack.pre_action can attribute and verify each tool call.
-        context.metadata["user_context"] = {
-            "session_id": session_id,
-            "memory_scope": self._memory_scope(request, session_id),
-            "agent": agent,
-            "wallet_connected": body.get("wallet_connected", True),
-            "network": body.get("network"),
-            "balance": body.get("balance"),
-            "jurisdiction": body.get("jurisdiction", ""),
-            "total_transactions": body.get("total_transactions"),
-            "wallet_address": body.get("wallet") or body.get("wallet_address") or "",
-            "apple_id": body.get("apple_id", ""),
-            "app_attest": body.get("app_attest"),
-        }
+        # What the gate, the dispatcher and the protocols decide with — one
+        # builder for all four chat entrances (see _chat_user_context).
+        context.metadata["user_context"] = self._chat_user_context(
+            request, session_id=session_id, agent=agent, body=body)
+        context.metadata["client_context"] = self._client_turn_context(body)
 
         try:
             with self.metrics.timer("chat.latency"):
@@ -1383,13 +1383,9 @@ class GatewayServer:
             conversation=self.conversations[session_id].copy(),
             system_prompt=full_prompt,
         )
-        context.metadata["user_context"] = {
-            "session_id": session_id,
-            "memory_scope": self._memory_scope(request, session_id),
-            "agent": agent,
-            "wallet_connected": body.get("wallet_connected", True),
-            "network": body.get("network"),
-        }
+        context.metadata["user_context"] = self._chat_user_context(
+            request, session_id=session_id, agent=agent, body=body)
+        context.metadata["client_context"] = self._client_turn_context(body)
 
         try:
             result = await self.react_loop.run(context)
@@ -1507,23 +1503,17 @@ class GatewayServer:
             system_prompt = self.react_loop.get_agent_prompt(agent)
             time_context = self.temporal.get_context_string()
             full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
-            # Optional client context (Phase 6 realtime client): the iOS app
-            # sends the same temporal/language-mirroring context its REST path
-            # sends, so a streamed reply is never lower-fidelity than /chat.
-            client_context = str(payload.get("context", ""))[:8000].strip()
-            if client_context:
-                full_prompt = f"{full_prompt}\n\n{client_context}"
 
             context = ReActContext(
                 agent_name=agent,
                 conversation=self.conversations[session_id].copy(),
                 system_prompt=full_prompt,
             )
-            context.metadata["user_context"] = {
-                "session_id": session_id,
-                "memory_scope": self._memory_scope(request, session_id),
-                "agent": agent,
-            }
+            # The handshake request carries the session (Authorization /
+            # X-Wallet-Session); the frame carries the turn.
+            context.metadata["user_context"] = self._chat_user_context(
+                request, session_id=session_id, agent=agent, body=payload)
+            context.metadata["client_context"] = self._client_turn_context(payload)
 
             try:
                 result = await self.react_loop.run(context)
@@ -2540,7 +2530,9 @@ class GatewayServer:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             return auth_header[7:]
-        return request.query.get("api_key", "") or ""
+        # getattr: /api/v1/batch replays a bridge item as a header-less
+        # _BatchSubRequest with no `query`; it presents no key.
+        return getattr(request, "query", {}).get("api_key", "") or ""
 
     def _is_operator(self, request: web.Request) -> bool:
         """The operator key was presented — or auth is off (development), where
@@ -2654,6 +2646,85 @@ class GatewayServer:
         if not owner and identity:
             memory.claim_conversation(session_id, identity)
         return None
+
+    # ─── One chat turn, four entrances ───────────────────────────────────
+
+    #: Body fields that DESCRIBE the caller to the gates: ``wallet_connected``,
+    #: ``network`` and ``balance`` feed the Rexhepi safety verdict,
+    #: ``jurisdiction`` its compliance verdict, ``total_transactions`` when
+    #: Morpheus steps in. Only the operator's body may state them.
+    _OPERATOR_STATED_CONTEXT = ("wallet_connected", "network", "balance",
+                                "jurisdiction", "total_transactions")
+
+    def _chat_user_context(self, request: web.Request, *, session_id: str,
+                           agent: str, body) -> dict:
+        """The ``user_context`` a chat turn hands the ReAct loop — built HERE,
+        once, for /chat, /chat/stream, /ws and /bridge/v1/chat.
+
+        It is what the loop decides with: ``wallet_address`` becomes the
+        dispatcher's ``caller_identity`` (and so the identity the sponsorship
+        cap meters and a service decides ownership on) and the identity the
+        seam's beneficiary check compares a platform-signed action against;
+        ``apple_id`` and ``app_attest`` are what the Morpheus gate attributes
+        and verifies; the fields in ``_OPERATOR_STATED_CONTEXT`` feed gate
+        verdicts. Four hand-built copies of this dict disagreed: /chat took
+        every one of them from the body of a PUBLIC route, /ws bound no
+        identity at all.
+
+        Identity is derived from the presented session, never from the body
+        (§EE — a verdict may not rest on what the caller writes about itself).
+        The body speaks for the user only when the operator key is presented
+        (development, where auth is off, counts as operator): an operator
+        integration names the user it acts for. ``app_attest`` is taken from
+        the body for everyone because it is not a claim — it is a signed
+        assertion the gate verifies.
+
+        What is NOT known is left out rather than invented: an anonymous caller
+        has no wallet, and no balance or jurisdiction is looked up here. The
+        Rexhepi safety and compliance checks therefore do not fire on those
+        inputs for a non-operator chat — which is exactly as much protection as
+        they gave before, when any caller could omit or rewrite them.
+        """
+        body = body if isinstance(body, dict) else {}
+        operator = self._is_operator(request)
+        identity = self._session_identity(request)
+        apple_id = self._session_apple_id(request)
+        if not identity and operator:
+            identity = str(body.get("wallet") or body.get("wallet_address") or "").strip()
+            apple_id = apple_id or str(body.get("apple_id") or "").strip()
+        context: dict = {
+            "session_id": session_id,
+            "memory_scope": self._memory_scope(request, session_id),
+            "agent": agent,
+            "wallet_address": identity,
+            "apple_id": apple_id,
+            "app_attest": body.get("app_attest"),
+        }
+        # A wallet is connected when the platform knows one is behind the
+        # caller: a SIWE subject, or the wallet linked to the Apple user.
+        if identity and not identity.startswith("apple:"):
+            context["wallet_connected"] = True
+        if operator:
+            for key in self._OPERATOR_STATED_CONTEXT:
+                if key in body:
+                    context[key] = body[key]
+        return context
+
+    @staticmethod
+    def _client_turn_context(body) -> str:
+        """The client's per-turn ``context`` (language directive, recap,
+        portfolio line), honoured identically on all four chat entrances.
+
+        /ws and the bridge appended it to the system prompt; /chat and
+        /chat/stream dropped it, so the same body produced a different prompt
+        depending on the transport. Decided once: it reaches the model on every
+        entrance, in its own message under CLIENT_CONTEXT_FENCE (runtime/
+        react_loop.py) rather than spliced into the platform's instructions —
+        caller-authored text is carried, and labelled as caller-authored.
+        """
+        if not isinstance(body, dict):
+            return ""
+        return str(body.get("context") or "")[:CLIENT_CONTEXT_MAX_CHARS].strip()
 
     @web.middleware
     async def _security_context_middleware(self, request: web.Request, handler):

@@ -51,6 +51,12 @@ Send a message to an agent. Blocking — returns the full response at once.
 | `message`    | string | yes      | —         | The user's message                       |
 | `agent`      | string | no       | `trinity` | One of `trinity`, `neo`, `morpheus`      |
 | `session_id` | string | no       | generated | Stable ID for conversation continuity    |
+| `context`    | string | no       | —         | Per-turn client context (language, recap). Up to 8,000 characters; reaches the model in its own message labelled as client-supplied, never spliced into the platform's instructions, never stored. Honoured identically on `/chat`, `/chat/stream`, `/ws` and `/bridge/v1/chat`. |
+| `app_attest` | object | no       | —         | App Attest assertion, verified by the security gate |
+
+`/chat`, `/chat/stream`, `/ws` and `/bridge/v1/chat` are one chat with one
+posture: all four are public, and none takes the caller's identity from the
+body — see [Authentication](#authentication).
 
 **Response `200`**
 
@@ -139,7 +145,7 @@ Two credentials exist, and they open different doors.
 
 Without either, a non-public route answers **401**. Sessions expire (`gateway.wallet_session_ttl_seconds`, default 24 h); an expired token is no credential anywhere.
 
-**Identity is derived, never asserted.** On every authenticated request the caller's identity is the session's subject — the wallet linked to the Apple user when one exists, else `apple:<sub>` or the SIWE address. An `X-Wallet-Address` header or a `wallet` body field is consulted only when no session is presented (anonymous and development flows). A wallet proven by `POST /auth/verify` while holding an Apple session is linked to that Apple user.
+**Identity is derived, never asserted.** On every authenticated request the caller's identity is the session's subject — the wallet linked to the Apple user when one exists, else `apple:<sub>` or the SIWE address. An `X-Wallet-Address` header or a `wallet` body field is consulted only when no session is presented and the request carries the operator key (an operator integration naming the user it acts for; development, where auth is off, counts). The chat entrances are public, so this matters most there: an anonymous chat has **no** identity, and the body's `wallet`, `apple_id`, `wallet_connected`, `network`, `balance`, `jurisdiction` and `total_transactions` are read only from an operator's request — they feed the dispatcher's caller identity and the security gates' verdicts, so a caller may not write them about itself. A wallet proven by `POST /auth/verify` while holding an Apple session is linked to that Apple user.
 
 **Conversations belong to whoever started them.** `session_id` on the chat surfaces is the caller's own id, never `"default"`: with a session and no id, the conversation is `user:<subject>`; in production a request with no id and no session answers **400 `session_required`** (development keeps `"default"` for local runs). A conversation with an owner is continued only by that account (**403** otherwise); an ownerless one is claimed by the first signed-in caller. Agent memory and protocol state are scoped to the account (or the conversation when anonymous). `DELETE /api/v1/auth/account` removes the session, its push tokens, and the account's conversations and scoped memory.
 

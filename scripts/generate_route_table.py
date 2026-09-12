@@ -58,9 +58,28 @@ def _public_paths(text: str) -> set[str]:
     for ln in lines[start:]:
         code = ln.split("#", 1)[0]            # ignore trailing comments
         paths.update(re.findall(r'"(/[^"]*)"', code))
+        for name in re.findall(r"\*([A-Z][A-Z0-9_]*)", code):   # *CHAT_ENTRANCES
+            paths.update(_module_tuple(lines, name))
         if "}" in code:                        # closing brace on a code line
             break
     return paths
+
+
+def _module_tuple(lines: list[str], name: str) -> set[str]:
+    """The ``/``-prefixed strings of a module-level ``NAME ... = (...)`` literal
+    spread into the set — so a named group of public paths is marked public
+    here exactly as the gateway treats it."""
+    start = next((i for i, ln in enumerate(lines)
+                  if re.match(rf"{name}\b[^=]*=\s*\(", ln)), None)
+    if start is None:
+        raise SystemExit(f"_public_paths spreads *{name}, but no module-level {name} = (...) was found")
+    found: set[str] = set()
+    for ln in lines[start:]:
+        code = ln.split("#", 1)[0]
+        found.update(re.findall(r'"(/[^"]*)"', code))
+        if ")" in code.split("=", 1)[-1]:
+            break
+    return found
 
 
 def _routes_from(path: Path, pattern: re.Pattern) -> list[tuple]:
