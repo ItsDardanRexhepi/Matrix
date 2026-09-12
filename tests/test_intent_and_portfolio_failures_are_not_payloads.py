@@ -363,7 +363,7 @@ async def test_portfolio_complete_exception_body_is_a_fixed_sentence(client, mon
     """Whatever raises, the client gets the fixed sentence, never the text."""
     from runtime.blockchain.protocol_abstraction import data_aggregator
 
-    def boom(self, config):
+    def boom(self, *_args, **_kwargs):
         raise RuntimeError(SECRET)
 
     monkeypatch.setattr(data_aggregator.DataAggregator, "__init__", boom)

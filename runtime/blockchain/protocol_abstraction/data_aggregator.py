@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Any
 
-from runtime.blockchain.web3_manager import Web3Manager
+from runtime.blockchain.web3_manager import Web3Manager, require_hex_address
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +59,23 @@ class PortfolioUnavailable(RuntimeError):
 class DataAggregator:
     """Provide cached market data, gas prices, portfolio views, and protocol metrics."""
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, price_feed: Any = None) -> None:
+        """`price_feed`: a PriceFeed to value balances with. Pass the caller's
+        long-lived one (ServiceRoutes does) so its 30 s cache and single
+        in-flight read apply across requests; without one, this aggregator
+        makes and keeps its own, which only helps if the aggregator is kept."""
         self._config = config
         self._web3 = Web3Manager.get_shared(config)
         self._cache: dict[str, tuple[float, Any]] = {}
         self._ttl = _CACHE_TTL_SECONDS
         self._logger = logging.getLogger(__name__)
+        self._price_feed = price_feed
+
+    def _eth_usd_feed(self):
+        if self._price_feed is None:
+            from runtime.blockchain.price_feed import PriceFeed
+            self._price_feed = PriceFeed(self._config)
+        return self._price_feed
 
     # ── Cache helpers ────────────────────────────────────────────────
 
@@ -275,7 +286,12 @@ class DataAggregator:
         needs no price. Failures raise, are never cached, and carry a fixed
         reason code rather than the underlying text. `total_value_usd` is the
         native balance only; see `covered` / `not_covered`.
+
+        A *wallet* that is not a 20-byte hex address raises InvalidAddress
+        (a ValueError) first, before the cache, the data-source check or any
+        read: it is the caller's input, not an outage.
         """
+        require_hex_address(wallet)
         cache_key = f"portfolio:{wallet}"
         cached = self._get_cached(cache_key)
         if cached is not None:
@@ -300,9 +316,7 @@ class DataAggregator:
         total_value = 0.0
         if balance > 0:
             try:
-                from runtime.blockchain.price_feed import PriceFeed
-
-                quote = await PriceFeed(self._config).eth_usd()
+                quote = await self._eth_usd_feed().eth_usd()
                 eth_price = float(quote["price"])
             except Exception as exc:
                 self._logger.warning("Portfolio ETH/USD price unavailable: %s", exc)

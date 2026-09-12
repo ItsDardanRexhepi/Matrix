@@ -23,6 +23,7 @@ balance was read, because a 0.0 there is indistinguishable from an empty wallet.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import logging
 from typing import Any, Optional
@@ -354,7 +355,14 @@ class Web3Manager:
         `_lookup_balance_eth`, documented as "None if unavailable", could never
         see None for a failed read. A balance is a statement about money; one
         nobody read is not zero.
+
+        Raises InvalidAddress, before any read and whether or not a chain is
+        configured, when *address* is not a 20-byte hex address. That is the
+        caller's input, not an outage: web3 used to reject it inside the try
+        below, and it came out as BalanceUnavailable.
         """
+        if address is not None:
+            require_hex_address(address)
         if not self.available or self.w3 is None:
             raise BalanceUnavailable("blockchain not configured")
         try:
@@ -370,6 +378,23 @@ class Web3Manager:
 class BalanceUnavailable(RuntimeError):
     """No balance was read — the chain is not configured or the RPC failed.
     The message is fixed; the underlying exception is chained, not embedded."""
+
+
+class InvalidAddress(ValueError):
+    """The value is not a 20-byte hex address. The caller's input (a 400), not
+    a dependency failure. The message is fixed and does not repeat the value."""
+
+
+# What web3's to_checksum_address accepts: 40 hex digits, optionally 0x/0X
+# prefixed, in any letter case (the checksum is not verified by the read).
+_HEX_ADDRESS = re.compile(r"(0[xX])?[0-9a-fA-F]{40}")
+
+
+def require_hex_address(value: Any) -> str:
+    """Return *value* if it is a 20-byte hex address, else raise InvalidAddress."""
+    if not isinstance(value, str) or not _HEX_ADDRESS.fullmatch(value):
+        raise InvalidAddress("not a 20-byte hex address")
+    return value
 
 
 # Standardised "not deployed" response shape used across services.

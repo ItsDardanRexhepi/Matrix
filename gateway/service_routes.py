@@ -2661,12 +2661,20 @@ class ServiceRoutes:
         so every one of those reaches this 503. A 200 now means the native
         balance was actually read; `covered` / `not_covered` say that it is the
         only thing read.
+
+        A `{wallet}` that is not a 20-byte hex address is the caller's input: 400,
+        before any read. The ETH/USD quote comes from this ServiceRoutes' one
+        PriceFeed, so its 30 s cache and single in-flight read are shared with
+        /price and the paymaster route.
         """
+        from runtime.blockchain.web3_manager import InvalidAddress
         wallet = request.match_info["wallet"]
         try:
             from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
-            aggregator = DataAggregator(self._config)
+            aggregator = DataAggregator(self._config, price_feed=self._price_feed())
             result = await aggregator.get_user_portfolio(wallet)
+        except InvalidAddress:
+            return self._bad_request("wallet must be a 20-byte hex address")
         except Exception as e:
             logger.warning("Portfolio aggregation failed for %s: %s", wallet, e)
             raise web.HTTPServiceUnavailable(
@@ -2688,13 +2696,16 @@ class ServiceRoutes:
         real method plus a projection of the position-bearing fields, not a
         fabricated answer.
         """
+        from runtime.blockchain.web3_manager import InvalidAddress
         wallet = request.match_info["wallet"]
         try:
             from runtime.blockchain.protocol_abstraction.data_aggregator import (
                 DataAggregator,
             )
-            aggregator = DataAggregator(self._config)
+            aggregator = DataAggregator(self._config, price_feed=self._price_feed())
             portfolio = await aggregator.get_user_portfolio(wallet)
+        except InvalidAddress:
+            return self._bad_request("wallet must be a 20-byte hex address")
         except Exception as e:
             # RUN-5 shape: the reason is logged server-side, never returned.
             logger.warning("Portfolio positions failed for %s: %s", wallet, e)
