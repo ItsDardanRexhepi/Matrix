@@ -2107,13 +2107,21 @@ class GatewayServer:
         except Exception as exc:
             logger.warning("Push token store init skipped: %s", exc)
 
+    def _rate_limiters(self) -> list:
+        """Every RateLimiter the server keys buckets in."""
+        return [v for v in vars(self).values() if isinstance(v, RateLimiter)]
+
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets and service caches."""
         while True:
             try:
                 await asyncio.sleep(300)
-                self.rate_limiter_auth.cleanup()
-                self.rate_limiter_anon.cleanup()
+                # Every limiter this server holds, derived rather than listed:
+                # the list named auth and anon and forgot rate_limiter_wallet,
+                # whose buckets — one per SIWE address, and addresses are free
+                # to mint — were never pruned.
+                for limiter in self._rate_limiters():
+                    limiter.cleanup()
                 # Sweep stale oracle/service caches so expired entries
                 # left behind for ``get_stale`` don't accumulate.
                 dispatcher = getattr(self.react_loop, "dispatcher", None)
