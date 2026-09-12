@@ -53,11 +53,29 @@ contract PropertyEscrow is ReentrancyGuard {
         State state;
     }
 
+    /// @notice What the seller agreed to, recorded on-chain BEFORE any buyer
+    ///         can lock. Without it (the audit's entry P4-4-DEED-1WEI) no price
+    ///         and no buyer were stored anywhere on-chain: the seller's
+    ///         listing-time approval let anyone take the deed for 1 wei, and a
+    ///         first-writer escrow id let a squatter block the platform's own
+    ///         prepared call. The listing is created only by the deed's current
+    ///         owner, consumed by the lock, and names the price exactly and
+    ///         (optionally) the one buyer allowed to pay it.
+    struct Listing {
+        address seller;
+        address deedContract;
+        uint256 deedTokenId;
+        uint256 priceWei;
+        address buyer;      // address(0) = any buyer, at the listed price
+        bool active;
+    }
+
     /// @notice How long locked funds wait for settlement before the buyer can
     ///         reclaim them. Fixed at deploy; no one can change it after.
     uint64 public immutable lockTimeout;
 
     mapping(bytes32 => Escrow) public escrows;
+    mapping(bytes32 => Listing) public listings;
 
     // ---------------------------------------------------------------
     // Events
@@ -78,6 +96,15 @@ contract PropertyEscrow is ReentrancyGuard {
         bytes32 readinessAttestation
     );
     event Refunded(bytes32 indexed escrowId, address indexed buyer, uint256 amount);
+    event DeedListed(
+        bytes32 indexed escrowId,
+        address indexed seller,
+        address indexed deedContract,
+        uint256 deedTokenId,
+        uint256 priceWei,
+        address buyer
+    );
+    event ListingCancelled(bytes32 indexed escrowId, address indexed seller);
 
     // ---------------------------------------------------------------
     // Constructor
@@ -90,6 +117,54 @@ contract PropertyEscrow is ReentrancyGuard {
     // ---------------------------------------------------------------
     // One-tap: lock + settle atomically
     // ---------------------------------------------------------------
+
+    // ---------------------------------------------------------------
+    // Listing: the seller's terms, on-chain, before any lock
+    // ---------------------------------------------------------------
+
+    /// @notice List a deed for sale under `escrowId`. Only the deed's current
+    ///         owner can list it; the escrow id is therefore the seller's to
+    ///         create and nobody else's to squat. The seller still approves
+    ///         this contract on the deed (the existing listing step); this
+    ///         records WHAT was agreed: the price, exactly, and optionally the
+    ///         one buyer who may pay it.
+    /// @param buyer address(0) for an open listing (any buyer at the price).
+    function listDeed(
+        bytes32 escrowId,
+        address deedContract,
+        uint256 deedTokenId,
+        uint256 priceWei,
+        address buyer
+    ) external {
+        require(escrowId != bytes32(0), "Zero escrow id");
+        require(deedContract != address(0), "Zero deed contract");
+        require(priceWei > 0, "Zero price");
+        require(!listings[escrowId].active, "Listing exists");
+        require(escrows[escrowId].state == State.None, "Escrow exists");
+        require(
+            IERC721(deedContract).ownerOf(deedTokenId) == msg.sender,
+            "Not the deed owner"
+        );
+        listings[escrowId] = Listing({
+            seller: msg.sender,
+            deedContract: deedContract,
+            deedTokenId: deedTokenId,
+            priceWei: priceWei,
+            buyer: buyer,
+            active: true
+        });
+        emit DeedListed(escrowId, msg.sender, deedContract, deedTokenId, priceWei, buyer);
+    }
+
+    /// @notice Withdraw an unconsumed listing. Seller-only; a locked escrow is
+    ///         past listing and follows the settle/refund paths instead.
+    function cancelListing(bytes32 escrowId) external {
+        Listing storage l = listings[escrowId];
+        require(l.active, "No listing");
+        require(l.seller == msg.sender, "Only seller");
+        l.active = false;
+        emit ListingCancelled(escrowId, msg.sender);
+    }
 
     /**
      * @notice The one-tap purchase: lock the attached funds AND settle in the
@@ -175,6 +250,19 @@ contract PropertyEscrow is ReentrancyGuard {
         require(msg.value > 0, "No funds");
         require(escrows[escrowId].state == State.None, "Escrow exists");
         require(seller != msg.sender, "Self purchase");
+
+        // The seller's recorded terms bind the lock: this deed, this price,
+        // exactly, and — when the listing names one — this buyer. The listing
+        // is consumed here so no second lock can reuse it.
+        Listing storage l = listings[escrowId];
+        require(l.active, "No listing");
+        require(
+            l.seller == seller && l.deedContract == deedContract && l.deedTokenId == deedTokenId,
+            "Listing mismatch"
+        );
+        require(msg.value == l.priceWei, "Wrong price");
+        require(l.buyer == address(0) || l.buyer == msg.sender, "Not the buyer");
+        l.active = false;
 
         escrows[escrowId] = Escrow({
             buyer: msg.sender,
