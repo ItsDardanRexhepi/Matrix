@@ -532,6 +532,12 @@ class BridgeRoutes:
 
     # ─── Whose is this session id? ────────────────────────────────────────
 
+    def _key(self, raw) -> str:
+        """The gateway's one spelling of a session id (strip, 100 characters) —
+        the spelling conversations are stored under."""
+        key = getattr(self._server, "_session_key", None)
+        return key(raw) if key is not None else str(raw or "").strip()[:100]
+
     def _held_elsewhere(self, request, session_id: str):
         """Refusal message when *session_id* is a conversation another account
         owns (never claims it); None otherwise, or on a server without T3."""
@@ -542,7 +548,7 @@ class BridgeRoutes:
         """The wallet linked to *session_id*, if the request may see it: the
         account whose wallet session made the link, or the operator. ``{}``
         otherwise — including when the link belongs to someone else."""
-        record = self._linked_wallets.get(session_id) or {}
+        record = self._linked_wallets.get(self._key(session_id)) or {}
         if not record:
             return {}
         subject_of = getattr(self._server, "_session_subject", None)
@@ -676,24 +682,26 @@ class BridgeRoutes:
         except Exception:
             return MobileResponse.error("Invalid JSON")
 
-        session_id = body.get("session_id", "")
+        # Keyed as the chat entrances key it, BEFORE the ownership check: the
+        # check ran on the raw id and the lookup on the normalised one, so
+        # "conv-A " (nobody owns that spelling) described conv-A.
+        session_id = self._key(body.get("session_id", "") if isinstance(body, dict) else "")
         if not session_id:
             return MobileResponse.error("session_id required")
         # Existence and length of someone else's conversation are theirs.
-        held = self._held_elsewhere(request, str(session_id))
+        held = self._held_elsewhere(request, session_id)
         if held:
             return MobileResponse.error(held, 403)
 
         # From the working set, else the store: the working set is bounded, so
         # "not in memory" does not mean "does not exist" (it never did across a
-        # restart). Keyed as the chat entrances key it (_resolve_session_id).
-        session_id = str(session_id).strip()[:100]
+        # restart).
         cached = self._server.conversations.get(session_id)
         if cached is not None:
             exists, count = True, len(cached)
         else:
             try:
-                stored = self._server.react_loop.memory.load_conversation(str(session_id))
+                stored = self._server.react_loop.memory.load_conversation(session_id)
             except Exception:
                 stored = []
             exists, count = bool(stored), len(stored)
@@ -864,7 +872,7 @@ class BridgeRoutes:
             params = {}
         if not isinstance(params, dict):
             return MobileResponse.error("params must be an object", 400)
-        session_id = str(session_id or "")
+        session_id = self._key(session_id)
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.
@@ -880,7 +888,7 @@ class BridgeRoutes:
         # the link is the caller's own — a session id is a name the caller
         # chose, not a credential.
         session_identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
-        linked = self._visible_link(request, str(session_id))
+        linked = self._visible_link(request, session_id)
         identity = session_identity or linked.get("address", "")
         bind_request_security(
             identity=identity,
@@ -980,7 +988,7 @@ class BridgeRoutes:
         except Exception:
             return MobileResponse.error("invalid JSON")
         push_token = str(body.get("push_token", "")).strip()
-        session_id = str(body.get("session_id", "")).strip()
+        session_id = self._key(body.get("session_id", ""))
         if not push_token:
             return MobileResponse.error("push_token required")
         # T3: a token registered under the shared "default" (or no) session
@@ -1047,7 +1055,7 @@ class BridgeRoutes:
         except Exception:
             body = {}
 
-        session_id = body.get("session_id", "")
+        session_id = self._key(body.get("session_id", "") if isinstance(body, dict) else "")
         if not session_id:
             return MobileResponse.error("session_id required")
 
@@ -1057,7 +1065,7 @@ class BridgeRoutes:
         # account owns, or over a link another account made, is refused.
         # (The X-Wallet-Session is read first, so the request's subject here is
         # `address`.)
-        held = self._held_elsewhere(request, str(session_id))
+        held = self._held_elsewhere(request, session_id)
         if held:
             return MobileResponse.error(held, 403)
         existing = self._linked_wallets.get(session_id)
@@ -1079,7 +1087,7 @@ class BridgeRoutes:
 
     async def wallet_status(self, request: web.Request) -> web.Response:
         """Get wallet status for a session."""
-        session_id = request.query.get("session_id", "")
+        session_id = self._key(request.query.get("session_id", ""))
         if self._linked_wallets.get(session_id) and not self._visible_link(request, session_id):
             return MobileResponse.error("this session is linked to another account", 403)
         wallet = self._visible_link(request, session_id)
@@ -1193,7 +1201,7 @@ class BridgeRoutes:
         Aggregated dashboard data for the iOS home screen.
         Returns wallet balance, recent activity, active positions, and suggestions.
         """
-        session_id = request.query.get("session_id", "")
+        session_id = self._key(request.query.get("session_id", ""))
         # The caller's own link only; another account's address and balance
         # are not part of this caller's home screen.
         wallet = self._visible_link(request, session_id)

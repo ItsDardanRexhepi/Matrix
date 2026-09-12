@@ -60,6 +60,8 @@ class PushTokenStore:
         *owner* is the account (session subject) that registered it — what
         account deletion finds a user's devices by. The session id a token is
         filed under is a conversation name the client chose, not the account.
+        Re-registering the device WITHOUT an owner keeps the owner it had: an
+        upsert that wrote "" there hid the device from its account's deletion.
         """
         await self._ensure_table()
         await self._db.execute(
@@ -73,7 +75,8 @@ class PushTokenStore:
                 platform=excluded.platform,
                 bundle_id=excluded.bundle_id,
                 updated_at=excluded.updated_at,
-                owner=excluded.owner
+                owner=CASE WHEN COALESCE(excluded.owner, '') <> ''
+                           THEN excluded.owner ELSE push_tokens.owner END
             """,
             (device_token, session_id, wallet, platform, bundle_id, time.time(), owner),
         )
@@ -94,6 +97,26 @@ class PushTokenStore:
         else:
             return []
         return [r[0] for r in rows]
+
+    async def remove_for_account(self, owner: str, session_ids=()) -> list[str]:
+        """Remove every device *owner* registered, and every device with NO
+        recorded owner filed under one of *session_ids* (the account's own
+        conversations): a token stored before tokens carried an owner is found
+        by the conversation it was filed under. A device another account
+        registered is never removed through a conversation id. Returns the
+        tokens removed."""
+        await self._ensure_table()
+        found: set[str] = set()
+        if owner:
+            found |= {r[0] for r in await self._db.fetchall(
+                "SELECT device_token FROM push_tokens WHERE owner = ?", (owner,))}
+        for sid in {s for s in session_ids if s}:
+            found |= {r[0] for r in await self._db.fetchall(
+                "SELECT device_token FROM push_tokens "
+                "WHERE session_id = ? AND (owner IS NULL OR owner = '')", (sid,))}
+        for token in found:
+            await self.remove(token)
+        return sorted(found)
 
     async def all_tokens(self) -> list[str]:
         await self._ensure_table()

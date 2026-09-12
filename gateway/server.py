@@ -1058,8 +1058,12 @@ class GatewayServer:
         """DELETE /api/v1/auth/account — delete the caller's server-side data and
         (credential-gated) revoke the Apple token.
 
-        Deleted here: the caller's wallet session (X-Wallet-Session) and every push
-        token registered under that session. Apple token revocation runs only when
+        Deleted here: the presented wallet session, the account's conversations
+        and scoped agent memory, and its push tokens — those registered under a
+        session of this account, and ones with no recorded owner filed under one
+        of its conversations. A device registered with no session to a
+        conversation the account never owned is not the account's to find.
+        Apple token revocation runs only when
         auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
         deletion still succeeds and revocation is skipped with a WARNING."""
         from gateway.apple_auth import apple_revocation_configured
@@ -1070,28 +1074,12 @@ class GatewayServer:
         # App Store 5.1.1(v) path was a no-op. Both headers are honoured now.
         token, session = self._wallet_session_token(request)
 
-        # Push tokens the account registered. This looked them up by the bearer
-        # TOKEN string as a session id; /bridge/v1/push/register files a device
-        # under the conversation id (user:<subject>, or the client's own), so it
-        # matched nothing and every device stayed registered while the docs
-        # said deletion removed them. Tokens now carry their owner.
-        try:
-            from runtime.notifications.token_store import PushTokenStore
-            store = PushTokenStore(self.react_loop.memory.db)
-            if session is not None:
-                owner = str(session.get("address", ""))
-                devices = set(await store.tokens_for(owner=owner)) if owner else set()
-                devices |= set(await store.tokens_for(session_id=token))
-                for dev in devices:
-                    await store.remove(dev)
-        except Exception:
-            logger.debug("account delete: push-token cleanup skipped")
-
         # The account's conversations and scoped agent memory (T3 / C2b: erasure
         # can identify a user's rows now that conversations carry an owner).
-        if session is not None:
+        subject = str(session.get("address", "")) if session is not None else ""
+        erased: list[str] = []
+        if subject:
             try:
-                subject = str(session.get("address", ""))
                 erased = await self.react_loop.memory.erase_owner(subject)
                 # The store and the memory manager's cache were cleared; the
                 # gateway's own working-set copy was not, so the next caller to
@@ -1099,6 +1087,25 @@ class GatewayServer:
                 self._forget_conversations(erased)
             except Exception:
                 logger.debug("account delete: conversation erasure skipped")
+
+        # Push tokens the account registered. This looked them up by the bearer
+        # TOKEN string as a session id; /bridge/v1/push/register files a device
+        # under the conversation id (user:<subject>, or the client's own), so it
+        # matched nothing and every device stayed registered while the docs
+        # said deletion removed them. Tokens carry their owner now; a token
+        # stored before they did is found by the conversation it was filed
+        # under — one of the account's own (erased above, or its reserved
+        # user:<subject>) — and only when no other owner is recorded on it.
+        try:
+            from runtime.notifications.token_store import PushTokenStore
+            store = PushTokenStore(self.react_loop.memory.db)
+            if session is not None:
+                filed_under = {*erased, token}
+                if subject:
+                    filed_under.add(f"user:{subject}"[:100])
+                await store.remove_for_account(subject, filed_under)
+        except Exception:
+            logger.debug("account delete: push-token cleanup skipped")
 
         # The wallet session itself.
         if token:
@@ -2575,6 +2582,14 @@ class GatewayServer:
         session = self._wallet_session_from_request(request)
         return str(session.get("address", "")) if session else ""
 
+    @staticmethod
+    def _session_key(raw) -> str:
+        """The one spelling of a caller-named session id: stripped, at most 100
+        characters. Every leg that checks, stores, or looks up by a session id
+        uses this — a check on one spelling and a lookup on another is a check
+        on nothing ("conv-A " passed resume's ownership check for "conv-A")."""
+        return str(raw or "").strip()[:100]
+
     def _resolve_session_id(self, request: web.Request, requested):
         """``(session_id, error)`` for a chat, push or action request.
 
@@ -2585,7 +2600,7 @@ class GatewayServer:
         (``user:<subject>``). With neither, production refuses (400) and
         development keeps ``"default"`` for local runs and the suite.
         """
-        session_id = str(requested or "").strip()[:100]
+        session_id = self._session_key(requested)
         if session_id and session_id != "default":
             return session_id, None
         subject = self._session_subject(request)
@@ -2615,6 +2630,8 @@ class GatewayServer:
         deletion or another claim had made it in the meantime."""
         memory = self.react_loop.memory
         identity = self._session_subject(request)
+        if self._names_another_account(session_id, identity):
+            return "", "this conversation belongs to another account"
         owner = memory.conversation_owner(session_id)
         if owner and owner != identity:
             return owner, "this conversation belongs to another account"
@@ -2630,12 +2647,27 @@ class GatewayServer:
         when *session_id* names a conversation another account owns, else None.
         Claims nothing — for the legs of the flow that describe a conversation
         or attach something to it without continuing it."""
+        session_id = self._session_key(session_id)
         if not session_id:
             return None
+        identity = self._session_subject(request)
+        if self._names_another_account(session_id, identity):
+            return "this conversation belongs to another account"
         owner = self.react_loop.memory.conversation_owner(session_id)
-        if owner and owner != self._session_subject(request):
+        if owner and owner != identity:
             return "this conversation belongs to another account"
         return None
+
+    @staticmethod
+    def _names_another_account(session_id: str, identity: str) -> bool:
+        """``user:<subject>`` is the conversation the gateway derives for a
+        signed-in caller who sent no id. The name says whose it is, and for a
+        SIWE subject it is computable from a public address — so, unclaimed,
+        anyone could take it first: squat it (the account's own default
+        conversation then answers 403 to the account) or, anonymously, write
+        turns the account inherits when it signs in and claims it. Only the
+        subject it names may use one."""
+        return session_id.startswith("user:") and session_id != f"user:{identity}"[:100]
 
     # ─── One chat turn, four entrances ───────────────────────────────────
 
