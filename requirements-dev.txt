@@ -1,11 +1,15 @@
 # Development and CI-only dependencies.
 #
-# Install with:
-#   pip install -r requirements.txt -r requirements-dev.txt
+# Install with TWO commands, runtime lock first:
+#   pip install -r requirements.txt && pip install -r requirements-dev.txt
+#
+# requirements.txt carries hashes, and pip applies hash checking to every
+# requirement in a command once any one has a hash. These entries have none,
+# so this file no longer includes requirements.txt (`-r`), and the two cannot
+# be given to one pip command. tests/test_dependency_manifests.py fails if a
+# tool installed here moves a locked runtime package.
 #
 # None of these are baked into the production Docker image.
-
--r requirements.txt
 
 # Test runner + fixtures
 pytest~=8.3
