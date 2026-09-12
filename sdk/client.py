@@ -249,7 +249,10 @@ class OpenMatrixClient:
         empty contract has no vulnerabilities, which is not the same as safe.
         When a template is used (``template_used`` is set), ``generated_source``
         is that template, and the audit and ``unimplemented`` describe it: a
-        function you declared that the template lacks is listed there.
+        function you declared that the template lacks is listed there. A function
+        the template inherits from OpenZeppelin (for erc721, e.g. ``balanceOf``,
+        ``transferFrom``, ``royaltyInfo``) counts as implemented. Matching is by
+        function name only; the parameters you declared are not compared.
         """
         return await self.ablockchain(
             "contract_conversion",

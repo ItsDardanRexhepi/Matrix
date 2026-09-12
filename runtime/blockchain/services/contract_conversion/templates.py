@@ -1,8 +1,13 @@
 """
 Contract templates — complete Solidity source for common patterns.
 
-Each template is a fully deployable Solidity contract with OpenZeppelin
-imports, constructor parameters, and gas-optimised patterns for Base L2.
+Each template is a complete Solidity contract with OpenZeppelin imports,
+constructor parameters, and gas-optimised patterns for Base L2. Every one
+compiles with solc 0.8.20 against the pinned OpenZeppelin (contracts/lib,
+5.0.2); tests/test_template_conversion_is_judged_on_the_template.py builds each
+with forge where forge and the submodule are present. The erc721 template did
+not compile until it stopped importing utils/Counters.sol, which OpenZeppelin 5
+removed.
 Templates include placeholders (``{{NAME}}``, ``{{SYMBOL}}``, etc.)
 that the generator fills at generation time.
 
@@ -63,7 +68,6 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 
 /**
  * @title {{NAME}}
@@ -71,8 +75,9 @@ import "@openzeppelin/contracts/utils/Counters.sol";
  *         Optimised for Base L2 deployment via 0pnMatrx.
  */
 contract {{NAME}} is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable {
-    using Counters for Counters.Counter;
-    Counters.Counter private _tokenIdCounter;
+    // OpenZeppelin 5 removed utils/Counters.sol, which this template imported,
+    // so it did not compile against the pinned library (contracts/lib, 5.0.2).
+    uint256 private _nextTokenId;
 
     string private _baseTokenURI;
     uint256 public maxSupply;
@@ -92,9 +97,9 @@ contract {{NAME}} is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownabl
     }
 
     function mint(address to, string memory uri) external onlyOwner returns (uint256) {
-        uint256 tokenId = _tokenIdCounter.current();
+        uint256 tokenId = _nextTokenId;
         require(tokenId < maxSupply, "Max supply reached");
-        _tokenIdCounter.increment();
+        _nextTokenId = tokenId + 1;
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
         return tokenId;
@@ -731,6 +736,87 @@ contract {{NAME}} is Ownable, ReentrancyGuard {
     }
 }
 '''
+
+
+# ── What each compiled template can be called with ─────────────────────
+#
+# The externally callable function names of each template AS COMPILED — its own
+# functions, the public getters of its state variables, and everything it
+# inherits from OpenZeppelin. Recorded from the ABI solc 0.8.20 produces against
+# the pinned library (contracts/lib/openzeppelin-contracts, 5.0.2); the
+# conversion service cannot compile at request time, and a regex over the
+# template text sees only the functions written in it. An erc721 conversion that
+# declared `balanceOf` or `royaltyInfo` was told those were unimplemented, though
+# ERC721 and ERC2981 implement them.
+#
+# tests/test_template_conversion_is_judged_on_the_template.py recompiles every
+# template and fails if a list here differs from the compiler's ABI, so a
+# template edit cannot leave this stale unnoticed where forge and the submodule
+# are available.
+TEMPLATE_EXTERNAL_FUNCTIONS: dict[str, frozenset[str]] = {
+    "erc20": frozenset({
+        "DOMAIN_SEPARATOR", "MAX_SUPPLY", "allowance", "approve", "balanceOf",
+        "burn", "burnFrom", "decimals", "eip712Domain", "mint", "name",
+        "nonces", "owner", "permit", "renounceOwnership", "symbol",
+        "totalSupply", "transfer", "transferFrom", "transferOwnership"
+    }),
+    "erc721": frozenset({
+        "approve", "balanceOf", "getApproved", "isApprovedForAll", "maxSupply",
+        "mint", "name", "owner", "ownerOf", "renounceOwnership", "royaltyInfo",
+        "safeTransferFrom", "setApprovalForAll", "setBaseURI",
+        "supportsInterface", "symbol", "tokenByIndex", "tokenOfOwnerByIndex",
+        "tokenURI", "totalSupply", "transferFrom", "transferOwnership"
+    }),
+    "erc1155": frozenset({
+        "balanceOf", "balanceOfBatch", "exists", "isApprovedForAll",
+        "maxSupplyPerToken", "mint", "mintBatch", "name", "owner",
+        "renounceOwnership", "royaltyInfo", "safeBatchTransferFrom",
+        "safeTransferFrom", "setApprovalForAll", "setMaxSupply", "setTokenURI",
+        "supportsInterface", "symbol", "totalSupply", "transferOwnership", "uri"
+    }),
+    "governor": frozenset({
+        "BALLOT_TYPEHASH", "CLOCK_MODE", "COUNTING_MODE",
+        "EXTENDED_BALLOT_TYPEHASH", "cancel", "castVote", "castVoteBySig",
+        "castVoteWithReason", "castVoteWithReasonAndParams",
+        "castVoteWithReasonAndParamsBySig", "clock", "eip712Domain", "execute",
+        "getVotes", "getVotesWithParams", "hasVoted", "hashProposal", "name",
+        "nonces", "onERC1155BatchReceived", "onERC1155Received",
+        "onERC721Received", "proposalDeadline", "proposalEta",
+        "proposalNeedsQueuing", "proposalProposer", "proposalSnapshot",
+        "proposalThreshold", "proposalVotes", "propose", "queue", "quorum",
+        "quorumDenominator", "quorumNumerator", "relay", "setProposalThreshold",
+        "setVotingDelay", "setVotingPeriod", "state", "supportsInterface",
+        "timelock", "token", "updateQuorumNumerator", "updateTimelock",
+        "version", "votingDelay", "votingPeriod"
+    }),
+    "timelock": frozenset({
+        "CANCELLER_ROLE", "DEFAULT_ADMIN_ROLE", "EXECUTOR_ROLE",
+        "PROPOSER_ROLE", "cancel", "execute", "executeBatch", "getMinDelay",
+        "getOperationState", "getRoleAdmin", "getTimestamp", "grantRole",
+        "hasRole", "hashOperation", "hashOperationBatch", "isOperation",
+        "isOperationDone", "isOperationPending", "isOperationReady",
+        "onERC1155BatchReceived", "onERC1155Received", "onERC721Received",
+        "renounceRole", "revokeRole", "schedule", "scheduleBatch",
+        "supportsInterface", "updateDelay"
+    }),
+    "vesting": frozenset({
+        "createSchedule", "getScheduleCount", "owner", "release",
+        "renounceOwnership", "revoke", "scheduleIds", "schedules", "token",
+        "transferOwnership"
+    }),
+    "staking": frozenset({
+        "claimReward", "earned", "lastUpdateTime", "lockPeriod", "owner",
+        "renounceOwnership", "rewardPerToken", "rewardPerTokenStored",
+        "rewardRatePerSecond", "rewardToken", "setLockPeriod", "setRewardRate",
+        "stake", "stakes", "stakingToken", "totalStaked", "transferOwnership",
+        "userRewardPerTokenPaid", "withdraw"
+    }),
+    "marketplace": frozenset({
+        "buy", "cancel", "feeRecipient", "list", "listings", "owner",
+        "platformFeeBps", "renounceOwnership", "setFeeRecipient",
+        "setPlatformFee", "transferOwnership"
+    }),
+}
 
 
 def get_template(name: str) -> str | None:

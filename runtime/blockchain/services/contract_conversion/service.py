@@ -16,7 +16,11 @@ from runtime.blockchain.services.contract_conversion.artist_classifier import Ar
 from runtime.blockchain.services.contract_conversion.generator import ContractGenerator
 from runtime.blockchain.services.contract_conversion.parser import SourceParser
 from runtime.blockchain.services.contract_conversion.revenue_enforcer import RevenueEnforcer
-from runtime.blockchain.services.contract_conversion.templates import get_template, list_templates
+from runtime.blockchain.services.contract_conversion.templates import (
+    TEMPLATE_EXTERNAL_FUNCTIONS,
+    get_template,
+    list_templates,
+)
 from runtime.blockchain.services.contract_conversion.tier_manager import TierManager
 from runtime.blockchain.web3_manager import Web3Manager
 from runtime.security.audit import ContractAuditor
@@ -267,7 +271,21 @@ class ContractConversionService:
                 # `unimplemented` keeps its meaning for the caller: a function
                 # they declared that the contract they got does not implement.
                 # A template that lacks one of their functions is still partial.
-                implemented = ContractAuditor.implemented_functions(generated)
+                #
+                # "The contract they got" includes what it inherits. The regex
+                # over the template text sees only functions written in it, so
+                # an erc721 conversion declaring balanceOf or royaltyInfo was
+                # told those were unimplemented although ERC721 / ERC2981
+                # implement them. The compiled template's external function
+                # names (templates.TEMPLATE_EXTERNAL_FUNCTIONS, recorded from
+                # its ABI and re-checked against the compiler by the tests)
+                # cover the inherited ones; the text still covers anything fee
+                # injection added. Matching is by name: a declared parameter
+                # list is not compared with the implementation's.
+                implemented = (
+                    ContractAuditor.implemented_functions(generated)
+                    | TEMPLATE_EXTERNAL_FUNCTIONS.get(template_used, frozenset())
+                )
                 unimplemented = [
                     f.get("name", "<anonymous>")
                     for f in functions
