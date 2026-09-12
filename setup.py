@@ -608,18 +608,48 @@ def commit_setup(config):
     return True
 
 
+# Files the wizard writes credentials into. BOTH branches of setup_gitignore()
+# protect every one of them — they used to disagree, and the amend branch (the
+# common one) never covered .env.
+SECRET_FILES = ("openmatrix.config.json", ".env")
+
+
+def _gitignore_covers(lines, entry):
+    """True if these .gitignore lines ignore *entry* by name at the root.
+
+    Exact lines only: `.env` inside `.env.example`, or inside a comment, is not
+    coverage, and a later `!.env` undoes an earlier `.env` (git's last match
+    wins). A wildcard that would cover it (`.env*`) is not recognised, which
+    costs a redundant line — the safe direction to be wrong in.
+    """
+    covered = False
+    for raw in lines:
+        line = raw.strip()
+        if line in (entry, "/" + entry):
+            covered = True
+        elif line in ("!" + entry, "!/" + entry):
+            covered = False
+    return covered
+
+
 def setup_gitignore():
-    """Ensure config file with real keys isn't committed."""
+    """Ensure the files holding real keys are never committed."""
     gitignore = Path(".gitignore")
-    if gitignore.exists():
-        content = gitignore.read_text()
-        if "openmatrix.config.json" not in content:
-            with open(gitignore, "a") as f:
-                f.write("\n# Real config with secrets — never commit\nopenmatrix.config.json\n")
-            success(".gitignore updated")
-    else:
-        gitignore.write_text("openmatrix.config.json\n__pycache__/\n*.pyc\n.env\n")
+    if not gitignore.exists():
+        gitignore.write_text("\n".join(SECRET_FILES) + "\n__pycache__/\n*.pyc\n")
         success(".gitignore created")
+        return
+
+    content = gitignore.read_text()
+    missing = [e for e in SECRET_FILES if not _gitignore_covers(content.splitlines(), e)]
+    if not missing:
+        return
+    with open(gitignore, "a") as f:
+        if content and not content.endswith("\n"):
+            f.write("\n")
+        f.write("\n# Real config and credentials — never commit\n")
+        f.write("".join(e + "\n" for e in missing))
+    success(f".gitignore updated ({', '.join(missing)})")
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────

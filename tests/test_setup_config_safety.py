@@ -24,6 +24,9 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -369,3 +372,56 @@ def test_wizard_config_write_keeps_owner_only_permissions(sandbox, monkeypatch):
     monkeypatch.setattr(wizard, "ask", lambda *a, **k: "yes")
     assert wizard.write_config({"a": "b"}) is True
     assert stat.S_IMODE(sandbox.stat().st_mode) == 0o600
+
+
+# ── .gitignore: both branches must protect both secret files ────────────────
+#
+# setup_gitignore() had two branches that disagreed. Creating a .gitignore
+# wrote `.env`; amending an existing one checked for and appended only
+# `openmatrix.config.json`. The common case is the amend branch — nearly every
+# project already has a .gitignore — so the file the channel wizards put
+# Telegram/SMTP/Twilio credentials in was never ensured ignored. The verdict
+# below is git's own, not a string search of the file.
+
+GIT = shutil.which("git")
+
+
+def _git_ignores(repo: Path, rel: str) -> bool:
+    return subprocess.run(
+        [GIT, "-C", str(repo), "check-ignore", "--no-index", "-q", rel],
+        capture_output=True,
+        # The developer's global excludes must not answer for the file.
+        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+    ).returncode == 0
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("existing", [
+    None,                                            # create branch
+    "openmatrix.config.json\n",                      # amend branch, the finding
+    "node_modules/\n.env.example\n",                 # substring trap: `.env` in `.env.example`
+    "# openmatrix.config.json\n# .env\n",            # mentioned only in comments
+    ".env\nopenmatrix.config.json\n!.env\n",         # re-included later in the file
+])
+def test_setup_gitignore_ignores_both_secret_files(sandbox, existing):
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    if existing is not None:
+        (repo / ".gitignore").write_text(existing)
+    wizard = _load_wizard("setup_main_gitignore")
+    wizard.setup_gitignore()
+    for secret in ("openmatrix.config.json", ".env"):
+        assert _git_ignores(repo, secret), (
+            f"after setup_gitignore(), git would commit {secret} "
+            f"(starting .gitignore: {existing!r})"
+        )
+
+
+def test_setup_gitignore_is_idempotent(sandbox):
+    (sandbox.parent / ".gitignore").write_text("dist/\n")
+    wizard = _load_wizard("setup_main_gitignore_twice")
+    wizard.setup_gitignore()
+    once = (sandbox.parent / ".gitignore").read_text()
+    wizard.setup_gitignore()
+    assert (sandbox.parent / ".gitignore").read_text() == once
+    assert once.startswith("dist/\n"), "existing entries must be kept"
