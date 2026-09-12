@@ -2,7 +2,7 @@
 Gaming — on-chain gaming assets and interactions on Base L2.
 
 Manage game items (ERC-1155), achievements, leaderboards, and in-game economies.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

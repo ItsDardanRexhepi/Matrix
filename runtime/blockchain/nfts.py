@@ -1,7 +1,7 @@
 """
 NFTs — mint, transfer, and manage NFTs on Base L2.
 
-Supports ERC-721 and ERC-1155 standards. All gas fees are covered by the platform.
+Supports ERC-721 and ERC-1155 standards. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -31,7 +31,7 @@ class NFTs(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Mint, transfer, and manage NFTs (ERC-721/ERC-1155) on Base L2. All gas fees covered by the platform."
+        return "Mint, transfer, and manage NFTs (ERC-721/ERC-1155) on Base L2. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

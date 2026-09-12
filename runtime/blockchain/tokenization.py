@@ -2,7 +2,7 @@
 Tokenization — create and manage ERC-20 tokens on Base L2.
 
 Deploy custom tokens, transfer, approve, and check balances.
-All gas fees are covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

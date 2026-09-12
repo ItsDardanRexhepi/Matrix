@@ -2,7 +2,7 @@
 Staking — stake and unstake tokens on Base L2.
 
 Supports staking to validator contracts and staking pools.
-All gas fees covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

@@ -2,7 +2,7 @@
 Supply Chain — on-chain supply chain tracking and verification.
 
 Create supply chain records, track items, verify provenance via EAS attestations.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

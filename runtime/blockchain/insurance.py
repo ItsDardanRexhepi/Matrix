@@ -2,7 +2,7 @@
 Insurance — on-chain insurance policy management on Base L2.
 
 Create policies, file claims, process payouts via smart contracts.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

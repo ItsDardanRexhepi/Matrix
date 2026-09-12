@@ -2,7 +2,7 @@
 Governance — on-chain governance tools beyond DAOs.
 
 Multi-sig operations, timelock management, access control, and role management.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

@@ -2,7 +2,7 @@
 Securities — tokenized securities management on Base L2.
 
 Create security tokens (ERC-3643 compatible), manage transfer restrictions,
-compliance, and investor management. All gas covered by the platform.
+compliance, and investor management. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

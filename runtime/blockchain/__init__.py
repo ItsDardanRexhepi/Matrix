@@ -1,8 +1,9 @@
 """
 Blockchain Module — on-chain capabilities for 0pnMatrx.
 
-All gas fees are covered by the platform via ERC-4337 paymaster.
-Users never pay gas. Every state-changing action is attested via EAS.
+Gas is paid by the platform within its sponsorship policy (ERC-4337 paymaster).
+A request past the per-identity daily cap is refused, not charged to the user.
+Every state-changing action is attested via EAS.
 
 This package exposes ``Web3Manager`` (and the ``not_deployed_response``
 helper) so services across the platform share a single web3 connection

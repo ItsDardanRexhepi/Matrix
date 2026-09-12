@@ -2,7 +2,7 @@
 IP & Royalties — intellectual property management and royalty distribution on Base L2.
 
 Register IP on-chain, configure royalty splits, distribute payments.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

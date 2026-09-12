@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import describe_gas_policy
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class Dashboard(BlockchainInterface):
                 "gas_price_wei": str(gas_price),
                 "gas_price_gwei": str(self.web3.from_wei(gas_price, "gwei")),
                 "eth_transfer_cost": str(self.web3.from_wei(gas_price * 21000, "ether")),
-                "note": "All gas is covered by the platform — users never pay",
+                "gas_policy": describe_gas_policy(self.config),
                 "network": self.network,
             }, indent=2)
         except Exception as e:
@@ -142,7 +143,7 @@ class Dashboard(BlockchainInterface):
                 "platform_balance_eth": str(self.web3.from_wei(balance, "ether")),
                 "latest_block": latest_block,
                 "gas_price_gwei": str(self.web3.from_wei(gas_price, "gwei")),
-                "gas_policy": "All gas fees covered by platform — users never pay",
+                "gas_policy": describe_gas_policy(self.config),
             }, indent=2)
         except Exception as e:
             return f"Platform stats failed: {e}"

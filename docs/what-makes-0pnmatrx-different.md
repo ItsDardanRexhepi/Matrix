@@ -1,8 +1,8 @@
 # What Makes 0pnMatrx Different
 
-## Everything Is Free
+## Free to Start, Fees Stated
 
-Every capability on 0pnMatrx is free. Smart contracts, DeFi loans, NFTs, identity, governance, payments, insurance — all of it. No subscriptions. No premium tiers. No hidden fees. No gas fees. The platform covers all blockchain transaction costs for every user, for every capability, forever. Users never pay gas on 0pnMatrx.
+The software is open source and free to run. Using the platform has a free tier; Pro and Enterprise subscriptions are sold in the MTRX app. Gas is paid by the platform when an operator configures sponsorship, up to a per-identity daily cap — past that cap an operation is refused rather than charged to you. Some operations carry a platform fee (marketplace sales, staking rewards, stablecoin transfers and others); every one, at its rate, is listed in `docs/blockchain.md` under **Fees**.
 
 ## Everything Is Conversation
 

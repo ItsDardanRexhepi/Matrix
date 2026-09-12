@@ -81,7 +81,7 @@ class DeFi(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "DeFi operations: lending, borrowing, yield farming, and liquidity provision on Base L2. All gas fees covered by the platform."
+        return "DeFi operations: lending, borrowing, yield farming, and liquidity provision on Base L2. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

@@ -2,7 +2,7 @@
 Identity — on-chain identity verification and management.
 
 Supports ENS-style name resolution, identity attestations via EAS,
-and wallet-to-identity mapping. All gas covered by the platform.
+and wallet-to-identity mapping. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json

@@ -2,13 +2,15 @@
 Payments — send and receive ETH and tokens on Base L2.
 
 Handles native ETH transfers, ERC-20 token payments, and batch transfers.
-All gas fees covered by the platform.
+Gas is sponsored within this deployment's sponsorship policy
+(runtime/blockchain/sponsorship.py describe_gas_policy).
 """
 
 import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import describe_gas_policy
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,8 @@ class Payments(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Send ETH and token payments on Base L2. All gas fees covered by the platform."
+        return ("Send ETH and token payments on Base L2. Gas is sponsored within the "
+                "deployment's sponsorship policy (a per-identity daily cap when one is set).")
 
     @property
     def parameters(self) -> dict:
@@ -188,7 +191,7 @@ class Payments(BlockchainInterface):
             return json.dumps({
                 "gas_price_gwei": str(self.web3.from_wei(gas_price, "gwei")),
                 "estimated_eth_transfer_cost": str(eth_cost),
-                "paid_by": "platform (0pnMatrx) — users never pay gas",
+                "gas_policy": describe_gas_policy(self.config),
                 "network": self.network,
             })
         except Exception as e:

@@ -32,6 +32,11 @@ from gateway.error_contract import client_error
 logger = logging.getLogger(__name__)
 
 
+def _gas_sponsorship_configured(config: dict) -> bool:
+    from runtime.blockchain.sponsorship import describe_gas_policy
+    return bool(describe_gas_policy(config)["sponsored"])
+
+
 class MobileResponse:
     """Consistent response envelope for mobile clients."""
 
@@ -153,7 +158,7 @@ SERVICE_CATALOG = [
         "id": "payments",
         "name": "Payments",
         "icon": "creditcard",
-        "description": "Send money anywhere instantly. Zero fees.",
+        "description": "Send money anywhere instantly. Stablecoin transfers carry a small tiered platform fee.",
         "category": "finance",
         "actions": ["send_payment", "get_payment_quote", "create_payment"],
     },
@@ -985,7 +990,9 @@ class BridgeRoutes:
             "features": {
                 "glasswing_audit": True,
                 "eas_attestations": True,
-                "gas_sponsorship": True,
+                # Derived, not asserted: the app used to be told sponsorship
+                # was on whatever the deployment configured.
+                "gas_sponsorship": _gas_sponsorship_configured(self._config),
                 "managed_agents": True,
             },
             "endpoints": {

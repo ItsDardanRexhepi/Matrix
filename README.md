@@ -25,7 +25,7 @@ What you can do on 0pnMatrx:
 - Co-own property, vehicles, and real-world assets with anyone in the world through legally enforceable smart contracts
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world instantly with zero fees
+- Send money anywhere in the world instantly, with the platform fee stated up front (see Fees in `docs/blockchain.md`)
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves ownership forever
 - Build and deploy blockchain applications and games, no Solidity required
 - Trade tokenized securities 24 hours a day, 7 days a week, globally, with instant settlement
@@ -34,7 +34,7 @@ What you can do on 0pnMatrx:
 - Verify the complete history of any product, property, or asset before you buy it
 - Participate in governance and voting that is tamper-proof, transparent, and permanently recorded on-chain
 - Watch the platform come alive through the real-time social feed — every deployment, swap, mint, and vote, ranked and streamed live
-- And much more, all free, all yours, all open
+- And much more, all yours, all open
 
 Your companions Trinity, Morpheus, and Neo are with you every step of the way.
 
@@ -184,9 +184,12 @@ curl http://localhost:18790/api/v1/capabilities            # list all
 curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 ```
 
-All transactions are sponsored by the platform paymaster — users never
-pay gas. Capabilities return `{"status": "not_deployed", ...}` until
-contracts are deployed, keeping every flow safe to exercise offline.
+Gas for platform-signed transactions is sponsored by the platform paymaster
+within the operator's policy — a per-identity daily cap when one is set; past
+it an operation is refused rather than charged to the user. Some operations
+carry a platform fee, each listed with its rate under Fees in
+`docs/blockchain.md`. Capabilities return `{"status": "not_deployed", ...}`
+until contracts are deployed, keeping every flow safe to exercise offline.
 
 ---
 

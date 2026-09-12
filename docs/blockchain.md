@@ -26,7 +26,7 @@
 20. **Gaming** — games, assets, tournaments, achievements, in-game economies
 21. **Infrastructure** — AI agents, ML models, training data
 
-Every capability routes through the platform paymaster — users never pay gas.
+State-changing capabilities are signed by the platform, which pays their gas within the sponsorship policy described under **Gas** below.
 
 ## How It Works
 
@@ -36,6 +36,46 @@ Users describe what they want to Trinity in plain language. Trinity translates t
 
 The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-value operations and attestations. Cross-chain bridges enable movement between networks.
 
+## Gas
+
+When an operator configures the platform paymaster, the platform pays gas for users' operations — within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`):
+
+- **Per-identity daily cap.** A USD amount per identity over a rolling 24 hours (`paymaster.policy.daily_cap_usd`; the example config sets 50). Past it, the platform stops sponsoring: an operation the platform would sign is refused with the reason rather than charged to the user, and a user-operation sponsorship request to `/api/v1/paymaster/sign` is declined with `403`. A deployment that sets no cap sponsors without a daily limit.
+- **Action allowlist.** `paymaster.policy.allowed_actions` limits which action types are sponsored. It is checked on every `/api/v1/paymaster/sign` request, and on platform-signed capabilities when a daily cap is also set.
+- **No paymaster configured, no sponsorship.** The platform pays no gas there; an app-signed user operation pays its own.
+- The platform's own record-keeping writes (EAS attestations) are not metered against any user's cap.
+
+What a particular deployment provides is returned by the dashboard, payments and cross-border tools as `gas_policy`, derived from the same configuration the signer reads.
+
 ## Fees
 
-There are none. The platform covers all blockchain transaction fees for every capability across all 21 categories — smart contracts, DeFi, NFTs, staking, restaking, identity, governance, payments, cross-chain, privacy, oracles, storage, compute, real-world assets, markets, gaming, infrastructure, and everything else. Users never pay gas on 0pnMatrx. No exceptions. No conditions. Ever.
+The platform does take fees on some operations. They are separate from gas sponsorship (above). Every rate below is read from the code that charges it, and `tests/test_fee_disclosure_matches_code.py` fails if the code and this table drift apart.
+
+### On-chain, in the platform contracts
+
+| Operation | What the platform receives | Source |
+|---|---|---|
+| Marketplace purchase | 5% of the sale price | `contracts/OpenMatrixMarketplace.sol` (`PLATFORM_FEE_BPS`) |
+| Staking rewards | 5% of rewards, when claimed or paid out on unstake | `contracts/OpenMatrixStaking.sol` (`COMMISSION_BPS`) |
+| DAO treasury withdrawal | 1% below 10,000 gwei; 0.5% up to 100,000 gwei; 0.25% above | `contracts/OpenMatrixDAO.sol` (`_tieredFeeBps`) |
+| NFT mint | the whole mint price (`mintPrice`, set at deployment); the platform is also the default royalty receiver when a minter sets no royalty | `contracts/OpenMatrixNFT.sol` |
+| Insurance | premiums stay in the pool; the owner can withdraw the balance above the reserve and outstanding coverage to the platform | `contracts/OpenMatrixInsurance.sol` (`withdrawExcess`) |
+
+Token swaps on `contracts/OpenMatrixDEX.sol` are not charged a platform fee.
+
+### In platform services
+
+Computed by the service on the operation it performs. Defaults are shown; each is overridable in configuration where noted.
+
+| Operation | Platform fee | Source |
+|---|---|---|
+| Stablecoin transfer | deducted from the amount: 0.1% below 1,000; 0.05% below 10,000; 0.025% below 100,000; 0.01% above | `runtime/blockchain/services/stablecoin/service.py` (`DEFAULT_FEE_TIERS`; `stablecoin.fee_tiers`) |
+| Marketplace sale | 5% of the price | `runtime/blockchain/services/marketplace/service.py` (`platform_fee_pct`) |
+| Creator subscription plan payment | 10% of each payment | `runtime/blockchain/services/subscriptions/service.py` (`platform_fee_pct`) |
+| Game revenue distribution | 5% of the revenue distributed | `runtime/blockchain/services/gaming/revenue_share.py` (`platform_fee_pct`) |
+| Pooled real-world-asset purchase | 1% of the amount raised, on finalise | `runtime/blockchain/services/rwa_tokenization/pooled_purchase.py` (`platform_fee_pct`) |
+| NFT sale | 2.5% of the sale price | `runtime/blockchain/services/nft_services/royalty_enforcement.py`, `runtime/blockchain/services/nft_services/service.py` (`blockchain.platform_fee_bps`) |
+| P2P loan | 0.5% of the principal, added to the repayment | `runtime/blockchain/services/defi/p2p_lending.py` (`defi.p2p.platform_fee_bps`) |
+| Contract conversion | when `blockchain.platform_wallet` is set, the generated contract gets a 2.5% fee on value sent to each `payable` function, paid to that wallet (its owner can change it, up to 10%); on by default (`conversion.inject_fees`) | `runtime/blockchain/services/contract_conversion/revenue_enforcer.py` (`blockchain.platform_fee_bps`) |
+
+Paid plugin sales are not live (the purchase route answers `501`); their commission is the operator's `plugin_marketplace.commission_rate`. Subscriptions (Pro, Enterprise) are sold in the MTRX app through Apple In-App Purchase.

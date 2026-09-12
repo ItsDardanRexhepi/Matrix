@@ -2,7 +2,9 @@
 Cross-Border Payments — international transfers via stablecoins on Base L2.
 
 Send stablecoin payments across borders with on-chain attestation for
-compliance and audit trails. All gas covered by the platform.
+compliance and audit trails. Gas is sponsored within this deployment's
+sponsorship policy (runtime/blockchain/sponsorship.py describe_gas_policy), and
+the stablecoin transfer this hands off to charges its tiered transfer fee.
 """
 
 import json
@@ -22,7 +24,9 @@ class CrossBorderPayments(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Cross-border payments via stablecoins with compliance attestations. Gas covered by platform."
+        return ("Cross-border payments via stablecoins with compliance attestations. "
+                "Gas is sponsored within the deployment's sponsorship policy; the "
+                "stablecoin transfer charges a tiered fee (see estimate).")
 
     @property
     def parameters(self) -> dict:
@@ -82,12 +86,29 @@ class CrossBorderPayments(BlockchainInterface):
         }, indent=2, default=str)
 
     async def _estimate(self, params: dict) -> str:
-        """Estimate cross-border payment cost."""
+        """Estimate cross-border payment cost.
+
+        This used to quote "gas_cost: Covered by platform" and "transfer_fee:
+        $0.00 (no platform fee)" unconditionally. Gas is sponsored only within
+        the configured policy, and `_send` hands off to the stablecoin transfer,
+        which deducts a tiered platform fee. Both are now derived: the gas
+        statement from the sponsorship config, the fee from the same
+        StablecoinService.get_fee the transfer charges with.
+        """
+        from runtime.blockchain.services.stablecoin.service import StablecoinService
+        from runtime.blockchain.sponsorship import describe_gas_policy
+
+        raw_amount = params.get("amount", "0")
+        try:
+            transfer_fee = await StablecoinService(self.config).get_fee(float(raw_amount))
+        except (TypeError, ValueError):
+            transfer_fee = {"fee": None, "rate": None, "tier": "invalid",
+                            "reason": f"amount {raw_amount!r} is not a number"}
         return json.dumps({
             "token": params.get("token", "USDC"),
-            "amount": params.get("amount", "0"),
-            "gas_cost": "Covered by platform (0pnMatrx)",
-            "transfer_fee": "$0.00 (no platform fee)",
+            "amount": raw_amount,
+            "gas_policy": describe_gas_policy(self.config),
+            "transfer_fee": transfer_fee,
             "estimated_time": "< 2 minutes (Base L2 finality)",
             "network": self.network,
         }, indent=2)

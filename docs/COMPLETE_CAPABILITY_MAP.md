@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-The platform pays gas for everything. Paymaster sponsorship is the default for every state-modifying capability below, so end users never hold or spend native tokens to transact. Read-only capabilities don't touch a chain and are free to call.
+State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy — a per-identity daily cap and an action allowlist, when configured; past the cap an operation is refused rather than charged to the user. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. The Tier column is the subscription tier, not a price.
 
 ---
 
@@ -221,7 +221,7 @@ The sections below organise every capability by its high-level category. Older c
 | Create Payment | Create a one-time payment | Free | POST /api/v1/payments/create | x402, native |
 | Authorize / Complete / Refund | Two-phase payment lifecycle | Free | via capability registry | x402 |
 | Send Payment | Send a payment to a wallet | Free | via capability registry | stablecoin |
-| Transfer Stablecoin | Send stablecoins globally with zero fees | Free | POST /api/v1/stablecoin/transfer | USDC, USDT, DAI |
+| Transfer Stablecoin | Send stablecoins globally (tiered platform fee, 0.01%–0.1%) | Free | POST /api/v1/stablecoin/transfer | USDC, USDT, DAI |
 | Invoice Factor | Tokenize and sell an invoice for working capital | Pro | via capability registry | custom |
 | Cross-Border Payment | Send money across borders with FX conversion | Free | POST /api/v1/crossborder/send | Circle, Wise, native |
 | Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | Pro | via capability registry | state channels |

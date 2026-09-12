@@ -3,7 +3,8 @@
 0pnMatrx SDK — Blockchain Operations Example
 
 Demonstrates all blockchain capabilities through the SDK.
-All gas fees are covered by the platform — users never pay.
+Gas is paid by the platform within the deployment's sponsorship policy
+(a per-identity daily cap when one is configured).
 """
 
 import asyncio

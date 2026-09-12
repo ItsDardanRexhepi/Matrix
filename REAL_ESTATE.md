@@ -112,7 +112,8 @@ transaction hash.
 
 **Non-custodial by construction:** the platform never moves buyer funds. The
 buyer's own account submits the settlement — gas-sponsorable through the
-existing `/api/v1/paymaster/sign` path so the buyer pays no gas. On-chain,
+existing `/api/v1/paymaster/sign` path, within the operator's sponsorship policy
+(per-identity daily cap, action allowlist). On-chain,
 `PropertyEscrow.lockAndSettle` executes funds-lock + deed-transfer + release
 in **one transaction, all-or-nothing**:
 

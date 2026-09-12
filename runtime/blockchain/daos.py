@@ -2,7 +2,7 @@
 DAOs — create and manage decentralized autonomous organizations on Base L2.
 
 Supports proposal creation, voting, execution, and membership management
-via Governor-style contracts. All gas covered by the platform.
+via Governor-style contracts. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
