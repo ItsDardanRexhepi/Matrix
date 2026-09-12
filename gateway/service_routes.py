@@ -873,11 +873,14 @@ class ServiceRoutes:
 
     @staticmethod
     def _sponsorship_identity(request: "web.Request") -> str:
-        """The wallet the security middleware authenticated for this request.
+        """The wallet the security middleware bound for this request.
 
-        Empty when nothing was authenticated — which the sponsorship policy
-        treats as a denial whenever a cap is configured, because a per-identity
-        cap cannot meter spend it cannot attribute.
+        Bound, not authenticated: it is the session's identity when a session is
+        presented, and otherwise the caller-written X-Wallet-Address header or a
+        body wallet/from/sender/account field (gateway/server.py
+        _security_context_middleware). Empty when none of those is present; the
+        handler then meters the body `sender`, and the policy denies only when
+        that is empty too and a cap is configured.
         """
         from gateway.security_gate import current_request_security
         from runtime.blockchain.sponsorship import canonical_identity
@@ -937,10 +940,15 @@ class ServiceRoutes:
         account, until the EntryPoint deposit was empty. Three things changed:
 
           * the sponsored account is bound to the identity the security
-            middleware authenticated for THIS request. A body `sender` that
-            disagrees is refused rather than honoured;
+            middleware bound for THIS request. A body `sender` that disagrees is
+            refused rather than honoured. That identity is a session's when one
+            is presented; without a session it is the X-Wallet-Address header or
+            body field the caller writes;
           * the request is priced from its own gas fields against a live ETH/USD
-            quote and metered against the configured per-identity daily cap;
+            quote and metered against the configured per-identity daily cap.
+            Per identity means per address: a caller who writes a new address
+            gets a fresh cap, so the cap bounds spend per address, not per
+            caller;
           * the budget is reserved before signing and committed only once a
             signature actually exists, so a signing failure does not charge
             anyone for gas that was never sponsored.
@@ -964,9 +972,10 @@ class ServiceRoutes:
 
         policy = SponsorshipPolicy.from_config(cfg)
 
-        # Bind the sponsored account to the authenticated caller. Same idiom as
-        # _handle_governance_vote: an authenticated identity always wins, and a
-        # body value that contradicts it is a spoof attempt, not a preference.
+        # Bind the sponsored account to the identity bound for this request
+        # (a session's, else the caller-written header or body field). Same
+        # idiom as _handle_governance_vote: a bound identity always wins, and a
+        # body value that contradicts it is refused, not preferred.
         identity = self._sponsorship_identity(request)
         body_sender = str(body.get("sender", "") or "").strip()
         if identity and body_sender and body_sender.lower() != identity.lower():
@@ -1359,10 +1368,12 @@ class ServiceRoutes:
         # NEW-78: `trigger_data` is gone — it was the claimant's own "proof"
         # of the covered event, and the claim decision now comes from oracle
         # data instead. The caller is bound to the wallet the security
-        # middleware authenticated for THIS request, following the same idiom
-        # as _handle_governance_vote: an authenticated identity always wins,
-        # a body-supplied holder is a dev fallback only, and an absent caller
-        # is refused by assert_owner rather than silently skipped.
+        # middleware bound for THIS request (a session's identity when one is
+        # presented, otherwise the caller-written X-Wallet-Address header or a
+        # body field), following the same idiom as _handle_governance_vote:
+        # a bound identity always wins, a body-supplied holder is a dev
+        # fallback only, and an absent caller is refused by assert_owner rather
+        # than silently skipped.
         body = await self._parse_body(request)
         self._require(body, "policy_id")
         from gateway.security_gate import current_request_security
@@ -1416,11 +1427,14 @@ class ServiceRoutes:
     async def _handle_governance_vote(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
         self._require(body, "proposal_id", "support")
-        # P5-1: bind the vote to the wallet the security middleware authenticated
-        # for THIS request — not a spoofable body field. An authenticated identity
-        # always wins, so a mismatched body ``voter`` is simply ignored (the vote
-        # is recorded under the real wallet). The body voter is a testnet/dev
-        # fallback only, used when no identity was bound. The 400 for a
+        # P5-1: bind the vote to the wallet the security middleware bound for
+        # THIS request. That is a session's identity when a session is
+        # presented; without one it is the caller-written X-Wallet-Address
+        # header (or a body wallet/from field), so the binding is only as strong
+        # as the session. A bound identity always wins, so a mismatched body
+        # ``voter`` is ignored (the vote is recorded under the bound wallet). The
+        # body voter is a testnet/dev fallback only, used when no identity was
+        # bound. The 400 for a
         # fully-absent voter just mirrors the prior _require("voter") — no gate
         # stricter than before, and the Morpheus OBSERVE gate itself is untouched.
         from gateway.security_gate import current_request_security

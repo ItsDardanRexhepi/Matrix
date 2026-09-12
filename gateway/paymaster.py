@@ -19,8 +19,9 @@ callData/initCode (runtime.blockchain.sponsorship.classify_user_operation), neve
 against a label the requester supplies. It constrains which ABI function names
 the call data invokes, not what code runs: the target contract, a value
 recipient and the sender account are not verified (see that module's WHAT IT
-CANNOT KNOW), so the daily cap, not the allowlist, bounds a caller who deploys
-contracts.
+CANNOT KNOW). The daily cap does not bound such a caller either: it is metered
+per address, and without a session the address is the X-Wallet-Address header
+or body `sender` the caller writes, so each new address gets a fresh cap.
 """
 
 from __future__ import annotations

@@ -356,8 +356,16 @@ class SponsorshipPolicy:
 #     puts no restriction on the sender either.
 #
 # So `allowed_actions` is a statement about the shape of honest requests, not a
-# security boundary against a caller who deploys contracts. The daily cap is
-# what bounds sponsored spend against that caller.
+# security boundary against a caller who deploys contracts.
+#
+# Nor is the daily cap a boundary against such a caller. It is metered per
+# IDENTITY, and the identity is an address the caller chooses. With no session,
+# the route takes it from the X-Wallet-Address header or the body `sender`, both
+# written by the caller; with a SIWE session it is an address whose key the
+# caller holds, and keys cost nothing to make. Each new address starts with a
+# fresh cap. The cap bounds sponsored spend per address, not per caller, and
+# nothing in this repo bounds the total a caller who rotates addresses can draw
+# except the EntryPoint deposit itself.
 
 # Past this many calls in one batch the operation is one label, so neither the
 # label list nor anything built from it grows with the caller's input.

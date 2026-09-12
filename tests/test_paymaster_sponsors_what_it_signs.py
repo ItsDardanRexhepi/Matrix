@@ -310,18 +310,29 @@ def test_the_three_array_batch_the_client_encodes_is_described():
     assert classify_user_operation(call) == ["transfer", "transfer", "mint_nft"]
 
 
-def test_a_batch_over_the_limit_is_one_label():
-    from runtime.blockchain.sponsorship import MAX_BATCH_CALLS, classify_user_operation
+# The documented limit, written as a literal so these tests observe behaviour
+# on a tree where the constant does not exist, rather than an ImportError.
+BATCH_LIMIT = 256
 
-    n = MAX_BATCH_CALLS + 1
+
+def test_a_batch_over_the_limit_is_one_label():
+    from runtime.blockchain.sponsorship import classify_user_operation
+
+    n = BATCH_LIMIT + 1
     inners = [_sel(f"f{i}()") for i in range(n)]
     call = (_sel("executeBatch(address[],bytes[])")
             + encode(["address[]", "bytes[]"], [[TOKEN] * n, inners]))
     assert classify_user_operation(call) == ["oversized_batch"]
     at_limit = (_sel("executeBatch(address[],bytes[])")
                 + encode(["address[]", "bytes[]"],
-                         [[TOKEN] * MAX_BATCH_CALLS, inners[:MAX_BATCH_CALLS]]))
-    assert len(classify_user_operation(at_limit)) == MAX_BATCH_CALLS
+                         [[TOKEN] * BATCH_LIMIT, inners[:BATCH_LIMIT]]))
+    assert len(classify_user_operation(at_limit)) == BATCH_LIMIT
+
+
+def test_the_module_limit_is_the_documented_one():
+    from runtime.blockchain.sponsorship import MAX_BATCH_CALLS
+
+    assert MAX_BATCH_CALLS == BATCH_LIMIT
 
 
 @pytest.mark.asyncio
@@ -364,10 +375,8 @@ async def test_with_no_allowlist_the_call_data_is_not_classified(aiohttp_client,
 
 @pytest.mark.asyncio
 async def test_a_refusal_does_not_echo_an_unbounded_label_list(aiohttp_client, tmp_path):
-    from runtime.blockchain.sponsorship import MAX_BATCH_CALLS
-
     client = await _client(aiohttp_client, tmp_path, policy=TRANSFER_ONLY)
-    for n in (MAX_BATCH_CALLS, 1000):
+    for n in (64, BATCH_LIMIT, 1000):
         inners = [_sel(f"f{i}()") for i in range(n)]
         call = (_sel("executeBatch(address[],bytes[])")
                 + encode(["address[]", "bytes[]"], [[TOKEN] * n, inners]))
@@ -375,3 +384,35 @@ async def test_a_refusal_does_not_echo_an_unbounded_label_list(aiohttp_client, t
         text = await r.text()
         assert r.status == 403, text[:300]
         assert len(text) < 2048, f"a {n}-call refusal echoed {len(text)} bytes"
+
+
+# ── what the daily cap bounds, stated as measured ────────────────────────
+
+@pytest.mark.asyncio
+async def test_the_daily_cap_is_per_address_and_without_a_session_the_caller_names_it(
+        aiohttp_client, tmp_path, monkeypatch):
+    """The disclosure in sponsorship.py (WHAT IT CANNOT KNOW), gateway/paymaster.py
+    and the config example says the cap bounds spend per address, not per caller.
+    This pins that reading: a second request from one address crosses the cap,
+    and each address the caller writes into X-Wallet-Address / `sender` starts
+    with a fresh one. If this ever fails because rotation is refused, the
+    disclosure is out of date, not the test."""
+    from runtime.blockchain import price_feed
+
+    async def _eth_usd(self, *, now=None):
+        return {"price": 1000.0, "source": "test"}
+
+    monkeypatch.setattr(price_feed.PriceFeed, "eth_usd", _eth_usd)
+    # 1 gwei x 321,000 gas at $1000/ETH is about $0.32 a request.
+    client = await _client(aiohttp_client, tmp_path, policy={"daily_cap_usd": 0.5})
+
+    async def _sign(sender):
+        r = await client.post("/api/v1/paymaster/sign",
+                              json=_body(_execute(RECIPIENT, 1, b""), sender=sender),
+                              headers={"X-Wallet-Address": sender})
+        return r.status
+
+    one = "0x" + "11" * 20
+    assert [await _sign(one), await _sign(one)] == [200, 403]
+    fresh = ["0x" + f"{i:040x}" for i in range(3, 7)]
+    assert [await _sign(a) for a in fresh] == [200, 200, 200, 200]
