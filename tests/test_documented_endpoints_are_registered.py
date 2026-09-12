@@ -195,6 +195,80 @@ def test_every_web_page_link_and_fetch_is_registered():
         "(the visitor gets 404):\n" + "\n".join(f"{r}: {p}" for r, p in sorted(missing)))
 
 
+_FETCH_METHOD = re.compile(r"""\bmethod\s*:\s*["'`](\w+)["'`]""", re.I)
+_FORM_METHOD = re.compile(r"""\bmethod\s*=\s*["'](\w+)["']""", re.I)
+
+
+def _call_options(text: str, pos: int) -> str | None:
+    """The `{...}` options argument that follows a call's first argument, found
+    by brace matching, or None when the call has no second argument."""
+    i = pos
+    while i < len(text) and text[i] in " \t\n":
+        i += 1
+    if i >= len(text) or text[i] != ",":
+        return None
+    i += 1
+    while i < len(text) and text[i] in " \t\n":
+        i += 1
+    if i >= len(text) or text[i] != "{":
+        return None
+    depth = 0
+    for j in range(i, min(len(text), i + 2000)):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[i:j + 1]
+    return text[i:i + 2000]
+
+
+def _web_requests(rel: str, text: str) -> list[tuple[str, str]]:
+    """(METHOD, path) for every whole-path client request a page makes: links,
+    scripts and images are GET, a form uses its method attribute, a fetch the
+    `method` in its options (GET when none), an EventSource GET."""
+    found = []
+    for m in _WEB_ATTR.finditer(text):
+        path = _norm(m.group(2).split("?")[0].split("#")[0])
+        method = "GET"
+        tag_start = text.rfind("<", 0, m.start())
+        tag = text[tag_start:text.find(">", m.end()) + 1]
+        if tag.lower().startswith("<form"):
+            fm = _FORM_METHOD.search(tag)
+            method = fm.group(1).upper() if fm else "GET"
+        found.append((method, path))
+    for pattern in (_WEB_CALL, _WEB_TEMPLATE):
+        for m in pattern.finditer(text):
+            raw = m.group(m.lastindex)
+            end = m.end(m.lastindex)
+            if re.match(r"""["'`]?\s*\+""", text[end:end + 12].lstrip()) or "${" in raw:
+                continue  # a prefix; its method is checked with the whole path elsewhere
+            method = "GET"
+            options = _call_options(text, end + 1)  # past the closing quote
+            if options is not None:
+                fm = _FETCH_METHOD.search(options)
+                method = fm.group(1).upper() if fm else "GET"
+            found.append((method, _norm(raw.split("?")[0].split("#")[0])))
+    return found
+
+
+def test_the_web_method_extraction_sees_fetch_options_and_form_methods():
+    page = ('<a href="/x">x</a> <form action="/f" method="post"></form> '
+            'fetch("/p", {method: "POST", body: "{}"}); fetch("/g"); '
+            "fetch(`${base()}/t`, {headers: {}, method: 'PUT'});")
+    got = set(_web_requests("planted.html", page))
+    assert got == {("GET", "/x"), ("POST", "/f"), ("POST", "/p"), ("GET", "/g"), ("PUT", "/t")}, got
+
+
+def test_every_web_page_request_uses_a_registered_method():
+    pairs, paths = _registered()
+    wrong = sorted({f"{rel}: {method} {path}"
+                    for rel in _web_pages() if rel not in _LEGAL_COPY
+                    for method, path in _web_requests(rel, (ROOT / rel).read_text(encoding="utf-8"))
+                    if path in paths and (method, path) not in pairs})
+    assert not wrong, "served pages call registered paths with a method the gateway does not register:\n" + "\n".join(wrong)
+
+
 def test_legal_copy_unregistered_links_match_the_pending_redline():
     legal = {m for m in _unregistered_web_links() if m[0] in _LEGAL_COPY}
     assert legal == _LEGAL_COPY_PENDING_REDLINE, (
