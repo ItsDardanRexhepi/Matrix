@@ -358,8 +358,14 @@ a:hover{text-decoration:underline}
   fetchBadge(badgeId);
 
   function fetchBadge(id) {
+    // The status route is behind the API key on a gateway that sets one, and
+    // this page carries no key, so a 401/403 is said as that, not "not found".
     fetch("/badge/" + encodeURIComponent(id) + "/status")
       .then(function(resp) {
+        if (resp.status === 401 || resp.status === 403) {
+          throw new Error("This gateway requires its API key to look up badges, and this page does not carry one.");
+        }
+        if (resp.status === 503) throw new Error("Badge verification is not available on this gateway.");
         if (!resp.ok) throw new Error("Badge not found");
         return resp.json();
       })

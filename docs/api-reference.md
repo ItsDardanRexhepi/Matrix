@@ -344,22 +344,25 @@ client; authenticated by the Apple-signed JWS chain.
 
 ## Audit service endpoints
 
+**Not available.** Both routes are registered, but the gateway has no audit
+service wired to them (`GatewayServer.audit_service` is never assigned), so
+each answers `503` with `{"status": "not_available"}` whatever the request
+carries. Nothing takes an audit order or a payment, and no report is produced.
+Both routes also sit behind the API key on a gateway that sets one.
+
+A contract's Glasswing scan does run in two places that work: on a contract
+tool call that carries source code (`ProtocolStack.pre_action`, which refuses a
+deployment that fails it) and on `POST /badge/issue`, which audits the source
+itself before issuing a badge.
+
 ### `POST /audit/request`
 
-Submit a smart contract for Glasswing security scanning.
-
-```json
-{
-  "source_code": "pragma solidity ^0.8.20; ...",
-  "contract_name": "MyToken",
-  "email": "you@example.com",
-  "tier": "standard"
-}
-```
+Answers `503 not_available`. The handler would read `source_code`,
+`contract_name`, `email` and `tier` from the body if an audit service existed.
 
 ### `GET /audit/{audit_id}`
 
-Retrieve an audit report.
+Answers `503 not_available`.
 
 ---
 
@@ -380,9 +383,12 @@ Get details for a single plugin.
 
 ### `POST /marketplace/plugins/{plugin_id}/purchase`
 
-Purchase or install a plugin. No body: the plugin comes from the path, and the
-buyer is the caller's session identity (or, with no session, the
-`X-Wallet-Address` header). A free plugin returns `200`. A paid plugin returns
+Answer a purchase request for a plugin. It installs nothing. No body: the plugin
+comes from the path, and the buyer is the caller's session identity (or, with no
+session, the `X-Wallet-Address` header). A free listing returns `200` with
+`status: "already_purchased"` and `installed: false`: free listings count as
+owned by every caller, and nothing is recorded. A plugin runs only when its
+package is placed in `plugins/installed/` on the gateway. A paid plugin returns
 `501` with `status: "not_built"` — paid purchases have no completion path — and
 reports `platform_commission_rate` from `plugin_marketplace.commission_rate`
 (`null` when unset).

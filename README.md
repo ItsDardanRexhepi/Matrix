@@ -428,7 +428,7 @@ Professional certifications backed by on-chain attestations:
 
 ## Plugin Development
 
-Build plugins for 0pnMatrx. Free plugins install today; paid plugin sales are not live yet — no purchase path completes one. The platform commission on them is an operator setting (`plugin_marketplace.commission_rate`); the published Terms of Service state 10%.
+Build plugins for 0pnMatrx. A plugin runs when its package is placed in `plugins/installed/`, where the plugin loader finds it; the marketplace lists plugins and does not install them. Paid plugin sales are not live yet — no purchase path completes one. The platform commission on them is an operator setting (`plugin_marketplace.commission_rate`); the published Terms of Service state 10%.
 
 ```bash
 # See the example plugin
@@ -438,7 +438,7 @@ cat runtime/plugins/example_plugin.py
 cat docs/PLUGIN_DEVELOPMENT.md
 ```
 
-Submit plugins at `/marketplace` or via `POST /marketplace/plugins/submit`.
+Submit a listing with `POST /marketplace/plugins/submit` and the gateway's API key (the `/marketplace` page cannot submit one). The listing is stored as `pending`; nothing in this gateway reviews, approves or activates it.
 
 ---
 

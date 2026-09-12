@@ -1,6 +1,8 @@
 # Plugin Development Guide
 
-Build and sell plugins for the 0pnMatrx platform.
+Build plugins for the 0pnMatrx platform. A plugin runs when its package is
+placed in `plugins/installed/`, where the plugin loader finds it. The marketplace
+lists plugins and does not install them, and paid plugin sales are not live.
 
 ## Quick Start
 
@@ -79,7 +81,9 @@ async def handle_tool(self, input: str, **kwargs) -> str:
 
 **Paid plugin sales are not live yet.** `POST /marketplace/plugins/{plugin_id}/purchase`
 answers `501 not_built` for a paid plugin: there is no App Store product for a
-plugin and no server path that records a paid purchase. Free plugins install.
+plugin and no server path that records a paid purchase. For a free listing the
+route answers `already_purchased` with `installed: false`: free listings count as
+owned by every caller, and nothing is recorded or installed.
 
 When paid sales exist, the platform commission is the operator's
 `plugin_marketplace.commission_rate` setting (the published Terms of Service state
@@ -110,7 +114,7 @@ Plugins can specify a minimum tier:
 ```python
 @property
 def min_tier(self) -> str:
-    return "pro"  # Only Pro and Enterprise users can install
+    return "pro"  # declared and listed; nothing enforces it when a plugin loads
 ```
 
 ## Example: Portfolio Tracker Plugin

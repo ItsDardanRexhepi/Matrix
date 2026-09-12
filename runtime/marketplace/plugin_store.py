@@ -1,8 +1,11 @@
 """Plugin marketplace store with SQLite persistence.
 
-Manages plugin listings, purchases, and download tracking.
+Manages plugin listings and download tracking.
 
-Free plugins install. Paid plugin purchases are NOT built: there is no App
+Nothing here installs a plugin. A free listing counts as owned by every caller
+(`has_purchased`), so its purchase route records nothing and places no code; a
+plugin runs only when its package is put in `plugins/installed/`, where
+runtime/plugins/loader.py finds it. Paid plugin purchases are NOT built: there is no App
 Store product for a plugin (gateway/iap.py) and no server path that records a
 paid plugin purchase, so the paid branch answers `not_built` rather than
 pointing the caller at a checkout that does not exist.
@@ -97,11 +100,16 @@ class PluginListing:
         }
 
 
-# Built-in example plugins
+# Built-in example listings. Each must name a plugin that exists in this tree
+# (tests/test_plugin_marketplace_installs_nothing.py): two listings described
+# plugins with no implementation anywhere, and the marketplace page rendered
+# them as plugins on the gateway.
 EXAMPLE_PLUGINS: list[dict] = [
     {
         "name": "Hello World Plugin",
-        "description": "Example plugin demonstrating the 0pnMatrx plugin API. Adds a /hello command that greets the user.",
+        "description": ("Example plugin demonstrating the 0pnMatrx plugin API: a /hello "
+                        "command and a greeting tool (runtime/plugins/example_plugin.py). "
+                        "Listing it does not install it."),
         "author": "0pnMatrx Team",
         "version": "1.0.0",
         "price_usd": 0.0,
@@ -109,26 +117,6 @@ EXAMPLE_PLUGINS: list[dict] = [
         "min_tier_required": "free",
         "capabilities": ["custom_command"],
         "repository_url": "https://github.com/ItsDardanRexhepi/0pnMatrx",
-    },
-    {
-        "name": "Portfolio Tracker",
-        "description": "Track your DeFi portfolio across multiple chains. Automatic balance updates and PnL calculations.",
-        "author": "0pnMatrx Team",
-        "version": "1.0.0",
-        "price_usd": 0.0,
-        "category": "finance",
-        "min_tier_required": "free",
-        "capabilities": ["dashboard_widget", "scheduled_task"],
-    },
-    {
-        "name": "Gas Price Alerts",
-        "description": "Get notified when gas prices drop below your threshold. Supports Base, Ethereum, and Polygon.",
-        "author": "0pnMatrx Team",
-        "version": "1.0.0",
-        "price_usd": 0.0,
-        "category": "utility",
-        "min_tier_required": "free",
-        "capabilities": ["notification", "scheduled_task"],
     },
 ]
 
@@ -256,10 +244,12 @@ class PluginMarketplace:
         wallet_address: str,
         plugin_id: str,
     ) -> dict:
-        """Initiate a plugin purchase.
+        """Answer a plugin purchase request. Installs nothing.
 
-        For free plugins, completes immediately. For paid plugins, answers
-        ``status: not_built`` — no purchase path exists to complete one.
+        A free listing counts as owned by every caller, so it answers
+        ``already_purchased`` with ``installed: False`` and records nothing. A
+        paid listing answers ``status: not_built`` — no purchase path exists to
+        complete one.
 
         Parameters
         ----------
@@ -277,25 +267,27 @@ class PluginMarketplace:
         if not listing:
             return {"status": "error", "message": "Plugin not found."}
 
-        # Check if already purchased
+        # A free listing is owned by every caller (has_purchased), so the free
+        # "instant purchase" branch that used to follow this check could never
+        # run, and nothing anywhere installed the plugin it named. Say so.
         if await self.has_purchased(wallet_address, plugin_id):
-            return {"status": "already_purchased", "plugin_id": plugin_id}
-
-        # Free plugins — instant purchase
-        if listing.price_usd <= 0:
-            await self._record_purchase(wallet_address, plugin_id, 0.0)
             return {
-                "status": "ok",
+                "status": "already_purchased",
                 "plugin_id": plugin_id,
-                "purchased": True,
-                "price_paid": 0.0,
+                "installed": False,
+                "message": (
+                    "Nothing to buy or record: this listing is already owned. The "
+                    "marketplace does not install plugins; a plugin runs when its "
+                    "package is placed in plugins/installed/ on the gateway."
+                ),
             }
 
         # Paid plugins. This used to answer `requires_iap` with a 10/90 split
         # of the sticker price and "complete the purchase in the MTRX iOS app".
         # There is no App Store product for a plugin, /api/v1/iap/verify never
-        # records plugin ownership, and `_record_purchase` is reached only from
-        # the free branch above — so that purchase could not be completed, and
+        # records plugin ownership, and no code records a paid purchase (the
+        # free-branch recorder was unreachable and is gone) — so that purchase
+        # could not be completed, and
         # the "developer_revenue" figure ignored the App Store commission that
         # comes off an IAP sale first. No proceeds figure is returned: there is
         # no sale to have proceeds.
@@ -348,7 +340,8 @@ class PluginMarketplace:
         ]
 
     async def submit_listing(self, author: str, listing_data: dict) -> dict:
-        """Submit a new plugin listing for review.
+        """Store a new plugin listing with status pending. Nothing reviews,
+        approves or activates it.
 
         No subscription tier is checked here or in the route handler; the
         route is behind the gateway API key. ``author`` is whatever the
@@ -421,27 +414,5 @@ class PluginMarketplace:
             await self.db.execute(
                 "UPDATE plugin_listings SET downloads = downloads + 1 WHERE plugin_id = ?",
                 (plugin_id,),
-                commit=True,
-            )
-
-    async def _record_purchase(
-        self,
-        wallet_address: str,
-        plugin_id: str,
-        price_paid: float,
-    ) -> None:
-        """Record a completed purchase."""
-        if wallet_address not in self.purchases:
-            self.purchases[wallet_address] = set()
-        self.purchases[wallet_address].add(plugin_id)
-
-        if self.db:
-            await self.db.execute(
-                """
-                INSERT OR IGNORE INTO plugin_purchases
-                    (wallet_address, plugin_id, price_paid, purchased_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (wallet_address, plugin_id, price_paid, time.time()),
                 commit=True,
             )

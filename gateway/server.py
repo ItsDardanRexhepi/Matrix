@@ -1871,7 +1871,8 @@ class GatewayServer:
         return web.json_response(result)
 
     async def handle_marketplace_submit(self, request: web.Request) -> web.Response:
-        """POST /marketplace/plugins/submit — submit a plugin for review."""
+        """POST /marketplace/plugins/submit — store a pending plugin listing.
+        Nothing reviews, approves or activates it."""
         if not self.plugin_marketplace:
             return web.json_response({"error": "Not available"}, status=503)
         try:

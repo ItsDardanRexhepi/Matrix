@@ -381,6 +381,15 @@ body{
 
       hideTyping();
 
+      // /chat/stream is behind the API key on a gateway that sets one, and
+      // this page carries no key: say that rather than a bare status line.
+      if(res.status === 401 || res.status === 403){
+        addMessage("agent", "This gateway requires its API key for streaming chat, and this page does not carry one, so it cannot send messages from here.");
+        isStreaming = false;
+        sendBtn.disabled = false;
+        return;
+      }
+
       if(!res.ok){
         addMessage("agent", `Error: ${res.status} ${res.statusText}`);
         isStreaming = false;

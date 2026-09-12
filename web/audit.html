@@ -337,6 +337,7 @@ body{
   <div class="hero-badge">Glasswing Security Engine v1.0</div>
   <h1 style="margin-top:20px">Professional Smart Contract<br>Security Auditing<br><em>Powered by Glasswing</em></h1>
   <p>Production-grade vulnerability detection across 12 attack classes. Get your contracts audited before deployment with automated scanning, manual review checklists, and remediation guidance.</p>
+  <p><strong>Ordering an audit is not live.</strong> This gateway has no audit service behind its audit routes (they answer 503), so nothing on this page takes an order or a payment, and no report is produced.</p>
 </header>
 
 <!-- Vulnerability Coverage -->
@@ -363,6 +364,7 @@ body{
 <section class="section" id="pricing">
   <h2 class="section-title">Audit Tiers</h2>
   <p class="section-sub">Choose the depth of analysis your project requires</p>
+  <p class="section-sub"><strong>Not available to order:</strong> these tiers have no request or payment path on this gateway yet.</p>
   <div class="pricing-grid">
 
     <!-- Standard -->
@@ -377,7 +379,7 @@ body{
         <li>PDF-ready structured output</li>
         <li>12 vulnerability class coverage</li>
       </ul>
-      <button class="price-btn" onclick="selectTier('standard')">Select Standard</button>
+      <button class="price-btn" disabled>Not available to order</button>
     </div>
 
     <!-- Advanced -->
@@ -393,7 +395,7 @@ body{
         <li>Best practices compliance check</li>
         <li>Inline code annotations</li>
       </ul>
-      <button class="price-btn" onclick="selectTier('advanced')">Select Advanced</button>
+      <button class="price-btn" disabled>Not available to order</button>
     </div>
 
     <!-- Enterprise -->
@@ -409,7 +411,7 @@ body{
         <li>Executive summary for stakeholders</li>
         <li>Deployment readiness certification</li>
       </ul>
-      <button class="price-btn" onclick="selectTier('enterprise')">Select Enterprise</button>
+      <button class="price-btn" disabled>Not available to order</button>
     </div>
 
   </div>
@@ -419,7 +421,7 @@ body{
 <section class="section" id="submit">
   <div class="audit-form-wrap">
     <h2 class="form-title">Submit Contract for Audit</h2>
-    <p class="form-subtitle">Paste your Solidity source code below. You will receive a free preview of findings before payment.</p>
+    <p class="form-subtitle"><strong>Submitting through this page is not live.</strong> The gateway's <code>POST /audit/request</code> route has no audit service behind it and answers 503, so this form sends nothing and no preview is produced. Glasswing does scan source in two places that work, both authenticated API calls with the gateway's key: a contract tool call that carries source code, and <code>POST /badge/issue</code>, which audits the source before issuing a badge.</p>
 
     <form id="auditForm" onsubmit="submitAudit(event)">
       <div class="form-group">
@@ -459,28 +461,10 @@ body{
         </div>
       </div>
 
-      <button class="form-submit" type="submit" id="submitBtn">Scan Contract &amp; Get Preview</button>
+      <button class="form-submit" type="submit" id="submitBtn" disabled>Submitting is not live</button>
     </form>
   </div>
 
-  <!-- Results -->
-  <div class="results-panel" id="resultsPanel">
-    <div class="results-header">
-      <div class="results-title" id="resultsTitle">Audit Preview</div>
-      <span class="results-badge preview">PREVIEW</span>
-    </div>
-
-    <div class="severity-bar" id="severityBar"></div>
-    <div class="finding-list" id="findingList"></div>
-
-    <div class="checkout-bar" id="checkoutBar" style="display:none">
-      <div class="checkout-text">
-        <strong id="checkoutTier"></strong> &mdash; <span id="checkoutPrice"></span><br>
-        <span style="font-size:.72rem;color:var(--text-muted)">Full report delivered after payment confirmation</span>
-      </div>
-      <a class="checkout-btn" id="checkoutLink" href="#" target="_blank">Proceed to Payment</a>
-    </div>
-  </div>
 </section>
 
 <!-- Footer -->
@@ -489,136 +473,10 @@ body{
 </footer>
 
 <script>
-function selectTier(tier) {
-  const radios = {standard:'tierStandard',advanced:'tierAdvanced',enterprise:'tierEnterprise'};
-  if (radios[tier]) document.getElementById(radios[tier]).checked = true;
-  document.getElementById('submit').scrollIntoView({behavior:'smooth'});
-}
-
-async function submitAudit(e) {
+// Submitting through this page is not live: the gateway's audit routes have no
+// audit service behind them and answer 503, so the form sends nothing.
+function submitAudit(e) {
   e.preventDefault();
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  btn.textContent = 'Scanning...';
-
-  const form = document.getElementById('auditForm');
-  const tier = form.querySelector('input[name="tier"]:checked').value;
-
-  const payload = {
-    source_code: document.getElementById('sourceCode').value,
-    contract_name: document.getElementById('contractName').value,
-    email: document.getElementById('email').value,
-    tier: tier,
-  };
-
-  try {
-    const resp = await fetch('/audit/request', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-
-    if (data.status === 'ok') {
-      renderResults(data);
-    } else {
-      alert(data.message || 'Audit request failed. Please try again.');
-    }
-  } catch (err) {
-    alert('Connection error. Please check that the server is running.');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Scan Contract & Get Preview';
-  }
-}
-
-function renderResults(data) {
-  const panel = document.getElementById('resultsPanel');
-  const preview = data.preview || {};
-
-  // Title
-  document.getElementById('resultsTitle').textContent =
-    `${preview.contract_name || 'Contract'} - ${preview.findings_count || 0} finding(s) in ${preview.total_lines || 0} lines`;
-
-  // Severity bar
-  const sevBar = document.getElementById('severityBar');
-  sevBar.innerHTML = '';
-  const sev = preview.severity_summary || {};
-  const sevOrder = ['critical','high','medium','low','info'];
-  for (const s of sevOrder) {
-    const count = sev[s] || 0;
-    const chip = document.createElement('div');
-    chip.className = `sev-chip ${s}`;
-    chip.innerHTML = `${s.charAt(0).toUpperCase()+s.slice(1)} <span class="sev-count">${count}</span>`;
-    sevBar.appendChild(chip);
-  }
-
-  // Findings
-  const list = document.getElementById('findingList');
-  list.innerHTML = '';
-  const findings = preview.findings || [];
-  if (findings.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--green);font-size:.84rem">No vulnerabilities detected. Your contract looks clean.</div>';
-  } else {
-    for (const f of findings.slice(0, 10)) {
-      const div = document.createElement('div');
-      div.className = `finding ${f.severity}`;
-      div.innerHTML = `
-        <div class="finding-head">
-          <span class="finding-title">${esc(f.title)}</span>
-          <span class="finding-sev ${f.severity}">${f.severity}</span>
-        </div>
-        <div class="finding-line">Line ${f.line} &middot; ${esc(f.vulnerability_class || '')}</div>
-        <div class="finding-desc">${esc(f.description)}</div>
-        ${f.code ? `<div class="finding-code">${esc(f.code)}</div>` : ''}
-      `;
-      list.appendChild(div);
-    }
-    if (findings.length > 10) {
-      list.innerHTML += `<div style="text-align:center;padding:12px;font-size:.76rem;color:var(--text-muted)">+ ${findings.length - 10} more findings in full report</div>`;
-    }
-  }
-
-  // Checkout
-  const bar = document.getElementById('checkoutBar');
-  document.getElementById('checkoutTier').textContent = data.tier;
-  document.getElementById('checkoutPrice').textContent = `$${data.price_usd}`;
-
-  if (data.checkout_url) {
-    document.getElementById('checkoutLink').href = data.checkout_url;
-    bar.style.display = 'flex';
-  } else {
-    bar.style.display = 'none';
-  }
-
-  // Gas optimisation
-  if (preview.gas_optimisation && preview.gas_optimisation.length > 0) {
-    let gasHtml = '<div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">';
-    gasHtml += '<div style="font-size:.82rem;font-weight:600;color:var(--text-bright);margin-bottom:10px">Gas Optimisation Hints</div>';
-    for (const g of preview.gas_optimisation) {
-      gasHtml += `<div style="font-size:.76rem;color:var(--text);padding:6px 0;border-bottom:1px solid rgba(30,30,30,.4)">Line ${g.line}: ${esc(g.hint)} <span style="color:var(--green)">(${esc(g.estimated_savings)})</span></div>`;
-    }
-    gasHtml += '</div>';
-    list.innerHTML += gasHtml;
-  }
-
-  // Code quality
-  if (preview.code_quality_score !== undefined) {
-    const score = preview.code_quality_score;
-    const scoreColor = score >= 80 ? 'var(--green)' : score >= 50 ? 'var(--yellow)' : 'var(--red)';
-    list.innerHTML += `<div style="margin-top:12px;text-align:center;font-size:.84rem">Code Quality Score: <span style="color:${scoreColor};font-weight:700;font-size:1.1rem">${score}/100</span></div>`;
-  }
-
-  panel.classList.add('visible');
-  panel.scrollIntoView({behavior:'smooth',block:'start'});
-}
-
-function esc(s) {
-  if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 </script>
 

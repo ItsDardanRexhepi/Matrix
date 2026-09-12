@@ -10,8 +10,8 @@ told the caller to "complete the purchase in the MTRX iOS app".
 
 Nothing can complete that purchase. The App Store product table
 (gateway/iap.py DEFAULT_PRODUCTS) has no plugin product, /api/v1/iap/verify
-never writes plugin ownership, and `_record_purchase` is reached only from the
-free branch. And a sale through Apple IAP pays the App Store's commission
+never writes plugin ownership, and the only purchase recorder was reached only
+from a free branch that could not run (it has since been removed). And a sale through Apple IAP pays the App Store's commission
 before any platform split, so `developer_revenue` = 90% of the sticker price
 was a number no developer could ever receive.
 
@@ -20,7 +20,8 @@ The properties, asserted on behaviour rather than on the constant's absence:
     back, and no configuration comes back as unknown, not as 10%;
   * a paid purchase is answered as not built (HTTP 501 at the route) and carries
     no proceeds figure;
-  * a free plugin still installs;
+  * a free listing is answered as already owned, and nothing is recorded or
+    installed (tests/test_plugin_marketplace_installs_nothing.py);
   * a boolean is not a rate (`float(True)` is 1.0, which would have reported a
     100% commission from `"commission_rate": true`);
   * no tracked text states a plugin commission as a number of its own. The
@@ -83,12 +84,13 @@ async def test_paid_purchase_is_answered_as_not_built():
     assert not await market.has_purchased("0xbuyer", paid_id)
 
 
-async def test_free_plugin_still_installs():
+async def test_free_listing_is_answered_as_owned_not_refused():
     market, _, free_id = await _market({})
     result = await market.purchase("0xbuyer", free_id)
-    # Free plugins are owned by everyone (has_purchased), so this is either
-    # branch of "you have it" — never a refusal.
-    assert result.get("status") in ("ok", "already_purchased"), result
+    # Free listings are owned by everyone (has_purchased): never a refusal, and
+    # never a claim that anything was installed.
+    assert result.get("status") == "already_purchased", result
+    assert result.get("installed") is False, result
 
 
 async def test_route_returns_501_for_a_paid_purchase():

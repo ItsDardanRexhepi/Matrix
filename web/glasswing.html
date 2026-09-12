@@ -307,7 +307,7 @@ a:hover{text-decoration:underline}
 <header class="hero">
   <div class="hero-badge">Glasswing Security Engine v1.0</div>
   <h1 style="margin-top:20px"><em>Glasswing</em> Smart Contract<br>Security</h1>
-  <p>Protecting users and protocols with automated vulnerability detection, manual expert review, and on-chain verified security badges. 12 attack classes. One comprehensive audit.</p>
+  <p>Protecting users and protocols with automated vulnerability detection and security badges issued on the platform's own audit of a contract's source.</p>
 </header>
 
 <!-- How Glasswing Works: 12 Vulnerability Checks -->
@@ -334,6 +334,7 @@ a:hover{text-decoration:underline}
 <section class="section" id="pricing">
   <h2 class="section-title">Audit Pricing</h2>
   <p class="section-sub">Choose the depth of analysis your project requires</p>
+  <p class="section-sub"><strong>Not available to order:</strong> this gateway has no audit service behind its audit routes (they answer 503), so these tiers have no request or payment path yet.</p>
   <div class="pricing-grid">
 
     <!-- Standard -->
@@ -347,7 +348,7 @@ a:hover{text-decoration:underline}
         <li>PDF report delivered within 48 hours</li>
         <li>Remediation guidance per finding</li>
       </ul>
-      <a class="price-btn" href="/audit">Get Started</a>
+      <a class="price-btn" href="/audit">See tier details</a>
     </div>
 
     <!-- Advanced -->
@@ -363,7 +364,7 @@ a:hover{text-decoration:underline}
         <li>Code quality scoring</li>
         <li>Delivered within 1 week</li>
       </ul>
-      <a class="price-btn" href="/audit">Get Started</a>
+      <a class="price-btn" href="/audit">See tier details</a>
     </div>
 
     <!-- Enterprise -->
@@ -379,7 +380,7 @@ a:hover{text-decoration:underline}
         <li>First-year Glasswing Verified badge included</li>
         <li>Dedicated support channel</li>
       </ul>
-      <a class="price-btn" href="/audit">Get Started</a>
+      <a class="price-btn" href="/audit">See tier details</a>
     </div>
 
   </div>
@@ -394,7 +395,7 @@ a:hover{text-decoration:underline}
     <div class="badge-features">
       <div class="badge-feature">
         <div class="badge-feature-title">On-Chain Verification</div>
-        <div class="badge-feature-desc">Every badge is backed by an EAS (Ethereum Attestation Service) attestation, providing tamper-proof on-chain proof of your audit status.</div>
+        <div class="badge-feature-desc">A badge is issued only on the platform's own Glasswing audit of the submitted source, and its record keeps a hash of that audit report. Badges are kept in this gateway's database; they are not written on-chain.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Embeddable Widget</div>
@@ -402,7 +403,7 @@ a:hover{text-decoration:underline}
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Annual Renewal</div>
-        <div class="badge-feature-desc">Badges are valid for one year. Renew for $99/year with a fresh audit to keep your verified status current. First year included with Enterprise audit.</div>
+        <div class="badge-feature-desc">Badges are valid for one year, and renewing one re-audits the source. Paid renewal is not available to order through this gateway.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Public Registry</div>
@@ -438,8 +439,8 @@ a:hover{text-decoration:underline}
 
 <!-- CTA -->
 <section class="cta-section">
-  <a class="cta-btn" href="/audit">Get Your Contract Audited</a>
-  <div class="cta-sub">Start with a free preview scan &mdash; no payment required until you see findings.</div>
+  <a class="cta-btn" href="/audit">Audit Tiers</a>
+  <div class="cta-sub">Ordering an audit is not live on this gateway. Issuing a badge (<code>POST /badge/issue</code>, which audits the source itself) and badge pages need the gateway's API key where one is set, so a browser cannot reach them there.</div>
 </section>
 
 <!-- Footer -->
@@ -486,7 +487,7 @@ a:hover{text-decoration:underline}
       })
       .catch(function() {
         document.getElementById("registryLoading").textContent =
-          "No verified contracts to display yet. Be the first to get audited.";
+          "The badge registry could not be loaded.";
       });
   }
 
@@ -496,7 +497,7 @@ a:hover{text-decoration:underline}
     if (!badges.length) {
       container.innerHTML =
         '<div class="registry-empty">No verified contracts yet. ' +
-        '<a href="/audit">Get your contract audited</a> to be the first.</div>';
+        'Ordering an audit is not live on this gateway.</div>';
       return;
     }
 

@@ -1,6 +1,9 @@
 """Developer plugin marketplace for 0pnMatrx.
 
-Lists plugins that extend the platform and installs free ones. Paid plugin
+Lists plugins that extend the platform. It does not install them: a free
+listing counts as owned by every caller, so its purchase route records nothing
+and places no code, and a plugin runs only when its package is put in
+``plugins/installed/``, where ``runtime/plugins/loader.py`` finds it. Paid plugin
 sales are not built: the purchase route answers 501 for a paid plugin, and no
 server path records a paid purchase or pays out revenue. The commission that
 would apply is configuration (``plugin_marketplace.commission_rate``), not a

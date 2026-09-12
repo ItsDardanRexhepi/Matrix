@@ -4,7 +4,7 @@
 
 Plugins extend 0pnMatrx with new capabilities. A plugin can add custom commands to the MTRX CLI, provide new tools that Neo can invoke during task execution, or integrate external services into the platform. Plugins are Python packages that follow a standard interface.
 
-The 0pnMatrx plugin marketplace handles distribution and installation of free plugins. Paid plugin sales are not live yet: no purchase path completes one. When they are, the platform commission is an operator setting (the published Terms state 10%), and a sale through Apple In-App Purchase also pays the App Store's commission first.
+The 0pnMatrx plugin marketplace lists plugins; it does not distribute or install them. A plugin runs when its package is placed in `plugins/installed/`, where the plugin loader finds it. Paid plugin sales are not live yet: no purchase path completes one. When they are, the platform commission is an operator setting (the published Terms state 10%), and a sale through Apple In-App Purchase also pays the App Store's commission first.
 
 ## The Plugin Directory Structure
 
@@ -190,25 +190,23 @@ curl -X POST http://localhost:18790/chat \
 
 Neo will recognize the intent, invoke your `my_plugin_greet` tool, and Trinity will format the response.
 
-## Step 5: Submitting to the Marketplace
+## Step 5: Listing in the Marketplace
 
-When your plugin is ready for distribution:
+When your plugin is ready to share:
 
 1. Ensure your `config.json` is complete with accurate metadata
 2. Add a README.md with usage instructions and examples
-3. Test thoroughly -- plugins that crash the gateway will be rejected
-4. Submit via the MTRX CLI:
+3. Test thoroughly on your own gateway
+4. Submit a listing with the gateway's API key:
 
 ```bash
-mtrx plugin submit ./plugins/installed/my-plugin
+curl -X POST http://localhost:18790/marketplace/plugins/submit \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"name": "My Plugin", "description": "Greets people", "author": "you", "repository_url": "https://github.com/you/my-plugin"}'
 ```
 
-The review process checks for:
-- Security: no malicious code, appropriate permission requests
-- Stability: no uncaught exceptions, proper error handling
-- Quality: working functionality, clear documentation
-
-Once approved, your plugin appears in the marketplace. Paid plugins cannot be bought yet (the purchase route answers 501), so list a free plugin if you want it installed today.
+There is no review process. The listing is stored with status `pending`, and nothing in this gateway reviews, approves or activates a listing, so a submitted plugin does not appear in `GET /marketplace/plugins` on its own. Nothing installs it for anyone either: another operator runs your plugin by placing its package in their own `plugins/installed/`. Paid plugins cannot be bought yet (the purchase route answers 501).
 
 ## Common Patterns
 
@@ -223,7 +221,7 @@ Once approved, your plugin appears in the marketplace. Paid plugins cannot be bo
 - Plugins extend 0pnMatrx via the `OpenMatrixPlugin` base class
 - Four methods: `on_load`, `on_unload`, `get_tools`, `get_commands`
 - Tools are used by Neo; commands are used by humans via CLI
-- Free plugins install today; paid plugin sales are not live yet
+- The marketplace lists plugins and installs none; paid plugin sales are not live yet
 - Test plugins locally before submitting
 
 ---

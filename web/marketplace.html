@@ -352,7 +352,7 @@ a:hover{text-decoration:underline}
 <header class="hero">
   <div class="hero-badge">Open Plugin Ecosystem</div>
   <h1 style="margin-top:20px">Extend <em>0pnMatrx</em> &mdash;<br>Developer Plugin Marketplace</h1>
-  <p>Build and install plugins that add new capabilities to the platform. The listings below are the ones this gateway serves; paid plugin sales are not live.</p>
+  <p>Plugins add new capabilities to the platform. The listings below are the ones this gateway serves. Listing a plugin does not install it, and paid plugin sales are not live.</p>
 </header>
 
 <!-- Search / Filter -->
@@ -393,8 +393,8 @@ a:hover{text-decoration:underline}
       <!-- Left: Info -->
       <div class="dev-info">
         <h2>Become a <em>Plugin Developer</em></h2>
-        <p>The 0pnMatrx plugin system is fully open. Build plugins in Python or JavaScript and publish them to the marketplace.</p>
-        <p><strong>Paid plugin sales are not live yet.</strong> Free plugins install today; nothing on the platform can complete a paid plugin purchase or pay out its revenue.</p>
+        <p>The 0pnMatrx plugin system is open. Plugins are Python packages; one runs when its package is placed in <code>plugins/installed/</code> on the gateway, where the plugin loader finds it. The marketplace lists plugins and does not install them.</p>
+        <p><strong>Paid plugin sales are not live yet.</strong> Nothing on the platform can complete a paid plugin purchase or pay out its revenue.</p>
         <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/docs/PLUGIN_DEVELOPMENT.md" target="_blank" class="dev-link">&#128214; Read the Plugin Development Guide</a>
       </div>
 
@@ -448,9 +448,9 @@ a:hover{text-decoration:underline}
   // ── Listings ──
   // Rendered from the gateway's own listing route, never from page copy. The
   // route is behind the API key on a gateway that sets one; this page does not
-  // carry a key, so there it says so instead of inventing listings. Installing
-  // or buying is an authenticated API call; the page offers no button that
-  // pretends to do either.
+  // carry a key, so there it says so instead of inventing listings. Nothing in
+  // the marketplace installs a plugin and a paid purchase cannot complete, so
+  // the page offers no button that pretends to do either.
   const grid = document.getElementById("pluginGrid");
   const statusEl = document.getElementById("pluginStatus");
   const searchInput = document.getElementById("searchInput");
@@ -519,7 +519,7 @@ a:hover{text-decoration:underline}
         return;
       }
       statusEl.textContent = plugins.length + (plugins.length === 1 ? " listing." : " listings.") +
-        " Installing is an authenticated call: POST /marketplace/plugins/{plugin_id}/purchase.";
+        " Listing a plugin does not install it: a plugin runs when its package is placed in plugins/installed/ on the gateway.";
       const cats = new Set();
       plugins.forEach(p=>{ grid.appendChild(card(p)); if(p.category) cats.add(String(p.category)); });
       [...cats].sort().forEach(cat=>{
