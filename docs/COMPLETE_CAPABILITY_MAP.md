@@ -46,14 +46,8 @@ The sections below organise every capability by its high-level category. Older c
 | Swap Route | Get the optimal swap route across DEXs | Free | POST /api/v1/defi/swap/route | Uniswap V3, Curve, 1inch |
 | Swap Execute | Execute a pre-computed swap route | Free | POST /api/v1/defi/swap/execute | Uniswap V3, Curve, 1inch |
 | Liquidity Add | Add liquidity to a DEX pool | Free | POST /api/v1/dex/liquidity/add | Uniswap V3, Curve |
-| Liquidity Provide | Provide liquidity with concentrated positions | Free | POST /api/v1/defi/liquidity/provide | Uniswap V3, Curve |
-| Liquidity Remove | Withdraw liquidity from a DEX pool | Free | POST /api/v1/defi/liquidity/remove | Uniswap V3, Curve |
 | Create Loan | Create a collateralised DeFi loan | Free | POST /api/v1/defi/loan/create | Aave V3, Compound V3 |
 | Repay Loan | Repay an outstanding DeFi loan | Free | POST /api/v1/defi/loan/repay | Aave V3, Compound V3 |
-| Yield Optimize | Find and enter the best yield strategy for an asset | Pro | POST /api/v1/defi/yield/optimize | Yearn, Beefy, Convex |
-| Flash Loan | Execute an atomic flash loan with bundled operations | Pro | POST /api/v1/defi/flash-loan/execute | Aave V3, dYdX |
-| Vault Deposit | Deposit assets into a yield vault | Free | POST /api/v1/defi/vault/deposit | Yearn, Beefy |
-| Collateral Manage | Add, withdraw, or rebalance collateral positions | Free | POST /api/v1/defi/collateral/manage | Aave V3, Compound V3 |
 
 ---
 
@@ -61,7 +55,6 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Perpetual Trade | Trade perpetual futures on-chain | Pro | POST /api/v1/defi/perp/trade | GMX, dYdX, Synthetix |
 | Options Trade | Buy or sell on-chain options | Pro | via capability registry | Lyra |
 | Synthetic Asset | Mint a synthetic exposure | Pro | via capability registry | Synthetix |
 | Leverage Position | Open a leveraged position | Pro | via capability registry | GMX, Gearbox |
@@ -125,7 +118,7 @@ The sections below organise every capability by its high-level category. Older c
 | Set / Check NFT Rights | Encode and query programmable rights | Free | via capability registry | custom |
 | Bridge NFT | Bridge an NFT to another chain | Free | POST /api/v1/nft/bridge | LayerZero, Wormhole |
 | IP Registration | Register intellectual property on-chain | Free | POST /api/v1/ip/register | EAS, custom |
-| Soulbound Mint | Mint a non-transferable soulbound token | Free | POST /api/v1/identity/soulbound/mint | ERC-5192 |
+| Soulbound Mint | Mint a non-transferable soulbound token | Free | via capability registry | ERC-5192 |
 
 ---
 
@@ -174,9 +167,8 @@ The sections below organise every capability by its high-level category. Older c
 | Finalize Proposal | Execute a passed proposal | Free | via capability registry | Governor |
 | Snapshot Vote | Cast a gasless off-chain vote | Free | POST /api/v1/governance/snapshot/vote | Snapshot |
 | Timelock Queue | Queue an action through a timelock | Free | via capability registry | OZ Timelock |
-| Multisig Propose | Submit a proposal to a multisig wallet | Free | POST /api/v1/governance/multisig/propose | Safe (Gnosis) |
+| Multisig Propose | Submit a proposal to a multisig wallet | Free | via capability registry | Safe (Gnosis) |
 | Multisig Approve | Approve a pending multisig transaction | Free | POST /api/v1/governance/multisig/approve | Safe (Gnosis) |
-| Treasury Transfer | Execute a DAO treasury transfer | Pro | POST /api/v1/governance/treasury/transfer | Governor, Safe |
 | Parameter Change | Mutate a governed protocol parameter | Pro | via capability registry | Governor |
 | Vote-Escrow Lock | Lock tokens in a veToken gauge | Pro | via capability registry | Curve, Balancer |
 | Quadratic Vote | Cast a quadratic vote | Free | via capability registry | Gitcoin, custom |
@@ -217,8 +209,8 @@ The sections below organise every capability by its high-level category. Older c
 | Publish Paragraph Post | Publish a Paragraph newsletter | Free | via capability registry | Paragraph |
 | Register IP | Register intellectual property on-chain | Free | via capability registry | EAS |
 | Transfer IP | Transfer IP ownership | Free | via capability registry | custom |
-| License IP | Grant a license for intellectual property | Pro | POST /api/v1/legal/license/grant | custom |
-| Execute Agreement | Execute a legally binding on-chain agreement | Pro | POST /api/v1/legal/agreement/execute | custom |
+| License IP | Grant a license for intellectual property | Pro | via capability registry | custom |
+| Execute Agreement | Execute a legally binding on-chain agreement | Pro | via capability registry | custom |
 
 ---
 
@@ -230,12 +222,7 @@ The sections below organise every capability by its high-level category. Older c
 | Authorize / Complete / Refund | Two-phase payment lifecycle | Free | via capability registry | x402 |
 | Send Payment | Send a payment to a wallet | Free | via capability registry | stablecoin |
 | Transfer Stablecoin | Send stablecoins globally with zero fees | Free | POST /api/v1/stablecoin/transfer | USDC, USDT, DAI |
-| Payment Stream | Create a continuous payment stream over time | Pro | POST /api/v1/payments/stream/create | Sablier, Superfluid |
-| Recurring Payment | Set up a recurring payment schedule | Pro | POST /api/v1/payments/recurring/create | Superfluid, custom |
-| Escrow Milestone | Manage milestone-based escrow releases | Free | POST /api/v1/payments/escrow/milestone | custom |
-| Split Payment | Split a payment across multiple recipients | Free | POST /api/v1/payments/split | 0xSplits, custom |
 | Invoice Factor | Tokenize and sell an invoice for working capital | Pro | via capability registry | custom |
-| Payroll | Execute a batch payroll run | Enterprise | POST /api/v1/payments/payroll | 0xSplits, Sablier |
 | Cross-Border Payment | Send money across borders with FX conversion | Free | POST /api/v1/crossborder/send | Circle, Wise, native |
 | Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | Pro | via capability registry | state channels |
 
@@ -301,7 +288,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Tokenize Asset | Tokenize a real-world asset (property, vehicle, etc.) | Free | POST /api/v1/rwa/tokenize | ERC-3643, custom |
 | Transfer RWA Ownership | Transfer ownership of a tokenized asset | Free | via capability registry | ERC-3643 |
-| Fractional Buy | Purchase fractions of a tokenized RWA | Free | POST /api/v1/rwa/fractional/buy | ERC-3643, custom |
+| Fractional Buy | Purchase fractions of a tokenized RWA | Free | via capability registry | ERC-3643, custom |
 | RWA Income Claim | Claim income streams from a tokenized RWA | Free | via capability registry | ERC-3643 |
 | List Assets | Browse available tokenized real-world assets | Free | GET /api/v1/rwa/listings | custom |
 | Register Product | Register a product on-chain for tracking | Free | POST /api/v1/supply-chain/register | custom |
@@ -310,9 +297,8 @@ The sections below organise every capability by its high-level category. Older c
 | Transfer Custody | Transfer chain-of-custody to a new holder | Free | POST /api/v1/supply-chain/custody/transfer | custom |
 | Update Product Status | Update a tracked product's lifecycle status | Free | via capability registry | custom |
 | Batch Track | Track a batch of goods in a single call | Free | via capability registry | custom |
-| Buy Carbon Credits | Purchase carbon credits from verified projects | Free | POST /api/v1/energy/carbon/buy | Toucan, KlimaDAO |
-| Retire Carbon | Permanently retire carbon credits | Free | POST /api/v1/energy/carbon/retire | Toucan, KlimaDAO |
-| Carbon Prices | Get current carbon credit pricing | Free | GET /api/v1/energy/carbon/prices | Toucan, KlimaDAO |
+| Buy Carbon Credits | Purchase carbon credits from verified projects | Free | via capability registry | Toucan, KlimaDAO |
+| Retire Carbon | Permanently retire carbon credits | Free | via capability registry | Toucan, KlimaDAO |
 | Buy Renewable Cert | Purchase a renewable energy certificate | Free | via capability registry | custom |
 | Invest in Green Bond | Invest in a tokenized green bond | Pro | via capability registry | custom |
 | Create / File / Settle / Cancel Policy | Insurance policy lifecycle | Free | POST /api/v1/insurance/policy/create | custom |
@@ -326,10 +312,9 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Create Prediction Market | Create a new prediction market | Pro | POST /api/v1/prediction/market/create | Polymarket, custom |
-| Place Prediction Bet | Place a bet on a prediction market outcome | Free | POST /api/v1/prediction/market/bet | Polymarket, custom |
+| Create Prediction Market | Create a new prediction market | Pro | via capability registry | Polymarket, custom |
+| Place Prediction Bet | Place a bet on a prediction market outcome | Free | via capability registry | Polymarket, custom |
 | Resolve Market | Resolve a market to a final outcome | Pro | via capability registry | Polymarket, custom |
-| List Markets | Browse active prediction markets | Free | GET /api/v1/prediction/market/list | Polymarket, custom |
 | Create Auction | Create an English, Dutch, or sealed-bid auction | Free | via capability registry | custom |
 | Place Bid | Submit a bid to an auction | Free | via capability registry | custom |
 | Settle Auction | Settle an auction and distribute proceeds | Free | via capability registry | custom |
@@ -370,8 +355,8 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Register AI Agent | Register an AI agent with model and capabilities | Pro | POST /api/v1/ai/agent/register | custom |
-| Trade AI Model | Buy or sell an AI model NFT | Pro | POST /api/v1/ai/model/trade | ERC-721, custom |
+| Register AI Agent | Register an AI agent with model and capabilities | Pro | via capability registry | custom |
+| Trade AI Model | Buy or sell an AI model NFT | Pro | via capability registry | ERC-721, custom |
 | Sell Training Data | List a tokenized training dataset for sale | Pro | via capability registry | custom |
 | Grant IP License | Grant an IP license to another party | Pro | via capability registry | custom |
 

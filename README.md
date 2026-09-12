@@ -383,7 +383,6 @@ The gateway serves a built-in web interface:
 
 - `http://localhost:18790` — Landing page
 - `http://localhost:18790/chat` — Web chat with Trinity
-- `http://localhost:18790/pricing` — Pricing and plans
 - `http://localhost:18790/audit` — Glasswing security audit service
 - `http://localhost:18790/marketplace` — Plugin marketplace
 - `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
@@ -457,9 +456,6 @@ const response = await client.chat('What can you do?');
 ## Contributing
 
 See `CONTRIBUTING.md` for the open contribution model.
-
-Community builders: share your referral link to earn free subscription
-months. Generate your code at `/pricing` or via `POST /referral/generate`.
 
 ---
 

@@ -2,7 +2,7 @@
  * Main HTTP client for the 0pnMatrx gateway.
  *
  * Provides methods for chat, health checks, memory operations,
- * blockchain actions, subscription management, and component registry.
+ * blockchain actions, in-app purchase verification, and component registry.
  */
 
 import type {
@@ -239,32 +239,33 @@ export class OpenMatrixClient {
   }
 
   /**
-   * Get current subscription status.
+   * @deprecated The gateway has no subscription-status or checkout endpoint.
+   * Subscriptions are Apple In-App Purchases made in the MTRX app and reported
+   * with {@link verifyIap}. This method used to call a status path the gateway
+   * does not register, so it always failed with a 404; it now fails
+   * without a request and says why.
    */
   async subscriptionStatus(): Promise<SubscriptionStatus> {
-    const resp = await fetch(`${this.baseUrl}/subscription/status`, {
-      headers: this.headers(),
-    });
-    return this.unwrap(resp, 'subscriptionStatus');
+    throw new Error(
+      'subscriptionStatus: this gateway has no subscription endpoint. ' +
+        'Subscriptions are Apple In-App Purchases verified with verifyIap().'
+    );
   }
 
   /**
-   * Start a checkout session for a subscription tier.
+   * @deprecated There is no checkout: subscriptions are sold through Apple
+   * In-App Purchase in the MTRX app, not by a card checkout on the gateway.
+   * This method used to post to a checkout path the gateway does not
+   * register; it now fails without a request and says why.
    */
   async checkout(
-    tier: 'pro' | 'enterprise',
-    options: { successUrl?: string; cancelUrl?: string } = {}
+    _tier: 'pro' | 'enterprise',
+    _options: { successUrl?: string; cancelUrl?: string } = {}
   ): Promise<{ checkout_url: string }> {
-    const resp = await fetch(`${this.baseUrl}/subscription/checkout`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
-        tier,
-        success_url: options.successUrl || `${this.baseUrl}/pricing?status=success`,
-        cancel_url: options.cancelUrl || `${this.baseUrl}/pricing?status=cancelled`,
-      }),
-    });
-    return this.unwrap(resp, 'checkout');
+    throw new Error(
+      'checkout: this gateway has no checkout endpoint. Subscriptions are ' +
+        'purchased in the MTRX app (Apple In-App Purchase) and reported with verifyIap().'
+    );
   }
 
   /**

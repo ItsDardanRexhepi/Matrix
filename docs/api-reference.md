@@ -309,60 +309,57 @@ All error responses share this shape:
 |--------|--------------------------|--------------------------------------|
 | `GET`  | `/`                      | Landing page                         |
 | `GET`  | `/chat`                  | Web chat interface (Trinity)         |
-| `GET`  | `/pricing`               | Pricing and subscription tiers       |
 | `GET`  | `/audit`                 | Glasswing security audit service     |
 | `GET`  | `/marketplace`           | Developer plugin marketplace         |
 | `GET`  | `/services/conversion`   | Smart contract conversion service    |
 
 ---
 
-## Subscription endpoints
+## In-app purchase endpoints
 
-### `GET /subscription/status`
+Subscriptions are sold in the MTRX iOS app through Apple In-App Purchase. The
+gateway has no checkout or card-payment endpoint; it verifies what the App Store
+signed.
 
-Get the current subscription tier and usage for a wallet.
+### `POST /api/v1/iap/verify`
 
-**Query:** `?wallet=0xabc...`
-
-```json
-{
-  "tier": "pro",
-  "usage": { "contract_conversions": 12, "nft_mints": 3 },
-  "limits": { "contract_conversions": 100, "nft_mints": 50 },
-  "trial_active": false
-}
-```
-
-### `POST /subscription/checkout`
-
-Create a Stripe checkout session for upgrading.
+Verify a StoreKit `signedTransaction` JWS (full certificate chain to the pinned
+Apple root, bundle-id check) and record it. A subscription records an
+entitlement row; a consumable is recorded in the transaction ledger but never
+grants a tier. Replaying the same transaction returns `200` with `replay: true`.
 
 ```json
-{ "wallet_address": "0xabc...", "tier": "pro" }
+{ "signedTransaction": "eyJhbGciOi..." }
 ```
 
-### `POST /subscription/webhook`
+`400` missing/invalid body · `401` the transaction did not verify · `503` IAP is
+not configured on this gateway.
 
-Stripe webhook receiver. Automatically processes subscription events.
+### `POST /api/v1/iap/asn`
+
+App Store Server Notifications V2 receiver. Called by Apple's servers, not by a
+client; authenticated by the Apple-signed JWS chain.
 
 ---
 
 ## Audit service endpoints
 
-### `POST /audit/scan`
+### `POST /audit/request`
 
 Submit a smart contract for Glasswing security scanning.
 
 ```json
 {
-  "contract_source": "pragma solidity ^0.8.20; ...",
-  "contract_name": "MyToken"
+  "source_code": "pragma solidity ^0.8.20; ...",
+  "contract_name": "MyToken",
+  "email": "you@example.com",
+  "tier": "standard"
 }
 ```
 
-### `GET /audit/report/{report_id}`
+### `GET /audit/{audit_id}`
 
-Retrieve a completed audit report.
+Retrieve an audit report.
 
 ---
 
@@ -381,13 +378,11 @@ List available plugins. Supports query filters:
 
 Get details for a single plugin.
 
-### `POST /marketplace/plugins/purchase`
+### `POST /marketplace/plugins/{plugin_id}/purchase`
 
-Purchase or install a plugin.
-
-```json
-{ "wallet_address": "0xabc...", "plugin_id": "plugin_abc123" }
-```
+Purchase or install a plugin. No body: the plugin comes from the path, and the
+buyer is the caller's session identity (or, with no session, the
+`X-Wallet-Address` header).
 
 ### `POST /marketplace/plugins/submit`
 
@@ -403,11 +398,9 @@ Submit a new plugin for review (Enterprise tier required).
 }
 ```
 
-### `GET /marketplace/plugins/purchased`
+### `GET /marketplace/purchased`
 
-List all plugins purchased by a wallet.
-
-**Query:** `?wallet=0xabc...`
+List the plugins the caller owns (same identity rule as purchase).
 
 ---
 
@@ -417,13 +410,25 @@ List all plugins purchased by a wallet.
 
 List all registered agent-to-agent services.
 
-### `POST /a2a/services/register`
+Optional query: `?category=...`.
 
-Register a new A2A service.
+### `POST /a2a/jobs`
 
-### `POST /a2a/services/invoke`
+Submit a job to an agent service. Returns the job record with `201`.
 
-Invoke an A2A service by ID.
+```json
+{
+  "service_id": "svc_abc123",
+  "requester": "user",
+  "provider": "agent_xyz",
+  "input": {},
+  "max_price_usd": 0
+}
+```
+
+### `GET /a2a/jobs/{job_id}`
+
+Get a job's status. `404` if the job does not exist.
 
 ---
 
@@ -433,22 +438,23 @@ Invoke an A2A service by ID.
 
 List all registered platform extensions.
 
-### `POST /extensions/register`
+### `GET /extensions/registry/{component_id}`
 
-Register a new extension.
+Get one registered component.
 
 ---
 
 ## Social media endpoints
 
-### `POST /social/announce`
+### `POST /social/post`
 
-Post an announcement to configured social channels (Twitter, Discord).
+Post to the configured social media platforms. Returns
+`{"status": "not_configured"}` when none is configured.
 
 ```json
 {
-  "message": "New feature launched!",
-  "channels": ["twitter", "discord"]
+  "content": "New feature launched!",
+  "platform": "all"
 }
 ```
 

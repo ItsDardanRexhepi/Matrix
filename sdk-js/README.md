@@ -41,8 +41,8 @@ for await (const event of stream) {
 | `readMemory(agent)` | Read agent memory |
 | `writeMemory(agent, key, value)` | Write to agent memory |
 | `getComponents()` | Get component registry |
-| `subscriptionStatus()` | Get subscription status |
-| `checkout(tier)` | Start checkout session |
+| `verifyIap(signedTransaction)` | Report a StoreKit-signed transaction for server verification |
+| `subscriptionStatus()`, `checkout(tier)` | Deprecated: the gateway has no subscription or checkout endpoint (subscriptions are Apple In-App Purchases); both throw |
 
 ### `OpenMatrixWebSocket`
 
