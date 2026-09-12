@@ -255,14 +255,34 @@ class ContractConversionService:
             #            there is no executable logic there is nothing to audit,
             #            so the verdict is "not_applicable", never passed=True.
             functions = ir.get("functions", [])
-            unimplemented = [
-                f.get("name", "<anonymous>")
-                for f in functions
-                if not (f.get("body") or "").strip()
-            ]
-            has_executable_logic = any(
-                (f.get("body") or "").strip() for f in functions
-            )
+            if template_used:
+                # The TEMPLATE is the output on this branch, so the template is
+                # what gets measured. The IR describes the caller's pseudocode,
+                # whose one-line declarations have empty bodies by construction;
+                # judging the template by it reported a fully implemented
+                # contract as "partial" with every declared function
+                # "unimplemented", and replaced the real audit of the template
+                # with "not_applicable".
+                #
+                # `unimplemented` keeps its meaning for the caller: a function
+                # they declared that the contract they got does not implement.
+                # A template that lacks one of their functions is still partial.
+                implemented = ContractAuditor.implemented_functions(generated)
+                unimplemented = [
+                    f.get("name", "<anonymous>")
+                    for f in functions
+                    if f.get("name") not in implemented
+                ]
+                has_executable_logic = audit_report.auditable
+            else:
+                unimplemented = [
+                    f.get("name", "<anonymous>")
+                    for f in functions
+                    if not (f.get("body") or "").strip()
+                ]
+                has_executable_logic = any(
+                    (f.get("body") or "").strip() for f in functions
+                )
 
             if not has_executable_logic:
                 # No statements anywhere — the audit cannot render a verdict.
@@ -317,14 +337,23 @@ class ContractConversionService:
             #    (nothing to flag) but has no logic to deploy, and audit_passed
             #    is False for it — so an empty contract can never reach the
             #    deploy path.
+            #
+            #    Also gated on `unimplemented`: a contract missing a function the
+            #    caller declared is not the contract they asked for, however
+            #    clean its audit. Before the template branch was measured on the
+            #    template this could not arise there (its audit never passed);
+            #    now it can, so the gate says so explicitly.
             if self._auto_deploy:
-                if not audit_passed:
+                if not audit_passed or unimplemented:
                     result["deployment"] = {
                         "status": "blocked",
                         "reason": (
                             "no executable logic — nothing to deploy"
                             if not has_executable_logic
                             else "Glasswing audit blocked deployment"
+                            if not audit_passed
+                            else "declared functions are not implemented: "
+                                 + ", ".join(unimplemented)
                         ),
                         "audit": audit_dict,
                     }

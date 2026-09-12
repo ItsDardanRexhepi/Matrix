@@ -220,6 +220,25 @@ class ContractAuditor:
             if body.strip():          # a body with anything in it at all
                 return True
 
+    _FUNCTION_NAME = re.compile(r"\bfunction\s+(\w+)\s*\(")
+
+    @classmethod
+    def implemented_functions(cls, source: str) -> set[str]:
+        """Names of the `function`s this source declares WITH a real body.
+
+        The same brace rule as has_executable_logic, per function, so "this
+        function is implemented" and "this source is auditable" can never be
+        answered by two different readings of the same text. An overloaded name
+        counts as implemented if any of its overloads has a body.
+        """
+        stripped = cls._strip_comments(source or "")
+        found: set[str] = set()
+        for m in cls._FUNCTION_NAME.finditer(stripped):
+            body = cls._body_after(stripped, m.end())
+            if body is not None and body.strip():
+                found.add(m.group(1))
+        return found
+
     @staticmethod
     def _strip_comments(source: str) -> str:
         source = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)

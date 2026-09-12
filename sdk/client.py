@@ -247,6 +247,9 @@ class OpenMatrixClient:
         ``status: "partial"`` with an ``unimplemented`` list, and its audit
         block carries ``verdict: "not_applicable"`` rather than a pass — an
         empty contract has no vulnerabilities, which is not the same as safe.
+        When a template is used (``template_used`` is set), ``generated_source``
+        is that template, and the audit and ``unimplemented`` describe it: a
+        function you declared that the template lacks is listed there.
         """
         return await self.ablockchain(
             "contract_conversion",
