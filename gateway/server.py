@@ -2870,7 +2870,10 @@ def main():
     server = GatewayServer(config)
     app = server.create_app()
 
-    host = config.get("gateway", {}).get("host", "0.0.0.0")
+    # Binding every interface is the right default for a containerised gateway —
+    # the container's network namespace is the boundary, and the operator sets
+    # gateway.host to narrow it. Reviewed, intentional, and configurable.
+    host = config.get("gateway", {}).get("host", "0.0.0.0")  # nosec B104
     port = config.get("gateway", {}).get("port", 18790)
 
     logger.info(

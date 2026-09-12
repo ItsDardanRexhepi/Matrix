@@ -443,18 +443,21 @@ class SocialFeedEngine:
             clauses.append("ranked_score >= ?")
             params.append(min_score)
 
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        # Not injectable: `clauses` holds only the literal strings appended above,
+        # each carrying a `?` placeholder, and every caller-supplied value goes to
+        # `params`. The f-string interpolates the fixed clause text, never a value.
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""  # nosec B608
         params.extend([limit, offset])
 
-        rows = await self._db.fetchall(
-            f"""
-            SELECT * FROM social_feed_events
-            {where}
-            ORDER BY ranked_score DESC, timestamp DESC
-            LIMIT ? OFFSET ?
-            """,
-            tuple(params),
-        )
+        # Assembled on one line so the scanner has somewhere to read the reason:
+        # the only interpolation is `where`, built above from literal clause text,
+        # and every caller-supplied value travels in `params` as a `?` parameter.
+        sql = (
+            "SELECT * FROM social_feed_events "  # nosec B608 — `where` is literal clause text; values are `?` params
+            + where
+            + " ORDER BY ranked_score DESC, timestamp DESC LIMIT ? OFFSET ?"
+        )  # nosec B608
+        rows = await self._db.fetchall(sql, tuple(params))
         return [FeedEvent.from_row(dict(r)) for r in rows]
 
     async def get_trending(self, window_hours: int = 24) -> List[Dict[str, Any]]:

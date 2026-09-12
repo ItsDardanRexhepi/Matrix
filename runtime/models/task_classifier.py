@@ -142,4 +142,7 @@ def estimate_tokens(messages: list[Any]) -> int:
 def hash_args(arguments: dict) -> str:
     """Produce a short hash of tool-call arguments for loop detection."""
     raw = str(sorted(arguments.items())).encode()
-    return hashlib.md5(raw).hexdigest()[:12]
+    # Loop detection, not security: this fingerprints a tool call so the loop can
+    # notice it repeating. usedforsecurity=False says so to the reader and to the
+    # scanner, and lets the hash work on a FIPS-restricted build.
+    return hashlib.md5(raw, usedforsecurity=False).hexdigest()[:12]
