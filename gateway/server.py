@@ -386,7 +386,7 @@ class GatewayServer:
             self._security_backend = "noop"
             self._security_backend_cause = f"the App Attest verifier failed to initialise: {exc}"
 
-        # H2/RUN-11: production must not BOOT with no enforcement.
+        # H2/RUN-11: production must not BOOT without the security core.
         #
         # /ready (RUN-7) takes such an instance out of rotation, but that is a
         # second line of defence — it depends on an orchestrator actually
@@ -696,7 +696,7 @@ class GatewayServer:
           primary function and should be taken out of rotation, not restarted.
         * **``SECURITY_BACKEND == "noop"`` in production.** The no-op backend
           means the private ``morpheus_security`` package failed to load and
-          the platform is running with security in OBSERVE — no enforcement.
+          the Morpheus gate is an OBSERVE no-op that blocks nothing.
           That is a legitimate local/dev state and a NON-STARTER in production,
           so it is only fatal when ``OPNMATRX_ENV=production``.
 

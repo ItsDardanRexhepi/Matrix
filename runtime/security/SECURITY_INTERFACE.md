@@ -9,9 +9,12 @@ owners, or sanitizes — are **not in this repository** and never will be.
 ## What the platform sees
 
 - A security gate is obtained via `from runtime.security import get_morpheus_security`
-  and consulted **first** in
-  `runtime/protocols/integration.py::ProtocolStack.pre_action`, ahead of
-  `RexhepiGate`, so every execution path passes it before any privileged action.
+  and evaluated in `runtime/protocols/integration.py::ProtocolStack.pre_action`,
+  after the seam-level refusals (`beneficiary_violation`, `allowance_violation`)
+  and ahead of `RexhepiGate`.
+- The per-agent tool boundary is obtained via
+  `from runtime.security import agent_access_allowed` and checked by the
+  ToolDispatcher on each tool call it dispatches.
 - `gate.evaluate(action, context)` returns an allow/deny decision. The gate is
   **authoritative server-side** — app-side checks are UX only.
 - OTP / owner-verification services are obtained the same way
@@ -22,9 +25,12 @@ owners, or sanitizes — are **not in this repository** and never will be.
 
 - **`morpheus_security` installed** → real enforcement (the private package,
   co-installed at deploy).
-- **not installed** (open-source clone, local dev) → an inert **OBSERVE no-op**:
-  every action is allowed and logged, nothing is enforced. The platform boots
-  and runs normally; it simply has no real security layer.
+- **not installed** (open-source clone, local dev) → the gate is an inert
+  **OBSERVE no-op** that allows every action it evaluates. The per-agent tool
+  boundary falls back to the public coarse default (`runtime/access_policy.py`),
+  which still refuses; the seam-level refusals still run; OTP and owner
+  verification fail closed. The platform boots and runs normally; it simply has
+  no private security layer.
 
 `SECURITY_BACKEND` (`"morpheus_security"` or `"noop"`) reports which is active.
 

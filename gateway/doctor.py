@@ -141,7 +141,7 @@ def check_security_backend(config: dict) -> tuple:
     "is the package on disk?". That is not the question an operator is asking.
     The seam decides the live backend at import time, and a package that is
     present but fails to load still yields SECURITY_BACKEND == "noop". So doctor
-    could report READY while the running gateway had no enforcement at all —
+    could report READY while the running gateway had no security core loaded —
     the tool meant to catch a misconfiguration agreeing with the misconfigured
     system. It now reads the same value the runtime uses.
     """

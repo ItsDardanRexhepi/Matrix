@@ -10,11 +10,14 @@ The security layer is designed to handle:
 - Ban system and blockchain attestation
 - Owner-level access verification
 
-It connects to the open source runtime through the seam documented in `runtime/security/SECURITY_INTERFACE.md`, which the platform consults before privileged actions (first in `ProtocolStack.pre_action`).
+It connects to the open source runtime through the seam documented in `runtime/security/SECURITY_INTERFACE.md`. The platform consults the seam in two places: the per-agent tool boundary, which the ToolDispatcher checks on each tool call it dispatches, and the Morpheus gate, which `ProtocolStack.pre_action` evaluates after its seam-level refusals and before the Rexhepi gate.
 
 ## What is true today
 
-- **Without the private package** — every clone of this repository — the seam runs an inert OBSERVE no-op: every action is allowed and logged, and nothing listed above is enforced. Owner verification and OTP fail closed (they never authorize), so owner-gated operations are off rather than open.
+- **Without the private package** — every clone of this repository — the Morpheus gate is an inert OBSERVE no-op: it allows every action it evaluates and makes no security decision, and none of the layer's own checks run. What still applies is public code in this repository:
+  - the coarse per-agent tool boundary (`runtime/access_policy.py`): Trinity and Morpheus cannot run execution tools or state-changing actions, and an unknown or empty agent name is refused;
+  - two seam-level refusals in `ProtocolStack.pre_action`, reached before the gate: a platform-signed action naming a beneficiary address other than the caller's (or naming one when no caller identity is bound), and an approve signed with the platform key when no operator allowance cap is set;
+  - owner verification and OTP, which fail closed (they never authorize), so owner-gated operations are off rather than open.
 - **With the private package installed**, the layer's documented default mode is OBSERVE (`OPNMATRX_MORPHEUS_MODE=observe`): it records what it would block and does not block. ENFORCE must not be enabled before a human security review and testnet validation; the layer is unverified until then.
 - The layer can deny an action. It never signs a transaction or moves funds.
 

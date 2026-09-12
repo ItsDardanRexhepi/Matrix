@@ -119,8 +119,8 @@ class ProtocolStack:
             logger.exception("Failed to initialise ContractAuditor")
 
         # Morpheus — the authoritative server-side security gate (the spine).
-        # Consulted first in pre_action, ahead of RexhepiGate. Uses the process-wide
-        # singleton so bans/freezes are GLOBAL across agents and requests. The full
+        # Evaluated in pre_action after the seam-level refusals, ahead of
+        # RexhepiGate. Uses the process-wide singleton so bans/freezes are GLOBAL across agents and requests. The full
         # config is passed so the layer resolves owner/blockchain/db subtrees (the
         # gateway creates the singleton first, at startup, with the DB handle).
         try:
@@ -411,8 +411,9 @@ class ProtocolStack:
                 result["denial_reason"] = refusal
                 return result
 
-        # Morpheus — the security spine. Runs FIRST, so every execution path
-        # passes him. Authoritative server-side allow/deny (binding only in
+        # Morpheus — the security spine. Runs after the seam-level refusals
+        # above and before the Rexhepi gate, so every path that reaches
+        # execution passes him. Authoritative server-side allow/deny (binding only in
         # ENFORCE mode; OBSERVE logs without blocking while the layer is
         # unverified). App-side Morpheus is UX only; THIS is the boundary.
         if self._morpheus_security is None and self._morpheus_init_failed:

@@ -3,16 +3,18 @@
 This package is a BOUNDARY, not an implementation. It exposes the security
 contract the open platform calls (the Morpheus gate, OTP, owner verification)
 and binds it to the private ``morpheus_security`` package **if that package is
-installed**. If it is not — an open-source clone, or local dev — the seam falls
-back to an inert OBSERVE no-op: every action is allowed and logged, nothing is
-enforced. The platform boots either way.
+installed**. If it is not — an open-source clone, or local dev — the gate falls
+back to an inert OBSERVE no-op that allows every action it evaluates; the
+per-agent tool boundary falls back to the public coarse default
+(``runtime.access_policy``), which still refuses; OTP and owner verification
+fail closed. The platform boots either way.
 
 A developer reading this repo can see that security IS invoked and where; the
 rules for HOW it decides (detection, classification, bans, owner/OTP internals,
 sanitizer patterns) live only in the private package and never appear here.
 
   - Real enforcement  → install ``morpheus_security`` (private), co-located at deploy.
-  - No private package → OBSERVE no-op (safe, non-blocking, no enforcement).
+  - No private package → OBSERVE no-op gate (blocks nothing) + public per-agent boundary.
 
 The Glasswing contract auditor (``audit.py``) is a separate, open feature and is
 imported directly as ``runtime.security.audit`` — it does not pass through here.
@@ -66,7 +68,8 @@ except (ImportError, ModuleNotFoundError):
     _private_agent_access = None
     logger.warning(
         "Security backend: noop. The private morpheus_security package is not "
-        "installed; the platform runs with security in OBSERVE (no enforcement). "
+        "installed; the Morpheus gate is an OBSERVE no-op (it blocks nothing) and "
+        "only the public per-agent tool boundary applies. "
         "Install morpheus_security for real enforcement (see SECURITY_INTERFACE.md)."
     )
 
@@ -75,8 +78,9 @@ except (ImportError, ModuleNotFoundError):
         ENFORCE = "enforce"
 
     class _NoopMorpheus:
-        """Inert gate: allows everything, enforces nothing. Logs that it ran so
-        the invocation is observable, but it makes no security decision."""
+        """Inert gate: allows every action it evaluates and makes no security
+        decision. It does not log; its decision (``backend: "noop"``) is
+        returned to the caller, which records it in the pre-action result."""
 
         mode = MorpheusMode.OBSERVE
 
