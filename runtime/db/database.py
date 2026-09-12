@@ -172,6 +172,20 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        3,
+        "apple_users — first sign-in and the wallet linked to an Apple sub (T2.4)",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS apple_users (
+                sub             TEXT PRIMARY KEY,
+                first_seen      REAL NOT NULL,
+                last_seen       REAL NOT NULL,
+                wallet_address  TEXT NOT NULL DEFAULT ''
+            )
+            """,
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class

@@ -29,7 +29,9 @@ from runtime.auth.session_store import (
     WalletSessionStore,
     NonceStore,
     run_cleanup_loop,
+    AppleUserStore,
 )
+from gateway.session_routes import session_may_reach
 from runtime.db.backup import BackupManager, run_backup_loop
 from runtime.logging import (
     configure_logging,
@@ -336,6 +338,7 @@ class GatewayServer:
         # hook once the underlying memory database has been opened.
         self.wallet_sessions = WalletSessionStore(self.react_loop.memory.db)
         self.wallet_nonces = NonceStore(self.react_loop.memory.db)
+        self.apple_users = AppleUserStore(self.react_loop.memory.db)
         self._wallet_session_ttl = gw.get("wallet_session_ttl_seconds", 86400)
         self._auth_cleanup_task: asyncio.Task | None = None
         # Morpheus security layer (the process-wide gate) + its durable-state flusher.
@@ -540,6 +543,9 @@ class GatewayServer:
 
         session_id = str(body.get("session_id", "default"))[:100]
         agent = str(body.get("agent", "trinity"))[:50]
+        forbidden = self._agent_forbidden_for_caller(request, agent)
+        if forbidden:
+            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
         valid_agents = {"neo", "trinity", "morpheus"}
         if agent not in valid_agents:
             return web.json_response({"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"}, status=400)
@@ -940,6 +946,13 @@ class GatewayServer:
             expires_at=expires_at,
         )
 
+        # T2.4: a wallet proven by SIWE while holding an Apple session is linked
+        # to that Apple user, so wallet-keyed services see the wallet — not
+        # "apple:<sub>" — on the app's later requests.
+        apple_sub = self._session_apple_id(request)
+        if apple_sub:
+            await self.apple_users.link_wallet(apple_sub, address)
+
         return web.json_response({
             "token": token,
             "address": address,
@@ -954,7 +967,7 @@ class GatewayServer:
 
     async def handle_social_follow(self, request: web.Request) -> web.Response:
         """POST /social/follow — {address}. Follower = X-Wallet-Address."""
-        follower = request.headers.get("X-Wallet-Address", "").strip()
+        follower = self._caller_identity(request)
         try:
             body = await request.json()
         except json.JSONDecodeError:
@@ -966,7 +979,7 @@ class GatewayServer:
         return web.json_response({"success": True, "following": followee})
 
     async def handle_social_unfollow(self, request: web.Request) -> web.Response:
-        follower = request.headers.get("X-Wallet-Address", "").strip()
+        follower = self._caller_identity(request)
         try:
             body = await request.json()
         except json.JSONDecodeError:
@@ -1029,13 +1042,11 @@ class GatewayServer:
         # client's AuthResponse.walletAddress is non-optional so return "" when
         # none exists yet.
         user_key = f"apple:{sub}"
-        wallet_address = ""
-        try:
-            existing = self.wallet_sessions.get_by_address(user_key) \
-                if hasattr(self.wallet_sessions, "get_by_address") else None
-            is_new_user = existing is None
-        except Exception:
-            is_new_user = True
+        # T2.4: first sign-in and the linked wallet are read back from the
+        # apple_users table — before this, isNewUser was always true and
+        # walletAddress always "" (a get_by_address the store never had).
+        is_new_user = await self.apple_users.touch(sub)
+        wallet_address = self.apple_users.wallet_for(sub)
 
         token = create_session_token()
         now = time.time()
@@ -1099,15 +1110,8 @@ class GatewayServer:
         /api/v1/auth/apple) maps the verified purchase to that session's user
         key; absent/invalid -> '' (recorded unbound — verification never
         depends on a session)."""
-        candidates = [request.headers.get("X-Wallet-Session", "").strip()]
-        auth = request.headers.get("Authorization", "").strip()
-        if auth.startswith("Bearer "):
-            candidates.append(auth[len("Bearer "):].strip())
-        for token in candidates:
-            session = self.wallet_sessions.get(token) if token else None
-            if session:
-                return str(session.get("address", ""))
-        return ""
+        session = self._wallet_session_from_request(request)
+        return str(session.get("address", "")) if session else ""
 
     async def handle_iap_verify(self, request: web.Request) -> web.Response:
         """POST /api/v1/iap/verify — verify a StoreKit ``signedTransaction``
@@ -1303,6 +1307,9 @@ class GatewayServer:
 
         session_id = str(body.get("session_id", "default"))[:100]
         agent = str(body.get("agent", "trinity"))[:50]
+        forbidden = self._agent_forbidden_for_caller(request, agent)
+        if forbidden:
+            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
         valid_agents = {"neo", "trinity", "morpheus"}
         if agent not in valid_agents:
             return web.json_response(
@@ -1446,6 +1453,10 @@ class GatewayServer:
             agent = str(payload.get("agent", "trinity"))[:50]
             if agent not in {"neo", "trinity", "morpheus"}:
                 await ws.send_json({"type": "error", "error": "invalid agent"})
+                continue
+            forbidden = self._agent_forbidden_for_caller(request, agent)
+            if forbidden:
+                await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
                 continue
 
             if session_id not in self._conv_loaded:
@@ -1815,7 +1826,7 @@ class GatewayServer:
         if not self.plugin_marketplace:
             return web.json_response({"error": "Not available"}, status=503)
         plugin_id = request.match_info.get("plugin_id", "")
-        wallet = request.headers.get("X-Wallet-Address", "anonymous")
+        wallet = self._caller_identity(request) or "anonymous"
         result = await self.plugin_marketplace.purchase(wallet, plugin_id)
         return web.json_response(result)
 
@@ -1835,7 +1846,7 @@ class GatewayServer:
         """GET /marketplace/purchased — plugins owned by wallet."""
         if not self.plugin_marketplace:
             return web.json_response({"plugins": []})
-        wallet = request.headers.get("X-Wallet-Address", "anonymous")
+        wallet = self._caller_identity(request) or "anonymous"
         plugins = await self.plugin_marketplace.get_purchased(wallet)
         return web.json_response({"plugins": plugins})
 
@@ -2033,6 +2044,7 @@ class GatewayServer:
         # Open the SQLite database and load auth stores from disk.
         await self.react_loop.memory.initialize()
         await self.wallet_sessions.initialize()
+        await self.apple_users.initialize()
         await self.wallet_nonces.initialize()
         # Security layer — create the process-wide Morpheus gate WITH the DB handle
         # and load durable bans before serving; then flush its durable state
@@ -2252,8 +2264,7 @@ class GatewayServer:
                 {"verified": False, "reason": "security backend not installed"})
         # Identity that the challenge was bound to — the authenticated wallet
         # header (mirrors the challenge request's identity), else a body field.
-        identity = (request.headers.get("X-Wallet-Address")
-                    or str(body.get("identity", ""))).strip()
+        identity = (self._caller_identity(request) or str(body.get("identity", ""))).strip()
         try:
             result = await self._app_attest.verify_attestation(
                 identity=identity,
@@ -2438,25 +2449,112 @@ class GatewayServer:
 
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler):
-        """Validate API key on protected endpoints."""
+        """Validate the credential on protected endpoints.
+
+        Two credentials exist. The operator key opens every route. A wallet
+        session — the token ``/api/v1/auth/apple`` or ``/auth/verify`` issued,
+        presented as ``Authorization: Bearer`` or ``X-Wallet-Session`` — opens
+        only the routes the app reaches (``gateway/session_routes.py``, derived
+        from the client's own calls; anything else answers 403). T2 / path A:
+        before this, the app's Apple Bearer was refused on every key-gated
+        route it calls.
+        """
         if not self.auth_enabled or request.path in self._public_paths:
             return await handler(request)
         if request.method == "OPTIONS":
             return await handler(request)
 
-        auth_header = request.headers.get("Authorization", "")
-        provided_key = ""
-        if auth_header.startswith("Bearer "):
-            provided_key = auth_header[7:]
-        elif request.query.get("api_key"):
-            provided_key = request.query["api_key"]
+        if self._is_operator(request):
+            request["auth"] = {"kind": "operator"}
+            return await handler(request)
 
-        if not provided_key or not hmac.compare_digest(provided_key, self.api_key):
-            return web.json_response(
-                {"error": "unauthorized", "message": "Valid API key required. Set Authorization: Bearer <key>"},
-                status=401,
-            )
-        return await handler(request)
+        session = self._wallet_session_from_request(request)
+        if session is not None:
+            resource = getattr(request.match_info.route, "resource", None)
+            canonical = getattr(resource, "canonical", "") if resource is not None else ""
+            if canonical and session_may_reach(canonical):
+                request["auth"] = {"kind": "session", "subject": str(session.get("address", ""))}
+                return await handler(request)
+            if canonical:
+                return web.json_response(
+                    {"error": "forbidden",
+                     "message": "This route is not available to a user session; it requires the operator key."},
+                    status=403,
+                )
+
+        return web.json_response(
+            {"error": "unauthorized", "message": "Valid API key required. Set Authorization: Bearer <key>"},
+            status=401,
+        )
+
+    # ─── T2 · the Apple session as a credential (path A) ──────────────────
+
+    def _presented_api_key(self, request: web.Request) -> str:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]
+        return request.query.get("api_key", "") or ""
+
+    def _is_operator(self, request: web.Request) -> bool:
+        """The operator key was presented — or auth is off (development), where
+        whoever runs the gateway is the operator."""
+        if not self.auth_enabled:
+            return True
+        key = self._presented_api_key(request)
+        return bool(key) and hmac.compare_digest(key, self.api_key)
+
+    def _wallet_session_from_request(self, request: web.Request):
+        """The live wallet session the request presents: ``X-Wallet-Session``,
+        or the ``Authorization: Bearer`` token the iOS client stores from
+        ``/api/v1/auth/apple``. None when absent, unknown or expired."""
+        candidates = [request.headers.get("X-Wallet-Session", "").strip()]
+        auth_header = request.headers.get("Authorization", "").strip()
+        if auth_header.startswith("Bearer "):
+            candidates.append(auth_header[7:].strip())
+        for token in candidates:
+            if not token:
+                continue
+            try:
+                session = self.wallet_sessions.get(token)
+            except Exception as exc:  # defensive — store unavailable
+                logger.debug("wallet session lookup failed: %s", exc)
+                session = None
+            if session:
+                return session
+        return None
+
+    def _session_apple_id(self, request: web.Request) -> str:
+        session = self._wallet_session_from_request(request)
+        subject = str(session.get("address", "")) if session else ""
+        return subject[len("apple:"):] if subject.startswith("apple:") else ""
+
+    def _session_identity(self, request: web.Request) -> str:
+        """Identity DERIVED from the presented session: the wallet linked to the
+        Apple user when there is one, else the session subject (``0x…`` for
+        SIWE, ``apple:<sub>`` for Apple). Empty without a session."""
+        session = self._wallet_session_from_request(request)
+        if not session:
+            return ""
+        subject = str(session.get("address", ""))
+        if subject.startswith("apple:"):
+            linked = self.apple_users.wallet_for(subject[len("apple:"):])
+            return linked or subject
+        return subject
+
+    def _caller_identity(self, request: web.Request) -> str:
+        """Session-derived identity when a session is presented; otherwise the
+        self-asserted ``X-Wallet-Address`` header (anonymous and dev flows)."""
+        return self._session_identity(request) or request.headers.get("X-Wallet-Address", "").strip()
+
+    def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
+        """On a user-facing chat surface the agent is Trinity. Naming Neo or
+        Morpheus takes the operator key; a user or anonymous caller who does is
+        refused explicitly (403), never silently redirected. Unknown names
+        return None so the existing 400 answers them."""
+        if agent in ("neo", "morpheus") and not self._is_operator(request):
+            return (f"agent '{agent}' requires the operator key; users talk to Trinity "
+                    "(omit 'agent' or send 'trinity')")
+        return None
 
     @web.middleware
     async def _security_context_middleware(self, request: web.Request, handler):
@@ -2470,8 +2568,11 @@ class GatewayServer:
         rides in the request body (``app_attest``) per the client contract.
         """
         if request.method == "POST" and request.path.startswith("/api/v1/"):
-            identity = request.headers.get("X-Wallet-Address", "") or ""
-            apple_id = request.headers.get("X-Apple-Id", "") or ""
+            # T2: an authenticated session's subject is the identity — a header
+            # or body field the caller wrote is consulted only when there is no
+            # session (anonymous and dev flows). Derived, not asserted.
+            identity = self._session_identity(request) or request.headers.get("X-Wallet-Address", "") or ""
+            apple_id = self._session_apple_id(request) or request.headers.get("X-Apple-Id", "") or ""
             app_attest = None
             try:
                 body = await request.json()
@@ -2486,7 +2587,8 @@ class GatewayServer:
                         or (params.get("from") if isinstance(params, dict) else "")
                         or ""
                     )
-                apple_id = apple_id or body.get("apple_id", "") or ""
+                if not apple_id:
+                    apple_id = body.get("apple_id", "") or ""
                 app_attest = body.get("app_attest")
                 if app_attest is None and isinstance(params, dict):
                     app_attest = params.get("app_attest")

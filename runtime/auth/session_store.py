@@ -64,10 +64,22 @@ class WalletSessionStore:
     # ── Dict-like read API (sync for hot path) ─────────────────────
 
     def get(self, token: str, default: Any = None) -> dict[str, Any] | None:
-        return self._cache.get(token, default)
+        """The live record for *token*, or *default* when unknown OR EXPIRED.
+
+        Expiry is honoured here, at the one read path, so no consumer can
+        accept a stale session by forgetting to compare ``expires_at`` (the
+        rate limiter did; the IAP binding and account deletion did not).
+        The expired row stays for ``cleanup()`` to sweep.
+        """
+        record = self._cache.get(token)
+        if record is None:
+            return default
+        if float(record.get("expires_at", 0)) <= time.time():
+            return default
+        return record
 
     def __contains__(self, token: str) -> bool:
-        return token in self._cache
+        return self.get(token) is not None
 
     def __len__(self) -> int:
         return len(self._cache)
@@ -191,6 +203,86 @@ class NonceStore:
                 (cutoff,),
             )
         return len(expired)
+
+
+class AppleUserStore:
+    """SQLite-backed record of every Apple user the gateway has issued a session
+    to, keyed by Apple's stable ``sub``, with the wallet linked to it (if any).
+
+    Until this existed, ``/api/v1/auth/apple`` answered ``isNewUser: true`` and
+    ``walletAddress: ""`` for everyone on every sign-in — two constants dressed
+    as facts. Write-through like the session store: sync reads, async writes.
+    """
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._loaded = False
+
+    async def initialize(self) -> None:
+        if self._loaded:
+            return
+        rows = await self._db.fetchall(
+            "SELECT sub, first_seen, last_seen, wallet_address FROM apple_users"
+        )
+        for r in rows:
+            self._cache[r["sub"]] = {
+                "first_seen": r["first_seen"],
+                "last_seen": r["last_seen"],
+                "wallet_address": r["wallet_address"] or "",
+            }
+        self._loaded = True
+        logger.info("Loaded %d Apple users", len(self._cache))
+
+    # ── Read API (sync) ───────────────────────────────────────────────
+
+    def get(self, sub: str) -> dict[str, Any] | None:
+        return self._cache.get(sub)
+
+    def wallet_for(self, sub: str) -> str:
+        record = self._cache.get(sub)
+        return str(record.get("wallet_address", "")) if record else ""
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+    # ── Async writes ──────────────────────────────────────────────────
+
+    async def touch(self, sub: str) -> bool:
+        """Record a sign-in. Returns True when this is the first time *sub* is seen."""
+        now = time.time()
+        record = self._cache.get(sub)
+        is_new = record is None
+        if is_new:
+            record = {"first_seen": now, "last_seen": now, "wallet_address": ""}
+            self._cache[sub] = record
+        else:
+            record["last_seen"] = now
+        await self._db.execute(
+            """
+            INSERT INTO apple_users (sub, first_seen, last_seen, wallet_address)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(sub) DO UPDATE SET last_seen = excluded.last_seen
+            """,
+            (sub, record["first_seen"], record["last_seen"], record["wallet_address"]),
+        )
+        return is_new
+
+    async def link_wallet(self, sub: str, wallet_address: str) -> None:
+        """Bind a wallet the user has proven (SIWE) to their Apple identity."""
+        now = time.time()
+        record = self._cache.setdefault(
+            sub, {"first_seen": now, "last_seen": now, "wallet_address": ""})
+        record["wallet_address"] = wallet_address
+        await self._db.execute(
+            """
+            INSERT INTO apple_users (sub, first_seen, last_seen, wallet_address)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(sub) DO UPDATE SET wallet_address = excluded.wallet_address,
+                                          last_seen = excluded.last_seen
+            """,
+            (sub, record["first_seen"], now, wallet_address),
+        )
 
 
 async def run_cleanup_loop(
