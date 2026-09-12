@@ -151,7 +151,52 @@ def _route_pairs():
                 isinstance(a, ast.Constant) and isinstance(a.value, str) for a in head), (
                 f"{route.resource.canonical}: self._call with a non-literal service/method")
             pairs[(head[0].value, head[1].value)].add(route.resource.canonical)
+    # A route also runs the method its handler's method WRAPS. Round 4:
+    # /api/v1/social/feed/{wallet} calls social.get_feed_view, which hands every
+    # argument to social.get_feed; the literal pair missed it, and an anonymous
+    # chat read get_social_feed through platform_action while the route answered 401.
+    changed = True
+    while changed:
+        changed = False
+        for (service, method), routes in list(pairs.items()):
+            for wrapped in _wrapped_methods(service, method):
+                before = len(pairs[(service, wrapped)])
+                pairs[(service, wrapped)] |= routes
+                changed |= len(pairs[(service, wrapped)]) != before
     return pairs
+
+
+def _wrapped_methods(service: str, method: str) -> set[str]:
+    """Public methods of the same service that *method* passes EVERY one of its
+    own parameters to: a wrapper runs that operation, not merely a helper of it.
+    (A helper, such as the quote a transfer computes, receives only some of the
+    caller's arguments, and is not the route's operation.)"""
+    import ast
+    import inspect
+    import textwrap
+
+    if service not in service_registry._SERVICE_MAP:
+        return set()
+    cls = _service_class(service)
+    fn = getattr(cls, method, None)
+    try:
+        fdef = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+    except (OSError, TypeError, IndexError):
+        return set()
+    params = {a.arg for a in (fdef.args.posonlyargs + fdef.args.args + fdef.args.kwonlyargs)
+              if a.arg != "self"}
+    calls = [n for n in ast.walk(fdef)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and isinstance(n.func.value, ast.Name) and n.func.value.id == "self"
+             and not n.func.attr.startswith("_") and callable(getattr(cls, n.func.attr, None))]
+    out = set()
+    for call in calls:
+        passed = {x.id for arg in [*call.args, *(k.value for k in call.keywords)]
+                  for x in ast.walk(arg) if isinstance(x, ast.Name)}
+        # With no parameters, "all of them" is vacuous: only a sole public call counts.
+        if params <= passed and (params or len(calls) == 1):
+            out.add(call.func.attr)
+    return out
 
 
 def _derived_escapes() -> dict[str, list[str]]:
@@ -670,3 +715,299 @@ async def test_an_anonymous_chat_is_refused_what_its_routes_refuse_and_a_session
                                if r.getMessage().startswith("Anonymous DENIED"))
             not_by_boundary = [a for a in operator_reached if f"action '{a}'" not in refused]
             assert not_by_boundary == [], (label, not_by_boundary)
+
+
+# ── Round 4: what the anonymous tier's two tables did not know ───────────────
+#
+# 03a305e refused an anonymous caller every pair behind a non-public route and
+# every action in _STATE_MODIFYING_ACTIONS. Measured at 03a305e, on
+# /bridge/v1/chat and /chat with no credential, three dispatches still reached
+# ServiceDispatcher.execute:
+#   * social_follow (social.follow_wallet), through platform_action AND
+#     request_execution. It appends to BOTH wallets' following/followers, with a
+#     follower the model writes, and get_feed reads `following` in both modes.
+#     It was not in _STATE_MODIFYING_ACTIONS, so neither the anonymous tier nor
+#     Trinity's "never a state change through platform_action" rule refused it,
+#     at any tier.
+#   * selective_disclose (did_identity.selective_disclose): it registers a
+#     credential and STORES a presentation under a holder DID the caller names,
+#     from a credential the caller need not hold, and verify_presentation later
+#     matches against that stored record. Not in the set either.
+#   * get_social_feed (social.get_feed), through platform_action: the route
+#     /api/v1/social/feed/{wallet} answers an anonymous caller 401, but runs the
+#     operation through its get_feed_view wrapper, which the literal-pair
+#     derivation could not see.
+
+
+async def test_an_anonymous_chat_cannot_follow_disclose_or_read_the_wrapped_feed(
+        monkeypatch, tmp_path):
+    import json
+    import sys
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    class _Allow:
+        async def evaluate(self, action, context):
+            return {"allow": True}
+
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda *a, **k: _Allow())
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+
+    direct = [("platform_action", {"action": "social_follow",
+                                   "params": {"follower": "0xVICTIM", "target": "0xSPAM"}}),
+              ("platform_action", {"action": "selective_disclose",
+                                   "params": {"did": "did:x", "credential_id": "c", "fields": []}}),
+              ("platform_action", {"action": "get_social_feed", "params": {"address": "0xA"}})]
+    handoff = [("request_execution", {"action": "social_follow",
+                                      "params": {"follower": "0xVICTIM", "target": "0xSPAM"}}),
+               ("request_execution", {"action": "selective_disclose",
+                                      "params": {"did": "did:x", "credential_id": "c"}})]
+
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+
+    async def chat(client, surface, headers, script, session_id):
+        _scripted_model(server, script)
+        recorder.calls.clear()
+        if surface == "/ws":
+            async with client.ws_connect("/ws", headers=headers) as ws:
+                await ws.send_json({"type": "chat", "message": "do it", "agent": "trinity",
+                                    "session_id": session_id})
+                while True:
+                    frame = json.loads((await ws.receive()).data)
+                    if frame.get("type") in ("done", "error"):
+                        assert frame["type"] == "done", frame
+                        break
+        else:
+            resp = await client.post(surface, headers=headers, json={
+                "message": "do it", "wallet_connected": True, "session_id": session_id})
+            assert resp.status == 200, await resp.text()
+        return sorted(c.split("@")[0] for c in recorder.calls)
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        operator = {"Authorization": "Bearer k"}
+        session = {"Authorization": "Bearer 0xTEST_SESSION"}
+        # Positive controls first. Trinity executes no state change through
+        # platform_action at any tier; the feed read is a signed-in read, and a
+        # signed-in caller's request_execution is not refused either.
+        signed_in = (["get_social_feed"], ["selective_disclose", "social_follow"])
+        runs = {
+            "operator /bridge/v1/chat": ("/bridge/v1/chat", operator, signed_in),
+            "session /bridge/v1/chat": ("/bridge/v1/chat", session, signed_in),
+            "session /ws": ("/ws", session, signed_in),
+            "anonymous /bridge/v1/chat": ("/bridge/v1/chat", {}, ([], [])),
+            "anonymous /chat": ("/chat", {}, ([], [])),
+            "anonymous /ws": ("/ws", {}, ([], [])),
+        }
+        reached, expected = {}, {}
+        for n, (label, (surface, headers, want)) in enumerate(runs.items()):
+            reached[label] = (await chat(client, surface, headers, direct, f"r{n}a"),
+                              await chat(client, surface, headers, handoff, f"r{n}b"))
+            expected[label] = want
+        assert reached == expected, "\n".join(
+            f"{k}: platform_action reached {v[0]}, request_execution reached {v[1]}"
+            for k, v in reached.items() if v != expected[k])
+
+
+def test_the_wrapped_feed_read_is_behind_its_route():
+    from gateway.session_routes import SERVICE_METHODS_OFF_ANONYMOUS, caller_refused_route
+
+    assert "/api/v1/social/feed/{wallet}" in _route_pairs()[("social", "get_feed")]
+    assert SERVICE_METHODS_OFF_ANONYMOUS.get("social.get_feed") == "/api/v1/social/feed/{wallet}"
+    assert caller_refused_route("anonymous", "get_social_feed")
+    assert caller_refused_route("session", "get_social_feed") is None
+    # A helper is not a wrapper: the transfer route computes a fee, and the fee
+    # quote stays a read for everyone.
+    assert "get_fee" not in _wrapped_methods("stablecoin", "transfer")
+    assert caller_refused_route("session", "get_payment_quote") is None
+
+
+# ── The class: a "read" that writes must be adjudicated, not assumed ─────────
+#
+# Membership in _STATE_MODIFYING_ACTIONS decides Trinity's platform_action rule,
+# the anonymous tier's unrouted arm, attestation and the gate-fault direction.
+# social_follow was missing from it for as long as it existed, because nothing
+# checked a read. This walks every ACTION_MAP action OUTSIDE the set, follows its
+# method through `self.x(...)` and `self.part.x(...)` calls, and reports each
+# write to state the service holds: an assignment or `del` on something reached
+# from `self`, a mutating container call on it, or SQL that writes. A read that
+# writes is either adjudicated below, with the reason it is not a state change a
+# caller makes, or the test fails.
+#
+# Blind spots, so the census could be LOW: a write through a module-level
+# function or an object not reached as `self.part`, a write inside another
+# package's client, and a local name bound from a self container by any spelling
+# other than subscript, `.get(...)`, `.setdefault(...)`, attribute or a `for`
+# over one.
+
+READS_THAT_WRITE: dict[str, str] = {
+    # caches and counters: the value served is the same with or without them
+    "get_activity": "dashboard aggregate cache",
+    "get_dashboard": "dashboard aggregate cache",
+    "get_payment_quote": "FX rate cache",
+    "get_price": "oracle response cache, hit/miss counters, per-caller rate-limit window",
+    "oracle_price_query": "oracle response cache, hit/miss counters, per-caller rate-limit window",
+    "oracle_request": "oracle response cache, hit/miss counters, per-caller rate-limit window",
+    "oracle_weather_query": "oracle response cache, hit/miss counters, per-caller rate-limit window",
+    "get_staking_position": (
+        "appends the pool's computed APY to its history: the value comes from pool "
+        "state, not the caller, though a caller does choose when a sample is taken; "
+        "the calculator refuses while staking is not deployed"),
+    # get-or-create of an EMPTY record: nothing the caller supplies is stored
+    "get_cashback_balance": "creates an empty per-user ledger on first read",
+    "get_spending_summary": "creates an empty per-user ledger on first read",
+    "get_loyalty_balance": "creates an empty per-user ledger on first read",
+    "get_loyalty_tier": "creates an empty per-user ledger on first read",
+    "get_security": "creates an empty order book on first read",
+    "get_privacy_commitment": (
+        "creates the per-user privacy statement (constant text, no caller content) and "
+        "refreshes its derived deletion-request counts; deletion requests are refused "
+        "at the service, so the history is empty"),
+    # deadline-driven transitions: the clock decides the outcome, a read only
+    # materialises it, and the caller chooses nothing about it
+    "get_insurance_policy": "marks an active policy expired once expires_at has passed",
+    "get_payment": "marks a pending payment expired once expires_at has passed",
+    "get_proposal": "marks an active proposal expired once ends_at has passed",
+    "get_campaign": ("fails an active campaign past its deadline below goal and computes "
+                     "its refunds (calculated_unpaid: nothing is paid)"),
+    "list_campaigns": ("fails an active campaign past its deadline below goal and computes "
+                       "its refunds (calculated_unpaid: nothing is paid)"),
+    "list_proposals": "marks an active proposal expired once ends_at has passed",
+}
+
+_MUTATING_CALLS = frozenset({
+    "append", "appendleft", "extend", "insert", "remove", "pop", "popitem", "popleft",
+    "clear", "update", "setdefault", "add", "discard", "sort", "reverse",
+    "__setitem__", "__delitem__",
+})
+
+
+def _state_writes(owner, fn, seen, depth=0) -> list[str]:
+    import ast
+    import inspect
+    import re
+    import textwrap
+
+    code = getattr(fn, "__code__", None)
+    if code is None or "site-packages" in code.co_filename or depth > 8:
+        return []
+    key = (id(owner), code.co_filename, code.co_firstlineno)
+    if key in seen:
+        return []
+    seen.add(key)
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    except (OSError, TypeError):
+        return []
+    where = f"{type(owner).__name__}.{fn.__name__}"
+
+    def root(node):
+        while isinstance(node, (ast.Attribute, ast.Subscript, ast.Call, ast.Await)):
+            node = node.func if isinstance(node, ast.Call) else node.value
+        return node.id if isinstance(node, ast.Name) else None
+
+    aliases = {"self"}
+
+    def reaches_state(node):
+        if isinstance(node, ast.Await):
+            node = node.value
+        if isinstance(node, (ast.Attribute, ast.Subscript)):
+            return root(node) in aliases
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("get", "setdefault") and root(node.func.value) in aliases)
+
+    for _ in range(3):  # aliases of aliases
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and reaches_state(node.value):
+                aliases |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+            elif isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(node.target, ast.Name):
+                it = node.iter
+                if (isinstance(it, ast.Call) and isinstance(it.func, ast.Attribute)
+                        and it.func.attr in ("values", "items")):
+                    it = it.func.value
+                if reaches_state(it) or (isinstance(it, ast.Name) and it.id in aliases):
+                    aliases.add(node.target.id)
+
+    out = []
+    for node in ast.walk(tree):
+        line = code.co_firstlineno + getattr(node, "lineno", 1) - 1
+        targets = (node.targets if isinstance(node, (ast.Assign, ast.Delete))
+                   else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else [])
+        for t in targets:
+            if isinstance(t, (ast.Attribute, ast.Subscript)) and root(t) in aliases:
+                out.append(f"{where}:{line} {ast.unparse(t)}")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.match(
+                r"\s*(INSERT|UPDATE|DELETE|REPLACE)\b", node.value, re.I):
+            out.append(f"{where}:{line} SQL {node.value.strip()[:30]}")
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        receiver = node.func.value
+        if node.func.attr in _MUTATING_CALLS and root(receiver) in aliases:
+            out.append(f"{where}:{line} {ast.unparse(node.func)}()")
+        if isinstance(receiver, ast.Name) and receiver.id == "self":
+            out += _state_writes(owner, getattr(type(owner), node.func.attr, None), seen, depth + 1)
+        elif (isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name)
+              and receiver.value.id == "self"):
+            part = getattr(owner, receiver.attr, None)
+            if part is not None:
+                out += _state_writes(part, getattr(type(part), node.func.attr, None), seen,
+                                     depth + 1)
+    return out
+
+
+def _reads_that_write() -> dict[str, list[str]]:
+    registry = service_registry.ServiceRegistry({})
+    found = {}
+    for action in sorted(sd.ACTION_MAP):
+        if action in sd._STATE_MODIFYING_ACTIONS:
+            continue
+        service, method = sd.ACTION_MAP[action]
+        owner = registry.get(service)
+        writes = _state_writes(owner, getattr(type(owner), method, None), set())
+        if writes:
+            found[action] = writes
+    return found
+
+
+def test_the_detector_sees_the_state_changes_it_is_asked_to_rule_out():
+    registry = service_registry.ServiceRegistry({})
+    for service, method in (("social", "follow_wallet"), ("did_identity", "selective_disclose"),
+                            ("stablecoin", "transfer")):
+        owner = registry.get(service)
+        assert _state_writes(owner, getattr(type(owner), method), set()), (service, method)
+
+
+def test_no_action_outside_the_state_set_writes_state_unadjudicated():
+    found = _reads_that_write()
+    unadjudicated = {a: w for a, w in found.items() if a not in READS_THAT_WRITE}
+    assert unadjudicated == {}, (
+        f"{len(unadjudicated)} actions outside _STATE_MODIFYING_ACTIONS write state. Put "
+        "each in the set, or adjudicate it in READS_THAT_WRITE with why it is not a "
+        "state change a caller makes:\n  " + "\n  ".join(
+            f"{a}: {w[:4]}" for a, w in sorted(unadjudicated.items())))
+    stale = sorted(set(READS_THAT_WRITE) - set(found))
+    assert stale == [], f"adjudicated as writing, but no write is found any more: {stale}"
+
+
+def test_social_follow_and_selective_disclose_are_state_changes():
+    from runtime.access_policy import default_agent_access
+
+    for action in ("social_follow", "selective_disclose"):
+        assert action in sd._STATE_MODIFYING_ACTIONS, action
+        allowed, _ = default_agent_access("trinity", "platform_action", action)
+        assert not allowed, action
+
+
+async def test_a_follow_that_wrote_nothing_is_not_attested_as_one():
+    """Now that social_follow is attested, a follow between two wallets with no
+    profile, which writes nothing, must not report `following`."""
+    svc = service_registry.ServiceRegistry({}).get("social")
+    result = await svc.follow_wallet("0xNOBODY", "0xNOONE")
+    assert sd._outcome_is_real(result) is False, result

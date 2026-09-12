@@ -247,6 +247,10 @@ class ToolDispatcher:
     #: operations the session's own /api/v1 routes may refuse.
     ACTION_DISPATCH_TOOLS = frozenset({"platform_action", "request_execution"})
 
+    #: The agent whose reach bounds any caller without the operator key
+    #: ("session", "anonymous", or a kind the gateway did not name).
+    NON_OPERATOR_AGENT = "trinity"
+
     async def dispatch(
         self, tool_name: str, arguments: dict, agent_name: str | None = None,
         caller_identity: str = "", caller_source: str = "", caller_kind: str = "",
@@ -286,6 +290,22 @@ class ToolDispatcher:
             return ToolOutcome.failure(
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
+
+        # The same boundary keyed on the CREDENTIAL, not on the agent name. A
+        # caller without the operator key is served by Trinity on every chat
+        # surface (gateway/chat_agents.py), so it reaches at most what Trinity
+        # reaches, whatever agent_name arrived with it. Round 4: the gateway
+        # compared the name exactly while the policy above lowercases it, and an
+        # anonymous {"agent": "Neo"} on /bridge/v1/chat ran bash. The credential
+        # refusals below see only the two dispatching tools, so without this the
+        # rest of the toolset was fenced by the agent name alone.
+        if caller_kind not in ("operator", ""):
+            allowed, reason = agent_access_allowed(self.NON_OPERATOR_AGENT, tool_name, action)
+            if not allowed:
+                logger.warning("Caller '%s' DENIED tool '%s'%s as agent '%s': %s", caller_kind,
+                               tool_name, f" action '{action}'" if action else "",
+                               agent_name, reason)
+                return ToolOutcome.failure(f"[DENIED] {reason}", code="denied", ref=ref)
 
         # Session boundary for the dispatching tools. A session is refused, on
         # its own routes, operations such as a cross-border send; through chat

@@ -247,11 +247,23 @@ async def test_both_surfaces_are_governed_by_the_same_predicate():
 def test_the_blast_radius_is_still_what_the_finding_measured():
     """THE MEASUREMENT, PINNED. 16-K's severity rests on how many actions reach
     this block. If the set grows, the finding's scope grew with it and the
-    closeout figure is stale."""
-    assert len(_STATE_MODIFYING_ACTIONS) == 182, (
+    closeout figure is stale.
+
+    The set GREW, deliberately, and the closeout figures (182 / 62 / 17) are
+    stale by exactly these two, which were state changes misfiled as reads
+    (tests/test_capability_catalog_truth.py, round 4). The 62 and 17 were not
+    re-derived for the whole set; by inspection of the two methods only:
+      * social_follow: success returns status "following"; with neither wallet
+        profiled it now returns "not_found" (a refusal-returning action, and it
+        was changed in the same commit so its first attestation is not a false one).
+      * selective_disclose: an unknown credential returns status "error" (a
+        refusal-returning action); success returns a presentation with no
+        `status` key (read as REAL).
+    """
+    assert len(_STATE_MODIFYING_ACTIONS) == 184, (
         f"_STATE_MODIFYING_ACTIONS is now {len(_STATE_MODIFYING_ACTIONS)}, not the "
-        "182 recorded in closeout §Z/Z.1 — re-derive the 62 refusal-returning "
-        "subset before quoting either number"
+        "184 (closeout §Z/Z.1's 182 + social_follow + selective_disclose) — re-derive "
+        "the refusal-returning subset before quoting either number"
     )
 
 

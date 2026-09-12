@@ -251,6 +251,7 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "social.create_post": "/api/v1/social/post",
     "social.create_profile": "/api/v1/social/profile",
     "social.get_conversations": "/api/v1/messaging/conversations",
+    "social.get_feed": "/api/v1/social/feed/{wallet}",
     "social.get_feed_view": "/api/v1/social/feed/{wallet}",
     "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
     "social.share_proof": "/api/v1/social/message",

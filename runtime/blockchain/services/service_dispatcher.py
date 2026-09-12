@@ -742,6 +742,17 @@ _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
     "create_brand_campaign", "distribute_brand_reward",
     "create_subscription_plan", "subscribe", "cancel_subscription",
     "create_social_profile", "update_social_profile", "send_message",
+    # Round 4 (tests/test_capability_catalog_truth.py): two actions that write
+    # state were outside this set, so Trinity's platform_action rule and the
+    # anonymous chat tier both treated them as reads.
+    #   social_follow      appends to BOTH wallets' following/followers lists,
+    #                      which get_feed reads in both modes.
+    #   selective_disclose registers a credential and STORES a presentation
+    #                      under a holder DID, which verify_presentation later
+    #                      matches against.
+    # Every other action outside the set that writes is adjudicated, with its
+    # reason, in that test's READS_THAT_WRITE.
+    "social_follow", "selective_disclose",
     # NEW-38: "execute_deletion" removed — no longer an action. "request_deletion"
     # stays in the state-modifying set even though it now modifies nothing:
     # over-classifying is the safe direction here, and if a real erasure path is

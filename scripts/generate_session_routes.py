@@ -152,6 +152,55 @@ def live_route_pairs() -> dict:
         pairs = _call_pairs(source, f"{getattr(fn, '__qualname__', fn)} ({resource.canonical})")
         if pairs:
             out.setdefault(resource.canonical, set()).update(pairs)
+    # A route also runs what its method WRAPS. /api/v1/social/feed/{wallet}
+    # calls social.get_feed_view, which hands every argument to social.get_feed;
+    # the literal pair alone left get_social_feed readable by an anonymous chat
+    # while the route answered it 401.
+    for pairs in out.values():
+        frontier = list(pairs)
+        while frontier:
+            service, method = frontier.pop()
+            for wrapped in wrapped_methods(service, method):
+                if (service, wrapped) not in pairs:
+                    pairs.add((service, wrapped))
+                    frontier.append((service, wrapped))
+    return out
+
+
+def wrapped_methods(service: str, method: str) -> set:
+    """Public methods of *service* that *method* passes EVERY one of its own
+    parameters to — a wrapper runs that operation. A helper (the fee a transfer
+    computes) receives only some of the caller's arguments and is not the
+    route's operation, so it is not included. With no parameters, "every one"
+    is vacuous, and only a sole public self-call counts."""
+    import ast as _ast
+    import importlib as _importlib
+    import inspect as _inspect
+    import textwrap as _textwrap
+
+    from runtime.blockchain.services import registry as _registry
+
+    if service not in _registry._SERVICE_MAP:
+        return set()
+    module_path, class_name = _registry._SERVICE_MAP[service]
+    cls = getattr(_importlib.import_module(module_path, package=_registry._PACKAGE), class_name)
+    fn = getattr(cls, method, None)
+    try:
+        fdef = _ast.parse(_textwrap.dedent(_inspect.getsource(fn))).body[0]
+    except (OSError, TypeError, IndexError):
+        return set()
+    params = {a.arg for a in (fdef.args.posonlyargs + fdef.args.args + fdef.args.kwonlyargs)
+              if a.arg != "self"}
+    calls = [n for n in _ast.walk(fdef)
+             if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
+             and isinstance(n.func.value, _ast.Name) and n.func.value.id == "self"
+             and not n.func.attr.startswith("_") and callable(getattr(cls, n.func.attr, None))]
+    out = set()
+    for call in calls:
+        passed = {x.id for arg in [*call.args, *(k.value for k in call.keywords)]
+                  for x in _ast.walk(arg) if isinstance(x, _ast.Name)}
+        if params <= passed and (params or len(calls) == 1):
+            out.add(call.func.attr)
     return out
 
 

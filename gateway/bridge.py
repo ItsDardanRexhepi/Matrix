@@ -661,11 +661,17 @@ class BridgeRoutes:
         if not message:
             return MobileResponse.error("message required")
 
-        agent = body.get("agent", "trinity")
-        forbid = getattr(self._server, "_agent_forbidden_for_caller", None)
-        forbidden = forbid(request, agent) if forbid else None
-        if forbidden:
-            return MobileResponse.error(forbidden, 403)
+        # The same canonical agent and the same refusal as /chat and /ws. This
+        # surface had no membership check, and the operator check compared the
+        # raw name, so {"agent": "Neo"} reached Neo's tools with no credential.
+        # A server that cannot say whether the caller is the operator gets
+        # Trinity or nothing.
+        from gateway.chat_agents import resolve_chat_agent
+        resolve = getattr(self._server, "_resolve_chat_agent", None)
+        agent, refused = (resolve(request, body.get("agent", "trinity")) if resolve
+                          else resolve_chat_agent(body.get("agent", "trinity"), False))
+        if refused:
+            return MobileResponse.error(refused[1], refused[0])
         # T2: the Apple user behind the presented session is the apple_id the
         # Morpheus gate sees — not a value the body asserts.
         apple_sub = getattr(self._server, "_session_apple_id", lambda _r: "")(request)

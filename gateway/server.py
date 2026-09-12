@@ -547,13 +547,12 @@ class GatewayServer:
         denied = self._conversation_denied(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
-        agent = str(body.get("agent", "trinity"))[:50]
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
-        valid_agents = {"neo", "trinity", "morpheus"}
-        if agent not in valid_agents:
-            return web.json_response({"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"}, status=400)
+        agent, refused = self._resolve_chat_agent(request, body.get("agent", "trinity"))
+        if refused:
+            status, why = refused
+            if status == 403:
+                return web.json_response({"error": "forbidden", "message": why}, status=403)
+            return web.json_response({"error": why}, status=status)
 
         # Load conversation from disk on first access (write-through cache)
         if session_id not in self._conv_loaded:
@@ -1332,16 +1331,12 @@ class GatewayServer:
         denied = self._conversation_denied(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
-        agent = str(body.get("agent", "trinity"))[:50]
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
-        valid_agents = {"neo", "trinity", "morpheus"}
-        if agent not in valid_agents:
-            return web.json_response(
-                {"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"},
-                status=400,
-            )
+        agent, refused = self._resolve_chat_agent(request, body.get("agent", "trinity"))
+        if refused:
+            status, why = refused
+            if status == 403:
+                return web.json_response({"error": "forbidden", "message": why}, status=403)
+            return web.json_response({"error": why}, status=status)
 
         response = web.StreamResponse(
             status=200,
@@ -1486,13 +1481,13 @@ class GatewayServer:
             if denied:
                 await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
                 continue
-            agent = str(payload.get("agent", "trinity"))[:50]
-            if agent not in {"neo", "trinity", "morpheus"}:
-                await ws.send_json({"type": "error", "error": "invalid agent"})
-                continue
-            forbidden = self._agent_forbidden_for_caller(request, agent)
-            if forbidden:
-                await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
+            agent, refused = self._resolve_chat_agent(request, payload.get("agent", "trinity"))
+            if refused:
+                status, why = refused
+                if status == 403:
+                    await ws.send_json({"type": "error", "error": "forbidden", "message": why})
+                else:
+                    await ws.send_json({"type": "error", "error": "invalid agent"})
                 continue
 
             if session_id not in self._conv_loaded:
@@ -2628,15 +2623,25 @@ class GatewayServer:
             return "session"
         return "anonymous"
 
+    def _resolve_chat_agent(self, request: web.Request, raw):
+        """``(agent, None)`` or ``(None, (status, message))`` for the agent a chat
+        names: canonicalised once (gateway/chat_agents.py), then membership, then
+        the operator check on the canonical name. Every chat surface calls this
+        and runs the canonical name it returns.
+
+        On a user-facing chat surface the agent is Trinity. Naming Neo or
+        Morpheus, in any spelling, takes the operator key; a user or anonymous
+        caller who does is refused explicitly (403), never silently redirected.
+        The check used to compare the raw name exactly while the tool policy
+        lowercased it, so ``"Neo"`` on /bridge/v1/chat was Neo for anyone."""
+        from gateway.chat_agents import resolve_chat_agent
+        return resolve_chat_agent(raw, self._is_operator(request))
+
     def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
-        """On a user-facing chat surface the agent is Trinity. Naming Neo or
-        Morpheus takes the operator key; a user or anonymous caller who does is
-        refused explicitly (403), never silently redirected. Unknown names
-        return None so the existing 400 answers them."""
-        if agent in ("neo", "morpheus") and not self._is_operator(request):
-            return (f"agent '{agent}' requires the operator key; users talk to Trinity "
-                    "(omit 'agent' or send 'trinity')")
-        return None
+        """The 403 message ``_resolve_chat_agent`` gives *agent*, or None (an
+        allowed name, or one that is no agent at all, which is a 400)."""
+        _agent, refused = self._resolve_chat_agent(request, agent)
+        return refused[1] if refused and refused[0] == 403 else None
 
     # ─── T3 · one session per caller, never one for everyone ─────────────
 
