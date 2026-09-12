@@ -120,17 +120,31 @@ install_cli() {
     local venv_bin="$INSTALL_DIR/.venv/bin"
     local wrapper="$venv_bin/openmatrix"
 
-    # Create wrapper that resolves symlinks (so ~/.local/bin/openmatrix works)
+    # Create wrapper that resolves symlinks (so ~/.local/bin/openmatrix works).
+    # rm first: `cat >` follows a link, so a symlink already sitting at this
+    # path would have been written THROUGH (or, if it looped, failed) instead
+    # of replaced.
+    rm -f "$wrapper"
     cat > "$wrapper" << 'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
+# Resolve our own path the way the kernel did when it ran us. `cd -P` matters:
+# a logical cd applies a link target's `..` lexically, the kernel applies it
+# physically, and on a chain where the two differ the walk never ends. The hop
+# limit is the backstop for anything else (a link changed mid-walk).
 SOURCE="${BASH_SOURCE[0]}"
+HOPS=0
 while [ -L "$SOURCE" ]; do
-    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    HOPS=$((HOPS + 1))
+    if [ "$HOPS" -gt 40 ]; then
+        echo "openmatrix: too many symbolic links resolving ${BASH_SOURCE[0]}" >&2
+        exit 1
+    fi
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
     SOURCE="$(readlink "$SOURCE")"
     [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
 done
-SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 VENV_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(dirname "$VENV_DIR")"
 source "$VENV_DIR/bin/activate" 2>/dev/null
@@ -148,7 +162,9 @@ WRAPPER
 
     # Option 1: /usr/local/bin (works on macOS out of the box)
     if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
-        ln -sf "$wrapper" /usr/local/bin/openmatrix
+        # -n: if the destination is a link to a directory, replace the link
+        # rather than creating a new one inside whatever it points at.
+        ln -sfn "$wrapper" /usr/local/bin/openmatrix
         info "Linked: /usr/local/bin/openmatrix"
         linked=true
     fi
@@ -157,23 +173,20 @@ WRAPPER
     if [ "$linked" = false ]; then
         local local_bin="$HOME/.local/bin"
         mkdir -p "$local_bin"
-        ln -sf "$wrapper" "$local_bin/openmatrix"
+        ln -sfn "$wrapper" "$local_bin/openmatrix"
+        info "Linked: $local_bin/openmatrix"
+        linked=true
 
-        if echo "$PATH" | grep -q "$local_bin"; then
-            info "Linked: $local_bin/openmatrix"
-            linked=true
-        else
-            # Add ~/.local/bin to PATH via shell rc
-            _add_path_to_rc "$local_bin"
-            info "Linked: $local_bin/openmatrix"
-            linked=true
-        fi
+        # Exact PATH-component match. `grep -q "$local_bin"` matched any
+        # substring (…/.local/bin-old) and read the path as a regex.
+        case ":$PATH:" in
+            *":$local_bin:"*) ;;
+            *) _add_path_to_rc "$local_bin" ;;
+        esac
     fi
-
-    # Option 3: Add venv bin to shell rc directly
-    if [ "$linked" = false ]; then
-        _add_path_to_rc "$venv_bin"
-    fi
+    # (There was an "Option 3" here that added the venv's own bin to PATH. It
+    # could never run — Option 2 always links — and it is gone rather than
+    # left to be re-enabled pointing PATH at a directory this script rewrites.)
 
     info "CLI ready: openmatrix"
 }
@@ -207,15 +220,34 @@ _add_path_to_rc() {
         fi
     fi
 
-    # Skip if already present
-    if [ -f "$shell_rc" ] && grep -q "$dir_to_add" "$shell_rc" 2>/dev/null; then
+    # APPENDED to PATH, never prepended. A prepended entry outranks /usr/bin in
+    # every future shell, so anything later written into this directory by any
+    # process running as the user (a `pip install --user` of a typosquat, for
+    # one) would shadow git, python3, curl. Appended, it can only supply
+    # commands nothing earlier on PATH already provides — which is all the
+    # `openmatrix` link needs.
+    local line="export PATH=\"\$PATH:$dir_to_add\""
+    local legacy="export PATH=\"$dir_to_add:\$PATH\""
+
+    if [ -f "$shell_rc" ] && grep -qxF "$legacy" "$shell_rc" 2>/dev/null; then
+        # Written by an earlier version of this installer. Reported, not
+        # rewritten: rc files are often symlinks into a dotfiles repo, and an
+        # installer editing one in place is the worse failure if this match is
+        # ever wrong.
+        warn "$shell_rc puts $dir_to_add at the FRONT of PATH (an older installer wrote it)."
+        warn "  Replace:  $legacy"
+        warn "  With:     $line"
         return
     fi
 
-    echo "" >> "$shell_rc"
-    echo "# 0pnMatrx CLI" >> "$shell_rc"
-    echo "export PATH=\"$dir_to_add:\$PATH\"" >> "$shell_rc"
-    info "Added to PATH in $(basename "$shell_rc")"
+    # Already configured some other way — leave the file alone.
+    if [ -f "$shell_rc" ] && grep -qF "$dir_to_add" "$shell_rc" 2>/dev/null; then
+        return
+    fi
+
+    printf '\n# 0pnMatrx CLI (delete this line and the next to undo)\n%s\n' "$line" >> "$shell_rc"
+    info "Added $dir_to_add to the end of PATH in $shell_rc"
+    info "  To undo, delete the two lines under '# 0pnMatrx CLI' in that file."
 }
 
 check_ollama() {
