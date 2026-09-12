@@ -25,6 +25,21 @@ Runs, and fails on the first problem:
 |---|---|---|
 | `ops.sh doctor` | Gateway posture diagnostic | none (read-only) |
 | `ops.sh routes` | Regenerate `docs/ROUTES.md` | writes the doc only |
+
+### If you turn on GitHub Pages
+
+The `API Docs` workflow builds the API reference with pdoc and then tries to
+publish it to GitHub Pages. **Pages is disabled for this repository**, so the
+deploy step returns 404. It no longer fails the workflow — publication is not a
+test, and the `build` job is what gates the documentation.
+
+**The caveat, where you will need it:** the deploy job carries
+`continue-on-error: true`. The moment you enable Pages (Settings → Pages →
+Source: GitHub Actions), that tolerance applies to *real* publication failures
+too — a broken deploy will leave the run green and only its own step log will
+say the site did not update. **Remove `continue-on-error` from the deploy job in
+`.github/workflows/docs.yml` when you enable Pages**, so a failed publish is
+visible in the run's status again.
 | `ops.sh routes-check` | Fail if `ROUTES.md` is stale | none |
 | `ops.sh abis` | ABI doc/source drift audit | none |
 | `ops.sh health [URL]` | `curl` the gateway `/health` | none |
