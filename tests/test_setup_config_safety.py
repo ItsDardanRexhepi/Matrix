@@ -336,11 +336,63 @@ def test_rewrite_keeps_owner_only_permissions(sandbox, tmp_path, writer):
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-def test_new_secret_files_are_created_owner_only(sandbox, tmp_path):
+def test_new_env_is_created_owner_only(sandbox, tmp_path):
+    """.env's only readers run on the host as the operator (load_dotenv, compose
+    interpolation); .dockerignore keeps it out of the image and nothing mounts it."""
     import stat
     from setup import _shared
     _shared.update_env({"SMTP_PASS": "hunter2"})
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
+
+
+@pytest.fixture
+def umask():
+    previous = os.umask(0o022)
+    try:
+        yield lambda value: os.umask(value)
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.parametrize("operator_umask, expected", [(0o022, 0o644), (0o077, 0o600)])
+@pytest.mark.parametrize("writer", ["save_config", "write_config"])
+def test_new_config_is_created_the_way_the_docker_image_can_read_it(
+        sandbox, monkeypatch, umask, writer, operator_umask, expected):
+    """Round-1 review, REGRESSION. The shared writer created a NEW config 600.
+
+    docker-compose.yml bind-mounts ./openmatrix.config.json read-only into an
+    image running as uid 1000 (Dockerfile `useradd --uid 1000`, `USER opnmatrx`),
+    and gateway/server.py load_config exits 1 on an unreadable config. So a
+    config the wizard created as root on a VPS — or as any uid but 1000 — stopped
+    the documented Docker deploy from starting, where the write_text it replaced
+    created it 644 and it started. A new config now gets what write_text, or a
+    `cp` of the .example, would give it: the operator's umask decides. An
+    existing file keeps its own mode (test_rewrite_keeps_owner_only_permissions).
+    """
+    import stat
+    sandbox.unlink()
+    umask(operator_umask)
+    if writer == "save_config":
+        from setup import _shared
+        _shared.save_config({"a": "b"})
+    else:
+        wizard = _load_wizard("setup_main_new_config_mode")
+        monkeypatch.setattr(wizard, "ask", lambda *a, **k: pytest.fail("no file existed to ask about"))
+        assert wizard.write_config({"a": "b"}) is True
+    assert stat.S_IMODE(sandbox.stat().st_mode) == expected, (
+        f"a new config from {writer} under umask {operator_umask:03o} is not what write_text "
+        "would have created; at 600 the uid-1000 Docker image cannot read a config written by another uid"
+    )
+
+
+def test_every_secret_write_states_its_new_file_mode():
+    """Which readers a new file must admit is a per-file decision. The writer
+    has no default for it, so a new caller cannot inherit one by accident."""
+    import inspect
+    from setup import _shared
+    param = inspect.signature(_shared._atomic_write_text).parameters["new_file_mode"]
+    assert param.default is inspect.Parameter.empty
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
 
 
 @pytest.mark.parametrize("writer", ["env", "config"])

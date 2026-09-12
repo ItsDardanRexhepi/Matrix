@@ -581,15 +581,22 @@ def write_config(config):
     stays safe if it is ever called from somewhere else.
     """
     path = Path("openmatrix.config.json")
-    if path.exists():
+    existed = path.exists()
+    if existed:
         overwrite = ask("openmatrix.config.json already exists. Overwrite?", default="no", options=["yes", "no"])
         if overwrite.lower() != "yes":
             warn("Setup cancelled. Existing config preserved.")
             return False
 
-    from setup._shared import _atomic_write_text   # keeps mode and symlinks
-    _atomic_write_text(path, json.dumps(config, indent=2) + "\n")
+    from setup._shared import CONFIG_NEW_FILE_MODE, _atomic_write_text   # keeps mode and symlinks
+    _atomic_write_text(path, json.dumps(config, indent=2) + "\n", new_file_mode=CONFIG_NEW_FILE_MODE)
     success(f"Config written to {path}")
+    if not existed:
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o077:
+            info(f"{path} holds your keys and was created mode {mode:o}, readable by other local "
+                 f"accounts, because the Docker image reads it as uid 1000 (see docker-compose.yml).")
+            info(f"Not deploying with Docker?  chmod 600 {path}")
     return True
 
 

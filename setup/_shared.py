@@ -78,28 +78,44 @@ def load_config() -> dict:
     return {}
 
 
-def _atomic_write_text(path: Path, text: str) -> None:
+def _umask_mode() -> int:
+    """The mode a plain ``open(path, "w")`` would create a file with.
+
+    os.umask can only be read by setting it. It is set to the STRICTER 077 for
+    that instant, so anything another thread creates meanwhile errs closed.
+    """
+    previous = os.umask(0o077)
+    os.umask(previous)
+    return 0o666 & ~previous
+
+
+def _atomic_write_text(path: Path, text: str, *, new_file_mode: int | None) -> None:
     """Replace *path*'s contents all at once, keeping what the operator set up.
 
     Temp file in the same directory, fsync, rename. Two properties a bare
     ``tmp.write_text`` + ``os.replace`` (RUN-1's first version) lost:
 
     * the MODE. The rename installs a new inode, so a file the operator had
-      chmod 600'd came back 644. The new file takes the old one's mode; a file
-      that did not exist is created 600, because both files this module writes
-      hold credentials.
+      chmod 600'd came back 644. An existing file's mode is carried over.
     * a SYMLINK. Renaming over a link replaces the link with a regular file, so
       a .env kept in a vault directory and linked in would silently stop being
       the one that is updated. The link's target is what gets replaced.
 
-    Any failure — including one partway through writing — removes the temp
-    file and leaves the original untouched.
+    A file that does not exist yet is created with *new_file_mode*, and that is
+    the caller's decision because it depends on who else must read the file.
+    ``None`` means what ``write_text`` would have given it (the umask): the
+    config is bind-mounted into the Docker image and read there as uid 1000, so
+    a 600 config written by any other uid stops the gateway from starting.
+
+    The temp file is 600 while the secrets are written into it, whatever mode
+    the result gets. Any failure — including one partway through writing —
+    removes the temp file and leaves the original untouched.
     """
     target = path.resolve() if path.is_symlink() else path
     try:
         mode = stat.S_IMODE(target.stat().st_mode)
     except FileNotFoundError:
-        mode = 0o600
+        mode = _umask_mode() if new_file_mode is None else new_file_mode
     fd, tmp_name = tempfile.mkstemp(
         dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp",
     )
@@ -116,6 +132,19 @@ def _atomic_write_text(path: Path, text: str) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+# Who reads each secret file decides the mode it is CREATED with (an existing
+# file always keeps its own):
+#   openmatrix.config.json — the host gateway, and the Docker image, which
+#     bind-mounts it read-only (docker-compose.yml) and runs as uid 1000. It is
+#     created the way `cp openmatrix.config.json.example` or write_text would
+#     create it, so a wizard run as any other uid (root on a VPS) still starts.
+#   .env — only processes on the host running as the operator: the gateway's
+#     load_dotenv and docker compose's variable interpolation. .dockerignore
+#     keeps it out of the image and no compose file mounts it, so it is 600.
+CONFIG_NEW_FILE_MODE: int | None = None
+ENV_NEW_FILE_MODE: int | None = 0o600
 
 
 def save_config(config: dict, persist: bool = True) -> None:
@@ -137,7 +166,8 @@ def save_config(config: dict, persist: bool = True) -> None:
     """
     if not persist:
         return
-    _atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2) + "\n")
+    _atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2) + "\n",
+                       new_file_mode=CONFIG_NEW_FILE_MODE)
 
 
 def update_channel(config: dict, channel_name: str, channel_cfg: dict) -> None:
@@ -204,7 +234,7 @@ def _write_env(updates: dict[str, str]) -> None:
         if not found:
             lines.append(f"{var}={value}")
 
-    _atomic_write_text(ENV_PATH, "\n".join(lines) + "\n")
+    _atomic_write_text(ENV_PATH, "\n".join(lines) + "\n", new_file_mode=ENV_NEW_FILE_MODE)
 
 
 # ── Channel test ────────────────────────────────────────────────────────
