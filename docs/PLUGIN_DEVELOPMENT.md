@@ -86,10 +86,12 @@ When paid sales exist, the platform commission is the operator's
 10%). A sale made through Apple In-App Purchase also pays the App Store's
 commission, which comes off before any platform split.
 
-### Pricing Options
+### Pricing Fields
 
-- **One-time** — User pays once, gets the plugin forever
-- **Monthly** — Recurring subscription for ongoing access
+A listing can carry `price_usd` and `price_type` (`one_time` or `monthly`), and
+the store keeps them. Neither is sold today: a listing with a price above zero
+cannot be bought (the purchase route answers `501`), and nothing bills a
+monthly price.
 
 ## Directory Structure
 

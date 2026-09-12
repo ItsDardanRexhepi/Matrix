@@ -34,6 +34,11 @@ def platform_commission_rate(config: dict | None) -> float | None:
     raw = ((config or {}).get("plugin_marketplace") or {}).get("commission_rate")
     if raw is None or raw == "":
         return None
+    if isinstance(raw, bool):
+        # float(True) is 1.0: `"commission_rate": true` would read as the whole sale.
+        logger.error("plugin_marketplace.commission_rate is %r, a boolean, not a "
+                     "fraction; treating the commission as unknown", raw)
+        return None
     try:
         rate = float(raw)
     except (TypeError, ValueError):

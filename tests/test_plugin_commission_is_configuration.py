@@ -20,10 +20,22 @@ The properties, asserted on behaviour rather than on the constant's absence:
     back, and no configuration comes back as unknown, not as 10%;
   * a paid purchase is answered as not built (HTTP 501 at the route) and carries
     no proceeds figure;
-  * a free plugin still installs.
+  * a free plugin still installs;
+  * a boolean is not a rate (`float(True)` is 1.0, which would have reported a
+    100% commission from `"commission_rate": true`);
+  * no tracked text states a plugin commission as a number of its own. The
+    30% in runtime/marketplace/__init__.py survived the first fix one file over
+    from the constant, because the first control looked at the constant, not
+    at what the package says. A sentence that names a percentage next to
+    "commission" and "plugin" must attribute it to the published Terms; legal
+    copy itself is not scanned (it is the source being cited).
 """
 
 from __future__ import annotations
+
+import re
+import subprocess
+from pathlib import Path
 
 import pytest
 from aiohttp import web
@@ -56,7 +68,7 @@ async def test_configured_commission_is_the_rate_reported():
     assert result.get("platform_commission_rate") == 0.2, result
 
 
-@pytest.mark.parametrize("bad", ["ten percent", -0.1, 1.5, float("nan")])
+@pytest.mark.parametrize("bad", ["ten percent", -0.1, 1.5, float("nan"), True, False])
 async def test_malformed_commission_is_unknown_rather_than_guessed(bad):
     market, paid_id, _ = await _market({"plugin_marketplace": {"commission_rate": bad}})
     result = await market.purchase("0xbuyer", paid_id)
@@ -95,3 +107,55 @@ async def test_route_returns_501_for_a_paid_purchase():
         assert paid.status == 501, await paid.text()
         free = await client.post(f"/marketplace/plugins/{free_id}/purchase")
         assert free.status == 200, await free.text()
+
+
+ROOT = Path(__file__).resolve().parent.parent
+_LEGAL_COPY = {"web/terms.html", "web/privacy.html"}
+_PERCENT = re.compile(r"\b\d+(?:\.\d+)?\s*(?:%|percent\b)", re.I)
+
+
+def _plugin_commission_sentences(text: str, in_marketplace_package: bool) -> list[str]:
+    text = re.sub(r"<[^>]+>", " ", text)
+    # blank lines and table rows end a sentence; other line breaks do not
+    blocks = re.split(r"\n\s*\n|\n(?=\s*\|)", text)
+    sentences = [s for block in blocks
+                 for s in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", block))]
+    out = []
+    for sentence in sentences:
+        low = sentence.lower()
+        if "commission" not in low or not _PERCENT.search(sentence):
+            continue
+        if not (in_marketplace_package or "plugin" in low):
+            continue
+        if "terms" in low:
+            continue  # attributed to the published Terms, which are the source
+        out.append(sentence.strip()[:160])
+    return out
+
+
+def test_the_commission_sentence_scan_is_not_vacuous():
+    assert _plugin_commission_sentences(
+        "Developers sell plugins. The platform takes a 30%\n commission on paid plugins.", True)
+    assert _plugin_commission_sentences("A 10 percent commission on plugin sales.", False)
+    assert not _plugin_commission_sentences(
+        "The published Terms state a 10% commission on paid plugins.", False)
+    assert not _plugin_commission_sentences("Staking takes a 5% commission on rewards.", False)
+
+
+def test_no_tracked_text_hardcodes_a_plugin_commission_rate():
+    this_file = Path(__file__).resolve()
+    out = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        path = ROOT / rel
+        if rel in _LEGAL_COPY or not path.is_file() or path.resolve() == this_file:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for sentence in _plugin_commission_sentences(text, rel.startswith("runtime/marketplace/")):
+            offenders.append(f"{rel}: {sentence}")
+    assert not offenders, (
+        "a plugin commission rate stated as a number of the repository's own "
+        "(the rate is plugin_marketplace.commission_rate):\n" + "\n".join(offenders))
