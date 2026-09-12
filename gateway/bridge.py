@@ -942,6 +942,9 @@ class BridgeRoutes:
                 wallet=wallet,
                 platform="ios",
                 bundle_id=str(body.get("bundle_id", "")),
+                # The account behind the presented session — what account
+                # deletion finds this device by.
+                owner=getattr(self._server, "_session_subject", lambda _r: "")(request),
             )
         except Exception as exc:
             logger.error("push token registration failed: %s", exc)

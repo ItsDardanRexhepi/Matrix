@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS push_tokens (
     wallet       TEXT,
     platform     TEXT,
     bundle_id    TEXT,
-    updated_at   REAL
+    updated_at   REAL,
+    owner        TEXT
 )
 """
 
@@ -37,6 +38,11 @@ class PushTokenStore:
         if self._ready:
             return
         await self._db.execute(_CREATE_TABLE)
+        # `owner` arrived after the table shipped: a device registered before
+        # it has no owner, which is the truth (nobody recorded one).
+        columns = {row[1] for row in await self._db.fetchall("PRAGMA table_info(push_tokens)")}
+        if "owner" not in columns:
+            await self._db.execute("ALTER TABLE push_tokens ADD COLUMN owner TEXT")
         self._ready = True
 
     async def register(
@@ -47,28 +53,39 @@ class PushTokenStore:
         wallet: str = "",
         platform: str = "ios",
         bundle_id: str = "",
+        owner: str = "",
     ) -> None:
-        """Upsert a device token (keyed on device_token)."""
+        """Upsert a device token (keyed on device_token).
+
+        *owner* is the account (session subject) that registered it — what
+        account deletion finds a user's devices by. The session id a token is
+        filed under is a conversation name the client chose, not the account.
+        """
         await self._ensure_table()
         await self._db.execute(
             """
             INSERT INTO push_tokens
-                (device_token, session_id, wallet, platform, bundle_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (device_token, session_id, wallet, platform, bundle_id, updated_at, owner)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(device_token) DO UPDATE SET
                 session_id=excluded.session_id,
                 wallet=excluded.wallet,
                 platform=excluded.platform,
                 bundle_id=excluded.bundle_id,
-                updated_at=excluded.updated_at
+                updated_at=excluded.updated_at,
+                owner=excluded.owner
             """,
-            (device_token, session_id, wallet, platform, bundle_id, time.time()),
+            (device_token, session_id, wallet, platform, bundle_id, time.time(), owner),
         )
 
     async def tokens_for(self, *, wallet: str | None = None,
-                         session_id: str | None = None) -> list[str]:
+                         session_id: str | None = None,
+                         owner: str | None = None) -> list[str]:
         await self._ensure_table()
-        if wallet:
+        if owner:
+            rows = await self._db.fetchall(
+                "SELECT device_token FROM push_tokens WHERE owner = ?", (owner,))
+        elif wallet:
             rows = await self._db.fetchall(
                 "SELECT device_token FROM push_tokens WHERE wallet = ?", (wallet,))
         elif session_id:

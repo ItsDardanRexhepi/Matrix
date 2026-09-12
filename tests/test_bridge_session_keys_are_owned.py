@@ -157,3 +157,27 @@ async def test_a_push_token_cannot_be_attached_to_another_accounts_conversation(
         store = PushTokenStore(server.react_loop.memory.db)
         assert not await store.tokens_for(session_id="conv-A")
 
+
+async def test_account_deletion_removes_the_push_tokens_the_account_registered():
+    """The docs say DELETE /api/v1/auth/account removes the account's push
+    tokens. It looked them up by the bearer TOKEN string as a session id, and
+    register files a device under the conversation id — so it matched nothing
+    and every device stayed registered. Tokens now carry the account that
+    registered them."""
+    from runtime.notifications.token_store import PushTokenStore
+
+    server = _server()
+    async with TestClient(TestServer(server.create_app())) as client:
+        tok_p = await _session(server, "apple:P")
+        tok_q = await _session(server, "apple:Q")
+        for body in ({"push_token": "DEV-P-1"}, {"push_token": "DEV-P-2", "session_id": "inst-p"}):
+            r = await client.post("/bridge/v1/push/register", headers=_bearer(tok_p), json=body)
+            assert r.status == 200, await r.text()
+        r = await client.post("/bridge/v1/push/register", headers=_bearer(tok_q), json={"push_token": "DEV-Q"})
+        assert r.status == 200
+        store = PushTokenStore(server.react_loop.memory.db)
+        assert set(await store.all_tokens()) == {"DEV-P-1", "DEV-P-2", "DEV-Q"}
+
+        r = await client.delete("/api/v1/auth/account", headers=_bearer(tok_p))
+        assert r.status == 200, await r.text()
+        assert set(await store.all_tokens()) == {"DEV-Q"}, "the deleted account's devices are still registered"

@@ -1085,12 +1085,19 @@ class GatewayServer:
         # App Store 5.1.1(v) path was a no-op. Both headers are honoured now.
         token, session = self._wallet_session_token(request)
 
-        # Push tokens registered under this session.
+        # Push tokens the account registered. This looked them up by the bearer
+        # TOKEN string as a session id; /bridge/v1/push/register files a device
+        # under the conversation id (user:<subject>, or the client's own), so it
+        # matched nothing and every device stayed registered while the docs
+        # said deletion removed them. Tokens now carry their owner.
         try:
             from runtime.notifications.token_store import PushTokenStore
             store = PushTokenStore(self.react_loop.memory.db)
             if session is not None:
-                for dev in await store.tokens_for(session_id=token):
+                owner = str(session.get("address", ""))
+                devices = set(await store.tokens_for(owner=owner)) if owner else set()
+                devices |= set(await store.tokens_for(session_id=token))
+                for dev in devices:
                     await store.remove(dev)
         except Exception:
             logger.debug("account delete: push-token cleanup skipped")
