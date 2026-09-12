@@ -31,6 +31,8 @@ def _bare_stack():
     stack._ultron = None
     stack._vision = None
     stack._morpheus_init_failed = False
+    stack._rexhepi_init_failed = False
+    stack._auditor_init_failed = False
     return stack
 
 # ── the identity class: derived, never asserted ──────────────────────────────
