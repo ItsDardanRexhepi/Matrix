@@ -13,7 +13,8 @@ Two things are proven here.
    real error and the correlation id would be lost — trading one dishonest
    message for another. The shape is therefore constrained by the client, not
    chosen freely: `error` must be a top-level string, because Swift's
-   `extractErrorMessage` reads `obj["error"] as? String` and nothing else.
+   `extractErrorMessage` reads `obj["error"] as? String`, falling back only to a
+   top-level `obj["message"] as? String`.
 """
 
 from __future__ import annotations

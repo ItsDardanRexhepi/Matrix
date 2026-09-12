@@ -2838,7 +2838,8 @@ class ServiceRoutes:
         status = result.get("status") if isinstance(result, dict) else None
         if status == "unavailable":
             # A top-level string `error`: the Swift client's extractErrorMessage
-            # reads nothing else. The resolver's message is a fixed sentence.
+            # reads obj["error"] as a String and falls back to obj["message"];
+            # it reads nothing nested. The resolver's message is a fixed sentence.
             return web.json_response({
                 "status": "unavailable",
                 "reason": result.get("reason", "dependency_failed"),

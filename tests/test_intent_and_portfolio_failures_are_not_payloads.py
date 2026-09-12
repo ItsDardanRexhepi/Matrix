@@ -308,12 +308,45 @@ async def test_an_rpc_failure_is_a_503_not_an_empty_wallet(client, route, monkey
 
     _online_web3(get_balance)
     _price(monkeypatch, 2000.0)
-    for attempt in (1, 2):  # the failure must not be cached as a portfolio
-        resp = await client.get(route + WALLET)
-        text = await resp.text()
-        assert resp.status == 503, f"attempt {attempt}: {resp.status}: {text}"
-        _no_leak(text)
-        assert "total_value_usd" not in text
+    # One request is enough here. Each request builds its own DataAggregator,
+    # so a second request could not see a cached failure even if one were
+    # cached; that is tested on a single aggregator below.
+    resp = await client.get(route + WALLET)
+    text = await resp.text()
+    assert resp.status == 503, f"{resp.status}: {text}"
+    _no_leak(text)
+    assert "total_value_usd" not in text
+
+
+@pytest.mark.parametrize("failure", ["balance_read_failed", "price_unavailable"])
+async def test_one_aggregator_does_not_cache_a_failed_portfolio(monkeypatch, failure):
+    """The non-caching claim, on the object that owns the cache: the same
+    DataAggregator asked twice raises twice and stores no portfolio."""
+    from runtime.blockchain.price_feed import PriceUnavailable
+    from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
+
+    reads = []
+
+    def get_balance(address):
+        reads.append(address)
+        if failure == "balance_read_failed":
+            raise ConnectionRefusedError(SECRET)
+        return 10**18
+
+    _online_web3(get_balance)
+    _price(monkeypatch, exc=PriceUnavailable(SECRET))
+    agg = DataAggregator({})
+    for attempt in (1, 2):
+        try:
+            result = await agg.get_user_portfolio(WALLET)
+        except Exception as exc:   # by name, so an older tree fails on behaviour
+            assert type(exc).__name__ == "PortfolioUnavailable", repr(exc)
+            assert exc.reason == failure, (attempt, exc.reason)
+        else:
+            pytest.fail(f"attempt {attempt} returned a portfolio for a failed "
+                        f"{failure}: {result}")
+    assert len(reads) == 2, "the second call did not read again"
+    assert not [k for k in agg._cache if k.startswith("portfolio:")], agg._cache
 
 
 @pytest.mark.parametrize("route", PORTFOLIO_ROUTES)
