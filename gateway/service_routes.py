@@ -1704,12 +1704,19 @@ class ServiceRoutes:
         # NOT the collection — binding it there would fix the TypeError and
         # fractionalise a token in whatever collection is named by an address.
         self._require(body, "owner", "token_id", "fractions", "collection")
+        # §CD sibling pass: `owner` was required and then never forwarded — the
+        # route advertised an authorization input that governed nothing. It is
+        # bound the way every other identity on this funnel is: the wallet the
+        # middleware authenticated wins, the body field is the dev fallback.
+        from gateway.security_gate import current_request_security
+        authed = str((current_request_security() or {}).get("wallet") or "")
         result = await self._call(
             "nft_services", "fractionalize",
             collection=body["collection"],
             token_id=body["token_id"],
             fractions=int(body["fractions"]),
             price_per_fraction=body.get("price_per_fraction"),
+            owner=authed or str(body.get("owner") or ""),
         )
         return self._ok(result)
 

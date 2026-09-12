@@ -272,7 +272,6 @@ KNOWN_FABRICATION_SHAPE = {
     "loyalty/programs.py::ProgramManager.create_program",
     "marketplace/appeals.py::AppealProcess.file_appeal",
     "marketplace/compliance_filter.py::ComplianceFilter.flag_listing",
-    "nft_services/service.py::NFTService.fractionalize",
     "nft_services/service.py::NFTService.rent",
     "nft_services/service.py::NFTService.mint_soulbound",
     "rwa_tokenization/legal_bridge.py::LegalBridge.create_legal_wrapper",
@@ -373,8 +372,8 @@ def test_the_measured_count_is_recorded():
     the re-baseline block above KNOWN_FABRICATION_SHAPE, and `_shape`'s
     docstring for the call-form gap that remains OPEN and measured (+5).
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 47
-    assert len(find_fabrication_shape()) == 47
+    assert len(KNOWN_FABRICATION_SHAPE) == 46
+    assert len(find_fabrication_shape()) == 46
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -727,9 +726,12 @@ def f(self, k):
 
 
 def test_the_shape_inventory_is_at_the_documented_baseline():
-    """47 under an ASSIGNMENT-ONLY write clause — the scope is part of the
-    number. See `_shape`'s docstring for the measured +5 the call-form gap
-    would add, which is deliberately NOT included pending adjudication."""
+    """46 under an ASSIGNMENT-ONLY write clause — the scope is part of the
+    number. It was 47 until `NFTService.fractionalize` stopped matching the
+    shape: it now awaits an on-chain ownership read before minting an id, so
+    the ratchet tightened by one (the §CD sibling pass over NEW-89). See
+    `_shape`'s docstring for the measured +5 the call-form gap would add,
+    which is deliberately NOT included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 47
+    assert len(KNOWN_FABRICATION_SHAPE) == 46
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current
