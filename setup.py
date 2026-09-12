@@ -614,21 +614,57 @@ def commit_setup(config):
 SECRET_FILES = ("openmatrix.config.json", ".env")
 
 
-def _gitignore_covers(lines, entry):
-    """True if these .gitignore lines ignore *entry* by name at the root.
+def _gitignore_pattern(raw):
+    """The pattern git reads from one .gitignore line, or None for no pattern.
 
-    Exact lines only: `.env` inside `.env.example`, or inside a comment, is not
-    coverage, and a later `!.env` undoes an earlier `.env` (git's last match
-    wins). A wildcard that would cover it (`.env*`) is not recognised, which
-    costs a redundant line — the safe direction to be wrong in.
+    Git drops one trailing CR and trailing SPACES that are not backslash-escaped.
+    It keeps leading whitespace and tabs anywhere — `  .env` and `.env<TAB>` are
+    patterns for other names — so neither is stripped here. A line whose
+    trailing space is escaped comes back unstripped, which can only make it
+    fail to match exactly (a redundant line), never match wrongly.
+    """
+    line = raw[:-1] if raw.endswith("\r") else raw
+    stripped = line.rstrip(" ")
+    if stripped != line and stripped.endswith("\\"):
+        stripped = line
+    if not stripped or stripped.startswith("#"):
+        return None
+    return stripped
+
+
+def _negation_may_match(pattern, entry):
+    """Could `!pattern` re-include the root-level file *entry*? Unsure means yes.
+
+    Only a literal (no `*`, `?`, `[` or backslash) can be ruled out: it matches
+    a root file only when, less a leading and trailing `/`, it is that name.
+    """
+    if any(ch in pattern for ch in "*?[\\"):
+        return True
+    return pattern.strip("/") == entry or not pattern.strip("/")
+
+
+def _gitignore_covers(lines, entry):
+    """True only if these .gitignore lines certainly ignore *entry* at the root.
+
+    Git's last matching line wins. So *entry* is covered when an exact
+    `entry` / `/entry` pattern is followed by no negation that could match it.
+    Everything this cannot decide — a wildcard that would cover the file, a
+    negation that might re-include it — counts as NOT covered, which costs one
+    redundant line at the end of the file, where it is the last match and so
+    wins. That is the only direction this is allowed to be wrong in; the
+    first version stripped leading whitespace and recognised only a literal
+    `!.env`, and said "covered" over files git would commit.
     """
     covered = False
     for raw in lines:
-        line = raw.strip()
-        if line in (entry, "/" + entry):
+        pattern = _gitignore_pattern(raw)
+        if pattern is None:
+            continue
+        if pattern.startswith("!"):
+            if _negation_may_match(pattern[1:], entry):
+                covered = False
+        elif pattern in (entry, "/" + entry):
             covered = True
-        elif line in ("!" + entry, "!/" + entry):
-            covered = False
     return covered
 
 
@@ -640,8 +676,13 @@ def setup_gitignore():
         success(".gitignore created")
         return
 
-    content = gitignore.read_text()
-    missing = [e for e in SECRET_FILES if not _gitignore_covers(content.splitlines(), e)]
+    # Raw bytes, split on "\n" only: git ends a line only at LF, and a lone CR
+    # inside a line is part of its pattern. read_text()'s universal newlines
+    # (or splitlines()) would turn "!.env\r.env" — one literal negation to git —
+    # into a `.env` line that looks like coverage. Undecodable bytes become
+    # U+FFFD, which matches no entry: a redundant line, not a false "covered".
+    content = gitignore.read_bytes().decode("utf-8", "replace")
+    missing = [e for e in SECRET_FILES if not _gitignore_covers(content.split("\n"), e)]
     if not missing:
         return
     with open(gitignore, "a") as f:

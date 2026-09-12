@@ -402,6 +402,21 @@ def _git_ignores(repo: Path, rel: str) -> bool:
     "node_modules/\n.env.example\n",                 # substring trap: `.env` in `.env.example`
     "# openmatrix.config.json\n# .env\n",            # mentioned only in comments
     ".env\nopenmatrix.config.json\n!.env\n",         # re-included later in the file
+    # Round-1 review: the helper said "covered" and appended nothing, and git
+    # still committed the file. Git keeps leading whitespace (and tabs) as part
+    # of the pattern, and any later negation whose pattern can match — not only
+    # the literal `!.env` — re-includes it.
+    "openmatrix.config.json\n  .env\n",              # leading spaces: pattern is "  .env"
+    "openmatrix.config.json\n\t.env\n",              # leading tab
+    ".env\t\nopenmatrix.config.json\n",              # trailing tab is NOT stripped by git
+    "openmatrix.config.json\n.env\n!.env*\n",        # wildcard negation
+    "openmatrix.config.json\n.env\n!**/.env\n",      # double-star negation
+    "openmatrix.config.json\n.env\n!*\n",            # negate-everything (both files)
+    "openmatrix.config.json\n.env\n!.e[n]v\n",       # bracket negation
+    "openmatrix.config.json\n.env\n!.env \n",        # negation with a trailing space git strips
+    "openmatrix.config.json\r\n.env\r\n!.env\r\n",   # CRLF file: git strips the \r
+    "openmatrix.config.json\n.env\n!\\.env\n",       # escaped negation
+    "!.env\r.env\nopenmatrix.config.json\n",         # lone CR: one literal negation to git
 ])
 def test_setup_gitignore_ignores_both_secret_files(sandbox, existing):
     repo = sandbox.parent
@@ -425,3 +440,56 @@ def test_setup_gitignore_is_idempotent(sandbox):
     wizard.setup_gitignore()
     assert (sandbox.parent / ".gitignore").read_text() == once
     assert once.startswith("dist/\n"), "existing entries must be kept"
+
+
+def _line_pool(entry):
+    """.gitignore lines that do, might, or do not decide whether *entry* is ignored."""
+    head = entry[:2]
+    return [
+        entry, "/" + entry, "**/" + entry, entry + "*", entry + "/", "\\" + entry,
+        " " + entry, "\t" + entry, entry + " ", entry + "\t", entry + "\r", entry + "\\ ",
+        "!" + entry, "!/" + entry, "! " + entry, "!" + entry + " ", "!" + entry + "/",
+        "!" + entry + "*", "!**/" + entry, "!" + head + "*", "!" + entry.replace(".", "[.]", 1),
+        "!\\" + entry, "\\!" + entry, "!foo/" + entry, "!", "!*", "*", "#" + entry, "# !" + entry,
+    ]
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox):
+    """The CLASS, not the cases: whatever the existing .gitignore says, afterwards
+    git ignores both files. Seeded, so a failure reproduces; each generated file
+    mixes exact, wildcard, negated, escaped and whitespace-damaged lines for both
+    secrets. The verdict is git's, one batched check-ignore over every case.
+    """
+    import random
+    rng = random.Random(20260912)
+    pool = sorted({ln for e in ("openmatrix.config.json", ".env") for ln in _line_pool(e)}
+                  | {"", "node_modules/", "!keep.txt", "dist/", ".env.example"})
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    wizard = _load_wizard("setup_main_gitignore_generated")
+    cases, paths = {}, []
+    for i in range(400):
+        text = "\n".join(rng.choice(pool) for _ in range(rng.randint(1, 6)))
+        if rng.random() < 0.7:
+            text += "\n"
+        case = repo / f"case{i:03d}"
+        case.mkdir()
+        (case / ".gitignore").write_bytes(text.encode())
+        cases[case.name] = text
+        # A .gitignore in a subdirectory anchors to that directory, exactly as the
+        # root one does to the root, so each case is its own project here.
+        os.chdir(case)
+        wizard.setup_gitignore()
+        paths += [f"{case.name}/openmatrix.config.json", f"{case.name}/.env"]
+    os.chdir(sandbox.parent)
+    result = subprocess.run(
+        [GIT, "-C", str(repo), "check-ignore", "--no-index", "--stdin"],
+        input="\n".join(paths) + "\n", capture_output=True, text=True,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+    )
+    ignored = set(result.stdout.splitlines())
+    committable = [p for p in paths if p not in ignored]
+    assert not committable, "git would commit, after setup_gitignore():\n" + "\n".join(
+        f"  {p}  (starting .gitignore {cases[p.split('/')[0]]!r})" for p in committable[:15]
+    )
