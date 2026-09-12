@@ -9,10 +9,20 @@ Demonstrates the 0pnMatrx contract conversion flow, targeting Base:
   2. Estimates the conversion cost
   3. Converts it to Solidity via ContractConversionService, which runs the
      Glasswing (Morpheus) security audit on the result
-  4. Hands the Solidity back to you — 0pnMatrx does not deploy it
+  4. Hands the Solidity back to you — this example does not deploy it
 
-This example needs no private key and signs nothing. demo.py is the script
-that deploys, with a dedicated testnet wallet of your own.
+This example reads no private key and does not deploy. The platform CAN deploy
+a conversion: with `conversion.auto_deploy` on, ContractConversionService
+compiles the result and deploys it with the platform's paymaster account, on
+whatever network is configured. So this example runs the platform with
+auto_deploy OFF whatever your config says, and tells you if it was on.
+demo.py is the script that deploys, with a dedicated testnet wallet of your
+own.
+
+What it does not switch off: ServiceDispatcher attests state-modifying actions
+such as convert_contract through the attestation service. Where EAS is set up,
+that service submits attestations (immediately, or once its batch fills) signed
+with the platform's paymaster account (see examples/README.md).
 
 Usage:
     python examples/01_contract_conversion.py
@@ -113,7 +123,15 @@ async def main():
 """)
 
     config = load_config()
-    dispatcher = ServiceDispatcher(config)
+    # conversion.auto_deploy makes convert_contract deploy with the platform's
+    # paymaster account. An operator may want that for the gateway; running an
+    # example must not do it. The dispatcher gets a copy with it off.
+    conversion = dict(config.get("conversion") or {})
+    if conversion.get("auto_deploy"):
+        warn("conversion.auto_deploy is on in your config. This example turns it OFF for its own run,")
+        warn("so nothing is deployed with the platform's paymaster account.")
+    conversion["auto_deploy"] = False
+    dispatcher = ServiceDispatcher({**config, "conversion": conversion})
 
     # ── Step 1: Show the input ──────────────────────────────────────
     step(1, "Input: Plain English Rental Agreement (pseudocode)")
@@ -203,20 +221,14 @@ async def main():
     # This step used to read blockchain.demo_wallet_private_key, print
     # "Deploying to Base Sepolia..." and dispatch `deploy_contract` — an action
     # the platform removed (NEW-4). It could never deploy anything, and it
-    # explained the certain failure as an unfunded wallet. The platform
-    # generates Solidity; deploying it is yours to do, with your own tooling.
+    # explained the certain failure as an unfunded wallet. The dispatcher above
+    # runs with conversion.auto_deploy off, so the service does not deploy
+    # either: deploying the Solidity is yours to do, with your own tooling.
     step(4, "Deployment")
-    deployment = conv.get("deployment") if isinstance(conv, dict) else None
-    if isinstance(deployment, dict):
-        # Only present when the operator turned on contract_conversion.auto_deploy.
-        # Relayed exactly as the conversion service reported it.
-        detail = deployment.get("contract_address") or deployment.get("reason") or deployment.get("error", "")
-        warn(f"Conversion service deployment status: {deployment.get('status', 'unknown')} {detail}".rstrip())
-    else:
-        ok("Not deployed. 0pnMatrx generates the contract; it does not deploy it for you.")
-        ok("Deploy the Solidity above with your own tooling (Foundry, Hardhat, Remix).")
-        ok("demo.py shows one way, using a dedicated TESTNET wallet you configure —")
-        ok("never a wallet holding real funds.")
+    ok("Not deployed. This example generates the contract; it does not deploy it.")
+    ok("Deploy the Solidity above with your own tooling (Foundry, Hardhat, Remix).")
+    ok("demo.py shows one way, using a dedicated TESTNET wallet you configure —")
+    ok("never a wallet holding real funds.")
 
     print(f"\n{DIM}Pipeline complete. This example demonstrated the contract")
     print(f"conversion flow: pseudocode -> Solidity -> audit.{RESET}\n")

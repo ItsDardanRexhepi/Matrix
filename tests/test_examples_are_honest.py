@@ -65,22 +65,29 @@ class _RecordingDispatcher:
         return json.dumps({"status": "ok", "action": action, "result": {}})
 
 
-def _run_example(path: Path, monkeypatch):
+def _run_example(path: Path, monkeypatch, *, dispatcher_configs: list | None = None):
     example = json.loads((ROOT / "openmatrix.config.json.example").read_text())
     bc = example.setdefault("blockchain", {})
     bc["rpc_url"] = "http://127.0.0.1:9"      # configured, and goes nowhere
     bc["demo_wallet_private_key"] = "0x" + "11" * 32
     bc["demo_wallet_address"] = "0x" + "22" * 20
+    bc["paymaster_private_key"] = "0x" + "33" * 32
+    # An operator who turned on on-chain deployment for the gateway. The key is
+    # the one ContractConversionService reads; test_auto_deploy_key_is_real
+    # holds that, so this cannot silently become a key nothing reads.
+    example.setdefault("conversion", {})["auto_deploy"] = True
 
     reads: set[str] = set()
     actions: list[str] = []
+    configs = dispatcher_configs if dispatcher_configs is not None else []
     name = f"example_under_test_{path.stem}"
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "load_config", lambda: _RecordingDict(example, reads, str(path)))
-    monkeypatch.setattr(module, "ServiceDispatcher", lambda config: _RecordingDispatcher(actions))
+    monkeypatch.setattr(module, "ServiceDispatcher",
+                        lambda config: configs.append(config) or _RecordingDispatcher(actions))
     try:
         asyncio.run(module.main())
     except SystemExit:
@@ -115,3 +122,44 @@ def test_the_harness_sees_reads_and_actions(monkeypatch):
     path = next(p for p in EXAMPLES if p.stem == "02_defi_loan")
     reads, actions = _run_example(path, monkeypatch)
     assert {"blockchain", "demo_wallet_address"} <= reads and actions
+
+
+def test_auto_deploy_key_is_real():
+    """The config key the harness sets is the one the conversion service obeys.
+
+    examples/01 used to name `contract_conversion.auto_deploy`, which nothing
+    reads; the service reads `conversion.auto_deploy`.
+    """
+    from runtime.blockchain.services.contract_conversion.service import ContractConversionService
+    on = {"blockchain": {"rpc_url": "http://127.0.0.1:9"}, "conversion": {"auto_deploy": True}}
+    decoy = {"blockchain": {"rpc_url": "http://127.0.0.1:9"}, "contract_conversion": {"auto_deploy": True}}
+    assert ContractConversionService(on)._auto_deploy is True
+    assert ContractConversionService(decoy)._auto_deploy is False
+
+
+def test_no_example_can_make_the_platform_deploy(monkeypatch):
+    """Round-1 review: 01 said it "signs nothing", unconditionally.
+
+    With conversion.auto_deploy on, the convert_contract it dispatches compiles
+    the result and deploys it with the platform account
+    (contract_conversion/service.py `_compile_and_deploy` -> `get_account()`),
+    on whatever network is configured, with no warning. The claim is now made
+    true rather than qualified: an example runs the platform with deployment
+    off, whatever the operator set for the gateway. The verdict is the real
+    service's, built from the config each example hands its dispatcher, for
+    every example that dispatches anything to contract_conversion.
+    """
+    from runtime.blockchain.services.contract_conversion.service import ContractConversionService
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    checked, problems = [], []
+    for path in EXAMPLES:
+        configs: list = []
+        _, actions = _run_example(path, monkeypatch, dispatcher_configs=configs)
+        converts = sorted({a for a in actions if ACTION_MAP.get(a, ("",))[0] == "contract_conversion"})
+        if not converts:
+            continue
+        checked.append(path.name)
+        if any(ContractConversionService(c)._auto_deploy for c in configs):
+            problems.append(f"{path.name} dispatches {converts} with conversion.auto_deploy on")
+    assert checked, "no example dispatches to contract_conversion — this test observed nothing"
+    assert not problems, "running these examples deploys with the platform account:\n  " + "\n  ".join(problems)

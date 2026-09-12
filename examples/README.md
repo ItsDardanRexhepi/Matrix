@@ -24,6 +24,17 @@ Runnable scripts that prove the platform works on-chain (Base Sepolia).
    never one holding real funds. tests/test_examples_are_honest.py runs every
    example and fails if one reads a signing key.
 
+   The examples call the real platform, and the platform does sign with ITS
+   OWN configured account (`blockchain.paymaster_private_key`) in two places:
+   - `conversion.auto_deploy` — when on, contract conversion deploys what it
+     generates. `01_contract_conversion.py` turns it off for its own run and
+     says so if your config had it on; the same test fails if an example that
+     converts could deploy.
+   - EAS attestation — `ServiceDispatcher` attests state-modifying actions
+     through the attestation service which, where EAS is configured, submits
+     them (immediately, or once its batch fills) signed with the platform
+     account. The examples do not turn this off.
+
 ## Running
 
 Every example is self-contained. Run from the repo root:
@@ -41,7 +52,7 @@ will print a warning and continue with the remaining steps.
 
 | # | Script | What it demonstrates | Components |
 |---|--------|---------------------|------------|
-| 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit (deploying it is yours to do) | 1 |
+| 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
@@ -92,7 +103,7 @@ Every example works on mainnet with zero code changes — just update your confi
 ```
 
 **Before going to mainnet:**
-- Contract conversion runs the Glasswing security audit on generated Solidity; the platform does not deploy it
+- Contract conversion runs the Glasswing security audit on generated Solidity; it does not deploy it unless `conversion.auto_deploy` is on, in which case it deploys with the platform's paymaster account (example 01 always runs with it off)
 - EAS attestations are created for every state-modifying action
 - Revenue from all fee-generating actions routes to NeoSafe automatically
 - Oracle data feeds switch to mainnet Chainlink contracts automatically
