@@ -970,8 +970,9 @@ class BridgeRoutes:
     async def register_push(self, request: web.Request) -> web.Response:
         """POST /bridge/v1/push/register — {session_id, push_token} ->
         {registered: bool}. Persists the APNs device token so iOSPushChannel can
-        fan out pushes. Actually SENDING pushes stays credential-gated (APNs
-        .p8/key_id/team_id/bundle_id) — see HUMAN_ACTIONS.md."""
+        fan out pushes. Nothing sends one yet: no gateway event is wired to the
+        NotificationDispatcher (GatewayServer.__init__), and APNs credentials
+        (.p8/key_id/team_id/bundle_id) alone would not change that."""
         try:
             body = await request.json()
         except Exception:

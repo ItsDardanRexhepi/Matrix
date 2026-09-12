@@ -188,13 +188,15 @@ def _apply_env_overrides(config: dict) -> dict:
 
     # APNs push (Matrix deploy): the .p8 is MOUNTED as a file (never an env
     # value) at APNS_AUTH_KEY_P8_PATH; read its contents into the ios_push
-    # channel config so the mounted secret is actually consumed. Absent path /
-    # unreadable file leaves the channel unconfigured (push stays a no-op) —
-    # fail-safe, never a crash.
+    # channel config — config["notifications"]["ios_push"], the subtree the
+    # channel reads (runtime/notifications/base.py). This used to write
+    # notifications.channels.ios_push, which nothing reads, so the mount
+    # configured nothing. Absent path / unreadable file leaves the channel
+    # unconfigured (push stays a no-op) — fail-safe, never a crash. An explicit
+    # `enabled: false` in the config still wins, as for every channel.
     apns_path = os.environ.get("APNS_AUTH_KEY_P8_PATH")
     if apns_path:
-        ios = (config.setdefault("notifications", {})
-               .setdefault("channels", {}).setdefault("ios_push", {}))
+        ios = config.setdefault("notifications", {}).setdefault("ios_push", {})
         try:
             with open(apns_path, "r", encoding="utf-8") as fh:
                 ios["auth_key_p8"] = fh.read()
@@ -494,17 +496,32 @@ class GatewayServer:
         self.certification_manager = None
 
         # ── Notifications (unified 9-channel dispatcher) ────────────
-        # Available channels: telegram, discord, slack, email, sms,
-        # whatsapp, web_chat, ios_push, webhook. Configure with
-        # `python setup_communications.py`. Every channel is optional;
-        # the dispatcher is always instantiated so callers can rely on
-        # it without guarding imports.
+        # Channels: telegram, discord, slack, email, sms, whatsapp, web_chat,
+        # ios_push, webhook. Configure with `python setup_communications.py`
+        # (which can send each one a test message).
+        #
+        # NOT BUILT: nothing in the gateway sends to the dispatcher. It is
+        # constructed, its channels are listed, it is given the push-token
+        # store — and no event calls broadcast(). bridge.ApprovalGate and
+        # bridge.Deployer take a notifier, but the gateway constructs neither;
+        # the Ollama client's model-failure alert posts to Telegram on its own.
+        # Deciding which event reaches which audience comes first:
+        # broadcast() with no `channels` reaches ios_push — EVERY registered
+        # device — and web_chat — the shared /api/v1/events/stream — so an
+        # operator alert wired naively goes to every user.
+        # tests/test_notifications_report_what_is_delivered.py ties the
+        # startup line below to that fact.
         try:
             from runtime.notifications import NotificationDispatcher
             self.notifier = NotificationDispatcher(config)
             enabled = self.notifier.list_enabled_channels()
             if enabled:
-                logger.info("Notifications ready: %s", ", ".join(enabled))
+                logger.warning(
+                    "Notification channels configured (%s), but nothing in the gateway "
+                    "sends to them yet: no event is wired to the dispatcher. "
+                    "`python setup_communications.py` can send a test message.",
+                    ", ".join(enabled),
+                )
             else:
                 logger.info(
                     "Notifications: no channels configured. "
