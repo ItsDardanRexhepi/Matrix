@@ -2182,6 +2182,14 @@ class GatewayServer:
                             self.metrics.incr("caches.evicted", evicted)
                     except Exception as exc:
                         logger.warning("Service cache prune failed: %s", exc)
+                # Erased conversation ids, kept only as long as a turn admitted
+                # before the erasure could still be running (MemoryManager).
+                prune_erasures = getattr(getattr(self.react_loop, "memory", None), "prune_erasure_log", None)
+                if prune_erasures is not None:
+                    try:
+                        await prune_erasures()
+                    except Exception as exc:
+                        logger.warning("Conversation erasure log prune failed: %s", exc)
             except asyncio.CancelledError:
                 break
             except Exception as exc:

@@ -238,6 +238,40 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE conversation_owners ADD COLUMN claim_id TEXT NOT NULL DEFAULT ''",
         ],
     ),
+    (
+        7,
+        "conversation_erasures — the unclaimed state has a generation too",
+        [
+            # A turn admitted to an unclaimed conversation was admitted under
+            # ("", ""), and erasing a claim deleted its row: ("", "") again.
+            # An anonymous turn in flight while an account claimed the
+            # conversation and was deleted matched and was written back. Each
+            # erasure takes the next sequence number and logs the conversations
+            # it erased; an unclaimed turn is admitted under the sequence
+            # number it saw. The log is pruned (MemoryManager.prune_erasure_log);
+            # pruned_through says how far, and a turn older than that is refused.
+            """
+            CREATE TABLE IF NOT EXISTS conversation_erasures (
+                seq         INTEGER NOT NULL,
+                session_id  TEXT NOT NULL,
+                erased_at   REAL NOT NULL,
+                PRIMARY KEY (session_id, seq)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_erasures_erased_at
+                ON conversation_erasures (erased_at)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS conversation_erasure_state (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                seq             INTEGER NOT NULL,
+                pruned_through  INTEGER NOT NULL
+            )
+            """,
+            "INSERT OR IGNORE INTO conversation_erasure_state (id, seq, pruned_through) VALUES (1, 0, 0)",
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class

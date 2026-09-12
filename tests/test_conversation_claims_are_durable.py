@@ -207,8 +207,10 @@ class _HeldRouter:
         self.armed = True
         self.in_flight = asyncio.Event()
         self.release = asyncio.Event()
+        self.shown: list[str] = []   # every model call's messages, joined
 
     async def complete(self, messages, tools=None, **kwargs):
+        self.shown.append("\n".join(str(m.content) for m in messages))
         last_user = next((str(m.content) for m in reversed(messages) if m.role == "user"), "")
         if self.armed and self.marker in last_user:
             self.armed = False
@@ -330,3 +332,159 @@ async def test_a_turn_whose_account_is_deleted_before_its_loop_starts_leaves_no_
             "a deleted account's turn left protocol state a later caller was shown")
         conv, agent = _rows_with(memory, "GAP-SECRET-77")
         assert not conv and not agent, (conv, agent)
+
+
+# ── the unclaimed state has an identity too ──────────────────────────────────
+#
+# A turn admitted to an unclaimed conversation carried ("", ""), and erasing a
+# claim deleted its row, which made the state ("", "") again. So an anonymous
+# turn in flight while an account claimed the conversation and was then
+# deleted matched its "claim" and was written back: into the conversation and
+# into conv:<id> memory, with a reply generated from the pre-claim history the
+# deletion had just removed, shown to the next caller naming the id.
+
+@pytest.mark.parametrize("entrance", ENTRANCES)
+async def test_an_anonymous_turn_in_flight_through_a_claim_and_its_accounts_deletion_is_not_written_back(entrance):
+    server = _server()
+    router = _HeldRouter("ANON-HELD")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    sid = "shared-conv"
+    async with TestClient(TestServer(server.create_app())) as client:
+        assert await _drive(client, "/chat", {"message": "pre-sign-in: my pin is 5150", "session_id": sid}) == 200
+        turn = asyncio.ensure_future(
+            _drive(client, entrance, {"message": "ANON-HELD what is my pin?", "session_id": sid}))
+        await asyncio.wait_for(router.in_flight.wait(), 10)
+
+        account = await _session(server, "apple:abaacct")
+        assert await _drive(client, "/chat", {"message": "ACCT-SECRET-31", "session_id": sid}, account) == 200
+        assert memory.conversation_owner(sid) == "apple:abaacct"
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        assert _rows_with(memory, "5150") == ([], []), "the deletion did not erase the pre-claim turn"
+
+        router.release.set()
+        await asyncio.wait_for(turn, 15)
+
+        for text in ("ANON-HELD", "5150", "ACCT-SECRET-31"):
+            conv, agent = _rows_with(memory, text)
+            assert not conv, f"{entrance}: {text!r} was written back into the erased conversation: {conv}"
+            assert not agent, f"{entrance}: {text!r} was written back into conv:{sid} memory: {agent}"
+
+        router.shown.clear()
+        assert await _drive(client, "/chat", {"message": "anyone there?", "session_id": sid}) == 200
+        assert len(router.shown) == 1, router.shown
+        for text in ("ANON-HELD", "5150", "ACCT-SECRET-31"):
+            assert text not in router.shown[0], f"{entrance}: the next caller naming the id was shown {text!r}"
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES)
+async def test_an_anonymous_turn_in_flight_while_another_conversations_account_is_deleted_is_stored(entrance):
+    """Giving the unclaimed state an identity must not refuse turns whose
+    conversation no deletion touched."""
+    server = _server()
+    router = _HeldRouter("ANON-KEEP")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    async with TestClient(TestServer(server.create_app())) as client:
+        turn = asyncio.ensure_future(
+            _drive(client, entrance, {"message": "ANON-KEEP stays", "session_id": "bystander-conv"}))
+        await asyncio.wait_for(router.in_flight.wait(), 10)
+        account = await _session(server, "apple:elsewhere")
+        assert await _drive(client, "/chat", {"message": "mine", "session_id": "elsewhere-conv"}, account) == 200
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        router.release.set()
+        assert await asyncio.wait_for(turn, 15) == 200
+
+        conv, agent = _rows_with(memory, "ANON-KEEP")
+        assert conv and agent, f"{entrance}: a turn no deletion touched was refused: {conv} {agent}"
+
+
+async def test_an_unclaimed_claim_stops_standing_once_the_conversation_is_claimed_and_erased():
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-unclaimed-")))
+    before = memory.conversation_claim("c1")
+    untouched = memory.conversation_claim("c2")
+    assert memory.claim_stands(before) and before.owner == ""
+    memory.claim_conversation("c1", "apple:x")
+    assert not memory.claim_stands(before)
+    assert await memory.erase_owner("apple:x") == ["c1"]
+    assert memory.conversation_claim("c1").owner == ""
+    assert not memory.claim_stands(before), "erasure restored the unclaimed state a pre-claim turn was admitted under"
+    assert not await memory.save_conversation("c1", [{"role": "user", "content": "back"}], expect_claim=before)
+    assert not await memory.save_turn("trinity", "back", "r", scope="conv:c1", claim=before)
+    # A conversation the erasure did not touch is still unclaimed under the same claim.
+    assert memory.claim_stands(untouched)
+    assert await memory.save_conversation("c2", [{"role": "user", "content": "kept"}], expect_claim=untouched)
+    # A turn admitted after the erasure is admitted under the new unclaimed state.
+    after = memory.conversation_claim("c1")
+    assert memory.claim_stands(after)
+    assert await memory.save_turn("trinity", "fresh", "r", scope="conv:c1", claim=after)
+    # ...and survives a fresh process reading the same store.
+    again = MemoryManager(_config(memory.memory_dir.as_posix()))
+    assert again.claim_stands(after) and not again.claim_stands(before)
+
+
+async def test_the_erasure_log_is_pruned_and_a_turn_older_than_the_pruned_log_is_refused():
+    """The log of erased ids is kept only for its retention window. A turn
+    admitted unclaimed before an erasure whose entry was pruned cannot be
+    cleared by the log any more, and is refused rather than assumed safe."""
+    memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="opnmatrx-claims-prune-")),
+                            "conversation_erasure_log_seconds": 60})
+    before = memory.conversation_claim("c1")
+    memory.claim_conversation("c9", "apple:gone")
+    assert await memory.erase_owner("apple:gone") == ["c9"]
+    assert memory.claim_stands(before), "an erasure of another conversation refused the turn"
+    assert memory.db.fetchall_sync("SELECT session_id FROM conversation_erasures")  # kept within the window
+
+    dropped = await memory.db.run_in_transaction(lambda conn: memory._prune_erasure_log_in(conn, time.time() + 120))
+    assert dropped == 1
+    assert not memory.db.fetchall_sync("SELECT session_id FROM conversation_erasures"), "the erased id outlived the window"
+    assert not memory.claim_stands(before), "a turn older than the pruned log was assumed to stand"
+    assert not await memory.save_conversation("c1", [{"role": "user", "content": "x"}], expect_claim=before)
+    after = memory.conversation_claim("c1")
+    assert memory.claim_stands(after)
+
+
+async def test_the_periodic_sweep_prunes_the_erasure_log():
+    from test_every_rate_limiter_is_swept import _one_sweep
+
+    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-sweep-")
+    server = GatewayServer({**_config(scratch), "conversation_erasure_log_seconds": 0})
+    memory = server.react_loop.memory
+    memory.claim_conversation("user:apple:swept", "apple:swept")
+    await memory.erase_owner("apple:swept")
+    assert memory.db.fetchall_sync("SELECT session_id FROM conversation_erasures")
+    await asyncio.sleep(0.01)
+    await _one_sweep(server)
+    assert not memory.db.fetchall_sync("SELECT session_id FROM conversation_erasures")
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES)
+async def test_a_turn_from_before_deletion_is_not_written_into_a_claim_made_by_a_surviving_second_session(entrance):
+    """Deletion removes the session that asked for it, not the subject's other
+    sessions: the same subject on a second device continues with no
+    re-authentication. Its claim is still a new claim."""
+    server = _server()
+    router = _HeldRouter("4711")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    sid = "leaving-conv"
+    async with TestClient(TestServer(server.create_app())) as client:
+        leaver = await _session(server, "apple:leaver")
+        now = time.time()
+        await server.wallet_sessions.add(token="device2", address="apple:leaver", issued_at=now, expires_at=now + 3600)
+        device2 = {"Authorization": "Bearer device2"}
+        assert await _drive(client, "/chat", {"message": "first", "session_id": sid}, leaver) == 200
+        turn = asyncio.ensure_future(_drive(client, entrance, {"message": "my secret is 4711", "session_id": sid}, leaver))
+        await asyncio.wait_for(router.in_flight.wait(), 10)
+        resp = await client.delete("/api/v1/auth/account", headers=leaver)
+        assert resp.status == 200, await resp.text()
+        assert await _drive(client, "/chat", {"message": "from device two", "session_id": sid}, device2) == 200
+        router.release.set()
+        await asyncio.wait_for(turn, 15)
+
+        conv, agent = _rows_with(memory, "4711")
+        assert not conv and not agent, (entrance, conv, agent)
+        kept_conv, kept_agent = _rows_with(memory, "from device two")
+        assert kept_conv and kept_agent, (entrance, kept_conv, kept_agent)

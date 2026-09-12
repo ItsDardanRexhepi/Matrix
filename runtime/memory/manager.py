@@ -38,19 +38,33 @@ MAX_CONTEXT_TURNS = 20
 MAX_AGENT_TURNS = 200
 
 
+#: How long an erased conversation id stays in the erasure log
+#: (``conversation_erasures``) before it is pruned. A turn admitted to an
+#: unclaimed conversation that runs longer than this across ANY erasure whose
+#: log entry has since been pruned is refused, since the log can no longer say
+#: whether its conversation was among those erased.
+ERASURE_LOG_SECONDS = 3600.0
+
+
 @dataclass(frozen=True)
 class ConversationClaim:
     """The claim a chat turn was admitted under: *session_id* held by *owner*
     ("" when unclaimed) through the claim *claim_id* ("" when unclaimed, or a
-    claim stored before claims had ids).
+    claim stored before claims had ids), with *erasure_seq*, the store's
+    erasure sequence number at admission.
 
     Writes a turn makes — the conversation and the scoped agent memory — land
-    only while this exact claim still stands. Comparing the owner alone is not
-    enough: account deletion erases the claim, and the same subject signing in
-    again makes a new claim with the same owner string."""
+    only while this claim still stands (``MemoryManager.claim_stands``).
+    Comparing the owner alone is not enough: account deletion erases the
+    claim, and the same subject signing in again makes a new claim with the
+    same owner string. Comparing ``(owner, claim_id)`` alone is not enough for
+    an UNCLAIMED conversation: a claim made and erased while the turn ran
+    leaves ``("", "")`` again, so an unclaimed claim also requires that no
+    erasure since *erasure_seq* erased the conversation."""
     session_id: str
     owner: str
     claim_id: str
+    erasure_seq: int = 0
 
 
 class MemoryManager:
@@ -233,7 +247,7 @@ class MemoryManager:
         write waited on the lock)."""
 
         def work(conn):
-            if self._claim_in(conn, claim.session_id) != (claim.owner, claim.claim_id):
+            if not self._stands_in(conn, claim):
                 return None
             rows = conn.execute(
                 "SELECT user_msg, agent_msg, ts FROM agent_turns WHERE agent = ? ORDER BY seq ASC",
@@ -394,19 +408,21 @@ class MemoryManager:
 
     async def save_conversation(self, session_id: str, messages: list[dict],
                                 owner: str | None = None, *,
-                                expect_owner: str | None = None,
                                 expect_claim: ConversationClaim | None = None) -> bool:
         """Replace the stored conversation for *session_id* with *messages*.
 
         The owner is the durable claim (``conversation_owners``), read inside
         the same transaction as the write. *owner* claims an unclaimed
         conversation; it never replaces another account's claim. With
-        *expect_claim*, the write happens only if that exact claim — owner AND
-        claim id, the claim the turn was admitted under — still stands. A turn
-        whose conversation was erased (account deletion) or claimed by someone
-        else while it ran is refused rather than written back into it, and so
-        is one whose conversation was erased and claimed again by the same
-        subject. *expect_owner* compares the owner string only.
+        *expect_claim*, the write happens only if the claim the turn was
+        admitted under still stands (``claim_stands``). A turn whose
+        conversation was erased (account deletion) or claimed by someone else
+        while it ran is refused rather than written back into it; so is one
+        whose conversation was erased and claimed again by the same subject,
+        and one admitted while the conversation was unclaimed whose
+        conversation was claimed and erased meanwhile, which leaves it
+        unclaimed again. (An ``expect_owner`` that compared the owner string
+        alone had no caller, and was that very comparison; it is gone.)
 
         Returns whether anything was written. Replace is DELETE + INSERT in
         ONE transaction: done in two lock acquisitions, a request queued on
@@ -415,10 +431,9 @@ class MemoryManager:
         rows = [(m.get("role", ""), m.get("content", "")) for m in messages]
 
         def work(conn):
-            current, current_claim = self._claim_in(conn, session_id)
-            if expect_claim is not None and (current, current_claim) != (expect_claim.owner, expect_claim.claim_id):
-                return None
-            if expect_owner is not None and current != expect_owner:
+            current = self._owner_in(conn, session_id)
+            if expect_claim is not None and (
+                    expect_claim.session_id != session_id or not self._stands_in(conn, expect_claim)):
                 return None
             if owner and current and owner != current:
                 return None
@@ -467,13 +482,17 @@ class MemoryManager:
     def conversation_claim(self, session_id: str) -> ConversationClaim:
         """The claim *session_id* has now, read from the store (not the
         cache): what a turn is admitted under and must still find when it
-        writes."""
-        owner, claim_id = self._claim_in(self.db._require_conn(), session_id)
-        return ConversationClaim(session_id=session_id, owner=owner, claim_id=claim_id)
+        writes. The claim row and the erasure sequence number are read with
+        nothing in between (sync, no await)."""
+        conn = self.db._require_conn()
+        owner, claim_id = self._claim_in(conn, session_id)
+        seq, _ = self._erasure_state_in(conn)
+        return ConversationClaim(session_id=session_id, owner=owner, claim_id=claim_id, erasure_seq=seq)
 
     def claim_stands(self, claim: ConversationClaim) -> bool:
-        """Whether *claim* is still the claim its conversation has (store)."""
-        return self._claim_in(self.db._require_conn(), claim.session_id) == (claim.owner, claim.claim_id)
+        """Whether *claim* still stands (store) — the one test every write of
+        a turn and the loop's start make."""
+        return self._stands_in(self.db._require_conn(), claim)
 
     def claim_conversation(self, session_id: str, owner: str) -> str:
         """Bind an unclaimed conversation to *owner*; return the owner it has.
@@ -511,7 +530,12 @@ class MemoryManager:
         the account still running no longer finds the claim it was admitted
         under — not even if the subject has signed in again and claimed the
         conversation anew — so neither its conversation nor its scoped memory
-        is written (save_conversation's *expect_claim*, save_turn's *claim*)."""
+        is written (save_conversation's *expect_claim*, save_turn's *claim*).
+        Nor is an anonymous turn admitted before the account claimed the
+        conversation: the same transaction logs the erased ids under a new
+        erasure sequence number (``conversation_erasures``, pruned after
+        ``conversation_erasure_log_seconds``), so the unclaimed state the
+        erasure leaves is not the one that turn was admitted under."""
         if not owner:
             return []
 
@@ -524,6 +548,18 @@ class MemoryManager:
             for sid in ids:
                 conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (sid,))
             conn.execute("DELETE FROM conversation_owners WHERE owner = ?", (owner,))
+            # Deleting the claim leaves the conversation unclaimed: the state a
+            # turn admitted before the claim was admitted under. The erasure
+            # takes the next sequence number and logs what it erased, so that
+            # turn no longer stands (_stands_in).
+            if ids:
+                now = time.time()
+                seq = self._erasure_state_in(conn)[0] + 1
+                conn.execute("UPDATE conversation_erasure_state SET seq = ? WHERE id = 1", (seq,))
+                conn.executemany(
+                    "INSERT OR IGNORE INTO conversation_erasures (seq, session_id, erased_at) VALUES (?, ?, ?)",
+                    [(seq, sid, now) for sid in ids])
+                self._prune_erasure_log_in(conn, now)
             return ids
 
         erased = await self.db.run_in_transaction(work)
@@ -575,6 +611,60 @@ class MemoryManager:
         row = conn.execute(
             "SELECT owner, claim_id FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
         return (str(row[0] or ""), str(row[1] or "")) if row else ("", "")
+
+    @staticmethod
+    def _erasure_state_in(conn) -> tuple[int, int]:
+        """``(seq, pruned_through)``: the last erasure's sequence number, and
+        the highest sequence number whose log entries have been pruned."""
+        row = conn.execute(
+            "SELECT seq, pruned_through FROM conversation_erasure_state WHERE id = 1").fetchone()
+        return (int(row[0]), int(row[1])) if row else (0, 0)
+
+    @classmethod
+    def _stands_in(cls, conn, claim: ConversationClaim) -> bool:
+        """Whether *claim* still stands in the store *conn* reads.
+
+        The claim row must be the one the turn was admitted under: same owner
+        and same claim id (every claim gets a fresh random id, so erasing a
+        claim and claiming again does not restore it). A claim with an owner
+        needs nothing more. An UNCLAIMED claim ("", "") cannot be told from
+        the state a claim's erasure leaves, so it also needs that no erasure
+        since the turn's admission erased this conversation — and when the log
+        that would say so has been pruned past the admission, it is refused."""
+        if cls._claim_in(conn, claim.session_id) != (claim.owner, claim.claim_id):
+            return False
+        if claim.owner:
+            return True
+        seq, pruned_through = cls._erasure_state_in(conn)
+        if seq == claim.erasure_seq:
+            return True
+        if seq < claim.erasure_seq or pruned_through > claim.erasure_seq:
+            return False
+        return conn.execute(
+            "SELECT 1 FROM conversation_erasures WHERE session_id = ? AND seq > ? LIMIT 1",
+            (claim.session_id, claim.erasure_seq)).fetchone() is None
+
+    def _prune_erasure_log_in(self, conn, now: float) -> int:
+        """Drop erasure log entries older than the retention window; a claim
+        admitted before the newest dropped entry no longer stands."""
+        retention = float(self.config.get("conversation_erasure_log_seconds", ERASURE_LOG_SECONDS))
+        row = conn.execute(
+            "SELECT MAX(seq) FROM conversation_erasures WHERE erased_at < ?", (now - retention,)).fetchone()
+        through = int(row[0]) if row and row[0] is not None else 0
+        if not through:
+            return 0
+        dropped = conn.execute("DELETE FROM conversation_erasures WHERE seq <= ?", (through,)).rowcount
+        conn.execute(
+            "UPDATE conversation_erasure_state SET pruned_through = MAX(pruned_through, ?) WHERE id = 1",
+            (through,))
+        return dropped
+
+    async def prune_erasure_log(self) -> int:
+        """Prune the erasure log (see ``_stands_in``): erased conversation ids
+        are kept for ``conversation_erasure_log_seconds`` (default one hour),
+        then dropped. Run by every erasure and by the gateway's periodic
+        sweep. Returns the number of entries dropped."""
+        return await self.db.run_in_transaction(lambda conn: self._prune_erasure_log_in(conn, time.time()))
 
     # ── First-boot tracking ────────────────────────────────────────
 
