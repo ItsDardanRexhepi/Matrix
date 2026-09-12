@@ -186,6 +186,17 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        4,
+        "conversation_turns.owner — who a conversation belongs to (T3 / C2b)",
+        [
+            "ALTER TABLE conversation_turns ADD COLUMN owner TEXT NOT NULL DEFAULT ''",
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_turns_owner
+                ON conversation_turns (owner)
+            """,
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class

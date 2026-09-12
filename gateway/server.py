@@ -541,7 +541,12 @@ class GatewayServer:
         if len(message) > 100000:
             return web.json_response({"error": "message too long"}, status=400)
 
-        session_id = str(body.get("session_id", "default"))[:100]
+        session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
+        if session_error:
+            return web.json_response({"error": "session_required", "message": session_error}, status=400)
+        denied = self._conversation_denied(request, session_id)
+        if denied:
+            return web.json_response({"error": "forbidden", "message": denied}, status=403)
         agent = str(body.get("agent", "trinity"))[:50]
         forbidden = self._agent_forbidden_for_caller(request, agent)
         if forbidden:
@@ -588,6 +593,7 @@ class GatewayServer:
         # ProtocolStack.pre_action can attribute and verify each tool call.
         context.metadata["user_context"] = {
             "session_id": session_id,
+            "memory_scope": self._memory_scope(request, session_id),
             "agent": agent,
             "wallet_connected": body.get("wallet_connected", True),
             "network": body.get("network"),
@@ -633,9 +639,10 @@ class GatewayServer:
         # Persist updated conversation to disk
         try:
             await self.react_loop.memory.save_conversation(
-                session_id,
-                [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-            )
+                    session_id,
+                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
+                    owner=self.react_loop.memory.conversation_owner(session_id),
+                )
         except Exception as exc:
             logger.warning(f"Failed to persist conversation {session_id}: {exc}")
 
@@ -1071,8 +1078,12 @@ class GatewayServer:
         auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
         deletion still succeeds and revocation is skipped with a WARNING."""
         from gateway.apple_auth import apple_revocation_configured
-        token = request.headers.get("X-Wallet-Session", "").strip()
-        session = self.wallet_sessions.get(token) if token else None
+        # The iOS app presents its Apple session as ``Authorization: Bearer``
+        # (client :786); this handler read only ``X-Wallet-Session``, so the
+        # app's own "delete account" found no session and deleted NOTHING
+        # server-side while answering 200 "Account deleted locally" — the
+        # App Store 5.1.1(v) path was a no-op. Both headers are honoured now.
+        token, session = self._wallet_session_token(request)
 
         # Push tokens registered under this session.
         try:
@@ -1083,6 +1094,15 @@ class GatewayServer:
                     await store.remove(dev)
         except Exception:
             logger.debug("account delete: push-token cleanup skipped")
+
+        # The account's conversations and scoped agent memory (T3 / C2b: erasure
+        # can identify a user's rows now that conversations carry an owner).
+        if session is not None:
+            try:
+                subject = str(session.get("address", ""))
+                await self.react_loop.memory.erase_owner(subject)
+            except Exception:
+                logger.debug("account delete: conversation erasure skipped")
 
         # The wallet session itself.
         if token:
@@ -1305,7 +1325,12 @@ class GatewayServer:
         if len(message) > 100000:
             return web.json_response({"error": "message too long"}, status=400)
 
-        session_id = str(body.get("session_id", "default"))[:100]
+        session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
+        if session_error:
+            return web.json_response({"error": "session_required", "message": session_error}, status=400)
+        denied = self._conversation_denied(request, session_id)
+        if denied:
+            return web.json_response({"error": "forbidden", "message": denied}, status=403)
         agent = str(body.get("agent", "trinity"))[:50]
         forbidden = self._agent_forbidden_for_caller(request, agent)
         if forbidden:
@@ -1360,6 +1385,7 @@ class GatewayServer:
         )
         context.metadata["user_context"] = {
             "session_id": session_id,
+            "memory_scope": self._memory_scope(request, session_id),
             "agent": agent,
             "wallet_connected": body.get("wallet_connected", True),
             "network": body.get("network"),
@@ -1398,9 +1424,10 @@ class GatewayServer:
             self.conversations[session_id] = self.conversations[session_id][-50:]
         try:
             await self.react_loop.memory.save_conversation(
-                session_id,
-                [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-            )
+                    session_id,
+                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
+                    owner=self.react_loop.memory.conversation_owner(session_id),
+                )
         except Exception as exc:
             logger.warning(f"Failed to persist streamed conversation {session_id}: {exc}")
 
@@ -1449,7 +1476,14 @@ class GatewayServer:
                 await ws.send_json({"type": "error", "error": "message too long"})
                 continue
 
-            session_id = str(payload.get("session_id", "default"))[:100]
+            session_id, session_error = self._resolve_session_id(request, payload.get("session_id"))
+            if session_error:
+                await ws.send_json({"type": "error", "error": "session_required", "message": session_error})
+                continue
+            denied = self._conversation_denied(request, session_id)
+            if denied:
+                await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
+                continue
             agent = str(payload.get("agent", "trinity"))[:50]
             if agent not in {"neo", "trinity", "morpheus"}:
                 await ws.send_json({"type": "error", "error": "invalid agent"})
@@ -1487,6 +1521,7 @@ class GatewayServer:
             )
             context.metadata["user_context"] = {
                 "session_id": session_id,
+                "memory_scope": self._memory_scope(request, session_id),
                 "agent": agent,
             }
 
@@ -1513,6 +1548,7 @@ class GatewayServer:
                 await self.react_loop.memory.save_conversation(
                     session_id,
                     [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
+                    owner=self.react_loop.memory.conversation_owner(session_id),
                 )
             except Exception as exc:
                 logger.warning(f"Failed to persist ws conversation {session_id}: {exc}")
@@ -2507,6 +2543,11 @@ class GatewayServer:
         """The live wallet session the request presents: ``X-Wallet-Session``,
         or the ``Authorization: Bearer`` token the iOS client stores from
         ``/api/v1/auth/apple``. None when absent, unknown or expired."""
+        return self._wallet_session_token(request)[1]
+
+    def _wallet_session_token(self, request: web.Request):
+        """``(token, session)`` for the live wallet session the request presents
+        (``X-Wallet-Session`` first, then the Bearer); ``("", None)`` otherwise."""
         candidates = [request.headers.get("X-Wallet-Session", "").strip()]
         auth_header = request.headers.get("Authorization", "").strip()
         if auth_header.startswith("Bearer "):
@@ -2520,8 +2561,8 @@ class GatewayServer:
                 logger.debug("wallet session lookup failed: %s", exc)
                 session = None
             if session:
-                return session
-        return None
+                return token, session
+        return "", None
 
     def _session_apple_id(self, request: web.Request) -> str:
         session = self._wallet_session_from_request(request)
@@ -2554,6 +2595,53 @@ class GatewayServer:
         if agent in ("neo", "morpheus") and not self._is_operator(request):
             return (f"agent '{agent}' requires the operator key; users talk to Trinity "
                     "(omit 'agent' or send 'trinity')")
+        return None
+
+    # ─── T3 · one session per caller, never one for everyone ─────────────
+
+    def _session_subject(self, request: web.Request) -> str:
+        """The raw subject of the presented wallet session (``apple:<sub>`` or
+        the SIWE address) — stable for the account, unlike the linked wallet."""
+        session = self._wallet_session_from_request(request)
+        return str(session.get("address", "")) if session else ""
+
+    def _resolve_session_id(self, request: web.Request, requested):
+        """``(session_id, error)`` for a chat, push or action request.
+
+        The body's own id wins unless it is the shared ``"default"`` — the one
+        conversation every caller who omitted an id landed in, persisted and
+        replayed to a tool-enabled agent (register entry::DV-CONV-INJECT-2).
+        Then the presented wallet session names the conversation
+        (``user:<subject>``). With neither, production refuses (400) and
+        development keeps ``"default"`` for local runs and the suite.
+        """
+        session_id = str(requested or "").strip()[:100]
+        if session_id and session_id != "default":
+            return session_id, None
+        subject = self._session_subject(request)
+        if subject:
+            return f"user:{subject}"[:100], None
+        if is_production_mode():
+            return "", ('a per-user session_id is required: "default" is one conversation shared '
+                        "by every caller; sign in, or send the session id your client created")
+        return "default", None
+
+    def _memory_scope(self, request: web.Request, session_id: str) -> str:
+        """What the agent's memory and protocol state are keyed by for this
+        caller: the account subject when signed in, else the conversation."""
+        return self._session_subject(request) or session_id
+
+    def _conversation_denied(self, request: web.Request, session_id: str):
+        """Ownership (C2b): a conversation with an owner is continued only by
+        that identity; an ownerless one is claimed by the first signed-in
+        caller. Returns the refusal message, or None."""
+        memory = self.react_loop.memory
+        owner = memory.conversation_owner(session_id)
+        identity = self._session_subject(request)
+        if owner and owner != identity:
+            return "this conversation belongs to another account"
+        if not owner and identity:
+            memory.claim_conversation(session_id, identity)
         return None
 
     @web.middleware

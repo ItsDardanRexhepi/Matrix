@@ -59,6 +59,7 @@ class MemoryManager:
         self._kv_cache: dict[str, dict] = {}        # agent -> {key: value}
         self._turn_cache: dict[str, list[dict]] = {}  # agent -> [{user, agent, ts}, ...]
         self._conv_cache: dict[str, list[dict]] = {}  # session -> [{role, content}, ...]
+        self._conv_owner: dict[str, str] = {}         # session -> owner subject ("" = nobody yet)
         self._first_boot_cache: set[str] | None = None
         self._loaded_agents: set[str] = set()
         self._loaded_conversations: set[str] = set()
@@ -124,8 +125,22 @@ class MemoryManager:
 
     # ── Conversation Turns (per-agent log) ─────────────────────────
 
-    async def save_turn(self, agent: str, user_message: str, agent_response: str) -> None:
-        """Append a user/agent exchange to the conversation log."""
+    @staticmethod
+    def memory_key(agent: str, scope: str = "") -> str:
+        """Agent memory is namespaced by the caller: ``agent@scope``.
+
+        Keyed by agent name alone, every user's turns — and the [User Facts]
+        extracted from them — reached every other user's prompt (§D3.6). The
+        bare agent key is the shared, unscoped memory (operator-curated and
+        legacy rows); it is rendered only for unscoped callers.
+        """
+        return f"{agent}@{scope}" if scope else agent
+
+    async def save_turn(self, agent: str, user_message: str, agent_response: str,
+                        scope: str = "") -> None:
+        """Append a user/agent exchange to the conversation log of *agent*
+        within *scope* (the caller's account or conversation)."""
+        agent = self.memory_key(agent, scope)
         await self._ensure_agent_loaded(agent)
         turns = self._turn_cache.setdefault(agent, [])
         seq = len(turns)
@@ -156,13 +171,15 @@ class MemoryManager:
                 (agent, seq, user_message, agent_response, ts),
             )
 
-    def get_context(self, agent: str) -> str:
-        """Return conversation context with smart summarisation.
+    def get_context(self, agent: str, scope: str = "") -> str:
+        """Return conversation context with smart summarisation, for *agent*
+        within *scope* only.
 
         Keeps the last 5 turns verbatim for precision and summarises
         older turns into a brief narrative.  Extracts user facts
         (wallet addresses, goals, preferences) into a persistent block.
         """
+        agent = self.memory_key(agent, scope)
         self._load_agent_sync(agent)
         turns = self._turn_cache.get(agent, [])
         if not turns:
@@ -286,8 +303,16 @@ class MemoryManager:
 
     # ── Per-session conversation persistence ───────────────────────
 
-    async def save_conversation(self, session_id: str, messages: list[dict]) -> None:
-        """Replace the stored conversation for *session_id* with *messages*."""
+    async def save_conversation(self, session_id: str, messages: list[dict],
+                                owner: str | None = None) -> None:
+        """Replace the stored conversation for *session_id* with *messages*.
+
+        *owner* is the account the conversation belongs to (C2b); None keeps
+        the owner already known for the session ("" when nobody has claimed it).
+        """
+        if owner is None:
+            owner = self._conv_owner.get(session_id, "")
+        self._conv_owner[session_id] = owner
         self._conv_cache[session_id] = list(messages)
         self._loaded_conversations.add(session_id)
         # Replace strategy: delete then bulk insert. Simple and correct.
@@ -299,11 +324,11 @@ class MemoryManager:
         if messages:
             await self.db.executemany(
                 """
-                INSERT INTO conversation_turns (session_id, seq, role, content, ts)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO conversation_turns (session_id, seq, role, content, ts, owner)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    (session_id, i, m.get("role", ""), m.get("content", ""), time.time())
+                    (session_id, i, m.get("role", ""), m.get("content", ""), time.time(), owner)
                     for i, m in enumerate(messages)
                 ],
             )
@@ -316,13 +341,45 @@ class MemoryManager:
         self._load_conversation_sync(session_id)
         return list(self._conv_cache.get(session_id, []))
 
+    def conversation_owner(self, session_id: str) -> str:
+        """The account *session_id* belongs to, "" when nobody has claimed it."""
+        self._load_conversation_sync(session_id)
+        return self._conv_owner.get(session_id, "")
+
+    def claim_conversation(self, session_id: str, owner: str) -> None:
+        """Bind an ownerless conversation to *owner* (persisted at the next
+        save; the in-memory claim already gates every continuation)."""
+        self._load_conversation_sync(session_id)
+        if owner and not self._conv_owner.get(session_id):
+            self._conv_owner[session_id] = owner
+
+    async def erase_owner(self, owner: str) -> None:
+        """Delete every conversation owned by *owner* and every scoped agent
+        memory written for it — what account deletion must be able to do."""
+        if not owner:
+            return
+        await self.db.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
+        for sid in [s for s, o in self._conv_owner.items() if o == owner]:
+            self._conv_cache.pop(sid, None)
+            self._conv_owner.pop(sid, None)
+            self._loaded_conversations.discard(sid)
+        suffix = f"@{owner}"
+        keys = {k for k in list(self._turn_cache) + list(self._kv_cache) if k.endswith(suffix)}
+        keys |= {self.memory_key(a, owner) for a in ("neo", "trinity", "morpheus")}
+        for key in keys:
+            await self.db.execute("DELETE FROM agent_turns WHERE agent = ?", (key,))
+            await self.db.execute("DELETE FROM agent_memory WHERE agent = ?", (key,))
+            self._turn_cache.pop(key, None)
+            self._kv_cache.pop(key, None)
+            self._loaded_agents.discard(key)
+
     async def load_conversation_async(self, session_id: str) -> list[dict]:
         """Async load — fetches from SQLite if not cached."""
         if session_id in self._loaded_conversations:
             return list(self._conv_cache.get(session_id, []))
         rows = await self.db.fetchall(
             """
-            SELECT role, content FROM conversation_turns
+            SELECT role, content, owner FROM conversation_turns
             WHERE session_id = ?
             ORDER BY seq ASC
             """,
@@ -330,6 +387,8 @@ class MemoryManager:
         )
         msgs = [{"role": r["role"], "content": r["content"]} for r in rows]
         self._conv_cache[session_id] = msgs
+        if rows:
+            self._conv_owner[session_id] = str(rows[0]["owner"] or "")
         self._loaded_conversations.add(session_id)
         return list(msgs)
 
@@ -400,7 +459,7 @@ class MemoryManager:
             return
         rows = self.db.fetchall_sync(
             """
-            SELECT role, content FROM conversation_turns
+            SELECT role, content, owner FROM conversation_turns
             WHERE session_id = ?
             ORDER BY seq ASC
             """,
@@ -409,6 +468,8 @@ class MemoryManager:
         self._conv_cache[session_id] = [
             {"role": r["role"], "content": r["content"]} for r in rows
         ]
+        if rows:
+            self._conv_owner[session_id] = str(rows[0]["owner"] or "")
         self._loaded_conversations.add(session_id)
 
     async def _ensure_agent_loaded(self, agent: str) -> None:
