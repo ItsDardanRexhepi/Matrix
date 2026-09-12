@@ -2026,6 +2026,40 @@ class ServiceRoutes:
 
     async def _handle_community_create(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
+        refusal = self._community_create_refusal(body)
+        if refusal is not None:
+            return refusal
+        result = await self._call(
+            "social", "create_community",
+            creator=body["creator"],
+            name=body["name"],
+            description=body.get("description", ""),
+            token_gate=self._first(body, "token_gate", "tokenGate"),
+        )
+        return self._ok(result)
+
+    def _community_create_refusal(self, body: dict) -> Optional[web.Response]:
+        """The ONE body contract for social.create_community — refusal half.
+
+        Two routes create a community — POST /api/v1/social/community/create
+        and POST /api/v1/groups ("group" and "community" are one entity under
+        two product names). NEW-89's refusal below was written into only one of
+        the two handlers: /groups kept answering 200 with a caller's `rules`
+        silently dropped, and so did /batch reaching it. Both handlers now ask
+        this, so a guard cannot exist on one twin and not the other. Both read
+        the token gate in either spelling; the community route used to read only
+        `token_gate` and dropped a camelCase `tokenGate`.
+
+        Each handler still writes out `self._call("social", "create_community",
+        creator=..., ...)` itself, deliberately, for two readers of that call:
+        scripts/generate_session_routes.py finds the service method a route
+        reaches by reading the call in the handler body (moving it into a shared
+        helper made community_create silently drop out of
+        CAPABILITIES_OFF_ALLOWLIST), and tests/test_route_binding_detector.py
+        can only check keyword names it can see (a **kwargs splat is its blind
+        spot). tests/test_community_twins_share_one_contract.py drives the same
+        bodies at both routes, which is what keeps the two field lists equal.
+        """
         # NEW-89 DROPPED-INTENT: `rules` was REQUIRED here and the service has
         # no rules concept at all — create_community stores creator/name/
         # description/token_gate and nothing enforces anything. Mapping rules ->
@@ -2042,14 +2076,7 @@ class ServiceRoutes:
                     "community, or the rules would be silently unenforced."
                 ),
             })
-        result = await self._call(
-            "social", "create_community",
-            creator=body["creator"],
-            name=body["name"],
-            description=body.get("description", ""),
-            token_gate=body.get("token_gate"),
-        )
-        return self._ok(result)
+        return None
 
     async def _handle_social_feed(self, request: web.Request) -> web.Response:
         # NOTE: SocialService.get_feed takes `address` (this route historically
@@ -2352,14 +2379,18 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_groups_create(self, request: web.Request) -> web.Response:
+        # Same entity, same service call, same contract — see
+        # _community_create_refusal for why the call stays written out here.
         body = await self._parse_body(request)
-        self._require(body, "creator", "name")
+        refusal = self._community_create_refusal(body)
+        if refusal is not None:
+            return refusal
         result = await self._call(
             "social", "create_community",
             creator=body["creator"],
             name=body["name"],
             description=body.get("description", ""),
-            token_gate=body.get("tokenGate") or body.get("token_gate"),
+            token_gate=self._first(body, "token_gate", "tokenGate"),
         )
         return self._ok(result)
 
