@@ -163,5 +163,6 @@ class Gaming(BlockchainInterface):
                 "achievement": params.get("achievement", ""),
             },
             recipient=params.get("player_address", "0x0000000000000000000000000000000000000000"),
+            operation="gaming.record_achievement",
         )
         return json.dumps(result, indent=2, default=str)

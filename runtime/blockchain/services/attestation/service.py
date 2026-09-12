@@ -204,6 +204,18 @@ class AttestationService:
         Returns:
             List of result dicts, one per input attestation.
         """
+        from runtime.blockchain.eas_client import MAX_ATTESTATIONS_PER_BATCH
+
+        if not isinstance(attestations, list):
+            raise ValueError("attestations must be a list")
+        if len(attestations) > MAX_ATTESTATIONS_PER_BATCH:
+            # Each entry is a platform-signed write that is not metered by the
+            # sponsorship policy (see UNMETERED_PLATFORM_OPERATIONS), so the
+            # count one request can ask for is bounded here.
+            raise ValueError(
+                f"a batch may hold at most {MAX_ATTESTATIONS_PER_BATCH} attestations; "
+                f"this one holds {len(attestations)}")
+
         results: list[dict[str, Any]] = []
 
         for att in attestations:

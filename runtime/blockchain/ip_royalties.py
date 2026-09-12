@@ -67,6 +67,7 @@ class IPRoyalties(BlockchainInterface):
                 "registered_at": int(time.time()),
             },
             recipient=params.get("owner", "0x0000000000000000000000000000000000000000"),
+            operation="ip_royalties.register_ip",
         )
         return json.dumps(result, indent=2, default=str)
 

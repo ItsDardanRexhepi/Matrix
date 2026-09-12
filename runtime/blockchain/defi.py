@@ -1,8 +1,9 @@
 """
 DeFi — lending, borrowing, yield farming, and liquidity provision on Base L2.
 
-Integrates with Aave V3 and Uniswap V3 on Base. All gas fees are
-covered by the platform via ERC-4337 paymaster.
+Integrates with Aave V3 and Uniswap V3 on Base. The platform key signs these
+operations, so gas is paid by the platform within this deployment's sponsorship
+policy (runtime/blockchain/sponsorship.py describe_gas_policy).
 """
 
 import json

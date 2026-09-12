@@ -82,6 +82,7 @@ class Identity(BlockchainInterface):
                     "registered_at": int(time.time()),
                 },
                 recipient=address if address else "0x0000000000000000000000000000000000000000",
+                operation="identity.register",
             )
 
             return json.dumps({

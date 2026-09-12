@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy — a per-identity daily cap and an action allowlist, when configured; past the cap an operation is refused rather than charged to the user. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. The Tier column is the subscription tier, not a price.
+State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy. That policy binds them only when it sets a per-identity daily cap: then an operation past the cap, not on the action allowlist, or not attributable to a signed-in identity is refused rather than charged to the user. With no cap set, the allowlist applies only to app-signed user operations sent to `/api/v1/paymaster/sign`, and platform-signed operations are sponsored without a limit. The platform's own records (listed under **Gas** in `docs/blockchain.md`) are never metered. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. The Tier column is the subscription tier, not a price.
 
 ---
 

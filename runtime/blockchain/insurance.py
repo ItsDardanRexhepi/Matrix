@@ -69,6 +69,7 @@ class Insurance(BlockchainInterface):
                 "created_at": int(time.time()),
             },
             recipient=params.get("beneficiary", "0x0000000000000000000000000000000000000000"),
+            operation="insurance.create_policy",
         )
         return json.dumps(result, indent=2, default=str)
 
@@ -84,6 +85,7 @@ class Insurance(BlockchainInterface):
                 "claim_details": params.get("claim_details", {}),
                 "filed_at": int(time.time()),
             },
+            operation="insurance.file_claim",
         )
         return json.dumps(result, indent=2, default=str)
 

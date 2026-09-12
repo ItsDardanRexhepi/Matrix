@@ -79,6 +79,7 @@ class CrossBorderPayments(BlockchainInterface):
                 "timestamp": int(time.time()),
             },
             recipient=params.get("to", "0x0000000000000000000000000000000000000000"),
+            operation="crossborder.send",
         )
 
         from runtime.blockchain.sponsorship import describe_gas_policy

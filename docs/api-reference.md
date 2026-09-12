@@ -249,9 +249,14 @@ the capability's `params_schema` before dispatch.
 { "params": { "token_in": "USDC", "token_out": "WETH", "amount": "1000" } }
 ```
 
-The platform sponsors gas via paymaster for every capability with
-`uses_paymaster: true`, so the wallet submitting the request does not
-need a native-token balance.
+`uses_paymaster: true` marks a capability the platform signs, so it is
+eligible for gas sponsorship; the flag is static and does not say whether this
+deployment sponsors. Gas is paid by the platform only when an operator
+configures the paymaster, and then within the sponsorship policy: with a daily
+cap set, an operation past the cap, not on the action allowlist, or not
+attributable to a signed-in identity is refused rather than charged. See **Gas**
+in `docs/blockchain.md`; the dashboard, payments and cross-border tools return
+this deployment's policy as `gas_policy`.
 
 ---
 

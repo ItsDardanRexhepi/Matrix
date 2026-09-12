@@ -119,6 +119,7 @@ contract {symbol}Security is ERC20, Ownable {{
                 "whitelisted_at": int(time.time()),
             },
             recipient=params.get("investor_address", "0x0000000000000000000000000000000000000000"),
+            operation="securities.whitelist",
         )
         return json.dumps(result, indent=2, default=str)
 

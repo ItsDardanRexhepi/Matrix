@@ -9,8 +9,10 @@ The platform pays gas for sponsored user operations. This module handles:
 
 The paymaster_private_key in config funds what is sponsored. Sponsorship of a
 caller's operation through the capability signers and /api/v1/paymaster/sign is
-bounded by runtime/blockchain/sponsorship.py (per-identity daily cap, action
-allowlist); see describe_gas_policy for what a deployment provides.
+bounded by runtime/blockchain/sponsorship.py: a per-identity daily cap when one
+is set, and an action allowlist that /api/v1/paymaster/sign always checks and
+the capability signers check only when a cap is set; see describe_gas_policy
+for what a deployment provides.
 `sponsor_transaction` below signs as the listed unmetered exemption
 "gas_sponsor.sponsor" and has no caller in this tree.
 """
@@ -131,7 +133,8 @@ class GasSponsor:
             return {"error": str(e), "status": "failed"}
 
     async def estimate_gas(self, tx: dict) -> int:
-        """Estimate gas for a transaction. Cost is covered by the platform."""
+        """Estimate gas for a transaction. Only an estimate: whether the
+        platform pays is the sponsorship policy (describe_gas_policy)."""
         try:
             estimate = self.web3.eth.estimate_gas({
                 "from": self.platform_wallet,

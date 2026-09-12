@@ -333,6 +333,12 @@ _UNCONDITIONAL = [
     r"have gas covered",
     r"platform absorbs gas",
     r"pays them within its daily sponsorship cap",
+    # Found after the first sweep: a module docstring split this phrase across a
+    # line break (the scan was line by line), a method docstring said it with
+    # no subject, and the API reference said it for "every capability".
+    r"cost is covered by (?:the )?platform",
+    r"attestation gas is covered",
+    r"sponsors gas (?:via paymaster )?for every capability",
 ]
 
 # Legal copy is changed only by counsel (redlines travel separately); contract
@@ -361,11 +367,37 @@ def test_no_published_surface_promises_unconditional_gas_sponsorship(tmp_path):
             text = (ROOT / rel).read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        for lineno, line in enumerate(text.splitlines(), 1):
-            low = line.lower()
-            if any(re.search(p, low) for p in _UNCONDITIONAL):
-                offenders.append(f"{rel}:{lineno}: {line.strip()[:110]}")
+        offenders.extend(f"{rel}:{lineno}: {line[:110]}"
+                         for lineno, line in _joined_line_hits(text, _UNCONDITIONAL))
     assert not offenders, "\n".join(offenders)
+
+
+_CONTINUATION = re.compile(r"^\s*(?:#+|//|\*|>)?\s*")
+
+
+def _joined_line_hits(text: str, patterns) -> list[tuple[int, str]]:
+    """(line, text) where a pattern matches starting on that line, reading the
+    line joined to the next one so a phrase wrapped across a line break (and a
+    comment or docstring continuation marker) still matches."""
+    lines = text.splitlines()
+    hits = []
+    for i, line in enumerate(lines):
+        head = line.strip().lower()
+        nxt = _CONTINUATION.sub("", lines[i + 1]).lower() if i + 1 < len(lines) else ""
+        joined = f"{head} {nxt}"
+        for p in patterns:
+            m = re.search(p, joined)
+            if m and m.start() <= len(head):
+                hits.append((i + 1, line.strip()))
+                break
+    return hits
+
+
+def test_the_unconditional_scan_matches_a_phrase_wrapped_across_lines():
+    text = ('"""\nDeFi on Base. All gas fees are\ncovered by the platform via ERC-4337 paymaster.\n"""\n'
+            "# Estimate gas. Cost is covered by the\n# platform.\n")
+    hits = _joined_line_hits(text, _UNCONDITIONAL)
+    assert [n for n, _ in hits] == [2, 5], hits
 
 
 def test_the_agent_prompt_describes_gas_as_the_policy_does():
@@ -400,3 +432,212 @@ def test_every_registered_tool_description_states_gas_with_its_condition():
         if "gas" in low and "sponsorship" not in low and "no gas needed" not in low:
             offenders.append(f"{cls.__name__}: {text}")
     assert not offenders, "\n".join(offenders)
+
+
+# ── a cap promised where none may be set, an allowlist where it does not bind ─
+
+_CAP_PROMISE = re.compile(r"\bup to (?:a|the|its) (?:per-identity )?daily (?:sponsorship )?cap\b")
+_CAP_CONDITION = re.compile(
+    r"when (?:one|a cap|a daily cap|that policy sets|the policy sets) is set|if one is set|"
+    r"\bsets? (?:a|no) (?:per-identity )?(?:daily )?cap|may set|when a (?:daily )?cap is set")
+_ALLOWLIST_ON_PLATFORM = re.compile(
+    r"platform[- ](?:signed|signs)|signed by the platform|platform would sign")
+_ALLOWLIST_QUALIFIED = re.compile(
+    r"only when|no cap|cap is (?:also )?set|when (?:it|that policy|the policy) sets a|paymaster/sign")
+
+
+def _prose_sentences() -> list[tuple[str, str]]:
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    sentences = []
+    for rel in out.splitlines():
+        if (rel.startswith(("tests/", "contracts/")) or rel in _NOT_EDITABLE_HERE
+                or rel == "CHANGELOG.md" or not (ROOT / rel).is_file()):
+            continue
+        text = re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))
+        flat = re.sub(r"\s*\n\s*(?:>\s*)?", " ", text)
+        sentences.extend((rel, s) for s in re.split(r"(?<=[.!?])\s+", flat))
+    return sentences
+
+
+def _cap_and_allowlist_offenders(sentences) -> list[str]:
+    offenders = []
+    for rel, sentence in sentences:
+        low = sentence.lower()
+        if _CAP_PROMISE.search(low) and not _CAP_CONDITION.search(low):
+            offenders.append(f"{rel}: cap promised unconditionally: {sentence.strip()[:160]}")
+        if ("allowlist" in low and _ALLOWLIST_ON_PLATFORM.search(low)
+                and not _ALLOWLIST_QUALIFIED.search(low)):
+            offenders.append(f"{rel}: allowlist said to bind platform-signed operations "
+                             f"without the cap condition: {sentence.strip()[:160]}")
+    return offenders
+
+
+def test_the_cap_and_allowlist_scan_catches_the_old_sentences():
+    old = [
+        ("x.md", "When an operator configures sponsorship, the platform pays that gas up to a "
+                 "per-identity daily cap."),
+        ("y.md", "State-modifying capabilities below are signed by the platform, which pays "
+                 "their gas within the operator's sponsorship policy — a per-identity daily cap "
+                 "and an action allowlist, when configured; past the cap an operation is refused."),
+    ]
+    assert len(_cap_and_allowlist_offenders(old)) == 2
+    fixed = [("z.md", "Gas is sponsored within the policy — a per-identity daily cap when one is "
+                      "set, up to a per-identity daily cap when one is set.")]
+    assert not _cap_and_allowlist_offenders(fixed)
+
+
+def test_no_published_prose_promises_a_cap_or_an_allowlist_the_policy_may_not_apply():
+    # The measured premises: with no cap the describer reports none, and with an
+    # allowlist and no cap the allowlist does not bind platform-signed operations.
+    assert describe_gas_policy(UNCAPPED)["daily_cap_usd"] is None
+    assert describe_gas_policy(UNCAPPED_ALLOWLIST)["allowlist_applies_to_platform_signed"] is False
+    offenders = _cap_and_allowlist_offenders(_prose_sentences())
+    assert not offenders, "\n".join(offenders)
+
+
+# ── attestations a user's tool call asks for are metered ─────────────────────
+
+def _tool_attest_calls_without_an_operation() -> list[str]:
+    """Every `.attest(` call in a model-facing tool module (runtime/blockchain/*.py
+    defining a BlockchainInterface subclass) must name its metered operation."""
+    import ast
+    offenders = []
+    for path in sorted((ROOT / "runtime" / "blockchain").glob("*.py")):
+        if path.name in ("eas_client.py", "interface.py"):
+            continue
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        is_tool = any(isinstance(n, ast.ClassDef)
+                      and any(getattr(b, "id", "") == "BlockchainInterface" for b in n.bases)
+                      for n in tree.body)
+        if not is_tool:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "attest":
+                op = next((k.value for k in node.keywords if k.arg == "operation"), None)
+                if not (isinstance(op, ast.Constant) and isinstance(op.value, str)
+                        and op.value.startswith(path.stem.split("_manager")[0])):
+                    offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    return offenders
+
+
+def test_every_tool_attestation_names_its_metered_operation():
+    offenders = _tool_attest_calls_without_an_operation()
+    assert not offenders, (
+        "a model-facing tool attests without an operation name, so the platform signs "
+        "it unmetered: " + ", ".join(offenders))
+
+
+class _FakeEth:
+    gas_price = 1_000_000_000
+
+    def __init__(self, sent):
+        self._sent = sent
+
+    def contract(self, address, abi):
+        eth = self
+
+        class _Fn:
+            def attest(self, request):
+                class _Tx:
+                    def build_transaction(self, params):
+                        return {"to": ADDR, "data": b"", "gas": params["gas"],
+                                "gasPrice": params["gasPrice"], "nonce": 0,
+                                "chainId": params["chainId"], "value": 0}
+                return _Tx()
+
+        class _C:
+            functions = _Fn()
+        return _C()
+
+    def get_transaction_count(self, address):
+        return 0
+
+    def send_raw_transaction(self, raw):
+        self._sent.append(raw)
+        return bytes(32)
+
+    def wait_for_transaction_receipt(self, tx_hash, timeout=0):
+        return {"status": 1, "blockNumber": 1}
+
+
+def _eas_client(monkeypatch, config, sent):
+    from runtime.blockchain.eas_client import EASClient
+
+    client = EASClient(config)
+    fake_w3 = type("W3", (), {"eth": _FakeEth(sent)})()
+    monkeypatch.setattr(EASClient, "_is_configured", lambda self: True)
+    monkeypatch.setattr(EASClient, "_validate_config", lambda self: None)
+    monkeypatch.setattr(EASClient, "web3", property(lambda self: fake_w3))
+    return client
+
+
+def _eas_config(tmp_path, policy):
+    return {"blockchain": {"rpc_url": "http://rpc.invalid", "paymaster_private_key": KEY,
+                           "platform_wallet": ADDR, "eas_contract": ADDR,
+                           "eas_schema": "0x" + "33" * 32,
+                           "paymaster": {"address": ADDR, "policy": policy}},
+            "database": {"path": str(tmp_path / "db.sqlite")}}
+
+
+async def test_a_tool_attestation_is_refused_by_a_capped_policy_and_a_platform_record_is_not(
+        monkeypatch, tmp_path):
+    from runtime.blockchain.price_feed import PriceFeed
+    from runtime.blockchain.sponsorship import SponsorshipDenied
+
+    async def _quote(self):
+        return {"price": 3000.0}
+
+    monkeypatch.setattr(PriceFeed, "eth_usd", _quote)
+    # Signing is real key handling; only the result object is normalised, because
+    # eth_account versions name the raw bytes differently.
+    from eth_account.signers.local import LocalAccount
+    signed_by: list = []
+
+    def _sign(self, tx):
+        signed_by.append(tx)
+        return type("Signed", (), {"raw_transaction": b"raw"})()
+
+    monkeypatch.setattr(LocalAccount, "sign_transaction", _sign)
+    sent: list = []
+    client = _eas_client(monkeypatch, _eas_config(tmp_path, {"daily_cap_usd": 50}), sent)
+
+    # No signed-in identity: a capped policy cannot attribute the spend.
+    with pytest.raises(SponsorshipDenied):
+        await client.attest("custom", "neo", {}, operation="eas_manager.attest")
+    assert sent == [] and signed_by == [], "a refused attestation was signed or broadcast"
+
+    # The platform's own record is listed as unmetered and still signs.
+    result = await client.attest("custom", "neo", {})
+    assert result["status"] == "attested" and len(sent) == 1, result
+
+
+async def test_the_eas_tool_meters_attest_and_bounds_a_batch(monkeypatch, tmp_path):
+    from runtime.blockchain.eas_client import EASClient, MAX_ATTESTATIONS_PER_BATCH
+    from runtime.blockchain.eas_manager import EASManager
+
+    seen: list = []
+
+    async def _attest(self, action, agent, details, recipient=None, *, operation=None):
+        seen.append(operation)
+        return {"status": "attested"}
+
+    monkeypatch.setattr(EASClient, "attest", _attest)
+    tool = EASManager(CAPPED)
+    await tool.execute(action="attest", data={"action": "x"})
+    await tool.execute(action="batch_attest", attestations=[{"action": "x"}] * 2)
+    assert seen == ["eas_manager.attest", "eas_manager.batch_attest", "eas_manager.batch_attest"]
+
+    seen.clear()
+    out = json.loads(await tool.execute(
+        action="batch_attest", attestations=[{"action": "x"}] * (MAX_ATTESTATIONS_PER_BATCH + 1)))
+    assert out["status"] == "refused" and seen == [], out
+
+
+async def test_the_capped_statement_names_what_the_cap_does_not_count():
+    from runtime.blockchain.sponsorship import UNMETERED_PLATFORM_OPERATIONS
+
+    d = describe_gas_policy(CAPPED)
+    assert d["unmetered_operations"] == sorted(UNMETERED_PLATFORM_OPERATIONS)
+    assert "not counted against the cap" in d["statement"].lower()
+    assert describe_gas_policy(UNCAPPED)["unmetered_operations"] == []

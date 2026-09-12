@@ -71,6 +71,7 @@ class AgentIdentity(BlockchainInterface):
                 "registered_at": int(time.time()),
                 "capabilities": self._get_capabilities(agent_name),
             },
+            operation="agent_identity.register",
         )
         # Cache the real attestation UID (only when the attest actually produced
         # one) so verify() can resolve this agent later. Never fabricate.
@@ -133,6 +134,7 @@ class AgentIdentity(BlockchainInterface):
             action=params.get("agent_action", "unknown"),
             agent=params.get("agent_name", "neo"),
             details=params.get("details", {}),
+            operation="agent_identity.attest_action",
         )
         return json.dumps(result, indent=2, default=str)
 

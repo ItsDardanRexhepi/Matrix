@@ -186,7 +186,8 @@ curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 
 Gas for platform-signed transactions is sponsored by the platform paymaster
 within the operator's policy — a per-identity daily cap when one is set; past
-it an operation is refused rather than charged to the user. Some operations
+it an operation is refused rather than charged to the user, except the
+platform's own records, which are not metered (see Gas in `docs/blockchain.md`). Some operations
 carry a platform fee; the fees and their rates are listed under Fees in
 `docs/blockchain.md`. Capabilities return `{"status": "not_deployed", ...}`
 until contracts are deployed, keeping every flow safe to exercise offline.

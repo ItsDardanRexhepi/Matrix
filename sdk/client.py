@@ -259,8 +259,8 @@ class OpenMatrixClient:
     async def deploy_contract(self, source_code: str, **kwargs) -> dict:
         """NOT IMPLEMENTED — deployment does not exist yet (RUN-2).
 
-        This wrapper's old docstring said "Deploy a smart contract. Gas covered
-        by platform." Nothing behind it deployed anything: the action routed to
+        This wrapper's old docstring promised a deployment with its gas paid
+        by the platform. Nothing behind it deployed anything: the action routed to
         contract_conversion.convert, which generates Solidity and returns. The
         docstring was the most convincing part of the illusion, so it is the
         part that most needed correcting.

@@ -29,7 +29,8 @@ class TimeCriticalHandler:
     Immediately submits attestations without batching.
 
     Time-critical attestations bypass the batch processor entirely and are
-    sent directly to the EAS contract. Gas is covered by the platform.
+    sent directly to the EAS contract. The platform key signs it, unmetered by the
+    sponsorship policy (``eas.attest_time_critical`` in UNMETERED_PLATFORM_OPERATIONS).
     """
 
     def __init__(self, config: dict):

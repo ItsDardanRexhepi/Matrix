@@ -347,7 +347,10 @@ def describe_gas_policy(config: dict) -> dict:
                      "refused, with the reason, rather than charged to you when "
                      + ("its action is not on that list, " if allowed is not None else "")
                      + "when it would cross the cap, or when it cannot be attributed to a "
-                     "signed-in identity.")
+                     "signed-in identity. Not counted against the cap: attestations "
+                     "written through the attestation capabilities and the platform's "
+                     "own records (a record of each capability call, revocations, "
+                     "revenue moves), which the platform pays for without metering.")
     else:
         statement = ("The platform pays gas for operations it signs for you; this "
                      "deployment sets no daily cap.")
@@ -363,6 +366,8 @@ def describe_gas_policy(config: dict) -> dict:
         "allowed_actions": allowed,
         "allowlist_applies_to_platform_signed": bool(capped and allowed is not None),
         "identity_required": capped,
+        "unmetered_operations": (sorted(UNMETERED_PLATFORM_OPERATIONS)
+                                 if capped else []),
         "statement": statement,
     }
 
@@ -434,14 +439,35 @@ def resolve_caller_identity() -> str:
 # Every platform signature in runtime/blockchain/ is produced here, and
 # tests/test_sponsorship_policy_is_enforced.py fails if a new one is not.
 #
-# The exemptions below are platform-initiated record-keeping, not sponsorship of
-# a caller's operation: fixed call data the model never composes, written on the
-# platform's own behalf. Metering them against a per-CALLER daily cap would
-# charge one user's budget for another's attestation and would stop the audit
-# trail at $50 a day. They are listed rather than simply absent so the set is
-# reviewable — an unlisted unmetered site fails the test.
+# The exemptions below are writes the platform signs without metering. They are
+# listed rather than simply absent so the set is reviewable — an unlisted
+# unmetered site fails the test.
+#
+# What they are, stated without the premise an earlier version of this comment
+# rested on ("fixed call data the model never composes"). That was false: the
+# model-facing `eas` tool passed model-chosen action, agent and recipient, over
+# an unbounded batch, through `eas.attest`, and six more tools attested the
+# same way. Those tool attestations now pass their own `<capability>.<method>`
+# to EASClient.attest and are metered (tests/test_gas_claims_follow_the_
+# sponsorship_policy.py fails on an unmetered one). What remains here:
+#
+#   * `eas.attest` and `eas.attest_time_critical` as reached from the services
+#     layer: the dispatcher's own record of each capability call (fixed shape,
+#     recipient the platform wallet), attestations recorded after another
+#     operation (a conversion deploy, a revenue route), and the attestation
+#     capabilities (`create_attestation`, `batch_attest`), whose data the caller
+#     does compose. The queued path signs a whole batch later, when no caller is
+#     attributable, so these are not metered. One request can ask for at most
+#     MAX_ATTESTATIONS_PER_BATCH of them, and describe_gas_policy says they are
+#     not counted against the cap;
+#   * revoking an attestation the platform issued, the sponsorship accounting
+#     path, the shared account handle, and moving platform revenue to its
+#     treasury.
 UNMETERED_PLATFORM_OPERATIONS = {
-    "eas.attest": "EAS attestation write — fixed schema, the platform's own record",
+    "eas.attest": "EAS attestation write reached from the services layer: the "
+                  "dispatcher's record of a capability call, a record after "
+                  "another operation, or the attestation capabilities; not "
+                  "attributable to a caller when a queued batch is signed",
     "eas.attest_time_critical": "the same write on the time-critical path",
     "eas.revoke": "revoking an attestation the platform itself issued",
     "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
