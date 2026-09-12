@@ -149,7 +149,18 @@ def test_production_refuses_to_start_with_a_noop_security_backend(monkeypatch):
 
 def test_non_production_still_starts_with_the_noop_backend(monkeypatch):
     """Fail-closed must not become fail-always: dev, CI and the open-source
-    checkout all legitimately run without the private package."""
+    checkout all legitimately run without the private package.
+
+    The backend is PINNED, as the production test above pins it. Unpinned, this
+    constructed under whatever backend the checkout happened to import: in an
+    environment where morpheus_security IS importable it built a live-backend
+    server, passed, and said nothing about the noop path it is named for.
+
+    What the pin covers: the backend label is the only thing GatewayServer
+    decides on (the production refusal and /ready). It does not swap the
+    seam's implementation classes, so in a private-package checkout the OTP and
+    App Attest objects are still the real ones.
+    """
     import sys
 
     sys.path.insert(0, "tests")
@@ -158,5 +169,10 @@ def test_non_production_still_starts_with_the_noop_backend(monkeypatch):
     from gateway.server import GatewayServer
 
     monkeypatch.delenv("OPNMATRX_ENV", raising=False)
+    monkeypatch.setattr("runtime.security.SECURITY_BACKEND", "noop", raising=False)
     server = GatewayServer(SWEEP_CONFIG)
     assert server is not None
+    assert server._security_backend == "noop", (
+        f"constructed under the {server._security_backend!r} backend — this test "
+        "names the noop path and proved nothing about it"
+    )
