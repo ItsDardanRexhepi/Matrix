@@ -188,7 +188,43 @@ WRAPPER
     # could never run — Option 2 always links — and it is gone rather than
     # left to be re-enabled pointing PATH at a directory this script rewrites.)
 
+    # On EVERY run, whichever option linked and whatever PATH holds. An older
+    # install's prepend line is exactly what puts ~/.local/bin on the PATH this
+    # script inherits, so a check behind the "not on PATH yet" gate above, or
+    # behind Option 1, never ran for the installs that have the line.
+    _report_legacy_path_prepends
+
     info "CLI ready: openmatrix"
+}
+
+# Report PATH prepends that an earlier version of this installer wrote.
+# Earlier versions wrote `export PATH="<dir>:$PATH"` under a `# 0pnMatrx` or
+# `# 0pnMatrx CLI` comment, into whichever of these rc files they picked, for
+# ~/.local/bin or for the project venv's bin. Reported, not rewritten: rc files
+# are often symlinks into a dotfiles repo, and an installer editing one in
+# place is the worse failure if a match is ever wrong.
+_report_legacy_path_prepends() {
+    local rc line dir
+    for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+        [ -f "$rc" ] || continue
+        while IFS= read -r line; do
+            dir="${line#export PATH=\"}"
+            dir="${dir%:\$PATH\"}"
+            warn "$rc puts $dir at the FRONT of PATH (an earlier 0pnMatrx installer wrote it)."
+            warn "  Anything later written into $dir outranks /usr/bin. Replace:"
+            warn "    $line"
+            warn "  with:"
+            warn "    export PATH=\"\$PATH:$dir\""
+        done < <(
+            L1="export PATH=\"$HOME/.local/bin:\$PATH\"" \
+            L2="export PATH=\"$INSTALL_DIR/.venv/bin:\$PATH\"" \
+            awk '
+                (prev == "# 0pnMatrx" || prev == "# 0pnMatrx CLI") && /^export PATH="[^"]*:\$PATH"$/ { print; prev = $0; next }
+                $0 == ENVIRON["L1"] || $0 == ENVIRON["L2"] { print }
+                { prev = $0 }
+            ' "$rc" 2>/dev/null
+        )
+    done
 }
 
 _add_path_to_rc() {
@@ -227,27 +263,19 @@ _add_path_to_rc() {
     # commands nothing earlier on PATH already provides — which is all the
     # `openmatrix` link needs.
     local line="export PATH=\"\$PATH:$dir_to_add\""
-    local legacy="export PATH=\"$dir_to_add:\$PATH\""
 
-    if [ -f "$shell_rc" ] && grep -qxF "$legacy" "$shell_rc" 2>/dev/null; then
-        # Written by an earlier version of this installer. Reported, not
-        # rewritten: rc files are often symlinks into a dotfiles repo, and an
-        # installer editing one in place is the worse failure if this match is
-        # ever wrong.
-        warn "$shell_rc puts $dir_to_add at the FRONT of PATH (an older installer wrote it)."
-        warn "  Replace:  $legacy"
-        warn "  With:     $line"
-        return
-    fi
-
-    # Already configured some other way — leave the file alone.
+    # Already mentioned — an older installer's prepend line (which
+    # _report_legacy_path_prepends reports), or the operator's own setup.
+    # Leave the file alone, but say so rather than claim the CLI is ready.
     if [ -f "$shell_rc" ] && grep -qF "$dir_to_add" "$shell_rc" 2>/dev/null; then
+        info "$shell_rc already mentions $dir_to_add; left unchanged."
+        info "  If 'openmatrix' is not found in a new shell, add:  $line"
         return
     fi
 
     printf '\n# 0pnMatrx CLI (delete this line and the next to undo)\n%s\n' "$line" >> "$shell_rc"
     info "Added $dir_to_add to the end of PATH in $shell_rc"
-    info "  To undo, delete the two lines under '# 0pnMatrx CLI' in that file."
+    info "  To undo, delete the '# 0pnMatrx CLI' comment line and the line after it."
 }
 
 check_ollama() {
