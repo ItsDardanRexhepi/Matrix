@@ -445,14 +445,28 @@ GIT = shutil.which("git")
 IGNORECASE = ("true", "false")
 
 
-def _git_ignores(repo: Path, rel: str, ignorecase: str) -> bool:
+def _git_ignores(repo: Path, rel: str, ignorecase: str, *, index: bool = False) -> bool:
+    """Git's verdict. With index=True a TRACKED file counts as not ignored, which
+    is what it is to `git commit -a`: ignore rules never apply to a tracked file."""
     return subprocess.run(
         [GIT, "-c", f"core.ignorecase={ignorecase}",
-         "-C", str(repo), "check-ignore", "--no-index", "-q", rel],
+         "-C", str(repo), "check-ignore", *([] if index else ["--no-index"]), "-q", rel],
         capture_output=True,
         # The developer's global excludes must not answer for the file.
         env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
     ).returncode == 0
+
+
+def _isolated_wizard(name, monkeypatch):
+    """The wizard with its warn()/success() recorded, and the git it may run
+    itself blind to the developer's global and system excludes too."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    wizard = _load_wizard(name)
+    said = {"warn": [], "success": []}
+    monkeypatch.setattr(wizard, "warn", lambda text: said["warn"].append(text))
+    monkeypatch.setattr(wizard, "success", lambda text: said["success"].append(text))
+    return wizard, said
 
 
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
@@ -484,13 +498,18 @@ def _git_ignores(repo: Path, rel: str, ignorecase: str) -> bool:
     ".env\nopenmatrix.config.json\n!OPENMATRIX.CONFIG.JSON\n",
     ".env\nopenmatrix.config.json\n!OpenMatrix.config.json\n",
     "OPENMATRIX.CONFIG.JSON\n.ENV\n",               # covers only caselessly
+    # Round-3 review: git reads each pattern as a C string, so a NUL ends it.
+    "openmatrix.config.json\n.env\n!.env\x00junk\n",  # to git: `!.env`
+    "openmatrix.config.json\n.env\n!.ENV\x00\n",      # to git: `!.ENV`
+    ".env\r\x00\nopenmatrix.config.json\n",          # CR not before LF: `.env<CR>`, covers nothing
+    "\ufeff.env\nopenmatrix.config.json\n",          # git skips a leading UTF-8 BOM
 ])
-def test_setup_gitignore_ignores_both_secret_files(sandbox, existing):
+def test_setup_gitignore_ignores_both_secret_files(sandbox, monkeypatch, existing):
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
     if existing is not None:
-        (repo / ".gitignore").write_text(existing)
-    wizard = _load_wizard("setup_main_gitignore")
+        (repo / ".gitignore").write_bytes(existing.encode())
+    wizard, said = _isolated_wizard("setup_main_gitignore", monkeypatch)
     wizard.setup_gitignore()
     for ignorecase in IGNORECASE:
         for secret in ("openmatrix.config.json", ".env"):
@@ -498,6 +517,132 @@ def test_setup_gitignore_ignores_both_secret_files(sandbox, existing):
                 f"after setup_gitignore(), git (core.ignorecase={ignorecase}) would "
                 f"commit {secret} (starting .gitignore: {existing!r})"
             )
+    assert not said["warn"], f"warned although git ignores both: {said['warn']}"
+
+
+# Round-3 review: the helper read .gitignore through a symlink, and git has not
+# followed an in-tree .gitignore symlink since 2.32; it skips a pattern file of
+# 100 MiB or more; it cannot read a directory or a file it may not open. In each
+# case the helper counted lines git never reads, said nothing, and git staged
+# .env. Appending cannot help (the write would land where git does not look),
+# so the requirement is: every secret git would commit is named in a warning,
+# nothing is written through or into the file git skips, and nothing says
+# ".gitignore created/updated".
+UNREAD_GITIGNORE = ["symlink", "dangling-symlink", "directory", "oversized", "unreadable"]
+PATTERN_MAX_FILE_SIZE = 100 * 1024 * 1024   # git: dir.c, `size >= PATTERN_MAX_FILE_SIZE` is skipped
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("kind", UNREAD_GITIGNORE)
+def test_setup_gitignore_warns_when_git_will_not_read_it(sandbox, monkeypatch, kind):
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    listing = b"openmatrix.config.json\n.env\n"
+    gitignore = repo / ".gitignore"
+    elsewhere = repo / "dotfiles" / "gitignore"
+    elsewhere.parent.mkdir()
+    if kind == "symlink":
+        elsewhere.write_bytes(listing)
+        gitignore.symlink_to(elsewhere)
+    elif kind == "dangling-symlink":
+        gitignore.symlink_to(elsewhere)
+    elif kind == "directory":
+        gitignore.mkdir()
+    elif kind == "oversized":
+        with open(gitignore, "wb") as f:     # sparse: both entries, then NULs to the limit
+            f.write(listing + b"#")
+            f.truncate(PATTERN_MAX_FILE_SIZE)
+    elif kind == "unreadable":
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root reads a mode-000 file")
+        gitignore.write_bytes(listing)
+        gitignore.chmod(0)
+    (repo / ".env").write_text("TOKEN=real\n")
+    before = (elsewhere.read_bytes() if elsewhere.exists() else None,
+              gitignore.is_symlink(), gitignore.is_dir(), os.lstat(gitignore).st_size)
+
+    wizard, said = _isolated_wizard("setup_main_gitignore_unread", monkeypatch)
+    try:
+        wizard.setup_gitignore()
+        # Git's verdict must be taken while the file is still in that state.
+        committable = {s for ic in IGNORECASE for s in ("openmatrix.config.json", ".env")
+                       if not _git_ignores(repo, s, ic, index=True)}
+    finally:
+        if kind == "unreadable":
+            gitignore.chmod(0o644)
+    if not committable:
+        pytest.skip(f"this git reads a {kind} .gitignore, so nothing is committable")
+    unwarned = [s for s in sorted(committable) if not any(s in w for w in said["warn"])]
+    assert not unwarned, (
+        f"{kind} .gitignore: git would commit {unwarned} and setup_gitignore() "
+        f"did not say so (warnings: {said['warn']}, successes: {said['success']})"
+    )
+    assert not said["success"], f"claimed success over a {kind} .gitignore: {said['success']}"
+    after = (elsewhere.read_bytes() if elsewhere.exists() else None,
+             gitignore.is_symlink(), gitignore.is_dir(), os.lstat(gitignore).st_size)
+    assert after == before, f"setup_gitignore() wrote to a {kind} .gitignore git does not read"
+
+    # The file check alone must say it too: with no git verdict to be had (no
+    # git on PATH at setup time, or not yet a repository), both names are warned.
+    if kind == "unreadable":
+        gitignore.chmod(0)
+    monkeypatch.setattr(wizard, "_git_verdict", lambda names: None)
+    said["warn"].clear()
+    try:
+        wizard.setup_gitignore()
+    finally:
+        if kind == "unreadable":
+            gitignore.chmod(0o644)
+    assert all(any(s in w for w in said["warn"]) for s in ("openmatrix.config.json", ".env")), said
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("kind", ["read-only", "append-would-reach-the-size-limit"])
+def test_setup_gitignore_warns_when_it_cannot_add_the_lines(sandbox, monkeypatch, kind):
+    """Git reads this .gitignore, but the missing line cannot usefully go in: the
+    file is read-only (the wizard used to crash), or the append would take it to
+    the size git skips (the wizard used to append, say "updated", and leave git
+    reading none of the file)."""
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    gitignore = repo / ".gitignore"
+    with open(gitignore, "wb") as f:
+        f.write(b"openmatrix.config.json\n#")
+        if kind != "read-only":
+            f.truncate(PATTERN_MAX_FILE_SIZE - 16)   # sparse; the append is longer than 16
+    if kind == "read-only":
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            pytest.skip("root writes a mode-444 file")
+        gitignore.chmod(0o444)
+    size = gitignore.stat().st_size
+    wizard, said = _isolated_wizard("setup_main_gitignore_cannot_add", monkeypatch)
+    try:
+        wizard.setup_gitignore()
+        committable = {s for ic in IGNORECASE for s in ("openmatrix.config.json", ".env")
+                       if not _git_ignores(repo, s, ic, index=True)}
+    finally:
+        gitignore.chmod(0o644)
+    assert committable, "the scenario must leave something committable"
+    unwarned = [s for s in sorted(committable) if not any(s in w for w in said["warn"])]
+    assert not unwarned, f"{kind}: git would commit {unwarned} unannounced ({said})"
+    assert not said["success"], f"{kind}: claimed success: {said['success']}"
+    assert gitignore.stat().st_size == size
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+def test_setup_gitignore_warns_about_a_tracked_secret(sandbox, monkeypatch):
+    """Ignore rules never apply to a tracked file: a .env already in the index is
+    committed on the next `git commit -a` however well .gitignore lists it."""
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+    (repo / ".env").write_text("TOKEN=real\n")
+    subprocess.run([GIT, "-C", str(repo), "add", "-f", ".env"], check=True, capture_output=True)
+    wizard, said = _isolated_wizard("setup_main_gitignore_tracked", monkeypatch)
+    wizard.setup_gitignore()
+    assert not _git_ignores(repo, ".env", "true", index=True)     # the scenario is real
+    assert any(".env" in w and "git rm --cached" in w for w in said["warn"]), said["warn"]
+    assert not any("openmatrix.config.json" in w for w in said["warn"]), said["warn"]
 
 
 def test_setup_gitignore_is_idempotent(sandbox):
@@ -522,11 +667,16 @@ def _line_pool(entry):
         # Case variants: equal to *entry* only under core.ignorecase=true.
         entry.upper(), "/" + entry.title(), "!" + entry.upper(), "!/" + entry.title(),
         "!" + entry.upper() + " ", "!" + entry[:1] + entry[1:].swapcase(),
+        # NUL ends a pattern (git reads C strings); CR is dropped only right
+        # before LF; a BOM is skipped only at the very start of the file.
+        "!" + entry + "\x00junk", "!" + entry.upper() + "\x00", entry + "\x00x",
+        entry + "\r\x00", "!" + entry + "\r\x00", "\x00!" + entry,
+        "\ufeff" + entry, "\ufeff!" + entry, entry + "\\\\ ",
     ]
 
 
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
-def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox):
+def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox, monkeypatch):
     """The CLASS, not the cases: whatever the existing .gitignore says, afterwards
     git ignores both files. Seeded, so a failure reproduces; each generated file
     mixes exact, wildcard, negated, escaped and whitespace-damaged lines for both
@@ -538,7 +688,7 @@ def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox):
                   | {"", "node_modules/", "!keep.txt", "dist/", ".env.example"})
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
-    wizard = _load_wizard("setup_main_gitignore_generated")
+    wizard, said = _isolated_wizard("setup_main_gitignore_generated", monkeypatch)
     cases, paths = {}, []
     for i in range(400):
         text = "\n".join(rng.choice(pool) for _ in range(rng.randint(1, 6)))
@@ -571,3 +721,4 @@ def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox):
             for ic, p in committable[:15]
         )
     )
+    assert not said["warn"], f"warned although git ignores every case: {said['warn'][:5]}"

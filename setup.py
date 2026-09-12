@@ -20,6 +20,7 @@ Set OPNMATRX_SETUP_NO_VENV=1 to opt out (containers, CI).
 
 import json
 import os
+import stat as _stat
 import subprocess
 import sys
 import time
@@ -604,7 +605,8 @@ def commit_setup(config):
     """Everything the wizard writes, in order, only once the operator agreed.
 
     The config first (write_config re-asks if one exists and returns False on
-    "no"); then .gitignore, so .env is covered before it can exist; then the
+    "no"); then .gitignore, so .env is covered (or the operator is told by name
+    that it is not) before it can exist; then the
     .env values the channel modules staged. Declining writes none of them.
     """
     from setup import _shared
@@ -620,23 +622,47 @@ def commit_setup(config):
 # common one) never covered .env.
 SECRET_FILES = ("openmatrix.config.json", ".env")
 
+# Git skips a pattern file of this size or larger with "ignoring excessively
+# large pattern file" and applies none of its lines (dir.c; checked against git
+# 2.50.1: 104857599 bytes is read, 104857600 is not).
+GITIGNORE_MAX_SIZE = 100 * 1024 * 1024
+
+
+def _trim_trailing_spaces(line):
+    """git's trim_trailing_spaces(): drop a run of trailing spaces, unless the
+    run starts right after a backslash, which escapes the character after it."""
+    last_space = None
+    i = 0
+    while i < len(line):
+        if line[i] == " ":
+            if last_space is None:
+                last_space = i
+        else:
+            if line[i] == "\\":
+                i += 1
+                if i == len(line):
+                    return line
+            last_space = None
+        i += 1
+    return line if last_space is None else line[:last_space]
+
 
 def _gitignore_pattern(raw):
     """The pattern git reads from one .gitignore line, or None for no pattern.
 
-    Git drops one trailing CR and trailing SPACES that are not backslash-escaped.
-    It keeps leading whitespace and tabs anywhere — `  .env` and `.env<TAB>` are
-    patterns for other names — so neither is stripped here. A line whose
-    trailing space is escaped comes back unstripped, which can only make it
-    fail to match exactly (a redundant line), never match wrongly.
+    Follows git's add_patterns_from_buffer() step for step. A line starting
+    with `#` is a comment (checked before anything is dropped). One CR is
+    dropped only when it is the line's last byte, i.e. right before the LF.
+    The pattern is then a C string: it ends at the first NUL, so `!.env<NUL>x`
+    is `!.env`. Last, trailing spaces that are not backslash-escaped go. Leading
+    whitespace and tabs anywhere stay — `  .env` and `.env<TAB>` are patterns
+    for other names.
     """
-    line = raw[:-1] if raw.endswith("\r") else raw
-    stripped = line.rstrip(" ")
-    if stripped != line and stripped.endswith("\\"):
-        stripped = line
-    if not stripped or stripped.startswith("#"):
+    if not raw or raw.startswith("#"):
         return None
-    return stripped
+    line = raw[:-1] if raw.endswith("\r") else raw
+    line = _trim_trailing_spaces(line.split("\x00", 1)[0])
+    return line or None
 
 
 def _negation_may_match(pattern, entry):
@@ -657,16 +683,20 @@ def _negation_may_match(pattern, entry):
 
 
 def _gitignore_covers(lines, entry):
-    """True only if these .gitignore lines certainly ignore *entry* at the root.
+    """True if these .gitignore lines, read as git reads them, ignore *entry* at the root.
 
     Git's last matching line wins. So *entry* is covered when an exact
     `entry` / `/entry` pattern is followed by no negation that could match it.
     Everything this cannot decide — a wildcard that would cover the file, a
     negation that might re-include it — counts as NOT covered, which costs one
-    redundant line at the end of the file, where it is the last match and so
-    wins. That is the only direction this is allowed to be wrong in; the
-    first version stripped leading whitespace and recognised only a literal
-    `!.env`, and said "covered" over files git would commit.
+    redundant line at the end of the file, where it is the last match and wins.
+
+    What is shown, not assumed: for every starting file in the tests'
+    parametrised list and 400 generated from their line pool, git ignores both
+    files afterwards under core.ignorecase true and false. A line form outside
+    those is decided only by the rules above. This says nothing about whether
+    git reads the file at all (a symlink, 100 MiB or more, unreadable) or about
+    a file git already tracks; setup_gitignore() handles those and then asks git.
     """
     covered = False
     for raw in lines:
@@ -681,29 +711,124 @@ def _gitignore_covers(lines, entry):
     return covered
 
 
-def setup_gitignore():
-    """Ensure the files holding real keys are never committed."""
-    gitignore = Path(".gitignore")
-    if not gitignore.exists():
-        gitignore.write_text("\n".join(SECRET_FILES) + "\n__pycache__/\n*.pyc\n")
-        success(".gitignore created")
-        return
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
-    # Raw bytes, split on "\n" only: git ends a line only at LF, and a lone CR
-    # inside a line is part of its pattern. read_text()'s universal newlines
-    # (or splitlines()) would turn "!.env\r.env" — one literal negation to git —
-    # into a `.env` line that looks like coverage. Undecodable bytes become
-    # U+FFFD, which matches no entry: a redundant line, not a false "covered".
-    content = gitignore.read_bytes().decode("utf-8", "replace")
-    missing = [e for e in SECRET_FILES if not _gitignore_covers(content.split("\n"), e)]
-    if not missing:
-        return
-    with open(gitignore, "a") as f:
-        if content and not content.endswith("\n"):
-            f.write("\n")
-        f.write("\n# Real config and credentials — never commit\n")
-        f.write("".join(e + "\n" for e in missing))
-    success(f".gitignore updated ({', '.join(missing)})")
+
+def _read_gitignore(path):
+    """(bytes, None) for a .gitignore git reads; (None, None) when there is none;
+    (None, reason) when one is there but git applies none of its lines.
+
+    Git opens an in-tree .gitignore without following a symlink (since 2.32),
+    skips one of GITIGNORE_MAX_SIZE or more, and gets nothing from a directory
+    or a file it cannot open. Reading such a file here — through the link, or at
+    all — would count lines git never reads as protection.
+    """
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None, None
+    if _stat.S_ISLNK(st.st_mode):
+        return None, "it is a symbolic link, and git (2.32 and later) does not follow one"
+    if not _stat.S_ISREG(st.st_mode):
+        return None, "it is not a regular file"
+    try:
+        fd = os.open(path, os.O_RDONLY | _NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+    except OSError as exc:
+        return None, f"it cannot be opened ({exc.strerror or exc})"
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())          # what was opened, not what lstat saw
+        if not _stat.S_ISREG(st.st_mode):
+            return None, "it is not a regular file"
+        if st.st_size >= GITIGNORE_MAX_SIZE:
+            return None, "it is 100 MiB or larger, and git skips a pattern file that big"
+        return f.read(), None
+
+
+def _git_verdict(names):
+    """Ask git which of *names* it would commit, here, as configured.
+
+    Returns {name: "tracked" | "not ignored"} for each one git would commit, or
+    None when there is no verdict to be had (no git, or not inside a work tree).
+    Without --no-index a tracked file is never reported ignored, which is the
+    truth for `git commit -a`: ignore rules do not apply to it.
+    """
+    def check(*extra):
+        return subprocess.run(["git", "check-ignore", *extra, "--", *names],
+                              capture_output=True, text=True, timeout=30)
+    try:
+        with_index = check()
+        if with_index.returncode not in (0, 1):
+            err = with_index.stderr.strip()
+            if "not a git repository" not in err:
+                info(f"Could not ask git whether {', '.join(names)} are ignored: "
+                     f"{err.splitlines()[0] if err else 'exit ' + str(with_index.returncode)}")
+            return None
+        ignored = set(with_index.stdout.splitlines())
+        committable = [n for n in names if n not in ignored]
+        if not committable:
+            return {}
+        by_rules = set(check("--no-index").stdout.splitlines())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {n: "tracked" if n in by_rules else "not ignored" for n in committable}
+
+
+def setup_gitignore():
+    """Keep the files holding real keys out of commits, and say so when it cannot.
+
+    Writes or amends .gitignore when git reads it; never writes to one git does
+    not read (the write would land where git does not look). Then, where git
+    and a work tree are there, takes git's own verdict and warns by name about
+    every secret file it would still commit.
+    """
+    gitignore = Path(".gitignore")
+    content, unread = _read_gitignore(gitignore)
+    if unread:
+        warn(f"git does not read .gitignore: {unread}. Nothing in it keeps "
+             f"{' or '.join(SECRET_FILES)} out of a commit, and nothing was written to it.")
+        info("Make .gitignore a regular file that lists both, or list them in .git/info/exclude.")
+    elif content is None:
+        try:
+            fd = os.open(gitignore, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o644)
+        except FileExistsError:           # appeared since the lstat: read it next run
+            warn(".gitignore appeared while setup was writing it; re-run setup to check it.")
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(SECRET_FILES) + "\n__pycache__/\n*.pyc\n")
+            success(".gitignore created")
+    else:
+        # Split on LF only: git ends a line only at LF, and a lone CR inside a
+        # line is part of its pattern. read_text()'s universal newlines (or
+        # splitlines()) would turn "!.env\r.env" — one literal negation to git —
+        # into a `.env` line that looks like coverage. Git skips a UTF-8 BOM at
+        # the start of the file. Undecodable bytes become U+FFFD, which matches
+        # no entry: a redundant line, not a false "covered".
+        text = content[3:] if content.startswith(b"\xef\xbb\xbf") else content
+        lines = text.decode("utf-8", "replace").split("\n")
+        missing = [e for e in SECRET_FILES if not _gitignore_covers(lines, e)]
+        addition = (("\n" if content and not content.endswith(b"\n") else "")
+                    + "\n# Real config and credentials — never commit\n"
+                    + "".join(e + "\n" for e in missing)).encode("utf-8")
+        if missing and len(content) + len(addition) >= GITIGNORE_MAX_SIZE:
+            warn(f"Adding {', '.join(missing)} would make .gitignore 100 MiB or larger, and git "
+                 f"skips a pattern file that big; nothing was written to it.")
+        elif missing:
+            try:
+                fd = os.open(gitignore, os.O_WRONLY | os.O_APPEND | _NOFOLLOW)
+                with os.fdopen(fd, "ab") as f:
+                    f.write(addition)
+            except OSError as exc:        # read-only, or swapped for a link since the read
+                warn(f"Could not add {', '.join(missing)} to .gitignore: {exc.strerror or exc}.")
+            else:
+                success(f".gitignore updated ({', '.join(missing)})")
+
+    for name, why in (_git_verdict(SECRET_FILES) or {}).items():
+        if why == "tracked":
+            warn(f"git already tracks {name}, so no ignore rule applies to it and "
+                 f"`git commit -a` commits its keys. Untrack it: git rm --cached {name} "
+                 f"(a copy already committed stays in history).")
+        else:
+            warn(f"git would commit {name}: no ignore rule it reads keeps it out.")
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
