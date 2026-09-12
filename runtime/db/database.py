@@ -225,6 +225,19 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        6,
+        "conversation_owners.claim_id — a turn is tied to the claim, not to the owner string",
+        [
+            # Erasure deletes a claim; the same subject signing in again makes
+            # a claim with the same owner string. A turn admitted before the
+            # erasure compared owner strings, matched the new claim, and was
+            # written back. Each claim gets its own id; a claim from before
+            # this column has '' and every new claim a random one, so the two
+            # never compare equal.
+            "ALTER TABLE conversation_owners ADD COLUMN claim_id TEXT NOT NULL DEFAULT ''",
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class

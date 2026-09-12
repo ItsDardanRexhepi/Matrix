@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from runtime.db.database import Database
@@ -34,6 +36,21 @@ logger = logging.getLogger(__name__)
 
 MAX_CONTEXT_TURNS = 20
 MAX_AGENT_TURNS = 200
+
+
+@dataclass(frozen=True)
+class ConversationClaim:
+    """The claim a chat turn was admitted under: *session_id* held by *owner*
+    ("" when unclaimed) through the claim *claim_id* ("" when unclaimed, or a
+    claim stored before claims had ids).
+
+    Writes a turn makes — the conversation and the scoped agent memory — land
+    only while this exact claim still stands. Comparing the owner alone is not
+    enough: account deletion erases the claim, and the same subject signing in
+    again makes a new claim with the same owner string."""
+    session_id: str
+    owner: str
+    claim_id: str
 
 
 class MemoryManager:
@@ -164,15 +181,24 @@ class MemoryManager:
         return f"{agent}@{scope}" if scope else agent
 
     async def save_turn(self, agent: str, user_message: str, agent_response: str,
-                        scope: str = "") -> None:
+                        scope: str = "", *, claim: ConversationClaim | None = None) -> bool:
         """Append a user/agent exchange to the conversation log of *agent*
-        within *scope* (the caller's account or conversation)."""
+        within *scope* (the caller's account or conversation).
+
+        With *claim* — the claim the turn was admitted under — the exchange is
+        written only if that claim still stands, checked in the same
+        transaction as the write. A turn whose account was deleted while it
+        ran is not written back into the account's scope, whether or not the
+        subject has signed in again since. Returns whether it was written."""
         agent = self.memory_key(agent, scope)
         await self._ensure_agent_loaded(agent)
+        ts = time.time()
+        entry = {"user": user_message, "agent": agent_response, "ts": ts}
+        if claim is not None:
+            return await self._save_turn_under_claim(agent, entry, claim)
         turns = self._turn_cache.setdefault(agent, [])
         seq = len(turns)
-        ts = time.time()
-        turns.append({"user": user_message, "agent": agent_response, "ts": ts})
+        turns.append(entry)
 
         # Trim cache to last MAX_AGENT_TURNS
         if len(turns) > MAX_AGENT_TURNS:
@@ -199,6 +225,40 @@ class MemoryManager:
                 """,
                 (agent, seq, user_message, agent_response, ts),
             )
+        return True
+
+    async def _save_turn_under_claim(self, key: str, entry: dict, claim: ConversationClaim) -> bool:
+        """The *claim* check and the write as ONE transaction, the log read
+        from the store inside it (the cache may have been evicted while the
+        write waited on the lock)."""
+
+        def work(conn):
+            if self._claim_in(conn, claim.session_id) != (claim.owner, claim.claim_id):
+                return None
+            rows = conn.execute(
+                "SELECT user_msg, agent_msg, ts FROM agent_turns WHERE agent = ? ORDER BY seq ASC",
+                (key,)).fetchall()
+            turns = [{"user": r[0], "agent": r[1], "ts": r[2]} for r in rows] + [entry]
+            if len(turns) > MAX_AGENT_TURNS:
+                turns = turns[-MAX_AGENT_TURNS:]
+                conn.execute("DELETE FROM agent_turns WHERE agent = ?", (key,))
+                conn.executemany(
+                    "INSERT INTO agent_turns (agent, seq, user_msg, agent_msg, ts) VALUES (?, ?, ?, ?, ?)",
+                    [(key, i, t["user"], t["agent"], t["ts"]) for i, t in enumerate(turns)])
+            else:
+                conn.execute(
+                    "INSERT INTO agent_turns (agent, seq, user_msg, agent_msg, ts) VALUES (?, ?, ?, ?, ?)",
+                    (key, len(rows), entry["user"], entry["agent"], entry["ts"]))
+            return turns
+
+        turns = await self.db.run_in_transaction(work)
+        if turns is None:
+            logger.info("a turn's conversation claim no longer stands; its memory was not written")
+            return False
+        # No await since the commit: an erasure cannot have run in between.
+        if key in self._loaded_agents:
+            self._turn_cache[key] = turns
+        return True
 
     def get_context(self, agent: str, scope: str = "") -> str:
         """Return conversation context with smart summarisation, for *agent*
@@ -334,16 +394,19 @@ class MemoryManager:
 
     async def save_conversation(self, session_id: str, messages: list[dict],
                                 owner: str | None = None, *,
-                                expect_owner: str | None = None) -> bool:
+                                expect_owner: str | None = None,
+                                expect_claim: ConversationClaim | None = None) -> bool:
         """Replace the stored conversation for *session_id* with *messages*.
 
         The owner is the durable claim (``conversation_owners``), read inside
         the same transaction as the write. *owner* claims an unclaimed
         conversation; it never replaces another account's claim. With
-        *expect_owner*, the write happens only if the durable owner is still
-        exactly that — the owner the caller checked before its model call.
-        A turn whose conversation was erased (account deletion) or claimed by
-        someone else while it ran is refused rather than written back into it.
+        *expect_claim*, the write happens only if that exact claim — owner AND
+        claim id, the claim the turn was admitted under — still stands. A turn
+        whose conversation was erased (account deletion) or claimed by someone
+        else while it ran is refused rather than written back into it, and so
+        is one whose conversation was erased and claimed again by the same
+        subject. *expect_owner* compares the owner string only.
 
         Returns whether anything was written. Replace is DELETE + INSERT in
         ONE transaction: done in two lock acquisitions, a request queued on
@@ -352,7 +415,9 @@ class MemoryManager:
         rows = [(m.get("role", ""), m.get("content", "")) for m in messages]
 
         def work(conn):
-            current = self._owner_in(conn, session_id)
+            current, current_claim = self._claim_in(conn, session_id)
+            if expect_claim is not None and (current, current_claim) != (expect_claim.owner, expect_claim.claim_id):
+                return None
             if expect_owner is not None and current != expect_owner:
                 return None
             if owner and current and owner != current:
@@ -360,8 +425,8 @@ class MemoryManager:
             effective = current or (owner or "")
             if effective and not current:
                 conn.execute(
-                    "INSERT INTO conversation_owners (session_id, owner, claimed_at) VALUES (?, ?, ?)",
-                    (session_id, effective, time.time()))
+                    "INSERT INTO conversation_owners (session_id, owner, claimed_at, claim_id) VALUES (?, ?, ?, ?)",
+                    (session_id, effective, time.time(), secrets.token_hex(16)))
             conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (session_id,))
             if rows:
                 now = time.time()
@@ -399,6 +464,17 @@ class MemoryManager:
         self._load_conversation_sync(session_id)
         return self._conv_owner.get(session_id, "")
 
+    def conversation_claim(self, session_id: str) -> ConversationClaim:
+        """The claim *session_id* has now, read from the store (not the
+        cache): what a turn is admitted under and must still find when it
+        writes."""
+        owner, claim_id = self._claim_in(self.db._require_conn(), session_id)
+        return ConversationClaim(session_id=session_id, owner=owner, claim_id=claim_id)
+
+    def claim_stands(self, claim: ConversationClaim) -> bool:
+        """Whether *claim* is still the claim its conversation has (store)."""
+        return self._claim_in(self.db._require_conn(), claim.session_id) == (claim.owner, claim.claim_id)
+
     def claim_conversation(self, session_id: str, owner: str) -> str:
         """Bind an unclaimed conversation to *owner*; return the owner it has.
 
@@ -412,8 +488,9 @@ class MemoryManager:
         if not owner or self._conv_owner.get(session_id):
             return self._conv_owner.get(session_id, "")
         self.db.execute_sync(
-            "INSERT OR IGNORE INTO conversation_owners (session_id, owner, claimed_at) VALUES (?, ?, ?)",
-            (session_id, owner, time.time()),
+            "INSERT OR IGNORE INTO conversation_owners (session_id, owner, claimed_at, claim_id) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, owner, time.time(), secrets.token_hex(16)),
         )
         held = self._owner_in(self.db._require_conn(), session_id)
         self._conv_owner[session_id] = held
@@ -431,8 +508,10 @@ class MemoryManager:
         Returns the conversation ids erased, so a caller holding its own copy
         of those conversations (the gateway's working set) can drop it too.
         The conversations and their claims go in one transaction; a turn of
-        the account still running finds its conversation unowned when it
-        saves, and is refused (save_conversation's *expect_owner*)."""
+        the account still running no longer finds the claim it was admitted
+        under — not even if the subject has signed in again and claimed the
+        conversation anew — so neither its conversation nor its scoped memory
+        is written (save_conversation's *expect_claim*, save_turn's *claim*)."""
         if not owner:
             return []
 
@@ -488,6 +567,14 @@ class MemoryManager:
         row = conn.execute(
             "SELECT owner FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
         return str(row[0] or "") if row else ""
+
+    @staticmethod
+    def _claim_in(conn, session_id: str) -> tuple[str, str]:
+        """The durable ``(owner, claim_id)`` of *session_id* (``("", "")``
+        when unclaimed)."""
+        row = conn.execute(
+            "SELECT owner, claim_id FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
+        return (str(row[0] or ""), str(row[1] or "")) if row else ("", "")
 
     # ── First-boot tracking ────────────────────────────────────────
 

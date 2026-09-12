@@ -748,16 +748,16 @@ class BridgeRoutes:
             session_id, session_error = resolve(request, body.get("session_id"))
             if session_error:
                 return MobileResponse.error(session_error, 400)
-            turn_owner, denied = self._server._open_turn(request, session_id)
+            turn_claim, denied = self._server._open_turn(request, session_id)
             if denied:
                 return MobileResponse.error(denied, 403)
         else:
             session_id = body.get("session_id", "default")
-            turn_owner = ""
+            turn_claim = None
 
         try:
             result = await self._handle_chat_internal(message, agent, session_id, body, request,
-                                                      owner=turn_owner)
+                                                      claim=turn_claim)
             return MobileResponse.ok(result)
         except Exception as e:
             # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
@@ -778,7 +778,7 @@ class BridgeRoutes:
             return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
-        self, message: str, agent: str, session_id: str, body: dict, request, *, owner: str = "",
+        self, message: str, agent: str, session_id: str, body: dict, request, *, claim=None,
     ) -> dict:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
@@ -821,12 +821,15 @@ class BridgeRoutes:
             "platform": "ios",
         }
         context.metadata["client_context"] = self._server._client_turn_context(body)
+        # The claim the turn was admitted under: the loop writes scoped memory,
+        # and _record_turn the conversation, only while it stands.
+        context.metadata["turn_claim"] = claim
 
         result = await self._server.react_loop.run(context)
 
         record = getattr(self._server, "_record_turn", None)
         if record is not None:
-            await record(session_id, message, result.response, owner=owner)
+            await record(session_id, message, result.response, claim=claim)
         else:
             self._server.conversations[session_id].extend(
                 conversation[-1:] + [Message(role="assistant", content=result.response)])

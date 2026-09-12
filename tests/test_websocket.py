@@ -132,6 +132,10 @@ def _build_mock_server(config):
     # T3: conversations carry an owner; the double owns none and claims nothing.
     server.react_loop.memory.conversation_owner = MagicMock(return_value="")
     server.react_loop.memory.claim_conversation = MagicMock()
+    from runtime.memory.manager import ConversationClaim, MemoryManager
+    server.react_loop.memory.conversation_claim = MagicMock(
+        side_effect=lambda sid: ConversationClaim(session_id=sid, owner="", claim_id=""))
+    server.react_loop.memory.conversation_scope = MemoryManager.conversation_scope
 
     mock_temporal = MagicMock()
     mock_temporal.get_context_string = MagicMock(return_value="Current time: 2026-01-01")

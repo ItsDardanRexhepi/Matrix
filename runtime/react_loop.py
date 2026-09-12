@@ -61,6 +61,9 @@ CLIENT_CONTEXT_FENCE = (
 CLIENT_CONTEXT_END = "[End of client-supplied context. The user's message follows.]"
 #: The most client context one turn carries (the limit /ws and the bridge had).
 CLIENT_CONTEXT_MAX_CHARS = 8000
+#: The answer to a turn whose conversation claim was erased (account deletion)
+#: or taken by another account between the turn's admission and its loop's start.
+CLAIM_GONE_RESPONSE = "This conversation is no longer available."
 
 
 @dataclass
@@ -145,6 +148,16 @@ class ReActLoop:
         for key in [k for k in self._protocol_stacks if k[1] in gone]:
             del self._protocol_stacks[key]
 
+    async def _remember_turn(self, context: "ReActContext", final_text: str) -> bool:
+        """Save the finished turn into the caller's scoped agent memory — under
+        the conversation claim the gateway admitted the turn with
+        (``metadata["turn_claim"]``), when there is one: a turn whose account
+        was deleted while it ran is not written back into the scope."""
+        user_msg = context.conversation[-1].content if context.conversation else ""
+        return await self.memory.save_turn(
+            context.agent_name, user_msg, final_text,
+            scope=self._scope_of(context), claim=context.metadata.get("turn_claim"))
+
     @staticmethod
     def _scope_of(context: "ReActContext") -> str:
         """The caller's memory scope: set by the gateway from the presented
@@ -184,6 +197,22 @@ class ReActLoop:
         Execute the ReAct loop until the agent produces a final response
         or hits the step limit. Returns response text and all tool calls made.
         """
+        # ── The turn's conversation claim ────────────────────────────
+        # A turn runs only while the claim the gateway admitted it under still
+        # stands. Account deletion drops the scope's protocol stacks; a turn
+        # admitted before the deletion and starting after it (a handler awaits
+        # in between) created a fresh stack and recorded its "User said: …"
+        # there — shown to the same subject signing in again or, with the
+        # session gone, to the next caller naming the erased conversation.
+        # Such a turn is answered without a model call rather than run without
+        # a stack: the stack is also what gates its tool calls. Checked and
+        # fetched with no await in between; a deletion after this point finds
+        # the stack already held by the turn, and drops it from the cache.
+        claim = context.metadata.get("turn_claim")
+        if claim is not None and not self.memory.claim_stands(claim):
+            logger.info("[%s] the turn's conversation claim no longer stands; not run", context.agent_name)
+            return ReActResult(response=CLAIM_GONE_RESPONSE)
+
         # ── Protocol pre-process ─────────────────────────────────────
         protocol_stack = self._get_protocol_stack(context.agent_name, self._scope_of(context))
         if protocol_stack is not None:
@@ -248,9 +277,7 @@ class ReActLoop:
                     except Exception:
                         logger.exception("Protocol post-process failed for agent=%s", context.agent_name)
 
-                user_msg = context.conversation[-1].content if context.conversation else ""
-                await self.memory.save_turn(context.agent_name, user_msg, final_text,
-                                            scope=self._scope_of(context))
+                await self._remember_turn(context, final_text)
                 return ReActResult(
                     response=final_text,
                     tool_calls=all_tool_calls,

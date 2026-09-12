@@ -576,7 +576,7 @@ class GatewayServer:
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
             return web.json_response({"error": "session_required", "message": session_error}, status=400)
-        turn_owner, denied = self._open_turn(request, session_id)
+        turn_claim, denied = self._open_turn(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
 
@@ -603,6 +603,7 @@ class GatewayServer:
         context.metadata["user_context"] = self._chat_user_context(
             request, session_id=session_id, agent=agent, body=body)
         context.metadata["client_context"] = self._client_turn_context(body)
+        context.metadata["turn_claim"] = turn_claim
 
         try:
             with self.metrics.timer("chat.latency"):
@@ -629,7 +630,7 @@ class GatewayServer:
         if first_boot:
             response_text = f"{first_boot}\n\n{response_text}"
 
-        await self._record_turn(session_id, message, result.response, owner=turn_owner)
+        await self._record_turn(session_id, message, result.response, claim=turn_claim)
 
         return web.json_response({
             "response": response_text,
@@ -1338,7 +1339,7 @@ class GatewayServer:
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
             return web.json_response({"error": "session_required", "message": session_error}, status=400)
-        turn_owner, denied = self._open_turn(request, session_id)
+        turn_claim, denied = self._open_turn(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
 
@@ -1371,6 +1372,7 @@ class GatewayServer:
         context.metadata["user_context"] = self._chat_user_context(
             request, session_id=session_id, agent=agent, body=body)
         context.metadata["client_context"] = self._client_turn_context(body)
+        context.metadata["turn_claim"] = turn_claim
 
         try:
             result = await self.react_loop.run(context)
@@ -1400,7 +1402,7 @@ class GatewayServer:
         for i in range(0, len(text), chunk_size):
             await emit("token", {"text": text[i:i + chunk_size]})
 
-        await self._record_turn(session_id, message, text, owner=turn_owner)
+        await self._record_turn(session_id, message, text, claim=turn_claim)
 
         await emit("done", {
             "session_id": session_id,
@@ -1452,7 +1454,7 @@ class GatewayServer:
             if session_error:
                 await ws.send_json({"type": "error", "error": "session_required", "message": session_error})
                 continue
-            turn_owner, denied = self._open_turn(request, session_id)
+            turn_claim, denied = self._open_turn(request, session_id)
             if denied:
                 await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
                 continue
@@ -1471,6 +1473,7 @@ class GatewayServer:
             context.metadata["user_context"] = self._chat_user_context(
                 request, session_id=session_id, agent=agent, body=payload)
             context.metadata["client_context"] = self._client_turn_context(payload)
+            context.metadata["turn_claim"] = turn_claim
 
             try:
                 result = await self.react_loop.run(context)
@@ -1488,7 +1491,7 @@ class GatewayServer:
             for i in range(0, len(text), 80):
                 await ws.send_json({"type": "token", "text": text[i:i + 80]})
 
-            await self._record_turn(session_id, message, text, owner=turn_owner)
+            await self._record_turn(session_id, message, text, claim=turn_claim)
 
             await ws.send_json({
                 "type": "done",
@@ -2636,24 +2639,27 @@ class GatewayServer:
         return self._open_turn(request, session_id)[1]
 
     def _open_turn(self, request: web.Request, session_id: str):
-        """``(owner, refusal)`` for a chat turn on *session_id*: the check and
-        claim of ``_conversation_denied``, plus the owner the turn was admitted
-        under. ``_record_turn`` stores the turn only if that is still the
-        owner when the model call returns — read then, it was whatever a
-        deletion or another claim had made it in the meantime."""
+        """``(claim, refusal)`` for a chat turn on *session_id*: the check and
+        claim of ``_conversation_denied``, plus the claim the turn was admitted
+        under (a ConversationClaim, read from the store).
+
+        The turn's writes — ``_record_turn``'s conversation save and the
+        loop's scoped memory (``metadata["turn_claim"]``) — land only while
+        that exact claim stands. Checked against the owner string, a turn
+        from before its account's deletion matched the claim the same subject
+        made on signing in again and was written back; refused, it re-erased
+        the new account's memory."""
         memory = self.react_loop.memory
         identity = self._session_subject(request)
         if self._names_another_account(session_id, identity):
-            return "", "this conversation belongs to another account"
-        owner = memory.conversation_owner(session_id)
-        if owner and owner != identity:
-            return owner, "this conversation belongs to another account"
-        if not owner and identity:
-            claimed = memory.claim_conversation(session_id, identity)
-            owner = claimed if isinstance(claimed, str) and claimed else identity
-            if owner != identity:  # another claim landed first
-                return owner, "this conversation belongs to another account"
-        return owner, None
+            return None, "this conversation belongs to another account"
+        claim = memory.conversation_claim(session_id)
+        if not claim.owner and identity:
+            memory.claim_conversation(session_id, identity)
+            claim = memory.conversation_claim(session_id)
+        if claim.owner and claim.owner != identity:  # another account's, or its claim landed first
+            return claim, "this conversation belongs to another account"
+        return claim, None
 
     def _conversation_held_elsewhere(self, request: web.Request, session_id: str):
         """The read-only half of ``_conversation_denied``: the refusal message
@@ -2727,17 +2733,21 @@ class GatewayServer:
         a failed turn leaves nothing behind that the store does not also hold."""
         return [*self._conversation_history(session_id), Message(role="user", content=message)]
 
-    async def _record_turn(self, session_id: str, message: str, reply: str, *, owner: str) -> None:
+    async def _record_turn(self, session_id: str, message: str, reply: str, *, claim) -> None:
         """Append a completed turn, trim, and write the conversation through to
-        the store — only while it still belongs to *owner*, the owner the turn
-        was admitted under (``_open_turn``).
+        the store — only while *claim*, the claim the turn was admitted under
+        (``_open_turn``), still stands.
 
         This used to save with the owner re-read here, after the model call.
         That read came from an evictable cache (a first turn's claim could be
         gone, so the turn was stored ownerless) and, even when durable, from
-        after whatever happened during the call: an account deleted mid-turn
-        had its conversation written back, unowned. A turn the store refuses
-        is dropped from the working set as well, which holds only stored turns.
+        after whatever happened during the call. Then it compared the owner
+        string, which a deleted account's subject signing in again re-creates.
+        A turn the store refuses is dropped from the working set as well, which
+        holds only stored turns. Its scoped memory needs no clean-up here: the
+        loop wrote it under the same claim (ReActLoop._remember_turn), so a
+        turn that outlived its account's deletion wrote none — and nothing
+        here erases memory, so a re-created account's is never touched.
         """
         history = self._conversation_history(session_id)
         history.append(Message(role="user", content=message))
@@ -2749,24 +2759,14 @@ class GatewayServer:
             stored = await memory.save_conversation(
                 session_id,
                 [{"role": m.role, "content": m.content} for m in history],
-                expect_owner=owner,
+                expect_claim=claim,
             )
         except Exception as exc:
             logger.warning(f"Failed to persist conversation {session_id}: {exc}")
             self.conversations.pop(session_id, None)
             return
-        if stored is not False:
-            return
-        self.conversations.pop(session_id, None)
-        if owner:
-            # A claim is never replaced, only erased: a signed-in turn refused
-            # here outlived its account's deletion. The loop has already saved
-            # the turn into the account's scoped agent memory (save_turn runs
-            # inside react_loop.run), which the deletion had cleared.
-            try:
-                await memory.erase_scoped_memory(owner)
-            except Exception as exc:
-                logger.warning(f"Failed to clear scoped memory of an erased account: {exc}")
+        if stored is False:
+            self.conversations.pop(session_id, None)
 
     def _forget_conversations(self, session_ids) -> None:
         """Drop the working-set copies of *session_ids* (account erasure)."""

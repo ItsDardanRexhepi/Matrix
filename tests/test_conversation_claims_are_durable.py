@@ -72,9 +72,10 @@ class _HeldModel:
             self.in_flight.set()
             await self.release.wait()
         reply = f"reply-to-{sid}"
-        if self.memory is not None:  # ReActLoop.run saves the turn to scoped agent memory before returning
+        if self.memory is not None:  # as ReActLoop._remember_turn saves it, before run returns
             await self.memory.save_turn(ctx.agent_name, str(ctx.conversation[-1].content), reply,
-                                        scope=ctx.metadata["user_context"]["memory_scope"])
+                                        scope=ctx.metadata["user_context"]["memory_scope"],
+                                        claim=ctx.metadata.get("turn_claim"))
         return SimpleNamespace(response=reply, tool_calls=[], provider="stub")
 
 
@@ -187,3 +188,145 @@ async def test_a_reload_while_a_save_is_waiting_on_the_store_reads_the_whole_con
     assert observed["owner"] == "apple:gap", observed
     assert [m["content"] for m in observed["history"]] in (["one", "two"], ["one", "two", "three", "four"]), observed
     assert [m["content"] for m in memory.load_conversation(sid)] == ["one", "two", "three", "four"]
+
+
+# ── a turn is tied to the claim it was admitted under, not to an owner string ──
+#
+# The save compared only the owner string. Account deletion erases the claim;
+# the same subject signing in again (a SIWE address and an Apple sub are
+# stable) re-creates a claim with the same owner string. So a turn still
+# running from before the deletion either (a) found "the same owner" on the
+# re-claimed conversation and was written back into it and into the new
+# account's memory, or (b) found the conversation unclaimed, was refused, and
+# the refusal re-erased ALL of the subject's scoped memory — the new account's.
+# Driven through the real ReAct loop; the model is held at the router.
+
+class _HeldRouter:
+    def __init__(self, marker: str):
+        self.marker = marker
+        self.armed = True
+        self.in_flight = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def complete(self, messages, tools=None, **kwargs):
+        last_user = next((str(m.content) for m in reversed(messages) if m.role == "user"), "")
+        if self.armed and self.marker in last_user:
+            self.armed = False
+            self.in_flight.set()
+            await self.release.wait()
+        return SimpleNamespace(content="ok", tool_calls=[], provider="stub")
+
+
+async def _delete_and_sign_in_again(client, server, headers, subject: str) -> dict:
+    resp = await client.delete("/api/v1/auth/account", headers=headers)
+    assert resp.status == 200, await resp.text()
+    now = time.time()
+    await server.wallet_sessions.add(token=f"again-{subject}", address=subject, issued_at=now, expires_at=now + 3600)
+    return {"Authorization": f"Bearer again-{subject}"}
+
+
+def _rows_with(memory, text: str) -> tuple[list, list]:
+    conv = memory.db.fetchall_sync("SELECT session_id, content FROM conversation_turns WHERE content LIKE ?",
+                                   (f"%{text}%",))
+    agent = memory.db.fetchall_sync("SELECT agent, user_msg FROM agent_turns WHERE user_msg LIKE ?",
+                                    (f"%{text}%",))
+    return [dict(r) for r in conv], [dict(r) for r in agent]
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES)
+async def test_a_turn_from_before_deletion_is_not_written_into_the_same_subjects_new_claim(entrance):
+    server = _server()
+    router = _HeldRouter("4711")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    sid = "leaving-conv"
+    async with TestClient(TestServer(server.create_app())) as client:
+        leaver = await _session(server, "apple:leaver")
+        assert await _drive(client, "/chat", {"message": "first", "session_id": sid}, leaver) == 200
+        turn = asyncio.ensure_future(_drive(client, entrance, {"message": "my secret is 4711", "session_id": sid}, leaver))
+        await asyncio.wait_for(router.in_flight.wait(), 10)
+
+        again = await _delete_and_sign_in_again(client, server, leaver, "apple:leaver")
+        assert await _drive(client, "/chat", {"message": "hello again", "session_id": sid}, again) == 200
+        router.release.set()
+        await asyncio.wait_for(turn, 15)
+
+        conv, agent = _rows_with(memory, "4711")
+        assert not conv, f"{entrance}: the deleted account's turn was written into the new claim: {conv}"
+        assert not agent, f"{entrance}: the deleted account's turn was written into the new account's memory: {agent}"
+        kept_conv, kept_agent = _rows_with(memory, "hello again")
+        assert kept_conv and kept_agent, (entrance, kept_conv, kept_agent)
+
+
+@pytest.mark.parametrize("entrance", ENTRANCES)
+async def test_a_refused_turn_from_before_deletion_leaves_the_new_accounts_memory_alone(entrance):
+    server = _server()
+    router = _HeldRouter("4711")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    sid = "leaving-conv"
+    async with TestClient(TestServer(server.create_app())) as client:
+        leaver = await _session(server, "apple:leaver")
+        assert await _drive(client, "/chat", {"message": "first", "session_id": sid}, leaver) == 200
+        turn = asyncio.ensure_future(_drive(client, entrance, {"message": "my secret is 4711", "session_id": sid}, leaver))
+        await asyncio.wait_for(router.in_flight.wait(), 10)
+
+        again = await _delete_and_sign_in_again(client, server, leaver, "apple:leaver")
+        assert await _drive(client, "/chat", {"message": "new account fact", "session_id": "other-conv"}, again) == 200
+        router.release.set()
+        await asyncio.wait_for(turn, 15)
+
+        conv, agent = _rows_with(memory, "4711")
+        assert not conv and not agent, (entrance, conv, agent)
+        kept_conv, kept_agent = _rows_with(memory, "new account fact")
+        assert kept_conv, f"{entrance}: the new account's conversation was erased"
+        assert kept_agent, f"{entrance}: the refused old turn erased the new account's scoped memory"
+
+
+async def test_a_turn_whose_account_is_deleted_before_its_loop_starts_leaves_no_protocol_state():
+    """Between admission and the loop's start a handler awaits (/chat marks the
+    first-boot greeting; /chat/stream writes its headers). A deletion landing
+    there used to leave the loop to create a fresh protocol stack for the
+    deleted subject and record the turn's "User said: …" in it — shown to the
+    same subject's next prompt after signing in again — or, when the deletion
+    landed before the handler built the turn's context (the session gone, so
+    the turn ran in the conversation's scope), to the next caller naming the
+    erased conversation's id."""
+    server = _server()
+    calls: list[str] = []
+
+    async def complete(messages, tools=None, **kwargs):
+        calls.append("\n".join(str(m.content) for m in messages))
+        return SimpleNamespace(content="ok", tool_calls=[], provider="stub")
+
+    server.react_loop.router.complete = complete
+    memory = server.react_loop.memory
+    held = asyncio.Event()
+    release = asyncio.Event()
+    real_mark = memory.mark_first_boot_sent
+
+    async def mark_first_boot_sent(session_id):
+        if session_id == "gap-conv":
+            held.set()
+            await release.wait()
+        return await real_mark(session_id)
+
+    memory.mark_first_boot_sent = mark_first_boot_sent
+    async with TestClient(TestServer(server.create_app())) as client:
+        leaver = await _session(server, "apple:gap")
+        turn = asyncio.ensure_future(_drive(client, "/chat", {"message": "GAP-SECRET-77 is my pin",
+                                                              "session_id": "gap-conv"}, leaver))
+        await asyncio.wait_for(held.wait(), 10)
+        again = await _delete_and_sign_in_again(client, server, leaver, "apple:gap")
+        release.set()
+        await asyncio.wait_for(turn, 15)
+        assert not any("GAP-SECRET-77" in c for c in calls), "the turn ran after its claim was erased"
+
+        calls.clear()
+        assert await _drive(client, "/chat", {"message": "hello", "session_id": "gap-other"}, again) == 200
+        # The erased conversation is unclaimed again: anyone naming its id continues it.
+        assert await _drive(client, "/chat", {"message": "hello", "session_id": "gap-conv"}) == 200
+        assert len(calls) == 2 and not any("GAP-SECRET-77" in c for c in calls), (
+            "a deleted account's turn left protocol state a later caller was shown")
+        conv, agent = _rows_with(memory, "GAP-SECRET-77")
+        assert not conv and not agent, (conv, agent)
