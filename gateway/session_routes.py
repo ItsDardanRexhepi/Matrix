@@ -34,6 +34,7 @@ USER_SESSION_ROUTES: frozenset[str] = frozenset({
     "/api/v1/governance/daos/{daoId}/proposals",
     "/api/v1/governance/proposal/create",
     "/api/v1/governance/vote",
+    "/api/v1/groups",
     "/api/v1/iap/verify",
     "/api/v1/identity/create",
     "/api/v1/identity/did/create",
