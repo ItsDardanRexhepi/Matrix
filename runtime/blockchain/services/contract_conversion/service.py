@@ -279,9 +279,11 @@ class ContractConversionService:
                 # implement them. The compiled template's external function
                 # names (templates.TEMPLATE_EXTERNAL_FUNCTIONS, recorded from
                 # its ABI and re-checked against the compiler by the tests)
-                # cover the inherited ones; the text still covers anything fee
-                # injection added. Matching is by name: a declared parameter
-                # list is not compared with the implementation's.
+                # cover the inherited EXTERNALLY CALLABLE ones; inherited
+                # internal functions (_safeMint, _burn, ...) are in neither set
+                # and stay listed as unimplemented. The text still covers
+                # anything fee injection added. Matching is by name: a declared
+                # parameter list is not compared with the implementation's.
                 implemented = (
                     ContractAuditor.implemented_functions(generated)
                     | TEMPLATE_EXTERNAL_FUNCTIONS.get(template_used, frozenset())

@@ -145,6 +145,16 @@ async def test_a_declared_inherited_erc1155_function_is_implemented_and_a_missin
     assert result["status"] == "partial"
 
 
+async def test_an_inherited_internal_function_is_not_counted_as_implemented(service):
+    """The inherited set is the compiled template's EXTERNALLY CALLABLE
+    functions. ERC721's internal _safeMint is inherited, but it is not in the
+    ABI, so a caller who declares it is told so (sdk/client.py says this)."""
+    result = await _convert(service, ARTIST_PSEUDOCODE + "function _safeMint(to: address)\n")
+    assert result["template_used"] == "erc721"
+    assert result["unimplemented"] == ["_safeMint"], result["unimplemented"]
+    assert result["status"] == "partial"
+
+
 def test_every_template_has_a_recorded_external_function_list():
     from runtime.blockchain.services.contract_conversion.templates import (
         TEMPLATE_EXTERNAL_FUNCTIONS, TEMPLATES,

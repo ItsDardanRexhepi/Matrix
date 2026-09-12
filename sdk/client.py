@@ -248,11 +248,16 @@ class OpenMatrixClient:
         block carries ``verdict: "not_applicable"`` rather than a pass — an
         empty contract has no vulnerabilities, which is not the same as safe.
         When a template is used (``template_used`` is set), ``generated_source``
-        is that template, and the audit and ``unimplemented`` describe it: a
-        function you declared that the template lacks is listed there. A function
-        the template inherits from OpenZeppelin (for erc721, e.g. ``balanceOf``,
-        ``transferFrom``, ``royaltyInfo``) counts as implemented. Matching is by
-        function name only; the parameters you declared are not compared.
+        is that template (with the platform fee logic added when a fee recipient
+        is configured), and the audit and ``unimplemented`` describe it: a
+        function you declared that the template lacks is listed there. A
+        function counts as implemented if it is written in that source, or if it
+        is one of the externally callable functions the compiled template
+        exposes, including public ones it inherits from OpenZeppelin (for erc721,
+        e.g. ``balanceOf``, ``transferFrom``, ``royaltyInfo``). Inherited
+        internal functions such as ``_safeMint`` do not count, so declaring one
+        lists it as unimplemented. Matching is by function name only; the
+        parameters you declared are not compared.
         """
         return await self.ablockchain(
             "contract_conversion",
