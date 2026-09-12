@@ -36,6 +36,19 @@ contract OpenMatrixStaking is ReentrancyGuard, Ownable {
     uint256 public totalStaked;
     uint256 public totalRewardsPaid;
     uint256 public totalCommissionPaid;
+    /// @notice ETH funded for rewards. Rewards are paid ONLY from here — never
+    ///         from stakers' principal (audit entries B3-STAKE-PRINCIPAL-PAYS-REWARDS,
+    ///         B3-STAKE-SHORTFALL-ERASES: rewards accrued unconditionally, were
+    ///         paid from one pooled balance, and a shortfall erased a late
+    ///         exit's principal with the transaction succeeding).
+    uint256 public rewardReserve;
+    /// @notice Rewards accrued but not yet funded, per staker — paid when the
+    ///         reserve is refilled; nothing is erased.
+    mapping(address => uint256) public owedRewards;
+    /// @notice Commission a fee recipient could not receive (its call
+    ///         reverted). Pulled later with withdrawFees(); an exit never
+    ///         depends on the recipient (audit entry B3-STAKE-FEE-FREEZE).
+    uint256 public pendingFees;
 
     // ---------------------------------------------------------------
     // Events
@@ -65,9 +78,10 @@ contract OpenMatrixStaking is ReentrancyGuard, Ownable {
 
         StakePosition storage pos = positions[msg.sender];
 
-        // If existing position, auto-claim accrued rewards first
+        // If existing position, settle accrued rewards first (reserve-bounded,
+        // never reverting on an empty reserve).
         if (pos.amount > 0) {
-            _claimRewards(msg.sender);
+            _settleRewards(msg.sender);
         }
 
         pos.amount += msg.value;
@@ -89,7 +103,9 @@ contract OpenMatrixStaking is ReentrancyGuard, Ownable {
         require(pos.amount > 0, "No active position");
 
         uint256 stakedAmount = pos.amount;
-        (uint256 grossReward, uint256 commission, uint256 netReward) = _calculateRewards(msg.sender);
+        // Rewards first, from the reserve only; whatever the reserve cannot pay
+        // is recorded as owed, not erased.
+        (uint256 netReward, uint256 commission) = _settleRewards(msg.sender);
 
         // Reset position
         pos.amount = 0;
@@ -98,20 +114,10 @@ contract OpenMatrixStaking is ReentrancyGuard, Ownable {
 
         totalStaked -= stakedAmount;
 
-        // Pay commission
-        if (commission > 0 && address(this).balance >= commission) {
-            totalCommissionPaid += commission;
-            (bool feeSent, ) = platformFeeRecipient.call{value: commission}("");
-            require(feeSent, "Commission transfer failed");
-        }
-
-        // Pay staker (principal + net reward)
-        uint256 payout = stakedAmount + netReward;
-        if (payout > 0 && address(this).balance >= payout) {
-            totalRewardsPaid += netReward;
-            (bool sent, ) = msg.sender.call{value: payout}("");
-            require(sent, "Unstake transfer failed");
-        }
+        // Principal is always there: nothing but principal is ever paid from it.
+        require(address(this).balance >= stakedAmount, "Insufficient pool");
+        (bool sent, ) = msg.sender.call{value: stakedAmount}("");
+        require(sent, "Unstake transfer failed");
 
         emit Unstaked(msg.sender, stakedAmount, netReward, commission);
     }
@@ -154,38 +160,69 @@ contract OpenMatrixStaking is ReentrancyGuard, Ownable {
     {
         StakePosition storage pos = positions[user];
         if (pos.amount == 0 || pos.lastClaimTime == 0) {
-            return (0, 0, 0);
+            // No live position: only what is still owed from before.
+            grossReward = owedRewards[user];
+            commission = (grossReward * COMMISSION_BPS) / BPS_DENOMINATOR;
+            netReward = grossReward - commission;
+            return (grossReward, commission, netReward);
         }
 
         uint256 elapsed = block.timestamp - pos.lastClaimTime;
-        grossReward = (pos.amount * REWARD_RATE_PER_SECOND * elapsed) / 1 ether;
+        grossReward = (pos.amount * REWARD_RATE_PER_SECOND * elapsed) / 1 ether + owedRewards[user];
         commission = (grossReward * COMMISSION_BPS) / BPS_DENOMINATOR;
         netReward = grossReward - commission;
     }
 
     function _claimRewards(address user) internal {
-        (uint256 grossReward, uint256 commission, uint256 netReward) = _calculateRewards(user);
-        require(netReward > 0, "No rewards to claim");
+        (, , uint256 accrued) = _calculateRewards(user);
+        require(accrued > 0, "No rewards to claim");
+        _settleRewards(user);
+    }
 
+    /// @dev Pay what the reserve can cover of the accrued gross reward (plus
+    ///      anything owed from before); record the rest as owed. Commission is
+    ///      taken from the paid part and pushed to the fee recipient, falling
+    ///      back to `pendingFees` if that call fails. Never reverts on an empty
+    ///      reserve, never touches principal.
+    function _settleRewards(address user) internal returns (uint256 netReward, uint256 commission) {
+        (uint256 grossReward, , ) = _calculateRewards(user);
         StakePosition storage pos = positions[user];
         pos.lastClaimTime = block.timestamp;
+        if (grossReward == 0) {
+            return (0, 0);
+        }
+        uint256 payable_ = grossReward <= rewardReserve ? grossReward : rewardReserve;
+        owedRewards[user] = grossReward - payable_;
+        if (payable_ == 0) {
+            return (0, 0);
+        }
+        rewardReserve -= payable_;
+        commission = (payable_ * COMMISSION_BPS) / BPS_DENOMINATOR;
+        netReward = payable_ - commission;
         pos.totalClaimed += netReward;
 
-        // Pay commission
-        if (commission > 0 && address(this).balance >= commission) {
+        if (commission > 0) {
             totalCommissionPaid += commission;
             (bool feeSent, ) = platformFeeRecipient.call{value: commission}("");
-            require(feeSent, "Commission transfer failed");
+            if (!feeSent) {
+                pendingFees += commission;   // pulled later; the staker is never blocked
+            }
         }
-
-        // Pay staker
-        if (netReward > 0 && address(this).balance >= netReward) {
+        if (netReward > 0) {
             totalRewardsPaid += netReward;
             (bool sent, ) = user.call{value: netReward}("");
             require(sent, "Reward transfer failed");
         }
-
         emit RewardsClaimed(user, netReward, commission);
+    }
+
+    /// @notice Send commission the fee recipient could not receive earlier.
+    function withdrawFees() external nonReentrant {
+        uint256 amount = pendingFees;
+        require(amount > 0, "No pending fees");
+        pendingFees = 0;
+        (bool sent, ) = platformFeeRecipient.call{value: amount}("");
+        require(sent, "Fee transfer failed");
     }
 
     // ---------------------------------------------------------------
@@ -203,8 +240,10 @@ contract OpenMatrixStaking is ReentrancyGuard, Ownable {
      * @notice Fund the contract with ETH for reward payouts.
      */
     function fundRewards() external payable onlyOwner {
-        // ETH is received via msg.value; no logic needed.
+        rewardReserve += msg.value;
     }
 
-    receive() external payable {}
+    receive() external payable {
+        rewardReserve += msg.value;
+    }
 }

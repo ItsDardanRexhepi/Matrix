@@ -74,4 +74,23 @@ contract OpenMatrixMarketplaceTest is Test {
         vm.expectRevert("Not token owner");
         marketplace.listItem(address(nft), tokenId, 1 ether, address(0));
     }
+
+    // ── B3-MKT-ERC20-NO-PRICE-BOUND: the buyer names the price they agreed to ──
+
+    function test_Buy_PriceChangedSinceAgreement_Reverts() public {
+        uint256 tokenId = nft.mint(alice, "ipfs://p", 0);
+        vm.prank(alice);
+        nft.approve(address(marketplace), tokenId);
+        vm.prank(alice);
+        uint256 id = marketplace.listItem(address(nft), tokenId, 1 ether, address(0));
+        vm.prank(alice);
+        marketplace.updatePrice(id, 2 ether);
+        vm.deal(bob, 2 ether);
+        vm.prank(bob);
+        vm.expectRevert("Price changed");
+        marketplace.buyItem{value: 2 ether}(id, 1 ether);
+        vm.prank(bob);
+        marketplace.buyItem{value: 2 ether}(id, 2 ether);
+        assertEq(nft.ownerOf(tokenId), bob);
+    }
 }

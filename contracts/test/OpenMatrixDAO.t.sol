@@ -87,4 +87,82 @@ contract OpenMatrixDAOTest is Test {
         );
         assertEq(id, 0);
     }
+
+    // ── B3-DAO-OWNER-SWEEP / B3-DAO-4PCT-DRAIN: the governed path ─────────
+
+    function _proposal(address to, uint256 amount)
+        internal view returns (address[] memory t, uint256[] memory v, bytes[] memory c)
+    {
+        t = new address[](1); v = new uint256[](1); c = new bytes[](1);
+        t[0] = address(dao); v[0] = 0;
+        c[0] = abi.encodeWithSelector(dao.treasuryWithdraw.selector, to, amount);
+    }
+
+    function test_Treasury_OnlyThroughAPassedQueuedTimelockedProposal() public {
+        address big = makeAddr("big"); address to = makeAddr("to");
+        vm.deal(big, 30 ether);
+        vm.prank(big);
+        dao.depositVotingPower{value: 30 ether}();
+        vm.roll(block.number + 1);
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _proposal(to, 10 ether);
+        OpenMatrixDAO.VotingModel model = dao.defaultVotingModel();
+        vm.prank(big);
+        uint256 id = dao.propose(t, v, c, "grant", model);
+        vm.roll(block.number + dao.VOTING_DELAY() + 1);
+        vm.prank(big);
+        dao.castVote(id, 1);
+        vm.roll(block.number + dao.VOTING_PERIOD() + 1);
+        assertEq(uint8(dao.state(id)), uint8(OpenMatrixDAO.ProposalState.Succeeded));
+
+        vm.expectRevert("Not queued");
+        dao.execute(id);
+        dao.queue(id);
+        vm.expectRevert("Timelock not elapsed");
+        dao.execute(id);
+        vm.warp(block.timestamp + dao.TIMELOCK_DELAY());
+        dao.execute(id);
+        assertGt(to.balance, 9.9 ether, "the grant, minus the tiered fee");
+    }
+
+    function test_VotingPower_CanBeWithdrawn() public {
+        address a = makeAddr("a");
+        vm.deal(a, 2 ether);
+        vm.prank(a);
+        dao.depositVotingPower{value: 2 ether}();
+        vm.prank(a);
+        dao.withdrawVotingPower(2 ether);
+        assertEq(a.balance, 2 ether);
+        assertEq(dao.totalVotingPower(), 0);
+    }
+
+    function test_PowerBoughtAfterTheProposal_DoesNotCount() public {
+        address a = makeAddr("a"); address late = makeAddr("late");
+        vm.deal(a, 1 ether); vm.deal(late, 100 ether);
+        vm.prank(a);
+        dao.depositVotingPower{value: 1 ether}();
+        vm.roll(block.number + 1);
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _proposal(late, 1 ether);
+        OpenMatrixDAO.VotingModel model = dao.defaultVotingModel();
+        vm.prank(a);
+        uint256 id = dao.propose(t, v, c, "x", model);
+        vm.prank(late);
+        dao.depositVotingPower{value: 100 ether}();   // after the snapshot
+        vm.roll(block.number + dao.VOTING_DELAY() + 1);
+        vm.prank(late);
+        vm.expectRevert("No voting power at snapshot");
+        dao.castVote(id, 1);
+    }
+
+    function test_ProposerCannotPickTheVotingModel() public {
+        address a = makeAddr("a");
+        vm.deal(a, 1 ether);
+        vm.prank(a);
+        dao.depositVotingPower{value: 1 ether}();
+        vm.roll(block.number + 1);
+        dao.setVotingModel(OpenMatrixDAO.VotingModel.SuperMajority);
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _proposal(a, 1);
+        vm.prank(a);
+        vm.expectRevert("Voting model is governance-set");
+        dao.propose(t, v, c, "x", OpenMatrixDAO.VotingModel.SimpleMajority);
+    }
 }
