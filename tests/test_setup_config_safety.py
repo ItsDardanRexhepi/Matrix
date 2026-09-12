@@ -437,10 +437,18 @@ def test_wizard_config_write_keeps_owner_only_permissions(sandbox, monkeypatch):
 
 GIT = shutil.which("git")
 
+# Git matches .gitignore patterns caselessly when core.ignorecase is true, and
+# `git init` sets it true on macOS (APFS) and Windows, the platforms install.sh
+# and the README target, while Linux CI gets false. A verdict taken under only
+# the runner's own setting passes `!.ENV` on Linux and fails it on a Mac, so
+# every verdict below is taken under BOTH, pinned on the command line.
+IGNORECASE = ("true", "false")
 
-def _git_ignores(repo: Path, rel: str) -> bool:
+
+def _git_ignores(repo: Path, rel: str, ignorecase: str) -> bool:
     return subprocess.run(
-        [GIT, "-C", str(repo), "check-ignore", "--no-index", "-q", rel],
+        [GIT, "-c", f"core.ignorecase={ignorecase}",
+         "-C", str(repo), "check-ignore", "--no-index", "-q", rel],
         capture_output=True,
         # The developer's global excludes must not answer for the file.
         env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
@@ -469,6 +477,13 @@ def _git_ignores(repo: Path, rel: str) -> bool:
     "openmatrix.config.json\r\n.env\r\n!.env\r\n",   # CRLF file: git strips the \r
     "openmatrix.config.json\n.env\n!\\.env\n",       # escaped negation
     "!.env\r.env\nopenmatrix.config.json\n",         # lone CR: one literal negation to git
+    # Round-2 review: a literal negation was ruled out by a case-SENSITIVE
+    # compare, but under core.ignorecase=true git re-includes .env for `!.ENV`.
+    "openmatrix.config.json\n.env\n!.ENV\n",         # case-variant negation
+    "openmatrix.config.json\n.env\n!/.Env\n",        # anchored, mixed case
+    ".env\nopenmatrix.config.json\n!OPENMATRIX.CONFIG.JSON\n",
+    ".env\nopenmatrix.config.json\n!OpenMatrix.config.json\n",
+    "OPENMATRIX.CONFIG.JSON\n.ENV\n",               # covers only caselessly
 ])
 def test_setup_gitignore_ignores_both_secret_files(sandbox, existing):
     repo = sandbox.parent
@@ -477,11 +492,12 @@ def test_setup_gitignore_ignores_both_secret_files(sandbox, existing):
         (repo / ".gitignore").write_text(existing)
     wizard = _load_wizard("setup_main_gitignore")
     wizard.setup_gitignore()
-    for secret in ("openmatrix.config.json", ".env"):
-        assert _git_ignores(repo, secret), (
-            f"after setup_gitignore(), git would commit {secret} "
-            f"(starting .gitignore: {existing!r})"
-        )
+    for ignorecase in IGNORECASE:
+        for secret in ("openmatrix.config.json", ".env"):
+            assert _git_ignores(repo, secret, ignorecase), (
+                f"after setup_gitignore(), git (core.ignorecase={ignorecase}) would "
+                f"commit {secret} (starting .gitignore: {existing!r})"
+            )
 
 
 def test_setup_gitignore_is_idempotent(sandbox):
@@ -503,6 +519,9 @@ def _line_pool(entry):
         "!" + entry, "!/" + entry, "! " + entry, "!" + entry + " ", "!" + entry + "/",
         "!" + entry + "*", "!**/" + entry, "!" + head + "*", "!" + entry.replace(".", "[.]", 1),
         "!\\" + entry, "\\!" + entry, "!foo/" + entry, "!", "!*", "*", "#" + entry, "# !" + entry,
+        # Case variants: equal to *entry* only under core.ignorecase=true.
+        entry.upper(), "/" + entry.title(), "!" + entry.upper(), "!/" + entry.title(),
+        "!" + entry.upper() + " ", "!" + entry[:1] + entry[1:].swapcase(),
     ]
 
 
@@ -535,13 +554,20 @@ def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox):
         wizard.setup_gitignore()
         paths += [f"{case.name}/openmatrix.config.json", f"{case.name}/.env"]
     os.chdir(sandbox.parent)
-    result = subprocess.run(
-        [GIT, "-C", str(repo), "check-ignore", "--no-index", "--stdin"],
-        input="\n".join(paths) + "\n", capture_output=True, text=True,
-        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
-    )
-    ignored = set(result.stdout.splitlines())
-    committable = [p for p in paths if p not in ignored]
-    assert not committable, "git would commit, after setup_gitignore():\n" + "\n".join(
-        f"  {p}  (starting .gitignore {cases[p.split('/')[0]]!r})" for p in committable[:15]
+    committable = []
+    for ignorecase in IGNORECASE:
+        result = subprocess.run(
+            [GIT, "-c", f"core.ignorecase={ignorecase}",
+             "-C", str(repo), "check-ignore", "--no-index", "--stdin"],
+            input="\n".join(paths) + "\n", capture_output=True, text=True,
+            env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+        )
+        ignored = set(result.stdout.splitlines())
+        committable += [(ignorecase, p) for p in paths if p not in ignored]
+    assert not committable, (
+        f"git would commit {len(committable)} of {2 * len(paths)} (setting, path) pairs "
+        "after setup_gitignore():\n" + "\n".join(
+            f"  core.ignorecase={ic} {p}  (starting .gitignore {cases[p.split('/')[0]]!r})"
+            for ic, p in committable[:15]
+        )
     )

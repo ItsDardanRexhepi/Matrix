@@ -643,11 +643,17 @@ def _negation_may_match(pattern, entry):
     """Could `!pattern` re-include the root-level file *entry*? Unsure means yes.
 
     Only a literal (no `*`, `?`, `[` or backslash) can be ruled out: it matches
-    a root file only when, less a leading and trailing `/`, it is that name.
+    a root file only when, less a leading and trailing `/`, it is that name —
+    compared CASELESSLY. Git matches patterns without regard to case when
+    core.ignorecase is true, which `git init` sets on macOS and Windows, so
+    `!.ENV` re-includes .env there. Folding regardless of the repository's
+    setting costs, where it is false, one redundant line; never a false
+    "covered". (casefold() folds at least everything git's ASCII folding does.)
     """
     if any(ch in pattern for ch in "*?[\\"):
         return True
-    return pattern.strip("/") == entry or not pattern.strip("/")
+    name = pattern.strip("/")
+    return not name or name.casefold() == entry.casefold()
 
 
 def _gitignore_covers(lines, entry):
