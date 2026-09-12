@@ -354,7 +354,7 @@ body{
     <a href="#pricing">Pricing</a>
     <a href="#preview-form">Get Preview</a>
     <a href="#portfolio">Portfolio</a>
-    <a href="/audit.html">Audit</a>
+    <a href="/audit">Audit</a>
   </div>
 </nav>
 
@@ -405,6 +405,7 @@ body{
 <section class="section" id="pricing">
   <h2 class="section-title">Conversion Plans</h2>
   <p class="section-sub">From single contracts to unlimited enterprise generation</p>
+  <p class="section-sub"><strong>Not available to order:</strong> these plans have no request or payment path on this gateway yet.</p>
   <div class="pricing-grid">
 
     <!-- Single -->
@@ -460,6 +461,7 @@ body{
   <div class="conv-form-wrap">
     <h2 class="form-title">Get a Free Preview</h2>
     <p class="form-subtitle">Describe your contract in plain English. We will generate a preview showing the contract structure, type detection, and included features.</p>
+    <p class="form-subtitle"><strong>Ordering through this page is not live.</strong> The gateway has no endpoint that takes a conversion request or a payment, so this form sends nothing. The conversion pipeline itself is an authenticated API call: <code>POST /api/v1/contracts/convert</code> with the gateway's API key.</p>
 
     <form id="convForm" onsubmit="submitConversion(event)">
       <div class="form-group">
@@ -492,32 +494,10 @@ body{
         </div>
       </div>
 
-      <button class="form-submit" type="submit" id="submitBtn">Generate Free Preview</button>
+      <button class="form-submit" type="submit" id="submitBtn" disabled>Ordering is not live</button>
     </form>
   </div>
 
-  <!-- Preview Results -->
-  <div class="preview-panel" id="previewPanel">
-    <div class="preview-header">
-      <div class="preview-title" id="previewTitle">Contract Preview</div>
-      <span class="preview-badge">FREE PREVIEW</span>
-    </div>
-
-    <div class="preview-meta" id="previewMeta"></div>
-
-    <div class="preview-code" id="previewCode"></div>
-
-    <div style="font-size:.78rem;font-weight:600;color:var(--text-bright);margin-bottom:10px">Included in Full Version</div>
-    <ul class="preview-includes" id="previewIncludes"></ul>
-
-    <div class="checkout-bar" id="checkoutBar" style="display:none">
-      <div class="checkout-text">
-        <strong id="checkoutPlan"></strong> &mdash; <span id="checkoutPrice"></span><br>
-        <span style="font-size:.72rem;color:var(--text-muted)">Full contract with audit delivered after payment</span>
-      </div>
-      <a class="checkout-btn" id="checkoutLink" href="#" target="_blank">Get Full Contract</a>
-    </div>
-  </div>
 </section>
 
 <!-- Portfolio -->
@@ -607,92 +587,10 @@ function selectPlan(plan) {
   document.getElementById('preview-form').scrollIntoView({behavior:'smooth'});
 }
 
-async function submitConversion(e) {
+// Ordering through this page is not live: the gateway registers no endpoint
+// that takes a conversion request or a payment, so the form sends nothing.
+function submitConversion(e) {
   e.preventDefault();
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  btn.textContent = 'Generating preview...';
-
-  const form = document.getElementById('convForm');
-  const plan = form.querySelector('input[name="plan"]:checked').value;
-
-  const payload = {
-    description: document.getElementById('description').value,
-    email: document.getElementById('convEmail').value,
-    plan: plan,
-  };
-
-  try {
-    const resp = await fetch('/services/conversion/request', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-
-    if (data.status === 'ok') {
-      renderPreview(data);
-    } else {
-      alert(data.message || 'Request failed. Please try again.');
-    }
-  } catch (err) {
-    alert('Connection error. Please check that the server is running.');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Generate Free Preview';
-  }
-}
-
-function renderPreview(data) {
-  const panel = document.getElementById('previewPanel');
-  const preview = data.preview || {};
-
-  // Title
-  document.getElementById('previewTitle').textContent =
-    `${preview.contract_name || 'Contract'} - ${preview.contract_type || 'Custom'}`;
-
-  // Meta
-  const meta = document.getElementById('previewMeta');
-  meta.innerHTML = `
-    <div class="preview-meta-item">
-      <div class="preview-meta-label">Contract Type</div>
-      <div class="preview-meta-value">${esc(preview.contract_type || 'Custom')}</div>
-    </div>
-    <div class="preview-meta-item">
-      <div class="preview-meta-label">Estimated Size</div>
-      <div class="preview-meta-value">~${preview.estimated_lines || 150} lines</div>
-    </div>
-  `;
-
-  // Code
-  document.getElementById('previewCode').textContent = preview.preview_code || '// Preview unavailable';
-
-  // Includes
-  const includes = document.getElementById('previewIncludes');
-  includes.innerHTML = '';
-  const items = preview.includes || [];
-  for (const item of items) {
-    const li = document.createElement('li');
-    li.textContent = item;
-    includes.appendChild(li);
-  }
-
-  // Checkout bar
-  const bar = document.getElementById('checkoutBar');
-  document.getElementById('checkoutPlan').textContent = data.plan;
-  document.getElementById('checkoutPrice').textContent =
-    `$${data.price_usd}${data.billing === 'monthly' ? '/mo' : ''}`;
-
-  if (data.checkout_url) {
-    document.getElementById('checkoutLink').href = data.checkout_url;
-    bar.style.display = 'flex';
-  } else {
-    bar.style.display = 'none';
-  }
-
-  panel.classList.add('visible');
-  panel.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 function esc(s) {

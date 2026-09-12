@@ -343,7 +343,6 @@ a:hover{text-decoration:underline}
   <div class="nav-links" id="navLinks">
     <a href="/">Home</a>
     <a href="/chat">Chat</a>
-    <a href="/pricing">Pricing</a>
     <a href="/audit">Audit</a>
     <a href="/marketplace" class="active">Marketplace</a>
   </div>
@@ -560,38 +559,13 @@ a:hover{text-decoration:underline}
         <h2>Become a <em>Plugin Developer</em></h2>
         <p>The 0pnMatrx plugin system is fully open. Build plugins in Python or JavaScript and publish them to the marketplace.</p>
         <p><strong>Paid plugin sales are not live yet.</strong> Free plugins install today; nothing on the platform can complete a paid plugin purchase or pay out its revenue.</p>
-        <a href="/docs/PLUGIN_DEVELOPMENT.md" class="dev-link">&#128214; Read the Plugin Development Guide</a>
+        <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/docs/PLUGIN_DEVELOPMENT.md" target="_blank" class="dev-link">&#128214; Read the Plugin Development Guide</a>
       </div>
 
-      <!-- Right: Submit Form -->
+      <!-- Right: How to submit -->
       <div class="submit-form">
         <h3>Submit Your Plugin</h3>
-        <p class="form-sub">Fill out the form below. Our review team will evaluate your plugin within 48 hours.</p>
-        <form id="submitPluginForm" onsubmit="submitPlugin(event)">
-          <div class="form-group">
-            <label class="form-label" for="pluginName">Plugin Name</label>
-            <input class="form-input" type="text" id="pluginName" placeholder="My Awesome Plugin" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pluginDesc">Description</label>
-            <textarea class="form-textarea" id="pluginDesc" placeholder="Describe what your plugin does, what services it adds, and who it is for..." required></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="pluginRepo">Repository URL</label>
-              <input class="form-input" type="url" id="pluginRepo" placeholder="https://github.com/you/plugin" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="pluginPrice">Price (USD)</label>
-              <input class="form-input" type="number" id="pluginPrice" placeholder="0.00" min="0" step="0.01" value="0">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pluginEmail">Contact Email</label>
-            <input class="form-input" type="email" id="pluginEmail" placeholder="dev@example.com" required>
-          </div>
-          <button class="form-submit" type="submit" id="submitPluginBtn">Submit for Review</button>
-        </form>
+        <p class="form-sub">Submitting is an authenticated API call, so this page cannot make it for you. Send <code>POST /marketplace/plugins/submit</code> to a gateway with its API key (<code>Authorization: Bearer &lt;key&gt;</code>) and a JSON body with <code>name</code>, <code>description</code>, <code>repository_url</code> and <code>author</code>. The listing is stored with status <code>pending</code>. This gateway has no route that approves or activates a listing, so a submitted plugin does not appear here on its own.</p>
       </div>
 
     </div>
@@ -615,11 +589,10 @@ a:hover{text-decoration:underline}
 <footer class="footer">
   <ul class="footer-links">
     <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank">GitHub</a></li>
-    <li><a href="/docs">API Docs</a></li>
+    <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/docs/api-reference.md" target="_blank">API Docs</a></li>
     <li><a href="/chat">Chat</a></li>
-    <li><a href="/pricing">Pricing</a></li>
     <li><a href="/audit">Audit</a></li>
-    <li><a href="/docs/PLUGIN_DEVELOPMENT.md">Plugin Docs</a></li>
+    <li><a href="https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/docs/PLUGIN_DEVELOPMENT.md" target="_blank">Plugin Docs</a></li>
   </ul>
   <p>&copy; 2026 0pnMatrx. Open source under MIT license.</p>
 </footer>
@@ -694,46 +667,6 @@ a:hover{text-decoration:underline}
       btn.style.color = "var(--green)";
       btn.style.borderColor = "var(--border)";
     }, 1500);
-  };
-
-  // ── Submit Plugin Form ──
-  window.submitPlugin = function(e){
-    e.preventDefault();
-    const btn = document.getElementById("submitPluginBtn");
-    btn.disabled = true;
-    btn.textContent = "Submitting...";
-
-    const payload = {
-      name: document.getElementById("pluginName").value,
-      description: document.getElementById("pluginDesc").value,
-      repository_url: document.getElementById("pluginRepo").value,
-      price: parseFloat(document.getElementById("pluginPrice").value) || 0,
-      email: document.getElementById("pluginEmail").value
-    };
-
-    fetch("/marketplace/submit", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    })
-    .then(r=> r.json())
-    .then(data=>{
-      if(data.status === "ok"){
-        btn.textContent = "Submitted! We will review within 48h.";
-        btn.style.background = "var(--bg-surface)";
-        btn.style.color = "var(--green)";
-        document.getElementById("submitPluginForm").reset();
-      } else {
-        alert(data.message || "Submission failed. Please try again.");
-        btn.textContent = "Submit for Review";
-        btn.disabled = false;
-      }
-    })
-    .catch(()=>{
-      alert("Connection error. Please check that the server is running.");
-      btn.textContent = "Submit for Review";
-      btn.disabled = false;
-    });
   };
 
   // ── Fade-in observer ──

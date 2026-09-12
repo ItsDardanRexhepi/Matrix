@@ -389,17 +389,25 @@ reports `platform_commission_rate` from `plugin_marketplace.commission_rate`
 
 ### `POST /marketplace/plugins/submit`
 
-Submit a new plugin for review (Enterprise tier required).
+Submit a new plugin listing. Requires the API key; no subscription tier is
+checked. The listing is stored with `status: "pending"` and is not returned by
+`GET /marketplace/plugins` (which lists `active` listings held in memory). Nothing
+in this gateway approves or activates a listing, and stored listing rows are not
+read back after a restart. `author` is taken from the body as given (default `"anonymous"`); it is
+not verified against the caller. Paid sales are not built, so a `price_usd`
+above zero produces a listing that cannot be bought (see purchase above).
 
 ```json
 {
   "name": "My Plugin",
   "description": "Does something useful",
-  "price_usd": 4.99,
+  "author": "0xYourWallet",
   "category": "defi",
   "repository_url": "https://github.com/..."
 }
 ```
+
+Response: `{"status": "submitted", "plugin_id": "...", "message": "..."}`.
 
 ### `GET /marketplace/purchased`
 

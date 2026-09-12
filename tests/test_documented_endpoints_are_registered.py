@@ -17,6 +17,22 @@ route tuple in the gateway (the same extraction docs/ROUTES.md is generated and
 CI-checked from). The doc side is every `METHOD /path` and every
 `localhost:18790/path` in the public docs, and every `${baseUrl}/path` the JS
 SDK fetches. Path parameters compare by position, not by name.
+
+The web pages the gateway serves are clients too, and the most direct ones: a
+page that links or fetches a path sends the visitor's browser there. The first
+version of this control only saw `METHOD /path` text, so the plugin-submission
+form (`fetch("/marketplace/submit")`), the conversion order form
+(`fetch('/services/conversion/request')`) and ten `href="/pricing"` links all
+passed it while every one answered 404. Tracked `web/*.html` and `web/*.js` are
+now read for root-relative `href`/`src`/`action` attributes, the first literal
+argument of `fetch()` / `new EventSource()`, and `*_URL = '/path'` constants.
+A literal cut off by string concatenation (`"/badge/" + id`) must be a prefix
+of a registered route.
+
+Two files are legal copy that this repository may not edit without counsel
+(web/terms.html, web/privacy.html). Their unregistered links are listed
+exactly, and the test fails if the list stops matching — in either direction —
+so a counsel fix removes the entry rather than leaving a stale exemption.
 """
 
 from __future__ import annotations
@@ -94,3 +110,94 @@ def test_every_documented_endpoint_is_registered():
         or (method != "ANY" and (method, path) not in pairs)
     })
     assert not missing, "documented but not registered (a client gets 404):\n" + "\n".join(missing)
+
+
+# ── Web pages served by the gateway ─────────────────────────────────────────
+
+_LEGAL_COPY = {"web/terms.html", "web/privacy.html"}
+# Unregistered paths in legal copy, carried to counsel as a redline.
+_LEGAL_COPY_PENDING_REDLINE = {
+    ("web/privacy.html", "/pricing"),
+    ("web/terms.html", "/pricing"),
+}
+
+_WEB_ATTR = re.compile(r"""\b(?:href|src|action)\s*=\s*(["'])(/(?!/)[^"'\s>]*)""")
+_WEB_CALL = re.compile(r"""\b(?:fetch|EventSource)\(\s*(["'`])(/(?!/)[^"'`\s]*)""")
+_WEB_CONST = re.compile(r"""\b[A-Z_]*URL\s*=\s*(["'`])(/(?!/)[^"'`\s]*)""")
+_WEB_TEMPLATE = re.compile(r"""\bfetch\(\s*`\$\{[^}]+\}(/[^`\s]*)`""")
+
+
+def _web_links(rel: str, text: str) -> list[tuple[str, str, bool]]:
+    """(rel, path, is_prefix) for every root-relative client target in a page."""
+    found = []
+    for pattern in (_WEB_ATTR, _WEB_CALL, _WEB_CONST, _WEB_TEMPLATE):
+        for m in pattern.finditer(text):
+            raw = m.group(m.lastindex)
+            end = m.end(m.lastindex)
+            tail = text[end:end + 12].lstrip()
+            # quote or template close followed by concatenation → a prefix
+            is_prefix = bool(re.match(r"""["'`]?\s*\+""", tail)) or "${" in raw
+            raw = raw.split("${")[0]
+            path = raw.split("?")[0].split("#")[0]
+            if is_prefix:
+                found.append((rel, path, True))
+            else:
+                found.append((rel, _norm(path), False))
+    return found
+
+
+def _web_pages() -> list[str]:
+    out = subprocess.check_output(["git", "ls-files", "web/*.html", "web/*.js"],
+                                  cwd=ROOT, text=True)
+    return [rel for rel in out.splitlines() if (ROOT / rel).is_file()]
+
+
+def _unregistered_web_links() -> set[tuple[str, str]]:
+    _pairs, paths = _registered()
+    missing = set()
+    for rel in _web_pages():
+        for _rel, path, is_prefix in _web_links(rel, (ROOT / rel).read_text(encoding="utf-8")):
+            if is_prefix:
+                ok = any(p.startswith(path) or p == _norm(path) for p in paths)
+            else:
+                ok = path in paths
+            if not ok:
+                missing.add((rel, path))
+    return missing
+
+
+def test_the_web_extraction_sees_links_fetches_and_prefixes():
+    """Planted positive: each extraction shape is seen, and a concatenated
+    literal is a prefix, not a whole path."""
+    page = (
+        '<a href="/pricing">x</a> <form action="/nope/form">'
+        'fetch("/marketplace/submit", {method:"POST"}); '
+        "fetch('/badge/' + id + '/status'); new EventSource('/social/feed/stream'); "
+        "const FEED_URL = '/social/feed'; fetch(`${baseUrl()}/chat/stream`); "
+        '<a href="https://example.com/x">external</a> <a href="//cdn/x">proto</a>'
+    )
+    links = {(p, pre) for _r, p, pre in _web_links("planted.html", page)}
+    assert ("/pricing", False) in links
+    assert ("/nope/form", False) in links
+    assert ("/marketplace/submit", False) in links
+    assert ("/badge/", True) in links
+    assert ("/social/feed/stream", False) in links
+    assert ("/social/feed", False) in links
+    assert ("/chat/stream", False) in links
+    assert not any("example.com" in p or p.startswith("//") for p, _ in links)
+    assert len(_web_pages()) >= 10
+
+
+def test_every_web_page_link_and_fetch_is_registered():
+    missing = {m for m in _unregistered_web_links() if m[0] not in _LEGAL_COPY}
+    assert not missing, (
+        "served web pages send a browser to paths the gateway does not register "
+        "(the visitor gets 404):\n" + "\n".join(f"{r}: {p}" for r, p in sorted(missing)))
+
+
+def test_legal_copy_unregistered_links_match_the_pending_redline():
+    legal = {m for m in _unregistered_web_links() if m[0] in _LEGAL_COPY}
+    assert legal == _LEGAL_COPY_PENDING_REDLINE, (
+        "legal-copy links no longer match the redline list; update "
+        f"_LEGAL_COPY_PENDING_REDLINE. found={sorted(legal)} "
+        f"listed={sorted(_LEGAL_COPY_PENDING_REDLINE)}")

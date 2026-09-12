@@ -65,12 +65,15 @@ async def handle_tool(self, input: str, **kwargs) -> str:
 
 ## Plugin Marketplace
 
-### Selling Your Plugin
+### Listing Your Plugin
 
 1. Build and test your plugin locally
-2. Submit it via `POST /marketplace/plugins/submit` (requires Enterprise tier)
-3. Wait for review and approval
-4. Your plugin appears on the marketplace
+2. Submit it via `POST /marketplace/plugins/submit` with the gateway API key (no
+   subscription tier is checked)
+3. The listing is stored with status `pending`. Nothing in this gateway reviews,
+   approves or activates a listing, so it never appears in
+   `GET /marketplace/plugins`: the route lists `active` listings held in memory,
+   and stored listing rows are not read back after a restart.
 
 ### Revenue Share
 

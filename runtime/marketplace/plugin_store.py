@@ -345,7 +345,9 @@ class PluginMarketplace:
     async def submit_listing(self, author: str, listing_data: dict) -> dict:
         """Submit a new plugin listing for review.
 
-        Only Enterprise tier users can submit plugins.
+        No subscription tier is checked here or in the route handler; the
+        route is behind the gateway API key. ``author`` is whatever the
+        caller supplied and is not verified.
 
         Parameters
         ----------
@@ -400,7 +402,8 @@ class PluginMarketplace:
         return {
             "status": "submitted",
             "plugin_id": listing.plugin_id,
-            "message": "Plugin submitted for review. You will be notified when approved.",
+            "message": ("Plugin listing stored with status pending. It is not listed "
+                        "until it is made active; this gateway has no approval route."),
         }
 
     async def record_download(self, plugin_id: str) -> None:

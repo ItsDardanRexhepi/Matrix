@@ -248,7 +248,6 @@ a:hover{text-decoration:underline}
   <div class="nav-links">
     <a href="/">Home</a>
     <a href="/chat">Chat</a>
-    <a href="/pricing">Pricing</a>
     <a href="/audit">Audit</a>
     <a href="/glasswing">Glasswing</a>
   </div>
@@ -328,7 +327,7 @@ a:hover{text-decoration:underline}
 
   <!-- Report Link -->
   <div style="text-align:center;margin-top:24px">
-    <a class="report-link" id="reportLink" href="#">View Full Audit Report</a>
+    <span class="report-link" id="reportLink">Audit report hash: <code id="reportHash"></code></span>
   </div>
 </div>
 
@@ -429,8 +428,10 @@ a:hover{text-decoration:underline}
 
     // Report link
     var reportLink = document.getElementById("reportLink");
+    // The badge stores a digest of the audit report, not a report id, and no
+    // route serves a report by its digest: show the digest, link nothing.
     if (data.audit_report_hash) {
-      reportLink.href = "/audit/report/" + encodeURIComponent(data.audit_report_hash);
+      document.getElementById("reportHash").textContent = data.audit_report_hash;
     } else {
       reportLink.style.display = "none";
     }
