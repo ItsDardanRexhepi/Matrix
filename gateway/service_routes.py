@@ -630,6 +630,15 @@ class ServiceRoutes:
         "timeout": 504,
     }
 
+    # client_error's statuses, as the aiohttp exceptions `_call` raises.
+    _HTTP_ERROR_FOR_STATUS = {
+        400: web.HTTPBadRequest,
+        404: web.HTTPNotFound,
+        500: web.HTTPInternalServerError,
+        503: web.HTTPServiceUnavailable,
+        504: web.HTTPGatewayTimeout,
+    }
+
     def _ok(self, data: Any) -> web.Response:
         """Wrap a service result — but never dress a failure as a success.
 
@@ -749,9 +758,20 @@ class ServiceRoutes:
                 content_type="application/json",
             )
         except Exception as exc:
-            logger.exception("Error in %s.%s", service_name, method_name)
-            raise web.HTTPInternalServerError(
-                text=json.dumps({"error": str(exc)}),
+            # This was `HTTPInternalServerError({"error": str(exc)})`: whatever a
+            # service raised — an RPC URL with credentials in it, a provider's
+            # quota text — became the body of every direct route and batch
+            # sub-call that funnels through here. RUN-5 built client_error for
+            # exactly this and applied it to 13 sites; the funnel they all share
+            # was not one of them. It also said 500 for a dependency that was
+            # merely unreachable. client_error logs the full exception against
+            # a ref and decides both the status (500/503/504) and what the
+            # client may see.
+            _st, _err = client_error(
+                exc, None, what=f"{service_name}.{method_name}")
+            raise self._HTTP_ERROR_FOR_STATUS.get(
+                _st, web.HTTPInternalServerError)(
+                text=json.dumps(_err),
                 content_type="application/json",
             )
 
@@ -3177,11 +3197,13 @@ class ServiceRoutes:
             }
         except Exception as exc:  # pragma: no cover — defence in depth
             logger.exception("Batch item %s crashed (%s %s)", item_id, method, literal_path)
+            # Same contract as `_call`: the exception is logged, never returned.
+            _st, _err = client_error(exc, None, what=f"Batch item {item_id}")
             return {
                 "id": item_id,
-                "status": 500,
+                "status": _st,
                 "body": None,
-                "error": str(exc),
+                "error": _err["error"],
             }
 
         return {
