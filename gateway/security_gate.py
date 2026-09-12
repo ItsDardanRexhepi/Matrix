@@ -93,6 +93,8 @@ async def gate_action(
     action_type: str,
     parameters: Optional[dict] = None,
     context: Optional[dict] = None,
+    *,
+    operation: Optional[tuple[str, str]] = None,
 ) -> dict:
     """Run one action through the Morpheus gate and return its decision dict.
 
@@ -119,8 +121,14 @@ async def gate_action(
         # read observe-allows so a transient gateway fault doesn't break it. The coarse
         # public label is the only input; the authoritative classification still lives
         # in the private gate.
-        from runtime.access_policy import could_move_value
-        if could_move_value(action_type):
+        #
+        # ``operation`` is the (service, method) the caller is about to RUN, when
+        # it knows one. The label alone is not enough: ServiceRoutes._call passes
+        # a METHOD name, and `list_item` (marketplace.list_item — a state change
+        # the dispatcher's set calls `list_marketplace`) read as a benign
+        # `list_` read, so POST /api/v1/marketplace/list ran under a faulted gate.
+        from runtime.access_policy import operation_could_move_value
+        if operation_could_move_value(action_type, *(operation or (None, None))):
             logger.exception("security gate unreachable; FAIL-CLOSED deny (action=%s)", action_type)
             return {"allow": False, "would_block": True, "route": "fail-closed",
                     "reason": _GENERIC_DENY}

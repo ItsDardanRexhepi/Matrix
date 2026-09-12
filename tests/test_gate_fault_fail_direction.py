@@ -360,3 +360,248 @@ async def test_an_audit_report_that_cannot_render_still_blocks(monkeypatch):
     result = await stack.pre_action(
         "platform_action", {"action": "get_contract_template", "source_code": CONTRACT}, CTX)
     assert result["approved"] is False
+
+
+# ── Round 3: a deny is the verdict, not its reason ───────────────────────────
+#
+# be88818 restructured ReActLoop.run so that dispatch was skipped only when a
+# `denial` string had been read out of the gate result: `approved: False` with
+# `denial_reason: None` DISPATCHED the call. bb7a1ef skipped dispatch on the
+# approval flag alone. The real ProtocolStack produces exactly that shape when
+# Morpheus denies with `reason: None` — `decision.get("reason", default)` returns
+# the None, the default applies only to a missing key. A deny with no stated
+# reason read as approval: the fault-means-approval shape this file exists for.
+
+
+def _deny_shaped_gate(shape):
+    async def pre_action(self, tool_name, arguments, context):
+        return dict(shape)
+    return pre_action
+
+
+@pytest.mark.parametrize("shape", [
+    {"approved": False, "denial_reason": None, "morpheus_message": None},
+    {"approved": False, "denial_reason": "", "morpheus_message": None},
+    {"approved": False, "denial_reason": 0},
+    {"approved": False},
+    # A verdict that is not the literal approval is not an approval.
+    {"approved": None, "denial_reason": None},
+    {"approved": "false"},
+    {"denial_reason": None},
+], ids=["reason-None", "reason-empty", "reason-not-a-string", "no-reason-key",
+        "approved-None", "approved-a-string", "no-approved-key"])
+async def test_a_deny_with_no_usable_reason_is_still_a_deny(monkeypatch, tmp_path, shape):
+    from runtime.protocols.integration import ProtocolStack
+
+    monkeypatch.setattr(ProtocolStack, "pre_action", _deny_shaped_gate(shape))
+    loop, dispatched = _loop_with_one_tool_call(
+        tmp_path, "stablecoin", {"action": "transfer", "to": "0xTEST_B", "amount": 1})
+    result = await _run(loop)
+    assert dispatched == [], f"a gate result {shape} read as approval and the transfer ran"
+    call = result.tool_calls[0]
+    assert call["success"] is False and call["result_preview"].startswith("[DENIED] ")
+    assert len(call["result_preview"]) > len("[DENIED] "), "the refusal carried no text"
+
+
+async def test_an_approval_still_dispatches(monkeypatch, tmp_path):
+    """The positive control for the shapes above: the literal approval runs."""
+    from runtime.protocols.integration import ProtocolStack
+
+    monkeypatch.setattr(ProtocolStack, "pre_action", _deny_shaped_gate(
+        {"approved": True, "denial_reason": None, "morpheus_message": None}))
+    loop, dispatched = _loop_with_one_tool_call(
+        tmp_path, "stablecoin", {"action": "transfer", "to": "0xTEST_B", "amount": 1})
+    await _run(loop)
+    assert dispatched == [("stablecoin", "transfer")]
+
+
+@pytest.mark.parametrize("reason", [None, "", 7])
+async def test_a_morpheus_deny_with_no_reason_is_a_deny_through_the_real_stack(monkeypatch, tmp_path, reason):
+    """No patched pre_action: the real ProtocolStack, with a Morpheus stand-in
+    returning `{allow: False, reason: <reason>}`."""
+    import runtime.security as seam
+
+    class _DenyWithoutReason:
+        async def evaluate(self, action, context):
+            return {"allow": False, "reason": reason}
+
+    monkeypatch.setattr(seam, "get_morpheus_security", lambda *a, **k: _DenyWithoutReason())
+
+    loop, dispatched = _loop_with_one_tool_call(
+        tmp_path, "stablecoin", {"action": "transfer", "to": "0xTEST_B", "amount": 1})
+    await _run(loop)
+    assert dispatched == [], "Morpheus denied with no reason and the transfer ran"
+
+    # And at the source: pre_action never emits a deny without a reason.
+    from runtime.protocols.integration import ProtocolStack
+    stack = ProtocolStack({"agents": {}, "security": {}}, "neo")
+    direct = await stack.pre_action(*TRANSFER, CTX)
+    assert direct["approved"] is False
+    assert isinstance(direct["denial_reason"], str) and direct["denial_reason"].strip(), direct
+
+
+# ── Round 3: the gateway funnel's direction was keyed on the METHOD name ─────
+#
+# be88818 said every caller of the one direction got the state-modifying set.
+# ServiceRoutes._call — the funnel behind every dedicated /api/v1 route — does
+# not pass an ACTION_MAP action name. It passes `action_type_for(service,
+# method)`, the METHOD name, and for marketplace.list_item that is `list_item`:
+# not in the set (which holds `list_marketplace`), prefixed `list_`, so a
+# faulted gate observe-allowed POST /api/v1/marketplace/list while it denied
+# /marketplace/buy. The direction is now keyed on the (service, method) pair
+# `_call` RUNS as well as on the label.
+
+_SAFE_HTTP = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _app_with_routes(tmp_path):
+    import sys
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    from gateway.server import GatewayServer
+    from gateway.service_routes import ServiceRoutes
+
+    server = GatewayServer({**SWEEP_CONFIG, "memory_dir": str(tmp_path / "m"),
+                            "database": {"path": str(tmp_path / "g.db")},
+                            "gateway": {**SWEEP_CONFIG["gateway"], "api_key": "k"}})
+    app = server.create_app()
+    routes = next(r.handler.__self__ for r in app.router.routes()
+                  if isinstance(getattr(r.handler, "__self__", None), ServiceRoutes))
+    return server, app, routes
+
+
+def _route_operations(app):
+    """(service, method) -> {(http method, canonical route)}, from the REAL router
+    and each handler's `self._call(...)` on the AST — nothing the route says
+    about itself."""
+    import ast
+    import collections
+    import inspect
+    import textwrap
+
+    out = collections.defaultdict(set)
+    for route in app.router.routes():
+        if route.resource is None:
+            continue
+        try:
+            src = inspect.getsource(getattr(route.handler, "__func__", route.handler))
+        except (OSError, TypeError):
+            continue
+        for node in ast.walk(ast.parse(textwrap.dedent(src))):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "_call" and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "self"):
+                head = node.args[:2]
+                assert len(head) == 2 and all(
+                    isinstance(a, ast.Constant) and isinstance(a.value, str) for a in head), (
+                    f"{route.resource.canonical}: self._call with a non-literal service/method")
+                out[(head[0].value, head[1].value)].add((route.method, route.resource.canonical))
+    return out
+
+
+def _state_modifying_pairs():
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP, _STATE_MODIFYING_ACTIONS
+    return {ACTION_MAP[a] for a in _STATE_MODIFYING_ACTIONS if a in ACTION_MAP}
+
+
+class _RecordingRegistry:
+    def __init__(self):
+        self.ran = []
+
+    def get(self, service):
+        ran = self.ran
+
+        class _Svc:
+            def __getattr__(self, method):
+                async def call(**kwargs):
+                    ran.append(f"{service}.{method}")
+                    return {"status": "ok"}
+                return call
+        return _Svc()
+
+
+def _raising_seam(monkeypatch):
+    import runtime.security as seam
+
+    def _broken(*a, **k):
+        raise RuntimeError("Morpheus seam unreachable")
+
+    monkeypatch.setattr(seam, "get_morpheus_security", _broken)
+
+
+async def test_every_route_operation_that_changes_state_fails_closed_under_a_gate_fault(monkeypatch, tmp_path):
+    """Every (service, method) a dedicated route runs that is either the pair of
+    a state-modifying ACTION_MAP action or served on an unsafe HTTP method is
+    driven through the real `_call` with the gate raising. None may run."""
+    from aiohttp import web
+
+    _server, app, routes = _app_with_routes(tmp_path)
+    registry = _RecordingRegistry()
+    monkeypatch.setattr(routes, "_get_registry", lambda: registry)
+    _raising_seam(monkeypatch)
+
+    ops = _route_operations(app)
+    state_pairs = _state_modifying_pairs()
+    must_close = sorted(p for p, rs in ops.items()
+                        if p in state_pairs or any(m not in _SAFE_HTTP for m, _ in rs))
+    assert ("marketplace", "list_item") in must_close, "precondition: the reviewer's pair is covered"
+    allowed = []
+    for service, method in must_close:
+        try:
+            await routes._call(service, method)
+        except web.HTTPForbidden:
+            continue
+        allowed.append((service, method, sorted(ops[(service, method)])))
+    assert allowed == [], (
+        f"under a gate fault {len(allowed)} state-changing route operations ran:\n  "
+        + "\n  ".join(f"{s}.{m} {r}" for s, m, r in allowed))
+    assert registry.ran == []
+
+
+async def test_post_marketplace_list_is_refused_under_a_gate_fault_and_a_read_is_not(monkeypatch, tmp_path):
+    """End to end through the real app and auth wall (operator key, so a 403 can
+    only be the gate), with the reviewer's exact request."""
+    from aiohttp.test_utils import TestClient, TestServer
+
+    _server, app, routes = _app_with_routes(tmp_path)
+    registry = _RecordingRegistry()
+    monkeypatch.setattr(routes, "_get_registry", lambda: registry)
+    _raising_seam(monkeypatch)
+
+    async with TestClient(TestServer(app)) as client:
+        auth = {"Authorization": "Bearer k"}
+        resp = await client.post("/api/v1/marketplace/list", headers=auth, json={
+            "seller": "0xTEST_A", "item_type": "nft", "metadata": {}, "price": 1})
+        assert resp.status == 403, await resp.text()
+        resp = await client.post("/api/v1/marketplace/buy", headers=auth, json={
+            "listing_id": "l1", "buyer": "0xTEST_A"})
+        assert resp.status == 403, await resp.text()
+        assert registry.ran == [], f"a faulted gate let these run: {registry.ran}"
+
+        # Fail-closed, not fail-always: a GET read through the same funnel runs.
+        resp = await client.get("/api/v1/rwa/listings", headers=auth)
+        assert resp.status == 200, await resp.text()
+        assert registry.ran == ["rwa_tokenization.list_assets"]
+
+
+async def test_a_platform_action_service_override_is_classified_by_the_pair_it_runs():
+    """The sibling axis of the method-name hole, one frame up: a read ACTION name
+    with a `service` override resolves to whatever that service's method is. The
+    fault direction for a dispatch is keyed on the pair it resolves to."""
+    from runtime.access_policy import dispatch_could_move_value
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+
+    # Plant a read action whose method name is also a state-modifying method on
+    # another service, then point the override at that service.
+    state_pairs = sorted(_state_modifying_pairs())
+    service, method = state_pairs[0]
+    planted = "get_planted_read_for_override_test"
+    other = next(s for s, _m in ACTION_MAP.values() if s != service)
+    ACTION_MAP[planted] = (other, method)
+    try:
+        assert dispatch_could_move_value("platform_action",
+                                         {"action": planted, "service": service}) is True
+        assert dispatch_could_move_value("platform_action", {"action": "get_balance"}) is False
+    finally:
+        del ACTION_MAP[planted]

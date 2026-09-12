@@ -56,13 +56,13 @@ def _gate_fault_denies(tool_name: str, arguments: Any) -> bool:
     """True when a tool call must NOT run because the protocol gate could not
     decide on it. The same direction `ProtocolStack._deny_on_gate_fault` gives a
     single faulted gate: whatever `could_move_value` (value-moving, state-
-    modifying, owner-gated or unrecognised) is refused; a clearly benign read
-    proceeds. If the classification itself cannot run, refuse."""
+    modifying, owner-gated or unrecognised) is refused — for the dispatching
+    tools, judged on the (service, method) the call resolves to as well as its
+    label; a clearly benign read proceeds. If the classification itself cannot
+    run, refuse."""
     try:
-        from runtime.access_policy import could_move_value
-        from runtime.security.action_map import canonical_action
-        action_type, _ = canonical_action(tool_name, arguments)
-        return bool(could_move_value(action_type))
+        from runtime.access_policy import dispatch_could_move_value
+        return bool(dispatch_could_move_value(tool_name, arguments))
     except Exception:
         logger.exception("gate-fault classification failed for tool=%s; refusing", tool_name)
         return True
@@ -330,9 +330,14 @@ class ReActLoop:
                         gate = await protocol_stack.pre_action(
                             tool_name, arguments, context.metadata.get("user_context", {}),
                         )
-                        if not gate.get("approved", True):
-                            # Tool call denied by protocol gate
-                            denial = gate.get("denial_reason", "Action denied by security protocols.")
+                        # The VERDICT decides, never its reason: be88818 skipped
+                        # dispatch only when a reason string came back, so
+                        # `approved: False, denial_reason: None` ran the call.
+                        # Only the literal approval is an approval.
+                        if gate.get("approved") is not True:
+                            reason = gate.get("denial_reason")
+                            denial = (reason if isinstance(reason, str) and reason.strip()
+                                      else "Action denied by security protocols.")
                         elif gate.get("morpheus_message"):
                             morpheus_prefix = gate["morpheus_message"] + "\n\n"
                     except Exception:

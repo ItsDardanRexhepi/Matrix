@@ -836,8 +836,9 @@ class BridgeRoutes:
             app_attest=body.get("app_attest"),
             session_id=session_id,
         )
+        from runtime.access_policy import dispatch_pair
         decision = await gate_action(action, params if isinstance(params, dict) else {},
-                                     current_request_security())
+                                     current_request_security(), operation=dispatch_pair(action))
         if is_blocked(decision):
             return MobileResponse.error(generic_denial(decision), 403)
 

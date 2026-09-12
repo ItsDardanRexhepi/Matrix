@@ -108,6 +108,68 @@ def could_move_value(action_type: str | None) -> bool:
     return True       # value-moving / owner-gated / unrecognised → fail closed
 
 
+# ── The same direction keyed on what RUNS, not on what it is called ──────────
+#
+# A label is whatever the caller had to hand. ServiceRoutes._call passes the
+# METHOD name (`list_item` for marketplace.list_item, which the state-modifying
+# set knows as `list_marketplace`), and platform_action takes a `service`
+# override that moves an action name onto another service's method. Both are
+# the same operation the dispatcher's state-modifying set describes, under a
+# spelling the set does not contain. The pair is what dispatch executes.
+
+
+def is_state_modifying_pair(service: str | None, method: str | None) -> bool:
+    """True when ``(service, method)`` is what a state-modifying ACTION_MAP
+    action dispatches to. If the tables cannot load, True (fail closed)."""
+    try:
+        from runtime.blockchain.services.service_dispatcher import (
+            ACTION_MAP, _STATE_MODIFYING_ACTIONS,
+        )
+        pair = (str(service or ""), str(method or ""))
+        return any(ACTION_MAP.get(a) == pair for a in _STATE_MODIFYING_ACTIONS)
+    except Exception:  # pragma: no cover — tables unavailable: treat as mutating
+        logger.debug("Could not load ACTION_MAP; treating %s.%s as state-modifying", service, method)
+        return True
+
+
+def dispatch_pair(action: object, service: object = None) -> tuple[str, str] | None:
+    """The ``(service, method)`` ServiceDispatcher.execute runs for *action*,
+    resolved the way it resolves it: ACTION_MAP, then a truthy ``service``
+    override replaces the service. None for an unknown or non-string action."""
+    if not isinstance(action, str):
+        return None
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    pair = ACTION_MAP.get(action)
+    if pair is None:
+        return None
+    return (str(service) if service else pair[0], pair[1])
+
+
+def operation_could_move_value(action_type: str | None, service: str | None = None,
+                               method: str | None = None) -> bool:
+    """`could_move_value` for a label, AND for the pair that label runs: either
+    one saying "could move value" fails closed."""
+    if could_move_value(action_type):
+        return True
+    return service is not None and method is not None and is_state_modifying_pair(service, method)
+
+
+def dispatch_could_move_value(tool_name: str, arguments: object) -> bool:
+    """The fail direction for a TOOL CALL, keyed on its canonical label and, for
+    the dispatching tools, on the pair the call resolves to (including a
+    platform_action ``service`` override)."""
+    from runtime.security.action_map import canonical_action
+    action_type, _ = canonical_action(tool_name, arguments)
+    args = arguments if isinstance(arguments, dict) else {}
+    pair = None
+    if tool_name in ("platform_action", "request_execution"):
+        pair = dispatch_pair(args.get("action"),
+                             args.get("service") if tool_name == "platform_action" else None)
+    if pair is None:
+        return could_move_value(action_type)
+    return operation_could_move_value(action_type, *pair)
+
+
 def default_agent_access(agent: str | None, tool: str, action: str | None = None) -> tuple[bool, str]:
     """Coarse PUBLIC per-agent access decision. Returns ``(allowed, reason)``.
 

@@ -684,7 +684,8 @@ class ServiceRoutes:
             generic_denial, is_blocked,
         )
         decision = await gate_action(
-            action_type_for(service_name, method_name), kwargs, current_request_security()
+            action_type_for(service_name, method_name), kwargs, current_request_security(),
+            operation=(service_name, method_name),
         )
         if is_blocked(decision):
             raise web.HTTPForbidden(
@@ -2841,7 +2842,9 @@ class ServiceRoutes:
                      "message": "This capability is not available to a user session; "
                                 f"its route ({refused}) requires the operator key."},
                     status=403)
-        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security)
+        from runtime.access_policy import dispatch_pair
+        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security,
+                                     operation=dispatch_pair(action_label))
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
         result = await reg.invoke(capability_id, params, caller_identity=authed)

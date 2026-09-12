@@ -372,7 +372,7 @@ class ProtocolStack:
 
     @staticmethod
     def _deny_on_gate_fault(result: dict[str, Any], action_type: str, gate: str,
-                            phase: str) -> bool:
+                            phase: str, *, call: tuple[str, Any] | None = None) -> bool:
         """The ONE fail-direction for a gate that faulted, whichever gate it is.
 
         A gate that raised (``phase="evaluate"``) or never constructed
@@ -386,9 +386,24 @@ class ProtocolStack:
         Glasswing auditor logged the same fault and fell through with
         ``approved`` still True, so a transfer Morpheus's fault denies was
         waved through one block later.
+
+        ``call`` is the ``(tool_name, arguments)`` being gated. With it the
+        direction is also keyed on the (service, method) a dispatching tool
+        RESOLVES to — a platform_action ``service`` override moves an action
+        name onto another service's method, and the label alone would not see
+        it. If the classification itself cannot run, the call is refused.
         """
-        from runtime.access_policy import could_move_value
-        if could_move_value(action_type):
+        try:
+            if call is not None:
+                from runtime.access_policy import dispatch_could_move_value
+                moves_value = dispatch_could_move_value(*call)
+            else:
+                from runtime.access_policy import could_move_value
+                moves_value = could_move_value(action_type)
+        except Exception:
+            logger.exception("gate-fault classification failed (action=%s); refusing", action_type)
+            moves_value = True
+        if moves_value:
             logger.error("%s gate unavailable (%s fault); FAIL-CLOSED deny (action=%s)",
                          gate, phase, action_type)
             result["approved"] = False
@@ -401,6 +416,27 @@ class ProtocolStack:
         return False
 
     async def pre_action(
+        self,
+        tool_name: str,
+        arguments: dict,
+        context: dict,
+    ) -> dict[str, Any]:
+        """Gate-check a tool call before execution (see ``_pre_action``).
+
+        The one exit every verdict passes: ``approved`` is the literal True or
+        the literal False, and a False always carries a non-empty string
+        ``denial_reason``. A deny with no stated reason must never be readable
+        as anything but a deny, whichever branch produced it.
+        """
+        result = await self._pre_action(tool_name, arguments, context)
+        if result.get("approved") is not True:
+            result["approved"] = False
+            reason = result.get("denial_reason")
+            if not (isinstance(reason, str) and reason.strip()):
+                result["denial_reason"] = "Action denied by security protocols."
+        return result
+
+    async def _pre_action(
         self,
         tool_name: str,
         arguments: dict,
@@ -461,7 +497,7 @@ class ProtocolStack:
             # The gate could not be CONSTRUCTED. That is a fault, not a posture,
             # and it gets the same fail-direction the evaluate-time fault gets:
             # a value-moving or unrecognised action must not proceed ungated.
-            if self._deny_on_gate_fault(result, action_type, "Morpheus", "init"):
+            if self._deny_on_gate_fault(result, action_type, "Morpheus", "init", call=(tool_name, arguments)):
                 return result
 
         if self._morpheus_security is not None:
@@ -470,8 +506,14 @@ class ProtocolStack:
                 result["morpheus_security"] = decision
                 if not decision.get("allow", True):
                     result["approved"] = False
-                    result["denial_reason"] = decision.get(
-                        "reason", "Blocked by Morpheus security."
+                    # `.get("reason", default)` applies the default only to a
+                    # MISSING key: `reason: None` came through as None, and a
+                    # caller that read the reason instead of the verdict ran the
+                    # denied call (be88818's ReActLoop). A deny always states one.
+                    reason = decision.get("reason")
+                    result["denial_reason"] = (
+                        reason if isinstance(reason, str) and reason.strip()
+                        else "Blocked by Morpheus security."
                     )
                     return result
             except Exception:
@@ -483,7 +525,7 @@ class ProtocolStack:
                 # arguments. The authoritative classification lives in the private gate.
                 # The canonical action type carries the twins' real verb and
                 # platform_action's inner action alike.
-                if self._deny_on_gate_fault(result, action_type, "Morpheus", "evaluate"):
+                if self._deny_on_gate_fault(result, action_type, "Morpheus", "evaluate", call=(tool_name, arguments)):
                     return result
 
         # Rexhepi gate evaluation — the URF reasoning loop scores the six
@@ -493,7 +535,7 @@ class ProtocolStack:
         if self._rexhepi_gate is None and self._rexhepi_init_failed:
             # RexhepiGate ships in this repo, so None here is a construction
             # fault, never an absent install — same direction as Morpheus's.
-            if self._deny_on_gate_fault(result, action_type, "RexhepiGate", "init"):
+            if self._deny_on_gate_fault(result, action_type, "RexhepiGate", "init", call=(tool_name, arguments)):
                 return result
         if self._rexhepi_gate is not None:
             try:
@@ -516,7 +558,7 @@ class ProtocolStack:
                 # This fell through with `approved` still True: the exact fault
                 # that denies a transfer on the Morpheus branch above allowed it
                 # here. A gate that raised has decided nothing.
-                if self._deny_on_gate_fault(result, action_type, "RexhepiGate", "evaluate"):
+                if self._deny_on_gate_fault(result, action_type, "RexhepiGate", "evaluate", call=(tool_name, arguments)):
                     return result
 
         # Trajectory — outcome prediction (feeds into Ultron and Morpheus)
@@ -561,7 +603,7 @@ class ProtocolStack:
                 # `ContractAuditor.should_block` already blocks an audit that
                 # "could not be performed"; an auditor that never constructed is
                 # that case, one step earlier.
-                if self._deny_on_gate_fault(result, action_type, "Glasswing", "init"):
+                if self._deny_on_gate_fault(result, action_type, "Glasswing", "init", call=(tool_name, arguments)):
                     return result
             elif self._auditor is not None:
                 try:
@@ -574,7 +616,7 @@ class ProtocolStack:
                     # An audit that raised is an audit that was not performed,
                     # and should_block treats that as a block. Falling through
                     # approved the source it never read.
-                    if self._deny_on_gate_fault(result, action_type, "Glasswing", "evaluate"):
+                    if self._deny_on_gate_fault(result, action_type, "Glasswing", "evaluate", call=(tool_name, arguments)):
                         return result
                     audit_report, blocked = None, False
                 if audit_report is not None:
