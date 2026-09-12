@@ -31,6 +31,13 @@ If that quote is unavailable the caller must deny — a cap denominated in
 dollars cannot be enforced against an unknown dollar amount, and this module
 will not invent one.
 
+WHAT THE ALLOWLIST IS CHECKED AGAINST.  For a UserOperation, the action is
+          derived from the bytes being sponsored (`classify_user_operation`),
+          never from a label the requester writes about its own request. An
+          earlier route read `action_type` from the body and defaulted it to
+          "transfer", so the allowlist was satisfied by whatever the caller
+          said — §EE.
+
 Posture: an operator who has configured no policy sees exactly the previous
 behaviour. Denial happens only where a cap or an allowlist is configured.
 """
@@ -44,7 +51,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from functools import lru_cache
+from typing import Any, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +207,7 @@ class SponsorshipPolicy:
 
     # ── the decision ─────────────────────────────────────────────────────
 
-    def authorize_and_reserve(self, action: str, *, identity: str,
+    def authorize_and_reserve(self, action: Union[str, Sequence[str]], *, identity: str,
                               est_usd: float = 0.0,
                               now: Optional[float] = None) -> SponsorshipDecision:
         """Authorise one platform signature and take its budget atomically.
@@ -209,16 +217,27 @@ class SponsorshipPolicy:
         counting after RESERVATION_TTL_SECONDS.
         """
         now = time.time() if now is None else now
-        action = str(action or "")
+        # One operation can do several things (an account `executeBatch`), so
+        # the allowlist is checked against EVERY action in it: one allowed call
+        # must not carry a disallowed one through. A bare string is one action.
+        if action is None or isinstance(action, str):
+            labels = [str(action or "")]
+        else:
+            labels = [str(a or "") for a in action]
+        action = ",".join(labels)
         identity = canonical_identity(identity)
         est_usd = max(0.0, float(est_usd or 0.0))
 
-        if self.allowed_actions is not None and action not in self.allowed_actions:
-            return SponsorshipDecision(
-                False, "action_not_allowed",
-                f"gas sponsorship not available for action '{action}'",
-                identity=identity, action=action, est_usd=est_usd,
-                cap_usd=self.daily_cap_usd)
+        if self.allowed_actions is not None:
+            # An empty list of actions is not vacuously allowed.
+            refused = [a for a in labels if a not in self.allowed_actions] or (
+                [] if labels else ["<nothing>"])
+            if refused:
+                return SponsorshipDecision(
+                    False, "action_not_allowed",
+                    f"gas sponsorship not available for action '{','.join(refused)}'",
+                    identity=identity, action=action, est_usd=est_usd,
+                    cap_usd=self.daily_cap_usd)
 
         if not self.enforces_a_cap:
             # No cap configured: previous behaviour exactly, allowlist aside.
@@ -287,6 +306,118 @@ class SponsorshipPolicy:
         now = time.time() if now is None else now
         with self._connect() as conn:
             return self._spent(conn, canonical_identity(identity), now)
+
+
+# ── what is being sponsored ──────────────────────────────────────────────
+#
+# §EE: the sponsorship allowlist used to be checked against `action_type`, a
+# string the requester writes about its own request, defaulting to "transfer".
+# The paymaster digest commits to keccak(callData) and keccak(initCode), so
+# those bytes ARE what a signature sponsors — they are the only honest source for
+# the action, and they are right there in the request.
+#
+# WHAT THIS DECODES. The smart-account wrapper (contracts/OpenMatrixAccount.sol
+# `execute(dest, value, func)` and `executeBatch(dest[], func[])`, plus the
+# three-array `executeBatch` the MTRX client encodes), then the inner call's
+# 4-byte selector.
+#
+# WHAT IT CANNOT KNOW, stated so nobody reads more into it: a selector names an
+# ABI function, not what the target contract does with it. `transfer(address,
+# uint256)` on a contract someone wrote to look like a token is still labelled a
+# transfer. Binding labels to known token or DEX addresses would need an address
+# registry this repo does not have; the daily cap is what bounds the spend
+# either way.
+
+# Named inner calls. Each signature is hashed here rather than pasted as hex, so
+# a typo is a different signature rather than a silently wrong selector.
+_NAMED_SIGNATURES: dict[str, str] = {
+    "transfer(address,uint256)": "transfer",        # ERC-20 transfer
+    "approve(address,uint256)": "approve",          # ERC-20 approve
+    "swap(uint256,address,uint256)": "swap",        # contracts/OpenMatrixDEX.sol
+    "mint(address,string,uint96)": "mint_nft",      # contracts/OpenMatrixNFT.sol
+}
+
+_ACCOUNT_EXECUTE = "execute(address,uint256,bytes)"
+_ACCOUNT_BATCH = "executeBatch(address[],bytes[])"                # OpenMatrixAccount.sol
+_ACCOUNT_BATCH_VALUES = "executeBatch(address[],uint256[],bytes[])"  # MTRX client encoding
+
+
+@lru_cache(maxsize=None)
+def _selectors() -> dict[str, bytes]:
+    from eth_utils import keccak
+
+    sigs = [_ACCOUNT_EXECUTE, _ACCOUNT_BATCH, _ACCOUNT_BATCH_VALUES, *_NAMED_SIGNATURES]
+    return {sig: keccak(text=sig)[:4] for sig in sigs}
+
+
+def _inner_action(value: int, func: bytes) -> str:
+    if not func:
+        # Plain value transfer. With no value it moves nothing, so it is not a
+        # transfer — it is a bare call into whatever `dest` is.
+        return "transfer" if value > 0 else "empty_call"
+    if len(func) < 4:
+        return "unrecognized_call_data"
+    sel = func[:4]
+    for sig, label in _NAMED_SIGNATURES.items():
+        if _selectors()[sig] == sel:
+            return label
+    # Unnamed: report the selector itself, so an operator can allowlist one
+    # exact function (`call:0x12345678`) rather than a whole category.
+    return "call:0x" + sel.hex()
+
+
+def classify_user_operation(call_data: bytes, init_code: bytes = b"", *,
+                            account_factory: Optional[str] = None) -> list[str]:
+    """The actions a UserOperation performs, read from its own bytes.
+
+    Returns one label per thing the platform would be paying gas for. A caller's
+    declared action is deliberately not a parameter: nothing it says about its
+    own request can change the answer.
+
+    `init_code` is sponsored too — the EntryPoint runs it on the paymaster's
+    gas. Deploying the platform's own account through the configured
+    `account_factory` is part of every first operation and adds no label;
+    initCode through any other factory (or with no factory configured to
+    recognise it against) is labelled `init_code:<factory>`, which an
+    allowlist then has to name explicitly.
+    """
+    from eth_abi import decode
+
+    call_data = bytes(call_data or b"")
+    init_code = bytes(init_code or b"")
+    labels: list[str] = []
+
+    if init_code:
+        factory = "0x" + init_code[:20].hex() if len(init_code) >= 20 else "malformed"
+        if not (account_factory and factory == str(account_factory).lower()):
+            labels.append(f"init_code:{factory}")
+
+    if not call_data:
+        return labels + ["empty_call_data"]
+
+    sel, args = call_data[:4], call_data[4:]
+    table = _selectors()
+    try:
+        if sel == table[_ACCOUNT_EXECUTE]:
+            _dest, value, func = decode(["address", "uint256", "bytes"], args)
+            return labels + [_inner_action(int(value), bytes(func))]
+        if sel == table[_ACCOUNT_BATCH]:
+            dests, funcs = decode(["address[]", "bytes[]"], args)
+            values = [0] * len(dests)
+        elif sel == table[_ACCOUNT_BATCH_VALUES]:
+            dests, values, funcs = decode(["address[]", "uint256[]", "bytes[]"], args)
+        else:
+            return labels + ["unrecognized_call_data"]
+    except Exception:
+        # Bytes that carry an account selector but do not decode as its
+        # arguments are not a call anyone can describe.
+        return labels + ["unrecognized_call_data"]
+
+    if len(dests) != len(funcs) or len(values) != len(dests):
+        return labels + ["unrecognized_call_data"]
+    if not dests:
+        return labels + ["empty_batch"]
+    return labels + [_inner_action(int(v), bytes(f)) for v, f in zip(values, funcs)]
 
 
 # ── who is spending ──────────────────────────────────────────────────────

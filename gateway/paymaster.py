@@ -13,7 +13,10 @@ paymasterAndData layout the client expects:
 Non-custodial: the signer key is a PLATFORM key that only authorizes gas
 sponsorship — it never signs anything the user's account does, never moves user
 funds. Sponsorship policy (action allowlist + per-identity daily USD cap) is
-enforced before signing; unconfigured signer -> the route returns 503.
+enforced before signing; unconfigured signer -> the route returns 503. The
+allowlist is checked against the actions decoded from the userOp's own
+callData/initCode (runtime.blockchain.sponsorship.classify_user_operation), never
+against a label the requester supplies.
 """
 
 from __future__ import annotations

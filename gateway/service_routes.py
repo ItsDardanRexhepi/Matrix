@@ -893,9 +893,18 @@ class ServiceRoutes:
         into the userOp. Non-custodial: signs ONLY a gas-sponsorship digest with a
         platform key; never the account's own signature, never moves user funds.
 
-        Sponsorship policy (allowlisted action types + per-identity daily USD cap)
+        Sponsorship policy (allowlisted actions + per-identity daily USD cap)
         is checked before signing; unconfigured signer/paymaster -> 503; a denied
-        policy -> 403 with an honest reason.
+        policy -> 403 with an honest reason; call_data/init_code that is not hex
+        -> 400.
+
+        §EE: the allowlist is checked against what the userOp's own call_data
+        and init_code DO (runtime.blockchain.sponsorship.classify_user_operation)
+        — the bytes the digest commits to. It used to be checked against the
+        body's `action_type`, defaulting to "transfer", so any request satisfied
+        it by saying so; the MTRX client hardcodes "transfer" for every send, so
+        the label was never information even from an honest caller. The field is
+        still accepted and a disagreement is logged, but it decides nothing.
 
         D-045: the cap in that sentence had no reader anywhere in the tree — the
         handler checked `allowed_actions` and nothing else, so one holder of the
@@ -918,7 +927,9 @@ class ServiceRoutes:
             compute_paymaster_digest, sign_digest, build_paymaster_and_data,
             paymaster_config, signer_configured,
         )
-        from runtime.blockchain.sponsorship import SponsorshipPolicy
+        from runtime.blockchain.sponsorship import (
+            SponsorshipPolicy, classify_user_operation,
+        )
         body = await self._parse_body(request)
         cfg = getattr(self, "_config", {}) or {}
         pcfg = paymaster_config(cfg)
@@ -927,7 +938,6 @@ class ServiceRoutes:
             return web.json_response(
                 {"error": "paymaster not configured"}, status=503)
 
-        action_type = str(body.get("action_type", "transfer"))
         policy = SponsorshipPolicy.from_config(cfg)
 
         # Bind the sponsored account to the authenticated caller. Same idiom as
@@ -943,6 +953,34 @@ class ServiceRoutes:
                 {"error": "sender does not match the authenticated caller"},
                 status=403)
         sender = identity or body_sender
+
+        def _bytes(key):
+            v = str(body.get(key, "") or "")
+            return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
+
+        # The bytes are parsed once, here, and the SAME bytes are both classified
+        # for the allowlist and hashed into the digest below — so what the
+        # policy judged is what gets signed. Not-hex is the caller's malformed
+        # input (400), with or without a policy, exactly as it was when the
+        # digest step was the first thing to read these fields.
+        try:
+            call_data = _bytes("call_data")
+            init_code = _bytes("init_code")
+        except (TypeError, ValueError) as exc:
+            logger.info("paymaster sign: call_data/init_code is not hex")
+            _st, _err = client_error(
+                exc, None, what="Paymaster sign", code="invalid_request")
+            return web.json_response(_err, status=_st)
+
+        # §EE: derive the action from what is being sponsored. The body's
+        # `action_type` is logged when it disagrees and is otherwise ignored.
+        actions = classify_user_operation(
+            call_data, init_code, account_factory=pcfg.get("account_factory"))
+        declared = body.get("action_type")
+        if declared is not None and [str(declared)] != actions:
+            logger.info(
+                "paymaster sign: declared action_type %r; the call data performs "
+                "%s, and the call data decides", str(declared)[:64], actions)
 
         # Price this request before metering it. A cap denominated in dollars
         # cannot be enforced against an unknown dollar amount, so an unavailable
@@ -960,7 +998,7 @@ class ServiceRoutes:
                     status=503)
 
         decision = policy.authorize_and_reserve(
-            action_type, identity=sender, est_usd=est_usd)
+            actions, identity=sender, est_usd=est_usd)
         if not decision.allowed:
             logger.info("paymaster sponsorship denied: %s", decision.code)
             return web.json_response(
@@ -973,10 +1011,6 @@ class ServiceRoutes:
                 return int(body.get(key, default) or default)
             except (TypeError, ValueError):
                 return default
-
-        def _bytes(key):
-            v = str(body.get(key, "") or "")
-            return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
 
         # RUN-5b: this was ONE `try` around both halves, ending in
         # `{"error": f"sign failed: {exc}"}` at 400. Two separate defects.
@@ -996,8 +1030,8 @@ class ServiceRoutes:
             digest = compute_paymaster_digest(
                 sender=sender,
                 nonce=_int("nonce"),
-                init_code=_bytes("init_code"),
-                call_data=_bytes("call_data"),
+                init_code=init_code,
+                call_data=call_data,
                 call_gas_limit=_int("call_gas_limit"),
                 verification_gas_limit=_int("verification_gas_limit"),
                 pre_verification_gas=_int("pre_verification_gas"),

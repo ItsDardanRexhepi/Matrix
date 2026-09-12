@@ -64,15 +64,33 @@ async def test_configured_signs_valid_paymasterAndData(aiohttp_client, tmp_path)
     assert "0x" + raw[:20].hex() == PAYMASTER.lower()
 
 
+def _nft_mint_call_data() -> str:
+    """account.execute(nft, 0, mint(to, uri, royaltyBps)) — a userOp that mints.
+
+    §EE: the policy tests below used to vary only the body's `action_type`
+    label, which is exactly the field the allowlist must not trust. They now
+    vary what the operation DOES, and keep declaring "transfer" so a check that
+    still read the label would let them through.
+    """
+    from eth_abi import encode
+    from eth_utils import keccak
+    inner = keccak(text="mint(address,string,uint96)")[:4] + encode(
+        ["address", "string", "uint96"], [PAYMASTER, "ipfs://x", 500])
+    outer = keccak(text="execute(address,uint256,bytes)")[:4] + encode(
+        ["address", "uint256", "bytes"], [PAYMASTER, 0, inner])
+    return "0x" + outer.hex()
+
+
 @pytest.mark.asyncio
 async def test_policy_denies_disallowed_action(aiohttp_client, tmp_path):
     client = await _client(aiohttp_client, tmp_path, paymaster={
         "address": PAYMASTER, "signer_key": SIGNER_KEY,
         "policy": {"allowed_actions": ["transfer"]},
     })
-    body = dict(_BODY, action_type="mint_nft")
+    body = dict(_BODY, action_type="transfer", call_data=_nft_mint_call_data())
     r = await client.post("/api/v1/paymaster/sign", json=body)
     assert r.status == 403
+    assert (await r.json())["policy"]["action"] == "mint_nft"
 
 
 # ── config-path reconciliation: the block is filled at the DOCUMENTED location ──
@@ -106,7 +124,8 @@ async def test_blockchain_location_policy_still_enforced(aiohttp_client, tmp_pat
         "address": PAYMASTER, "signer_key": SIGNER_KEY,
         "policy": {"allowed_actions": ["transfer"]},
     })
-    r = await client.post("/api/v1/paymaster/sign", json=dict(_BODY, action_type="mint_nft"))
+    r = await client.post("/api/v1/paymaster/sign",
+                          json=dict(_BODY, call_data=_nft_mint_call_data()))
     assert r.status == 403
 
 
