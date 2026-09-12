@@ -2545,8 +2545,17 @@ class GatewayServer:
 
     def _caller_identity(self, request: web.Request) -> str:
         """Session-derived identity when a session is presented; otherwise the
-        self-asserted ``X-Wallet-Address`` header (anonymous and dev flows)."""
-        return self._session_identity(request) or request.headers.get("X-Wallet-Address", "").strip()
+        ``X-Wallet-Address`` header, and only on the operator's request (an
+        integration naming the user it acts for; development, where auth is
+        off, is the operator). An anonymous caller's header names nobody: the
+        public POST /security/appattest/attest verified attestations for
+        whatever identity that header asserted."""
+        identity = self._session_identity(request)
+        if identity:
+            return identity
+        if self._is_operator(request):
+            return request.headers.get("X-Wallet-Address", "").strip()
+        return ""
 
     def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
         """On a user-facing chat surface the agent is Trinity. Naming Neo or
@@ -2798,11 +2807,16 @@ class GatewayServer:
         rides in the request body (``app_attest``) per the client contract.
         """
         if request.method == "POST" and request.path.startswith("/api/v1/"):
-            # T2: an authenticated session's subject is the identity — a header
+            # T2: an authenticated session's subject is the identity. A header
             # or body field the caller wrote is consulted only when there is no
-            # session (anonymous and dev flows). Derived, not asserted.
-            identity = self._session_identity(request) or request.headers.get("X-Wallet-Address", "") or ""
-            apple_id = self._session_apple_id(request) or request.headers.get("X-Apple-Id", "") or ""
+            # session AND the request is the operator's (development counts) —
+            # not for anyone who reached a public /api/v1 route
+            # (/api/v1/auth/apple, /api/v1/iap/*). Derived, not asserted.
+            stated = self._is_operator(request)
+            identity = self._session_identity(request) or (
+                request.headers.get("X-Wallet-Address", "") if stated else "") or ""
+            apple_id = self._session_apple_id(request) or (
+                request.headers.get("X-Apple-Id", "") if stated else "") or ""
             app_attest = None
             try:
                 body = await request.json()
@@ -2810,14 +2824,14 @@ class GatewayServer:
                 body = None
             if isinstance(body, dict):
                 params = body.get("params") if isinstance(body.get("params"), dict) else body
-                if not identity:
+                if not identity and stated:
                     identity = (
                         body.get("wallet") or body.get("from") or body.get("sender")
                         or body.get("account")
                         or (params.get("from") if isinstance(params, dict) else "")
                         or ""
                     )
-                if not apple_id:
+                if not apple_id and stated:
                     apple_id = body.get("apple_id", "") or ""
                 app_attest = body.get("app_attest")
                 if app_attest is None and isinstance(params, dict):
