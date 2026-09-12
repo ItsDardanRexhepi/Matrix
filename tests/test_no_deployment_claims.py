@@ -255,8 +255,7 @@ def test_smart_contract_deploy_action_refuses_without_touching_a_signer():
         "paymaster_private_key": "0x" + "11" * 32,
         "platform_wallet": "0x" + "22" * 20,
     }})
-    out = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-        cap.execute(action="deploy", source_code="contract C {}"))
+    out = asyncio.run(cap.execute(action="deploy", source_code="contract C {}"))
     payload = _json.loads(out)
     assert payload["status"] == "not_implemented"
     assert "did not" not in payload["detail"].lower() or True

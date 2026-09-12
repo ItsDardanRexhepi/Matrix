@@ -207,7 +207,7 @@ def sweep_results():
                     out[(method, path)] = (-1, f"RAISED {type(exc).__name__}: {exc}")
         return out
 
-    return asyncio.get_event_loop_policy().new_event_loop().run_until_complete(run())
+    return asyncio.run(run())
 
 
 # ── sweep timeouts ───────────────────────────────────────────────────────
