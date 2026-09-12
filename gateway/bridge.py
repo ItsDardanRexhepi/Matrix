@@ -688,11 +688,20 @@ class BridgeRoutes:
         except Exception:
             return MobileResponse.error("Invalid JSON")
 
-        message = body.get("message", "").strip()
+        # The same input bounds as /chat, /chat/stream and /ws — this entrance
+        # applied none: a message up to the 1 MiB body cap went into the shared
+        # conversation store, a non-string one 500'd, any agent name ran.
+        check = getattr(self._server, "_chat_turn_input", None)
+        if check is not None:
+            message, agent, invalid = check(body)
+            if invalid:
+                return MobileResponse.error(invalid, 400)
+        else:  # a bare server without the shared helper (unit-test fakes)
+            message = str(body.get("message", "")).strip()
+            agent = body.get("agent", "trinity")
         if not message:
             return MobileResponse.error("message required")
 
-        agent = body.get("agent", "trinity")
         forbid = getattr(self._server, "_agent_forbidden_for_caller", None)
         forbidden = forbid(request, agent) if forbid else None
         if forbidden:

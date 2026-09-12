@@ -65,6 +65,11 @@ START_TIME = time.time()
 #: on every gateway with a key configured.
 CHAT_ENTRANCES: tuple[str, ...] = ("/chat", "/chat/stream", "/ws", "/bridge/v1/chat")
 
+#: The bounds of one chat turn's input, the same on every entrance (see
+#: GatewayServer._chat_turn_input). The message cap is characters after strip.
+CHAT_MESSAGE_MAX_CHARS = 100_000
+CHAT_AGENTS: tuple[str, ...] = ("neo", "trinity", "morpheus")
+
 # ─── Rate Limiter ────────────────────────────────────────────────────────────
 
 class RateLimiter:
@@ -543,14 +548,12 @@ class GatewayServer:
             self.metrics.incr("chat.errors.invalid_json")
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        message = body.get("message", "")
-        if not isinstance(message, str):
-            return web.json_response({"error": "message must be a string"}, status=400)
-        message = message.strip()
-        if not message:
-            return web.json_response({"error": "message is required"}, status=400)
-        if len(message) > 100000:
-            return web.json_response({"error": "message too long"}, status=400)
+        message, agent, invalid = self._chat_turn_input(body)
+        if invalid:
+            return web.json_response({"error": invalid}, status=400)
+        forbidden = self._agent_forbidden_for_caller(request, agent)
+        if forbidden:
+            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
@@ -558,13 +561,6 @@ class GatewayServer:
         denied = self._conversation_denied(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
-        agent = str(body.get("agent", "trinity"))[:50]
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
-        valid_agents = {"neo", "trinity", "morpheus"}
-        if agent not in valid_agents:
-            return web.json_response({"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"}, status=400)
 
         # Load conversation from disk on first access (write-through cache)
         if session_id not in self._conv_loaded:
@@ -1326,11 +1322,12 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        message = str(body.get("message", "")).strip()
-        if not message:
-            return web.json_response({"error": "message is required"}, status=400)
-        if len(message) > 100000:
-            return web.json_response({"error": "message too long"}, status=400)
+        message, agent, invalid = self._chat_turn_input(body)
+        if invalid:
+            return web.json_response({"error": invalid}, status=400)
+        forbidden = self._agent_forbidden_for_caller(request, agent)
+        if forbidden:
+            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
@@ -1338,16 +1335,6 @@ class GatewayServer:
         denied = self._conversation_denied(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
-        agent = str(body.get("agent", "trinity"))[:50]
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
-        valid_agents = {"neo", "trinity", "morpheus"}
-        if agent not in valid_agents:
-            return web.json_response(
-                {"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"},
-                status=400,
-            )
 
         response = web.StreamResponse(
             status=200,
@@ -1467,16 +1454,17 @@ class GatewayServer:
                 await ws.send_json({"type": "error", "error": "invalid JSON"})
                 continue
 
-            if payload.get("type") != "chat":
+            if not isinstance(payload, dict) or payload.get("type") != "chat":
                 await ws.send_json({"type": "error", "error": "unsupported message type"})
                 continue
 
-            message = str(payload.get("message", "")).strip()
-            if not message:
-                await ws.send_json({"type": "error", "error": "message required"})
+            message, agent, invalid = self._chat_turn_input(payload)
+            if invalid:
+                await ws.send_json({"type": "error", "error": invalid})
                 continue
-            if len(message) > 100000:
-                await ws.send_json({"type": "error", "error": "message too long"})
+            forbidden = self._agent_forbidden_for_caller(request, agent)
+            if forbidden:
+                await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
                 continue
 
             session_id, session_error = self._resolve_session_id(request, payload.get("session_id"))
@@ -1486,14 +1474,6 @@ class GatewayServer:
             denied = self._conversation_denied(request, session_id)
             if denied:
                 await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
-                continue
-            agent = str(payload.get("agent", "trinity"))[:50]
-            if agent not in {"neo", "trinity", "morpheus"}:
-                await ws.send_json({"type": "error", "error": "invalid agent"})
-                continue
-            forbidden = self._agent_forbidden_for_caller(request, agent)
-            if forbidden:
-                await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
                 continue
 
             if session_id not in self._conv_loaded:
@@ -2674,6 +2654,37 @@ class GatewayServer:
     #: Morpheus steps in. Only the operator's body may state them.
     _OPERATOR_STATED_CONTEXT = ("wallet_connected", "network", "balance",
                                 "jurisdiction", "total_transactions")
+
+    @staticmethod
+    def _chat_turn_input(body):
+        """``(message, agent, error)`` — the bounds of one chat turn's input,
+        checked HERE, once, for /chat, /chat/stream, /ws and /bridge/v1/chat,
+        before anything is resolved, claimed or stored.
+
+        Three entrances checked these by hand and the fourth not at all:
+        /bridge/v1/chat — public and anonymous — took a message of any length
+        up to the 1 MiB body cap into the shared conversation store (and into
+        every later turn's model context), raised AttributeError (500) on a
+        non-string message, and ran whatever agent name it was sent. /chat
+        refused a non-string message while /chat/stream and /ws coerced it
+        with ``str()``. One set of answers now: the body is an object, the
+        message a non-empty string of at most CHAT_MESSAGE_MAX_CHARS, the agent
+        one of CHAT_AGENTS (default ``trinity``).
+        """
+        if not isinstance(body, dict):
+            return "", "", "request body must be a JSON object"
+        message = body.get("message", "")
+        if not isinstance(message, str):
+            return "", "", "message must be a string"
+        message = message.strip()
+        if not message:
+            return "", "", "message is required"
+        if len(message) > CHAT_MESSAGE_MAX_CHARS:
+            return "", "", f"message too long (at most {CHAT_MESSAGE_MAX_CHARS} characters)"
+        agent = body.get("agent", "trinity")
+        if not isinstance(agent, str) or agent not in CHAT_AGENTS:
+            return "", "", f"invalid agent, must be one of: {', '.join(CHAT_AGENTS)}"
+        return message, agent, None
 
     def _chat_user_context(self, request: web.Request, *, session_id: str,
                            agent: str, body) -> dict:
