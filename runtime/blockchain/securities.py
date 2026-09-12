@@ -126,7 +126,6 @@ contract {symbol}Security is ERC20, Ownable {{
         """Transfer security tokens (requires whitelisted sender and recipient). Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -145,7 +144,7 @@ contract {symbol}Security is ERC20, Ownable {{
                 address=Web3.to_checksum_address(contract_address),
                 abi=erc20_transfer_abi,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("securities.transfer")
             to = params.get("to", "")
             amount = int(float(params.get("amount", "0")) * 10**18)
 
@@ -245,7 +244,6 @@ contract {symbol}Security is ERC20, Ownable {{
         """Freeze an account on a security token contract. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -264,7 +262,7 @@ contract {symbol}Security is ERC20, Ownable {{
                 address=Web3.to_checksum_address(contract_address),
                 abi=freeze_abi,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("securities.freeze")
 
             tx = contract.functions.freeze(
                 Web3.to_checksum_address(investor)

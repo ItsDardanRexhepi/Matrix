@@ -216,10 +216,11 @@ class Web3Manager:
             raise RuntimeError("paymaster_private_key is not configured")
         try:
             from eth_account import Account
+            from runtime.blockchain.sponsorship import unmetered_platform_signer
         except ImportError as exc:
             raise RuntimeError("eth-account is not installed") from exc
         try:
-            self._account = Account.from_key(self.paymaster_key)
+            self._account = unmetered_platform_signer(self.paymaster_key, "web3.platform_account")
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Invalid paymaster private key: {exc}") from exc
         return self._account

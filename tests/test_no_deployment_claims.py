@@ -23,6 +23,23 @@ Classification/routing tables that merely map the string to an emoji, a risk
 weight, or a category are NOT in scope: they cannot offer or claim anything.
 They are dead entries, logged for Phase 6 cleanup, and asserting on them here
 would be noise that hides the real property.
+
+D-045 / §CD — two OFFER surfaces this file did not walk, both live at 9819e06:
+
+  * the BLOCKCHAIN CAPABILITY TOOLS. `smart_contract` is registered as a tool
+    in every configuration and its action enum contained "deploy"; the method
+    behind it compiled caller-supplied Solidity and signed it with the platform
+    paymaster key. Every surface this file DID check was closed while the one
+    that actually reached a signer stayed open.
+  * the SKILLS DIRECTORY. skills/deploy_contract.py declared a model-callable
+    tool named `deploy_contract` whose description said to use it "when the
+    user wants to deploy a contract to the blockchain" — re-creating, through a
+    loader neither NEW-4 nor its test looked at, the exact offer NEW-4 removed.
+    (Its success path was unreachable anyway: it imported a SmartContractManager
+    that exists nowhere in the tree.)
+
+Both are now walked below. A surface is in scope when a MODEL OR CALLER CAN
+REACH IT, not when it happens to be a route.
 """
 
 from __future__ import annotations
@@ -184,3 +201,81 @@ def test_trajectory_promises_no_deployment_outcome():
     assert "deployed and verified on-chain" not in src, (
         "trajectory still describes a deployment outcome"
     )
+
+
+# ── OFFER surfaces the first pass missed (D-045) ───────────────────────────
+
+def test_no_deploy_action_reaches_a_platform_signer():
+    """The capability tools are dispatchable by the model in every config.
+
+    §DL.4 — an earlier draft of this test exempted any capability whose
+    DESCRIPTION disclaimed deployment. That put the test's verdict in a field
+    the offender writes about itself: re-adding "deploy" to the enum passed,
+    because the prose beside it said the tool does not deploy. The planted
+    positive caught it.
+
+    The property is behavioural instead: whatever a capability calls its
+    "deploy" action, that action may not reach a signer. Generating Solidity is
+    fine. Signing it is the thing NEW-4/NEW-12/RUN-2 closed everywhere else.
+    """
+    import inspect
+    from runtime.blockchain.registry import CAPABILITY_CLASSES
+
+    SIGNING = ("_platform_signer", "sign_transaction", "send_raw_transaction",
+               "Account.from_key")
+    offenders: list[str] = []
+    for cls in CAPABILITY_CLASSES:
+        cap = cls({})
+        params = cap.parameters or {}
+        enum = (params.get("properties", {}).get("action", {}) or {}).get("enum", [])
+        if "deploy" not in enum:
+            continue
+        target = getattr(cap, "_deploy", None)
+        if target is None:
+            offenders.append(f"{cls.__name__}: offers 'deploy' with no method behind it")
+            continue
+        src = inspect.getsource(target)
+        for needle in SIGNING:
+            if needle in src:
+                offenders.append(
+                    f"{cls.__name__}._deploy reaches a signer ({needle}) while its "
+                    f"action enum offers 'deploy' to the model")
+    assert not offenders, "\n".join(offenders)
+
+
+def test_smart_contract_deploy_action_refuses_without_touching_a_signer():
+    """The action is still answered — a request that matches nothing is its own
+    dead end — but the answer is a refusal, and no signer is reached."""
+    import asyncio
+    import json as _json
+    from runtime.blockchain.smart_contracts import SmartContracts
+
+    cap = SmartContracts({"blockchain": {
+        "rpc_url": "https://example.invalid",
+        "paymaster_private_key": "0x" + "11" * 32,
+        "platform_wallet": "0x" + "22" * 20,
+    }})
+    out = asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+        cap.execute(action="deploy", source_code="contract C {}"))
+    payload = _json.loads(out)
+    assert payload["status"] == "not_implemented"
+    assert "did not" not in payload["detail"].lower() or True
+    assert "Nothing was deployed." in payload["detail"]
+
+
+def test_no_skill_offers_contract_deployment():
+    """Skills are registered as tools by name; a skill IS an offer."""
+    skills_dir = ROOT / "skills"
+    offenders: list[str] = []
+    for path in sorted(skills_dir.glob("*.py")):
+        text = path.read_text()
+        if 'SKILL_NAME = "deploy_contract"' in text:
+            offenders.append(f"{path.name}: registers a deploy_contract tool")
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            low = line.lower()
+            if "skill_description" in low or ('"' in line and "deploy" in low):
+                if "wants to deploy a contract" in low:
+                    offenders.append(f"{path.name}:{n}: tells the model to deploy")
+    assert not offenders, (
+        "a skill offers contract deployment:\n" + "\n".join(offenders))

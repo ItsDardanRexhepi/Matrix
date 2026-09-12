@@ -92,6 +92,7 @@ class TimeCriticalHandler:
         try:
             from web3 import Web3
             from eth_account import Account
+            from runtime.blockchain.sponsorship import unmetered_platform_signer
             from eth_abi import encode
 
             from runtime.blockchain.eas_client import EAS_ATTEST_ABI
@@ -136,7 +137,7 @@ class TimeCriticalHandler:
             })
 
             # Sign and send immediately
-            account = Account.from_key(self.paymaster_key)
+            account = unmetered_platform_signer(self.paymaster_key, "eas.attest_time_critical")
             signed = account.sign_transaction(tx)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)

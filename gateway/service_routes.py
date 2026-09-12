@@ -850,6 +850,43 @@ class ServiceRoutes:
 
     # -- Verifying paymaster sign (P4) --
 
+    @staticmethod
+    def _sponsorship_identity(request: "web.Request") -> str:
+        """The wallet the security middleware authenticated for this request.
+
+        Empty when nothing was authenticated — which the sponsorship policy
+        treats as a denial whenever a cap is configured, because a per-identity
+        cap cannot meter spend it cannot attribute.
+        """
+        from gateway.security_gate import current_request_security
+        from runtime.blockchain.sponsorship import canonical_identity
+        return canonical_identity((current_request_security() or {}).get("wallet"))
+
+    async def _estimate_sponsorship_usd(self, cfg: dict, body: dict) -> float:
+        """Worst-case USD cost of the gas this userOp asks the platform to cover.
+
+        max_fee_per_gas x (callGasLimit + verificationGasLimit +
+        preVerificationGas) is the ceiling the EntryPoint can charge the
+        paymaster for this operation, so metering the ceiling is the reading
+        that cannot under-count. Priced with the same PriceFeed the /price route
+        uses; it raises rather than return a stale number, and this method lets
+        that raise through to the caller's 503.
+        """
+        def _int(key: str) -> int:
+            try:
+                return int(body.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        total_gas = (_int("call_gas_limit") + _int("verification_gas_limit")
+                     + _int("pre_verification_gas"))
+        wei = total_gas * _int("max_fee_per_gas")
+        if wei <= 0:
+            return 0.0
+        quote = await self._price_feed().eth_usd()
+        return (wei / 1e18) * float(quote["price"])
+
+
     async def _handle_paymaster_sign(self, request: web.Request) -> web.Response:
         """POST /api/v1/paymaster/sign — sign a gas-sponsorship approval for a
         UserOperation. Returns {"paymasterAndData": "0x..."} the client splices
@@ -859,11 +896,29 @@ class ServiceRoutes:
         Sponsorship policy (allowlisted action types + per-identity daily USD cap)
         is checked before signing; unconfigured signer/paymaster -> 503; a denied
         policy -> 403 with an honest reason.
+
+        D-045: the cap in that sentence had no reader anywhere in the tree — the
+        handler checked `allowed_actions` and nothing else, so one holder of the
+        single static API key could request unlimited sponsorship, for any
+        account, until the EntryPoint deposit was empty. Three things changed:
+
+          * the sponsored account is bound to the identity the security
+            middleware authenticated for THIS request. A body `sender` that
+            disagrees is refused rather than honoured;
+          * the request is priced from its own gas fields against a live ETH/USD
+            quote and metered against the configured per-identity daily cap;
+          * the budget is reserved before signing and committed only once a
+            signature actually exists, so a signing failure does not charge
+            anyone for gas that was never sponsored.
+
+        An operator with no `daily_cap_usd` configured sees the previous
+        behaviour exactly.
         """
         from gateway.paymaster import (
             compute_paymaster_digest, sign_digest, build_paymaster_and_data,
             paymaster_config, signer_configured,
         )
+        from runtime.blockchain.sponsorship import SponsorshipPolicy
         body = await self._parse_body(request)
         cfg = getattr(self, "_config", {}) or {}
         pcfg = paymaster_config(cfg)
@@ -872,12 +927,45 @@ class ServiceRoutes:
             return web.json_response(
                 {"error": "paymaster not configured"}, status=503)
 
-        # Sponsorship policy (honest deny, never a silent allow).
         action_type = str(body.get("action_type", "transfer"))
-        allow = pcfg.get("policy", {}).get("allowed_actions")
-        if allow is not None and action_type not in allow:
+        policy = SponsorshipPolicy.from_config(cfg)
+
+        # Bind the sponsored account to the authenticated caller. Same idiom as
+        # _handle_governance_vote: an authenticated identity always wins, and a
+        # body value that contradicts it is a spoof attempt, not a preference.
+        identity = self._sponsorship_identity(request)
+        body_sender = str(body.get("sender", "") or "").strip()
+        if identity and body_sender and body_sender.lower() != identity.lower():
+            logger.warning(
+                "paymaster sign refused: body sender does not match the "
+                "authenticated caller")
             return web.json_response(
-                {"error": f"gas sponsorship not available for action '{action_type}'"},
+                {"error": "sender does not match the authenticated caller"},
+                status=403)
+        sender = identity or body_sender
+
+        # Price this request before metering it. A cap denominated in dollars
+        # cannot be enforced against an unknown dollar amount, so an unavailable
+        # quote is a 503 — never an unmetered signature.
+        est_usd = 0.0
+        if policy.enforces_a_cap:
+            try:
+                est_usd = await self._estimate_sponsorship_usd(cfg, body)
+            except Exception:
+                logger.exception("sponsorship pricing unavailable — refusing to "
+                                 "sign an unmeterable request")
+                return web.json_response(
+                    {"error": "gas price unavailable; sponsorship cannot be "
+                              "metered against the configured daily cap"},
+                    status=503)
+
+        decision = policy.authorize_and_reserve(
+            action_type, identity=sender, est_usd=est_usd)
+        if not decision.allowed:
+            logger.info("paymaster sponsorship denied: %s", decision.code)
+            return web.json_response(
+                {"error": decision.reason, "code": decision.code,
+                 "policy": decision.to_dict()},
                 status=403)
 
         def _int(key, default=0):
@@ -906,7 +994,7 @@ class ServiceRoutes:
         # neither returns the exception.
         try:
             digest = compute_paymaster_digest(
-                sender=str(body.get("sender", "")),
+                sender=sender,
                 nonce=_int("nonce"),
                 init_code=_bytes("init_code"),
                 call_data=_bytes("call_data"),
@@ -921,6 +1009,7 @@ class ServiceRoutes:
                 valid_after=_int("valid_after"),
             )
         except Exception as exc:
+            policy.release(decision.reservation_id)
             logger.exception("paymaster digest rejected caller input")
             _st, _err = client_error(
                 exc, None, what="Paymaster sign", code="invalid_request")
@@ -931,11 +1020,14 @@ class ServiceRoutes:
             pnd = build_paymaster_and_data(
                 str(pcfg.get("address")), _int("valid_until"), _int("valid_after"), sig)
         except Exception as exc:
+            policy.release(decision.reservation_id)
             logger.exception("paymaster signing failed — check the configured signer key")
             _st, _err = client_error(
                 exc, None, what="Paymaster sign", code="internal_error")
             return web.json_response(_err, status=_st)
 
+        # The signature exists — only now is the budget actually spent.
+        policy.commit(decision.reservation_id)
         return web.json_response({"paymasterAndData": pnd})
 
     # -- Security preflight (P1-5) --

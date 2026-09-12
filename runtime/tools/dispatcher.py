@@ -300,6 +300,16 @@ class ToolDispatcher:
 
         logger.info(f"Tool call: {tool_name}({list(arguments.keys())})")
 
+        # D-045: bind the caller for anything this dispatch signs. The blockchain
+        # capabilities take `**kwargs`, so the keyword injection above cannot
+        # reach them; a ContextVar reaches every frame they await without
+        # touching 17 files' signatures, and an unbound dispatch stays unbound
+        # (which a configured sponsorship cap treats as a denial, not a pass).
+        from runtime.blockchain.sponsorship import (
+            SponsorshipDenied, set_caller_identity, reset_caller_identity,
+        )
+        _identity_token = set_caller_identity(caller_identity)
+
         try:
             result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
             result_str = str(result)
@@ -315,9 +325,21 @@ class ToolDispatcher:
             msg = f"Error: invalid arguments for '{tool_name}': {e}"
             logger.error("%s [ref=%s]", msg, ref)
             return ToolOutcome.failure(msg, code="invalid_arguments", ref=ref)
+        except SponsorshipDenied as denial:
+            # A policy decision, not a fault: the agent should be told what the
+            # cap is so it can say so, and the refusal must not read as a
+            # transient error it should retry.
+            logger.warning("Tool call denied by sponsorship policy: %s -> %s",
+                           tool_name, denial.decision.code)
+            return ToolOutcome.failure(
+                f"Refused: {denial.decision.reason}",
+                code=f"sponsorship_{denial.decision.code}", ref=ref,
+            )
         except Exception as e:
             msg = f"Error executing '{tool_name}': {e}"
             logger.error("%s [ref=%s]", msg, ref, exc_info=True)
             return ToolOutcome.failure(
                 msg, code=_classify_exception(e), ref=ref
             )
+        finally:
+            reset_caller_identity(_identity_token)

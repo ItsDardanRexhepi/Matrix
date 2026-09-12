@@ -537,6 +537,11 @@ _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
     # test exists precisely to stop a new string from acquiring a meaning by
     # accident.
     "metadata_only",
+    # D-045. `smart_contract` action "deploy" answers the request instead of
+    # leaving it unmatched, but it deploys nothing — it is the tool-axis twin of
+    # the 501 RUN-2 put on POST /api/v1/contracts/deploy. Classified explicitly:
+    # a refusal to deploy must never be attested as a deployment.
+    "not_implemented",
     # the platform refused, failed, or had nothing to do
     "not_deployed", "error", "failed", "failure", "blocked", "rejected",
     "refused", "declined", "unavailable", "not_available", "unsupported",

@@ -78,7 +78,6 @@ class Stablecoins(BlockchainInterface):
     async def _transfer(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -91,7 +90,7 @@ class Stablecoins(BlockchainInterface):
             contract = self.web3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=ERC20_ABI)
             decimals = contract.functions.decimals().call()
             amount = int(float(params.get("amount", "0")) * 10**decimals)
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("stablecoins.transfer")
 
             tx = contract.functions.transfer(
                 Web3.to_checksum_address(params["to"]), amount
@@ -137,7 +136,6 @@ class Stablecoins(BlockchainInterface):
     async def _approve(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -150,7 +148,7 @@ class Stablecoins(BlockchainInterface):
             contract = self.web3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=ERC20_ABI)
             decimals = contract.functions.decimals().call()
             amount = int(float(params.get("amount", "0")) * 10**decimals)
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("stablecoins.approve")
 
             tx = contract.functions.approve(
                 Web3.to_checksum_address(params["spender"]), amount

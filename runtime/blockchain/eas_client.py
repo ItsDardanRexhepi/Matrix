@@ -106,6 +106,7 @@ class EASClient:
         try:
             from web3 import Web3
             from eth_account import Account
+            from runtime.blockchain.sponsorship import unmetered_platform_signer
             from eth_abi import encode
 
             self._validate_config()
@@ -156,7 +157,7 @@ class EASClient:
             })
 
             # Sign and send — platform pays gas
-            account = Account.from_key(self.paymaster_key)
+            account = unmetered_platform_signer(self.paymaster_key, "eas.attest")
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)

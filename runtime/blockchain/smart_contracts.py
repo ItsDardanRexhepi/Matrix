@@ -24,7 +24,10 @@ class SmartContracts(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Deploy, interact with, and verify smart contracts on Base L2. All gas fees are covered by the platform."
+        return (
+            "Compile, read, write and verify smart contracts on Base L2. Gas for writes is covered by the platform, within the configured sponsorship policy. "
+            "This tool does NOT deploy contracts — compile here, deploy with your own signer."
+        )
 
     @property
     def parameters(self) -> dict:
@@ -33,10 +36,10 @@ class SmartContracts(BlockchainInterface):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["deploy", "call", "send", "verify", "compile"],
+                    "enum": ["call", "send", "verify", "compile"],
                     "description": "The action to perform",
                 },
-                "source_code": {"type": "string", "description": "Solidity source code (for deploy/compile)"},
+                "source_code": {"type": "string", "description": "Solidity source code (for compile)"},
                 "contract_address": {"type": "string", "description": "Contract address (for call/send)"},
                 "function_name": {"type": "string", "description": "Function to call"},
                 "args": {"type": "array", "description": "Function arguments", "items": {}},
@@ -51,6 +54,8 @@ class SmartContracts(BlockchainInterface):
         if action == "compile":
             return await self._compile(kwargs.get("source_code", ""))
         elif action == "deploy":
+            # Not in the enum any more; still answered, because a request that
+            # matches nothing is a worse outcome than an honest refusal.
             return await self._deploy(kwargs)
         elif action == "call":
             return await self._call(kwargs)
@@ -82,10 +87,45 @@ class SmartContracts(BlockchainInterface):
             return f"Compilation error: {e}"
 
     async def _deploy(self, params: dict) -> str:
-        """Deploy a compiled contract. Gas covered by platform."""
+        """Deployment is not offered here. RUN-2 closed the HTTP direction of
+        this operation to 501; this is the same answer on the tool axis.
+
+        §CD — the sibling axis. NEW-4 removed `deploy_contract` from ACTION_MAP
+        and the capability catalog, NEW-12 asserted "no path may claim a
+        deployment happened", and RUN-2 made POST /api/v1/contracts/deploy
+        return 501. None of them reached THIS path: `smart_contract` is
+        registered as a tool in every configuration, its action enum listed
+        "deploy", and this method compiled caller-supplied Solidity and signed
+        it with the platform paymaster key. A model following its own tool
+        schema could deploy an arbitrary contract that the closed route refused.
+
+        The method survives so the request is still RECOGNISED and answered —
+        the same reasoning that keeps the `deploy_contract` entry in
+        INTENT_ACTION_MAP with `unavailable: True` rather than deleting it. A
+        request that matches nothing is its own dead end.
+
+        LIFTING CONDITION: real deployment is a feature with real risk (key
+        custody, chain selection, failure semantics, who owns the deployed
+        contract) and needs its own design pass. It is not smuggled in behind a
+        capability schema.
+        """
+        return json.dumps({
+            "status": "not_implemented",
+            "error": "Contract deployment is not available.",
+            "detail": (
+                "This platform compiles and audits Solidity; it does not deploy "
+                "it. Use action 'compile' to get the ABI and bytecode, then "
+                "deploy with your own signer. Nothing was deployed."
+            ),
+            "next": {"action": "compile", "then": "deploy with your own wallet"},
+        }, indent=2)
+
+    async def _deploy_disabled_implementation(self, params: dict) -> str:
+        """Kept unreferenced, for the design pass named in the lifting condition
+        above. Nothing routes here: `execute` has no branch for it and the action
+        enum does not contain "deploy"."""
         try:
             from web3 import Web3
-            from eth_account import Account
             from solcx import compile_source, install_solc
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
@@ -113,7 +153,7 @@ class SmartContracts(BlockchainInterface):
                 }, indent=2)
 
             bc = self.config["blockchain"]
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("smart_contracts.deploy")
             contract = self.web3.eth.contract(abi=abi, bytecode=bytecode)
 
             constructor_args = params.get("args", [])
@@ -162,7 +202,6 @@ class SmartContracts(BlockchainInterface):
         """Write to a contract. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -176,7 +215,7 @@ class SmartContracts(BlockchainInterface):
             contract = self.web3.eth.contract(
                 address=Web3.to_checksum_address(address), abi=abi
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("smart_contracts.send")
 
             tx = contract.functions[fn](*args).build_transaction({
                 "from": bc["platform_wallet"],

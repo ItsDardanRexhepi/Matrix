@@ -63,7 +63,6 @@ class Governance(BlockchainInterface):
     async def _schedule(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -72,7 +71,7 @@ class Governance(BlockchainInterface):
                 address=Web3.to_checksum_address(params["timelock_address"]),
                 abi=TIMELOCK_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("governance.schedule")
 
             data = bytes.fromhex(params.get("data", "0x").replace("0x", "")) if params.get("data") else b""
             delay = params.get("delay", 86400)
@@ -109,7 +108,6 @@ class Governance(BlockchainInterface):
         """Execute a scheduled timelock operation. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -121,7 +119,7 @@ class Governance(BlockchainInterface):
                 address=Web3.to_checksum_address(params["timelock_address"]),
                 abi=TIMELOCK_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("governance.execute_op")
 
             data = bytes.fromhex(params.get("data", "0x").replace("0x", "")) if params.get("data") else b""
 
@@ -167,7 +165,6 @@ class Governance(BlockchainInterface):
         """Grant a role via AccessControl contract. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -190,7 +187,7 @@ class Governance(BlockchainInterface):
                 address=Web3.to_checksum_address(contract_addr),
                 abi=access_control_abi,
             )
-            signer = Account.from_key(bc["paymaster_private_key"])
+            signer = await self._platform_signer("governance.grant_role")
 
             role_bytes = bytes.fromhex(role_hash.replace("0x", ""))
             tx = contract.functions.grantRole(
@@ -221,7 +218,6 @@ class Governance(BlockchainInterface):
         """Revoke a role via AccessControl contract. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -244,7 +240,7 @@ class Governance(BlockchainInterface):
                 address=Web3.to_checksum_address(contract_addr),
                 abi=access_control_abi,
             )
-            signer = Account.from_key(bc["paymaster_private_key"])
+            signer = await self._platform_signer("governance.revoke_role")
 
             role_bytes = bytes.fromhex(role_hash.replace("0x", ""))
             tx = contract.functions.revokeRole(
