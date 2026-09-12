@@ -2699,8 +2699,21 @@ class ServiceRoutes:
         # use: an authenticated identity always wins, and a body-supplied
         # address is never promoted to fact. Absent identity degrades to ""
         # ("unknown"), never to a self-asserted address, and never to a refusal.
-        from gateway.security_gate import current_request_security
-        authed = str((current_request_security() or {}).get("wallet") or "")
+        from gateway.security_gate import (
+            current_request_security, gate_action, generic_denial, is_blocked,
+        )
+        security = current_request_security() or {}
+        authed = str(security.get("wallet") or "")
+        # EA-1: this route reached the dispatcher WITHOUT the gate the
+        # /api/v1 funnel (`_call`) consults — `settle_auction` and every other
+        # catalog write was reachable ungated here. The capability's ACTION_MAP
+        # verb is the label the gate classifies; a block is the generic denial.
+        from runtime.capabilities import catalog as _catalog
+        descriptor = _catalog.get_by_id(capability_id)
+        action_label = str((descriptor or {}).get("action") or capability_id)
+        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security)
+        if is_blocked(decision):
+            return web.json_response({"error": generic_denial(decision)}, status=403)
         result = await reg.invoke(capability_id, params, caller_identity=authed)
         status = 200 if result.get("status") == "ok" else 400
         return web.json_response(result, status=status)
