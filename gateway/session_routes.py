@@ -175,6 +175,100 @@ SERVICE_METHODS_OFF_ALLOWLIST: dict[str, str] = {
     "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
 }
 
+# One credential down: every (service, method) whose route a caller with NO
+# credential cannot reach (not a public path). The chat surfaces are public,
+# so without this an anonymous chat ran operations its own routes answer 401.
+SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
+    "agent_identity.register_agent": "/api/v1/agent/register",
+    "attestation.verify": "/api/v1/attestation/verify/{uid}",
+    "brand_rewards.create_campaign": "/api/v1/brand/campaign/create",
+    "cashback.track_spending": "/api/v1/cashback/track",
+    "contract_conversion.convert": "/api/v1/contracts/convert",
+    "cross_border.send_payment": "/api/v1/crossborder/send",
+    "dao_management.create_dao": "/api/v1/dao/create",
+    "dashboard.get_overview": "/api/v1/dashboard/{address}",
+    "defi.bridge_execute": "/api/v1/defi/bridge/execute",
+    "defi.bridge_quote": "/api/v1/defi/bridge/quote",
+    "defi.create_loan": "/api/v1/defi/loan/create",
+    "defi.repay_loan": "/api/v1/defi/loan/repay",
+    "defi.swap_execute": "/api/v1/defi/swap/execute",
+    "defi.swap_route": "/api/v1/defi/swap/route",
+    "dex.add_liquidity": "/api/v1/dex/liquidity/add",
+    "dex.swap": "/api/v1/dex/swap",
+    "did_identity.create_did": "/api/v1/identity/create",
+    "did_identity.generate_zk_proof": "/api/v1/identity/zk-proof/generate",
+    "did_identity.issue_credential": "/api/v1/identity/credential/issue",
+    "did_identity.verify_credential": "/api/v1/identity/credential/verify",
+    "dispute_resolution.claim": "/api/v1/dispute/claim",
+    "dispute_resolution.file_dispute": "/api/v1/dispute/file",
+    "dispute_resolution.vote": "/api/v1/dispute/vote",
+    "fundraising.contribute": "/api/v1/fundraising/contribute",
+    "fundraising.create_campaign": "/api/v1/fundraising/campaign/create",
+    "gaming.register_game": "/api/v1/gaming/register",
+    "governance.create_proposal": "/api/v1/governance/proposal/create",
+    "governance.list_proposals_detailed": "/api/v1/governance/daos/{daoId}/proposals",
+    "governance.snapshot_vote": "/api/v1/governance/snapshot/vote",
+    "governance.vote": "/api/v1/governance/vote",
+    "insurance.create_parametric_policy": "/api/v1/insurance/parametric/create",
+    "insurance.create_policy": "/api/v1/insurance/policy/create",
+    "insurance.file_claim": "/api/v1/insurance/claim",
+    "ip_royalties.license_ip": "/api/v1/licensing/licenses",
+    "ip_royalties.register_ip": "/api/v1/ip/register",
+    "loyalty.earn_points": "/api/v1/loyalty/earn",
+    "loyalty.redeem_points": "/api/v1/loyalty/redeem",
+    "marketplace.buy_item": "/api/v1/marketplace/buy",
+    "marketplace.list_item": "/api/v1/marketplace/list",
+    "nft_services.batch_mint": "/api/v1/nft/batch-mint",
+    "nft_services.bridge_nft": "/api/v1/nft/bridge",
+    "nft_services.create_collection": "/api/v1/nft/collection/create",
+    "nft_services.fractionalize": "/api/v1/nft/fractionalize",
+    "nft_services.mint": "/api/v1/nft/mint",
+    "nft_services.rent": "/api/v1/nft/rent",
+    "nft_services.royalty_claim": "/api/v1/nft/royalty/claim",
+    "oracle_gateway.request": "/api/v1/oracle/price/{pair}",
+    "privacy.decentralized_store": "/api/v1/compute/store",
+    "privacy.pin_to_ipfs": "/api/v1/compute/ipfs/pin",
+    "privacy.request_deletion": "/api/v1/privacy/delete",
+    "real_estate.confirm_settlement": "/api/v1/realestate/escrow/{id}/confirm",
+    "real_estate.create_property": "/api/v1/realestate/properties",
+    "real_estate.execute_purchase": "/api/v1/realestate/purchase",
+    "real_estate.get_buyer_verification": "/api/v1/realestate/buyers/{wallet}/verification",
+    "real_estate.get_documents": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.get_escrow": "/api/v1/realestate/escrow/{id}",
+    "real_estate.get_property": "/api/v1/realestate/properties/{id}",
+    "real_estate.get_readiness": "/api/v1/realestate/properties/{id}/readiness",
+    "real_estate.list_properties": "/api/v1/realestate/properties",
+    "real_estate.mark_recording_complete": "/api/v1/realestate/escrow/{id}/recording-complete",
+    "real_estate.query_expiring_documents": "/api/v1/realestate/documents/expiring",
+    "real_estate.refund_escrow": "/api/v1/realestate/escrow/{id}/refund",
+    "real_estate.update_listing_status": "/api/v1/realestate/properties/{id}/status",
+    "real_estate.upload_document": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.verify_buyer": "/api/v1/realestate/buyers/verify",
+    "rwa_tokenization.list_assets": "/api/v1/rwa/listings",
+    "rwa_tokenization.tokenize_asset": "/api/v1/rwa/tokenize",
+    "securities_exchange.create_security": "/api/v1/securities/create",
+    "social.create_community": "/api/v1/groups",
+    "social.create_post": "/api/v1/social/post",
+    "social.create_profile": "/api/v1/social/profile",
+    "social.get_conversations": "/api/v1/messaging/conversations",
+    "social.get_feed_view": "/api/v1/social/feed/{wallet}",
+    "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
+    "social.share_proof": "/api/v1/social/message",
+    "stablecoin.transfer": "/api/v1/stablecoin/transfer",
+    "staking.stake": "/api/v1/staking/stake",
+    "staking.unstake": "/api/v1/staking/unstake",
+    "subscriptions.subscribe": "/api/v1/subscriptions/subscribe",
+    "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
+    "supply_chain.register_product": "/api/v1/supply-chain/register",
+    "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
+    "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
+    "x402_payments.create_payment": "/api/v1/payments/create",
+}
+
+# What an anonymous refusal names when no route backs the operation at all:
+# no public route changes state, and there is no identity to attribute it to.
+UNROUTED_STATE_CHANGE = "no public route; it changes state"
+
 
 def session_may_invoke(capability_id: str) -> bool:
     """False when this capability would reach a route the session is refused."""
@@ -197,6 +291,48 @@ def session_refused_route(action, service=None):
         return None
     target = service if service else pair[0]
     return SERVICE_METHODS_OFF_ALLOWLIST.get(f"{target}.{pair[1]}")
+
+
+def caller_refused_route(caller_kind, action, service=None):
+    """What refuses *caller_kind* the operation dispatching *action* RUNS, or None.
+
+    ``caller_kind`` is the credential the gateway computed ("operator",
+    "session", "anonymous"; "" for a dispatch with no HTTP caller). The
+    operator and a caller-less dispatch are not refused here. A session is
+    refused what its routes refuse it. Anything else — anonymous, or a kind
+    this module does not recognise — is refused every operation behind a
+    non-public route, and every state change whether or not a route backs it.
+    Resolved on the pair, the way ServiceDispatcher.execute resolves it."""
+    if caller_kind in ("operator", ""):
+        return None
+    if caller_kind == "session":
+        return session_refused_route(action, service)
+    if not isinstance(action, str):
+        return None
+    from runtime.blockchain.services.service_dispatcher import (
+        ACTION_MAP, _STATE_MODIFYING_ACTIONS,
+    )
+    pair = ACTION_MAP.get(action)
+    if pair is None:
+        return None
+    target = service if service else pair[0]
+    key = f"{target}.{pair[1]}"
+    routed = SERVICE_METHODS_OFF_ALLOWLIST.get(key) or SERVICE_METHODS_OFF_ANONYMOUS.get(key)
+    if routed:
+        return routed
+    if action in _STATE_MODIFYING_ACTIONS or any(
+            ACTION_MAP.get(a) == (target, pair[1]) for a in _STATE_MODIFYING_ACTIONS):
+        return UNROUTED_STATE_CHANGE
+    return None
+
+
+def caller_refusal_message(caller_kind, refused):
+    """The client-facing text for a ``caller_refused_route`` refusal."""
+    if caller_kind == "session":
+        return ("This action is not available to a user session; "
+                f"its route ({refused}) requires the operator key.")
+    return ("This action is not available without signing in "
+            f"({refused}); sign in and try again.")
 
 
 def session_may_reach(canonical_route: str) -> bool:

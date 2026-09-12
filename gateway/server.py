@@ -2612,7 +2612,9 @@ class GatewayServer:
         through, so for them the kind is derived from the presented credential. Carried into a chat's user_context so the
         tool dispatcher refuses a non-operator caller the operations a session's
         own routes refuse (gateway/session_routes.py) — an anonymous caller is
-        refused at least what a signed-in one is.
+        refused at least what a signed-in one is, and one tier further: every
+        operation behind a route that is not public, and every state change
+        (session_routes.caller_refused_route).
         """
         # A non-public route already passed the wall, which recorded the kind it
         # accepted (a batch sub-request inherits its batch's). Public paths

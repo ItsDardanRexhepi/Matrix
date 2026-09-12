@@ -296,19 +296,28 @@ class ToolDispatcher:
         # computed by the gateway from the presented credential, never taken from
         # the arguments; "" is a caller with no HTTP request behind it (A2A,
         # internal), which this boundary does not describe.
-        if caller_kind in ("session", "anonymous") and tool_name in self.ACTION_DISPATCH_TOOLS:
-            from gateway.session_routes import session_refused_route
+        #
+        # One credential down (round 3): the chat surfaces are public, and the
+        # session tier modelled only routes that need the OPERATOR key, so a
+        # caller with no credential had request_execution run operations whose
+        # own route answers it 401. An anonymous caller — or any kind the
+        # gateway did not name — is refused every operation behind a non-public
+        # route and every state change (gateway/session_routes.py
+        # caller_refused_route).
+        if caller_kind not in ("operator", "") and tool_name in self.ACTION_DISPATCH_TOOLS:
+            from gateway.session_routes import caller_refusal_message, caller_refused_route
             args = arguments if isinstance(arguments, dict) else {}
-            refused = session_refused_route(
+            refused = caller_refused_route(
+                caller_kind,
                 args.get("action"),
                 args.get("service") if tool_name == "platform_action" else None,
             )
             if refused:
-                logger.warning("Session DENIED tool '%s' action '%s': its route %s requires "
-                               "the operator key", tool_name, args.get("action"), refused)
+                who = "Session" if caller_kind == "session" else "Anonymous"
+                logger.warning("%s DENIED tool '%s' action '%s': %s", who, tool_name,
+                               args.get("action"), refused)
                 return ToolOutcome.failure(
-                    f"[DENIED] This action is not available to a user session; its route "
-                    f"({refused}) requires the operator key.",
+                    f"[DENIED] {caller_refusal_message(caller_kind, refused)}",
                     code="denied", ref=ref,
                 )
 

@@ -441,7 +441,8 @@ async def test_a_session_cannot_reach_a_refused_operation_through_chat(monkeypat
             # Refused by the session boundary, not by some other gate that happened
             # to fire first (a URF wallet check did, in the first draft of this test).
             refused_by_boundary = " ".join(r.getMessage() for r in caplog.records
-                                           if r.getMessage().startswith("Session DENIED"))
+                                           if r.getMessage().startswith(
+                                               ("Session DENIED", "Anonymous DENIED")))
             not_by_boundary = [a for a in operator_reached
                                if f"action '{a.split('@')[0]}'" not in refused_by_boundary]
             assert not_by_boundary == [], (label, not_by_boundary)
@@ -499,3 +500,173 @@ async def test_the_operator_batch_still_reaches_the_bridge_dispatchers(monkeypat
         results = (await resp.json())["results"]
         assert results[0]["status"] == 200, results
         assert recorder.calls == [action]
+
+
+# ── Round 3: the anonymous tier — one credential down, the same defect ───────
+#
+# The refusal above models only routes that need the OPERATOR key. The chat
+# surfaces (/bridge/v1/chat, /chat, /ws) are PUBLIC paths, so a caller with no
+# credential at all reaches Trinity, and her request_execution ran operations
+# whose dedicated route answers that caller 401 — measured on 47d18d3:
+# transfer_stablecoin, swap_tokens, buy_marketplace, stake and mint_nft each
+# reached ServiceDispatcher.execute from an anonymous /bridge/v1/chat, while an
+# anonymous POST /api/v1/stablecoin/transfer answered 401.
+#
+# An anonymous caller is now refused, through every dispatcher, every operation
+# whose pair backs a route that is not public (the wall answers it 401 there),
+# and every state-changing operation whether or not a route backs it: no public
+# route changes state, and there is no identity to attribute the change to.
+
+
+def _public_paths():
+    import tempfile
+
+    from gateway.server import GatewayServer
+
+    scratch = tempfile.mkdtemp(prefix="opnmatrx-catalog-truth-")
+    return frozenset(GatewayServer({"memory_dir": scratch,
+                                    "database": {"path": f"{scratch}/p.db"}})._public_paths)
+
+
+def _derived_anonymous_refused_pairs() -> dict[tuple[str, str], list[str]]:
+    public = _public_paths()
+    return {pair: sorted(routes) for pair, routes in _route_pairs().items()
+            if any(r not in public for r in routes)}
+
+
+def test_the_anonymous_pair_set_matches_what_the_routes_require():
+    from gateway.session_routes import SERVICE_METHODS_OFF_ANONYMOUS
+
+    derived = {f"{s}.{m}" for s, m in _derived_anonymous_refused_pairs()}
+    committed = set(SERVICE_METHODS_OFF_ANONYMOUS)
+    assert derived - committed == set(), (
+        f"operations whose routes an anonymous caller cannot reach but no dispatcher "
+        f"refuses it: {sorted(derived - committed)}")
+    assert committed - derived == set(), (
+        f"refused to an anonymous caller with no credentialed route behind them: "
+        f"{sorted(committed - derived)}")
+    # Everything a session is refused, an anonymous caller is refused too.
+    from gateway.session_routes import SERVICE_METHODS_OFF_ALLOWLIST
+    assert set(SERVICE_METHODS_OFF_ALLOWLIST) <= committed
+
+
+def test_caller_refused_route_by_credential():
+    from gateway.session_routes import caller_refused_route
+
+    refused_to_anyone = sorted(_actions_reaching_a_refused_pair())[0]
+    anon_pairs = _derived_anonymous_refused_pairs()
+    session_only = sorted(a for a, p in sd.ACTION_MAP.items()
+                          if p in anon_pairs and p not in _derived_refused_pairs())
+    assert session_only, "precondition: some operation backs a session-reachable route"
+    unrouted_state_change = sorted(a for a in sd._STATE_MODIFYING_ACTIONS
+                                   if a in sd.ACTION_MAP and sd.ACTION_MAP[a] not in _route_pairs())
+    assert unrouted_state_change, "precondition: some state change has no dedicated route"
+
+    for action in (refused_to_anyone, session_only[0], unrouted_state_change[0]):
+        assert caller_refused_route("anonymous", action), action
+        assert caller_refused_route("operator", action) is None
+        assert caller_refused_route("", action) is None
+        # An unrecognised credential kind is not an operator.
+        assert caller_refused_route("superuser", action), action
+    assert caller_refused_route("session", refused_to_anyone)
+    assert caller_refused_route("session", session_only[0]) is None
+    assert caller_refused_route("session", unrouted_state_change[0]) is None
+
+
+async def test_an_anonymous_chat_is_refused_what_its_routes_refuse_and_a_session_is_not(
+        monkeypatch, tmp_path, caplog):
+    """Every chat surface, no credential, scripted `request_execution` over every
+    state-changing action and `platform_action` over every read whose route needs
+    a credential. Nothing may reach ServiceDispatcher.execute. The session run
+    of the same script on the same surfaces is the positive control."""
+    import json
+    import logging
+    import sys
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    class _Allow:
+        async def evaluate(self, action, context):
+            return {"allow": True}
+
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda *a, **k: _Allow())
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+
+    anon_pairs = _derived_anonymous_refused_pairs()
+    state_changing = sorted(a for a in sd._STATE_MODIFYING_ACTIONS if a in sd.ACTION_MAP)
+    credentialed_reads = sorted(a for a, p in sd.ACTION_MAP.items()
+                                if p in anon_pairs and a not in sd._STATE_MODIFYING_ACTIONS)
+    calls = ([("request_execution", {"action": a, "params": {}}) for a in state_changing]
+             + [("platform_action", {"action": a, "params": {}}) for a in credentialed_reads])
+    # The operations the reviewer probed are in the script.
+    for a in ("transfer_stablecoin", "swap_tokens", "buy_marketplace", "stake", "mint_nft"):
+        assert a in state_changing, a
+    session_refused = set(_actions_reaching_a_refused_pair())
+
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+
+    async def run_ws(client, headers, session_id):
+        async with client.ws_connect("/ws", headers=headers) as ws:
+            await ws.send_json({"type": "chat", "message": "do it", "agent": "trinity",
+                                "session_id": session_id})
+            while True:
+                frame = json.loads((await ws.receive()).data)
+                if frame.get("type") in ("done", "error"):
+                    return frame
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        _scripted_model(server, calls)
+        resp = await client.post("/bridge/v1/chat", headers={"Authorization": "Bearer k"},
+                                 json={"message": "do it", "session_id": "operator-run",
+                                       "wallet_connected": True})
+        assert resp.status == 200, await resp.text()
+        operator_reached = [c.split("@")[0] for c in recorder.calls]
+        assert len(operator_reached) >= len(calls) // 2, (
+            f"the operator's identical chat reached only {len(operator_reached)} of "
+            f"{len(calls)}: the harness is broken")
+        recorder.calls.clear()
+
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        bearer = {"Authorization": "Bearer 0xTEST_SESSION"}
+        expected_for_session = sorted(a for a in operator_reached if a not in session_refused)
+        assert expected_for_session, "precondition: a session has something to reach"
+        for n, (label, kind, surface, headers) in enumerate((
+            ("session /bridge/v1/chat", "session", "/bridge/v1/chat", bearer),
+            ("session /ws", "session", "/ws", bearer),
+            ("anonymous /bridge/v1/chat", "anonymous", "/bridge/v1/chat", {}),
+            ("anonymous /chat", "anonymous", "/chat", {}),
+            ("anonymous /ws", "anonymous", "/ws", {}),
+        )):
+            _scripted_model(server, calls)
+            recorder.calls.clear()
+            caplog.clear()
+            with caplog.at_level(logging.WARNING, logger="runtime.tools.dispatcher"):
+                if surface == "/ws":
+                    frame = await run_ws(client, headers, f"run-{n}")
+                    assert frame.get("type") == "done", frame
+                else:
+                    resp = await client.post(surface, headers=headers, json={
+                        "message": "do it", "wallet_connected": True, "session_id": f"run-{n}"})
+                    assert resp.status == 200, await resp.text()
+            reached = sorted(c.split("@")[0] for c in recorder.calls)
+            if kind == "session":
+                # Signed-in callers keep every operation their routes grant them.
+                assert reached == expected_for_session, (
+                    label, sorted(set(expected_for_session) - set(reached)),
+                    sorted(set(reached) - set(expected_for_session)))
+                continue
+            assert reached == [], (
+                f"an {label} chat reached {len(reached)} operations no public route "
+                f"grants: {reached}")
+            # Refused by the credential boundary, not by another gate that fired first.
+            refused = " ".join(r.getMessage() for r in caplog.records
+                               if r.getMessage().startswith("Anonymous DENIED"))
+            not_by_boundary = [a for a in operator_reached if f"action '{a}'" not in refused]
+            assert not_by_boundary == [], (label, not_by_boundary)

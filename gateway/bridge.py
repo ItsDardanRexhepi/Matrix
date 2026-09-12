@@ -811,13 +811,12 @@ class BridgeRoutes:
         # action resolves to, so every dispatcher gives one answer; the operator
         # key is unaffected.
         caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
-        if caller_kind in ("session", "anonymous"):
-            from gateway.session_routes import session_refused_route
-            refused = session_refused_route(action)
+        if caller_kind and caller_kind != "operator":
+            # One refusal for every dispatcher and every credential tier.
+            from gateway.session_routes import caller_refusal_message, caller_refused_route
+            refused = caller_refused_route(caller_kind, action)
             if refused:
-                return MobileResponse.error(
-                    "This action is not available to a user session; "
-                    f"its route ({refused}) requires the operator key.", 403)
+                return MobileResponse.error(caller_refusal_message(caller_kind, refused), 403)
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.
