@@ -662,6 +662,15 @@ class BridgeRoutes:
             return MobileResponse.error("message required")
 
         agent = body.get("agent", "trinity")
+        forbid = getattr(self._server, "_agent_forbidden_for_caller", None)
+        forbidden = forbid(request, agent) if forbid else None
+        if forbidden:
+            return MobileResponse.error(forbidden, 403)
+        # T2: the Apple user behind the presented session is the apple_id the
+        # Morpheus gate sees — not a value the body asserts.
+        apple_sub = getattr(self._server, "_session_apple_id", lambda _r: "")(request)
+        if apple_sub:
+            body = {**body, "apple_id": apple_sub}
         session_id = body.get("session_id", "default")
 
         try:
@@ -781,8 +790,11 @@ class BridgeRoutes:
             generic_denial, is_blocked,
         )
         linked = self._linked_wallets.get(session_id) or {}
+        # T2: the session the request presents (the app's Apple Bearer) names
+        # the caller; the bridge-session's linked wallet is the fallback.
+        session_identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
         bind_request_security(
-            identity=linked.get("address", ""),
+            identity=session_identity or linked.get("address", ""),
             app_attest=body.get("app_attest"),
             session_id=session_id,
         )

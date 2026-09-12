@@ -105,10 +105,14 @@ def default_agent_access(agent: str | None, tool: str, action: str | None = None
       agent boundary only applies to identified agents).
     - Unknown agent name: denied (fail-closed).
     """
-    a = (agent or "").strip().lower()
+    if agent is None:
+        return (True, "")  # internal/test path with no agent context; the boundary does not apply
 
+    a = str(agent).strip().lower()
     if a == "":
-        return (True, "")  # non-agent path; the boundary does not apply
+        # A caller-supplied EMPTY name is not the internal path — it is a request
+        # that names no agent so that no boundary can apply to it. Fail closed.
+        return (False, "no agent named; the per-agent boundary cannot be applied — refused")
 
     if a == "neo":
         return (True, "")  # full execution set
