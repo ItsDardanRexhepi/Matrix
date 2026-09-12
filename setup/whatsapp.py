@@ -32,7 +32,7 @@ def configure(config: dict, persist: bool = True) -> dict:
     update_env({
         "TWILIO_WHATSAPP_FROM": from_num,
         "TWILIO_WHATSAPP_TO": to_num,
-    })
+    }, persist=persist)
     result = test_channel_via_dispatcher(config, "whatsapp")
     if result.get("status") == "ok":
         success("WhatsApp saved and test message sent.")

@@ -464,19 +464,34 @@ def configure_communications(config):
         ("iOS push",   "no",  cfg_ios.configure),
         ("Webhook",    "no",  cfg_webhook.configure),
     ]
+    from setup import _shared
+    import copy
+
     for label, default, fn in prompts:
         pick = ask(f"Configure {label}?", default=default, options=["yes", "no"])
         if pick.lower().startswith("y"):
+            # A channel module writes its config block and stages its .env
+            # values BEFORE its last step (several send a test message). An
+            # interrupt or error after that point used to print "Skipped." over
+            # a half-configured channel that was then written out with
+            # everything else. Snapshot both, and put both back.
+            config_before = copy.deepcopy(config)
+            env_before = _shared.pending_env()
             try:
                 # persist=False: the wizard owns the write. Channel modules
-                # mutate the dict and return it; only write_config() touches
-                # disk, and only after the operator has agreed to overwrite.
-                # RUN-1 was these nine calls each writing immediately.
+                # mutate the dict and stage .env updates; only commit_setup()
+                # touches disk, and only after the operator has agreed to
+                # overwrite. RUN-1 was these nine calls each writing
+                # immediately — and the .env half of it survived RUN-1.
                 fn(config, persist=False)
-            except KeyboardInterrupt:
-                info("Skipped.")
-            except Exception as exc:
-                info(f"{label} setup failed ({exc}); continuing.")
+            except (KeyboardInterrupt, Exception) as exc:
+                config.clear()
+                config.update(config_before)
+                _shared.restore_pending_env(env_before)
+                if isinstance(exc, KeyboardInterrupt):
+                    info("Skipped — nothing from this channel was kept.")
+                else:
+                    info(f"{label} setup failed ({exc}); nothing from it was kept. Continuing.")
 
     # Ensure the unified "notifications" block exists even if empty.
     config.setdefault("notifications", {})
@@ -572,10 +587,24 @@ def write_config(config):
             warn("Setup cancelled. Existing config preserved.")
             return False
 
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(config, indent=2) + "\n")
-    os.replace(tmp, path)
+    from setup._shared import _atomic_write_text   # keeps mode and symlinks
+    _atomic_write_text(path, json.dumps(config, indent=2) + "\n")
     success(f"Config written to {path}")
+    return True
+
+
+def commit_setup(config):
+    """Everything the wizard writes, in order, only once the operator agreed.
+
+    The config first (write_config re-asks if one exists and returns False on
+    "no"); then .gitignore, so .env is covered before it can exist; then the
+    .env values the channel modules staged. Declining writes none of them.
+    """
+    from setup import _shared
+    if not write_config(config):
+        return False
+    setup_gitignore()
+    _shared.flush_pending_env()
     return True
 
 
@@ -656,10 +685,9 @@ def main():
     print(f"\n{CYAN}{BOLD}{'═' * 60}{RESET}")
     step("✓", "✓", "Finalizing Setup")
 
-    if not write_config(config):
+    if not commit_setup(config):
         return
 
-    setup_gitignore()
     verify_setup(config)
 
     # Done

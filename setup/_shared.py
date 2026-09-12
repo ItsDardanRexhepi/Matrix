@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
+import tempfile
 from pathlib import Path
 
 # ANSI colors
@@ -76,6 +78,46 @@ def load_config() -> dict:
     return {}
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Replace *path*'s contents all at once, keeping what the operator set up.
+
+    Temp file in the same directory, fsync, rename. Two properties a bare
+    ``tmp.write_text`` + ``os.replace`` (RUN-1's first version) lost:
+
+    * the MODE. The rename installs a new inode, so a file the operator had
+      chmod 600'd came back 644. The new file takes the old one's mode; a file
+      that did not exist is created 600, because both files this module writes
+      hold credentials.
+    * a SYMLINK. Renaming over a link replaces the link with a regular file, so
+      a .env kept in a vault directory and linked in would silently stop being
+      the one that is updated. The link's target is what gets replaced.
+
+    Any failure — including one partway through writing — removes the temp
+    file and leaves the original untouched.
+    """
+    target = path.resolve() if path.is_symlink() else path
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o600
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp_name, mode)
+        os.replace(tmp_name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def save_config(config: dict, persist: bool = True) -> None:
     """Persist *config*, atomically — unless the caller owns the write.
 
@@ -89,16 +131,13 @@ def save_config(config: dict, persist: bool = True) -> None:
     The default stays ``True`` so the modules remain independently runnable
     (``python setup_communications.py telegram``).
 
-    The write is temp-file-plus-rename so an interrupted run cannot leave a
-    truncated config behind — a half-written config is worse than either
-    outcome, and the previous direct ``write_text`` had that window.
+    The write goes through ``_atomic_write_text`` so an interrupted run cannot
+    leave a truncated config behind — a half-written config is worse than
+    either outcome, and the previous direct ``write_text`` had that window.
     """
     if not persist:
         return
-
-    tmp = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
-    tmp.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, CONFIG_PATH)
+    _atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2) + "\n")
 
 
 def update_channel(config: dict, channel_name: str, channel_cfg: dict) -> None:
@@ -110,8 +149,47 @@ def update_channel(config: dict, channel_name: str, channel_cfg: dict) -> None:
     notif[channel_name] = existing
 
 
-def update_env(updates: dict[str, str]) -> None:
-    """Merge key=value pairs into the top-level .env file."""
+# .env updates collected while the wizard owns the write. See update_env().
+_PENDING_ENV: dict[str, str] = {}
+
+
+def update_env(updates: dict[str, str], persist: bool = True) -> None:
+    """Merge key=value pairs into the top-level .env file — or stage them.
+
+    ``persist`` means exactly what it means for ``save_config``, on the line
+    above every call to this. It did not exist: RUN-1 gated the config write and
+    left this one unconditional, so the wizard rewrote the operator's .env in
+    step 7 whatever they answered afterwards, and printed "Existing config
+    preserved" over it.
+
+    With ``persist=False`` the updates are staged. The wizard writes them with
+    ``flush_pending_env()`` once the operator has agreed, or they are dropped
+    with the process.
+    """
+    if not persist:
+        _PENDING_ENV.update(updates)
+        return
+    _write_env(updates)
+
+
+def pending_env() -> dict[str, str]:
+    """A copy of the staged updates, for the wizard to roll a channel back to."""
+    return dict(_PENDING_ENV)
+
+
+def restore_pending_env(snapshot: dict[str, str]) -> None:
+    _PENDING_ENV.clear()
+    _PENDING_ENV.update(snapshot)
+
+
+def flush_pending_env() -> None:
+    """Write everything staged with ``persist=False``, then forget it."""
+    if _PENDING_ENV:
+        _write_env(dict(_PENDING_ENV))
+    _PENDING_ENV.clear()
+
+
+def _write_env(updates: dict[str, str]) -> None:
     lines: list[str] = []
     if ENV_PATH.exists():
         lines = ENV_PATH.read_text(encoding="utf-8").splitlines()
@@ -126,7 +204,7 @@ def update_env(updates: dict[str, str]) -> None:
         if not found:
             lines.append(f"{var}={value}")
 
-    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _atomic_write_text(ENV_PATH, "\n".join(lines) + "\n")
 
 
 # ── Channel test ────────────────────────────────────────────────────────
