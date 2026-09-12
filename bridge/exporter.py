@@ -1,7 +1,7 @@
 """
-Component Exporter — receives and unpacks component bundles from Matrix.
+Component Exporter — receives and unpacks component bundles from a private runtime.
 
-The Matrix private runtime packages components via its own exporter
+The private runtime packages components via its own exporter
 (strips private refs, security layers, and internal routing), then
 sends the sanitized bundle here for deployment into the public runtime.
 
@@ -68,7 +68,7 @@ _PRIVATE_PATTERNS = [
 
 
 class ComponentExporter:
-    """Receives, validates, and unpacks component bundles from Matrix.
+    """Receives, validates, and unpacks component bundles from the private runtime.
 
     Usage::
 
@@ -144,7 +144,7 @@ class ComponentExporter:
             )
 
     def _strip_private_refs(self, content: str, filename: str) -> str:
-        """Remove any private references that slipped through the Matrix exporter."""
+        """Remove any private references that slipped through the private-side exporter."""
         for pattern in _PRIVATE_PATTERNS:
             if pattern.search(content):
                 logger.warning(

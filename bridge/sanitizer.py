@@ -1,9 +1,9 @@
 """
 Sanitization Validator — scans exported components for forbidden patterns.
 
-Re-validates that no private data, security layer references, Matrix-specific
+Re-validates that no private data, security layer references, private-runtime
 routing, or closed-source content leaked through the export pipeline. This is
-the second line of defense after the Matrix-side exporter.
+the second line of defense after the private-side exporter.
 
 If ANY violation is found, the component is BLOCKED from deployment and an
 alert is sent via Telegram.
@@ -59,28 +59,28 @@ _PRIVATE_DATA_PATTERNS = [
 ]
 
 _SECURITY_LAYER_PATTERNS = [
-    (re.compile(r"MatrixSecurityLayer", re.IGNORECASE), "Matrix security layer reference"),
+    (re.compile(r"MatrixSecurityLayer", re.IGNORECASE), "Private security layer reference"),
     (re.compile(r"NeoSafe\.internal", re.IGNORECASE), "NeoSafe internal reference"),
     (re.compile(r"CLOSED_SOURCE_ONLY", re.IGNORECASE), "Closed-source marker"),
     (re.compile(r"security_layer\.(encrypt|decrypt|sign)", re.IGNORECASE), "Security layer method"),
-    (re.compile(r"from\s+matrix\.security", re.IGNORECASE), "Matrix security import"),
-    (re.compile(r"import\s+.*matrix\.security", re.IGNORECASE), "Matrix security import"),
+    (re.compile(r"from\s+matrix\.security", re.IGNORECASE), "Private security import"),
+    (re.compile(r"import\s+.*matrix\.security", re.IGNORECASE), "Private security import"),
 ]
 
 _MATRIX_ROUTING_PATTERNS = [
-    (re.compile(r"matrix\.private\.", re.IGNORECASE), "Matrix private routing"),
-    (re.compile(r"matrix\.internal\.", re.IGNORECASE), "Matrix internal routing"),
+    (re.compile(r"matrix\.private\.", re.IGNORECASE), "Private runtime routing"),
+    (re.compile(r"matrix\.internal\.", re.IGNORECASE), "Private internal routing"),
     (re.compile(r"INTERNAL_ROUTE", re.IGNORECASE), "Internal route marker"),
     (re.compile(r"governance\.internal", re.IGNORECASE), "Internal governance endpoint"),
-    (re.compile(r"from\s+matrix\.routing", re.IGNORECASE), "Matrix routing import"),
-    (re.compile(r"matrix_router\.", re.IGNORECASE), "Matrix router reference"),
+    (re.compile(r"from\s+matrix\.routing", re.IGNORECASE), "Private routing import"),
+    (re.compile(r"matrix_router\.", re.IGNORECASE), "Private router reference"),
 ]
 
 _CLOSED_SOURCE_PATTERNS = [
     (re.compile(r"DO_NOT_EXPORT", re.IGNORECASE), "Do-not-export marker"),
     (re.compile(r"INTERNAL_USE_ONLY", re.IGNORECASE), "Internal-use marker"),
     (re.compile(r"PROPRIETARY", re.IGNORECASE), "Proprietary marker"),
-    (re.compile(r"# ?COPYRIGHT.*MATRIX", re.IGNORECASE), "Matrix copyright header"),
+    (re.compile(r"# ?COPYRIGHT.*MATRIX", re.IGNORECASE), "Private copyright header"),
     (re.compile(r"CONFIDENTIAL", re.IGNORECASE), "Confidential marker"),
 ]
 

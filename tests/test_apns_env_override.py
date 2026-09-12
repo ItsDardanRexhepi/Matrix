@@ -1,6 +1,6 @@
 """Phase 8: APNs .p8 env-override — the deploy mounts the key at
 APNS_AUTH_KEY_P8_PATH; the gateway must read its CONTENTS into the ios_push
-channel (else the Matrix compose mount is cosmetic). Fail-safe when absent.
+channel (else the deployment's compose mount is cosmetic). Fail-safe when absent.
 """
 
 import os

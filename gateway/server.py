@@ -171,7 +171,7 @@ def _apply_env_overrides(config: dict) -> dict:
             os.environ["TELEGRAM_BOT_TOKEN"]
         )
 
-    # APNs push (Matrix deploy): the .p8 is MOUNTED as a file (never an env
+    # APNs push (private deployment): the .p8 is MOUNTED as a file (never an env
     # value) at APNS_AUTH_KEY_P8_PATH; read its contents into the ios_push
     # channel config so the mounted secret is actually consumed. Absent path /
     # unreadable file leaves the channel unconfigured (push stays a no-op) —

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate gateway/session_routes.py — the routes a per-user session may reach.
 
-T2 / path A (Matrix register entry::D005-DECIDED-A): the auth wall accepts the
+T2 / path A (register entry::D005-DECIDED-A): the auth wall accepts the
 Apple session the iOS app holds as a credential ONLY on the routes the app
 actually calls. Anything else stays behind the operator key. The list is
 derived, not hand-written:

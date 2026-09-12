@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Matrix-to-0pnMatrx Bridge — connects the MTRX iOS app to the 0pnMatrx backend.
+MTRX-to-0pnMatrx Bridge — connects the MTRX iOS app to the 0pnMatrx backend.
 
 Exposes mobile-optimized endpoints under /bridge/v1/ that the MTRX iOS app
 calls. Handles:

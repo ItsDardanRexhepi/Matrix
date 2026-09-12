@@ -1,7 +1,7 @@
 """
-Matrix-to-0pnMatrx Bridge — public-facing component pipeline.
+Private-runtime-to-0pnMatrx Bridge — public-facing component pipeline.
 
-Receives validated, owner-approved components from the Matrix private
+Receives validated, owner-approved components from a private
 runtime and deploys them into the 0pnMatrx open-source platform.
 
 Pipeline stages:

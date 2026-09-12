@@ -6,7 +6,7 @@ their real verb in ``arguments["action"]``. The seam used to hand the security
 gate ``action_type = tool_name``, so the gate — which classifies by verb —
 saw ``smart_contract`` for a contract deployment signed with the platform key
 and ``stablecoin`` for an ERC-20 approve, and 18 of the 20 tools passed by
-name (Matrix register entry::TWINS-CRITICAL, entry::TWINS-MORPHEUS-BYNAME,
+name (register entry::TWINS-CRITICAL, entry::TWINS-MORPHEUS-BYNAME,
 standing rule §DL.4: never classify on a field the dangerous value is not in).
 
 This table maps every declared (tool, action) to the canonical action type the
