@@ -235,3 +235,143 @@ def test_the_classifier_reads_the_bytes_not_a_declaration():
     # Not an account call at all.
     assert classify_user_operation(b"\x01\x02\x03") == ["unrecognized_call_data"]
     assert classify_user_operation(b"") == ["empty_call_data"]
+
+
+# ── the classifier is bounded by the bytes it is given ───────────────────
+#
+# Round-1 review: classify_user_operation called eth_abi.decode on caller bytes,
+# on every sign request, before any policy check and with no policy configured.
+# ABI dynamic arrays let every bytes[] element point at ONE shared blob, and
+# eth_abi copies that blob once per element — so a ~1 MiB request allocated
+# gigabytes. These controls send exactly that payload.
+
+def _word(n: int) -> bytes:
+    return int(n).to_bytes(32, "big")
+
+
+def _aliased_batch(elements: int, blob_len: int) -> bytes:
+    """executeBatch(address[],bytes[]) whose every bytes[] offset points at the
+    same blob — accepted by a permissive ABI decoder, one copy per element."""
+    blob = _word(blob_len) + _sel("transfer(address,uint256)") + b"\x00" * (blob_len - 4)
+    blob += b"\x00" * ((-blob_len) % 32)
+    dests = _word(elements) + b"".join(_word(0xBEEF) for _ in range(elements))
+    funcs = _word(elements) + b"".join(_word(32 * elements) for _ in range(elements)) + blob
+    return (_sel("executeBatch(address[],bytes[])")
+            + _word(64) + _word(64 + len(dests)) + dests + funcs)
+
+
+def _peak_mb(fn):
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        result = fn()
+        return result, tracemalloc.get_traced_memory()[1] / 1e6
+    finally:
+        tracemalloc.stop()
+
+
+def test_an_aliased_offset_batch_is_refused_without_copying_the_blob():
+    from runtime.blockchain.sponsorship import classify_user_operation
+
+    payload = _aliased_batch(200, 200000)          # ~206 KB of call data, 200 elements (under the batch limit)
+    labels, peak = _peak_mb(lambda: classify_user_operation(payload))
+    assert peak < 5, (f"classifying {len(payload)} bytes peaked at {peak:.1f} MB — "
+                      f"the decoder is copying one shared blob per element")
+    assert labels == ["unrecognized_call_data"], labels[:3]
+
+
+def test_non_canonical_offsets_are_not_described():
+    """Only the canonical encoding is described. A decoder that accepts other
+    offset layouts has to agree with Solidity's on every one of them; refusing
+    them is the only reading that cannot disagree."""
+    from runtime.blockchain.sponsorship import classify_user_operation
+
+    good = bytes.fromhex(_execute(RECIPIENT, 1, b"")[2:])
+    assert classify_user_operation(good) == ["transfer"]
+    # Same call, bytes offset moved one word later with a gap word inserted.
+    moved = good[:4 + 64] + _word(128) + _word(0) + good[4 + 96:]
+    assert classify_user_operation(moved) == ["unrecognized_call_data"]
+    # Dirty upper bits in the address word: Solidity reverts, so nothing is described.
+    dirty = good[:4] + b"\x01" + good[5:]
+    assert classify_user_operation(dirty) == ["unrecognized_call_data"]
+    # Bytes length running past the end of the call data.
+    truncated = good[:4 + 96] + _word(10**6)
+    assert classify_user_operation(truncated) == ["unrecognized_call_data"]
+
+
+def test_the_three_array_batch_the_client_encodes_is_described():
+    from runtime.blockchain.sponsorship import classify_user_operation
+
+    call = (_sel("executeBatch(address[],uint256[],bytes[])")
+            + encode(["address[]", "uint256[]", "bytes[]"],
+                     [[TOKEN, RECIPIENT, NFT], [0, 5, 0],
+                      [_erc20_transfer(RECIPIENT, 5), b"", _nft_mint(RECIPIENT)]]))
+    assert classify_user_operation(call) == ["transfer", "transfer", "mint_nft"]
+
+
+def test_a_batch_over_the_limit_is_one_label():
+    from runtime.blockchain.sponsorship import MAX_BATCH_CALLS, classify_user_operation
+
+    n = MAX_BATCH_CALLS + 1
+    inners = [_sel(f"f{i}()") for i in range(n)]
+    call = (_sel("executeBatch(address[],bytes[])")
+            + encode(["address[]", "bytes[]"], [[TOKEN] * n, inners]))
+    assert classify_user_operation(call) == ["oversized_batch"]
+    at_limit = (_sel("executeBatch(address[],bytes[])")
+                + encode(["address[]", "bytes[]"],
+                         [[TOKEN] * MAX_BATCH_CALLS, inners[:MAX_BATCH_CALLS]]))
+    assert len(classify_user_operation(at_limit)) == MAX_BATCH_CALLS
+
+
+@pytest.mark.asyncio
+async def test_the_route_refuses_an_aliased_batch_with_bounded_memory(aiohttp_client,
+                                                                        tmp_path):
+    client = await _client(aiohttp_client, tmp_path, policy=TRANSFER_ONLY)
+    body = _body("0x" + _aliased_batch(200, 200000).hex())
+
+    async def _post():
+        r = await client.post("/api/v1/paymaster/sign", json=body)
+        return r.status, await r.text()
+
+    import tracemalloc
+    tracemalloc.start()
+    try:
+        status, text = await _post()
+        peak = tracemalloc.get_traced_memory()[1] / 1e6
+    finally:
+        tracemalloc.stop()
+    assert status == 403, text[:300]
+    assert peak < 20, f"one sign request peaked at {peak:.1f} MB"
+
+
+@pytest.mark.asyncio
+async def test_with_no_allowlist_the_call_data_is_not_classified(aiohttp_client,
+                                                                  tmp_path, monkeypatch):
+    """Nothing reads the labels when no allowlist is configured, so the caller's
+    bytes are not decoded at all — only hex-decoded and hashed, as before."""
+    import runtime.blockchain.sponsorship as sponsorship
+
+    def _must_not_run(*_a, **_k):
+        raise AssertionError("classify_user_operation ran with no allowlist configured")
+
+    monkeypatch.setattr(sponsorship, "classify_user_operation", _must_not_run)
+    client = await _client(aiohttp_client, tmp_path)
+    r = await client.post("/api/v1/paymaster/sign",
+                          json=_body("0x" + _aliased_batch(200, 200000).hex()))
+    assert r.status == 200, (await r.text())[:300]
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_does_not_echo_an_unbounded_label_list(aiohttp_client, tmp_path):
+    from runtime.blockchain.sponsorship import MAX_BATCH_CALLS
+
+    client = await _client(aiohttp_client, tmp_path, policy=TRANSFER_ONLY)
+    for n in (MAX_BATCH_CALLS, 1000):
+        inners = [_sel(f"f{i}()") for i in range(n)]
+        call = (_sel("executeBatch(address[],bytes[])")
+                + encode(["address[]", "bytes[]"], [[TOKEN] * n, inners]))
+        r = await client.post("/api/v1/paymaster/sign", json=_body("0x" + call.hex()))
+        text = await r.text()
+        assert r.status == 403, text[:300]
+        assert len(text) < 2048, f"a {n}-call refusal echoed {len(text)} bytes"

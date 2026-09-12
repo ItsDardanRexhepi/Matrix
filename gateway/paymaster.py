@@ -16,7 +16,11 @@ funds. Sponsorship policy (action allowlist + per-identity daily USD cap) is
 enforced before signing; unconfigured signer -> the route returns 503. The
 allowlist is checked against the actions decoded from the userOp's own
 callData/initCode (runtime.blockchain.sponsorship.classify_user_operation), never
-against a label the requester supplies.
+against a label the requester supplies. It constrains which ABI function names
+the call data invokes, not what code runs: the target contract, a value
+recipient and the sender account are not verified (see that module's WHAT IT
+CANNOT KNOW), so the daily cap, not the allowlist, bounds a caller who deploys
+contracts.
 """
 
 from __future__ import annotations

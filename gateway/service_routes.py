@@ -925,6 +925,10 @@ class ServiceRoutes:
         it by saying so; the MTRX client hardcodes "transfer" for every send, so
         the label was never information even from an honest caller. The field is
         still accepted and a disagreement is logged, but it decides nothing.
+        The labels name ABI functions, not behaviour: the target, a value
+        recipient and the sender account are not verified (sponsorship.py, WHAT
+        IT CANNOT KNOW). With no allowlist configured the call data is not
+        decoded at all.
 
         D-045: the cap in that sentence had no reader anywhere in the tree — the
         handler checked `allowed_actions` and nothing else, so one holder of the
@@ -947,9 +951,8 @@ class ServiceRoutes:
             compute_paymaster_digest, sign_digest, build_paymaster_and_data,
             paymaster_config, signer_configured,
         )
-        from runtime.blockchain.sponsorship import (
-            SponsorshipPolicy, classify_user_operation,
-        )
+        from runtime.blockchain import sponsorship
+        from runtime.blockchain.sponsorship import SponsorshipPolicy, summarize_labels
         body = await self._parse_body(request)
         cfg = getattr(self, "_config", {}) or {}
         pcfg = paymaster_config(cfg)
@@ -994,13 +997,24 @@ class ServiceRoutes:
 
         # §EE: derive the action from what is being sponsored. The body's
         # `action_type` is logged when it disagrees and is otherwise ignored.
-        actions = classify_user_operation(
-            call_data, init_code, account_factory=pcfg.get("account_factory"))
-        declared = body.get("action_type")
-        if declared is not None and [str(declared)] != actions:
-            logger.info(
-                "paymaster sign: declared action_type %r; the call data performs "
-                "%s, and the call data decides", str(declared)[:64], actions)
+        #
+        # Only an allowlist reads the labels, so with none configured the
+        # caller's bytes are not decoded at all — hex-decoded and hashed, as
+        # before this policy read them. The classifier is linear in its input
+        # either way (sponsorship.py, HOW IT DECODES); not running it where
+        # nothing depends on it keeps an unconfigured deployment's sign path
+        # exactly what it was.
+        if policy.allowed_actions is None:
+            actions = ["unclassified"]
+        else:
+            actions = sponsorship.classify_user_operation(
+                call_data, init_code, account_factory=pcfg.get("account_factory"))
+            declared = body.get("action_type")
+            if declared is not None and [str(declared)] != actions:
+                logger.info(
+                    "paymaster sign: declared action_type %r; the call data "
+                    "performs %s, and the call data decides",
+                    str(declared)[:64], summarize_labels(actions))
 
         # Price this request before metering it. A cap denominated in dollars
         # cannot be enforced against an unknown dollar amount, so an unavailable
