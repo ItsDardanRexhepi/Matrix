@@ -19,6 +19,7 @@ from the dispatcher's live tables.
 """
 from __future__ import annotations
 
+import functools
 import importlib
 
 import pytest
@@ -116,6 +117,7 @@ def test_a_conflict_is_reported_in_full_not_truncated(caplog):
 # generator's regex. Both derivations here and in the generator use the AST.
 
 
+@functools.lru_cache(maxsize=1)
 def _route_pairs():
     """(service, method) -> {canonical route} from the REAL app: its registered
     routes, and the `self._call(service, method, ...)` in each handler's own
@@ -138,13 +140,17 @@ def _route_pairs():
         except (OSError, TypeError):
             continue
         for node in ast.walk(ast.parse(textwrap.dedent(src))):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "_call" and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "self" and len(node.args) >= 2
-                    and all(isinstance(a, ast.Constant) and isinstance(a.value, str)
-                            for a in node.args[:2])):
-                pairs[(node.args[0].value, node.args[1].value)].add(route.resource.canonical)
-                break
+                    and node.func.value.id == "self"):
+                continue
+            head = node.args[:2]
+            # Every call, not the first; and a call this derivation cannot
+            # attribute is a failure, not a skip (review of bb6635b).
+            assert len(head) == 2 and all(
+                isinstance(a, ast.Constant) and isinstance(a.value, str) for a in head), (
+                f"{route.resource.canonical}: self._call with a non-literal service/method")
+            pairs[(head[0].value, head[1].value)].add(route.resource.canonical)
     return pairs
 
 
@@ -221,3 +227,249 @@ async def test_a_session_cannot_invoke_any_derived_escape(monkeypatch):
         "a user session invoked an operation its own route refuses it:\n  "
         + "\n  ".join(f"{c} -> HTTP {s} (route {r})" for c, s, r in reached))
     assert invoked == []
+
+
+# ── Every session-reachable DISPATCHER, keyed on the pair dispatch runs ───────
+#
+# bb6635b closed POST /api/v1/capabilities/{id}/invoke and called the boundary
+# fixed. It was not: the refusal was keyed on the CATALOG ID and enforced in that
+# one handler, and a session reaches the same ServiceDispatcher through two more
+# doors that take an ACTION_MAP action name instead of a catalog id:
+#
+#   POST /bridge/v1/action   — `dispatcher.execute(action, params=...)`, no check.
+#                              Measured on bb6635b: every capability in the escape
+#                              set answered 403 on invoke and on its own route, and
+#                              HTTP 200 here, reaching ServiceDispatcher.execute.
+#   POST /bridge/v1/chat     — Trinity's `request_execution` hands any action to
+#                              Neo, and her `platform_action` runs reads, with a
+#                              model-writable `service` override that changes the
+#                              service the pair resolves to.
+#
+# The refusal is now keyed on the (service, method) PAIR a dispatch resolves to
+# (ACTION_MAP plus any service override), which is what the dedicated route's
+# `self._call` runs. A catalog id, a bridge action name and a tool call that
+# resolve to the same pair get the same answer.
+
+
+def _derived_refused_pairs() -> dict[tuple[str, str], list[str]]:
+    from gateway.session_routes import session_may_reach
+    return {pair: sorted(routes) for pair, routes in _route_pairs().items()
+            if any(not session_may_reach(r) for r in routes)}
+
+
+def _actions_reaching_a_refused_pair() -> dict[str, tuple[str, str]]:
+    refused = _derived_refused_pairs()
+    return {a: p for a, p in sd.ACTION_MAP.items() if p in refused}
+
+
+def test_the_pair_escape_set_matches_what_the_routes_refuse():
+    from gateway.session_routes import SERVICE_METHODS_OFF_ALLOWLIST
+
+    derived = {f"{s}.{m}" for s, m in _derived_refused_pairs()}
+    committed = set(SERVICE_METHODS_OFF_ALLOWLIST)
+    assert derived - committed == set(), (
+        f"operations a session's own route refuses but no dispatcher refuses: {sorted(derived - committed)}")
+    assert committed - derived == set(), (
+        f"refused to a session with no operator-only route behind them: {sorted(committed - derived)}")
+
+
+def test_session_refused_route_resolves_the_pair_not_the_label():
+    from gateway.session_routes import session_refused_route
+
+    reaching = _actions_reaching_a_refused_pair()
+    assert reaching, "precondition: some action reaches an operator-only route"
+    assert [a for a in reaching if not session_refused_route(a)] == []
+    # A label that is not an action resolves to nothing, and so does a non-string.
+    assert session_refused_route("no_such_action") is None
+    assert session_refused_route({"action": "send_payment"}) is None
+    # The service override is part of the pair: a benign action pointed at a
+    # refused service is the refused operation.
+    override = [(a, s) for a, (svc, m) in sd.ACTION_MAP.items()
+                for (s, rm) in _derived_refused_pairs() if rm == m and s != svc]
+    for action, service in override:
+        assert session_refused_route(action, service), (action, service)
+
+
+def _session_server(tmp_path, SWEEP_CONFIG):
+    from gateway.server import GatewayServer
+    return GatewayServer({**SWEEP_CONFIG, "memory_dir": str(tmp_path / "m"),
+                          # The chat control scripts ~100 tool calls in a minute;
+                          # URF's rate limit would refuse them before the boundary.
+                          "rexhepi": {"rate_limit_max_actions": 100_000},
+                          "database": {"path": str(tmp_path / "s.db")},
+                          "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}})
+
+
+class _RecordingExecute:
+    def __init__(self):
+        self.calls = []
+
+    def install(self, monkeypatch):
+        from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+        calls = self.calls
+
+        async def execute(self, action, service=None, params=None, **kwargs):
+            calls.append(action if not service else f"{action}@{service}")
+            return '{"status": "ok"}'
+
+        monkeypatch.setattr(ServiceDispatcher, "execute", execute)
+
+
+async def test_a_session_cannot_reach_a_refused_operation_through_the_bridge_action(monkeypatch, tmp_path):
+    """Through the real auth wall, the real noop gate, every ACTION_MAP action whose
+    pair backs an operator-only route — catalog capability or not."""
+    import sys
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+    reaching = _actions_reaching_a_refused_pair()
+    # A superset of the catalog escape set bb6635b closed on the invoke route only.
+    escape_actions = {catalog.get_by_id(c)["action"] for c in _derived_escapes()}
+    assert escape_actions and escape_actions <= set(reaching), escape_actions - set(reaching)
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+    leaked = []
+    async with TestClient(TestServer(server.create_app())) as client:
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        for action in sorted(reaching):
+            resp = await client.post("/bridge/v1/action",
+                                     headers={"Authorization": "Bearer 0xTEST_SESSION"},
+                                     json={"action": action, "params": {}, "session_id": "s1"})
+            if resp.status != 403:
+                leaked.append((action, resp.status))
+        assert not leaked, (
+            f"{len(leaked)} operations a session's own route refuses answered through "
+            "/bridge/v1/action:\n  " + "\n  ".join(f"{a} -> HTTP {s}" for a, s in leaked))
+        assert recorder.calls == []
+
+        # The refusal is the SESSION's, not the operation's: the operator key reaches it.
+        action = sorted(reaching)[0]
+        resp = await client.post("/bridge/v1/action", headers={"Authorization": "Bearer k"},
+                                 json={"action": action, "params": {}, "session_id": "s1"})
+        assert resp.status == 200 and recorder.calls == [action]
+
+
+def _scripted_model(server, tool_calls):
+    import json
+
+    from runtime.models.model_interface import ModelResponse
+
+    replies = [ModelResponse(tool_calls=[
+        {"id": f"c{i}", "function": {"name": name, "arguments": json.dumps(args)}}
+        for i, (name, args) in enumerate(tool_calls)])]
+
+    async def complete(**kwargs):
+        return replies.pop(0) if replies else ModelResponse(content="done")
+
+    server.react_loop.router.complete = complete
+
+
+async def test_a_session_cannot_reach_a_refused_operation_through_chat(monkeypatch, tmp_path, caplog):
+    """Trinity is all a session can talk to. Her two dispatching tools are
+    `request_execution` (any action, executed as Neo) and `platform_action`
+    (reads, plus a `service` override the model writes)."""
+    import sys
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    class _Allow:
+        async def evaluate(self, action, context):
+            return {"allow": True}
+
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda *a, **k: _Allow())
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+    reaching = _actions_reaching_a_refused_pair()
+    from runtime.access_policy import _is_state_modifying
+    state_changing = sorted(a for a in reaching if _is_state_modifying(a))
+    reads = sorted(a for a in reaching if not _is_state_modifying(a))
+    override = sorted((a, s) for a, (svc, m) in sd.ACTION_MAP.items()
+                      for (s, rm) in _derived_refused_pairs() if rm == m and s != svc)
+    calls = ([("request_execution", {"action": a, "params": {}}) for a in state_changing]
+             + [("platform_action", {"action": a, "params": {}}) for a in reads]
+             + [("platform_action", {"action": a, "service": s, "params": {}}) for a, s in override])
+    assert reads and state_changing, "precondition: both tools have something to reach"
+
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+    async with TestClient(TestServer(server.create_app())) as client:
+        # The operator key first: what the script reaches with no session boundary
+        # in the way. Anything another gate refuses (Trinity may not execute a
+        # state change through platform_action, whatever its service) is not the
+        # session boundary's to refuse, and is left out of the comparison.
+        _scripted_model(server, calls)
+        resp = await client.post("/bridge/v1/chat", headers={"Authorization": "Bearer k"},
+                                 json={"message": "do it", "session_id": "operator-run",
+                                       "wallet_connected": True})
+        assert resp.status == 200, await resp.text()
+        operator_reached = list(recorder.calls)
+        assert len(operator_reached) >= len(reads) + len(state_changing) - 2, (
+            f"the operator's identical chat reached only {operator_reached}: the harness is broken")
+        recorder.calls.clear()
+
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        for label, path, headers, body in (
+            ("session", "/bridge/v1/chat", {"Authorization": "Bearer 0xTEST_SESSION"}, {}),
+            # The chat surfaces are PUBLIC paths: no credential at all reaches the
+            # same Trinity, and is refused at least what a session is.
+            ("anonymous", "/bridge/v1/chat", {}, {"session_id": "anonymous-run"}),
+            ("session /chat", "/chat", {"Authorization": "Bearer 0xTEST_SESSION"},
+             {"session_id": "chat-session-run"}),
+        ):
+            _scripted_model(server, calls)
+            caplog.clear()
+            import logging
+            with caplog.at_level(logging.WARNING, logger="runtime.tools.dispatcher"):
+                resp = await client.post(path, headers=headers,
+                                         json={"message": "do it", "wallet_connected": True, **body})
+            assert resp.status == 200, await resp.text()
+            assert recorder.calls == [], (
+                f"a {label} chat reached {len(recorder.calls)} operations a session's own "
+                f"routes refuse: {recorder.calls}")
+            # Refused by the session boundary, not by some other gate that happened
+            # to fire first (a URF wallet check did, in the first draft of this test).
+            refused_by_boundary = " ".join(r.getMessage() for r in caplog.records
+                                           if r.getMessage().startswith("Session DENIED"))
+            not_by_boundary = [a for a in operator_reached
+                               if f"action '{a.split('@')[0]}'" not in refused_by_boundary]
+            assert not_by_boundary == [], (label, not_by_boundary)
+
+
+async def test_a_gateway_context_without_a_caller_kind_is_not_an_operator():
+    """The boundary must not depend on every chat surface remembering the field:
+    a gateway-built user_context that lacks it is refused like an anonymous
+    caller; a run with no user_context at all (A2A, internal) is not an HTTP
+    caller and is untouched."""
+    from runtime.react_loop import _caller_kind_of
+    from runtime.tools.dispatcher import ToolDispatcher
+
+    assert _caller_kind_of({"session_id": "s", "agent": "trinity"}) == "anonymous"
+    assert _caller_kind_of({"caller_kind": "operator"}) == "operator"
+    assert _caller_kind_of({}) == "" and _caller_kind_of(None) == ""
+
+    ran = []
+
+    async def handler(**kwargs):
+        ran.append(kwargs.get("action"))
+        return "ran"
+
+    d = ToolDispatcher.__new__(ToolDispatcher)
+    d._tools, d._schemas = {"platform_action": handler}, []
+    action = sorted(_actions_reaching_a_refused_pair())[0]
+    for kind, expect_ran in (("anonymous", False), ("session", False), ("operator", True), ("", True)):
+        ran.clear()
+        outcome = await d.dispatch("platform_action", {"action": action}, agent_name="neo",
+                                   caller_kind=kind)
+        assert bool(ran) is expect_ran, (kind, outcome)

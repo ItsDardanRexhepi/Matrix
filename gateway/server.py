@@ -603,6 +603,7 @@ class GatewayServer:
             "wallet_address": body.get("wallet") or body.get("wallet_address") or "",
             "apple_id": body.get("apple_id", ""),
             "app_attest": body.get("app_attest"),
+            "caller_kind": self._caller_kind(request),
         }
 
         try:
@@ -1389,6 +1390,7 @@ class GatewayServer:
             "agent": agent,
             "wallet_connected": body.get("wallet_connected", True),
             "network": body.get("network"),
+            "caller_kind": self._caller_kind(request),
         }
 
         try:
@@ -1523,6 +1525,7 @@ class GatewayServer:
                 "session_id": session_id,
                 "memory_scope": self._memory_scope(request, session_id),
                 "agent": agent,
+                "caller_kind": self._caller_kind(request),
             }
 
             try:
@@ -2597,6 +2600,25 @@ class GatewayServer:
         """Session-derived identity when a session is presented; otherwise the
         self-asserted ``X-Wallet-Address`` header (anonymous and dev flows)."""
         return self._session_identity(request) or request.headers.get("X-Wallet-Address", "").strip()
+
+    def _caller_kind(self, request: web.Request) -> str:
+        """Which credential this request carries: ``"operator"`` (the operator
+        key, or auth off — development, where whoever runs the gateway is the
+        operator), ``"session"`` (a live wallet session), else ``"anonymous"``.
+
+        Computed here from the presented credential, never read from a body
+        field, and NOT from ``request["auth"]``: the chat surfaces (/chat, /ws,
+        /bridge/v1/chat) are public paths the auth wall passes straight through,
+        so it records nothing for them. Carried into a chat's user_context so the
+        tool dispatcher refuses a non-operator caller the operations a session's
+        own routes refuse (gateway/session_routes.py) — an anonymous caller is
+        refused at least what a signed-in one is.
+        """
+        if self._is_operator(request):
+            return "operator"
+        if self._wallet_session_from_request(request) is not None:
+            return "session"
+        return "anonymous"
 
     def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
         """On a user-facing chat surface the agent is Trinity. Naming Neo or

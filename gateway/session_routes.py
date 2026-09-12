@@ -127,10 +127,76 @@ CAPABILITIES_OFF_ALLOWLIST: dict[str, str] = {
     "transfer_custody": "/api/v1/supply-chain/custody/transfer",
 }
 
+# The same refusal keyed on what a dispatch RUNS: every (service, method) whose
+# dedicated route is refused to a session, whichever dispatcher reaches it —
+# the invoke route (catalog id), /bridge/v1/action (action name) or the chat
+# agent's request_execution / platform_action tools (action name + service).
+SERVICE_METHODS_OFF_ALLOWLIST: dict[str, str] = {
+    "brand_rewards.create_campaign": "/api/v1/brand/campaign/create",
+    "cashback.track_spending": "/api/v1/cashback/track",
+    "cross_border.send_payment": "/api/v1/crossborder/send",
+    "dex.add_liquidity": "/api/v1/dex/liquidity/add",
+    "did_identity.issue_credential": "/api/v1/identity/credential/issue",
+    "did_identity.verify_credential": "/api/v1/identity/credential/verify",
+    "governance.snapshot_vote": "/api/v1/governance/snapshot/vote",
+    "insurance.create_parametric_policy": "/api/v1/insurance/parametric/create",
+    "loyalty.earn_points": "/api/v1/loyalty/earn",
+    "nft_services.batch_mint": "/api/v1/nft/batch-mint",
+    "nft_services.bridge_nft": "/api/v1/nft/bridge",
+    "nft_services.create_collection": "/api/v1/nft/collection/create",
+    "nft_services.fractionalize": "/api/v1/nft/fractionalize",
+    "nft_services.rent": "/api/v1/nft/rent",
+    "nft_services.royalty_claim": "/api/v1/nft/royalty/claim",
+    "privacy.decentralized_store": "/api/v1/compute/store",
+    "privacy.pin_to_ipfs": "/api/v1/compute/ipfs/pin",
+    "privacy.request_deletion": "/api/v1/privacy/delete",
+    "real_estate.confirm_settlement": "/api/v1/realestate/escrow/{id}/confirm",
+    "real_estate.create_property": "/api/v1/realestate/properties",
+    "real_estate.execute_purchase": "/api/v1/realestate/purchase",
+    "real_estate.get_buyer_verification": "/api/v1/realestate/buyers/{wallet}/verification",
+    "real_estate.get_documents": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.get_escrow": "/api/v1/realestate/escrow/{id}",
+    "real_estate.get_property": "/api/v1/realestate/properties/{id}",
+    "real_estate.get_readiness": "/api/v1/realestate/properties/{id}/readiness",
+    "real_estate.list_properties": "/api/v1/realestate/properties",
+    "real_estate.mark_recording_complete": "/api/v1/realestate/escrow/{id}/recording-complete",
+    "real_estate.query_expiring_documents": "/api/v1/realestate/documents/expiring",
+    "real_estate.refund_escrow": "/api/v1/realestate/escrow/{id}/refund",
+    "real_estate.update_listing_status": "/api/v1/realestate/properties/{id}/status",
+    "real_estate.upload_document": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.verify_buyer": "/api/v1/realestate/buyers/verify",
+    "social.create_community": "/api/v1/social/community/create",
+    "social.create_profile": "/api/v1/social/profile",
+    "social.get_conversations": "/api/v1/messaging/conversations",
+    "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
+    "social.share_proof": "/api/v1/social/message",
+    "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
+    "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
+    "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
+}
+
 
 def session_may_invoke(capability_id: str) -> bool:
     """False when this capability would reach a route the session is refused."""
     return capability_id not in CAPABILITIES_OFF_ALLOWLIST
+
+
+def session_refused_route(action, service=None):
+    """The operator-only route behind what dispatching *action* would RUN, or None.
+
+    Resolved the way ServiceDispatcher.execute resolves it — ACTION_MAP at call
+    time, then a truthy ``service`` override replaces the service — so the
+    answer follows the operation, not the label a caller or catalog row gives
+    it. An unknown or non-string action resolves to nothing (the dispatcher
+    refuses those itself)."""
+    if not isinstance(action, str):
+        return None
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    pair = ACTION_MAP.get(action)
+    if pair is None:
+        return None
+    target = service if service else pair[0]
+    return SERVICE_METHODS_OFF_ALLOWLIST.get(f"{target}.{pair[1]}")
 
 
 def session_may_reach(canonical_route: str) -> bool:

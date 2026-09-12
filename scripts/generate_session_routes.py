@@ -79,67 +79,118 @@ def gateway_routes(routes_md: Path) -> dict[str, str]:
     return out
 
 
-def capability_escapes(routes_py: Path, allowed: set) -> dict:
-    """Capabilities a session could invoke to reach a route it is refused.
+def _call_pairs(fn_source: str, where: str) -> set:
+    """Every (service, method) a handler's body passes to ``self._call``.
 
-    ``POST /api/v1/capabilities/{id}/invoke`` is on the allowlist because the app
-    calls it — but it is a DISPATCHER: it resolves a catalog id to its ACTION_MAP
-    (service, method) pair and calls the same ServiceDispatcher the dedicated
-    /api/v1 routes call. So "exactly the routes the app calls" is true of URLs
-    and false of operations: a session gets 403 on the dedicated route and 200
-    on the capability that performs the identical call. This returns
-    {capability_id: dedicated_route} for every capability whose dispatch reaches
-    a dedicated route that is NOT session-reachable — the set the invoke handler
-    must refuse.
+    Read from the AST, not a regex: a comment between ``self._call(`` and its
+    first literal (NEW-89 left one in _handle_provenance_log) made the regex miss
+    the call, and the capability behind it with it. EVERY literal call is kept,
+    not only the first. A ``self._call`` whose service or method is not a string
+    literal cannot be attributed to a pair, so it stops the generator rather than
+    silently leaving an operation off the refusal set.
+    """
+    import ast as _ast
+    import textwrap as _textwrap
+
+    out = set()
+    for node in _ast.walk(_ast.parse(_textwrap.dedent(fn_source))):
+        if not (isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute)
+                and node.func.attr == "_call" and isinstance(node.func.value, _ast.Name)
+                and node.func.value.id == "self"):
+            continue
+        head = node.args[:2]
+        if len(head) < 2 or not all(isinstance(a, _ast.Constant) and isinstance(a.value, str)
+                                    for a in head):
+            raise SystemExit(
+                f"{where}: self._call with a non-literal service/method; the session "
+                "refusal set cannot attribute it to an operation — make both literals")
+        out.add((head[0].value, head[1].value))
+    return out
+
+
+def live_route_pairs() -> dict:
+    """canonical route -> {(service, method)} from the REAL app's router.
+
+    Routes are read from the router the gateway builds, not regexed out of
+    service_routes.py: the regex only knew ``app.router.add_x("/path",
+    self._handle_x)``, and the P2 routes registered from a
+    ``(method, path, handler)`` table were invisible to it — including two whose
+    operation a session is refused.
+    """
+    import inspect as _inspect
+    import tempfile as _tempfile
+
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from gateway.server import GatewayServer
+
+    scratch = _tempfile.mkdtemp(prefix="opnmatrx-session-routes-")
+    app = GatewayServer({"memory_dir": scratch,
+                         "database": {"path": f"{scratch}/g.db"}}).create_app()
+    out: dict = {}
+    for route in app.router.routes():
+        resource = route.resource
+        if resource is None:
+            continue
+        fn = getattr(route.handler, "__func__", route.handler)
+        try:
+            source = _inspect.getsource(fn)
+        except (OSError, TypeError):
+            continue  # a closure or builtin handler has no self._call to find
+        pairs = _call_pairs(source, f"{getattr(fn, '__qualname__', fn)} ({resource.canonical})")
+        if pairs:
+            out.setdefault(resource.canonical, set()).update(pairs)
+    return out
+
+
+def refused_pairs(allowed: set) -> dict:
+    """``"service.method"`` -> an operator-only route whose handler runs it.
+
+    Every session-reachable DISPATCHER — ``/api/v1/capabilities/{id}/invoke``
+    (catalog id), ``/bridge/v1/action`` (ACTION_MAP action name) and the chat
+    agent's ``request_execution`` / ``platform_action`` tools (action name, plus a
+    ``service`` override) — ends in the same ServiceDispatcher, which resolves
+    what it is given to a (service, method) pair. So "exactly the routes the app
+    calls" is true of URLs and false of operations unless the refusal is keyed
+    on that PAIR: a session that gets 403 on a dedicated route must get 403 on
+    every dispatcher that resolves to the same ``self._call``. bb6635b keyed it on
+    the catalog id and enforced it on the invoke route only; /bridge/v1/action
+    still answered 200 for all of them.
+
+    When one pair backs several routes and ANY of them is refused, the pair is
+    refused (errs toward the visible 403, as the module docstring says).
+    """
+    out: dict = {}
+    for route, pairs in sorted(live_route_pairs().items()):
+        if (route.rstrip("/") or "/") in allowed:
+            continue
+        for service, method in sorted(pairs):
+            out.setdefault(f"{service}.{method}", route)
+    return out
+
+
+def capability_escapes(pairs: dict) -> dict:
+    """{capability_id: route} for every catalog capability whose ACTION_MAP pair
+    is refused. Kept for the invoke route's message and for tooling; the
+    decision itself is the pair's (session_refused_route).
 
     The pair is read from ACTION_MAP, the table dispatch actually uses — NOT from
     the catalog row's own `service`/`method` fields. This used to regex those two
-    fields out of catalog.py, and 81 rows named a method that did not exist: they
-    matched no route, so 14 capabilities that reach an operator-only route were
-    left invokable by a session (a 15th, provenance_log, was hidden by the regex
-    below — see the AST note). An allow/deny must not rest on what the judged
-    artifact says about itself (§EE). When one pair backs several routes and any
-    of them is refused, the capability is refused (errs toward the visible 403,
-    as the module docstring says).
+    fields out of catalog.py, and 81 rows named a method that did not exist, so
+    capabilities that reach an operator-only route were left invokable by a
+    session. An allow/deny must not rest on what the judged artifact says about
+    itself (§EE).
     """
-    import re as _re
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     from runtime.blockchain.services.service_dispatcher import ACTION_MAP
     from runtime.capabilities import catalog
 
-    import ast as _ast
-
-    routes = routes_py.read_text(encoding="utf-8")
-    route_of_handler = {m.group(3): m.group(2) for m in _re.finditer(
-        r'app\.router\.add_(get|post|put|delete|patch)\("([^"]+)",\s*self\.(_handle_[a-z0-9_]+)\)', routes)}
-    # The handler -> (service, method) link is read from the AST, not a regex: a
-    # comment between `self._call(` and its first literal (NEW-89 left one in
-    # _handle_provenance_log) made the regex miss the call, and the capability
-    # behind it with it.
-    pair_of_handler = {}
-    for fn in _ast.walk(_ast.parse(routes)):
-        if not (isinstance(fn, (_ast.AsyncFunctionDef, _ast.FunctionDef))
-                and fn.name.startswith("_handle_")):
-            continue
-        for node in _ast.walk(fn):
-            if (isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute)
-                    and node.func.attr == "_call" and isinstance(node.func.value, _ast.Name)
-                    and node.func.value.id == "self" and len(node.args) >= 2
-                    and all(isinstance(a, _ast.Constant) and isinstance(a.value, str)
-                            for a in node.args[:2])):
-                pair_of_handler[fn.name] = (node.args[0].value, node.args[1].value)
-                break
-    routes_of_pair: dict[tuple[str, str], set[str]] = {}
-    for handler, route in route_of_handler.items():
-        if handler in pair_of_handler:
-            routes_of_pair.setdefault(pair_of_handler[handler], set()).add(route)
     out = {}
     for cap in catalog.CAPABILITIES:
-        refused = sorted(r for r in routes_of_pair.get(ACTION_MAP.get(cap["action"]), ())
-                         if (r.rstrip("/") or "/") not in allowed)
-        if refused:
-            out[cap["id"]] = refused[0]
+        pair = ACTION_MAP.get(cap["action"])
+        if pair is not None and f"{pair[0]}.{pair[1]}" in pairs:
+            out[cap["id"]] = pairs[f"{pair[0]}.{pair[1]}"]
     return out
 
 
@@ -157,7 +208,7 @@ def derive(client: Path, routes_md: Path):
     return allowed, excluded, len(called), len(routes)
 
 
-def render(allowed, excluded, escapes=None) -> str:
+def render(allowed, excluded, escapes=None, pairs=None) -> str:
     lines = [
         '"""GENERATED by scripts/generate_session_routes.py — do not edit by hand.',
         "",
@@ -188,10 +239,38 @@ def render(allowed, excluded, escapes=None) -> str:
     lines += [
         "}",
         "",
+        "# The same refusal keyed on what a dispatch RUNS: every (service, method) whose",
+        "# dedicated route is refused to a session, whichever dispatcher reaches it —",
+        "# the invoke route (catalog id), /bridge/v1/action (action name) or the chat",
+        "# agent's request_execution / platform_action tools (action name + service).",
+        "SERVICE_METHODS_OFF_ALLOWLIST: dict[str, str] = {",
+    ]
+    lines += [f'    "{p}": "{r}",' for p, r in sorted((pairs or {}).items())]
+    lines += [
+        "}",
+        "",
         "",
         "def session_may_invoke(capability_id: str) -> bool:",
         '    """False when this capability would reach a route the session is refused."""',
         "    return capability_id not in CAPABILITIES_OFF_ALLOWLIST",
+        "",
+        "",
+        "def session_refused_route(action, service=None):",
+        '    """The operator-only route behind what dispatching *action* would RUN, or None.',
+        "",
+        "    Resolved the way ServiceDispatcher.execute resolves it — ACTION_MAP at call",
+        "    time, then a truthy ``service`` override replaces the service — so the",
+        "    answer follows the operation, not the label a caller or catalog row gives",
+        "    it. An unknown or non-string action resolves to nothing (the dispatcher",
+        '    refuses those itself)."""',
+        "    if not isinstance(action, str):",
+        "        return None",
+        "    from runtime.blockchain.services.service_dispatcher import ACTION_MAP",
+        "    pair = ACTION_MAP.get(action)",
+        "    if pair is None:",
+        "        return None",
+        "    target = service if service else pair[0]",
+        '    return SERVICE_METHODS_OFF_ALLOWLIST.get(f"{target}.{pair[1]}")',
         "",
         "",
         "def session_may_reach(canonical_route: str) -> bool:",
@@ -217,8 +296,9 @@ def main() -> int:
         print(f"client not found: {a.client}", file=sys.stderr)
         return 2
     allowed, excluded, n_called, n_routes = derive(a.client, a.routes)
-    escapes = capability_escapes(ROOT / "gateway" / "service_routes.py", set(allowed))
-    text = render(allowed, excluded, escapes)
+    pairs = refused_pairs(set(allowed))
+    escapes = capability_escapes(pairs)
+    text = render(allowed, excluded, escapes, pairs)
     if a.check:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
         if current != text:
@@ -229,7 +309,7 @@ def main() -> int:
     OUT.write_text(text, encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)}: {len(allowed)} session routes "
           f"(app paths {n_called} ∩ gateway routes {n_routes}) · excluded {len(excluded)} · "
-          f"capabilities refused to a session {len(escapes)}")
+          f"operations refused to a session {len(pairs)} (catalog capabilities {len(escapes)})")
     return 0
 
 

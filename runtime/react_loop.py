@@ -40,6 +40,18 @@ from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
 
 
+def _caller_kind_of(user_context: Any) -> str:
+    """The credential behind this turn, as the gateway computed it ("operator",
+    "session", "anonymous"), carried like agent_name from the gateway-built
+    context only. A context the gateway built WITHOUT the field is read as
+    "anonymous", so a chat surface that forgets to set it is refused the
+    session-refused operations rather than granted them. No user_context at all
+    (A2A, internal runs) has no HTTP caller: ""."""
+    if not isinstance(user_context, dict) or not user_context:
+        return ""
+    return str(user_context.get("caller_kind") or "anonymous")
+
+
 def _gate_fault_denies(tool_name: str, arguments: Any) -> bool:
     """True when a tool call must NOT run because the protocol gate could not
     decide on it. The same direction `ProtocolStack._deny_on_gate_fault` gives a
@@ -359,7 +371,8 @@ class ReActLoop:
                 outcome = await self.dispatcher.dispatch(
                     tool_name, arguments, agent_name=context.agent_name,
                     caller_identity=str(_uc.get("wallet_address") or ""),
-                    caller_source="agent")
+                    caller_source="agent",
+                    caller_kind=_caller_kind_of(_uc))
 
                 # NEW-27: three audiences, three values. These used to be one
                 # string, which is why a tool failure could ship its exception

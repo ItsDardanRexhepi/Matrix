@@ -2812,20 +2812,25 @@ class ServiceRoutes:
         # /api/v1 routes use. Allowlisting the URL is not allowlisting the
         # operation: catalog ids reach a service method whose own route
         # answers 403 to a session. A session is refused those explicitly; the
-        # operator key is unaffected.
-        from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST, session_may_invoke
-        # aiohttp's Request is a mapping; the suite's fake request objects are not.
-        auth = (request.get("auth") if hasattr(request, "get") else None) or {}
-        if auth.get("kind") == "session" and not session_may_invoke(capability_id):
-            return web.json_response(
-                {"error": "forbidden",
-                 "message": "This capability is not available to a user session; "
-                            f"its route ({CAPABILITIES_OFF_ALLOWLIST[capability_id]}) requires the operator key."},
-                status=403)
-
+        # operator key is unaffected. The decision is keyed on the (service,
+        # method) pair the capability's action RESOLVES to — the same key
+        # /bridge/v1/action and the chat tools use — with the catalog-id table
+        # kept as a second, identical-by-construction check.
+        from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST, session_refused_route
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
+        # aiohttp's Request is a mapping; the suite's fake request objects are not.
+        auth = (request.get("auth") if hasattr(request, "get") else None) or {}
+        if auth.get("kind") == "session":
+            refused = (CAPABILITIES_OFF_ALLOWLIST.get(capability_id)
+                       or session_refused_route(action_label))
+            if refused:
+                return web.json_response(
+                    {"error": "forbidden",
+                     "message": "This capability is not available to a user session; "
+                                f"its route ({refused}) requires the operator key."},
+                    status=403)
         decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security)
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)

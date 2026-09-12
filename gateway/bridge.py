@@ -686,7 +686,9 @@ class BridgeRoutes:
             session_id = body.get("session_id", "default")
 
         try:
-            result = await self._handle_chat_internal(message, agent, session_id, body)
+            caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
+            result = await self._handle_chat_internal(
+                message, agent, session_id, body, caller_kind=caller_kind)
             return MobileResponse.ok(result)
         except Exception as e:
             # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
@@ -708,6 +710,7 @@ class BridgeRoutes:
 
     async def _handle_chat_internal(
         self, message: str, agent: str, session_id: str, body: dict,
+        caller_kind: str = "",
     ) -> dict:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
@@ -746,6 +749,11 @@ class BridgeRoutes:
             # Threaded so the Morpheus gate in pre_action can verify the request.
             "apple_id": body.get("apple_id", ""),
             "app_attest": body.get("app_attest"),
+            # Which CREDENTIAL this request carries (operator / session /
+            # anonymous), computed by the gateway — never read from the body. The
+            # tool dispatcher refuses a non-operator caller the operations a
+            # session's own routes refuse (gateway/session_routes.py).
+            "caller_kind": caller_kind,
         }
 
         # Inject linked wallet if available
@@ -793,6 +801,23 @@ class BridgeRoutes:
 
         if not action:
             return MobileResponse.error("action required")
+
+        # This route is on the session allowlist because the app's client has a
+        # call for it, and it is a DISPATCHER: it takes any ACTION_MAP action name
+        # into the same ServiceDispatcher the dedicated /api/v1 routes use. A
+        # session refused `POST /api/v1/crossborder/send` (and refused the same
+        # operation as a catalog capability) got HTTP 200 here for
+        # `send_payment`. The refusal is keyed on the (service, method) the
+        # action resolves to, so every dispatcher gives one answer; the operator
+        # key is unaffected.
+        caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
+        if caller_kind in ("session", "anonymous"):
+            from gateway.session_routes import session_refused_route
+            refused = session_refused_route(action)
+            if refused:
+                return MobileResponse.error(
+                    "This action is not available to a user session; "
+                    f"its route ({refused}) requires the operator key.", 403)
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.

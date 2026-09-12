@@ -240,9 +240,16 @@ class ToolDispatcher:
     #: let a model-authored key bind it. Found by the §CD sibling-axes pass.
     RESERVED_ARGUMENTS = frozenset({"caller_identity", "caller_source"})
 
+    #: Tools whose handler resolves a model-written action name to a
+    #: ServiceDispatcher (service, method) pair: `platform_action` runs it
+    #: directly (with an optional `service` override), `request_execution` hands
+    #: it to Neo. For a user SESSION these are dispatchers into the same
+    #: operations the session's own /api/v1 routes may refuse.
+    ACTION_DISPATCH_TOOLS = frozenset({"platform_action", "request_execution"})
+
     async def dispatch(
         self, tool_name: str, arguments: dict, agent_name: str | None = None,
-        caller_identity: str = "", caller_source: str = "",
+        caller_identity: str = "", caller_source: str = "", caller_kind: str = "",
     ) -> ToolOutcome:
         """Run one tool. Returns a typed outcome — see ToolOutcome for why.
 
@@ -279,6 +286,31 @@ class ToolDispatcher:
             return ToolOutcome.failure(
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
+
+        # Session boundary for the dispatching tools. A session is refused, on
+        # its own routes, operations such as a cross-border send; through chat
+        # (a PUBLIC path) it — or an anonymous caller — asked Trinity, whose
+        # request_execution ran it as Neo. Keyed on the pair the call RESOLVES to
+        # (ACTION_MAP + platform_action's `service` override), the same key
+        # /bridge/v1/action and the capability invoke route use. `caller_kind` is
+        # computed by the gateway from the presented credential, never taken from
+        # the arguments; "" is a caller with no HTTP request behind it (A2A,
+        # internal), which this boundary does not describe.
+        if caller_kind in ("session", "anonymous") and tool_name in self.ACTION_DISPATCH_TOOLS:
+            from gateway.session_routes import session_refused_route
+            args = arguments if isinstance(arguments, dict) else {}
+            refused = session_refused_route(
+                args.get("action"),
+                args.get("service") if tool_name == "platform_action" else None,
+            )
+            if refused:
+                logger.warning("Session DENIED tool '%s' action '%s': its route %s requires "
+                               "the operator key", tool_name, args.get("action"), refused)
+                return ToolOutcome.failure(
+                    f"[DENIED] This action is not available to a user session; its route "
+                    f"({refused}) requires the operator key.",
+                    code="denied", ref=ref,
+                )
 
         # Strip anything the model may not assert, then inject the TRUSTED value
         # the caller passed in — the same treatment agent_name already gets.
