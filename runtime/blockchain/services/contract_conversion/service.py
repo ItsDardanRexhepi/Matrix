@@ -14,8 +14,15 @@ from typing import Any
 
 from runtime.blockchain.services.contract_conversion.artist_classifier import ArtistClassifier
 from runtime.blockchain.services.contract_conversion.generator import ContractGenerator
+from runtime.blockchain.services.contract_conversion.identifiers import (
+    FALLBACK_CONTRACT_NAME,
+    template_contract_name,
+)
 from runtime.blockchain.services.contract_conversion.parser import SourceParser
-from runtime.blockchain.services.contract_conversion.revenue_enforcer import RevenueEnforcer
+from runtime.blockchain.services.contract_conversion.revenue_enforcer import (
+    InvalidFeeRecipient,
+    RevenueEnforcer,
+)
 from runtime.blockchain.services.contract_conversion.templates import (
     TEMPLATE_EXTERNAL_FUNCTIONS,
     get_template,
@@ -186,7 +193,10 @@ class ContractConversionService:
         dict
             Keys: ``status``, ``generated_source``, ``contract_name``,
             ``target_chain``, ``tier``, ``artist_info``, ``ir``,
-            ``conversion_time_ms``, ``template_used``.
+            ``conversion_time_ms``, ``template_used``. ``contract_name`` is the
+            contract declared in ``generated_source``. When the template branch
+            could not use the parsed name, ``contract_name_substituted`` is
+            ``{requested, used, reason}``.
         """
         start = time.monotonic()
 
@@ -204,6 +214,10 @@ class ContractConversionService:
             #    using the template as a base (only for pseudocode or when
             #    the source is very simple)
             template_used: str | None = None
+            # The name of the contract in the generated source. The template
+            # branch may replace the parsed one; every other branch uses it.
+            contract_name = ir.get("contract_name", "")
+            name_substituted: dict[str, str] | None = None
             if (
                 artist_info.get("is_artist")
                 and artist_info.get("recommended_template")
@@ -213,8 +227,25 @@ class ContractConversionService:
                 template_name = artist_info["recommended_template"]
                 template_source = get_template(template_name)
                 if template_source:
-                    # Fill template placeholders with IR data
-                    contract_name = ir.get("contract_name", "ArtContract")
+                    # Fill template placeholders with IR data. The parsed name
+                    # is pasted in only if it can be this contract's name
+                    # (identifiers.py): prose gives names like `is`, and an
+                    # artist can pick `2026Drop` or `ERC721`, none of which
+                    # compile. Otherwise the contract gets a fallback name and
+                    # the result says what was replaced and why.
+                    requested_name = ir.get("contract_name") or FALLBACK_CONTRACT_NAME
+                    contract_name, name_problem = template_contract_name(
+                        requested_name, template_name, template_source)
+                    if name_problem:
+                        name_substituted = {
+                            "requested": requested_name,
+                            "used": contract_name,
+                            "reason": name_problem,
+                        }
+                        logger.info(
+                            "Template contract name %r replaced by %r: %s",
+                            requested_name, contract_name, name_problem,
+                        )
                     generated = template_source.replace("{{NAME}}", contract_name)
                     generated = generated.replace("{{SYMBOL}}", contract_name[:5].upper())
                     generated = generated.replace("{{MAX_SUPPLY}}", "10000")
@@ -233,13 +264,19 @@ class ContractConversionService:
             if self._inject_fees:
                 try:
                     generated = self._revenue_enforcer.inject_fee_logic(generated)
+                except InvalidFeeRecipient:
+                    # A recipient is configured but is not an address. The
+                    # literal would not compile, and dropping the fee logic
+                    # instead would hand out a contract without the platform
+                    # fee, so no contract is returned (status "error").
+                    raise
                 except ValueError as exc:
                     logger.warning(
                         "Fee injection skipped: %s", exc,
                     )
 
             # 6. Security audit
-            audit_report = self._auditor.audit(generated, ir.get("contract_name", ""))
+            audit_report = self._auditor.audit(generated, contract_name)
 
             # RUN-3 parts 2 & 3: honesty about what was actually produced.
             #
@@ -332,7 +369,7 @@ class ContractConversionService:
             result: dict[str, Any] = {
                 "status": status,
                 "generated_source": generated,
-                "contract_name": ir.get("contract_name", ""),
+                "contract_name": contract_name,
                 "target_chain": target_chain,
                 "tier": tier_info,
                 "artist_info": artist_info,
@@ -350,6 +387,8 @@ class ContractConversionService:
                 "conversion_time_ms": elapsed_ms,
                 "template_used": template_used,
             }
+            if name_substituted:
+                result["contract_name_substituted"] = name_substituted
 
             # 7. On-chain deployment (only when explicitly enabled and audit
             #    passed). Gated on the COMPUTED audit_passed, not
@@ -379,7 +418,7 @@ class ContractConversionService:
                     }
                 else:
                     deployment = await self._compile_and_deploy(
-                        generated, ir.get("contract_name", "")
+                        generated, contract_name
                     )
                     result["deployment"] = deployment
                     # Best-effort EAS attestation on success
@@ -402,7 +441,7 @@ class ContractConversionService:
             logger.info(
                 "Conversion complete: contract=%s tier=%s chain=%s time=%.1fms "
                 "status=%s audit=%s unimplemented=%d",
-                ir.get("contract_name"), tier_info["tier"], target_chain, elapsed_ms,
+                contract_name, tier_info["tier"], target_chain, elapsed_ms,
                 status,
                 "N/A" if not has_executable_logic else ("PASS" if audit_passed else "FAIL"),
                 len(unimplemented),

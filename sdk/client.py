@@ -257,7 +257,12 @@ class OpenMatrixClient:
         e.g. ``balanceOf``, ``transferFrom``, ``royaltyInfo``). Inherited
         internal functions such as ``_safeMint`` do not count, so declaring one
         lists it as unimplemented. Matching is by function name only; the
-        parameters you declared are not compared.
+        parameters you declared are not compared. On the template branch the
+        contract name you wrote is used only if it can name that contract (a
+        Solidity identifier that is not a keyword and not already declared by the
+        template or its imports, e.g. not ``2026Drop`` or ``ERC721``); otherwise
+        the contract is named ``ArtContract`` and ``contract_name_substituted``
+        says what was replaced and why.
         """
         return await self.ablockchain(
             "contract_conversion",

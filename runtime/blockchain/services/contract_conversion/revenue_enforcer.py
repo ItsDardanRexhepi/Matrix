@@ -82,6 +82,23 @@ _SET_FEE_RECIPIENT = """\
 """
 
 
+# Every snippet inject_fee_logic can add, so a caller can know which names the
+# fee logic declares or uses (identifiers.py keeps a contract name off them).
+INJECTED_SNIPPETS = (
+    _FEE_STATE_VARS, _FEE_CONSTRUCTOR_INIT, _FEE_MODIFIER, _FEE_TOKEN_INTERFACE,
+    _ERC20_FEE_FUNCTION, _SET_FEE_RECIPIENT,
+    # _apply_modifier_to_payable writes this; the constructor it may create
+    # adds only the `constructor` keyword.
+    "collectPlatformFee(msg.value) constructor",
+)
+
+
+class InvalidFeeRecipient(ValueError):
+    """The configured fee recipient cannot be written as a Solidity address
+    literal. Unlike a missing recipient, this is not a reason to produce the
+    contract without fee logic: the conversion fails instead."""
+
+
 class RevenueEnforcer:
     """Inject platform fee collection logic into Solidity source.
 
@@ -133,6 +150,8 @@ class RevenueEnforcer:
         ------
         ValueError
             If no fee recipient is available from config or argument.
+        InvalidFeeRecipient
+            (a ValueError) If the recipient is not a 20-byte hex address.
         """
         recipient = fee_recipient or self._platform_wallet
         if not recipient:
@@ -244,7 +263,19 @@ class RevenueEnforcer:
 
     @staticmethod
     def _format_address(address: str) -> str:
-        """Ensure address is properly formatted for Solidity."""
-        if address.startswith("0x"):
-            return address
-        return f"0x{address}"
+        """The recipient as a Solidity address literal: 0x-prefixed and EIP-55
+        checksummed, which is the only form solc accepts (a lower-case literal
+        is Error 9429, a non-hex or wrong-length one Error 8936). Checksumming
+        changes the letters' case only, never the address.
+
+        Raises InvalidFeeRecipient for anything that is not 40 hex digits. The
+        value is not repeated in the message: a mis-pasted config field can be a
+        private key."""
+        text = str(address or "").strip()
+        digits = text[2:] if text[:2] in ("0x", "0X") else text
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", digits):
+            raise InvalidFeeRecipient(
+                "blockchain.platform_wallet is not a 20-byte hex address, so the "
+                "platform fee logic cannot be written into the contract")
+        from eth_utils import to_checksum_address
+        return to_checksum_address("0x" + digits.lower())

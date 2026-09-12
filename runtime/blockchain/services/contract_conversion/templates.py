@@ -819,6 +819,62 @@ TEMPLATE_EXTERNAL_FUNCTIONS: dict[str, frozenset[str]] = {
 }
 
 
+# ── What each template's imports put in its file scope ──────────────────
+#
+# `import "@openzeppelin/.../ERC721.sol";` brings every name declared in or
+# imported into that file, so the erc721 template's file scope holds Context,
+# Strings and IERC165 as well as the contracts it names. A contract called any
+# of them does not compile (solc Error 2333, identifier already declared), and
+# identifiers.py keeps convert() from naming the contract one of them.
+#
+# Recorded from the AST's exportedSymbols (solc 0.8.20, the pinned
+# OpenZeppelin 5.0.2), minus the template's own contract.
+# tests/test_template_conversion_is_judged_on_the_template.py recompiles every
+# template and fails if a set here differs from the compiler's.
+TEMPLATE_IMPORTED_SYMBOLS: dict[str, frozenset[str]] = {
+    "erc20": frozenset({
+        "Context", "ECDSA", "EIP712", "ERC20", "ERC20Burnable", "ERC20Permit",
+        "IERC20", "IERC20Errors", "IERC20Metadata", "IERC20Permit", "Nonces",
+        "Ownable"
+    }),
+    "erc721": frozenset({
+        "Context", "ERC165", "ERC2981", "ERC721", "ERC721Enumerable",
+        "ERC721URIStorage", "IERC165", "IERC2981", "IERC4906", "IERC721",
+        "IERC721Enumerable", "IERC721Errors", "IERC721Metadata",
+        "IERC721Receiver", "Ownable", "Strings"
+    }),
+    "erc1155": frozenset({
+        "Arrays", "Context", "ERC1155", "ERC1155Supply", "ERC165", "ERC2981",
+        "IERC1155", "IERC1155Errors", "IERC1155MetadataURI", "IERC1155Receiver",
+        "IERC165", "IERC2981", "Ownable"
+    }),
+    "governor": frozenset({
+        "Address", "Checkpoints", "Context", "DoubleEndedQueue", "EIP712",
+        "ERC165", "Governor", "GovernorCountingSimple", "GovernorSettings",
+        "GovernorTimelockControl", "GovernorVotes", "GovernorVotesQuorumFraction",
+        "IERC1155Receiver", "IERC165", "IERC5805", "IERC6372", "IERC721Receiver",
+        "IGovernor", "IVotes", "Nonces", "SafeCast", "SignatureChecker", "Time",
+        "TimelockController"
+    }),
+    "timelock": frozenset({
+        "AccessControl", "Address", "ERC1155Holder", "ERC721Holder",
+        "TimelockController"
+    }),
+    "vesting": frozenset({
+        "Address", "Context", "IERC20", "IERC20Permit", "Ownable",
+        "ReentrancyGuard", "SafeERC20"
+    }),
+    "staking": frozenset({
+        "Address", "Context", "IERC20", "IERC20Permit", "Ownable",
+        "ReentrancyGuard", "SafeERC20"
+    }),
+    "marketplace": frozenset({
+        "Context", "ERC165", "ERC2981", "IERC165", "IERC2981", "IERC721",
+        "Ownable", "ReentrancyGuard"
+    }),
+}
+
+
 def get_template(name: str) -> str | None:
     """Return a template by name, or ``None`` if unknown."""
     return TEMPLATES.get(name.lower())
