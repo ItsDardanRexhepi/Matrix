@@ -863,8 +863,26 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
 # Capability catalog install — merges the expanded Web3 capability set into
 # ACTION_MAP / _STATE_MODIFYING_ACTIONS / ACTION_TO_FEED_EVENT so Trinity's
 # `platform_action` tool automatically exposes every catalogued action.
-# Safe: catalog.install_action_map() refuses to overwrite existing mappings.
+# catalog.install_action_map() refuses to overwrite existing mappings — which
+# keeps DISPATCH safe, not the catalog: a refused row is still published.
 # ---------------------------------------------------------------------------
+def _report_catalog_conflicts(skipped: dict[str, str]) -> None:
+    """A catalog row that disagrees with ACTION_MAP is a published lie.
+
+    ACTION_MAP wins the dispatch, but the row is still served at
+    /api/v1/capabilities and was still read by the session-escape generator, so
+    a conflict is not harmless. This used to log at DEBUG, truncated to five
+    names — 81 rows went stale behind it. tests/test_capability_catalog_truth.py
+    pins zero conflicts; this makes any that land anyway loud and complete.
+    """
+    if skipped:
+        logger.warning(
+            "Capability catalog disagrees with ACTION_MAP on %d entries (ACTION_MAP "
+            "kept; the catalog row is wrong): %s",
+            len(skipped), "; ".join(f"{k}: {v}" for k, v in sorted(skipped.items())),
+        )
+
+
 try:
     from runtime.capabilities import catalog as _capability_catalog
 
@@ -876,11 +894,7 @@ try:
         ACTION_TO_FEED_EVENT,
     )
     _STATE_MODIFYING_ACTIONS = frozenset(_mutable_state)
-    if _skipped:
-        logger.debug(
-            "Capability catalog install skipped %d entries (already mapped): %s",
-            len(_skipped), list(_skipped.keys())[:5],
-        )
+    _report_catalog_conflicts(_skipped)
 except Exception as _cap_exc:
     logger.warning("Capability catalog merge failed (non-fatal): %s", _cap_exc)
 

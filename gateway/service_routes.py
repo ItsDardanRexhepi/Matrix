@@ -2810,7 +2810,7 @@ class ServiceRoutes:
         # The invoke route is on the session allowlist because the app calls it,
         # but it is a DISPATCHER into the same ServiceDispatcher the dedicated
         # /api/v1 routes use. Allowlisting the URL is not allowlisting the
-        # operation: seven catalog ids reach a service method whose own route
+        # operation: catalog ids reach a service method whose own route
         # answers 403 to a session. A session is refused those explicitly; the
         # operator key is unaffected.
         from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST, session_may_invoke
