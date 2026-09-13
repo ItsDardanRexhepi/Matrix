@@ -312,7 +312,9 @@ def test_env_write_is_atomic(sandbox, tmp_path):
     with pytest.raises(UnicodeEncodeError):
         _shared.update_env({"BROKEN": "\udcff"})
     assert env.read_text() == ENV_SENTINEL, "a failed write destroyed the existing .env"
-    assert sorted(p.name for p in tmp_path.iterdir()) == [".env", "openmatrix.config.json"], (
+    # .gitignore: the writer ensures the secret files are ignored before writing.
+    left = sorted(p.name for p in tmp_path.iterdir() if p.name != ".gitignore")
+    assert left == [".env", "openmatrix.config.json"], (
         "a failed write left a temp file behind"
     )
 
@@ -629,6 +631,26 @@ def test_setup_gitignore_warns_when_it_cannot_add_the_lines(sandbox, monkeypatch
     assert gitignore.stat().st_size == size
 
 
+def test_setup_gitignore_warns_when_it_cannot_create_the_file(sandbox, monkeypatch):
+    """The create branch opened .gitignore unguarded, so a directory it may not
+    write in crashed the wizard instead of saying the secrets are unprotected.
+    Now that the check runs before the first secret is written, a crash there
+    would also lose the operator's answers."""
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root writes into a mode-555 directory")
+    project = sandbox.parent / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    wizard, said = _isolated_wizard("setup_main_gitignore_cannot_create", monkeypatch)
+    project.chmod(0o555)
+    try:
+        wizard.setup_gitignore()
+    finally:
+        project.chmod(0o755)
+    assert all(any(s in w for w in said["warn"]) for s in ("openmatrix.config.json", ".env")), said
+    assert not said["success"], said
+
+
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
 def test_setup_gitignore_warns_about_a_tracked_secret(sandbox, monkeypatch):
     """Ignore rules never apply to a tracked file: a .env already in the index is
@@ -643,6 +665,143 @@ def test_setup_gitignore_warns_about_a_tracked_secret(sandbox, monkeypatch):
     assert not _git_ignores(repo, ".env", "true", index=True)     # the scenario is real
     assert any(".env" in w and "git rm --cached" in w for w in said["warn"]), said["warn"]
     assert not any("openmatrix.config.json" in w for w in said["warn"]), said["warn"]
+
+
+def _filesystem_ignores_case(directory: Path) -> bool:
+    probe = directory / "case-probe-a"
+    probe.write_text("")
+    try:
+        return (directory / "CASE-PROBE-A").exists()
+    finally:
+        probe.unlink()
+
+
+# Round-4 review: `git check-ignore` looks a name up in the index case-
+# SENSITIVELY. With `.ENV` tracked and .gitignore listing `.env`, it reports
+# `.env` ignored, yet on a case-insensitive filesystem (the macOS default) the
+# wizard's write to .env lands in the tracked .ENV and `git commit -a` commits it.
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("literal_pathspecs", [False, True])
+@pytest.mark.parametrize("ignorecase", IGNORECASE)
+def test_setup_gitignore_warns_about_a_secret_tracked_under_another_case(
+        sandbox, monkeypatch, ignorecase, literal_pathspecs):
+    repo = sandbox.parent
+    if not _filesystem_ignores_case(repo):
+        pytest.skip("case-sensitive filesystem: .ENV and .env are different files here")
+    if literal_pathspecs:       # an operator's environment must not blind the lookup
+        monkeypatch.setenv("GIT_LITERAL_PATHSPECS", "1")
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    subprocess.run([GIT, "-C", str(repo), "config", "core.ignorecase", ignorecase],
+                   check=True, capture_output=True)
+    sandbox.unlink()
+    (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+    (repo / ".ENV").write_text("TOKEN=old\n")
+    (repo / "OpenMatrix.config.json").write_text("{}\n")
+    subprocess.run([GIT, "-C", str(repo), "add", "-f", ".ENV", "OpenMatrix.config.json"],
+                   check=True, capture_output=True)
+    wizard, said = _isolated_wizard("setup_main_gitignore_tracked_case", monkeypatch)
+    wizard.setup_gitignore()
+    for tracked in (".ENV", "OpenMatrix.config.json"):
+        assert any(f"git rm --cached {tracked}" in w for w in said["warn"]), (
+            f"core.ignorecase={ignorecase}: {tracked} is tracked and is the file the "
+            f"wizard writes, and nothing said so (warnings: {said['warn']})"
+        )
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+def test_git_verdict_survives_undecodable_git_output(sandbox, monkeypatch):
+    """git echoes paths in its errors, and a path need not be UTF-8. The check
+    ran after the config was written, so a decode error crashed the wizard
+    mid-commit."""
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    wizard, said = _isolated_wizard("setup_main_gitignore_undecodable", monkeypatch)
+    monkeypatch.setitem(os.environb, b"GIT_DIR", b"/nonexistent-\xff-dir")
+    wizard.setup_gitignore()                                   # must not raise
+    monkeypatch.delitem(os.environb, b"GIT_DIR")
+    for ignorecase in IGNORECASE:
+        for secret in ("openmatrix.config.json", ".env"):
+            assert _git_ignores(repo, secret, ignorecase)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "no-git"])
+def test_git_verdict_says_when_it_could_not_ask_git(sandbox, monkeypatch, failure):
+    """A git that hangs, or is not on PATH, used to leave no git verdict and no
+    word about it, while every other git error printed one."""
+    wizard, said = _isolated_wizard("setup_main_gitignore_no_verdict", monkeypatch)
+    infos = []
+    monkeypatch.setattr(wizard, "info", lambda text: infos.append(text))
+
+    def broken_run(argv, *a, **k):
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(argv, 30)
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+    monkeypatch.setattr(subprocess, "run", broken_run)
+    wizard.setup_gitignore()
+    assert any("git" in line and ".env" in line for line in infos), infos
+
+
+# Round-4 review: the channel wizards run on their own too. setup_communications.py
+# ("run it any time — before, during, or after initial setup"), setup_telegram.py
+# and each `python -m setup.<channel>` call save_config()/update_env() with
+# persist=True, which wrote the config and .env without ever looking at
+# .gitignore. Only setup.py's commit_setup() ran setup_gitignore(). A derived
+# project's .gitignore without either entry then let `git add -A` stage both.
+DERIVED_GITIGNORE = "__pycache__/\n*.pyc\nnode_modules/\n"
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("name", CHANNEL_MODULES)
+def test_a_channel_wizard_run_on_its_own_keeps_its_secrets_out_of_git(
+        sandbox, monkeypatch, tmp_path, name):
+    repo = tmp_path
+    sandbox.unlink()
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    (repo / ".gitignore").write_text(DERIVED_GITIGNORE)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    from setup import _shared
+    warned = []
+    monkeypatch.setattr(_shared, "warn", lambda text: warned.append(text))
+    _drive_to_update_env(monkeypatch, tmp_path)
+
+    importlib.import_module(f"setup.{name}").configure({})     # persist defaults to True
+
+    written = [s for s in ("openmatrix.config.json", ".env") if (repo / s).exists()]
+    assert "openmatrix.config.json" in written, "not vacuous: the module must have written"
+    if name in ENV_WRITING_CHANNELS:
+        assert ".env" in written, "not vacuous: the module must have written .env"
+    for ignorecase in IGNORECASE:
+        for secret in written:
+            assert _git_ignores(repo, secret, ignorecase, index=True) or any(
+                secret in w for w in warned), (
+                f"setup.{name}.configure() wrote {secret}, git (core.ignorecase="
+                f"{ignorecase}) would commit it, and nothing said so"
+            )
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+def test_setup_communications_entry_point_keeps_secrets_out_of_git(tmp_path):
+    """The documented command, end to end, as its own process: the reviewer's
+    reproduction, with the dispatcher's test message pointed at a closed port."""
+    subprocess.run([GIT, "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text(DERIVED_GITIGNORE)
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "OPNMATRX_SETUP_NO_VENV": "1", "PYTHONDONTWRITEBYTECODE": "1",
+           "PYTHONPATH": str(ROOT)}
+    run = subprocess.run(
+        [sys.executable, str(ROOT / "setup_communications.py"), "discord"],
+        cwd=tmp_path, env=env, input="https://127.0.0.1:9/hook\nbot\n",
+        capture_output=True, text=True, timeout=120,
+    )
+    assert (tmp_path / ".env").read_text().startswith("DISCORD_WEBHOOK_URL="), run.stdout + run.stderr
+    staged = subprocess.run([GIT, "-C", str(tmp_path), "add", "-A", "--dry-run"],
+                            capture_output=True, text=True, env=env).stdout
+    for secret in (".env", "openmatrix.config.json"):
+        assert f"'{secret}'" not in staged or secret in run.stdout, (
+            f"`git add -A` would stage {secret} and the wizard said nothing:\n"
+            f"{staged}\n--- wizard output ---\n{run.stdout}{run.stderr}"
+        )
 
 
 def test_setup_gitignore_is_idempotent(sandbox):
@@ -722,3 +881,33 @@ def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox, mo
         )
     )
     assert not said["warn"], f"warned although git ignores every case: {said['warn'][:5]}"
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+def test_the_setup_wizard_checks_gitignore_once_before_it_writes(sandbox, monkeypatch, tmp_path):
+    """setup.py's own path, now that the check lives with the writer: accepted,
+    it leaves both files ignored, runs the check before the first write, and
+    runs it once although it writes two files."""
+    subprocess.run([GIT, "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".gitignore").write_text(DERIVED_GITIGNORE)
+    sandbox.unlink()
+    wizard, said = _isolated_wizard("setup_main_gitignore_commit", monkeypatch)
+    monkeypatch.setattr(wizard, "ask", lambda prompt, default="", options=None, **k: "yes")
+    _drive_to_update_env(monkeypatch, tmp_path)
+    runs = []
+    real = wizard.setup_gitignore
+
+    def recording():
+        runs.append([s for s in ("openmatrix.config.json", ".env") if (tmp_path / s).exists()])
+        real()
+    monkeypatch.setattr(wizard, "setup_gitignore", recording)
+
+    config: dict = {}
+    wizard.configure_communications(config)
+    assert wizard.commit_setup(config) is True
+    assert runs == [[]], f"check ran {len(runs)} times; secret files already on disk: {runs}"
+    assert (tmp_path / ".env").exists() and (tmp_path / "openmatrix.config.json").exists()
+    for ignorecase in IGNORECASE:
+        for secret in ("openmatrix.config.json", ".env"):
+            assert _git_ignores(tmp_path, secret, ignorecase, index=True), secret
+    assert not said["warn"], said["warn"]

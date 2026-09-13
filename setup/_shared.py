@@ -147,6 +147,43 @@ CONFIG_NEW_FILE_MODE: int | None = None
 ENV_NEW_FILE_MODE: int | None = 0o600
 
 
+# Directories whose .gitignore this process has already checked. See
+# keep_secret_files_out_of_git().
+_GITIGNORE_CHECKED: set[str] = set()
+
+
+def keep_secret_files_out_of_git(check=None) -> None:
+    """Check .gitignore once per directory, before the first key is written there.
+
+    Every write of a file holding keys goes through write_secret_file(), which
+    calls this. Only setup.py's commit_setup() used to run the check, so the
+    channel wizards run on their own (setup_communications.py, setup_telegram.py,
+    ``python -m setup.<channel>``) wrote the config and .env into a project
+    whose .gitignore listed neither, said nothing, and `git add -A` staged both.
+
+    *check* is how setup.py runs the same check with its own output; by default
+    it is setup/_gitignore.py's with this module's warn/info/success. The
+    directory is the working directory, because that is where CONFIG_PATH and
+    ENV_PATH are.
+    """
+    here = os.path.abspath(os.getcwd())
+    if here in _GITIGNORE_CHECKED:
+        return
+    _GITIGNORE_CHECKED.add(here)
+    if check is not None:
+        check()
+        return
+    from setup import _gitignore
+    _gitignore.setup_gitignore(warn=warn, info=info, success=success)
+
+
+def write_secret_file(path: Path, text: str, *, new_file_mode: int | None, check=None) -> None:
+    """The one way a file holding keys reaches disk: .gitignore first, then the
+    atomic write."""
+    keep_secret_files_out_of_git(check)
+    _atomic_write_text(path, text, new_file_mode=new_file_mode)
+
+
 def save_config(config: dict, persist: bool = True) -> None:
     """Persist *config*, atomically — unless the caller owns the write.
 
@@ -166,8 +203,8 @@ def save_config(config: dict, persist: bool = True) -> None:
     """
     if not persist:
         return
-    _atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2) + "\n",
-                       new_file_mode=CONFIG_NEW_FILE_MODE)
+    write_secret_file(CONFIG_PATH, json.dumps(config, indent=2) + "\n",
+                      new_file_mode=CONFIG_NEW_FILE_MODE)
 
 
 def update_channel(config: dict, channel_name: str, channel_cfg: dict) -> None:
@@ -234,7 +271,7 @@ def _write_env(updates: dict[str, str]) -> None:
         if not found:
             lines.append(f"{var}={value}")
 
-    _atomic_write_text(ENV_PATH, "\n".join(lines) + "\n", new_file_mode=ENV_NEW_FILE_MODE)
+    write_secret_file(ENV_PATH, "\n".join(lines) + "\n", new_file_mode=ENV_NEW_FILE_MODE)
 
 
 # ── Channel test ────────────────────────────────────────────────────────
