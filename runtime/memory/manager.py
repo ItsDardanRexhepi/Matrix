@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import secrets
 import time
 from dataclasses import dataclass
@@ -44,6 +45,35 @@ MAX_AGENT_TURNS = 200
 #: log entry has since been pruned is refused, since the log can no longer say
 #: whether its conversation was among those erased.
 ERASURE_LOG_SECONDS = 3600.0
+
+#: The prefix of the conversation the gateway derives for a signed-in caller
+#: who sent no id: ``user:<subject>``. The id names its account, so it is
+#: never written to the erasure log; nothing needs it there, because an
+#: unclaimed turn on such an id never stands (``MemoryManager._stands_in``),
+#: and the gateway refuses the id to every caller but that account.
+ACCOUNT_CONVERSATION_PREFIX = "user:"
+
+
+def erasure_log_seconds(config: dict) -> float:
+    """``conversation_erasure_log_seconds`` as a finite, non-negative number
+    of seconds; anything else ("1h", null, NaN, infinity, a negative number, a
+    boolean) is ignored with a WARNING and the default is used.
+
+    Read once, when the manager is made. It used to be parsed inside the
+    transaction that erases an account, so a value float() rejected rolled the
+    whole erasure back."""
+    raw = config.get("conversation_erasure_log_seconds", ERASURE_LOG_SECONDS) if isinstance(config, dict) else None
+    try:
+        if isinstance(raw, bool):
+            raise ValueError("a boolean is not a number of seconds")
+        value = float(raw)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("not a finite, non-negative number")
+        return value
+    except (TypeError, ValueError) as exc:
+        logger.warning("conversation_erasure_log_seconds=%r is unusable (%s); using the default %.0f seconds",
+                       raw, exc, ERASURE_LOG_SECONDS)
+        return ERASURE_LOG_SECONDS
 
 
 @dataclass(frozen=True)
@@ -106,11 +136,21 @@ class MemoryManager:
         self._loaded_conversations: set[str] = set()
         self._conversation_cap = max(1, int(config.get("conversation_cache", 1024)))
         self._agent_cap = max(1, int(config.get("agent_memory_cache", 1024)))
+        self._erasure_log_seconds = erasure_log_seconds(config)
+        # The highest erasure sequence number this manager has handed to a
+        # turn or written, so an erasure that finds the state row missing
+        # restores it past every turn already admitted (_restore_erasure_state_in).
+        self._erasure_seq_seen = 0
 
         # Back-compat: some legacy code paths still reference memory_dir.
         # Keep it pointed at the directory containing the SQLite file so
         # health checks (which probe writability) still work.
         self.memory_dir = Path(self.db.db_path).parent
+
+        # A new manager has admitted no turn, so a missing erasure state row
+        # (the migration inserts it; only a hand edit removes it) is restored
+        # here without reviving any claim.
+        self._restore_erasure_state_in(self.db._require_conn(), 0)  # one statement: atomic
 
     # ── Lifecycle ──────────────────────────────────────────────────
 
@@ -486,7 +526,11 @@ class MemoryManager:
         nothing in between (sync, no await)."""
         conn = self.db._require_conn()
         owner, claim_id = self._claim_in(conn, session_id)
-        seq, _ = self._erasure_state_in(conn)
+        state = self._erasure_state_in(conn)
+        # No state row: the sequence number -1 is below every real one, so the
+        # claim never stands unclaimed (_stands_in), not even once it returns.
+        seq = state[0] if state is not None else -1
+        self._erasure_seq_seen = max(self._erasure_seq_seen, seq)
         return ConversationClaim(session_id=session_id, owner=owner, claim_id=claim_id, erasure_seq=seq)
 
     def claim_stands(self, claim: ConversationClaim) -> bool:
@@ -538,6 +582,7 @@ class MemoryManager:
         erasure leaves is not the one that turn was admitted under."""
         if not owner:
             return []
+        now = time.time()
 
         def work(conn):
             ids = {r[0] for r in conn.execute(
@@ -551,15 +596,17 @@ class MemoryManager:
             # Deleting the claim leaves the conversation unclaimed: the state a
             # turn admitted before the claim was admitted under. The erasure
             # takes the next sequence number and logs what it erased, so that
-            # turn no longer stands (_stands_in).
+            # turn no longer stands (_stands_in). The account's own
+            # user:<subject> id is not logged: it names the account, and no
+            # unclaimed turn stands on it anyway.
             if ids:
-                now = time.time()
+                self._restore_erasure_state_in(conn, self._erasure_seq_seen)
                 seq = self._erasure_state_in(conn)[0] + 1
                 conn.execute("UPDATE conversation_erasure_state SET seq = ? WHERE id = 1", (seq,))
+                self._erasure_seq_seen = max(self._erasure_seq_seen, seq)
                 conn.executemany(
                     "INSERT OR IGNORE INTO conversation_erasures (seq, session_id, erased_at) VALUES (?, ?, ?)",
-                    [(seq, sid, now) for sid in ids])
-                self._prune_erasure_log_in(conn, now)
+                    [(seq, sid, now) for sid in ids if not self.is_account_conversation(sid)])
             return ids
 
         erased = await self.db.run_in_transaction(work)
@@ -571,6 +618,14 @@ class MemoryManager:
         # (anonymous turns, scoped to the conversation) goes with them.
         for sid in erased:
             await self.erase_scoped_memory(self.conversation_scope(sid))
+        # Every deletion prunes the log, whether or not it erased anything. In
+        # its own transaction, after the erasure: pruning is housekeeping, and
+        # it once ran inside the erasure's transaction, where its failure
+        # rolled the account's erasure back.
+        try:
+            await self.db.run_in_transaction(lambda conn: self._prune_erasure_log_in(conn, now))
+        except Exception as exc:
+            logger.warning("Conversation erasure log prune after an account erasure failed: %s", exc)
         return sorted(erased)
 
     async def erase_scoped_memory(self, scope: str) -> None:
@@ -612,13 +667,33 @@ class MemoryManager:
             "SELECT owner, claim_id FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
         return (str(row[0] or ""), str(row[1] or "")) if row else ("", "")
 
+    @classmethod
+    def is_account_conversation(cls, session_id: str) -> bool:
+        """Whether *session_id* is an account's own ``user:<subject>`` id."""
+        return str(session_id).startswith(ACCOUNT_CONVERSATION_PREFIX)
+
     @staticmethod
-    def _erasure_state_in(conn) -> tuple[int, int]:
+    def _erasure_state_in(conn) -> tuple[int, int] | None:
         """``(seq, pruned_through)``: the last erasure's sequence number, and
-        the highest sequence number whose log entries have been pruned."""
+        the highest sequence number whose log entries have been pruned. None
+        when the state row is missing — which refuses, never reads as "no
+        erasure yet"."""
         row = conn.execute(
             "SELECT seq, pruned_through FROM conversation_erasure_state WHERE id = 1").fetchone()
-        return (int(row[0]), int(row[1])) if row else (0, 0)
+        return (int(row[0]), int(row[1])) if row else None
+
+    @staticmethod
+    def _restore_erasure_state_in(conn, seen: int) -> None:
+        """Put the erasure state row back if it is missing, past *seen* (the
+        highest sequence number any live turn could have been admitted under)
+        and past every logged erasure, with everything before it counted as
+        pruned: every turn admitted before the restore is refused, none is
+        revived. A row that exists is left alone."""
+        conn.execute(
+            "INSERT OR IGNORE INTO conversation_erasure_state (id, seq, pruned_through) "
+            "SELECT 1, floor, floor FROM "
+            "(SELECT MAX(?, COALESCE(MAX(seq), 0)) + 1 AS floor FROM conversation_erasures)",
+            (int(seen),))
 
     @classmethod
     def _stands_in(cls, conn, claim: ConversationClaim) -> bool:
@@ -630,12 +705,18 @@ class MemoryManager:
         needs nothing more. An UNCLAIMED claim ("", "") cannot be told from
         the state a claim's erasure leaves, so it also needs that no erasure
         since the turn's admission erased this conversation — and when the log
-        that would say so has been pruned past the admission, it is refused."""
+        that would say so has been pruned past the admission, it is refused.
+        An unclaimed claim on an account's own ``user:<subject>`` id never
+        stands (such an id is not logged), nor does one when the erasure state
+        row is missing."""
         if cls._claim_in(conn, claim.session_id) != (claim.owner, claim.claim_id):
             return False
         if claim.owner:
             return True
-        seq, pruned_through = cls._erasure_state_in(conn)
+        state = cls._erasure_state_in(conn)
+        if state is None or cls.is_account_conversation(claim.session_id):
+            return False
+        seq, pruned_through = state
         if seq == claim.erasure_seq:
             return True
         if seq < claim.erasure_seq or pruned_through > claim.erasure_seq:
@@ -647,9 +728,9 @@ class MemoryManager:
     def _prune_erasure_log_in(self, conn, now: float) -> int:
         """Drop erasure log entries older than the retention window; a claim
         admitted before the newest dropped entry no longer stands."""
-        retention = float(self.config.get("conversation_erasure_log_seconds", ERASURE_LOG_SECONDS))
         row = conn.execute(
-            "SELECT MAX(seq) FROM conversation_erasures WHERE erased_at < ?", (now - retention,)).fetchone()
+            "SELECT MAX(seq) FROM conversation_erasures WHERE erased_at < ?",
+            (now - self._erasure_log_seconds,)).fetchone()
         through = int(row[0]) if row and row[0] is not None else 0
         if not through:
             return 0
@@ -662,8 +743,9 @@ class MemoryManager:
     async def prune_erasure_log(self) -> int:
         """Prune the erasure log (see ``_stands_in``): erased conversation ids
         are kept for ``conversation_erasure_log_seconds`` (default one hour),
-        then dropped. Run by every erasure and by the gateway's periodic
-        sweep. Returns the number of entries dropped."""
+        then dropped. Run after every account erasure (also one that erased no
+        conversation) and by the gateway's periodic sweep. Returns the number
+        of entries dropped."""
         return await self.db.run_in_transaction(lambda conn: self._prune_erasure_log_in(conn, time.time()))
 
     # ── First-boot tracking ────────────────────────────────────────

@@ -452,7 +452,7 @@ async def test_the_periodic_sweep_prunes_the_erasure_log():
     scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-sweep-")
     server = GatewayServer({**_config(scratch), "conversation_erasure_log_seconds": 0})
     memory = server.react_loop.memory
-    memory.claim_conversation("user:apple:swept", "apple:swept")
+    memory.claim_conversation("swept-conv", "apple:swept")
     await memory.erase_owner("apple:swept")
     assert memory.db.fetchall_sync("SELECT session_id FROM conversation_erasures")
     await asyncio.sleep(0.01)
@@ -488,3 +488,180 @@ async def test_a_turn_from_before_deletion_is_not_written_into_a_claim_made_by_a
         assert not conv and not agent, (entrance, conv, agent)
         kept_conv, kept_agent = _rows_with(memory, "from device two")
         assert kept_conv and kept_agent, (entrance, kept_conv, kept_agent)
+
+
+# ── The erasure log must not cost the erasure, nor keep the account ─────────
+#
+# 080f76d read conversation_erasure_log_seconds with float() inside the
+# transaction that erases an account. A value float() rejects ("1h", a YAML
+# null) raised there, rolled the whole erasure back, and the handler swallowed
+# it: DELETE /api/v1/auth/account answered 200 and erased nothing. It also
+# logged the account's own default conversation id, user:<subject>, which
+# names the account, while the docs said the log keeps "no owner". And the log
+# was pruned only by a deletion that erased a conversation, not "on the next
+# deletion". If the state row was ever missing, erasure never advanced the
+# sequence and a pre-claim anonymous turn was written back again.
+
+def _erasure_ids(memory) -> list[str]:
+    return [r["session_id"] for r in memory.db.fetchall_sync("SELECT session_id FROM conversation_erasures")]
+
+
+@pytest.mark.parametrize("retention", ["1h", None, "nan", float("inf"), -5, True])
+async def test_account_deletion_erases_the_account_whatever_the_erasure_log_retention_is_set_to(retention):
+    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-retention-")
+    server = GatewayServer({**_config(scratch), "conversation_erasure_log_seconds": retention})
+    server.react_loop.router.complete = _HeldRouter("never-held").complete
+    memory = server.react_loop.memory
+    async with TestClient(TestServer(server.create_app())) as client:
+        account = await _session(server, "apple:misconf")
+        assert await _drive(client, "/chat", {"message": "MISCONF-SECRET-8", "session_id": "mc-conv"}, account) == 200
+        assert _rows_with(memory, "MISCONF-SECRET-8") != ([], [])
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        assert _rows_with(memory, "MISCONF-SECRET-8") == ([], []), f"retention={retention!r} undid the erasure"
+        assert memory.conversation_claim("mc-conv").owner == "", f"retention={retention!r} left the claim"
+        assert _erasure_ids(memory) == ["mc-conv"]
+
+
+async def test_a_failing_prune_does_not_undo_the_accounts_erasure():
+    server = _server()
+    router = _HeldRouter("never-held")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+
+    def broken_prune(conn, now):
+        raise RuntimeError("prune failed")
+
+    memory._prune_erasure_log_in = broken_prune
+    async with TestClient(TestServer(server.create_app())) as client:
+        account = await _session(server, "apple:prunefail")
+        assert await _drive(client, "/chat", {"message": "PRUNEFAIL-SECRET", "session_id": "pf-conv"}, account) == 200
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        assert _rows_with(memory, "PRUNEFAIL-SECRET") == ([], []), "a prune failure rolled the erasure back"
+        assert memory.conversation_claim("pf-conv").owner == ""
+        assert _erasure_ids(memory) == ["pf-conv"], "the erasure was not logged"
+        # Nor the gateway's copy: the next caller naming the id is shown none of it.
+        router.shown.clear()
+        assert await _drive(client, "/chat", {"message": "anyone?", "session_id": "pf-conv"}) == 200
+        assert router.shown and "PRUNEFAIL-SECRET" not in router.shown[-1], router.shown
+
+
+@pytest.mark.parametrize("retention", ["1h", None, "nan", float("inf"), -5, True, [60]])
+async def test_an_unusable_retention_falls_back_to_the_default_window(retention, caplog):
+    from runtime.memory.manager import ERASURE_LOG_SECONDS
+
+    with caplog.at_level("WARNING", logger="runtime.memory.manager"):
+        memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="opnmatrx-claims-badret-")),
+                                "conversation_erasure_log_seconds": retention})
+    memory.claim_conversation("c9", "apple:badret")
+    assert await memory.erase_owner("apple:badret") == ["c9"]
+    assert _erasure_ids(memory) == ["c9"], f"retention={retention!r}: pruned at once"
+    now = time.time()
+    await memory.db.run_in_transaction(lambda conn: memory._prune_erasure_log_in(conn, now + ERASURE_LOG_SECONDS - 60))
+    assert _erasure_ids(memory) == ["c9"], f"retention={retention!r}: pruned inside the default window"
+    await memory.db.run_in_transaction(lambda conn: memory._prune_erasure_log_in(conn, now + ERASURE_LOG_SECONDS + 60))
+    assert _erasure_ids(memory) == [], f"retention={retention!r}: never pruned"
+    assert any("conversation_erasure_log_seconds" in r.getMessage() for r in caplog.records), retention
+
+
+async def test_a_deletion_that_erases_no_conversation_still_prunes_the_log():
+    memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="opnmatrx-claims-emptyprune-")),
+                            "conversation_erasure_log_seconds": 0})
+    memory.claim_conversation("c9", "apple:first")
+    assert await memory.erase_owner("apple:first") == ["c9"]
+    assert _erasure_ids(memory) == ["c9"]
+    await asyncio.sleep(0.01)
+    assert await memory.erase_owner("apple:owns-nothing") == []
+    assert _erasure_ids(memory) == [], "a deletion that erased no conversation did not prune"
+
+
+async def test_account_deletion_keeps_no_user_subject_id_in_the_erasure_log():
+    server = _server()
+    server.react_loop.router.complete = _HeldRouter("never-held").complete
+    memory = server.react_loop.memory
+    subject = "apple:001234.deadbeef"
+    async with TestClient(TestServer(server.create_app())) as client:
+        account = await _session(server, subject)
+        # No session_id: the conversation is the account's own user:<subject>.
+        assert await _drive(client, "/chat", {"message": "DEFAULT-CONV-SECRET"}, account) == 200
+        assert await _drive(client, "/chat", {"message": "named", "session_id": "named-conv"}, account) == 200
+        assert memory.conversation_owner(f"user:{subject}") == subject
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        assert _rows_with(memory, "DEFAULT-CONV-SECRET") == ([], [])
+        assert _erasure_ids(memory) == ["named-conv"], f"the log kept the account's own id: {_erasure_ids(memory)}"
+
+
+async def test_an_unclaimed_claim_on_an_account_conversation_id_never_stands():
+    """What makes leaving user:<subject> out of the log safe: no turn stands
+    on such an id without its account's claim, whichever entrance admits it
+    (the gateway answers 403 to every caller but the account)."""
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-userid-")))
+    sid = "user:apple:x"
+    before = memory.conversation_claim(sid)
+    assert before.owner == "" and not memory.claim_stands(before)
+    assert not await memory.save_conversation(sid, [{"role": "user", "content": "squat"}], expect_claim=before)
+    assert not await memory.save_turn("trinity", "squat", "r", scope=f"conv:{sid}", claim=before)
+    memory.claim_conversation(sid, "apple:x")
+    mine = memory.conversation_claim(sid)
+    assert memory.claim_stands(mine)
+    assert await memory.erase_owner("apple:x") == [sid]
+    assert _erasure_ids(memory) == []
+    assert not memory.claim_stands(before), "a pre-claim unclaimed turn on user:<subject> stood after the erasure"
+    assert not memory.claim_stands(mine)
+
+
+async def test_a_missing_erasure_state_row_refuses_unclaimed_turns_and_erasure_restores_it():
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-staterow-")))
+    before = memory.conversation_claim("c1")
+    assert memory.claim_stands(before)
+    memory.db.execute_sync("DELETE FROM conversation_erasure_state")
+    gap = memory.conversation_claim("c2")
+    assert not memory.claim_stands(gap), "an unclaimed turn stood with no erasure state to check it against"
+    assert not memory.claim_stands(before)
+
+    memory.claim_conversation("c1", "apple:x")
+    assert await memory.erase_owner("apple:x") == ["c1"]
+    assert not memory.claim_stands(before), "erasure with the state row missing restored the pre-claim state"
+    assert not memory.claim_stands(gap)
+    after = memory.conversation_claim("c1")
+    assert memory.claim_stands(after), "erasure did not restore the erasure state"
+    assert await memory.save_conversation("c1", [{"role": "user", "content": "fresh"}], expect_claim=after)
+
+
+async def test_a_fresh_process_restores_a_missing_erasure_state_row():
+    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-staterow-boot-")
+    memory = MemoryManager(_config(scratch))
+    memory.claim_conversation("c1", "apple:x")
+    assert await memory.erase_owner("apple:x") == ["c1"]
+    memory.db.execute_sync("DELETE FROM conversation_erasure_state")
+    again = MemoryManager(_config(scratch))
+    fresh = again.conversation_claim("c1")
+    assert again.claim_stands(fresh), "a fresh process refused every unclaimed turn"
+    again.claim_conversation("c1", "apple:y")
+    assert await again.erase_owner("apple:y") == ["c1"]
+    assert not again.claim_stands(fresh)
+
+
+async def test_restoring_a_missing_state_row_revives_no_turn_whose_erasure_was_pruned_meanwhile():
+    """The restored row starts past every sequence number a live turn could
+    hold, not just past the log: a log pruned while the row was missing no
+    longer says how far erasures had gone."""
+    from runtime.memory.manager import ERASURE_LOG_SECONDS
+
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-staterow-prune-")))
+    memory.claim_conversation("c0", "apple:a")
+    assert await memory.erase_owner("apple:a") == ["c0"]
+    mid = memory.conversation_claim("c1")          # admitted unclaimed after erasure 1
+    assert memory.claim_stands(mid)
+    memory.claim_conversation("c1", "apple:b")
+    assert await memory.erase_owner("apple:b") == ["c1"]  # erasure 2 erases c1
+    assert not memory.claim_stands(mid)
+    memory.db.execute_sync("DELETE FROM conversation_erasure_state")
+    await memory.db.run_in_transaction(
+        lambda conn: memory._prune_erasure_log_in(conn, time.time() + ERASURE_LOG_SECONDS + 60))
+    assert _erasure_ids(memory) == []
+    memory.claim_conversation("c5", "apple:c")
+    assert await memory.erase_owner("apple:c") == ["c5"]  # restores the row
+    assert not memory.claim_stands(mid), "restoring the state row revived a turn whose erasure was pruned"
