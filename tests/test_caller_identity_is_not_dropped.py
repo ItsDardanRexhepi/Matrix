@@ -79,7 +79,8 @@ DEFECT-PROVERS — FAIL before the change, PASS after (16)
     test_capability_invoke_identity_stays_optional
 
 SCOPE-PINS — PASS before AND after (8)
-    test_capability_route_body_cannot_assert_an_identity
+    test_capability_registry_overwrites_a_params_caller_identity  (renamed from test_capability_route_body_cannot_assert_an_identity;
+      the route's body CAN assert an identity, see that test's docstring)
     test_gateway_with_no_linked_wallet_still_dispatches
     test_dispatch_without_identity_still_works_and_degrades_honestly
     test_positional_call_site_still_works
@@ -183,8 +184,9 @@ async def _drain():
 
 
 async def test_identity_reaches_the_service_and_is_recorded():
-    """DEFECT-PROVER. The wallet the gateway authenticated must arrive at the
-    service that decides, and the service must write it down."""
+    """DEFECT-PROVER. The identity the entry point threads (on the bridge, the
+    wallet linked to the SIWE session) must arrive at the service that decides,
+    and the service must write it down."""
     dispatcher = ServiceDispatcher({})
 
     envelope = json.loads(
@@ -195,7 +197,7 @@ async def test_identity_reaches_the_service_and_is_recorded():
 
     assert envelope["status"] == "ok", envelope
     assert envelope["result"]["set_by"] == CALLER, (
-        "the rights grant does not record the authenticated caller — the "
+        "the rights grant does not record the threaded caller identity — the "
         "platform's own record still cannot say who granted the right"
     )
 
@@ -469,15 +471,18 @@ async def test_params_cannot_assert_an_identity_when_unauthenticated():
 
     assert envelope["status"] == "ok", envelope
     assert envelope["result"]["set_by"] == "", (
-        "a caller with no authenticated identity wrote their own into the "
-        "platform's record"
+        "a call whose entry point bound no identity wrote its own into the "
+        "platform's record through params['caller_identity']"
     )
 
 
 async def test_params_cannot_override_an_authenticated_identity():
     """DEFECT-PROVER, group 2 (ratchet — measured to fail before).
 
-    The authenticated value wins over the body, always.
+    The threaded value wins over `params["caller_identity"]`, always. That is
+    the only body key this overwrite covers: an entry point can still thread a
+    value the caller wrote (see
+    tests/test_bound_identity_is_not_called_authenticated.py).
     """
     dispatcher = ServiceDispatcher({})
 
@@ -718,14 +723,20 @@ def test_identity_parameter_stays_optional(method):
 # this route with a bound identity recorded `set_by: ""`.
 #
 # Fixing the bridge alone would have been the same half-fix in a new place:
-# one authenticated HTTP route naming the grantor, the other still attesting
-# and publishing the same grant with actor "".
+# one HTTP route naming the grantor, the other still attesting and publishing
+# the same grant with actor "".
+#
+# BOUND, NOT AUTHENTICATED. On this route the middleware binds a session's
+# identity when a session is presented; otherwise the X-Wallet-Address header;
+# otherwise a body `wallet`, `from`, `sender` or `account` field or
+# `params.from`. So without a session, the grantor this route records is an
+# address the caller wrote.
 # ─────────────────────────────────────────────────────────────────────────
 
 
 async def test_capability_route_passes_the_identity_the_middleware_bound():
     """DEFECT-PROVER. The second gateway entry point must hand the dispatcher
-    the wallet the security middleware already authenticated for this request.
+    the wallet the security middleware already bound for this request.
     """
     from gateway.security_gate import bind_request_security
     from gateway.service_routes import ServiceRoutes
@@ -772,16 +783,22 @@ async def test_capability_route_records_the_grantor_end_to_end():
     )
 
 
-async def test_capability_route_body_cannot_assert_an_identity():
+async def test_capability_registry_overwrites_a_params_caller_identity():
     """SCOPE-PIN — MEASURED to pass before this half landed, and kept anyway.
 
-    `params` is the request body on this route too, so an unauthenticated
-    invoke must record "unknown" and never the address the body claims. It
-    already held before the route was fixed, because the dispatcher-side
-    injection overwrites `params["caller_identity"]` unconditionally — this
-    test proves that guard covers the second entry point as well, which was
-    not obvious until it was run. Counted as a pin, not a prover: it does not
-    fail without the change.
+    Renamed from test_capability_route_body_cannot_assert_an_identity, which
+    said more than it tests. It calls `CapabilityRegistry.invoke` directly,
+    without the gateway, and shows one thing: with no identity threaded, a
+    `params["caller_identity"]` is overwritten and the record says "unknown".
+    The dispatcher-side injection does that unconditionally, so it held before
+    the route was fixed. Counted as a pin, not a prover.
+
+    It does NOT show that the route's body cannot assert an identity. It can.
+    With no session and no X-Wallet-Address header, the security middleware
+    binds a body `wallet`, `from`, `sender` or `account` field or `params.from`,
+    the handler threads it, and it is recorded as the grantor.
+    tests/test_bound_identity_is_not_called_authenticated.py drives that
+    through the gateway.
     """
     from runtime.capabilities import CapabilityRegistry
 
@@ -794,7 +811,7 @@ async def test_capability_route_body_cannot_assert_an_identity():
     inner = json.loads(out["result"])
     assert inner["status"] == "ok", inner
     assert inner["result"]["set_by"] == "", (
-        "the capability route let a body-supplied address become the "
+        "CapabilityRegistry.invoke let params['caller_identity'] become the "
         "platform's record of who granted the right"
     )
 
@@ -878,7 +895,7 @@ def _rig():
     "kwargs,expect_actor,expect_source,label",
     [
         ({"caller_identity": "0xAUTH"}, "0xAUTH", "authenticated",
-         "an authenticated caller"),
+         "a threaded caller identity (labelled authenticated whatever its source)"),
         ({"caller_source": "agent_handoff"}, "", "agent_handoff",
          "an agent hand-off — no human, and the record SAYS no human"),
         ({}, "", "unauthenticated",

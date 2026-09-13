@@ -2309,7 +2309,8 @@ class GatewayServer:
         if self._app_attest is None or self._security_backend == "noop":
             return web.json_response(
                 {"verified": False, "reason": "security backend not installed"})
-        # Identity that the challenge was bound to — the authenticated wallet
+        # Identity that the challenge was bound to: the session's identity when
+        # a session is presented, else the caller-written X-Wallet-Address
         # header (mirrors the challenge request's identity), else a body field.
         identity = (self._caller_identity(request) or str(body.get("identity", ""))).strip()
         try:

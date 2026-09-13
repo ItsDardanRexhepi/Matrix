@@ -22,19 +22,23 @@ serving one:
           removes the invitation.
 
   NEW-78  /api/v1/insurance/claim binds the caller to the wallet the security
-          middleware authenticated for THIS request. Pre-fix the handler
+          middleware bound for THIS request: a session's identity when one is
+          presented, else the caller-written X-Wallet-Address header or a body
+          wallet/from/sender/account field. Pre-fix the handler
           forwarded a claimant-supplied `trigger_data` dict as the evidence a
           payout was decided on, and never asked who was calling at all.
 
-WHY THE BODY-HOLDER FALLBACK IS NOT A HOLE THAT UNDOES THE FIX. When no
-authenticated identity is present the handler falls back to `body["holder"]`,
-which an attacker controls. That is the same dev-mode idiom as
-_handle_governance_vote and it is deliberately NOT the security boundary —
-authentication is, and it is enforced upstream by the security middleware.
-The property this file pins is narrower and is the one the handler owns:
-whenever an authenticated identity EXISTS, it wins, and a body that disagrees
-cannot override it. A handler that preferred the body would let an
-authenticated user claim as anyone.
+WHAT THE BODY-HOLDER FALLBACK MEANS. When no identity is bound the handler
+falls back to `body["holder"]`, which the caller controls. That is the same
+dev-mode idiom as _handle_governance_vote. The security middleware makes no
+security decision; it only carries the identity. The ownership check is a
+boundary only when that identity is a session's. Without a session the bound
+identity is itself a header or body field the caller wrote (a caller holding
+the operator key, or on a gateway with auth off), so on that path the check
+compares the policy holder with an address the caller chose. The property this
+file pins is narrower and is the one the handler owns: whenever a bound
+identity EXISTS, it wins, and a `holder` that disagrees cannot override it. A
+handler that preferred the body would let a session user claim as anyone.
 """
 
 from __future__ import annotations
@@ -87,13 +91,13 @@ async def test_removing_it_did_not_take_the_live_claim_route_with_it(client):
 
 
 async def test_an_authenticated_identity_beats_a_body_supplied_holder(client, monkeypatch):
-    """SCENARIO: authenticated mallory POSTs `holder: alice`.
+    """SCENARIO: mallory, bound to the request, POSTs `holder: alice`.
 
     This is the escalation the ownership check would not catch on its own —
     assert_owner compares whatever the handler hands it, so if the handler
-    preferred the body, an authenticated attacker would simply declare
-    themselves the owner and pass. The handler's job is to hand it the
-    authenticated identity.
+    preferred the body, an attacker with a session would simply declare
+    themselves the owner and pass. The handler's job is to hand it the bound
+    identity.
     """
     # Patched at the SOURCE module, not at gateway.service_routes: the handler
     # imports this function-locally (matching _handle_governance_vote), so it
@@ -119,7 +123,7 @@ async def test_an_authenticated_identity_beats_a_body_supplied_holder(client, mo
 
     assert seen.get("caller") == "mallory", (
         f"handler forwarded caller={seen.get('caller')!r} — a body-supplied "
-        "holder overrode the authenticated identity"
+        "holder overrode the bound identity"
     )
 
 

@@ -272,9 +272,17 @@ class InsuranceService:
         authorization control exactly as far as the identity reaching it is
         authenticated, and that differs by surface:
 
-          gateway route  /api/v1/insurance/claim  ENFORCING. The handler binds
-                         `caller` from current_request_security(); a
-                         body-supplied `holder` cannot override it.
+          gateway route  /api/v1/insurance/claim  ENFORCING ONLY WITH A
+                         SESSION. The handler binds `caller` from
+                         current_request_security(), and a body-supplied
+                         `holder` cannot override a bound identity. That
+                         identity is derived only when a session is presented.
+                         Without one it is the X-Wallet-Address header or a
+                         body wallet/from/sender/account field, written by the
+                         caller (who holds the operator key, or is on a gateway
+                         with auth off), and with none of those the body
+                         `holder` is used. On that path the check compares
+                         the policy holder with an address the caller chose.
           ServiceDispatcher  `file_insurance_claim` / `cancel_insurance`
                          NOT ENFORCING. execute() does `await method(**params)`
                          with caller-supplied params, so an attacker simply
@@ -307,7 +315,7 @@ class InsuranceService:
         creator argument unbound — which is the precise failure this deferral was
         written to avoid, so the original ruling STANDS ON ITS OWN TERMS and is
         not overturned. What changed is the cost: the platform-wide fix (map
-        caller/holder/creator to the authenticated identity AT the dispatcher) is
+        caller/holder/creator to the threaded identity AT the dispatcher) is
         now a real option rather than a missing subsystem.
 
         RECORDED BECAUSE A DEFERRAL THAT CITES A VANISHED BLOCKER AGES INTO A
