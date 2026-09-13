@@ -24,12 +24,14 @@ What this file holds, and what it does not:
     (letters, digits and underscore; anything else is a boundary) is hashed
     case-insensitively, so a path segment, a capitalised or upper-case word and
     a lower-case one all match, while an identifier that merely contains the
-    word does not. Two kinds of occurrence pass, and both are pinned by digest,
-    not by plain text: a token whose surrounding words form one of two
-    decorative phrases the project's pages and installer use (the preceding
-    three words, or the following word, hashed with it), and seven exact
-    lines of the export sanitizer's pattern table (hashed with their path),
-    which is what that sanitizer blocks. Any other occurrence fails, including a new line in those files.
+    word does not. One kind of occurrence passes, pinned by digest, not by
+    plain text: a token whose surrounding words form one of two decorative
+    phrases the project's pages and installer use (the preceding three words,
+    or the following word, hashed with it). Nothing else passes, and no line
+    of any file is pinned: the export sanitizer and exporter, which must
+    recognise the word to block it, hold it as a digest too
+    (bridge/held_patterns.py), so they no longer print it beside the
+    "private" labels that said what it names.
   * `git+ssh` install URLs are refused anywhere, and a backticked `*.md`
     reference in the operator docs must resolve to a file that is actually in
     this tree — a doc path that only exists in a private repository is exactly
@@ -43,11 +45,16 @@ that digest keeps the word out of plain reading and out of grep, and no more.
 Pieces of the names are also public by necessity elsewhere in the tree: the
 seam's import name shares two words with the current core name. What this file
 no longer does is state, in plain text, which word names which private
-repository.
+repository. What it does not see: a word glued inside a longer identifier
+(for example the project's own public name) passes by design, so a pairing
+written that way would not be caught.
 
 The digests were checked against the tree before each fix: on a copy of
 9f4aa37 the core-name test fails with nine hits in three files, and on a copy of
-8f8b724 the deployment-word test fails with 31 hits in 12 files.
+8f8b724 the deployment-word test fails with 31 hits in 12 files. With the
+pinned sanitizer lines removed from this file and bridge/ not yet changed, it
+failed with seven hits in two files (bridge/sanitizer.py six, bridge/exporter.py
+one).
 """
 
 from __future__ import annotations
@@ -76,17 +83,6 @@ _DEPLOY_WORD_DIGEST = "6e00cd562cc2d88e238dfb81d9439de7ec843ee9d0c9879d549cb1436
 _DEPLOY_WORD_ALLOWED_CONTEXTS = frozenset({
     "2510deb1de9187f4db19f10a90a9914cc598083477c1f22067455cb8dee88518",
     "8eb056ca3f9c63b359f56f84b1c9dc4c0a07d01be1422a8ff58de0f5d53173c6",
-})
-
-# sha256 of "<path>:<stripped line>" for the export sanitizer's pattern lines.
-_DEPLOY_WORD_PINNED_LINES = frozenset({
-    "2d4c5103e3b4d00e986de69b7b9ad4cb7f05049b231bc2d901dcd32243e2d779",  # bridge/exporter.py
-    "88c7af9ccd4e37a59650ad81b730ada379b9c5dbfa25b7cb28d3b2d61ed13406",  # bridge/sanitizer.py
-    "43c88fa75778f6863540c9b7ff11641ebd6be1f4bf51501be25254c6ac92e2b9",
-    "6da34a3047dd39b9c8ff04f561410f61021d2765e208c72572688b72ac74c974",
-    "08b35d533fa4b7f83cd67514f3b641b77db12b45243e83ec2f384151c305e2e5",
-    "fc2a9ae388420318de23663455ab109a513551a277064cbc5492ca4ee3586b45",
-    "7f8fcbaaed01f33e962c7757aaaceb9d763d3d1d93f931a47671a0596d9d7a1c",
 })
 
 _MAX_WORDS = 4
@@ -159,10 +155,9 @@ def _name_hits(text: str, digests: frozenset[str]) -> list[int]:
 
 def _deploy_word_hits(text: str, rel: str, *, word_digest: str = _DEPLOY_WORD_DIGEST,
                       allowed_contexts: frozenset[str] = _DEPLOY_WORD_ALLOWED_CONTEXTS,
-                      pinned_lines: frozenset[str] = _DEPLOY_WORD_PINNED_LINES,
                       ) -> list[tuple[int, str]]:
     """(line, text) for each standalone token whose lower-cased digest is the
-    deployment word, unless its context or its whole line is pinned by digest."""
+    deployment word, unless its context is one of the pinned phrases."""
     line_of = _line_of(text)
     lines = text.splitlines()
     tokens = [(m.group().lower(), m.start()) for m in _TOKEN.finditer(text)]
@@ -176,8 +171,6 @@ def _deploy_word_hits(text: str, rel: str, *, word_digest: str = _DEPLOY_WORD_DI
             continue
         lineno = line_of(start)
         line = lines[lineno - 1] if lineno - 1 < len(lines) else ""
-        if _sha(f"{rel}:{line.strip()}") in pinned_lines:
-            continue
         hits.append((lineno, line.strip()[:100]))
     return hits
 
@@ -205,31 +198,29 @@ def test_name_matcher_catches_every_spelling_of_a_planted_name():
 
 
 def test_deploy_word_matcher_catches_every_case_and_passes_pinned_uses():
-    """Planted positive with a synthetic word, its own allowed contexts
-    and its own pinned line: every case and position is caught, and only the
-    pinned contexts, the pinned line and identifiers containing it pass."""
+    """Planted positive with a synthetic word and its own allowed contexts:
+    every case and position is caught, and only the pinned contexts and
+    identifiers containing the word pass. The planted lines are generic token
+    positions, not the shapes of phrases that were removed from the tree."""
     w = _synthetic_word("Qx")
     lw = w.lower()
     kwargs = dict(
         word_digest=_sha(lw),
         allowed_contexts=frozenset({_sha(f"alphabetagamma{lw}"), _sha(f"{lw}delta")}),
-        pinned_lines=frozenset({_sha(f"pkg/scrub.py:pattern(r\"{lw}\\.private\\.\")")}),
     )
-    caught = [f"# push ({w} deploy)", f"from the {w} private runtime",
-              f"a/{w}/b", f"{w}-side exporter", f"({w} register entry::X)",
-              f"the {lw} deploy", f"{w.upper()} DEPLOY", f"{w}'s compose mount",
-              f"pattern(r\"{lw}\\.private\\.\")"]  # unpinned in another file
+    caught = [f"alpha {w} omega", f"({w})", f"a/{w}/b", f"{w}-", f"{lw}.",
+              f"{w.upper()}", f"x={w};", f"<{lw}>", f"'{w}'",
+              f"pattern(r\"{lw}\\.kappa\\.\")"]
     for line in caught:
         assert _deploy_word_hits(line, "other.py", **kwargs), line
     passed = [f"Alpha beta gamma {w}", f"/* {w} delta effect */", f".{lw}-delta{{",
-              f"a token called {w}Coin", f"0pn{w}x", f"{lw}_router."]
+              f"a token called {w}Coin", f"pre{w}post", f"{lw}_zeta."]
     for line in passed:
         assert not _deploy_word_hits(line, "other.py", **kwargs), line
-    assert not _deploy_word_hits(f"pattern(r\"{lw}\\.private\\.\")", "pkg/scrub.py", **kwargs)
-    # A second line in the pinned file is not pinned.
-    assert _deploy_word_hits(f"pattern(r\"{lw}\\.deploy\\.\")", "pkg/scrub.py", **kwargs)
+    # No file or line is exempt: the same line is caught under any path.
+    assert _deploy_word_hits(f"pattern(r\"{lw}\\.kappa\\.\")", "bridge/sanitizer.py", **kwargs)
     # The real digest is a different digest: the synthetic word is not it.
-    assert not _deploy_word_hits(f"the {w} deploy", "other.py")
+    assert not _deploy_word_hits(f"alpha {w} omega", "other.py")
 
 
 def test_install_url_matcher_catches_a_planted_url():

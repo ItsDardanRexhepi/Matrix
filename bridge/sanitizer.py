@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bridge.exporter import ExportBundle
+from bridge.held_patterns import HeldWordPattern
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,10 @@ class SanitizationResult:
 
 # ---------------------------------------------------------------------------
 # Forbidden pattern categories
+#
+# A pattern that names the private runtime's namespace holds that word as a
+# digest (bridge/held_patterns.py): `{W}` marks where it stands. It matches what
+# the plain expression it replaced matched.
 # ---------------------------------------------------------------------------
 
 _PRIVATE_DATA_PATTERNS = [
@@ -59,35 +64,35 @@ _PRIVATE_DATA_PATTERNS = [
 ]
 
 _SECURITY_LAYER_PATTERNS = [
-    (re.compile(r"MatrixSecurityLayer", re.IGNORECASE), "Private security layer reference"),
+    (HeldWordPattern(r"{W}SecurityLayer"), "Private security layer reference"),
     (re.compile(r"NeoSafe\.internal", re.IGNORECASE), "NeoSafe internal reference"),
     (re.compile(r"CLOSED_SOURCE_ONLY", re.IGNORECASE), "Closed-source marker"),
     (re.compile(r"security_layer\.(encrypt|decrypt|sign)", re.IGNORECASE), "Security layer method"),
-    (re.compile(r"from\s+matrix\.security", re.IGNORECASE), "Private security import"),
-    (re.compile(r"import\s+.*matrix\.security", re.IGNORECASE), "Private security import"),
+    (HeldWordPattern(r"from\s+{W}\.security"), "Private security import"),
+    (HeldWordPattern(r"import\s+.*{W}\.security"), "Private security import"),
 ]
 
-_MATRIX_ROUTING_PATTERNS = [
-    (re.compile(r"matrix\.private\.", re.IGNORECASE), "Private runtime routing"),
-    (re.compile(r"matrix\.internal\.", re.IGNORECASE), "Private internal routing"),
+_RUNTIME_ROUTING_PATTERNS = [
+    (HeldWordPattern(r"{W}\.private\."), "Private runtime routing"),
+    (HeldWordPattern(r"{W}\.internal\."), "Private internal routing"),
     (re.compile(r"INTERNAL_ROUTE", re.IGNORECASE), "Internal route marker"),
     (re.compile(r"governance\.internal", re.IGNORECASE), "Internal governance endpoint"),
-    (re.compile(r"from\s+matrix\.routing", re.IGNORECASE), "Private routing import"),
-    (re.compile(r"matrix_router\.", re.IGNORECASE), "Private router reference"),
+    (HeldWordPattern(r"from\s+{W}\.routing"), "Private routing import"),
+    (HeldWordPattern(r"{W}_router\."), "Private router reference"),
 ]
 
 _CLOSED_SOURCE_PATTERNS = [
     (re.compile(r"DO_NOT_EXPORT", re.IGNORECASE), "Do-not-export marker"),
     (re.compile(r"INTERNAL_USE_ONLY", re.IGNORECASE), "Internal-use marker"),
     (re.compile(r"PROPRIETARY", re.IGNORECASE), "Proprietary marker"),
-    (re.compile(r"# ?COPYRIGHT.*MATRIX", re.IGNORECASE), "Private copyright header"),
+    (HeldWordPattern(r"# ?COPYRIGHT.*{W}"), "Private copyright header"),
     (re.compile(r"CONFIDENTIAL", re.IGNORECASE), "Confidential marker"),
 ]
 
 ALL_PATTERN_CATEGORIES = {
     "private_data": _PRIVATE_DATA_PATTERNS,
     "security_layer": _SECURITY_LAYER_PATTERNS,
-    "matrix_routing": _MATRIX_ROUTING_PATTERNS,
+    "runtime_routing": _RUNTIME_ROUTING_PATTERNS,
     "closed_source": _CLOSED_SOURCE_PATTERNS,
 }
 

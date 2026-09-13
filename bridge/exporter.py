@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from bridge.held_patterns import HeldWordPattern
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,7 +54,8 @@ class ExportBundle:
         }
 
 
-# Patterns that should NEVER appear in exported components
+# Patterns that should NEVER appear in exported components. `{W}` is the private
+# runtime's namespace word, held as a digest (bridge/held_patterns.py).
 _PRIVATE_PATTERNS = [
     re.compile(r"PRIVATE_KEY\s*=", re.IGNORECASE),
     re.compile(r"SEED_PHRASE\s*=", re.IGNORECASE),
@@ -61,9 +64,9 @@ _PRIVATE_PATTERNS = [
     re.compile(r"INTERNAL_USE_ONLY", re.IGNORECASE),
     re.compile(r"DO_NOT_EXPORT", re.IGNORECASE),
     re.compile(r"CLOSED_SOURCE_ONLY", re.IGNORECASE),
-    re.compile(r"MatrixSecurityLayer", re.IGNORECASE),
+    HeldWordPattern(r"{W}SecurityLayer"),
     re.compile(r"NeoSafe\.internal", re.IGNORECASE),
-    re.compile(r"matrix\.private\.", re.IGNORECASE),
+    HeldWordPattern(r"{W}\.private\."),
 ]
 
 
