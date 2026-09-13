@@ -1,8 +1,10 @@
 """Base class for 0pnMatrx plugins.
 
 All third-party plugins must extend ``OpenMatrixPlugin`` and implement
-the required lifecycle methods. The platform calls these methods at
-specific points during startup, request handling, and shutdown.
+the required lifecycle methods. ``PluginLoader`` calls ``on_load`` and
+``on_unload``; nothing in the gateway constructs the loader or the registry, so
+the hooks run only where code loads a plugin itself (docs/PLUGIN_DEVELOPMENT.md,
+"Running a plugin").
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ class OpenMatrixPlugin(ABC):
         return "Unknown"
 
     async def on_load(self, config: dict) -> None:
-        """Called when the plugin is loaded during platform startup.
+        """Awaited by ``PluginLoader.load`` after it imports the package.
 
         Parameters
         ----------
@@ -68,11 +70,13 @@ class OpenMatrixPlugin(ABC):
         pass
 
     async def on_unload(self) -> None:
-        """Called when the plugin is unloaded during platform shutdown."""
+        """Awaited by ``PluginLoader.unload`` / ``unload_all``."""
         pass
 
     async def on_message(self, agent: str, message: str) -> str | None:
-        """Intercept a chat message before it reaches the agent.
+        """Intercept a chat message before it reaches the agent — where a caller
+        runs ``PluginRegistry.run_message_hooks``; the gateway's chat path does
+        not.
 
         Return the modified message, or None to pass through unchanged.
 
@@ -88,14 +92,16 @@ class OpenMatrixPlugin(ABC):
     async def on_tool_call(
         self, tool_name: str, arguments: dict
     ) -> dict | None:
-        """Intercept a tool call before execution.
+        """Intercept a tool call before execution. Nothing calls this hook
+        today: the tool dispatcher does not consult plugins.
 
         Return a modified arguments dict, or None to pass through.
         """
         return None
 
     def get_tools(self) -> list[dict]:
-        """Return custom tool definitions to register with the agent.
+        """Return custom tool definitions. ``PluginRegistry.get_all_tools``
+        collects them; no dispatcher registers them with an agent today.
 
         Each tool dict should have:
           - name: str
@@ -106,7 +112,8 @@ class OpenMatrixPlugin(ABC):
         return []
 
     def get_commands(self) -> list[dict]:
-        """Return slash commands this plugin provides.
+        """Return slash commands this plugin provides. Nothing serves them: no
+        gateway route or CLI reads ``PluginRegistry.get_all_commands``.
 
         Each command dict should have:
           - name: str (e.g. '/hello')

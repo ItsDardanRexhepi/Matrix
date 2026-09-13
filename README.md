@@ -429,7 +429,7 @@ Professional certifications backed by on-chain attestations:
 
 ## Plugin Development
 
-Build plugins for 0pnMatrx. A plugin runs when its package is placed in `plugins/installed/`, where the plugin loader finds it; the marketplace lists plugins and does not install them. Paid plugin sales are not live yet — no purchase path completes one. The platform commission on them is an operator setting (`plugin_marketplace.commission_rate`); the published Terms of Service state 10%.
+Build plugins for 0pnMatrx. The plugin loader (`runtime/plugins/loader.py`) can import a package from `plugins/installed/`, but nothing in the gateway calls it: placing a package there runs nothing today. You can load one yourself with `PluginLoader.load_all()`; the marketplace lists plugins and does not install them. Paid plugin sales are not live yet — no purchase path completes one. The platform commission on them is an operator setting (`plugin_marketplace.commission_rate`); the published Terms of Service state 10%.
 
 ```bash
 # See the example plugin

@@ -3,6 +3,10 @@
 Scans configured plugin directories for Python modules that contain
 ``OpenMatrixPlugin`` subclasses. Handles loading, validation, and
 lifecycle management.
+
+Nothing in the gateway constructs this loader: a package placed in
+``plugins/installed/`` runs only in a process that calls it (see
+docs/PLUGIN_DEVELOPMENT.md, "Running a plugin").
 """
 
 from __future__ import annotations

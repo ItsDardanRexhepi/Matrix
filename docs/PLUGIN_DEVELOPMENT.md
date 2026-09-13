@@ -1,8 +1,11 @@
 # Plugin Development Guide
 
-Build plugins for the 0pnMatrx platform. A plugin runs when its package is
-placed in `plugins/installed/`, where the plugin loader finds it. The marketplace
-lists plugins and does not install them, and paid plugin sales are not live.
+Build plugins for the 0pnMatrx platform. The plugin loader
+(`runtime/plugins/loader.py`) can import a package from `plugins/installed/`, but
+nothing in the gateway calls it: placing a package there runs nothing today, and
+a plugin's hooks run only in a process that loads it itself (see **Running a
+plugin** below). The marketplace lists plugins and does not install them, and
+paid plugin sales are not live.
 
 ## Quick Start
 
@@ -25,24 +28,41 @@ class MyPlugin(OpenMatrixPlugin):
         print("Plugin unloaded!")
 ```
 
-## Plugin Lifecycle
+## Running a plugin
 
-1. **Discovery** — The `PluginLoader` scans `plugins/installed/` for Python packages
-2. **Loading** — Each package is imported and scanned for `OpenMatrixPlugin` subclasses
-3. **Initialization** — `on_load(config)` is called with the platform config
-4. **Runtime** — Hooks are called during message processing
-5. **Shutdown** — `on_unload()` is called on platform shutdown
+Nothing in the gateway loads plugins, so the lifecycle below runs only where
+your own code drives `PluginLoader`:
+
+```python
+import asyncio
+from runtime.plugins.loader import PluginLoader
+
+async def main():
+    loader = PluginLoader()            # scans plugins/installed/
+    plugins = await loader.load_all({})  # imports each, then awaits on_load(config)
+    print([p.name for p in plugins], [t["name"] for p in plugins for t in p.get_tools()])
+    await loader.unload_all()          # awaits on_unload()
+
+asyncio.run(main())
+```
+
+1. **Discovery** — `PluginLoader.discover()` lists packages in `plugins/installed/`
+2. **Loading** — `load()` imports one and takes the first `OpenMatrixPlugin` subclass
+3. **Initialization** — `on_load(config)` is awaited with the config you passed
+4. **Runtime** — `on_message` / `on_tool_call` run only if your code calls them:
+   the gateway's chat path and tool dispatcher do not
+5. **Shutdown** — `unload_all()` awaits `on_unload()`
 
 ## Available Hooks
 
 | Hook | When Called | Can Modify? |
 |------|-----------|-------------|
-| `on_load(config)` | Plugin startup | No |
-| `on_unload()` | Plugin shutdown | No |
-| `on_message(agent, message)` | Before agent processes a message | Yes — return modified message |
-| `on_tool_call(tool_name, args)` | Before a tool executes | Yes — return modified args |
-| `get_tools()` | During initialization | Registers new tools |
-| `get_commands()` | During initialization | Registers slash commands |
+| `on_load(config)` | `PluginLoader.load()`, after the import | No |
+| `on_unload()` | `PluginLoader.unload()` | No |
+| `on_message(agent, message)` | `PluginRegistry.run_message_hooks()`, which nothing calls | Yes — return modified message |
+| `on_tool_call(tool_name, args)` | Nothing calls it | Yes — return modified args |
+| `get_tools()` | `PluginRegistry.get_all_tools()`, which nothing calls | Returns tool definitions; no dispatcher registers them |
+| `get_commands()` | `PluginRegistry.get_all_commands()`, which nothing calls | Returns command definitions; nothing serves them |
 
 ## Registering Custom Tools
 

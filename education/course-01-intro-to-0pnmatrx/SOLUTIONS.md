@@ -132,22 +132,32 @@ class WeatherPlugin(OpenMatrixPlugin):
 
 ### Testing
 
-```bash
-# Restart gateway to load the plugin
-python -m gateway.server
+```python
+# The gateway loads no plugins; load it yourself.
+import asyncio
+from runtime.plugins.loader import PluginLoader
 
-# Look for in startup logs:
-# [INFO] Plugin loaded: weather-plugin v1.0.0
 
-# Test via MTRX CLI:
-# mtrx> /weather San Francisco
+async def main():
+    loader = PluginLoader()
+    await loader.load_all({})
+    plugin = loader.loaded["weather-plugin"]
+    print(await plugin.handle_weather("San Francisco"))
+    await loader.unload_all()
 
-# Test via API (Neo should invoke the get_weather tool):
-curl -X POST http://localhost:18790/chat \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{"message": "What is the weather in San Francisco?"}'
+
+asyncio.run(main())
 ```
+
+```
+Weather for San Francisco:
+  Temperature: 72°F
+  Condition: Sunny
+  Humidity: 45%
+```
+
+Neo cannot invoke `get_weather` through `/chat`: nothing registers plugin tools
+with the dispatcher.
 
 ### Expected Output
 

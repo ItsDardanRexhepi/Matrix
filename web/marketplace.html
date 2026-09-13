@@ -393,7 +393,7 @@ a:hover{text-decoration:underline}
       <!-- Left: Info -->
       <div class="dev-info">
         <h2>Become a <em>Plugin Developer</em></h2>
-        <p>The 0pnMatrx plugin system is open. Plugins are Python packages; one runs when its package is placed in <code>plugins/installed/</code> on the gateway, where the plugin loader finds it. The marketplace lists plugins and does not install them.</p>
+        <p>The 0pnMatrx plugin system is open. Plugins are Python packages. The plugin loader (<code>runtime/plugins/loader.py</code>) can import a package from <code>plugins/installed/</code>, but nothing in the gateway calls it: placing a package there runs nothing today. The marketplace lists plugins and does not install them.</p>
         <p><strong>Paid plugin sales are not live yet.</strong> Nothing on the platform can complete a paid plugin purchase or pay out its revenue.</p>
         <a href="https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/docs/PLUGIN_DEVELOPMENT.md" target="_blank" class="dev-link">&#128214; Read the Plugin Development Guide</a>
       </div>
@@ -519,7 +519,7 @@ a:hover{text-decoration:underline}
         return;
       }
       statusEl.textContent = plugins.length + (plugins.length === 1 ? " listing." : " listings.") +
-        " Listing a plugin does not install it: a plugin runs when its package is placed in plugins/installed/ on the gateway.";
+        " Listing a plugin does not install it, and nothing in the gateway loads one: the plugin loader is never called.";
       const cats = new Set();
       plugins.forEach(p=>{ grid.appendChild(card(p)); if(p.category) cats.add(String(p.category)); });
       [...cats].sort().forEach(cat=>{

@@ -71,7 +71,7 @@ The gap between "I want to create a token" and actually creating one has histori
 
 This is not about dumbing down blockchain. The smart contracts deployed through 0pnMatrx are real Solidity contracts, audited by the Glasswing security engine, attested on-chain through EAS (Ethereum Attestation Service), and deployed to real networks. The technical rigor is preserved -- the complexity is just handled for you.
 
-For developers, 0pnMatrx provides a plugin system and SDK that lets you extend the platform, build on top of it, and list your tools in the marketplace. The marketplace lists plugins and does not install them (a plugin runs when its package is placed in `plugins/installed/`); paid plugin sales are not live yet, and their platform commission is an operator setting (the published Terms state 10%).
+For developers, 0pnMatrx provides a plugin system and SDK that lets you extend the platform, build on top of it, and list your tools in the marketplace. The marketplace lists plugins and does not install them, and nothing in the gateway loads one (the plugin loader exists, and no code in the gateway calls it); paid plugin sales are not live yet, and their platform commission is an operator setting (the published Terms state 10%).
 
 ## Key Takeaways
 

@@ -48,8 +48,9 @@ Complete these five exercises to solidify your understanding of 0pnMatrx. Each e
    - Implements `get_tools` with a `get_weather` tool
    - The `/weather` command accepts a city name and returns mock data
    - Mock data should include: city name, temperature (72F), condition ("Sunny"), humidity (45%)
-4. Restart the gateway and verify the plugin loads
-5. Test the command with `/weather San Francisco`
+4. Load it yourself with `PluginLoader.load_all({})` (nothing in the gateway
+   loads plugins) and verify it loads
+5. Call the `/weather` command's handler with "San Francisco"
 
 **Expected Output Format**:
 ```
@@ -60,9 +61,10 @@ Weather for San Francisco:
 ```
 
 **Success Criteria**:
-- Plugin loads without errors on gateway startup
-- `/weather` command returns properly formatted output
-- The `get_weather` tool is available to Neo
+- `PluginLoader().load_all({})` loads the plugin without errors
+- the `/weather` command handler returns properly formatted output
+- `get_tools()` lists the `get_weather` tool (no dispatcher registers it, so Neo
+  cannot call it)
 - Plugin handles missing city name gracefully (default to a reasonable city)
 
 ---

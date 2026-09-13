@@ -392,8 +392,9 @@ Answer a purchase request for a plugin. It installs nothing. No body: the plugin
 comes from the path, and the buyer is the caller's session identity (or, with no
 session, the `X-Wallet-Address` header). A free listing returns `200` with
 `status: "already_purchased"` and `installed: false`: free listings count as
-owned by every caller, and nothing is recorded. A plugin runs only when its
-package is placed in `plugins/installed/` on the gateway. A paid plugin returns
+owned by every caller, and nothing is recorded. Nothing in the gateway loads a
+plugin either: `runtime/plugins/loader.py` can import a package from
+`plugins/installed/`, and no code in the gateway calls it. A paid plugin returns
 `501` with `status: "not_built"` — paid purchases have no completion path — and
 reports `platform_commission_rate` from `plugin_marketplace.commission_rate`
 (`null` when unset).

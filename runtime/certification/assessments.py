@@ -66,7 +66,7 @@ SAMPLE_QUESTIONS: dict[str, list[dict]] = {
             "correct_index": 0,
         },
         {
-            "question": "In the plugin development lifecycle, which method is called first when the gateway loads a plugin?",
+            "question": "In the plugin lifecycle, which method does PluginLoader.load() await first after importing the package? (Nothing in the gateway calls the loader; a plugin runs only where code loads it.)",
             "options": [
                 "get_tools()",
                 "on_load()",
@@ -290,12 +290,12 @@ SAMPLE_QUESTIONS: dict[str, list[dict]] = {
             "correct_index": 1,
         },
         {
-            "question": "When designing the plugin marketplace, what is the primary mechanism for preventing a malicious plugin from accessing another plugin's data?",
+            "question": "What isolates one plugin from another plugin's data in 0pnMatrx today?",
             "options": [
-                "Each plugin runs in a shared process but with separate Python namespaces",
-                "Plugins are loaded via importlib but share database connections",
-                "Each plugin runs in an isolated sandbox with its own scoped database handle and no cross-plugin API access",
-                "Plugins sign a terms-of-service agreement that forbids data access",
+                "An isolated sandbox per plugin, with its own scoped database handle",
+                "A per-plugin permission manifest the loader enforces on each call",
+                "Nothing: PluginLoader imports each package into the gateway's own process, with no sandbox, no scoped handle and no permission check",
+                "A signed terms-of-service agreement that forbids cross-plugin access",
             ],
             "correct_index": 2,
         },

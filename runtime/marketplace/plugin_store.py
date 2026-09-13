@@ -3,9 +3,11 @@
 Manages plugin listings and download tracking.
 
 Nothing here installs a plugin. A free listing counts as owned by every caller
-(`has_purchased`), so its purchase route records nothing and places no code; a
-plugin runs only when its package is put in `plugins/installed/`, where
-runtime/plugins/loader.py finds it. Paid plugin purchases are NOT built: there is no App
+(`has_purchased`), so its purchase route records nothing and places no code.
+Nothing in the gateway loads a plugin either: runtime/plugins/loader.py can
+import a package from `plugins/installed/`, and no code in the gateway calls it
+(tests/test_gateway_loads_no_plugins.py places one and measures that the gateway
+never imports it). Paid plugin purchases are NOT built: there is no App
 Store product for a plugin (gateway/iap.py) and no server path that records a
 paid plugin purchase, so the paid branch answers `not_built` rather than
 pointing the caller at a checkout that does not exist.
@@ -277,8 +279,9 @@ class PluginMarketplace:
                 "installed": False,
                 "message": (
                     "Nothing to buy or record: this listing is already owned. The "
-                    "marketplace does not install plugins; a plugin runs when its "
-                    "package is placed in plugins/installed/ on the gateway."
+                    "marketplace does not install plugins, and nothing in the gateway "
+                    "loads one: a package placed in plugins/installed/ runs only in a "
+                    "process that calls runtime/plugins/loader.py itself."
                 ),
             }
 
