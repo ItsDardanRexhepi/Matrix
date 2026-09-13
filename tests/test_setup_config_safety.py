@@ -911,3 +911,29 @@ def test_the_setup_wizard_checks_gitignore_once_before_it_writes(sandbox, monkey
         for secret in ("openmatrix.config.json", ".env"):
             assert _git_ignores(tmp_path, secret, ignorecase, index=True), secret
     assert not said["warn"], said["warn"]
+
+
+def test_only_the_guarded_writer_puts_a_secret_file_on_disk():
+    """The class, structurally: nothing writes a file holding keys except
+    setup/_shared.py's write_secret_file(), which checks .gitignore first.
+    Every entry point (setup.py, setup_communications.py, setup_telegram.py,
+    each channel module) reaches disk through it."""
+    import ast
+    sources = [ROOT / "setup.py", ROOT / "setup_communications.py",
+               ROOT / "setup_telegram.py", *sorted((ROOT / "setup").glob("*.py"))]
+    offenders = []
+    for path in sources:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for call in ast.walk(node):
+                if (isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Name)
+                        and call.func.id == "_atomic_write_text"
+                        and node.name != "write_secret_file"):
+                    offenders.append(f"{path.name}:{call.lineno} in {node.name}()")
+    assert not offenders, (
+        "these write a secret file without the .gitignore check that "
+        "write_secret_file() runs first: " + ", ".join(offenders)
+    )
