@@ -62,7 +62,7 @@ except (ImportError, ModuleNotFoundError):
     #   "the package IS installed and blew up while loading" — a broken
     #       security core. Swallowing that silently turned a loud failure into
     #       a silent disarming: the gateway came up reporting itself fine, with
-    #       nothing enforcing. That is the NEW-18 silent-fallback shape sitting
+    #       the private layer not enforcing. That is the NEW-18 silent-fallback shape sitting
     #       on the security boundary.
     #
     # Only the first is caught now. Anything else propagates, because a

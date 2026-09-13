@@ -126,7 +126,7 @@ _STATEMENT_FILES = [
 
 _ENFORCES_NOTHING = re.compile(
     r"enforces nothing|nothing (?:listed above )?is enforced|"
-    r"\bno enforcement\b|nothing enforced", re.I)
+    r"\bno enforcement\b|nothing (?:is )?enforc(?:ed|ing)", re.I)
 _NOOP_LOGS = re.compile(r"allowed and logged|allows and logs|logs every action", re.I)
 _GATE_FIRST = re.compile(r"first in\s+`?ProtocolStack\.pre_action|consulted\s+\*{0,2}first|"
                          r"runs first, so every execution path", re.I)
@@ -384,3 +384,79 @@ def test_every_statement_of_what_runs_without_the_package_names_every_refusing_c
             offenders.append(f"{where} presents a closed list: "
                              f"{_CLOSED_LIST.search(text).group(0)!r}")
     assert not offenders, "\n".join(offenders)
+
+
+# ── 5. HONEST ABOUT WHICH WAY A FAULT FAILS ────────────────────────────────
+#
+# SECURITY_STUB.md said of the URF gate "a fault inside the gate is logged and
+# the action continues". Measured, a fault fails in two directions: an
+# exception inside one of the gate's checks is recorded as a failed check and
+# REFUSES the action (RexhepiGate.evaluate), and only an exception escaping the
+# gate as a whole is logged by ProtocolStack.pre_action and lets the action
+# continue. Both are measured here on the noop backend, and each rules out the
+# statement it contradicts.
+
+_GATE_FAULT_CONTINUES = re.compile(
+    r"fault (?:inside|in) the (?:urf |rexhepi )?gate is logged and the action continues", re.I)
+
+
+def _gate_fault_directions() -> tuple[bool, bool]:
+    """(a fault in a gate check refuses, a fault escaping the gate continues)."""
+    from runtime.protocols.integration import ProtocolStack
+    from runtime.protocols.rexhepi_gate import RexhepiGate
+    from runtime.security import SECURITY_BACKEND
+    if SECURITY_BACKEND != "noop":
+        return False, False
+
+    def _raise(*_a, **_k):
+        raise RuntimeError("planted fault")
+
+    action = ("platform_action", {"action": "get_stablecoin_balance", "address": "0x" + "1" * 40}, {})
+    baseline = asyncio.run(ProtocolStack({}, "neo").pre_action(*action))
+    original_check = RexhepiGate._check_safety
+    RexhepiGate._check_safety = _raise
+    try:
+        check_fault = asyncio.run(ProtocolStack({}, "neo").pre_action(*action))
+    finally:
+        RexhepiGate._check_safety = original_check
+    original_eval = RexhepiGate.evaluate
+
+    async def _raise_async(*_a, **_k):
+        raise RuntimeError("planted fault")
+
+    RexhepiGate.evaluate = _raise_async
+    try:
+        escaped = asyncio.run(ProtocolStack({}, "neo").pre_action(*action))
+    finally:
+        RexhepiGate.evaluate = original_eval
+    assert baseline["approved"], ("the probe action is refused without a fault; pick one "
+                                  "the gate approves", baseline)
+    check_refuses = (not check_fault["approved"]
+                     and "Internal error in safety check" in str(check_fault["denial_reason"]))
+    return check_refuses, bool(escaped["approved"])
+
+
+def test_the_fault_sentence_scan_catches_the_old_stub_sentence():
+    old = ("an action proceeds only when every check passes; a fault inside the gate is "
+           "logged and the action continues (`runtime/protocols/rexhepi_gate.py`)")
+    assert _GATE_FAULT_CONTINUES.search(old)
+
+
+def test_statements_say_which_way_a_gate_fault_fails():
+    check_refuses, escape_continues = _gate_fault_directions()
+    if check_refuses:
+        hits = _statement_lines(_GATE_FAULT_CONTINUES)
+        assert not hits, (
+            "a fault inside a URF gate check refuses the action, so a statement that a "
+            "fault inside the gate lets it continue is false:\n" + "\n".join(hits))
+    today = _section(STUB.read_text(encoding="utf-8"), "What is true today")
+    urf = next((ln for ln in today.splitlines() if "rexhepi" in ln.lower()), "")
+    assert urf, "SECURITY_STUB.md no longer describes the Rexhepi gate; re-derive this check"
+    if check_refuses:
+        assert re.search(r"fault in (?:one of|any of)[^.;]*checks?[^.;]*refus", urf, re.I), (
+            "the stub does not say a fault in a gate check refuses the action", urf)
+    if escape_continues:
+        assert "runtime/protocols/integration.py" in urf and re.search(
+            r"escap[^.;]*continue", urf, re.I), (
+            "the stub does not say that a fault escaping the gate lets the action continue, "
+            "or does not cite where that happens", urf)

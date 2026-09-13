@@ -98,7 +98,7 @@ async def test_ready_is_200_when_at_least_one_provider_is_reachable():
 # ── condition 2: no-op security backend in production ──────────────────────
 
 async def test_ready_is_503_when_security_backend_is_noop_in_production(monkeypatch):
-    """`noop` means morpheus_security failed to load and NOTHING is enforcing.
+    """`noop` means morpheus_security failed to load and the private layer is not enforcing.
 
     That is a normal local state and an unacceptable production one, so it is
     fatal only under OPNMATRX_ENV=production.
@@ -220,7 +220,7 @@ async def test_ready_body_carries_no_operator_detail(monkeypatch):
 
     RUN-7's first version returned each check with its values. An adversarial
     review of that very fix caught the problem: `"backend": "noop"` tells the
-    caller that NOTHING IS ENFORCING, and `"probed"` hands over the full
+    caller that THE PRIVATE LAYER IS NOT ENFORCING, and `"probed"` hands over the full
     model-provider inventory. That is a targeting signal wearing a health
     signal's clothes — and per NEW-26 the caller need not be authenticated.
 

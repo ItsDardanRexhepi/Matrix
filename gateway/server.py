@@ -400,7 +400,7 @@ class GatewayServer:
             )
             raise RuntimeError(
                 "OPNMATRX_ENV=production but the security backend is 'noop' — "
-                f"{cause}, so nothing is enforcing. Refusing to start. Install the "
+                f"{cause}, so the private security layer is not enforcing. Refusing to start. Install the "
                 "private security package and fix the named cause, or unset "
                 "OPNMATRX_ENV for a non-production run."
             )
@@ -705,8 +705,8 @@ class GatewayServer:
         the full model-provider inventory, whether the instance considers
         itself production. A review of that first version
         caught it: a readiness probe that announces `backend: "noop"` is telling
-        any caller that NOTHING IS ENFORCING, which is a targeting signal, not a
-        health signal. Combined with NEW-26 (auth disabled whenever no key is
+        any caller that THE PRIVATE SECURITY LAYER IS NOT ENFORCING, which is a
+        targeting signal, not a health signal. Combined with NEW-26 (auth disabled whenever no key is
         set) that caller need not be authenticated at all.
 
         So `/ready` answers the question it exists to answer — ready or not —
