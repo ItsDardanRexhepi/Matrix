@@ -65,6 +65,8 @@ The platform does take fees on some operations. They are separate from gas spons
 
 Token swaps on `contracts/OpenMatrixDEX.sol` are not charged a platform fee.
 
+Each contract pays its fee to its `platformFeeRecipient`, set at deployment and changeable by the owner: `scripts/deploy_all.py` (the deployment `CREDENTIALS_NEEDED.md` describes) passes the configured NeoSafe address (`OPENMATRIX_NEOSAFE_ADDRESS`) as `platformFeeRecipient` for every platform contract, so on a deployment built that way the contracts above pay these fees to NeoSafe. `NeoSafeRouter` (`runtime/blockchain/services/neosafe.py`) is not involved: no service calls it. Injected conversion fees (below) are paid to `blockchain.platform_wallet`, which the same setup calls the NeoSafe wallet; service-ledger fees are recorded, not settled.
+
 ### In platform services
 
 Computed by the service on the operation it performs. Defaults are shown; each is overridable in configuration where noted.

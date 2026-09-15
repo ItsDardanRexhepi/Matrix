@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
 
-Demonstrates how 0pnMatrx routes revenue to the NeoSafe multisig wallet:
+Demonstrates the NeoSafe router, called directly by this example:
 
   1. A contract conversion generates a platform fee
   2. The RevenueEnforcer injects fee logic into the contract
@@ -62,8 +62,9 @@ async def main():
   0pnMatrx Example 07: Revenue Routing to NeoSafe
 {'=' * 60}{RESET}
 
-  All platform fees flow to the NeoSafe multisig wallet.
-  Every payment is attested on-chain for full transparency.
+  The platform contracts pay their fees to platformFeeRecipient, which
+  scripts/deploy_all.py sets to the configured NeoSafe address; this router
+  is called only by this example. Every routed payment is attested on-chain.
 """)
 
     config = load_config()
@@ -234,7 +235,7 @@ contract SimpleToken {
 
     function deposit() external payable collectPlatformFee(msg.value) {{
         // User deposits 1 ETH
-        // 0.025 ETH (2.5%) goes to NeoSafe automatically
+        // 0.025 ETH (2.5%) goes to platformFeeRecipient (blockchain.platform_wallet)
         // 0.975 ETH goes to the contract
         balanceOf[msg.sender] += msg.value - fee;
     }}
@@ -247,7 +248,7 @@ contract SimpleToken {
 
   {BOLD}Components demonstrated:{RESET}
     1. RevenueEnforcer  - Injects fee logic into contracts
-    2. NeoSafeRouter    - Routes fees with attestation
+    2. NeoSafeRouter    - Routes a fee with attestation when called, as here
     3. EAS              - Every payment attested on-chain
     4. ServiceDispatcher - Automatic attestation on every action
 

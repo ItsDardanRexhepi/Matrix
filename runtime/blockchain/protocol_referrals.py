@@ -5,10 +5,12 @@ transaction fees to integrators who route volume through them.  This is
 a standard incentive mechanism: protocols want distribution, and
 integrators earn a cut for delivering users.
 
-0pnMatrx collects these referral fees automatically whenever a user
-executes a DeFi transaction through the platform.  The fees are routed
-to the NeoSafe multisig so they accrue to the protocol treasury without
-any manual intervention.
+Nothing in the tree calls the helpers below, so no referral fee is
+collected today: the configs name the NeoSafe multisig as the fee recipient
+and referrer, and a caller that put these parameters on a swap, supply or
+borrow would send the protocol's referral share there. That caller does not
+exist (tests/test_fee_disclosure_matches_code.py lists this file as not
+charged for that reason).
 
 Supported programmes
 --------------------

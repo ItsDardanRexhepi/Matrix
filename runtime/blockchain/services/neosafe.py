@@ -1,8 +1,11 @@
 """NeoSafe revenue router — records fees and can send ETH to the NeoSafe multisig.
 
 No service calls it: `route_fee` and `route_revenue` are reached only from
-examples/07_revenue_to_neosafe.py, so platform fees do not reach NeoSafe through
-this module. Where each fee actually goes is listed under Fees in
+examples/07_revenue_to_neosafe.py. This module is not how fees reach NeoSafe.
+The platform contracts pay their on-chain fees to each contract's
+`platformFeeRecipient`, which scripts/deploy_all.py sets to the configured
+NeoSafe address; injected conversion fees go to `blockchain.platform_wallet`;
+service-ledger fees are recorded, not settled. The full list is under Fees in
 docs/blockchain.md.
 
 The canonical NeoSafe address is ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.

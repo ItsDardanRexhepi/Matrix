@@ -412,15 +412,93 @@ def test_every_quoted_fee_is_disclosed_as_not_collected():
     assert not problems, "\n".join(problems)
 
 
-# ── where fees go: nothing routes them to NeoSafe ───────────────────────────
+# ── where fees go ────────────────────────────────────────────────────────────
+#
+# Two false claims about NeoSafe, in opposite directions, each replaced the
+# other. The old copy said every fee routes to NeoSafe automatically through
+# NeoSafeRouter; the router has no caller. The correction said nothing routes
+# fees to NeoSafe; but scripts/deploy_all.py — the command CREDENTIALS_NEEDED.md
+# gives — deploys each platform contract with the configured NeoSafe address
+# (`OPENMATRIX_NEOSAFE_ADDRESS`) as its `platformFeeRecipient`, and five of
+# those contracts pay their fee to that address. Both premises are measured
+# here, from the deploy script's AST and the Solidity, and the copy is held to
+# both: it may not say the router moves fees, and it may not say no fee reaches
+# NeoSafe.
 
+import ast  # noqa: E402
+
+_DEPLOY_ALL = ROOT / "scripts" / "deploy_all.py"
+
+
+def _contracts_paying_platform_fee_recipient() -> set[str]:
+    """Contracts whose Solidity pays `platformFeeRecipient` (a call{value} or
+    a token transfer to it)."""
+    out = set()
+    for path in sorted((ROOT / "contracts").glob("OpenMatrix*.sol")):
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"platformFeeRecipient\.call\{value|safeTransfer(?:From)?\([^)]*platformFeeRecipient", text):
+            out.add(path.stem)
+    return out
+
+
+def _deployed_with_neosafe_as_fee_recipient() -> set[str]:
+    """Contracts scripts/deploy_all.py deploys with cfg["neosafe_address"] as
+    the first constructor argument (the `_platformFeeRecipient` parameter)."""
+    tree = ast.parse(_DEPLOY_ALL.read_text(encoding="utf-8"))
+    contracts = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+            if getattr(target, "id", "") == "CONTRACTS":
+                contracts = node.value
+    assert contracts is not None, "scripts/deploy_all.py has no CONTRACTS table"
+    out = set()
+    for entry in contracts.elts:
+        fields = {k.value: v for k, v in zip(entry.keys, entry.values)}
+        args = fields.get("constructor_args")
+        first = (args.body.elts[0] if isinstance(args, ast.Lambda)
+                 and isinstance(args.body, ast.List) and args.body.elts else None)
+        if (isinstance(first, ast.Subscript) and getattr(first.value, "id", "") == "cfg"
+                and isinstance(first.slice, ast.Constant) and first.slice.value == "neosafe_address"):
+            out.add(fields["name"].value)
+    return out
+
+
+def _contracts_whose_fee_reaches_neosafe() -> set[str]:
+    return _contracts_paying_platform_fee_recipient() & _deployed_with_neosafe_as_fee_recipient()
+
+
+def test_the_deploy_wiring_measurement_is_not_vacuous():
+    paying = _contracts_paying_platform_fee_recipient()
+    deployed = _deployed_with_neosafe_as_fee_recipient()
+    assert "OpenMatrixMarketplace" in paying and "OpenMatrixDEX" not in paying, paying
+    assert {"OpenMatrixMarketplace", "OpenMatrixDEX"} <= deployed, deployed
+    assert "OpenMatrixMarketplace" in _contracts_whose_fee_reaches_neosafe()
+    # Every contract the Fees table lists as taking an on-chain fee is one the
+    # deploy script points at NeoSafe, so "paid to platformFeeRecipient" and
+    # "paid to the configured NeoSafe address" describe the same deployment.
+    on_chain = {Path(src).stem for src in FEE_SOURCES if src.endswith(".sol")}
+    assert on_chain <= deployed, on_chain - deployed
+
+
+# The router moves nothing: claims that it does.
 _NEOSAFE_ROUTING_CLAIMS = [
-    r"(?:fees?|revenue)\b[^.|]{0,60}\broutes? to (?:the )?neosafe(?! [^.]*\bno\b)",
-    r"all platform fees (?:go|route|automatically route) to the neosafe",
+    r"(?:fees?|revenue)\b(?:(?!\bnot\b)[^.|]){0,60}\brout(?:es?|ed) to (?:the )?neosafe(?! [^.]*\bno\b)",
+    r"all platform fees (?:go|flow|route|automatically route) to (?:the )?neosafe",
     r"fee-generating action[^.]{0,60}calls\s+:?(?:meth:)?`?route_fee",
     r"queues fees in-memory until live",
     r"activates[^.]{0,200}neosafe eth transfer",
     r"single point of revenue collection",
+    r"collects these referral fees automatically",
+]
+
+# The deploy script points the contracts' fees at NeoSafe: claims that no fee
+# reaches it.
+_NEOSAFE_UNDER_CLAIMS = [
+    r"nothing routes (?:platform )?fees to (?:the )?neosafe",
+    r"fees? (?:are|is) not routed to (?:the )?neosafe",
+    r"rout(?:es|ing) nothing to (?:the )?neosafe",
+    r"fees do not reach neosafe",
 ]
 
 
@@ -439,30 +517,82 @@ def _neosafe_router_has_no_caller() -> bool:
     return True
 
 
-def test_the_neosafe_claim_scan_catches_the_old_copy():
-    old = ("Revenue from all fee-generating actions routes to NeoSafe automatically. "
-           "All platform fees automatically route to the NeoSafe multisig via RevenueEnforcer. "
-           "Every fee-generating action across the 44 services calls :meth:`route_fee` to record.")
-    low = old.lower()
-    assert sum(bool(re.search(p, low)) for p in _NEOSAFE_ROUTING_CLAIMS) >= 3
+def test_the_neosafe_claim_scans_catch_both_old_copies():
+    over = ("Revenue from all fee-generating actions routes to NeoSafe automatically. "
+            "All platform fees automatically route to the NeoSafe multisig via RevenueEnforcer. "
+            "Every fee-generating action across the 44 services calls :meth:`route_fee` to record. "
+            "0pnMatrx collects these referral fees automatically; the fees are routed to the NeoSafe multisig.")
+    low = over.lower()
+    assert sum(bool(re.search(p, low)) for p in _NEOSAFE_ROUTING_CLAIMS) >= 4
+    under = ("Nothing routes platform fees to the NeoSafe multisig today. Fees are not routed to "
+             "NeoSafe automatically. RevenueEnforcer routes nothing to NeoSafe, so platform fees do "
+             "not reach NeoSafe through this module.")
+    low = under.lower()
+    assert sum(bool(re.search(p, low)) for p in _NEOSAFE_UNDER_CLAIMS) == 4
+    fixed = ("Each contract pays its fee to platformFeeRecipient, which scripts/deploy_all.py sets to "
+             "the configured NeoSafe address; NeoSafeRouter has no caller.").lower()
+    assert not any(re.search(p, fixed) for p in _NEOSAFE_ROUTING_CLAIMS + _NEOSAFE_UNDER_CLAIMS)
 
 
-def test_no_public_surface_says_fees_are_routed_to_neosafe():
-    if not _neosafe_router_has_no_caller():
-        return  # something routes fees now; the claim is not contradicted
+def _public_surfaces() -> list[tuple[str, str]]:
     out = subprocess.check_output(["git", "ls-files", "*.md", "*.html", "*.py"], cwd=ROOT, text=True)
-    offenders = []
+    surfaces = []
     for rel in out.splitlines():
         if rel.startswith(("tests/", "contracts/")) or rel in _NOT_EDITABLE_HERE:
             continue
         path = ROOT / rel
         if not path.is_file():
             continue
-        raw = path.read_text(encoding="utf-8")
+        surfaces.append((rel, path.read_text(encoding="utf-8")))
+    return surfaces
+
+
+def _flat(raw: str) -> str:
+    return re.sub(r"\s*\n\s*(?:#+\s*|//\s*|\*\s*)?", " ", raw).lower()
+
+
+def test_no_public_surface_says_the_router_moves_fees_to_neosafe():
+    if not _neosafe_router_has_no_caller():
+        return  # something routes fees now; the claim is not contradicted
+    offenders = []
+    for rel, raw in _public_surfaces():
         if _calls_the_neosafe_router(raw):
             continue  # a file that calls the router is demonstrating what it does
-        flat = re.sub(r"\s*\n\s*(?:#+\s*|//\s*|\*\s*)?", " ", raw).lower()
+        flat = _flat(raw)
         for pattern in _NEOSAFE_ROUTING_CLAIMS:
             for m in re.finditer(pattern, flat):
                 offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 20]}...")
     assert not offenders, "\n".join(offenders)
+
+
+def test_no_public_surface_says_no_fee_reaches_neosafe():
+    reach = _contracts_whose_fee_reaches_neosafe()
+    if not reach:
+        return  # the deploy script no longer points contract fees at NeoSafe
+    offenders = []
+    for rel, raw in _public_surfaces():
+        flat = _flat(raw)
+        for pattern in _NEOSAFE_UNDER_CLAIMS:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 20]}...")
+    assert not offenders, (
+        f"{sorted(reach)} pay their fee to platformFeeRecipient, which scripts/deploy_all.py "
+        "sets to the configured NeoSafe address, so these sentences are false:\n" + "\n".join(offenders))
+
+
+_MUST_SAY_WHERE_CONTRACT_FEES_GO = ["docs/blockchain.md", "README.md", "examples/README.md"]
+
+
+def test_the_fee_documents_say_where_the_contract_fee_recipient_points():
+    if not _contracts_whose_fee_reaches_neosafe():
+        return
+    offenders = []
+    for rel in _MUST_SAY_WHERE_CONTRACT_FEES_GO:
+        flat = _flat((ROOT / rel).read_text(encoding="utf-8"))
+        sentences = re.split(r"(?<=[.!?])\s+", flat)
+        if not any("platformfeerecipient" in s and "deploy_all.py" in s and "neosafe" in s
+                   for s in sentences):
+            offenders.append(rel)
+    assert not offenders, (
+        "these documents do not say, in one sentence, that the contracts pay platformFeeRecipient "
+        "and that scripts/deploy_all.py sets it to the NeoSafe address: " + ", ".join(offenders))

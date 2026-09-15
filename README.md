@@ -134,7 +134,7 @@ What works today, no chain required:
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
   fabricated transaction hashes
-- **NeoSafe revenue router** — present, but no service calls it: fees are not routed to NeoSafe (where each fee goes is under Fees in `docs/blockchain.md`)
+- **NeoSafe revenue router** — present, but no service calls it. Where fees go instead: each platform contract pays its on-chain fee to its `platformFeeRecipient`, which `scripts/deploy_all.py` sets to the configured NeoSafe address (`OPENMATRIX_NEOSAFE_ADDRESS`); injected conversion fees go to `blockchain.platform_wallet`; service-ledger fees are recorded, not settled (the full list is under Fees in `docs/blockchain.md`)
 - **Gateway** — REST + WebSocket, rate limiting, background cleanup,
   graceful shutdown, full middleware chain
 - **EAS attestation client** — skips gracefully when offline
