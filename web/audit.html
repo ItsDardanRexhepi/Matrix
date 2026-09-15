@@ -336,27 +336,27 @@ body{
 <header class="hero">
   <div class="hero-badge">Glasswing Security Engine v1.0</div>
   <h1 style="margin-top:20px">Professional Smart Contract<br>Security Auditing<br><em>Powered by Glasswing</em></h1>
-  <p>Production-grade vulnerability detection across 12 attack classes. Get your contracts audited before deployment with automated scanning, manual review checklists, and remediation guidance.</p>
+  <p>Automated vulnerability detection across 12 attack classes. Glasswing scans contract source before deployment and returns its findings with remediation guidance.</p>
   <p><strong>Ordering an audit is not live.</strong> This gateway has no audit service behind its audit routes (they answer 503), so nothing on this page takes an order or a payment, and no report is produced.</p>
 </header>
 
 <!-- Vulnerability Coverage -->
 <section class="section" id="vulnerability-coverage">
   <h2 class="section-title">12 Vulnerability Classes Checked</h2>
-  <p class="section-sub">Every audit scans for these attack vectors, ranked by severity</p>
+  <p class="section-sub">Every Glasswing audit runs these pattern checks (<code>runtime/security/audit.py</code>), in this order</p>
   <div class="vuln-grid">
-    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy attacks</div>
-    <div class="vuln-item"><div class="vuln-num">2</div>Integer overflow / underflow</div>
-    <div class="vuln-item"><div class="vuln-num">3</div>Access control violations</div>
-    <div class="vuln-item"><div class="vuln-num">4</div>Unchecked external calls</div>
-    <div class="vuln-item"><div class="vuln-num">5</div>Front-running susceptibility</div>
-    <div class="vuln-item"><div class="vuln-num">6</div>Denial of service vectors</div>
-    <div class="vuln-item"><div class="vuln-num">7</div>Timestamp dependence</div>
-    <div class="vuln-item"><div class="vuln-num">8</div>Gas limit issues</div>
-    <div class="vuln-item"><div class="vuln-num">9</div>Unsafe delegatecall patterns</div>
-    <div class="vuln-item"><div class="vuln-num">10</div>Uninitialized storage pointers</div>
-    <div class="vuln-item"><div class="vuln-num">11</div>Floating pragma versions</div>
-    <div class="vuln-item"><div class="vuln-num">12</div>Missing event emissions</div>
+    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy</div>
+    <div class="vuln-item"><div class="vuln-num">2</div>Unchecked external call return values</div>
+    <div class="vuln-item"><div class="vuln-num">3</div>tx.origin used for authorization</div>
+    <div class="vuln-item"><div class="vuln-num">4</div>Unprotected selfdestruct</div>
+    <div class="vuln-item"><div class="vuln-num">5</div>Delegatecall usage</div>
+    <div class="vuln-item"><div class="vuln-num">6</div>Unbounded loop over a dynamic array</div>
+    <div class="vuln-item"><div class="vuln-num">7</div>Integer overflow (Solidity below 0.8.0)</div>
+    <div class="vuln-item"><div class="vuln-num">8</div>Floating pragma version</div>
+    <div class="vuln-item"><div class="vuln-num">9</div>Unprotected ether: ETH received but not withdrawable</div>
+    <div class="vuln-item"><div class="vuln-num">10</div>Missing access control on state-changing functions</div>
+    <div class="vuln-item"><div class="vuln-num">11</div>Front-running exposure</div>
+    <div class="vuln-item"><div class="vuln-num">12</div>Block timestamp dependence</div>
   </div>
 </section>
 
@@ -386,10 +386,9 @@ body{
     <div class="price-card featured">
       <div class="price-tier">Advanced Audit</div>
       <div class="price-amount">$599 <span>per audit</span></div>
-      <div class="price-desc">Automated scan plus manual review and gas optimisation</div>
+      <div class="price-desc">Automated scan plus gas optimisation</div>
       <ul class="price-features">
         <li>Everything in Standard, plus:</li>
-        <li>Manual review checklist (30-point inspection)</li>
         <li>Gas optimisation analysis and recommendations</li>
         <li>Code quality scoring</li>
         <li>Best practices compliance check</li>

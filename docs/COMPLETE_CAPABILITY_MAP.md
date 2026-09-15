@@ -32,7 +32,7 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
 | Convert Contract | Convert plain-English or pseudocode into Solidity | Free | POST /api/v1/contracts/convert | Solidity, Vyper |
-| Deploy Contract | Compile and deploy a smart contract | Free | POST /api/v1/contracts/deploy | Base, EVM |
+| ~~Deploy Contract~~ **NOT AVAILABLE** | The route answers 501 on every request: nothing in the platform deploys a contract. Use `POST /api/v1/contracts/convert` to generate Solidity and deploy it with your own tooling and signer. | — | POST /api/v1/contracts/deploy → 501 | — |
 | Quote Conversion Tier Fee | Quote the conversion tier fee for a contract's size and complexity; a quote only, not collected and not a gas estimate | Free | via capability registry | Base, EVM |
 | List Contract Templates | Browse built-in templates | Free | via capability registry | — |
 
@@ -168,7 +168,7 @@ The sections below organise every capability by its high-level category. Older c
 | Snapshot Vote | Cast a gasless off-chain vote | Free | POST /api/v1/governance/snapshot/vote | Snapshot |
 | Timelock Queue | Queue an action through a timelock | Free | via capability registry | OZ Timelock |
 | Multisig Propose | Submit a proposal to a multisig wallet | Free | via capability registry | Safe (Gnosis) |
-| Multisig Approve | Approve a pending multisig transaction | Free | POST /api/v1/governance/multisig/approve | Safe (Gnosis) |
+| ~~Multisig Approve~~ **NOT AVAILABLE** | The route answers 501 on every request: the governance service approves a multisig, not a proposal within one, so per-proposal approval is unbuilt. | — | POST /api/v1/governance/multisig/approve → 501 | — |
 | Parameter Change | Mutate a governed protocol parameter | Pro | via capability registry | Governor |
 | Vote-Escrow Lock | Lock tokens in a veToken gauge | Pro | via capability registry | Curve, Balancer |
 | Quadratic Vote | Cast a quadratic vote | Free | via capability registry | Gitcoin, custom |
@@ -187,9 +187,9 @@ The sections below organise every capability by its high-level category. Older c
 | Create Social Profile | Create an on-chain social profile | Free | POST /api/v1/social/profile | Lens, custom |
 | Update Social Profile | Update profile metadata | Free | via capability registry | Lens, custom |
 | Create Post | Publish a post to the decentralised social feed | Free | POST /api/v1/social/post | Lens, Farcaster |
-| Social Gate | Create a token-gated access rule | Free | POST /api/v1/social/gate/create | custom |
+| ~~Social Gate~~ **NOT AVAILABLE** | The route answers 501 on every request: only token-balance gating exists (`social.create_token_gate`, via the capability registry); arbitrary gate types are unbuilt. | — | POST /api/v1/social/gate/create → 501 | — |
 | Create Community | Launch a token-gated community | Free | POST /api/v1/social/community/create | custom |
-| Send Message (XMTP) | Send an encrypted peer-to-peer message | Free | POST /api/v1/social/message/send | XMTP, custom |
+| ~~Send Message (XMTP)~~ **NOT AVAILABLE** | The route answers 501 on every request: no message-sending implementation exists, and the route is not pointed at the method that reports delivery without delivering. | — | POST /api/v1/social/message/send → 501 | — |
 | Encrypted Message | Encrypt a payload for a recipient | Free | via capability registry | XMTP |
 | Create Lens Profile | Mint a profile on the Lens Protocol | Free | via capability registry | Lens |
 | Publish Farcaster Cast | Post a cast on Farcaster | Free | via capability registry | Farcaster |
@@ -264,7 +264,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Decentralized Store | Store data on a decentralised storage network | Free | POST /api/v1/compute/store | IPFS, Arweave, Filecoin |
 | IPFS Pin | Pin content on IPFS for persistence | Free | POST /api/v1/compute/ipfs/pin | IPFS |
-| Arweave Store | Store data permanently on Arweave | Free | POST /api/v1/compute/arweave/store | Arweave |
+| ~~Arweave Store~~ **NOT AVAILABLE** | The route answers 501 on every request: the platform has no Arweave upload client, and nothing is stored by a call (NEW-48). | — | POST /api/v1/compute/arweave/store → 501 | — |
 | Filecoin Store | Make a Filecoin storage deal | Free | via capability registry | Filecoin |
 | Ceramic Stream | Create a mutable Ceramic stream | Free | via capability registry | Ceramic |
 | OrbitDB Write | Write to an OrbitDB peer-to-peer database | Free | via capability registry | OrbitDB |
@@ -369,7 +369,7 @@ The sections below organise every capability by its high-level category. Older c
 | Dashboard | Get a complete dashboard for a wallet address | Free | GET /api/v1/dashboard/{address} | custom |
 | Complete Portfolio | Aggregated portfolio view across all protocols | Free | GET /api/v1/portfolio/complete/{wallet} | Protocol Abstraction Layer |
 | Open Positions | View all open DeFi positions for a wallet | Free | GET /api/v1/portfolio/positions/{wallet} | Protocol Abstraction Layer |
-| Transaction History | Full transaction history for a wallet | Free | GET /api/v1/portfolio/history/{wallet} | Protocol Abstraction Layer |
+| ~~Transaction History~~ **NOT AVAILABLE** | The route answers 501 on every request: no time-series portfolio data is recorded anywhere in the platform. `GET /api/v1/portfolio/positions/{wallet}` returns the current snapshot. | — | GET /api/v1/portfolio/history/{wallet} → 501 | — |
 | Oracle Price | Get the current price for a trading pair | Free | GET /api/v1/oracle/price/{pair} | Chainlink, Pyth, Band |
 | Social Feed | View the activity feed for a wallet | Free | GET /api/v1/social/feed/{wallet} | custom |
 
@@ -381,7 +381,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Resolve Intent | Parse a natural-language intent into an execution plan | Free | POST /api/v1/intent/resolve | Intent Resolver |
 | Execute Intent | Execute a previously resolved intent plan | Free | POST /api/v1/intent/execute | Intent Resolver |
-| Intent Summary | Get the summary and status of an intent plan | Free | GET /api/v1/intent/summary/{plan_id} | Intent Resolver |
+| ~~Intent Summary~~ **NOT AVAILABLE** | The route answers 501 on every request: plans are not persisted, so a `plan_id` cannot be looked up. Keep the plan object `POST /api/v1/intent/resolve` returns. | — | GET /api/v1/intent/summary/{plan_id} → 501 | — |
 
 ---
 

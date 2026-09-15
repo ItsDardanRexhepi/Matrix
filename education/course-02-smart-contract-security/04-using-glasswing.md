@@ -2,28 +2,28 @@
 
 ## What Glasswing Is
 
-Glasswing is the automated security auditing engine built into 0pnMatrx. Every contract deployed through the platform passes through Glasswing automatically, but you can also submit existing contracts for standalone audits. Glasswing performs a 12-point vulnerability scan that covers the most critical and commonly exploited vulnerability categories in smart contracts.
+Glasswing is the automated security auditing engine built into 0pnMatrx. A contract tool call that carries source code passes through Glasswing automatically, and a deployment whose source fails it is refused. There is no standalone audit submission: the gateway's audit routes answer `503` (below), so an existing contract is audited by asking for it in chat, where Neo's `security_audit` tool runs Glasswing on the source you paste. Glasswing runs 12 pattern checks over the source; they are listed below, and they are all it checks.
 
 ## The 12-Point Vulnerability Scan
 
-Glasswing checks for the following vulnerability categories, mapped to their SWC Registry identifiers:
+Glasswing runs these checks, in this order, with the rule id and severity each emits (`runtime/security/audit.py`; `SWC-` ids are SWC Registry entries, the others are Glasswing's own):
 
-| # | Category | SWC ID | Severity if Found |
-|---|----------|--------|--------------------|
+| # | Check | Rule id | Severity if found |
+|---|-------|---------|-------------------|
 | 1 | Reentrancy | SWC-107 | Critical |
-| 2 | Integer overflow/underflow | SWC-101 | High |
-| 3 | Unchecked external calls | SWC-104 | High |
-| 4 | Access control violations | SWC-105/106 | Critical |
-| 5 | Front-running vulnerability | SWC-114 | Medium |
-| 6 | Denial of service vectors | SWC-113/128 | High |
-| 7 | Timestamp dependence | SWC-116 | Low |
-| 8 | Tx.origin authentication | SWC-115 | High |
-| 9 | Uninitialized storage pointers | SWC-109 | High |
-| 10 | Delegatecall to untrusted callee | SWC-112 | Critical |
-| 11 | Floating pragma | SWC-103 | Informational |
-| 12 | Unused variables / dead code | SWC-131 | Informational |
+| 2 | Unchecked external call return values | SWC-104 | High |
+| 3 | tx.origin used for authorization | SWC-115 | High |
+| 4 | Unprotected selfdestruct | SWC-106 | Critical |
+| 5 | Delegatecall usage | SWC-112 | High |
+| 6 | Unbounded loop over a dynamic array | GAS-001 | Medium |
+| 7 | Integer overflow (Solidity below 0.8.0) | SWC-101 | High |
+| 8 | Floating pragma version | SWC-103 | Low |
+| 9 | Unprotected ether: ETH received but not withdrawable | SWC-105 | High |
+| 10 | Missing access control on state-changing functions | AC-001 | High |
+| 11 | Front-running exposure | FR-001 | Medium |
+| 12 | Block timestamp dependence | SWC-116 | Low |
 
-Each check produces one of four results: **Pass** (no vulnerability found), **Warning** (potential issue that may be intentional), **Fail** (confirmed vulnerability), or **Informational** (best practice suggestion).
+Each check adds zero or more findings at its severity. The report's `verdict` is `passed` when nothing was found that blocks, `failed` when a critical finding exists (or a high one, when `security.block_on_high` is set), and `not_auditable` when the source has no executable logic to judge — which also blocks a deployment.
 
 ## Submitting a Contract for Audit
 

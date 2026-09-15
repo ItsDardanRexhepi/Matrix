@@ -284,11 +284,23 @@ def test_legal_copy_unregistered_links_match_the_pending_redline():
 # handlers answer 503 whatever the request carries. The API reference
 # documented POST /audit/request as a working scan, course-02 showed an
 # invented report from it, and web/audit.html sold three priced tiers whose
-# form posted there. A route whose handler is gated on an attribute nothing
-# assigns is found from source, and then:
+# form posted there. The class is wider than that one shape: a route a client
+# can never succeed with. The first finder saw only `if not self.X: return
+# 503` in gateway/server.py, so the capability map kept listing
+# POST /api/v1/contracts/deploy, /social/gate/create, /social/message/send and
+# /compute/arweave/store as working capabilities while each handler in
+# gateway/service_routes.py answers 501 on every path through it, and the
+# `_not_impl` tuple routes answer 501 by construction. Three shapes are found
+# from source now, each with the status it answers:
+#   * a gateway/server.py handler gated on an attribute nothing assigns (503);
+#   * a gateway/service_routes.py `_handle_*` whose every `return` answers 501
+#     (a `_require` refusal before it is a 400, not a success);
+#   * a `("METHOD", "/path", NI("..."))` entry of the route-completion table.
+# Then:
 #   * a served page may not fetch it or post a form to it;
-#   * its API reference entry must say it answers 503;
-#   * any other doc that names it must say so in the same section.
+#   * a doc that names it must say the status it answers in the same section.
+# A handler that answers 501 on one branch and succeeds on another (batch mint
+# with `items`, a community with `rules`) is reachable and is not listed.
 #
 # Separately, a served page that fetches a key-gated route cannot succeed from
 # a browser on a gateway that sets a key (pages carry no key). Such a page must
@@ -297,6 +309,8 @@ def test_legal_copy_unregistered_links_match_the_pending_redline():
 import ast  # noqa: E402
 
 _SERVER = ROOT / "gateway" / "server.py"
+_SERVICE_ROUTES = ROOT / "gateway" / "service_routes.py"
+_NI_ROUTE = re.compile(r'\(\s*"(POST|GET|DELETE|PUT|PATCH)"\s*,\s*"(/[^"]+)"\s*,\s*NI\(')
 
 
 def _always_unavailable_handlers() -> set[str]:
@@ -334,10 +348,41 @@ def _always_unavailable_handlers() -> set[str]:
     return out
 
 
-def _always_unavailable_routes() -> set[tuple[str, str]]:
-    handlers = _always_unavailable_handlers()
+def _returned_status(node: ast.Return):
+    """The `status=` a `return web.json_response(...)` answers with; None when
+    the statement returns something else."""
+    call = node.value
+    if not isinstance(call, ast.Call):
+        return None
+    for kw in call.keywords:
+        if kw.arg == "status" and isinstance(kw.value, ast.Constant):
+            return kw.value.value
+    return None
+
+
+def _unconditional_501_handlers() -> set[str]:
+    """`_handle_*` coroutines in gateway/service_routes.py whose every return
+    statement answers 501."""
+    tree = ast.parse(_SERVICE_ROUTES.read_text(encoding="utf-8"))
+    out = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("_handle_")):
+            continue
+        returns = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+        if returns and all(_returned_status(r) == 501 for r in returns):
+            out.add(node.name)
+    return out
+
+
+def _always_unavailable_routes() -> set[tuple[str, str, int]]:
+    """(method, path, status) for every route a client can never succeed with."""
+    status = {h: 503 for h in _always_unavailable_handlers()}
+    status.update({h: 501 for h in _unconditional_501_handlers()})
     routes, _public = generate_route_table.collect()
-    return {(m, _norm(p)) for m, p, h, *_ in routes if h in handlers}
+    out = {(m, _norm(p), status[h]) for m, p, h, *_ in routes if h in status}
+    out |= {(m, _norm(p), 501)
+            for m, p in _NI_ROUTE.findall(_SERVICE_ROUTES.read_text(encoding="utf-8"))}
+    return out
 
 
 def test_the_unavailable_route_finder_sees_the_audit_routes():
@@ -346,18 +391,33 @@ def test_the_unavailable_route_finder_sees_the_audit_routes():
     handlers = _always_unavailable_handlers()
     assert {"handle_audit_request", "handle_audit_report"} <= handlers
     assert "handle_badge_status" not in handlers
-    assert ("POST", "/audit/request") in _always_unavailable_routes()
+    assert ("POST", "/audit/request", 503) in _always_unavailable_routes()
 
 
-def test_no_served_page_sends_a_browser_to_a_route_that_always_answers_503():
-    dead = {p for _m, p in _always_unavailable_routes()}
+def test_the_unavailable_route_finder_sees_the_unconditional_501_handlers():
+    """Planted positives from the tree: four capability-map routes whose handler
+    answers 501 on every path, and the `_not_impl` table; negatives: handlers
+    that answer 501 on one branch and succeed on another."""
+    handlers = _unconditional_501_handlers()
+    assert {"_handle_contract_deploy", "_handle_arweave_store", "_handle_social_gate",
+            "_handle_social_message_send"} <= handlers, handlers
+    assert not {"_handle_snapshot_vote", "_handle_community_create",
+                "_handle_contract_convert"} & handlers, handlers
+    routes = _always_unavailable_routes()
+    assert ("POST", "/api/v1/contracts/deploy", 501) in routes
+    assert ("GET", "/api/v1/storage/files", 501) in routes, "the NI table is not read"
+    assert not any(p == "/api/v1/contracts/convert" for _m, p, _s in routes)
+
+
+def test_no_served_page_sends_a_browser_to_a_route_that_always_answers_503_or_501():
+    dead = {p for _m, p, _s in _always_unavailable_routes()}
     offenders = []
     for rel in _web_pages():
         for _rel, path, is_prefix in _web_links(rel, (ROOT / rel).read_text(encoding="utf-8")):
             if not is_prefix and path in dead:
                 offenders.append(f"{rel}: {path}")
     assert not offenders, (
-        "served pages send a browser to routes whose handler always answers 503:\n"
+        "served pages send a browser to routes whose handler always answers 503 or 501:\n"
         + "\n".join(offenders))
 
 
@@ -365,9 +425,10 @@ def _markdown_sections(text: str) -> list[str]:
     return re.split(r"(?m)^(?=#{1,4}\s)", text)
 
 
-def test_docs_that_name_an_always_unavailable_route_say_it_answers_503():
-    dead = _always_unavailable_routes()
-    dead_paths = {p for _m, p in dead}
+def test_docs_that_name_an_always_unavailable_route_say_the_status_it_answers():
+    dead = {}
+    for _m, p, status in _always_unavailable_routes():
+        dead.setdefault(p, set()).add(str(status))
     out = subprocess.check_output(["git", "ls-files", "*.md"], cwd=ROOT, text=True)
     offenders = []
     for rel in out.splitlines():
@@ -376,12 +437,12 @@ def test_docs_that_name_an_always_unavailable_route_say_it_answers_503():
         for section in _markdown_sections((ROOT / rel).read_text(encoding="utf-8")):
             named = {_norm(m.group(2)) for m in _INLINE.finditer(section)}
             named |= {_norm(m.group(1)) for m in _LOCAL_URL.finditer(section)}
-            hit = sorted(named & dead_paths)
-            if hit and "503" not in section:
-                heading = section.strip().splitlines()[0][:80] if section.strip() else ""
-                offenders.append(f"{rel} [{heading}]: {', '.join(hit)}")
+            for path in sorted(named & set(dead)):
+                if not any(status in section for status in dead[path]):
+                    heading = section.strip().splitlines()[0][:80] if section.strip() else ""
+                    offenders.append(f"{rel} [{heading}]: {path} answers {'/'.join(sorted(dead[path]))}")
     assert not offenders, (
-        "docs name routes whose handler always answers 503 without saying so:\n"
+        "docs name routes whose handler always answers 503 or 501 without saying so:\n"
         + "\n".join(offenders))
 
 

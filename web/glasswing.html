@@ -313,20 +313,20 @@ a:hover{text-decoration:underline}
 <!-- How Glasswing Works: 12 Vulnerability Checks -->
 <section class="section" id="how-it-works">
   <h2 class="section-title">How Glasswing Works</h2>
-  <p class="section-sub">Every contract is scanned across 12 vulnerability classes</p>
+  <p class="section-sub">Every contract source Glasswing audits is checked for these 12 vulnerability classes, the pattern checks <code>runtime/security/audit.py</code> runs</p>
   <div class="vuln-grid">
-    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy detection</div>
-    <div class="vuln-item"><div class="vuln-num">2</div>Integer overflow / underflow</div>
-    <div class="vuln-item"><div class="vuln-num">3</div>Unchecked external calls</div>
-    <div class="vuln-item"><div class="vuln-num">4</div>Access control violations</div>
-    <div class="vuln-item"><div class="vuln-num">5</div>Front-running vulnerabilities</div>
-    <div class="vuln-item"><div class="vuln-num">6</div>Denial of service vectors</div>
-    <div class="vuln-item"><div class="vuln-num">7</div>Gas optimization issues</div>
-    <div class="vuln-item"><div class="vuln-num">8</div>Logic errors and edge cases</div>
-    <div class="vuln-item"><div class="vuln-num">9</div>Oracle manipulation risks</div>
-    <div class="vuln-item"><div class="vuln-num">10</div>Flash loan attack vectors</div>
-    <div class="vuln-item"><div class="vuln-num">11</div>MEV extraction vulnerabilities</div>
-    <div class="vuln-item"><div class="vuln-num">12</div>Upgrade proxy safety</div>
+    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy</div>
+    <div class="vuln-item"><div class="vuln-num">2</div>Unchecked external call return values</div>
+    <div class="vuln-item"><div class="vuln-num">3</div>tx.origin used for authorization</div>
+    <div class="vuln-item"><div class="vuln-num">4</div>Unprotected selfdestruct</div>
+    <div class="vuln-item"><div class="vuln-num">5</div>Delegatecall usage</div>
+    <div class="vuln-item"><div class="vuln-num">6</div>Unbounded loop over a dynamic array</div>
+    <div class="vuln-item"><div class="vuln-num">7</div>Integer overflow (Solidity below 0.8.0)</div>
+    <div class="vuln-item"><div class="vuln-num">8</div>Floating pragma version</div>
+    <div class="vuln-item"><div class="vuln-num">9</div>Unprotected ether: ETH received but not withdrawable</div>
+    <div class="vuln-item"><div class="vuln-num">10</div>Missing access control on state-changing functions</div>
+    <div class="vuln-item"><div class="vuln-num">11</div>Front-running exposure</div>
+    <div class="vuln-item"><div class="vuln-num">12</div>Block timestamp dependence</div>
   </div>
 </section>
 
@@ -355,10 +355,9 @@ a:hover{text-decoration:underline}
     <div class="price-card featured">
       <div class="price-tier">Advanced Audit</div>
       <div class="price-amount">$599 <span>per audit</span></div>
-      <div class="price-desc">Automated scan plus manual review with detailed recommendations</div>
+      <div class="price-desc">Automated scan with detailed recommendations</div>
       <ul class="price-features">
         <li>Everything in Standard, plus:</li>
-        <li>Manual expert code review</li>
         <li>Detailed remediation recommendations</li>
         <li>Gas optimisation analysis</li>
         <li>Code quality scoring</li>
@@ -390,11 +389,11 @@ a:hover{text-decoration:underline}
 <section class="badge-section" id="badge">
   <div class="badge-section-inner">
     <h2 class="section-title">Glasswing Verified Badge</h2>
-    <p class="section-sub">Verifiable proof your contract passed a professional security audit</p>
+    <p class="section-sub">A record that your contract's source passed the platform's automated Glasswing audit</p>
 
     <div class="badge-features">
       <div class="badge-feature">
-        <div class="badge-feature-title">On-Chain Verification</div>
+        <div class="badge-feature-title">Bound to an Audit</div>
         <div class="badge-feature-desc">A badge is issued only on the platform's own Glasswing audit of the submitted source, and its record keeps a hash of that audit report. Badges are kept in this gateway's database; they are not written on-chain.</div>
       </div>
       <div class="badge-feature">
@@ -407,7 +406,7 @@ a:hover{text-decoration:underline}
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Public Registry</div>
-        <div class="badge-feature-desc">All verified contracts appear in the public badge registry below, giving users confidence that your protocol has been professionally audited.</div>
+        <div class="badge-feature-desc">All verified contracts appear in the public badge registry below, showing that the source you submitted passed the platform's automated Glasswing audit.</div>
       </div>
     </div>
 
