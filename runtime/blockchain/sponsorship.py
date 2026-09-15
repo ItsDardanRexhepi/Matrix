@@ -347,9 +347,10 @@ def describe_gas_policy(config: dict) -> dict:
                      "refused, with the reason, rather than charged to you when "
                      + ("its action is not on that list, " if allowed is not None else "")
                      + "when it would cross the cap, or when it cannot be attributed to a "
-                     "signed-in identity. Not counted against the cap: attestations "
-                     "written through the attestation capabilities and the platform's "
-                     "own records (a record of each capability call, revocations, "
+                     "signed-in identity. Attestations you ask for through the "
+                     "attestation capabilities are metered the same way. Not counted "
+                     "against the cap: the platform's own records (its record of each "
+                     "capability call, records it writes after another operation, "
                      "revenue moves), which the platform pays for without metering.")
     else:
         statement = ("The platform pays gas for operations it signs for you; this "
@@ -451,25 +452,29 @@ def resolve_caller_identity() -> str:
 # to EASClient.attest and are metered (tests/test_gas_claims_follow_the_
 # sponsorship_policy.py fails on an unmetered one). What remains here:
 #
-#   * `eas.attest` and `eas.attest_time_critical` as reached from the services
-#     layer: the dispatcher's own record of each capability call (fixed shape,
-#     recipient the platform wallet), attestations recorded after another
-#     operation (a conversion deploy, a revenue route), and the attestation
-#     capabilities (`create_attestation`, `batch_attest`), whose data the caller
-#     does compose. The queued path signs a whole batch later, when no caller is
-#     attributable, so these are not metered. One request can ask for at most
-#     MAX_ATTESTATIONS_PER_BATCH of them, and describe_gas_policy says they are
-#     not counted against the cap;
-#   * revoking an attestation the platform issued, the sponsorship accounting
-#     path, the shared account handle, and moving platform revenue to its
-#     treasury.
+#   * `eas.attest` and `eas.attest_time_critical` as reached from
+#     AttestationService.attest: the dispatcher's own record of each capability
+#     call (fixed shape, recipient the platform wallet) and attestations other
+#     services record after an operation (a conversion deploy, a claim, a
+#     royalty). The attestation capabilities a caller composes
+#     (`create_attestation`, `batch_attest`, `revoke_attestation`) are NOT here:
+#     they reach AttestationService.attest_for_caller / batch_attest / revoke,
+#     which are metered under `attestation.<method>` on both the immediate and
+#     the queued path — a queued write carries the identity it was asked
+#     under, so the batch that signs it later meters that caller, not the
+#     request that happened to flush the batch. An earlier version of this
+#     comment exempted those capabilities because "queued batches are signed
+#     later with no caller to attribute"; the time-critical path signed inside
+#     the request, and the queued path can carry its caller;
+#   * the sponsorship accounting path, the shared account handle, and moving
+#     platform revenue to its treasury.
 UNMETERED_PLATFORM_OPERATIONS = {
-    "eas.attest": "EAS attestation write reached from the services layer: the "
-                  "dispatcher's record of a capability call, a record after "
-                  "another operation, or the attestation capabilities; not "
-                  "attributable to a caller when a queued batch is signed",
-    "eas.attest_time_critical": "the same write on the time-critical path",
-    "eas.revoke": "revoking an attestation the platform itself issued",
+    "eas.attest": "EAS attestation written as the platform's own record "
+                  "(AttestationService.attest): the dispatcher's record of a "
+                  "capability call, or a record a service writes after another "
+                  "operation; a caller's own attestation capability is metered "
+                  "instead",
+    "eas.attest_time_critical": "the same platform record on the time-critical path",
     "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
     "web3.platform_account": "shared account handle for the platform ADDRESS; "
                              "signing with it is refused by "

@@ -29,8 +29,13 @@ class TimeCriticalHandler:
     Immediately submits attestations without batching.
 
     Time-critical attestations bypass the batch processor entirely and are
-    sent directly to the EAS contract. The platform key signs it, unmetered by the
-    sponsorship policy (``eas.attest_time_critical`` in UNMETERED_PLATFORM_OPERATIONS).
+    sent directly to the EAS contract, signed with the platform key inside the
+    caller's request. When the write is one a caller asked for through an
+    attestation capability (``operation`` given), the signature goes through
+    ``platform_signer`` and the sponsorship policy's allowlist, per-identity
+    daily cap and identity requirement apply, with a refusal raised as
+    SponsorshipDenied. With no ``operation`` the write is the platform's own
+    record (``eas.attest_time_critical`` in UNMETERED_PLATFORM_OPERATIONS).
     """
 
     def __init__(self, config: dict):
@@ -62,6 +67,9 @@ class TimeCriticalHandler:
         data: dict[str, Any],
         recipient: str,
         category: str,
+        *,
+        operation: str | None = None,
+        identity: str | None = None,
     ) -> dict[str, Any]:
         """
         Immediately submit an attestation without batching.
@@ -71,12 +79,17 @@ class TimeCriticalHandler:
             data: Attestation payload.
             recipient: Ethereum address of the attestation recipient.
             category: Time-critical category (must be in TIME_CRITICAL_CATEGORIES).
+            operation: the metered `<capability>.<method>` when a caller asked
+                for this write; None for the platform's own record.
+            identity: the caller to meter against; None resolves the caller
+                bound to the current dispatch.
 
         Returns:
             Dict with attestation result including tx hash, status, and timing.
 
         Raises:
             ValueError: If the category is not recognized as time-critical.
+            SponsorshipDenied: when the policy refuses a metered write.
         """
         if category not in TIME_CRITICAL_CATEGORIES:
             raise ValueError(
@@ -93,7 +106,9 @@ class TimeCriticalHandler:
         try:
             from web3 import Web3
             from eth_account import Account
-            from runtime.blockchain.sponsorship import unmetered_platform_signer
+            from runtime.blockchain.sponsorship import (
+                SponsorshipDenied, platform_signer, unmetered_platform_signer,
+            )
             from eth_abi import encode
 
             from runtime.blockchain.eas_client import EAS_ATTEST_ABI
@@ -137,8 +152,13 @@ class TimeCriticalHandler:
                 "nonce": w3.eth.get_transaction_count(self.platform_wallet),
             })
 
-            # Sign and send immediately
-            account = unmetered_platform_signer(self.paymaster_key, "eas.attest_time_critical")
+            # Sign and send immediately: metered when a caller asked for it,
+            # the platform's own record otherwise.
+            if operation:
+                account = await platform_signer(self.config, operation,
+                                                key=self.paymaster_key, identity=identity)
+            else:
+                account = unmetered_platform_signer(self.paymaster_key, "eas.attest_time_critical")
             signed = account.sign_transaction(tx)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
@@ -164,6 +184,9 @@ class TimeCriticalHandler:
                 "data": data,
             }
 
+        except SponsorshipDenied:
+            # A policy refusal is the answer, not a failure to report as one.
+            raise
         except ImportError as exc:
             logger.warning("Time-critical attestation skipped — missing dependency: %s", exc)
             return {

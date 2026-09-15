@@ -123,7 +123,7 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "get_stablecoin_fee": ("stablecoin", "get_fee"),
 
     # --- Attestation (Component 8) ---
-    "create_attestation": ("attestation", "attest"),
+    "create_attestation": ("attestation", "attest_for_caller"),
     "verify_attestation": ("attestation", "verify"),
     "revoke_attestation": ("attestation", "revoke"),
     # NEW-48b: "query_attestations" REMOVED — attestation.query returned the

@@ -92,6 +92,7 @@ class EASClient:
         recipient: str = "0x0000000000000000000000000000000000000000",
         *,
         operation: str | None = None,
+        identity: str | None = None,
     ) -> dict:
         """
         Create an on-chain attestation for a blockchain action, signed with the
@@ -111,6 +112,9 @@ class EASClient:
             details: Key-value details about the action
             recipient: Ethereum address of the recipient (default: zero address)
             operation: the metered operation name, keyword-only
+            identity: the caller to meter against, when the write was asked for
+                earlier than it is signed (a queued batch); None resolves the
+                caller bound to the current dispatch
         """
         if not self._is_configured():
             logger.warning(
@@ -183,7 +187,8 @@ class EASClient:
             # call asked for it, listed as the platform's own record otherwise.
             if operation:
                 account = await platform_signer(self.config, operation,
-                                                key=self.paymaster_key)
+                                                key=self.paymaster_key,
+                                                identity=identity)
             else:
                 account = unmetered_platform_signer(self.paymaster_key, "eas.attest")
             signed = account.sign_transaction(tx)

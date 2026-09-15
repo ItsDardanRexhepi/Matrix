@@ -318,7 +318,7 @@ _UNCONDITIONAL = [
     r"users never pay\b",
     r"users are not charged gas",
     r"pays gas for everything",
-    r"all gas (?:fees )?(?:is |are )?covered by (?:the )?platform",
+    r"all gas (?:fees )?(?:is |are |were )?covered by (?:the )?platform",
     r"covers all (?:blockchain )?(?:transaction|gas) (?:fees|costs)",
     r"no exceptions\. no conditions",
     r"all transactions are sponsored",
@@ -342,7 +342,11 @@ _UNCONDITIONAL = [
 ]
 
 # Legal copy is changed only by counsel (redlines travel separately); contract
-# NatSpec is part of audited source. Both are reported, not edited here.
+# NatSpec is part of audited source. Neither is edited here. The unconditional
+# lines they hold are web/terms.html:174 ("Users are not charged gas fees"),
+# contracts/OpenMatrixPaymaster.sol:9 ("users never pay gas") and
+# contracts/OpenMatrixAttestation.sol:8 ("Gas covered by the platform"); each
+# is carried as a redline for separate review.
 _NOT_EDITABLE_HERE = ("web/terms.html", "web/privacy.html")
 
 
@@ -395,9 +399,10 @@ def _joined_line_hits(text: str, patterns) -> list[tuple[int, str]]:
 
 def test_the_unconditional_scan_matches_a_phrase_wrapped_across_lines():
     text = ('"""\nDeFi on Base. All gas fees are\ncovered by the platform via ERC-4337 paymaster.\n"""\n'
-            "# Estimate gas. Cost is covered by the\n# platform.\n")
+            "# Estimate gas. Cost is covered by the\n# platform.\n"
+            'print("All gas fees were covered by the platform.")\n')
     hits = _joined_line_hits(text, _UNCONDITIONAL)
-    assert [n for n, _ in hits] == [2, 5], hits
+    assert [n for n, _ in hits] == [2, 5, 7], hits
 
 
 def test_the_agent_prompt_describes_gas_as_the_policy_does():
@@ -639,5 +644,188 @@ async def test_the_capped_statement_names_what_the_cap_does_not_count():
 
     d = describe_gas_policy(CAPPED)
     assert d["unmetered_operations"] == sorted(UNMETERED_PLATFORM_OPERATIONS)
-    assert "not counted against the cap" in d["statement"].lower()
+    low = d["statement"].lower()
+    assert "not counted against the cap" in low
+    assert "attestation capabilities are metered" in low, d["statement"]
+    assert not any(op.startswith("attestation.") or op == "eas.revoke"
+                   for op in UNMETERED_PLATFORM_OPERATIONS), (
+        "a caller's attestation capability is listed as unmetered", UNMETERED_PLATFORM_OPERATIONS)
     assert describe_gas_policy(UNCAPPED)["unmetered_operations"] == []
+
+
+# ── attestations a caller asks for through the services layer are metered ────
+#
+# The tool layer was metered first; the services-layer capabilities
+# (`create_attestation`, `batch_attest`, `revoke_attestation`) stayed exempt
+# on the premise that "queued batches are signed later with no caller to
+# attribute". Measured: a caller-selected time_critical=True, or a
+# data.category in TIME_CRITICAL_CATEGORIES, signed immediately inside the
+# request through the unmetered path — with a $50 cap and an allowlist of
+# ["transfer"], one request wrote 20 attestations the policy never saw. The
+# queued path can carry its caller too. Both are metered now, and this section
+# drives the service, not the description.
+
+def _services_config(tmp_path, policy):
+    cfg = _eas_config(tmp_path, policy)
+    cfg["blockchain"]["chain_id"] = 84532
+    return cfg
+
+
+def _fake_signing(monkeypatch, sent):
+    from runtime.blockchain.price_feed import PriceFeed
+    from runtime.blockchain.services.attestation.time_critical import TimeCriticalHandler
+    from eth_account.signers.local import LocalAccount
+
+    async def _quote(self):
+        return {"price": 3000.0}
+
+    monkeypatch.setattr(PriceFeed, "eth_usd", _quote)
+    monkeypatch.setattr(LocalAccount, "sign_transaction",
+                        lambda self, tx: type("Signed", (), {"raw_transaction": b"raw"})())
+    fake_w3 = type("W3", (), {"eth": _FakeEth(sent)})()
+    monkeypatch.setattr(TimeCriticalHandler, "web3", property(lambda self: fake_w3))
+
+
+def test_every_attestation_action_targets_a_metered_entry_point():
+    """The verdict is keyed on which method ACTION_MAP reaches, never on a
+    field the caller writes: every write action that reaches the attestation
+    service targets a method that meters, and the platform's own record
+    (`attest`) is not reachable as an action."""
+    import inspect
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+
+    metered = {"attest_for_caller", "batch_attest", "revoke"}
+    reached = {m for s, m in ACTION_MAP.values() if s == "attestation"}
+    assert reached - {"verify"} == metered, reached
+    assert "attest" not in reached
+    for name in metered:
+        src = inspect.getsource(getattr(AttestationService, name))
+        assert f'"attestation.{name.replace("_for_caller", "")}"' in src or "_attest(" in src, name
+        assert "caller_identity" in inspect.signature(getattr(AttestationService, name)).parameters
+
+
+async def test_a_time_critical_capability_attestation_is_refused_by_the_policy(monkeypatch, tmp_path):
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.sponsorship import SponsorshipDenied, set_caller_identity, reset_caller_identity
+
+    sent: list = []
+    _fake_signing(monkeypatch, sent)
+    critical = {"category": "dispute_filing", "action": "x"}
+
+    # No identity bound, cap set: cannot attribute the spend.
+    svc = AttestationService(_services_config(tmp_path, {"daily_cap_usd": 50}))
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.attest_for_caller("primary", dict(critical), ADDR, time_critical=True)
+    assert denied.value.decision.code == "identity_required" and sent == []
+
+    # Identity injected by the dispatcher, action off the allowlist.
+    svc = AttestationService(_services_config(tmp_path, dict(EXAMPLE_POLICY)))
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.attest_for_caller("primary", dict(critical), ADDR, caller_identity="0xabc")
+    assert denied.value.decision.code == "action_not_allowed" and sent == []
+
+    # Identity bound to the dispatch, action allowed, but the write would cross
+    # the cap (500k gas at 1 gwei and $3000/ETH is $1.50; cap $1).
+    svc = AttestationService(_services_config(
+        tmp_path, {"daily_cap_usd": 1, "allowed_actions": ["attestation.attest"]}))
+    token = set_caller_identity("0xabc")
+    try:
+        with pytest.raises(SponsorshipDenied) as denied:
+            await svc.attest_for_caller("primary", dict(critical), ADDR)
+    finally:
+        reset_caller_identity(token)
+    assert denied.value.decision.code == "daily_cap_exceeded" and sent == []
+
+    # Within the cap, it signs — and the platform's own record still signs
+    # unmetered with no identity at all.
+    svc = AttestationService(_services_config(
+        tmp_path, {"daily_cap_usd": 50, "allowed_actions": ["attestation.attest"]}))
+    out = await svc.attest_for_caller("primary", dict(critical), ADDR, caller_identity="0xabc")
+    assert out["status"] == "attested" and len(sent) == 1, out
+    record = await svc.attest("primary", dict(critical), ADDR)
+    assert record["status"] == "attested" and len(sent) == 2, record
+
+
+async def test_a_queued_capability_attestation_is_metered_against_the_caller_it_was_queued_under(
+        monkeypatch, tmp_path):
+    from runtime.blockchain.eas_client import EASClient
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.sponsorship import SponsorshipDenied, set_caller_identity, reset_caller_identity
+
+    signed: list = []
+
+    async def _attest(self, action, agent, details, recipient=None, *, operation=None, identity=None):
+        signed.append((operation, identity))
+        return {"status": "attested"}
+
+    monkeypatch.setattr(EASClient, "attest", _attest)
+
+    # Off the allowlist: refused when queued, and nothing is queued.
+    svc = AttestationService(_services_config(tmp_path, dict(EXAMPLE_POLICY)), batch_size=2)
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.attest_for_caller("primary", {"action": "x"}, ADDR, caller_identity="0xabc")
+    assert denied.value.decision.code == "action_not_allowed"
+    assert svc._batch_processor.pending_count == 0
+
+    # No identity with a cap: refused when queued.
+    svc = AttestationService(_services_config(tmp_path, {"daily_cap_usd": 50}), batch_size=2)
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.attest_for_caller("primary", {"action": "x"}, ADDR)
+    assert denied.value.decision.code == "identity_required"
+    assert svc._batch_processor.pending_count == 0
+
+    # Allowed and attributed: queued with a metered disclosure, then signed by
+    # the batch under the identity it was queued under, not the flusher's.
+    svc = AttestationService(_services_config(
+        tmp_path, {"daily_cap_usd": 50, "allowed_actions": ["attestation.attest"]}), batch_size=2)
+    queued = await svc.attest_for_caller("primary", {"action": "x"}, ADDR,
+                                         caller_identity="0x" + "AB" * 20)
+    assert queued["status"] == "queued" and "metered under 'attestation.attest'" in queued["disclosure"]
+    record = await svc.attest("primary", {"action": "platform-record"}, ADDR)  # the flusher
+    assert record["status"] == "queued" or record.get("submitted") is False
+    assert signed == [("attestation.attest", "0x" + "ab" * 20), (None, None)], signed
+
+
+async def test_batch_attest_and_revoke_are_metered(monkeypatch, tmp_path):
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.sponsorship import SponsorshipDenied
+
+    sent: list = []
+    _fake_signing(monkeypatch, sent)
+    svc = AttestationService(_services_config(tmp_path, {"daily_cap_usd": 50}))
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.batch_attest([{"data": {"category": "ban_record"}, "recipient": ADDR}])
+    assert denied.value.decision.code == "identity_required" and sent == []
+
+    class _RevokeEth(_FakeEth):
+        def contract(self, address, abi):
+            eth = self
+
+            class _Fn:
+                def revoke(self, request):
+                    class _Tx:
+                        def build_transaction(self, params):
+                            return {"to": ADDR, "data": b"", "gas": params["gas"],
+                                    "gasPrice": params["gasPrice"], "nonce": 0,
+                                    "chainId": params["chainId"], "value": 0}
+                    return _Tx()
+
+            class _C:
+                functions = _Fn()
+            return _C()
+
+    import web3 as _web3
+    real = _web3.Web3
+
+    class _FakeWeb3:
+        HTTPProvider = staticmethod(lambda url: url)
+        to_checksum_address = staticmethod(real.to_checksum_address)
+
+        def __init__(self, provider):
+            self.eth = _RevokeEth(sent)
+
+    monkeypatch.setattr(_web3, "Web3", _FakeWeb3)
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.revoke("0x" + "44" * 32, "primary")
+    assert denied.value.decision.code == "identity_required" and sent == []

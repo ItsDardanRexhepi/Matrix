@@ -65,7 +65,8 @@ contract Hello0pnMatrx {
     result = await client.ablockchain("dashboard", action="platform_stats")
     print(f"Result: {result['response'][:200]}")
 
-    print("\nAll gas fees were covered by the platform.")
+    print("\nGas for these operations was paid by the platform within its sponsorship "
+          "policy; the dashboard result above carries that policy as gas_policy.")
 
 
 if __name__ == "__main__":

@@ -177,20 +177,37 @@ class BatchProcessor:
 
         Uses the EASClient for each attestation in the batch. In production
         this would use the EAS multiAttest function for a single transaction.
+
+        An entry a caller asked for through an attestation capability carries
+        `operation` and `identity` from the moment it was queued, and is signed
+        metered against that identity — not against whoever's request happens
+        to flush the batch. A refusal by the sponsorship policy is recorded as
+        that entry's result (`status: "refused"`) and the entry is not
+        re-queued; the other entries still sign.
         """
         try:
             from runtime.blockchain.eas_client import EASClient
+            from runtime.blockchain.sponsorship import SponsorshipDenied
 
             client = EASClient(self.config)
             results: list[dict[str, Any]] = []
 
             for att in batch:
-                result = await client.attest(
-                    action=att.get("data", {}).get("action", "batch_attestation"),
-                    agent=att.get("data", {}).get("agent", "system"),
-                    details=att.get("data", {}),
-                    recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
-                )
+                metered = {"operation": att["operation"], "identity": att.get("identity", "")} \
+                    if att.get("operation") else {}
+                try:
+                    result = await client.attest(
+                        action=att.get("data", {}).get("action", "batch_attestation"),
+                        agent=att.get("data", {}).get("agent", "system"),
+                        details=att.get("data", {}),
+                        recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
+                        **metered,
+                    )
+                except SponsorshipDenied as denied:
+                    logger.warning("queued attestation %s refused by the sponsorship policy: %s",
+                                   att["id"], denied.decision.code)
+                    result = {"status": "refused", "reason": denied.decision.reason,
+                              "sponsorship": denied.decision.to_dict()}
                 result["batch_id"] = att["id"]
                 result["queued_at"] = att["queued_at"]
                 result["submitted_at"] = time.time()
