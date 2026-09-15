@@ -446,6 +446,16 @@ GIT = shutil.which("git")
 # every verdict below is taken under BOTH, pinned on the command line.
 IGNORECASE = ("true", "false")
 
+# The four pathspec switches an operator can leave in the environment. Each
+# changes how git reads a pathspec, and setup_gitignore's git calls pass
+# pathspecs of their own: with GIT_LITERAL_PATHSPECS the `:(glob)*` that lists
+# the index entries is a literal name matching nothing, and each of the other
+# three makes check-ignore or ls-files die ("pathspec magic not supported by
+# this command", "'literal' and 'glob' are incompatible"), which turned git's
+# whole verdict into one "Could not ask git" line.
+PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS",
+                "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
+
 
 def _git_ignores(repo: Path, rel: str, ignorecase: str, *, index: bool = False) -> bool:
     """Git's verdict. With index=True a TRACKED file counts as not ignored, which
@@ -681,15 +691,15 @@ def _filesystem_ignores_case(directory: Path) -> bool:
 # `.env` ignored, yet on a case-insensitive filesystem (the macOS default) the
 # wizard's write to .env lands in the tracked .ENV and `git commit -a` commits it.
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
-@pytest.mark.parametrize("literal_pathspecs", [False, True])
+@pytest.mark.parametrize("pathspec_env", [None, *PATHSPEC_ENV])
 @pytest.mark.parametrize("ignorecase", IGNORECASE)
 def test_setup_gitignore_warns_about_a_secret_tracked_under_another_case(
-        sandbox, monkeypatch, ignorecase, literal_pathspecs):
+        sandbox, monkeypatch, ignorecase, pathspec_env):
     repo = sandbox.parent
     if not _filesystem_ignores_case(repo):
         pytest.skip("case-sensitive filesystem: .ENV and .env are different files here")
-    if literal_pathspecs:       # an operator's environment must not blind the lookup
-        monkeypatch.setenv("GIT_LITERAL_PATHSPECS", "1")
+    if pathspec_env:            # an operator's environment must not blind the lookup
+        monkeypatch.setenv(pathspec_env, "1")
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
     subprocess.run([GIT, "-C", str(repo), "config", "core.ignorecase", ignorecase],
                    check=True, capture_output=True)
@@ -706,6 +716,68 @@ def test_setup_gitignore_warns_about_a_secret_tracked_under_another_case(
             f"core.ignorecase={ignorecase}: {tracked} is tracked and is the file the "
             f"wizard writes, and nothing said so (warnings: {said['warn']})"
         )
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("pathspec_env", PATHSPEC_ENV)
+@pytest.mark.parametrize("scenario", ["tracked", "unlisted"])
+def test_git_verdict_is_not_blinded_by_a_pathspec_switch_in_the_environment(
+        sandbox, monkeypatch, pathspec_env, scenario):
+    """8a232c7 dropped GIT_LITERAL_PATHSPECS from git's environment, with which
+    `:(glob)*` matches nothing, and left the other three switches. Each of them
+    made check-ignore or ls-files die, and git's whole verdict — a tracked
+    secret, or one no rule ignores — became a single "Could not ask git" line.
+    On any filesystem: the tracked secret here is spelled exactly."""
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    sandbox.unlink()
+    if scenario == "tracked":
+        (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+        (repo / ".env").write_text("TOKEN=real\n")
+        subprocess.run([GIT, "-C", str(repo), "add", "-f", ".env"], check=True, capture_output=True)
+        expected = {".env": [".env"]}
+    else:
+        (repo / ".gitignore").write_text("__pycache__/\n*.pyc\nnode_modules/\n")
+        expected = {"openmatrix.config.json": [], ".env": []}
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv(pathspec_env, "1")
+    from setup import _gitignore
+    infos = []
+    verdict = _gitignore.git_verdict(_gitignore.SECRET_FILES, info=infos.append)
+    assert verdict == expected, (pathspec_env, verdict, infos)
+    assert not infos, (pathspec_env, infos)
+
+
+def test_setup_gitignore_warns_when_the_new_file_cannot_be_written(sandbox, monkeypatch):
+    """The create branch guarded the open but not the write, so a disk that
+    filled between them raised out of the check — which now runs before the
+    first secret is written, taking the operator's answers with it — and left
+    an empty .gitignore behind. Same class as the mode-555 directory above."""
+    import errno
+    sandbox.unlink()
+    wizard, said = _isolated_wizard("setup_main_gitignore_cannot_write", monkeypatch)
+    real_fdopen = os.fdopen
+
+    class _FullDisk:
+        def __init__(self, f):
+            self._f = f
+        def write(self, _text):
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            self._f.close()
+            return False
+
+    def fdopen(fd, mode="r", *args, **kwargs):
+        f = real_fdopen(fd, mode, *args, **kwargs)
+        return _FullDisk(f) if "w" in mode else f
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    wizard.setup_gitignore()                                   # must not raise
+    assert not Path(".gitignore").exists(), "an empty .gitignore was left behind"
+    assert all(any(s in w for w in said["warn"]) for s in ("openmatrix.config.json", ".env")), said
+    assert not said["success"], said
 
 
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")

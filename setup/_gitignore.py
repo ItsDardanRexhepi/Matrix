@@ -166,15 +166,22 @@ def git_verdict(names, *, info):
     in the tracked .ENV and `git commit -a` commits it. The index entries in
     this directory are listed instead and compared caselessly, whatever
     core.ignorecase says; on a case-sensitive filesystem that can cost a false
-    alarm about a differently-cased file, never a silent commit. Git's output
-    is bytes and is decoded without raising: it echoes paths, and a path need
-    not be UTF-8.
+    alarm about a differently-cased file, never a silent commit. Git runs
+    without the operator's GIT_*_PATHSPECS switches, which would make the
+    pathspecs here match nothing or be refused. Git's output is bytes and is
+    decoded without raising: it echoes paths, and a path need not be UTF-8.
     """
     asked = ", ".join(names)
 
-    # GIT_LITERAL_PATHSPECS=1 would make the `:(glob)*` below match nothing, and
-    # every tracked secret would pass unseen.
-    env = {k: v for k, v in os.environ.items() if k != "GIT_LITERAL_PATHSPECS"}
+    # The pathspecs below are this function's own, so none of the operator's
+    # pathspec switches may apply to them. GIT_LITERAL_PATHSPECS=1 makes the
+    # `:(glob)*` a literal name that matches nothing, and every tracked secret
+    # passes unseen. GIT_GLOB_PATHSPECS, GIT_NOGLOB_PATHSPECS and
+    # GIT_ICASE_PATHSPECS each make check-ignore die ("pathspec magic not
+    # supported by this command"), and the whole verdict — a tracked secret, or
+    # one no rule ignores — became a single "Could not ask git" line.
+    env = {k: v for k, v in os.environ.items()
+           if not (k.startswith("GIT_") and k.endswith("_PATHSPECS"))}
 
     def run(argv, stdin=None):
         return subprocess.run(["git", *argv], input=stdin, capture_output=True,
@@ -243,9 +250,18 @@ def setup_gitignore(*, warn, info, success, verdict=None):
             warn(f"Could not create .gitignore to list {', '.join(SECRET_FILES)}: "
                  f"{exc.strerror or exc}.")
         else:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write("\n".join(SECRET_FILES) + "\n__pycache__/\n*.pyc\n")
-            success(".gitignore created")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write("\n".join(SECRET_FILES) + "\n__pycache__/\n*.pyc\n")
+            except OSError as exc:        # the disk filled between the open and the write
+                try:
+                    os.unlink(gitignore)  # ours (O_EXCL): leave no empty or half-written file
+                except OSError:
+                    pass
+                warn(f"Could not write .gitignore to list {', '.join(SECRET_FILES)}: "
+                     f"{exc.strerror or exc}. Nothing keeps them out of a commit.")
+            else:
+                success(".gitignore created")
     else:
         # Split on LF only: git ends a line only at LF, and a lone CR inside a
         # line is part of its pattern. read_text()'s universal newlines (or
