@@ -33,6 +33,19 @@ say a body or an "unauthenticated" call "cannot assert an identity" when what
 they exercise is the dispatcher overwriting one key, `params["caller_identity"]`.
 Those are corrected and listed below. This is still a text check: it catches
 these phrases coming back, not a new wording of the same claim.
+
+A fourth pass, after 0c34aa7, followed the same `caller_identity` down the
+tool path. runtime/react_loop.py threads user_context["wallet_address"] to the
+tool dispatcher and called it "the trusted caller identity ... from the
+gateway-bound context"; runtime/tools/dispatcher.py said it injects "the
+TRUSTED value". On /chat that field is the request body's `wallet`, session or
+not (gateway/server.py handle_chat); the session's identity is not consulted.
+The chat-path tests below drive the real /chat with an Apple session and a
+body wallet, then hand that value to the real dispatcher through the
+platform_action tool and read the grantor. Two sites in files the earlier
+passes edited also still carried the claim: a test name in
+tests/test_insurance_claim_route.py and "whoever was authenticated" in
+tests/test_sponsorship_policy_is_enforced.py.
 """
 
 from __future__ import annotations
@@ -240,6 +253,65 @@ async def test_royalty_session_caller_is_stopped_and_a_written_identity_is_not(
     assert written["result"]["set_by_source"] == "authenticated", written
 
 
+# ── the chat path: the threaded identity is the chat body's wallet ──────────
+#
+# runtime/react_loop.py threads user_context["wallet_address"] to the tool
+# dispatcher as caller_identity. On /chat, gateway/server.py handle_chat builds
+# that field from the request body's `wallet` (or `wallet_address`), session or
+# not, and the session's identity is not consulted. Through the platform_action
+# tool it reaches the real ServiceDispatcher and is recorded as the grantor.
+# Trinity may not execute state-changing actions herself (they go through
+# runtime/agents/handoff.py with no identity), so the record is what a Neo
+# dispatch writes; Neo takes the operator key on /chat.
+
+CHAT_BODY_WALLET = "0x" + "ef" * 20
+LINKED_WALLET = "0x" + "77" * 20
+
+
+@pytest.mark.asyncio
+async def test_the_chat_route_threads_the_body_wallet_not_the_sessions_identity():
+    from aiohttp.test_utils import TestClient, TestServer
+    from tests.test_apple_session_auth_wall import _apple_session, _bearer, _server
+
+    server = _server()
+    async with TestClient(TestServer(server.create_app())) as client:
+        token = await _apple_session(server, sub="chat-sub")
+        await server.apple_users.link_wallet("chat-sub", LINKED_WALLET)
+        r = await client.post("/chat", headers=_bearer(token), json={
+            "message": "hi", "session_id": "s-chat", "wallet": CHAT_BODY_WALLET})
+        assert r.status == 200, await r.text()
+        (context,), _ = server.react_loop.run.call_args
+        assert context.metadata["user_context"]["wallet_address"] == CHAT_BODY_WALLET
+        server.react_loop.run.reset_mock()
+        r = await client.post("/chat", headers=_bearer(token), json={
+            "message": "hi", "session_id": "s-chat"})
+        assert r.status == 200, await r.text()
+        (context,), _ = server.react_loop.run.call_args
+        assert context.metadata["user_context"]["wallet_address"] == "", (
+            "the session's linked wallet is not what /chat threads; only the body is")
+
+
+@pytest.mark.asyncio
+async def test_a_threaded_body_wallet_becomes_the_grantor_through_the_tool_path():
+    """The value the react loop threads, handed to the real ServiceDispatcher
+    as the platform_action tool: recorded as the party that set the right."""
+    from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+    from runtime.tools.dispatcher import ToolDispatcher
+
+    d = ToolDispatcher.__new__(ToolDispatcher)
+    d._tools = {"platform_action": ServiceDispatcher({}).execute}
+    d._schemas = {}
+    outcome = await d.dispatch(
+        "platform_action",
+        {"action": "set_nft_rights",
+         "params": {"collection": "0xCollection", "token_id": 8, "rights": _RIGHTS}},
+        agent_name="neo", caller_identity=CHAT_BODY_WALLET, caller_source="agent")
+    assert outcome.ok, outcome
+    inner = json.loads(outcome.model_text)
+    assert inner["status"] == "ok", inner
+    assert inner["result"]["set_by"] == CHAT_BODY_WALLET, inner
+
+
 # Each phrase was written about current_request_security()["wallet"], or about
 # the `caller_identity` it becomes downstream. The files are where it was, and
 # where the same identity is described. Text is compared with line breaks and
@@ -253,6 +325,7 @@ FALSE_PHRASES = {
     "gateway/server.py": [
         "the authenticated wallet header",
         "Derived, not asserted.",
+        "Follower = X-Wallet-Address.",
     ],
     "docs/api-reference.md": [
         "Identity is derived, never asserted.",
@@ -301,6 +374,11 @@ FALSE_PHRASES = {
     "runtime/tools/dispatcher.py": [
         "the authenticated address the HTTP and bridge entry",
         "identity is derived, never asserted",
+        "inject the TRUSTED value the caller passed in",
+    ],
+    "runtime/react_loop.py": [
+        "The trusted caller identity travels the same way the trusted agent name does",
+        "from the gateway-bound context, never from the model's arguments",
     ],
     "tests/test_caller_identity_is_not_dropped.py": [
         "The wallet the gateway authenticated",
@@ -330,11 +408,13 @@ FALSE_PHRASES = {
     ],
     "tests/test_sponsorship_policy_is_enforced.py": [
         "A dispatch with no authenticated caller must not inherit",
+        "it to whoever was authenticated",
     ],
     "tests/test_nft_royalty_authority.py": [
         'distinguish "nobody was authenticated" from "we did not look"',
     ],
     "tests/test_insurance_claim_route.py": [
+        "async def test_an_authenticated_identity_beats_a_body_supplied_holder",
         "middleware authenticated for THIS request",
         "enforced upstream by the security middleware",
         "authenticated mallory",

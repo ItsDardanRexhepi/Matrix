@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 # authenticated only when the entry point derived it from a session: on
 # POST /api/v1/capabilities/{id}/invoke without a session it is the
 # X-Wallet-Address header, a body wallet/from/sender/account field, or
-# params.from, all written by the caller. One constant so the service side and
-# the injection side cannot drift apart.
+# params.from, all written by the caller; on /chat, through the
+# `platform_action` tool, it is the chat body's `wallet` field, session or not
+# (runtime/react_loop.py). One constant so the service side and the injection
+# side cannot drift apart.
 CALLER_IDENTITY_PARAM = "caller_identity"
 
 
@@ -1129,7 +1131,10 @@ class ServiceDispatcher:
             session; on POST /api/v1/capabilities/{id}/invoke, the security
             middleware's binding (a session's identity, else the caller-written
             X-Wallet-Address header, else a body ``wallet``/``from``/``sender``/
-            ``account`` field or ``params.from``). This method never reads
+            ``account`` field or ``params.from``); on /chat, through the
+            ``platform_action`` tool, the chat body's ``wallet`` or
+            ``wallet_address`` field, session or not (runtime/react_loop.py);
+            /chat/stream and /ws thread none. This method never reads
             ``params["caller_identity"]``, but the value it is handed can be a
             copy of ``params.from``, made by the middleware before the
             dispatcher runs. It is authenticated only when a session was its source,
@@ -1193,7 +1198,11 @@ class ServiceDispatcher:
         # entry point got it. On POST /api/v1/capabilities/{id}/invoke with no
         # session, the security middleware binds the X-Wallet-Address header,
         # a body wallet/from/sender/account field, or params.from, and that
-        # caller-written value is recorded here as "authenticated". Changing
+        # caller-written value is recorded here as "authenticated". On /chat
+        # the react loop threads the chat body's `wallet` field, session or
+        # not, with the same label (for Neo, who takes the operator key there;
+        # Trinity's state-changing actions arrive through handoff.py with no
+        # identity). Changing
         # the label changes stored records and the 17-J tests; it is disclosed,
         # not changed.
         _actor_source = (

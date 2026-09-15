@@ -281,8 +281,10 @@ class ToolDispatcher:
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
 
-        # Strip anything the model may not assert, then inject the TRUSTED value
-        # the caller passed in — the same treatment agent_name already gets.
+        # Strip anything the model may not assert, then inject the value the
+        # entry point bound — the same treatment agent_name already gets. It
+        # outranks the model's arguments; it is not thereby authenticated. On
+        # /chat it is the request body's `wallet` field (runtime/react_loop.py).
         supplied = set(arguments) & self.RESERVED_ARGUMENTS
         if supplied:
             logger.warning("Tool '%s' call carried reserved argument(s) %s — stripped; "

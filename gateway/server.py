@@ -973,7 +973,9 @@ class GatewayServer:
         return FollowStore(self.react_loop.memory.db)
 
     async def handle_social_follow(self, request: web.Request) -> web.Response:
-        """POST /social/follow — {address}. Follower = X-Wallet-Address."""
+        """POST /social/follow — {address}. Follower = the caller identity:
+        the session's wallet when a session is presented, else the
+        X-Wallet-Address header as the caller wrote it."""
         follower = self._caller_identity(request)
         try:
             body = await request.json()

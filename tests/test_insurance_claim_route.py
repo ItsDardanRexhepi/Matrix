@@ -90,8 +90,13 @@ async def test_removing_it_did_not_take_the_live_claim_route_with_it(client):
 # ── NEW-78: caller binding ───────────────────────────────────────────────
 
 
-async def test_an_authenticated_identity_beats_a_body_supplied_holder(client, monkeypatch):
+async def test_a_bound_identity_beats_a_body_supplied_holder(client, monkeypatch):
     """SCENARIO: mallory, bound to the request, POSTs `holder: alice`.
+
+    Renamed from test_an_authenticated_identity_beats_a_body_supplied_holder.
+    The fixture writes "mallory" straight into the security context with no
+    session, and the handler cannot tell a session's identity from a written
+    one; what this shows is that a BOUND identity wins over the body.
 
     This is the escalation the ownership check would not catch on its own —
     assert_owner compares whatever the handler hands it, so if the handler
