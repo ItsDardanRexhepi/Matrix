@@ -665,3 +665,52 @@ async def test_restoring_a_missing_state_row_revives_no_turn_whose_erasure_was_p
     memory.claim_conversation("c5", "apple:c")
     assert await memory.erase_owner("apple:c") == ["c5"]  # restores the row
     assert not memory.claim_stands(mid), "restoring the state row revived a turn whose erasure was pruned"
+
+
+# ── A deletion that erased nothing is not answered as a success ─────────────
+#
+# handle_account_delete caught every exception from erase_owner at debug level
+# and went on: it removed the push tokens and the session and answered 200
+# {"success": true} with the account's conversations, scoped memory and claim
+# all still stored — and the session gone, so the client could not retry. A
+# retention value float() rejected was one way in (fixed in 2cc7700); a store
+# that raises for any other reason was still answered the same way.
+
+async def test_a_deletion_whose_erasure_fails_is_answered_as_a_failure_and_can_be_retried():
+    from runtime.notifications.token_store import PushTokenStore
+
+    server = _server()
+    server.react_loop.router.complete = _HeldRouter("never-held").complete
+    memory = server.react_loop.memory
+    subject = "apple:erasefail"
+    real_erase_owner = memory.erase_owner
+
+    async def store_unavailable(owner):
+        raise RuntimeError("store unavailable")
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        account = await _session(server, subject)
+        assert await _drive(client, "/chat", {"message": "ERASEFAIL-SECRET", "session_id": "ef-conv"}, account) == 200
+        r = await client.post("/bridge/v1/push/register", headers=account, json={"push_token": "DEV-EF"})
+        assert r.status == 200, await r.text()
+        store = PushTokenStore(memory.db)
+        assert "DEV-EF" in await store.all_tokens()
+
+        memory.erase_owner = store_unavailable
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        body = await resp.json()
+        assert resp.status == 503, (resp.status, body)
+        assert body.get("success") is not True and body.get("error"), body
+        # Nothing after the erasure was removed: the session stays valid and the
+        # device registered, so the same client can retry the deletion.
+        assert server.wallet_sessions.get(f"tok-{subject}"), "a failed deletion removed the session"
+        assert "DEV-EF" in await store.all_tokens(), "a failed deletion removed the push token"
+        assert _rows_with(memory, "ERASEFAIL-SECRET") != ([], [])
+
+        memory.erase_owner = real_erase_owner
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        assert _rows_with(memory, "ERASEFAIL-SECRET") == ([], [])
+        assert memory.conversation_claim("ef-conv").owner == ""
+        assert not server.wallet_sessions.get(f"tok-{subject}")
+        assert "DEV-EF" not in await store.all_tokens()

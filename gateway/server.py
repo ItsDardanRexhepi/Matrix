@@ -1064,7 +1064,9 @@ class GatewayServer:
         session of this account, and ones with no recorded owner filed under one
         of its conversations. A device registered with no session to a
         conversation the account never owned is not the account's to find.
-        Apple token revocation runs only when
+        If the erasure fails, the deletion answers 503 ``storage failure`` and
+        removes nothing further: the session stays valid, so the client can
+        retry. Apple token revocation runs only when
         auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
         deletion still succeeds and revocation is skipped with a WARNING."""
         from gateway.apple_auth import apple_revocation_configured
@@ -1093,7 +1095,15 @@ class GatewayServer:
                 self.react_loop.forget_scopes(
                     [subject, *(memory.conversation_scope(sid) for sid in erased)])
             except Exception:
-                logger.debug("account delete: conversation erasure skipped")
+                # This was caught at debug level and the handler went on: it
+                # removed the push tokens and the session and answered 200
+                # {"success": true} with the account's conversations, scoped
+                # memory and claim all still stored — and the session gone, so
+                # the client could not retry. A deletion that erased nothing
+                # is a failure: nothing after the erasure is removed, and the
+                # session stays valid so the same client can retry.
+                logger.exception("account delete: conversation erasure failed; the deletion was not completed")
+                return web.json_response({"success": False, "error": "storage failure"}, status=503)
 
         # Push tokens the account registered. This looked them up by the bearer
         # TOKEN string as a session id; /bridge/v1/push/register files a device
