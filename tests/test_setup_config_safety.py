@@ -447,14 +447,16 @@ GIT = shutil.which("git")
 IGNORECASE = ("true", "false")
 
 # The four pathspec switches an operator can leave in the environment. Each
-# changes how git reads a pathspec, and setup_gitignore's git calls pass
-# pathspecs of their own: with GIT_LITERAL_PATHSPECS the `:(glob)*` that lists
-# the index entries is a literal name matching nothing, and each of the other
-# three makes check-ignore or ls-files die ("pathspec magic not supported by
-# this command", "'literal' and 'glob' are incompatible"), which turned git's
-# whole verdict into one "Could not ask git" line.
+# changes how git reads a pathspec, and git_verdict's git calls pass pathspecs
+# of their own. Under every one of the four alike, `git check-ignore` — the
+# first call git_verdict makes — refuses to run ("pathspec magic not supported
+# by this command: '<magic>'"), which turned git's whole verdict into one
+# "Could not ask git" line before the `:(glob)*` of ls-files was ever
+# evaluated. PATHSPEC_MAGIC is the magic each switch dies naming (git 2.50.1).
 PATHSPEC_ENV = ("GIT_LITERAL_PATHSPECS", "GIT_GLOB_PATHSPECS",
                 "GIT_NOGLOB_PATHSPECS", "GIT_ICASE_PATHSPECS")
+PATHSPEC_MAGIC = {"GIT_LITERAL_PATHSPECS": "literal", "GIT_GLOB_PATHSPECS": "glob",
+                  "GIT_NOGLOB_PATHSPECS": "literal", "GIT_ICASE_PATHSPECS": "icase"}
 
 
 def _git_ignores(repo: Path, rel: str, ignorecase: str, *, index: bool = False) -> bool:
@@ -723,10 +725,10 @@ def test_setup_gitignore_warns_about_a_secret_tracked_under_another_case(
 @pytest.mark.parametrize("scenario", ["tracked", "unlisted"])
 def test_git_verdict_is_not_blinded_by_a_pathspec_switch_in_the_environment(
         sandbox, monkeypatch, pathspec_env, scenario):
-    """8a232c7 dropped GIT_LITERAL_PATHSPECS from git's environment, with which
-    `:(glob)*` matches nothing, and left the other three switches. Each of them
-    made check-ignore or ls-files die, and git's whole verdict — a tracked
-    secret, or one no rule ignores — became a single "Could not ask git" line.
+    """8a232c7 dropped GIT_LITERAL_PATHSPECS from git's environment and left the
+    other three switches. Under each of the four alike, check-ignore refused to
+    run, and git's whole verdict — a tracked secret, or one no rule ignores —
+    became a single "Could not ask git" line (the test below pins that).
     On any filesystem: the tracked secret here is spelled exactly."""
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
@@ -747,6 +749,43 @@ def test_git_verdict_is_not_blinded_by_a_pathspec_switch_in_the_environment(
     verdict = _gitignore.git_verdict(_gitignore.SECRET_FILES, info=infos.append)
     assert verdict == expected, (pathspec_env, verdict, infos)
     assert not infos, (pathspec_env, infos)
+
+
+@pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
+@pytest.mark.parametrize("pathspec_env", PATHSPEC_ENV)
+def test_without_the_scrub_every_pathspec_switch_stops_the_first_git_call(
+        sandbox, monkeypatch, pathspec_env):
+    """The mechanism, pinned. With the switch put back into git's environment
+    after git_verdict's scrub, git_verdict makes ONE call, check-ignore, which
+    dies naming the magic; it returns no verdict, says so once, and never
+    reaches ls-files and its `:(glob)*`. All four switches alike: 8a232c7 and
+    3dd476b said GIT_LITERAL_PATHSPECS differed — `:(glob)*` "matching nothing",
+    the tracked secret "passing unseen" — which would show here as two calls,
+    an empty verdict and no info line."""
+    repo = sandbox.parent
+    subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
+    sandbox.unlink()
+    (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+    (repo / ".env").write_text("TOKEN=real\n")
+    subprocess.run([GIT, "-C", str(repo), "add", "-f", ".env"], check=True, capture_output=True)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    from setup import _gitignore
+    calls = []
+    real_run = subprocess.run
+
+    def run_with_the_switch_put_back(argv, **kwargs):
+        calls.append(argv[1])
+        kwargs["env"] = {**kwargs["env"], pathspec_env: "1"}
+        return real_run(argv, **kwargs)
+    monkeypatch.setattr(subprocess, "run", run_with_the_switch_put_back)
+    infos = []
+    verdict = _gitignore.git_verdict(_gitignore.SECRET_FILES, info=infos.append)
+    assert verdict is None, (pathspec_env, verdict, infos)
+    assert calls == ["check-ignore"], (pathspec_env, calls)
+    assert len(infos) == 1 and (
+        f"pathspec magic not supported by this command: '{PATHSPEC_MAGIC[pathspec_env]}'"
+        in infos[0]), (pathspec_env, infos)
 
 
 def test_setup_gitignore_warns_when_the_new_file_cannot_be_written(sandbox, monkeypatch):

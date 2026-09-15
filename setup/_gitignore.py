@@ -167,19 +167,21 @@ def git_verdict(names, *, info):
     this directory are listed instead and compared caselessly, whatever
     core.ignorecase says; on a case-sensitive filesystem that can cost a false
     alarm about a differently-cased file, never a silent commit. Git runs
-    without the operator's GIT_*_PATHSPECS switches, which would make the
-    pathspecs here match nothing or be refused. Git's output is bytes and is
+    without the operator's GIT_*_PATHSPECS switches: check-ignore, the first
+    call here, refuses to run under any of them. Git's output is bytes and is
     decoded without raising: it echoes paths, and a path need not be UTF-8.
     """
     asked = ", ".join(names)
 
     # The pathspecs below are this function's own, so none of the operator's
-    # pathspec switches may apply to them. GIT_LITERAL_PATHSPECS=1 makes the
-    # `:(glob)*` a literal name that matches nothing, and every tracked secret
-    # passes unseen. GIT_GLOB_PATHSPECS, GIT_NOGLOB_PATHSPECS and
-    # GIT_ICASE_PATHSPECS each make check-ignore die ("pathspec magic not
-    # supported by this command"), and the whole verdict — a tracked secret, or
-    # one no rule ignores — became a single "Could not ask git" line.
+    # pathspec switches may apply to them. Under any one of GIT_LITERAL_PATHSPECS,
+    # GIT_GLOB_PATHSPECS, GIT_NOGLOB_PATHSPECS or GIT_ICASE_PATHSPECS, check-ignore
+    # — the first call below — dies with "pathspec magic not supported by this
+    # command: 'literal'" ('glob', 'literal', 'icase'), and the whole verdict — a
+    # tracked secret, or one no rule ignores — became a single "Could not ask
+    # git" line. The four switches never differed: ls-files, whose `:(glob)*`
+    # GIT_LITERAL_PATHSPECS alone would turn into a literal name matching
+    # nothing, is never reached. (git 2.50.1.)
     env = {k: v for k, v in os.environ.items()
            if not (k.startswith("GIT_") and k.endswith("_PATHSPECS"))}
 
