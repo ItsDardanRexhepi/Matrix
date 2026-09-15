@@ -1028,23 +1028,59 @@ def test_only_the_guarded_writer_puts_a_secret_file_on_disk():
     """The class, structurally: nothing writes a file holding keys except
     setup/_shared.py's write_secret_file(), which checks .gitignore first.
     Every entry point (setup.py, setup_communications.py, setup_telegram.py,
-    each channel module) reaches disk through it."""
+    each channel module) reaches disk through it.
+
+    Every REFERENCE to the writer's name is an offender, wherever it stands:
+    a bare name, an attribute (`_shared._atomic_write_text`, which is how
+    setup.py reaches _shared), an import under any alias, a copy bound to
+    another name, or the name inside a string (getattr), at module level as
+    much as inside a function. 1590d86's control saw one form of six, a
+    bare-name call inside a function, and passed the rest. The exemption is
+    by file: the write_secret_file() in setup/_shared.py, not any function of
+    that name. What this still cannot see: a writer that reaches disk some
+    other way (a bare open(), a subprocess), or a name assembled at run time.
+    """
     import ast
+    name = "_atomic_write_text"
     sources = [ROOT / "setup.py", ROOT / "setup_communications.py",
                ROOT / "setup_telegram.py", *sorted((ROOT / "setup").glob("*.py"))]
+    guarded = ROOT / "setup" / "_shared.py"
     offenders = []
+
+    def refers(node, docstrings):
+        if isinstance(node, ast.Name):
+            return node.id == name
+        if isinstance(node, ast.Attribute):
+            return node.attr == name
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return any(alias.name == name for alias in node.names)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return name in node.value and node not in docstrings
+        return False
+
+    def scan(path, node, where, exempt, docstrings):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scan(path, child, f"in {child.name}()",
+                     exempt or (path == guarded and child.name == "write_secret_file"),
+                     docstrings)
+                continue
+            if refers(child, docstrings) and not exempt:
+                offenders.append(f"{path.name}:{child.lineno} {where}")
+            scan(path, child, where, exempt, docstrings)
+
     for path in sources:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            for call in ast.walk(node):
-                if (isinstance(call, ast.Call)
-                        and isinstance(call.func, ast.Name)
-                        and call.func.id == "_atomic_write_text"
-                        and node.name != "write_secret_file"):
-                    offenders.append(f"{path.name}:{call.lineno} in {node.name}()")
+        docstrings = set()
+        for scope in ast.walk(tree):
+            if isinstance(scope, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                first = scope.body[0] if scope.body else None
+                if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                    docstrings.add(first.value)
+        scan(path, tree, "at module level", False, docstrings)
+
     assert not offenders, (
-        "these write a secret file without the .gitignore check that "
-        "write_secret_file() runs first: " + ", ".join(offenders)
+        "these reach the secret-file writer outside setup/_shared.py's "
+        "write_secret_file(), the only caller that checks .gitignore first: "
+        + ", ".join(offenders)
     )
