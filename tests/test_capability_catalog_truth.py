@@ -130,6 +130,14 @@ def _route_pairs():
         hands its every argument to request_safe, which hands them to request
         with that same literal. Literals are composed down the chain and compared
         with the route's, so request_vrf ("random_vrf") is not the price route.
+      * Round 6: what performs a method the route runs ACROSS the service
+        boundary. cross_border.get_quote asks its conversion component for a
+        rate, and that component builds an OracleGateway and calls
+        request("price_feed", {"pair": ...}) on it. No self.x() joins two
+        services, so neither wrapper rule could see it.
+    Rounds 5 and 6 repeat until nothing joins; a wrapper joins carrying the
+    route's literals lifted onto its own parameters, so query_weather is still
+    not the price route.
     """
     import ast
     import collections
@@ -169,18 +177,27 @@ def _route_pairs():
                              else ("other",)) for k in set(prev) | set(fixed)}
             literal[key] = fixed
     pairs = collections.defaultdict(set)
-    routed = []  # what each route RUNS: the literal pair and what it wraps
+    frontier = []  # what each route RUNS: the literal pair and what it wraps
     for (route, service, method), fixed in literal.items():
         pairs[(service, method)].add(route)
-        routed.append((route, service, method, fixed))
+        frontier.append((route, service, method, fixed))
         for wrapped, chain in _wrapper_closure(service, method).items():
             pairs[(service, wrapped)].add(route)
-            routed.append((route, service, wrapped, _through(fixed, chain)))
-    for route, service, method, fixed in routed:
-        for name in _public_methods(service):
-            chain = _wrapper_closure(service, name).get(method)
-            if chain is not None and _consistent(chain, fixed):
-                pairs[(service, name)].add(route)
+            frontier.append((route, service, wrapped, _through(fixed, chain)))
+    while frontier:
+        joined = []
+        for route, service, method, fixed in frontier:
+            for other, name, chain in _cross_runners().get((service, method), []):
+                if route not in pairs.get((other, name), ()) and _consistent(chain, fixed):
+                    pairs[(other, name)].add(route)
+                    joined.append((route, other, name, {}))
+            for name in _public_methods(service):
+                chain = _wrapper_closure(service, name).get(method)
+                if (route not in pairs.get((service, name), ()) and chain is not None
+                        and _consistent(chain, fixed)):
+                    pairs[(service, name)].add(route)
+                    joined.append((route, service, name, _lift(chain, fixed)))
+        frontier = joined
     return pairs
 
 
@@ -299,9 +316,139 @@ def _wrapper_closure(service: str, method: str) -> dict:
 
 
 def _consistent(chain: dict, fixed: dict) -> bool:
-    """False only when both pin the SAME parameter to DIFFERENT literals."""
-    return not any(b[0] == "const" and chain.get(p, ("other",))[0] == "const"
-                   and chain[p][1] != b[1] for p, b in fixed.items())
+    """False only when both pin the SAME parameter to DIFFERENT literals — or the
+    chain pins it to one of several (("any", {...})) and the route's is none."""
+    for p, b in fixed.items():
+        c = chain.get(p, ("other",))
+        if b[0] == "const" and ((c[0] == "const" and c[1] != b[1])
+                                or (c[0] == "any" and b[1] not in c[1])):
+            return False
+    return True
+
+
+def _lift(chain: dict, fixed: dict) -> dict:
+    """The route's literals as pins on a wrapper's OWN parameters: a routed
+    parameter the route pins and the wrapper passes through by name."""
+    return {chain[p][1]: b for p, b in fixed.items()
+            if b[0] == "const" and chain.get(p, ("other",))[0] == "param"}
+
+
+_REGISTRY: dict = {}
+
+
+def _live_owner(service: str):
+    if "registry" not in _REGISTRY:
+        _REGISTRY["registry"] = service_registry.ServiceRegistry({})
+    return _REGISTRY["registry"].get(service)
+
+
+def _reached(owner, fn, seen, depth=0) -> list:
+    """(tree, module) of every function *fn* reaches on *owner* through
+    self.x(...) and self.part.x(...) calls — the write census's walk, through
+    the real component objects."""
+    import ast
+    import inspect
+    import textwrap
+
+    code = getattr(fn, "__code__", None)
+    if code is None or "site-packages" in code.co_filename or depth > 8:
+        return []
+    key = (id(owner), code.co_filename, code.co_firstlineno)
+    if key in seen:
+        return []
+    seen.add(key)
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    except (OSError, TypeError):
+        return []
+    out = [(tree, inspect.getmodule(fn))]
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        receiver = node.func.value
+        if isinstance(receiver, ast.Name) and receiver.id == "self":
+            out += _reached(owner, getattr(type(owner), node.func.attr, None), seen, depth + 1)
+        elif (isinstance(receiver, ast.Attribute) and isinstance(receiver.value, ast.Name)
+              and receiver.value.id == "self"):
+            part = getattr(owner, receiver.attr, None)
+            if part is not None:
+                out += _reached(part, getattr(type(part), node.func.attr, None), seen, depth + 1)
+    return out
+
+
+@functools.lru_cache(maxsize=None)
+def _cross_service_runs(service: str, method: str) -> dict:
+    """(other service, public method) -> literal bindings: every operation of
+    ANOTHER registry service that *method* performs on an instance it builds.
+    Over everything the walk reaches: a Cls(...) call naming the class the
+    registry maps to another service, bound to it in the module or imported in
+    the body, BUILDS it; an x.m(...) call, x not self, with m public on a built
+    service, PERFORMS (that service, m). Literals only — a parameter pinned to
+    different literals on two calls keeps the set, anything else is the
+    caller's — so only a different literal can exclude."""
+    import ast
+
+    by_class: dict = {}
+    for name, (_module, cls) in service_registry._SERVICE_MAP.items():
+        by_class.setdefault(cls, name)
+    owner = _live_owner(service)
+    built, calls = set(), []
+    for tree, module in _reached(owner, getattr(type(owner), method, None), set()):
+        imported = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                    and (n.module or "").startswith("runtime.blockchain.services")
+                    for a in n.names}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Name) and node.func.id in by_class:
+                other = by_class[node.func.id]
+                if other != service and (node.func.id in imported or getattr(
+                        module, node.func.id, None) is _service_class(other)):
+                    built.add(other)
+            elif isinstance(node.func, ast.Attribute) and not (
+                    isinstance(node.func.value, ast.Name) and node.func.value.id == "self"):
+                calls.append(node)
+
+    def lit(node):
+        return ("const", node.value) if isinstance(node, ast.Constant) else ("other",)
+
+    out: dict = {}
+    for other in sorted(built):
+        cls = _service_class(other)
+        public = set(_public_methods(other))
+        for call in calls:
+            fdef = _function_def(cls, call.func.attr) if call.func.attr in public else None
+            if fdef is None:
+                continue
+            positional, kwonly, _required, _var = _signature(fdef)
+            b = {positional[i]: lit(a) for i, a in enumerate(call.args)
+                 if not isinstance(a, ast.Starred) and i < len(positional)}
+            b.update({k.arg: lit(k.value) for k in call.keywords
+                      if k.arg is not None and (k.arg in positional or k.arg in kwonly)})
+            prev = out.get((other, call.func.attr))
+            out[(other, call.func.attr)] = b if prev is None else {
+                p: _either(prev.get(p, ("other",)), b.get(p, ("other",)))
+                for p in set(prev) | set(b)}
+    return out
+
+
+def _either(a: tuple, b: tuple) -> tuple:
+    if a[0] == "other" or b[0] == "other":
+        return ("other",)
+    lits = (set(a[1]) if a[0] == "any" else {a[1]}) | (set(b[1]) if b[0] == "any" else {b[1]})
+    return ("const", next(iter(lits))) if len(lits) == 1 else ("any", frozenset(lits))
+
+
+@functools.lru_cache(maxsize=None)
+def _cross_runners() -> dict:
+    """(service, method) -> [(other, name, bindings)]: every public method of
+    every registry service that performs it across the service boundary."""
+    index: dict = {}
+    for other in sorted(service_registry._SERVICE_MAP):
+        for name in _public_methods(other):
+            for target, bindings in _cross_service_runs(other, name).items():
+                index.setdefault(target, []).append((other, name, bindings))
+    return index
 
 
 def _stores_read(service: str, method: str) -> set[str]:
@@ -1012,6 +1159,55 @@ def test_a_session_is_refused_the_remittance_that_wraps_the_send_its_route_refus
             == "/api/v1/realestate/purchase")
 
 
+# ── Round 6: the wrapper rules stop at the service boundary ──────────────────
+#
+# c5f2de4 left it unmeasured: "an operation duplicated across services, or
+# reached through a component (self.part.x), is not joined". Measured at
+# c5f2de4: an anonymous /chat, /bridge/v1/chat and /ws ran platform_action
+# get_payment_quote, and the service performed OracleGateway.request(
+# "price_feed", {"pair": "USD/EUR"}) — the call GET /api/v1/oracle/price/{pair}
+# makes, which answered the same caller 401. cross_border.get_quote reaches it
+# through its conversion component, which builds the OracleGateway itself; no
+# self.x() crosses the boundary, so neither wrapper rule could see it.
+
+
+def test_the_quote_that_performs_the_price_read_is_behind_its_route():
+    from gateway.session_routes import (
+        SERVICE_METHODS_OFF_ALLOWLIST, SERVICE_METHODS_OFF_ANONYMOUS, UNROUTED_STATE_CHANGE,
+        caller_refused_route,
+    )
+
+    runs = _cross_service_runs("cross_border", "get_quote")
+    assert runs[("oracle_gateway", "request")]["oracle_type"] == ("const", "price_feed"), runs
+    # Neither wrapper rule joins them: nothing crosses the boundary as self.x().
+    assert "get_quote" not in _wrapper_closure("oracle_gateway", "request")
+    assert "request" not in _wrapper_closure("cross_border", "get_quote")
+    pairs = _route_pairs()
+    assert "/api/v1/oracle/price/{pair}" in pairs[("cross_border", "get_quote")]
+    assert (SERVICE_METHODS_OFF_ANONYMOUS.get("cross_border.get_quote")
+            == "/api/v1/oracle/price/{pair}")
+    assert "cross_border.get_quote" not in SERVICE_METHODS_OFF_ALLOWLIST
+    assert sd.ACTION_MAP["get_payment_quote"] == ("cross_border", "get_quote")
+    assert caller_refused_route("anonymous", "get_payment_quote") == "/api/v1/oracle/price/{pair}"
+    assert caller_refused_route("session", "get_payment_quote") is None
+    assert caller_refused_route("operator", "get_payment_quote") is None
+    # A different literal across the boundary is a different operation: the
+    # insurance trigger reads the "weather" and "custom" oracles, never the
+    # price, so a claim's auto-settlement stays an unrouted state change.
+    trigger = _cross_service_runs("insurance", "auto_settle_claim")[("oracle_gateway", "request")]
+    assert trigger["oracle_type"] == ("any", frozenset({"weather", "custom"})), trigger
+    assert "/api/v1/oracle/price/{pair}" not in pairs[("insurance", "auto_settle_claim")]
+    assert caller_refused_route("anonymous", "claim_auto_settle") == UNROUTED_STATE_CHANGE
+    # The passes now repeat; a wrapper that pins the literal differently is
+    # still not the route, because the route's literal is lifted onto the
+    # wrapper it joins through (request_safe's oracle_type), not dropped.
+    assert ("oracle_gateway", "query_weather") not in pairs
+    assert caller_refused_route("anonymous", "oracle_weather_query") is None
+    # A read that builds no other service stays what a read with no route is.
+    assert _cross_service_runs("cross_border", "get_payment") == {}
+    assert caller_refused_route("anonymous", "get_cross_border_payment") is None
+
+
 def test_each_anonymous_refusal_by_decision_rests_on_what_it_names():
     """A read refused by decision, not derivation. Each entry must still be
     exactly that: no wrapper chain joins it to its routed sibling in either
@@ -1051,9 +1247,11 @@ async def test_an_anonymous_chat_cannot_read_the_price_proposals_or_provenance_i
     """With no credential, on /bridge/v1/chat, /chat and /ws, platform_action
     get_price and oracle_price_query (oracle_gateway.query_price -> request_safe
     -> request("price_feed"), what GET /api/v1/oracle/price/{pair} runs and
-    answers 401), list_proposals and verify_product (held by decision) must reach
-    ServiceDispatcher.execute for nobody. A session on /bridge/v1/chat and /ws
-    reaches all four, as its routes grant it. The second script is the session
+    answers 401), get_payment_quote (cross_border.get_quote, whose conversion
+    component builds an OracleGateway and performs that same price read for the
+    pair the caller names), list_proposals and verify_product (held by decision)
+    must reach ServiceDispatcher.execute for nobody. A session on /bridge/v1/chat
+    and /ws reaches all five, as its routes grant it. The second script is the session
     tier's leg: request_execution cross_border_remit hands everything to
     send_payment, whose route needs the operator key — the operator reaches it
     and nobody else does. Measured at f414a7d: every anonymous run reached all
@@ -1077,12 +1275,15 @@ async def test_an_anonymous_chat_cannot_read_the_price_proposals_or_provenance_i
 
     reads = [("platform_action", {"action": "get_price", "params": {"pair": "BTC/USD"}}),
              ("platform_action", {"action": "oracle_price_query", "params": {"pair": "BTC/USD"}}),
+             ("platform_action", {"action": "get_payment_quote", "params": {
+                 "amount": 100, "from_currency": "USD", "to_currency": "EUR"}}),
              ("platform_action", {"action": "list_proposals", "params": {}}),
              ("platform_action", {"action": "verify_product", "params": {"product_id": "p1"}})]
     remit = [("request_execution", {"action": "cross_border_remit", "params": {
         "sender": "0xA", "recipient": "0xB", "amount": 1.0,
         "from_currency": "USD", "to_currency": "EUR"}})]
-    all_reads = ["get_price", "list_proposals", "oracle_price_query", "verify_product"]
+    all_reads = ["get_payment_quote", "get_price", "list_proposals", "oracle_price_query",
+                 "verify_product"]
 
     server = _session_server(tmp_path, SWEEP_CONFIG)
 

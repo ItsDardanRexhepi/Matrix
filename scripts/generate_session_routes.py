@@ -164,9 +164,18 @@ def live_route_pairs() -> dict:
         route refused it. cross_border.remit is the same shape one credential
         up: it hands everything to send_payment, whose route needs the operator
         key, and a session ran cross_border_remit.
-    Both follow wrappers transitively and compose the literals down the chain,
-    so a wrapper that pins the routed method's argument to a DIFFERENT literal
-    (request_vrf: "random_vrf") is a different operation and is not included.
+      * what performs its method ACROSS the service boundary. cross_border.get_quote
+        asks its conversion component for a rate, and that component builds an
+        OracleGateway and calls request("price_feed", {"pair": ...}) on it — the
+        price route's own call, for the pair the caller names. No self.x() joins
+        two services, so neither wrapper rule could see it, and an anonymous
+        chat ran get_payment_quote (cross_service_runs).
+    All three follow their chains transitively and compose the literals down
+    them, so a wrapper or a cross-service caller that pins the routed method's
+    argument to a DIFFERENT literal (request_vrf: "random_vrf"; the insurance
+    trigger's "weather") is a different operation and is not included. The
+    passes repeat until nothing joins, so a wrapper of a cross-service caller,
+    or a cross-service caller of a wrapper, is joined too.
     """
     import inspect as _inspect
 
@@ -188,22 +197,39 @@ def live_route_pairs() -> dict:
             out.setdefault(resource.canonical, {}).update(pairs)
     _LIVE["literal"] = {route: frozenset(pairs) for route, pairs in out.items()}
     for pairs in out.values():
-        # Forward: the route runs everything its method wraps, with the route's
-        # literals carried through the chain.
+        # Forward, from the literal pairs only: the route runs everything its
+        # method wraps, with the route's literals carried through the chain.
+        # Not chained from what joins below: a wrapper's OTHER wrappees are not
+        # run by the route.
         for (service, method), fixed in list(pairs.items()):
             for wrapped, chain in wrapper_closure(service, method).items():
                 pairs.setdefault((service, wrapped), _through(fixed, chain))
-        # Reverse: every public method that wraps something the route runs,
-        # with literals that do not contradict the route's, runs the route's
-        # operation. Not chained further: a wrapper's OTHER wrappees are not
-        # run by the route.
-        for (service, method), fixed in list(pairs.items()):
-            for name in _public_methods(service):
-                if (service, name) in pairs:
-                    continue
-                chain = wrapper_closure(service, name).get(method)
-                if chain is not None and _consistent(chain, fixed):
-                    pairs[(service, name)] = {}
+        while True:
+            before = len(pairs)
+            # Across services: every public method of ANY service that builds
+            # a service the route runs and calls the routed method on it, with
+            # literals that do not contradict the route's, performs the route's
+            # operation. It joins with no literal of its own to carry.
+            for (service, method), fixed in list(pairs.items()):
+                for other, name, chain in cross_service_runners(service, method):
+                    if (other, name) not in pairs and _consistent(chain, fixed):
+                        pairs[(other, name)] = {}
+            # Reverse: every public method that wraps something the route runs,
+            # with literals that do not contradict the route's, runs the route's
+            # operation. It joins carrying the route's literals lifted onto its
+            # own parameters, so a wrapper of it that pins one differently
+            # (query_weather -> request_safe -> request) is still not the route.
+            for (service, method), fixed in list(pairs.items()):
+                for name in _public_methods(service):
+                    if (service, name) in pairs:
+                        continue
+                    chain = wrapper_closure(service, name).get(method)
+                    if chain is not None and _consistent(chain, fixed):
+                        pairs[(service, name)] = _lift(chain, fixed)
+            # Until nothing joins: a wrapper of a cross-service caller, and a
+            # cross-service caller of a wrapper, are both the route's operation.
+            if len(pairs) == before:
+                break
     _LIVE["pairs"] = out
     return out
 
@@ -341,11 +367,208 @@ def _through(outer: dict, inner: dict) -> dict:
 
 def _consistent(chain: dict, fixed: dict) -> bool:
     """False only when the route and the chain pin the SAME parameter to
-    DIFFERENT literals. Anything less than that — a default, a variable, a
-    parameter the caller chooses — cannot exclude: that direction would be a
-    silent grant."""
-    return not any(b[0] == "const" and chain.get(p, ("other",))[0] == "const"
-                   and chain[p][1] != b[1] for p, b in fixed.items())
+    DIFFERENT literals — or, for a chain that pins it to one of several
+    literals (``("any", {...})``, the insurance trigger's "weather" or
+    "custom"), to none of them. Anything less than that — a default, a
+    variable, a parameter the caller chooses — cannot exclude: that direction
+    would be a silent grant."""
+    for p, b in fixed.items():
+        if b[0] != "const":
+            continue
+        c = chain.get(p, ("other",))
+        if (c[0] == "const" and c[1] != b[1]) or (c[0] == "any" and b[1] not in c[1]):
+            return False
+    return True
+
+
+def _lift(chain: dict, fixed: dict) -> dict:
+    """The route's literals as constraints on a WRAPPER's own parameters:
+    *chain* binds the routed method's parameters in terms of the wrapper's, so
+    a routed parameter the route pins and the wrapper passes through becomes a
+    pin on the wrapper's parameter of that name. One the wrapper fixes itself,
+    or leaves to a default, carries nothing further."""
+    return {chain[p][1]: b for p, b in fixed.items()
+            if b[0] == "const" and chain.get(p, ("other",))[0] == "param"}
+
+
+_CROSS: dict = {}
+
+
+def _live_registry():
+    """A registry on an empty config: the cross-service walk resolves
+    ``self.part`` through the REAL component objects, as the write census in
+    tests/test_capability_catalog_truth.py does."""
+    if "registry" not in _CROSS:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from runtime.blockchain.services import registry as _registry
+
+        _CROSS["registry"] = _registry.ServiceRegistry({})
+    return _CROSS["registry"]
+
+
+def _service_of_class() -> dict:
+    """registry class name -> service name (the first name, when two share one)."""
+    from runtime.blockchain.services import registry as _registry
+
+    out: dict = {}
+    for name, (_module, cls) in _registry._SERVICE_MAP.items():
+        out.setdefault(cls, name)
+    return out
+
+
+def _walk(owner, fn, seen, depth=0) -> list:
+    """Every function *fn* reaches on *owner* through ``self.x(...)`` and
+    ``self.part.x(...)`` calls, itself first, as ``(tree, module)`` pairs."""
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _textwrap
+
+    code = getattr(fn, "__code__", None)
+    if code is None or "site-packages" in code.co_filename or depth > 8:
+        return []
+    key = (id(owner), code.co_filename, code.co_firstlineno)
+    if key in seen:
+        return []
+    seen.add(key)
+    try:
+        tree = _ast.parse(_textwrap.dedent(_inspect.getsource(fn)))
+    except (OSError, TypeError):
+        return []
+    out = [(tree, _inspect.getmodule(fn))]
+    for node in _ast.walk(tree):
+        if not (isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute)):
+            continue
+        receiver = node.func.value
+        if isinstance(receiver, _ast.Name) and receiver.id == "self":
+            out += _walk(owner, getattr(type(owner), node.func.attr, None), seen, depth + 1)
+        elif (isinstance(receiver, _ast.Attribute) and isinstance(receiver.value, _ast.Name)
+              and receiver.value.id == "self"):
+            part = getattr(owner, receiver.attr, None)
+            if part is not None:
+                out += _walk(part, getattr(type(part), node.func.attr, None), seen, depth + 1)
+    return out
+
+
+def cross_service_runs(service: str, method: str) -> dict:
+    """``{(other service, public method): bindings}`` — every operation of
+    ANOTHER registry service that *method* of *service* performs on an instance
+    it builds itself. The third direction: no ``self.x(...)`` joins two
+    services, so neither wrapper rule can see it.
+
+    cross_border.get_quote asks its conversion component for a rate, and the
+    component does ``OracleGateway(self._config).request("price_feed",
+    {"pair": ...})`` — the call GET /api/v1/oracle/price/{pair} makes, which
+    answers an anonymous caller 401. Measured at c5f2de4: an anonymous chat ran
+    get_payment_quote and the service performed that read for the pair the
+    caller named.
+
+    The walk follows ``self.x(...)`` and ``self.part.x(...)`` through the real
+    component objects, the way the write census does. Over everything reached:
+    a call ``Cls(...)`` whose name is the class the registry maps to another
+    service, and resolves to it (in the module, or imported inside the body),
+    BUILDS that service; a call ``x.m(...)`` on any receiver but ``self``, with
+    ``m`` a public method of a built service, PERFORMS (that service, m), with
+    the literals the call fixes on m's parameters and ``("other",)`` for the
+    rest, so only a different literal can exclude. The union over the closure
+    is coarse on purpose: building the service in one helper and calling the
+    method in another still joins, which errs toward the visible refusal.
+    """
+    import ast as _ast
+
+    key = (service, method)
+    if key in _CROSS:
+        return _CROSS[key]
+    by_class = _service_of_class()
+    try:
+        owner = _live_registry().get(service)
+    except Exception as exc:
+        raise SystemExit(f"cross_service_runs: {service} did not construct on an empty "
+                         f"config ({exc}); the cross-service rule cannot walk it")
+    built: set = set()
+    calls: list = []
+    for tree, module in _walk(owner, getattr(type(owner), method, None), set()):
+        imported = {alias.asname or alias.name for node in _ast.walk(tree)
+                    if isinstance(node, _ast.ImportFrom)
+                    and (node.module or "").startswith("runtime.blockchain.services")
+                    for alias in node.names}
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            if isinstance(node.func, _ast.Name) and node.func.id in by_class:
+                other = by_class[node.func.id]
+                if other != service and (node.func.id in imported or getattr(
+                        module, node.func.id, None) is _service_class(other)):
+                    built.add(other)
+            elif isinstance(node.func, _ast.Attribute) and not (
+                    isinstance(node.func.value, _ast.Name) and node.func.value.id == "self"):
+                calls.append(node)
+    out: dict = {}
+    for other in sorted(built):
+        cls = _service_class(other)
+        public = set(_public_methods(other))
+        for call in calls:
+            name = call.func.attr
+            fdef = _function_def(cls, name) if name in public else None
+            if fdef is None:
+                continue
+            bindings = _literal_bindings(fdef, call)
+            prev = out.get((other, name))
+            # The same method called twice: a parameter pinned to different
+            # literals on the two calls keeps the SET (the trigger manager's
+            # "weather" and "custom" are still neither "price_feed"); one not
+            # pinned on either call is the caller's.
+            out[(other, name)] = bindings if prev is None else {
+                p: _either(prev.get(p, ("other",)), bindings.get(p, ("other",)))
+                for p in set(prev) | set(bindings)}
+    _CROSS[key] = out
+    return out
+
+
+def _either(a: tuple, b: tuple) -> tuple:
+    """The binding of a parameter that is *a* on one call and *b* on another."""
+    if a[0] == "other" or b[0] == "other":
+        return ("other",)
+    literals = (set(a[1]) if a[0] == "any" else {a[1]}) | (set(b[1]) if b[0] == "any" else {b[1]})
+    return ("const", next(iter(literals))) if len(literals) == 1 else ("any", frozenset(literals))
+
+
+def _literal_bindings(callee_fdef, call) -> dict:
+    """How *call* binds the callee's parameters: ``("const", v)`` for a literal
+    and ``("other",)`` for anything else. A caller's own parameters are not
+    composed across a service boundary; a value the caller chooses cannot
+    exclude."""
+    import ast as _ast
+
+    positional, kwonly, _required, _var = _signature(callee_fdef)
+
+    def binding(node):
+        return ("const", node.value) if isinstance(node, _ast.Constant) else ("other",)
+
+    out = {}
+    for i, arg in enumerate(call.args):
+        if not isinstance(arg, _ast.Starred) and i < len(positional):
+            out[positional[i]] = binding(arg)
+    for kw in call.keywords:
+        if kw.arg is not None and (kw.arg in positional or kw.arg in kwonly):
+            out[kw.arg] = binding(kw.value)
+    return out
+
+
+def cross_service_runners(service: str, method: str) -> list:
+    """``[(other service, public method, bindings)]``: every public method of
+    every registry service that performs (*service*, *method*) across the
+    service boundary. Indexed once over every service's public methods."""
+    if "index" not in _CROSS:
+        from runtime.blockchain.services import registry as _registry
+
+        index: dict = {}
+        for other in sorted(_registry._SERVICE_MAP):
+            for name in _public_methods(other):
+                for target, bindings in cross_service_runs(other, name).items():
+                    index.setdefault(target, []).append((other, name, bindings))
+        _CROSS["index"] = index
+    return _CROSS["index"].get((service, method), [])
 
 
 # Two public READS the wrapper rules cannot relate — neither hands its arguments
