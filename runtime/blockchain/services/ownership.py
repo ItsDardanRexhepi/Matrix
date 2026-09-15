@@ -28,7 +28,7 @@ does is make the *absence* of a caller a refusal rather than a silent skip,
 which is the specific way all three instances failed: the parameter simply
 wasn't there, so no check could fail.
 
-An unauthenticated caller is therefore refused, not waved through. That is the
+A call that names no caller is therefore refused, not waved through. That is the
 fail-closed direction, and it is why `caller` has no default.
 """
 

@@ -62,8 +62,8 @@ DEFECT-PROVERS — FAIL before the change, PASS after (16)
   to pin scope, but they are honestly counted here because they fail before —
   they reference `caller_identity` / `set_by`, which did not exist. What they
   guard is future drift, not the original defect.
-    test_params_cannot_assert_an_identity_when_unauthenticated
-    test_params_cannot_override_an_authenticated_identity
+    test_params_caller_identity_is_overwritten_when_nothing_is_threaded
+    test_params_caller_identity_cannot_override_a_threaded_identity
     test_action_whose_method_does_not_declare_identity_is_unaffected
     test_no_ownership_check_was_invented
     test_identity_parameter_stays_optional[RightsManagement.set_rights]
@@ -453,13 +453,17 @@ async def test_gateway_with_no_linked_wallet_still_dispatches():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-async def test_params_cannot_assert_an_identity_when_unauthenticated():
+async def test_params_caller_identity_is_overwritten_when_nothing_is_threaded():
     """DEFECT-PROVER, group 2 (ratchet — measured to fail before).
 
     `params` IS the request body on the bridge path. If a
     client-supplied `caller_identity` were left to stand, this fix would ship
     a brand-new spoofing primitive: assert any address, have the platform
-    record it as fact."""
+    record it as fact. Renamed from test_params_cannot_assert_an_identity_
+    when_unauthenticated: it shows the one key the dispatcher overwrites, not
+    that the body cannot name the caller by another route (on
+    POST /api/v1/capabilities/{id}/invoke with no session it can, see
+    tests/test_bound_identity_is_not_called_authenticated.py)."""
     dispatcher = ServiceDispatcher({})
 
     envelope = json.loads(
@@ -476,7 +480,7 @@ async def test_params_cannot_assert_an_identity_when_unauthenticated():
     )
 
 
-async def test_params_cannot_override_an_authenticated_identity():
+async def test_params_caller_identity_cannot_override_a_threaded_identity():
     """DEFECT-PROVER, group 2 (ratchet — measured to fail before).
 
     The threaded value wins over `params["caller_identity"]`, always. That is
@@ -699,7 +703,7 @@ def test_identity_parameter_stays_optional(method):
     """DEFECT-PROVER, group 2 (ratchet — measured to fail before).
 
     The parameter must never become required. The moment it does,
-    every call site that has no authenticated caller starts raising TypeError
+    every call site that threads no identity starts raising TypeError
     at dispatch time — an outage dressed as a security fix.
     """
     param = inspect.signature(method).parameters["caller_identity"]

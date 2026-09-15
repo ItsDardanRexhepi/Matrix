@@ -51,7 +51,7 @@ def effective_caller(
     (service_dispatcher.py says so in terms). So `assert_owner` was handed a
     string the CALLER wrote, and compared it to `policy["holder"]`.
 
-    MEASURED: a caller authenticated as "mallory", sending
+    MEASURED: a caller whose threaded identity was "mallory", sending
     `{"policy_id": <alice's>, "caller": "alice"}`, cancelled Alice's policy —
     result "cancelled", stored status "cancelled".
 

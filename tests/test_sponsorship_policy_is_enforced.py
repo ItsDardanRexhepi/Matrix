@@ -253,7 +253,7 @@ async def test_the_dispatcher_binds_the_caller_all_the_way_to_the_signer(tmp_pat
 @pytest.mark.asyncio
 async def test_an_unbound_dispatch_stays_unbound(tmp_path, monkeypatch):
     """The complement: no identity in, no identity invented. A dispatch with no
-    authenticated caller must not inherit one from a previous request."""
+    bound caller identity must not inherit one from a previous request."""
     from runtime.blockchain.sponsorship import resolve_caller_identity
     from runtime.tools.dispatcher import ToolDispatcher
 

@@ -21,6 +21,18 @@ only `params["caller_identity"]`; it cannot tell a session's identity from a
 body `wallet` or `params.from` the middleware promoted. The capability-invoke
 tests below drive the whole gateway, middleware included, with no session and
 no header, and read the grantor the rights record names.
+
+A third pass, after 3123fec, found the same claim worded without the word
+"authenticated", which the earlier sweeps keyed on: "Derived, not asserted." in
+the middleware that does the body fallback (gateway/server.py); "identity is
+derived, never asserted" in the tool dispatcher's log line; "The HTTP and bridge
+entry points derive identity from the session" in tests/test_cd_sibling_axes_fixes.py;
+"On the gateway route that caller is authenticated" in
+tests/test_insurance_claim_preconditions.py; and test names and docstrings that
+say a body or an "unauthenticated" call "cannot assert an identity" when what
+they exercise is the dispatcher overwriting one key, `params["caller_identity"]`.
+Those are corrected and listed below. This is still a text check: it catches
+these phrases coming back, not a new wording of the same claim.
 """
 
 from __future__ import annotations
@@ -240,6 +252,7 @@ FALSE_PHRASES = {
     ],
     "gateway/server.py": [
         "the authenticated wallet header",
+        "Derived, not asserted.",
     ],
     "docs/api-reference.md": [
         "Identity is derived, never asserted.",
@@ -280,9 +293,14 @@ FALSE_PHRASES = {
     ],
     "runtime/blockchain/services/insurance/_guards.py": [
         "ONLY the threaded `caller_identity` may be trusted",
+        'a caller authenticated as "mallory"',
+    ],
+    "runtime/blockchain/services/ownership.py": [
+        "An unauthenticated caller is therefore refused",
     ],
     "runtime/tools/dispatcher.py": [
         "the authenticated address the HTTP and bridge entry",
+        "identity is derived, never asserted",
     ],
     "tests/test_caller_identity_is_not_dropped.py": [
         "The wallet the gateway authenticated",
@@ -294,6 +312,27 @@ FALSE_PHRASES = {
         "async def test_capability_route_body_cannot_assert_an_identity",
         'an unauthenticated invoke must record "unknown" and never the address the body claims',
         "the capability route let a body-supplied address become",
+        "async def test_params_cannot_assert_an_identity_when_unauthenticated",
+        "async def test_params_cannot_override_an_authenticated_identity",
+        "has no authenticated caller starts raising",
+    ],
+    "tests/test_cd_sibling_axes_fixes.py": [
+        "the identity class: derived, never asserted",
+        "The HTTP and bridge entry points derive identity from the session.",
+    ],
+    "tests/test_insurance_claim_preconditions.py": [
+        "On the gateway route that caller is authenticated",
+    ],
+    "tests/test_insurance_caller_cannot_assert_its_own_identity.py": [
+        'caller authenticated as "mallory"',
+        "async def test_an_unauthenticated_caller_cannot_assert_an_identity",
+        "an unauthenticated call is a refusal, never a fallback to the self-asserted value",
+    ],
+    "tests/test_sponsorship_policy_is_enforced.py": [
+        "A dispatch with no authenticated caller must not inherit",
+    ],
+    "tests/test_nft_royalty_authority.py": [
+        'distinguish "nobody was authenticated" from "we did not look"',
     ],
     "tests/test_insurance_claim_route.py": [
         "middleware authenticated for THIS request",

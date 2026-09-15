@@ -2663,14 +2663,21 @@ class GatewayServer:
         service funnel can attribute and verify the request. Pass-through otherwise.
 
         This middleware makes NO security decision — it only carries context. It
-        reads the JSON body once (aiohttp caches it for the handler). Identity comes
-        from the ``X-Wallet-Address`` header or the body; the App Attest assertion
-        rides in the request body (``app_attest``) per the client contract.
+        reads the JSON body once (aiohttp caches it for the handler). Identity is
+        the session's subject when a session is presented; otherwise the
+        ``X-Wallet-Address`` header or a body field, as the caller wrote it. The
+        App Attest assertion rides in the request body (``app_attest``) per the
+        client contract.
         """
         if request.method == "POST" and request.path.startswith("/api/v1/"):
-            # T2: an authenticated session's subject is the identity — a header
-            # or body field the caller wrote is consulted only when there is no
-            # session (anonymous and dev flows). Derived, not asserted.
+            # T2: a session's subject is the identity, and nothing in the
+            # request overrides it. With no session (an operator-key request,
+            # or a gateway running with auth off) the identity is asserted, not
+            # derived: the X-Wallet-Address header, else a body wallet/from/
+            # sender/account field, else params.from, as the caller wrote it.
+            # Only the session case is authenticated; the routes that record
+            # or compare "the caller" receive the asserted value on the other
+            # path (see docs/api-reference.md, "Identity").
             identity = self._session_identity(request) or request.headers.get("X-Wallet-Address", "") or ""
             apple_id = self._session_apple_id(request) or request.headers.get("X-Apple-Id", "") or ""
             app_attest = None

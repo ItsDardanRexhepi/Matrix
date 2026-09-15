@@ -286,7 +286,8 @@ class ToolDispatcher:
         supplied = set(arguments) & self.RESERVED_ARGUMENTS
         if supplied:
             logger.warning("Tool '%s' call carried reserved argument(s) %s — stripped; "
-                           "identity is derived, never asserted", tool_name, sorted(supplied))
+                           "the model may not assert an identity, only the value the "
+                           "entry point bound is used", tool_name, sorted(supplied))
             arguments = {k: v for k, v in arguments.items() if k not in self.RESERVED_ARGUMENTS}
         if caller_identity or caller_source:
             import inspect
