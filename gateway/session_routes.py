@@ -108,6 +108,7 @@ CAPABILITIES_OFF_ALLOWLIST: dict[str, str] = {
     "create_nft_collection": "/api/v1/nft/collection/create",
     "create_social_profile": "/api/v1/social/profile",
     "credential_issue": "/api/v1/identity/credential/issue",
+    "cross_border_remit": "/api/v1/crossborder/send",
     "custody_transfer": "/api/v1/supply-chain/custody/transfer",
     "decentralized_store": "/api/v1/compute/store",
     "earn_loyalty": "/api/v1/loyalty/earn",
@@ -134,6 +135,7 @@ CAPABILITIES_OFF_ALLOWLIST: dict[str, str] = {
 SERVICE_METHODS_OFF_ALLOWLIST: dict[str, str] = {
     "brand_rewards.create_campaign": "/api/v1/brand/campaign/create",
     "cashback.track_spending": "/api/v1/cashback/track",
+    "cross_border.remit": "/api/v1/crossborder/send",
     "cross_border.send_payment": "/api/v1/crossborder/send",
     "dex.add_liquidity": "/api/v1/dex/liquidity/add",
     "did_identity.issue_credential": "/api/v1/identity/credential/issue",
@@ -184,6 +186,7 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "brand_rewards.create_campaign": "/api/v1/brand/campaign/create",
     "cashback.track_spending": "/api/v1/cashback/track",
     "contract_conversion.convert": "/api/v1/contracts/convert",
+    "cross_border.remit": "/api/v1/crossborder/send",
     "cross_border.send_payment": "/api/v1/crossborder/send",
     "dao_management.create_dao": "/api/v1/dao/create",
     "dashboard.get_overview": "/api/v1/dashboard/{address}",
@@ -206,9 +209,11 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "fundraising.create_campaign": "/api/v1/fundraising/campaign/create",
     "gaming.register_game": "/api/v1/gaming/register",
     "governance.create_proposal": "/api/v1/governance/proposal/create",
+    "governance.list_proposals": "/api/v1/governance/daos/{daoId}/proposals",
     "governance.list_proposals_detailed": "/api/v1/governance/daos/{daoId}/proposals",
     "governance.snapshot_vote": "/api/v1/governance/snapshot/vote",
     "governance.vote": "/api/v1/governance/vote",
+    "insurance.check_triggers": "/api/v1/insurance/claim",
     "insurance.create_parametric_policy": "/api/v1/insurance/parametric/create",
     "insurance.create_policy": "/api/v1/insurance/policy/create",
     "insurance.file_claim": "/api/v1/insurance/claim",
@@ -225,7 +230,9 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "nft_services.mint": "/api/v1/nft/mint",
     "nft_services.rent": "/api/v1/nft/rent",
     "nft_services.royalty_claim": "/api/v1/nft/royalty/claim",
+    "oracle_gateway.query_price": "/api/v1/oracle/price/{pair}",
     "oracle_gateway.request": "/api/v1/oracle/price/{pair}",
+    "oracle_gateway.request_safe": "/api/v1/oracle/price/{pair}",
     "privacy.decentralized_store": "/api/v1/compute/store",
     "privacy.pin_to_ipfs": "/api/v1/compute/ipfs/pin",
     "privacy.request_deletion": "/api/v1/privacy/delete",
@@ -262,8 +269,20 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
     "supply_chain.register_product": "/api/v1/supply-chain/register",
     "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
+    "supply_chain.verify": "/api/v1/supply-chain/verify",
     "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
     "x402_payments.create_payment": "/api/v1/payments/create",
+}
+
+# Of those, the reads refused by DECISION rather than derivation: a public read
+# no wrapper chain joins to its routed sibling, held refused to an anonymous
+# caller because both read the named store, until a ruling on it is written.
+# A session is not refused these. Each: pair -> (routed sibling, shared store).
+ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, str]] = {
+    # both iterate self._proposals and apply the same active->expired transition
+    "governance.list_proposals": ("governance.list_proposals_detailed", "_proposals"),
+    # both run _verify_chain_integrity over self._provenance[product_id]
+    "supply_chain.verify": ("supply_chain.verify_authenticity", "_provenance"),
 }
 
 # What an anonymous refusal names when no route backs the operation at all:

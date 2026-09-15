@@ -120,8 +120,17 @@ def test_a_conflict_is_reported_in_full_not_truncated(caplog):
 @functools.lru_cache(maxsize=1)
 def _route_pairs():
     """(service, method) -> {canonical route} from the REAL app: its registered
-    routes, and the `self._call(service, method, ...)` in each handler's own
-    source — found on the AST, so a comment inside the call cannot hide it."""
+    routes, the `self._call(service, method, ...)` in each handler's own source —
+    found on the AST, so a comment inside the call cannot hide it — and, in both
+    directions, what wraps what:
+      * Round 4: what the route's method WRAPS. /api/v1/social/feed/{wallet}
+        calls social.get_feed_view, which hands every argument to social.get_feed.
+      * Round 5: what WRAPS a method the route runs. /api/v1/oracle/price/{pair}
+        calls oracle_gateway.request(oracle_type="price_feed", ...); query_price
+        hands its every argument to request_safe, which hands them to request
+        with that same literal. Literals are composed down the chain and compared
+        with the route's, so request_vrf ("random_vrf") is not the price route.
+    """
     import ast
     import collections
     import inspect
@@ -133,7 +142,7 @@ def _route_pairs():
     scratch = tempfile.mkdtemp(prefix="opnmatrx-catalog-truth-")
     app = GatewayServer({"memory_dir": scratch,
                          "database": {"path": f"{scratch}/t.db"}}).create_app()
-    pairs = collections.defaultdict(set)
+    literal: dict = {}  # (route, service, method) -> {kw: binding} the handler fixes
     for route in app.router.routes():
         try:
             src = inspect.getsource(getattr(route.handler, "__func__", route.handler))
@@ -150,53 +159,159 @@ def _route_pairs():
             assert len(head) == 2 and all(
                 isinstance(a, ast.Constant) and isinstance(a.value, str) for a in head), (
                 f"{route.resource.canonical}: self._call with a non-literal service/method")
-            pairs[(head[0].value, head[1].value)].add(route.resource.canonical)
-    # A route also runs the method its handler's method WRAPS. Round 4:
-    # /api/v1/social/feed/{wallet} calls social.get_feed_view, which hands every
-    # argument to social.get_feed; the literal pair missed it, and an anonymous
-    # chat read get_social_feed through platform_action while the route answered 401.
-    changed = True
-    while changed:
-        changed = False
-        for (service, method), routes in list(pairs.items()):
-            for wrapped in _wrapped_methods(service, method):
-                before = len(pairs[(service, wrapped)])
-                pairs[(service, wrapped)] |= routes
-                changed |= len(pairs[(service, wrapped)]) != before
+            fixed = {k.arg: (("const", k.value.value) if isinstance(k.value, ast.Constant)
+                             else ("other",))
+                     for k in node.keywords if k.arg is not None}
+            key = (route.resource.canonical, head[0].value, head[1].value)
+            if key in literal:  # the same pair twice: a literal that differs is no literal
+                prev = literal[key]
+                fixed = {k: (prev[k] if k in prev and k in fixed and prev[k] == fixed[k]
+                             else ("other",)) for k in set(prev) | set(fixed)}
+            literal[key] = fixed
+    pairs = collections.defaultdict(set)
+    routed = []  # what each route RUNS: the literal pair and what it wraps
+    for (route, service, method), fixed in literal.items():
+        pairs[(service, method)].add(route)
+        routed.append((route, service, method, fixed))
+        for wrapped, chain in _wrapper_closure(service, method).items():
+            pairs[(service, wrapped)].add(route)
+            routed.append((route, service, wrapped, _through(fixed, chain)))
+    for route, service, method, fixed in routed:
+        for name in _public_methods(service):
+            chain = _wrapper_closure(service, name).get(method)
+            if chain is not None and _consistent(chain, fixed):
+                pairs[(service, name)].add(route)
     return pairs
 
 
-def _wrapped_methods(service: str, method: str) -> set[str]:
-    """Public methods of the same service that *method* passes EVERY one of its
-    own parameters to: a wrapper runs that operation, not merely a helper of it.
-    (A helper, such as the quote a transfer computes, receives only some of the
-    caller's arguments, and is not the route's operation.)"""
+def _function_def(cls, name: str):
     import ast
     import inspect
     import textwrap
 
-    if service not in service_registry._SERVICE_MAP:
-        return set()
-    cls = _service_class(service)
-    fn = getattr(cls, method, None)
+    fn = getattr(cls, name, None)
+    if not callable(fn):
+        return None
     try:
-        fdef = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+        return ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
     except (OSError, TypeError, IndexError):
-        return set()
-    params = {a.arg for a in (fdef.args.posonlyargs + fdef.args.args + fdef.args.kwonlyargs)
-              if a.arg != "self"}
+        return None
+
+
+def _public_methods(service: str) -> list[str]:
+    import inspect
+
+    if service not in service_registry._SERVICE_MAP:
+        return []
+    return sorted(n for n, _ in inspect.getmembers(_service_class(service),
+                                                   predicate=inspect.isfunction)
+                  if not n.startswith("_"))
+
+
+def _signature(fdef):
+    a = fdef.args
+    positional = [x.arg for x in a.posonlyargs + a.args if x.arg != "self"]
+    kwonly = [x.arg for x in a.kwonlyargs]
+    required = set(positional[:len(positional) - len(a.defaults)])
+    required |= {k.arg for k, d in zip(a.kwonlyargs, a.kw_defaults) if d is None}
+    var = [v.arg for v in (a.vararg, a.kwarg) if v is not None]
+    return positional, kwonly, required, var
+
+
+def _bindings(callee_fdef, call, own: set) -> dict:
+    """callee parameter -> ("const", v) | ("param", the caller's own) | ("other",)."""
+    import ast
+
+    positional, kwonly, _required, _var = _signature(callee_fdef)
+
+    def binding(node):
+        if isinstance(node, ast.Constant):
+            return ("const", node.value)
+        if isinstance(node, ast.Name) and node.id in own:
+            return ("param", node.id)
+        return ("other",)
+
+    out = {}
+    for i, arg in enumerate(call.args):
+        if not isinstance(arg, ast.Starred) and i < len(positional):
+            out[positional[i]] = binding(arg)
+    for kw in call.keywords:
+        if kw.arg is not None and (kw.arg in positional or kw.arg in kwonly):
+            out[kw.arg] = binding(kw.value)
+    return out
+
+
+@functools.lru_cache(maxsize=None)
+def _wrapped_methods(service: str, method: str) -> dict:
+    """Public methods of the same service that *method* WRAPS, each mapped to how
+    the call binds the callee's parameters. A wrapper passes EVERY one of its own
+    required parameters (and any *args / **kwargs) on, and at least one of its
+    parameters at all; with none to pass, only a sole public self-call counts.
+    (A helper, such as the quote a transfer computes, receives only some of the
+    caller's arguments, and is not the route's operation. A defaulted parameter
+    the wrapper keeps for itself — request_safe's stale_max_age — does not stop
+    it being one.)"""
+    import ast
+
+    if service not in service_registry._SERVICE_MAP:
+        return {}
+    cls = _service_class(service)
+    fdef = _function_def(cls, method)
+    if fdef is None:
+        return {}
+    positional, kwonly, required, var = _signature(fdef)
+    own = set(positional) | set(kwonly) | set(var)
+    must = required | set(var)
     calls = [n for n in ast.walk(fdef)
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
              and isinstance(n.func.value, ast.Name) and n.func.value.id == "self"
              and not n.func.attr.startswith("_") and callable(getattr(cls, n.func.attr, None))]
-    out = set()
+    out = {}
     for call in calls:
         passed = {x.id for arg in [*call.args, *(k.value for k in call.keywords)]
                   for x in ast.walk(arg) if isinstance(x, ast.Name)}
-        # With no parameters, "all of them" is vacuous: only a sole public call counts.
-        if params <= passed and (params or len(calls) == 1):
-            out.add(call.func.attr)
+        callee = _function_def(cls, call.func.attr)
+        if callee is not None and must <= passed and ((own & passed) or len(calls) == 1):
+            out[call.func.attr] = _bindings(callee, call, own)
     return out
+
+
+def _through(outer: dict, inner: dict) -> dict:
+    """Compose bindings down a chain; a caller parameter left unbound is its default."""
+    return {p: (outer.get(b[1], ("default",)) if b[0] == "param" else b)
+            for p, b in inner.items()}
+
+
+def _wrapper_closure(service: str, method: str) -> dict:
+    """Every public method *method* reaches through wrappers, transitively, mapped
+    to how its parameters are bound in terms of *method*'s own and its literals."""
+    reached: dict = {}
+    frontier = [(method, None)]
+    while frontier:
+        current, bindings = frontier.pop()
+        for callee, cb in _wrapped_methods(service, current).items():
+            if callee in reached or callee == method:
+                continue
+            composed = cb if bindings is None else _through(bindings, cb)
+            reached[callee] = composed
+            frontier.append((callee, composed))
+    return reached
+
+
+def _consistent(chain: dict, fixed: dict) -> bool:
+    """False only when both pin the SAME parameter to DIFFERENT literals."""
+    return not any(b[0] == "const" and chain.get(p, ("other",))[0] == "const"
+                   and chain[p][1] != b[1] for p, b in fixed.items())
+
+
+def _stores_read(service: str, method: str) -> set[str]:
+    """The private attributes of self a method's body touches (its stores)."""
+    import ast
+
+    fdef = _function_def(_service_class(service), method)
+    return {n.attr for n in ast.walk(fdef)
+            if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+            and n.value.id == "self" and n.attr.startswith("_")}
 
 
 def _derived_escapes() -> dict[str, list[str]]:
@@ -574,9 +689,18 @@ def _public_paths():
 
 
 def _derived_anonymous_refused_pairs() -> dict[tuple[str, str], list[str]]:
+    """What the AST derives, plus the reads held by decision under their routed
+    sibling's routes (each decision is checked on its own below; read with a
+    default so the derivation still runs on a tree that predates the table)."""
+    from gateway import session_routes
+
     public = _public_paths()
-    return {pair: sorted(routes) for pair, routes in _route_pairs().items()
-            if any(r not in public for r in routes)}
+    out = {pair: sorted(routes) for pair, routes in _route_pairs().items()
+           if any(r not in public for r in routes)}
+    for key, (sibling, _store) in getattr(session_routes, "ANONYMOUS_REFUSED_BY_DECISION",
+                                           {}).items():
+        out[tuple(key.split("."))] = out[tuple(sibling.split("."))]
+    return out
 
 
 def test_the_anonymous_pair_set_matches_what_the_routes_require():
@@ -827,6 +951,181 @@ def test_the_wrapped_feed_read_is_behind_its_route():
     # quote stays a read for everyone.
     assert "get_fee" not in _wrapped_methods("stablecoin", "transfer")
     assert caller_refused_route("session", "get_payment_quote") is None
+
+
+# ── Round 5: the wrapper rule ran one way ────────────────────────────────────
+#
+# f414a7d's rule saw only what a route's method WRAPS. Measured at f414a7d, an
+# anonymous /chat ran platform_action get_price and oracle_price_query, and both
+# executed OracleGateway.request("price_feed", {"pair": "BTC/USD"}) — the very
+# call GET /api/v1/oracle/price/{pair} makes, and that route answered the same
+# caller 401. query_price hands its every argument to request_safe, which hands
+# them to request; nothing in the route's method pointed the other way. One
+# credential up, cross_border.remit hands everything to send_payment, whose
+# route needs the operator key, and a session ran cross_border_remit through
+# every dispatcher. Two more reads reach what their sibling's route refuses
+# without wrapping it: list_proposals reads the store list_proposals_detailed
+# reads, and verify (verify_product) checks the chain verify_authenticity
+# checks. Those are decisions, recorded in ANONYMOUS_REFUSED_BY_DECISION and
+# held refused to an anonymous caller until a ruling is written.
+
+
+def test_the_wrapped_price_read_is_behind_its_route():
+    from gateway.session_routes import SERVICE_METHODS_OFF_ANONYMOUS, caller_refused_route
+
+    pairs = _route_pairs()
+    assert "/api/v1/oracle/price/{pair}" in pairs[("oracle_gateway", "query_price")]
+    assert (SERVICE_METHODS_OFF_ANONYMOUS.get("oracle_gateway.query_price")
+            == "/api/v1/oracle/price/{pair}")
+    for action in ("get_price", "oracle_price_query"):
+        assert sd.ACTION_MAP[action] == ("oracle_gateway", "query_price")
+        assert caller_refused_route("anonymous", action) == "/api/v1/oracle/price/{pair}"
+        assert caller_refused_route("session", action) is None
+    # The chain is followed transitively, and the literal fixed two calls up is
+    # still a literal where it lands.
+    chain = _wrapper_closure("oracle_gateway", "query_price")
+    assert chain["request"]["oracle_type"] == ("const", "price_feed"), chain
+    # A wrapper that pins the routed method's argument to a DIFFERENT literal is
+    # a different operation: neither the weather oracle nor VRF is behind the
+    # price route, and the weather read stays what a read with no route is.
+    assert ("oracle_gateway", "query_weather") not in pairs
+    assert ("oracle_gateway", "request_vrf") not in pairs
+    assert caller_refused_route("anonymous", "oracle_weather_query") is None
+
+
+def test_a_session_is_refused_the_remittance_that_wraps_the_send_its_route_refuses():
+    from gateway.session_routes import (
+        CAPABILITIES_OFF_ALLOWLIST, SERVICE_METHODS_OFF_ALLOWLIST, caller_refused_route,
+    )
+
+    assert "/api/v1/crossborder/send" in _route_pairs()[("cross_border", "remit")]
+    assert SERVICE_METHODS_OFF_ALLOWLIST.get("cross_border.remit") == "/api/v1/crossborder/send"
+    assert "cross_border_remit" in _actions_reaching_a_refused_pair()
+    assert caller_refused_route("session", "cross_border_remit") == "/api/v1/crossborder/send"
+    assert caller_refused_route("anonymous", "cross_border_remit")
+    assert caller_refused_route("operator", "cross_border_remit") is None
+    cap = next(c for c in catalog.CAPABILITIES if c["action"] == "cross_border_remit")
+    assert cap["id"] in CAPABILITIES_OFF_ALLOWLIST
+    # The label is the pair's OWN route when it has one, not the read it performs
+    # on the way: execute_purchase runs get_property, and names /purchase.
+    assert (SERVICE_METHODS_OFF_ALLOWLIST["real_estate.execute_purchase"]
+            == "/api/v1/realestate/purchase")
+
+
+def test_each_anonymous_refusal_by_decision_rests_on_what_it_names():
+    """A read refused by decision, not derivation. Each entry must still be
+    exactly that: no wrapper chain joins it to its routed sibling in either
+    direction (else it is derived and the decision is redundant), the sibling is
+    itself behind a route an anonymous caller cannot reach, both read the store
+    the decision names, and only the anonymous tier is held."""
+    from gateway.session_routes import (
+        ANONYMOUS_REFUSED_BY_DECISION, SERVICE_METHODS_OFF_ALLOWLIST,
+        SERVICE_METHODS_OFF_ANONYMOUS, caller_refused_route,
+    )
+
+    assert set(ANONYMOUS_REFUSED_BY_DECISION) == {"governance.list_proposals",
+                                                  "supply_chain.verify"}
+    pairs = _route_pairs()
+    public = _public_paths()
+    for key, (sibling, store) in ANONYMOUS_REFUSED_BY_DECISION.items():
+        service, method = key.split(".")
+        s2, routed = sibling.split(".")
+        assert s2 == service
+        assert (service, method) not in pairs, f"{key} is derived now; drop the decision"
+        assert routed not in _wrapper_closure(service, method)
+        assert method not in _wrapper_closure(service, routed)
+        assert any(r not in public for r in pairs[(service, routed)]), sibling
+        assert SERVICE_METHODS_OFF_ANONYMOUS[key] == SERVICE_METHODS_OFF_ANONYMOUS[sibling]
+        assert store in _stores_read(service, method), (key, store)
+        assert store in _stores_read(service, routed), (sibling, store)
+        assert key not in SERVICE_METHODS_OFF_ALLOWLIST
+        actions = [a for a, p in sd.ACTION_MAP.items() if p == (service, method)]
+        assert actions, key
+        for action in actions:
+            assert caller_refused_route("anonymous", action) == SERVICE_METHODS_OFF_ANONYMOUS[key]
+            assert caller_refused_route("session", action) is None
+
+
+async def test_an_anonymous_chat_cannot_read_the_price_proposals_or_provenance_its_routes_refuse(
+        monkeypatch, tmp_path):
+    """With no credential, on /bridge/v1/chat, /chat and /ws, platform_action
+    get_price and oracle_price_query (oracle_gateway.query_price -> request_safe
+    -> request("price_feed"), what GET /api/v1/oracle/price/{pair} runs and
+    answers 401), list_proposals and verify_product (held by decision) must reach
+    ServiceDispatcher.execute for nobody. A session on /bridge/v1/chat and /ws
+    reaches all four, as its routes grant it. The second script is the session
+    tier's leg: request_execution cross_border_remit hands everything to
+    send_payment, whose route needs the operator key — the operator reaches it
+    and nobody else does. Measured at f414a7d: every anonymous run reached all
+    four reads, and both session runs reached the remittance."""
+    import json
+    import sys
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    class _Allow:
+        async def evaluate(self, action, context):
+            return {"allow": True}
+
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda *a, **k: _Allow())
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+
+    reads = [("platform_action", {"action": "get_price", "params": {"pair": "BTC/USD"}}),
+             ("platform_action", {"action": "oracle_price_query", "params": {"pair": "BTC/USD"}}),
+             ("platform_action", {"action": "list_proposals", "params": {}}),
+             ("platform_action", {"action": "verify_product", "params": {"product_id": "p1"}})]
+    remit = [("request_execution", {"action": "cross_border_remit", "params": {
+        "sender": "0xA", "recipient": "0xB", "amount": 1.0,
+        "from_currency": "USD", "to_currency": "EUR"}})]
+    all_reads = ["get_price", "list_proposals", "oracle_price_query", "verify_product"]
+
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+
+    async def chat(client, surface, headers, script, session_id):
+        _scripted_model(server, script)
+        recorder.calls.clear()
+        if surface == "/ws":
+            async with client.ws_connect("/ws", headers=headers) as ws:
+                await ws.send_json({"type": "chat", "message": "do it", "agent": "trinity",
+                                    "session_id": session_id})
+                while True:
+                    frame = json.loads((await ws.receive()).data)
+                    if frame.get("type") in ("done", "error"):
+                        assert frame["type"] == "done", frame
+                        break
+        else:
+            resp = await client.post(surface, headers=headers, json={
+                "message": "do it", "wallet_connected": True, "session_id": session_id})
+            assert resp.status == 200, await resp.text()
+        return sorted(c.split("@")[0] for c in recorder.calls)
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        operator = {"Authorization": "Bearer k"}
+        session = {"Authorization": "Bearer 0xTEST_SESSION"}
+        runs = {
+            "operator /bridge/v1/chat": ("/bridge/v1/chat", operator, (all_reads, ["cross_border_remit"])),
+            "session /bridge/v1/chat": ("/bridge/v1/chat", session, (all_reads, [])),
+            "session /ws": ("/ws", session, (all_reads, [])),
+            "anonymous /bridge/v1/chat": ("/bridge/v1/chat", {}, ([], [])),
+            "anonymous /chat": ("/chat", {}, ([], [])),
+            "anonymous /ws": ("/ws", {}, ([], [])),
+        }
+        reached, expected = {}, {}
+        for n, (label, (surface, headers, want)) in enumerate(runs.items()):
+            reached[label] = (await chat(client, surface, headers, reads, f"p{n}a"),
+                              await chat(client, surface, headers, remit, f"p{n}b"))
+            expected[label] = want
+        assert reached == expected, "\n".join(
+            f"{k}: reads reached {v[0]}, remit reached {v[1]}"
+            for k, v in reached.items() if v != expected[k])
 
 
 # ── The class: a "read" that writes must be adjudicated, not assumed ─────────

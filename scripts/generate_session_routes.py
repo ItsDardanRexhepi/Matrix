@@ -79,20 +79,26 @@ def gateway_routes(routes_md: Path) -> dict[str, str]:
     return out
 
 
-def _call_pairs(fn_source: str, where: str) -> set:
-    """Every (service, method) a handler's body passes to ``self._call``.
+def _call_pairs(fn_source: str, where: str) -> dict:
+    """Every (service, method) a handler's body passes to ``self._call``, with the
+    keyword arguments the handler FIXES on it: ``{(service, method): {kw: b}}``
+    where ``b`` is ``("const", value)`` for a literal and ``("other",)`` for
+    anything else. The literals are what make a route one operation and not
+    another (``oracle_type="price_feed"``), so the wrapper rules below compare
+    them.
 
     Read from the AST, not a regex: a comment between ``self._call(`` and its
     first literal (NEW-89 left one in _handle_provenance_log) made the regex miss
     the call, and the capability behind it with it. EVERY literal call is kept,
     not only the first. A ``self._call`` whose service or method is not a string
     literal cannot be attributed to a pair, so it stops the generator rather than
-    silently leaving an operation off the refusal set.
+    silently leaving an operation off the refusal set. The same pair called twice
+    with different literals keeps neither: a mismatch must never exclude.
     """
     import ast as _ast
     import textwrap as _textwrap
 
-    out = set()
+    out: dict = {}
     for node in _ast.walk(_ast.parse(_textwrap.dedent(fn_source))):
         if not (isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute)
                 and node.func.attr == "_call" and isinstance(node.func.value, _ast.Name)
@@ -104,7 +110,16 @@ def _call_pairs(fn_source: str, where: str) -> set:
             raise SystemExit(
                 f"{where}: self._call with a non-literal service/method; the session "
                 "refusal set cannot attribute it to an operation — make both literals")
-        out.add((head[0].value, head[1].value))
+        fixed = {k.arg: (("const", k.value.value) if isinstance(k.value, _ast.Constant)
+                         else ("other",))
+                 for k in node.keywords if k.arg is not None}
+        pair = (head[0].value, head[1].value)
+        if pair in out:
+            prev = out[pair]
+            fixed = {k: (prev[k] if k in prev and k in fixed and prev[k] == fixed[k]
+                         else ("other",))
+                     for k in set(prev) | set(fixed)}
+        out[pair] = fixed
     return out
 
 
@@ -128,16 +143,35 @@ def _live_server():
 
 
 def live_route_pairs() -> dict:
-    """canonical route -> {(service, method)} from the REAL app's router.
+    """canonical route -> {(service, method): fixed kwargs} from the REAL app's router.
 
     Routes are read from the router the gateway builds, not regexed out of
     service_routes.py: the regex only knew ``app.router.add_x("/path",
     self._handle_x)``, and the P2 routes registered from a
     ``(method, path, handler)`` table were invisible to it — including two whose
     operation a session is refused.
+
+    A route runs more than the literal pair, in BOTH directions:
+      * what its method WRAPS. /api/v1/social/feed/{wallet} calls
+        social.get_feed_view, which hands every argument to social.get_feed; the
+        literal pair alone left get_social_feed readable by an anonymous chat
+        while the route answered it 401.
+      * what WRAPS its method. /api/v1/oracle/price/{pair} calls
+        oracle_gateway.request(oracle_type="price_feed", ...); query_price — the
+        method behind get_price and oracle_price_query — hands its every argument
+        to request_safe, which hands them to request with that same literal. The
+        first rule could not see it, and an anonymous chat read the price its
+        route refused it. cross_border.remit is the same shape one credential
+        up: it hands everything to send_payment, whose route needs the operator
+        key, and a session ran cross_border_remit.
+    Both follow wrappers transitively and compose the literals down the chain,
+    so a wrapper that pins the routed method's argument to a DIFFERENT literal
+    (request_vrf: "random_vrf") is a different operation and is not included.
     """
     import inspect as _inspect
 
+    if "pairs" in _LIVE:
+        return _LIVE["pairs"]
     _server, app = _live_server()
     out: dict = {}
     for route in app.router.routes():
@@ -151,57 +185,188 @@ def live_route_pairs() -> dict:
             continue  # a closure or builtin handler has no self._call to find
         pairs = _call_pairs(source, f"{getattr(fn, '__qualname__', fn)} ({resource.canonical})")
         if pairs:
-            out.setdefault(resource.canonical, set()).update(pairs)
-    # A route also runs what its method WRAPS. /api/v1/social/feed/{wallet}
-    # calls social.get_feed_view, which hands every argument to social.get_feed;
-    # the literal pair alone left get_social_feed readable by an anonymous chat
-    # while the route answered it 401.
+            out.setdefault(resource.canonical, {}).update(pairs)
+    _LIVE["literal"] = {route: frozenset(pairs) for route, pairs in out.items()}
     for pairs in out.values():
-        frontier = list(pairs)
-        while frontier:
-            service, method = frontier.pop()
-            for wrapped in wrapped_methods(service, method):
-                if (service, wrapped) not in pairs:
-                    pairs.add((service, wrapped))
-                    frontier.append((service, wrapped))
+        # Forward: the route runs everything its method wraps, with the route's
+        # literals carried through the chain.
+        for (service, method), fixed in list(pairs.items()):
+            for wrapped, chain in wrapper_closure(service, method).items():
+                pairs.setdefault((service, wrapped), _through(fixed, chain))
+        # Reverse: every public method that wraps something the route runs,
+        # with literals that do not contradict the route's, runs the route's
+        # operation. Not chained further: a wrapper's OTHER wrappees are not
+        # run by the route.
+        for (service, method), fixed in list(pairs.items()):
+            for name in _public_methods(service):
+                if (service, name) in pairs:
+                    continue
+                chain = wrapper_closure(service, name).get(method)
+                if chain is not None and _consistent(chain, fixed):
+                    pairs[(service, name)] = {}
+    _LIVE["pairs"] = out
     return out
 
 
-def wrapped_methods(service: str, method: str) -> set:
-    """Public methods of *service* that *method* passes EVERY one of its own
-    parameters to — a wrapper runs that operation. A helper (the fee a transfer
-    computes) receives only some of the caller's arguments and is not the
-    route's operation, so it is not included. With no parameters, "every one"
-    is vacuous, and only a sole public self-call counts."""
-    import ast as _ast
+def _service_class(service: str):
     import importlib as _importlib
-    import inspect as _inspect
-    import textwrap as _textwrap
 
     from runtime.blockchain.services import registry as _registry
 
     if service not in _registry._SERVICE_MAP:
-        return set()
+        return None
     module_path, class_name = _registry._SERVICE_MAP[service]
-    cls = getattr(_importlib.import_module(module_path, package=_registry._PACKAGE), class_name)
-    fn = getattr(cls, method, None)
+    return getattr(_importlib.import_module(module_path, package=_registry._PACKAGE), class_name)
+
+
+def _public_methods(service: str) -> list:
+    import inspect as _inspect
+
+    cls = _service_class(service)
+    if cls is None:
+        return []
+    return sorted(n for n, _ in _inspect.getmembers(cls, predicate=_inspect.isfunction)
+                  if not n.startswith("_"))
+
+
+def _function_def(cls, name: str):
+    """The AST of method *name* on *cls*, or None when it has no source."""
+    import ast as _ast
+    import inspect as _inspect
+    import textwrap as _textwrap
+
+    fn = getattr(cls, name, None)
+    if not callable(fn):
+        return None
     try:
-        fdef = _ast.parse(_textwrap.dedent(_inspect.getsource(fn))).body[0]
+        return _ast.parse(_textwrap.dedent(_inspect.getsource(fn))).body[0]
     except (OSError, TypeError, IndexError):
-        return set()
-    params = {a.arg for a in (fdef.args.posonlyargs + fdef.args.args + fdef.args.kwonlyargs)
-              if a.arg != "self"}
+        return None
+
+
+def _signature(fdef):
+    """(positional names, keyword-only names, required names, *args/**kwargs names)."""
+    a = fdef.args
+    positional = [x.arg for x in a.posonlyargs + a.args if x.arg != "self"]
+    kwonly = [x.arg for x in a.kwonlyargs]
+    required = set(positional[:len(positional) - len(a.defaults)])
+    required |= {k.arg for k, d in zip(a.kwonlyargs, a.kw_defaults) if d is None}
+    var = [v.arg for v in (a.vararg, a.kwarg) if v is not None]
+    return positional, kwonly, required, var
+
+
+def _bindings(callee_fdef, call, own: set) -> dict:
+    """How *call* binds the callee's parameters: ``("const", v)`` for a literal,
+    ``("param", name)`` for one of the caller's own parameters, ``("other",)``
+    for anything else. A parameter the call leaves unbound takes the callee's
+    default, which is never compared."""
+    import ast as _ast
+
+    positional, kwonly, _required, _var = _signature(callee_fdef)
+
+    def binding(node):
+        if isinstance(node, _ast.Constant):
+            return ("const", node.value)
+        if isinstance(node, _ast.Name) and node.id in own:
+            return ("param", node.id)
+        return ("other",)
+
+    out = {}
+    for i, arg in enumerate(call.args):
+        if not isinstance(arg, _ast.Starred) and i < len(positional):
+            out[positional[i]] = binding(arg)
+    for kw in call.keywords:
+        if kw.arg is not None and (kw.arg in positional or kw.arg in kwonly):
+            out[kw.arg] = binding(kw.value)
+    return out
+
+
+def wrapped_methods(service: str, method: str) -> dict:
+    """Public methods of *service* that *method* WRAPS, each mapped to how the
+    call binds the callee's parameters. A wrapper passes EVERY one of its own
+    required parameters (and any *args / **kwargs) on, and at least one of its
+    parameters at all; with none to pass, only a sole public self-call counts. A
+    helper (the fee a transfer computes) receives only some of the caller's
+    arguments and is not the route's operation, so it is not included. A
+    parameter with a default that the wrapper keeps for itself (request_safe's
+    stale_max_age, which only its fallback uses) does not stop it being one."""
+    import ast as _ast
+
+    cls = _service_class(service)
+    fdef = _function_def(cls, method) if cls is not None else None
+    if fdef is None:
+        return {}
+    positional, kwonly, required, var = _signature(fdef)
+    own = set(positional) | set(kwonly) | set(var)
+    must = required | set(var)
     calls = [n for n in _ast.walk(fdef)
              if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
              and isinstance(n.func.value, _ast.Name) and n.func.value.id == "self"
              and not n.func.attr.startswith("_") and callable(getattr(cls, n.func.attr, None))]
-    out = set()
+    out = {}
     for call in calls:
         passed = {x.id for arg in [*call.args, *(k.value for k in call.keywords)]
                   for x in _ast.walk(arg) if isinstance(x, _ast.Name)}
-        if params <= passed and (params or len(calls) == 1):
-            out.add(call.func.attr)
+        callee = _function_def(cls, call.func.attr)
+        if callee is not None and must <= passed and ((own & passed) or len(calls) == 1):
+            out[call.func.attr] = _bindings(callee, call, own)
     return out
+
+
+def wrapper_closure(service: str, method: str) -> dict:
+    """Every public method *method* reaches through wrappers, transitively —
+    query_price -> request_safe -> request — mapped to how the reached method's
+    parameters are bound in terms of *method*'s OWN parameters and literals,
+    composed down the chain: a literal fixed two calls up is still a literal."""
+    reached: dict = {}
+    frontier = [(method, None)]
+    while frontier:
+        current, bindings = frontier.pop()
+        for callee, cb in wrapped_methods(service, current).items():
+            if callee in reached or callee == method:
+                continue
+            composed = cb if bindings is None else _through(bindings, cb)
+            reached[callee] = composed
+            frontier.append((callee, composed))
+    return reached
+
+
+def _through(outer: dict, inner: dict) -> dict:
+    """Compose bindings: *inner* binds a callee's parameters in terms of the
+    caller's; *outer* binds the caller's. A caller parameter *outer* leaves
+    unbound is the caller's default."""
+    return {p: (outer.get(b[1], ("default",)) if b[0] == "param" else b)
+            for p, b in inner.items()}
+
+
+def _consistent(chain: dict, fixed: dict) -> bool:
+    """False only when the route and the chain pin the SAME parameter to
+    DIFFERENT literals. Anything less than that — a default, a variable, a
+    parameter the caller chooses — cannot exclude: that direction would be a
+    silent grant."""
+    return not any(b[0] == "const" and chain.get(p, ("other",))[0] == "const"
+                   and chain[p][1] != b[1] for p, b in fixed.items())
+
+
+# Two public READS the wrapper rules cannot relate — neither hands its arguments
+# to the other, so no chain joins them — that read the same store, one of which
+# backs a route the auth wall answers an anonymous caller 401. Whether they are
+# the same operation is the owner's call; until it is made they are held
+# refused to an ANONYMOUS caller under the routed sibling's route, the direction
+# the module docstring says to err in. A session keeps what its routes grant it:
+# /api/v1/governance/daos/{daoId}/proposals is app-called, and
+# /api/v1/supply-chain/verify is operator-only only because the app never calls
+# it, which is not a decision about verify_product. Each entry names the store
+# both methods read; tests/test_capability_catalog_truth.py pins that both still
+# do and that the derivation still cannot see it, so a stale entry fails loudly.
+SAME_STORE_AS_ROUTED: dict = {
+    ("governance", "list_proposals"): (
+        ("governance", "list_proposals_detailed"), "_proposals",
+        "both iterate self._proposals and apply the same active->expired transition"),
+    ("supply_chain", "verify"): (
+        ("supply_chain", "verify_authenticity"), "_provenance",
+        "both run _verify_chain_integrity over self._provenance[product_id]"),
+}
 
 
 def refused_pairs(allowed: set) -> dict:
@@ -221,12 +386,30 @@ def refused_pairs(allowed: set) -> dict:
     When one pair backs several routes and ANY of them is refused, the pair is
     refused (errs toward the visible 403, as the module docstring says).
     """
+    return _refused_by(lambda route: (route.rstrip("/") or "/") in allowed)
+
+
+def _refused_by(reachable) -> dict:
+    """``"service.method"`` -> the first route (sorted) that runs it and that
+    *reachable* rejects. A route that names the pair LITERALLY is its own route
+    and wins the label over one that only reaches it through a wrapper, so the
+    refusal message names /api/v1/realestate/purchase for execute_purchase, not
+    the property read it performs on the way."""
+    live_route_pairs()
+    literal = _LIVE["literal"]
     out: dict = {}
+    own: set = set()
     for route, pairs in sorted(live_route_pairs().items()):
-        if (route.rstrip("/") or "/") in allowed:
+        if reachable(route):
             continue
         for service, method in sorted(pairs):
-            out.setdefault(f"{service}.{method}", route)
+            key = f"{service}.{method}"
+            if (service, method) in literal.get(route, ()):
+                if key not in own:
+                    own.add(key)
+                    out[key] = route
+            else:
+                out.setdefault(key, route)
     return out
 
 
@@ -239,16 +422,21 @@ def anonymous_refused_pairs() -> dict:
     above models only the operator tier, so an anonymous chat ran operations
     whose own route answers it 401. Public is read from the real server's
     ``_public_paths`` — the set the wall itself consults. Same tie-break: a pair
-    behind ANY non-public route is refused.
+    behind ANY non-public route is refused. The SAME_STORE_AS_ROUTED reads join
+    under their routed sibling's route; an entry the derivation now sees, or
+    whose sibling is no longer refused, stops the generator.
     """
     server, _app = _live_server()
     public = set(server._public_paths)
-    out: dict = {}
-    for route, pairs in sorted(live_route_pairs().items()):
-        if route in public:
-            continue
-        for service, method in sorted(pairs):
-            out.setdefault(f"{service}.{method}", route)
+    out = _refused_by(lambda route: route in public)
+    for (service, method), ((_s, sibling), _store, _why) in SAME_STORE_AS_ROUTED.items():
+        key, routed = f"{service}.{method}", f"{_s}.{sibling}"
+        if key in out:
+            raise SystemExit(f"SAME_STORE_AS_ROUTED: {key} is derived now — drop the entry")
+        if routed not in out:
+            raise SystemExit(f"SAME_STORE_AS_ROUTED: {routed} is not behind a non-public "
+                             f"route — the entry for {key} is stale")
+        out[key] = out[routed]
     return out
 
 
@@ -338,6 +526,18 @@ def render(allowed, excluded, escapes=None, pairs=None, anonymous=None) -> str:
         "SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {",
     ]
     lines += [f'    "{p}": "{r}",' for p, r in sorted((anonymous or {}).items())]
+    lines += [
+        "}",
+        "",
+        "# Of those, the reads refused by DECISION rather than derivation: a public read",
+        "# no wrapper chain joins to its routed sibling, held refused to an anonymous",
+        "# caller because both read the named store, until a ruling on it is written.",
+        "# A session is not refused these. Each: pair -> (routed sibling, shared store).",
+        "ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, str]] = {",
+    ]
+    for (service, method), ((s2, sibling), store, why) in sorted(SAME_STORE_AS_ROUTED.items()):
+        lines += [f"    # {why}",
+                  f'    "{service}.{method}": ("{s2}.{sibling}", "{store}"),']
     lines += [
         "}",
         "",
@@ -449,7 +649,8 @@ def main() -> int:
     print(f"wrote {OUT.relative_to(ROOT)}: {len(allowed)} session routes "
           f"(app paths {n_called} ∩ gateway routes {n_routes}) · excluded {len(excluded)} · "
           f"operations refused to a session {len(pairs)} (catalog capabilities {len(escapes)}) · "
-          f"to an anonymous caller {len(anonymous)} + every unrouted state change")
+          f"to an anonymous caller {len(anonymous)} ({len(SAME_STORE_AS_ROUTED)} by decision) "
+          f"+ every unrouted state change")
     return 0
 
 
