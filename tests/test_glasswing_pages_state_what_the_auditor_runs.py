@@ -164,7 +164,7 @@ def test_every_stated_count_is_the_number_of_checks():
 _REVIEW_CLAIMS = [
     r"manual (?:expert )?(?:code )?review",
     r"expert (?:code )?review",
-    r"professional(?:ly)? (?:security )?audit",
+    r"professional(?:ly)?(?: \S+){0,4} audit",
     r"submit existing contracts for standalone audits",
 ]
 
@@ -174,6 +174,11 @@ def test_the_review_scan_catches_the_old_copy():
            "Verifiable proof your contract passed a professional security audit; your protocol "
            "has been professionally audited. You can also submit existing contracts for standalone audits.")
     assert sum(bool(re.search(p, old.lower())) for p in _REVIEW_CLAIMS) == 4
+    # The heading form the first pattern list could not see: the adjective and
+    # "audit" separated by the product words.
+    heading = "Professional Smart Contract Security Auditing, powered by Glasswing."
+    assert re.search(_REVIEW_CLAIMS[2], heading.lower())
+    assert not re.search(_REVIEW_CLAIMS[2], "Automated Smart Contract Security Scanning")
 
 
 def test_no_audit_surface_offers_review_no_service_performs():
