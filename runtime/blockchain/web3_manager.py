@@ -15,12 +15,15 @@ A single instance is shared across services. It is responsible for:
 Web3Manager never raises an unhandled exception from public methods —
 errors are caught, logged, and surfaced as boolean availability or
 explicit ``RuntimeError`` from ``get_account``/``send_transaction``
-when the caller has explicitly opted into a real on-chain operation.
+when the caller has explicitly opted into a real on-chain operation, and
+``BalanceUnavailable`` (a ``RuntimeError``) from ``get_balance_eth`` when no
+balance was read, because a 0.0 there is indistinguishable from an empty wallet.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import logging
 from typing import Any, Optional
@@ -343,9 +346,25 @@ class Web3Manager:
         )
 
     def get_balance_eth(self, address: str | None = None) -> float:
-        """Return the ETH balance of *address* (paymaster by default)."""
+        """Return the ETH balance of *address* (paymaster by default).
+
+        Raises BalanceUnavailable when no balance was read. This returned 0.0
+        both when the chain was not configured and when the RPC read failed, so
+        "unreachable" and "empty wallet" were the same float: DataAggregator
+        served that zero as a portfolio, and gateway/bridge.py's
+        `_lookup_balance_eth`, documented as "None if unavailable", could never
+        see None for a failed read. A balance is a statement about money; one
+        nobody read is not zero.
+
+        Raises InvalidAddress, before any read and whether or not a chain is
+        configured, when *address* is not a 20-byte hex address. That is the
+        caller's input, not an outage: web3 used to reject it inside the try
+        below, and it came out as BalanceUnavailable.
+        """
+        if address is not None:
+            require_hex_address(address)
         if not self.available or self.w3 is None:
-            return 0.0
+            raise BalanceUnavailable("blockchain not configured")
         try:
             if address is None:
                 address = self.get_account().address
@@ -353,7 +372,29 @@ class Web3Manager:
             return float(self.w3.from_wei(wei, "ether"))
         except Exception as exc:
             logger.warning("get_balance_eth failed: %s", exc)
-            return 0.0
+            raise BalanceUnavailable("balance read failed") from exc
+
+
+class BalanceUnavailable(RuntimeError):
+    """No balance was read — the chain is not configured or the RPC failed.
+    The message is fixed; the underlying exception is chained, not embedded."""
+
+
+class InvalidAddress(ValueError):
+    """The value is not a 20-byte hex address. The caller's input (a 400), not
+    a dependency failure. The message is fixed and does not repeat the value."""
+
+
+# What web3's to_checksum_address accepts: 40 hex digits, optionally 0x/0X
+# prefixed, in any letter case (the checksum is not verified by the read).
+_HEX_ADDRESS = re.compile(r"(0[xX])?[0-9a-fA-F]{40}")
+
+
+def require_hex_address(value: Any) -> str:
+    """Return *value* if it is a 20-byte hex address, else raise InvalidAddress."""
+    if not isinstance(value, str) or not _HEX_ADDRESS.fullmatch(value):
+        raise InvalidAddress("not a 20-byte hex address")
+    return value
 
 
 # Standardised "not deployed" response shape used across services.

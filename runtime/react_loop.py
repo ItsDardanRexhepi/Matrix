@@ -371,9 +371,18 @@ class ReActLoop:
                 logger.info(f"[{context.agent_name}] calling tool: {tool_name}({list(arguments.keys())})")
                 # Pass the TRUSTED agent identity (gateway-validated context) so the
                 # dispatcher enforces the per-agent tool boundary regardless of prompt.
-                # The trusted caller identity travels the same way the trusted
-                # agent name does: from the gateway-bound context, never from the
-                # model's arguments (§CD sibling axis of the identity class).
+                # The caller identity travels the same way: from the entry
+                # point's context, never from the model's arguments (§CD sibling
+                # axis of the identity class). That does not make it
+                # authenticated. On /bridge/v1/chat it is the wallet linked to
+                # the SIWE session; on /chat it is the request body's `wallet`
+                # (or `wallet_address`) field as the caller wrote it, session
+                # or not (gateway/server.py handle_chat); /chat/stream and /ws
+                # thread none. ServiceDispatcher.execute records whatever
+                # arrives here as the caller, labelled "authenticated" (17-J).
+                # On /chat that record is Neo's, who takes the operator key
+                # there; Trinity's state-changing actions go through
+                # runtime/agents/handoff.py with no identity at all.
                 _uc = context.metadata.get("user_context") or {}
                 outcome = await self.dispatcher.dispatch(
                     tool_name, arguments, agent_name=context.agent_name,

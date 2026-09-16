@@ -21,8 +21,9 @@ freely:
      "ref":   "<req_id>"}
 
 `error` must be a top-level STRING because the Swift client's
-`extractErrorMessage` reads `obj["error"] as? String` and nothing else; anything
-richer would arrive as nil and the user would see an empty message. The
+`extractErrorMessage` reads `obj["error"] as? String`, falling back only to a
+top-level `obj["message"] as? String`; anything richer in `error` would arrive
+as nil and the user would see an empty message. The
 correlation id is repeated INSIDE that sentence so it survives even where a
 client keeps only the message — which is what makes a redacted error still
 actionable. This is also what lets a RUN-5 body pass cleanly through RUN-4's

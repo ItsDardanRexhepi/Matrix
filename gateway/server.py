@@ -959,7 +959,9 @@ class GatewayServer:
         return FollowStore(self.react_loop.memory.db)
 
     async def handle_social_follow(self, request: web.Request) -> web.Response:
-        """POST /social/follow — {address}. Follower = X-Wallet-Address."""
+        """POST /social/follow — {address}. Follower = the caller identity:
+        the session's wallet when a session is presented, else the
+        X-Wallet-Address header as the caller wrote it."""
         follower = self._caller_identity(request)
         try:
             body = await request.json()
@@ -2291,7 +2293,8 @@ class GatewayServer:
         if self._app_attest is None or self._security_backend == "noop":
             return web.json_response(
                 {"verified": False, "reason": "security backend not installed"})
-        # Identity that the challenge was bound to — the authenticated wallet
+        # Identity that the challenge was bound to: the session's identity when
+        # a session is presented, else the caller-written X-Wallet-Address
         # header (mirrors the challenge request's identity), else a body field.
         identity = (self._caller_identity(request) or str(body.get("identity", ""))).strip()
         try:
@@ -2900,16 +2903,24 @@ class GatewayServer:
         service funnel can attribute and verify the request. Pass-through otherwise.
 
         This middleware makes NO security decision — it only carries context. It
-        reads the JSON body once (aiohttp caches it for the handler). Identity comes
-        from the ``X-Wallet-Address`` header or the body; the App Attest assertion
-        rides in the request body (``app_attest``) per the client contract.
+        reads the JSON body once (aiohttp caches it for the handler). Identity is
+        the session's subject when a session is presented; otherwise the
+        ``X-Wallet-Address`` header or a body field, as the caller wrote it. The
+        App Attest assertion rides in the request body (``app_attest``) per the
+        client contract.
         """
         if request.method == "POST" and request.path.startswith("/api/v1/"):
-            # T2: an authenticated session's subject is the identity. A header
-            # or body field the caller wrote is consulted only when there is no
-            # session AND the request is the operator's (development counts) —
-            # not for anyone who reached a public /api/v1 route
-            # (/api/v1/auth/apple, /api/v1/iap/*). Derived, not asserted.
+            # T2: a session's subject is the identity, and nothing in the
+            # request overrides it. With NO session the fallback is consulted
+            # only for an operator request (development, where auth is off,
+            # counts) — not for anyone who reached a public /api/v1 route
+            # (/api/v1/auth/apple, /api/v1/iap/*).
+            #
+            # On that operator path the value is ASSERTED, not authenticated:
+            # it is the header as the caller wrote it, and the routes that
+            # record or compare "the caller" receive it (see
+            # docs/api-reference.md, "Identity"). Derived where a session
+            # exists; asserted, and named as such, where one does not.
             stated = self._is_operator(request)
             identity = self._session_identity(request) or (
                 request.headers.get("X-Wallet-Address", "") if stated else "") or ""

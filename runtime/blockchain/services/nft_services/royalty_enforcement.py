@@ -183,9 +183,19 @@ class RoyaltyEnforcement:
         # which is the attack.
         #
         # The honest residue, stated rather than hidden: with no identity
-        # available, re-configuring a royalty legitimately now requires an
-        # authenticated caller. That is a real cost and it is the correct
-        # direction — the alternative is the measured hijack.
+        # available, re-configuring a royalty legitimately now requires a
+        # caller bound to the identity that set it. That is a real cost and it
+        # is the correct direction — the alternative is the measured hijack.
+        #
+        # WHOM THIS STOPS. `caller_identity` is whatever the entry point bound.
+        # It is derived only from a session; configure_nft_royalty is also
+        # reachable through POST /api/v1/capabilities/{id}/invoke, where a
+        # caller with no session (holding the operator key, or on a gateway with
+        # auth off) is bound to the X-Wallet-Address header or a body
+        # wallet/from/sender/account field or params.from it wrote. That caller
+        # can name the original setter and pass. The rule stops a session
+        # caller, and a caller that binds no identity; against a written
+        # identity it keeps attribution consistent, not the recipient safe.
         _set_by = caller_identity or ""
         _set_by_source = caller_source or (
             "authenticated" if _set_by else "unauthenticated"

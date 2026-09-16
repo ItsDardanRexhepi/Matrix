@@ -31,6 +31,13 @@ If that quote is unavailable the caller must deny — a cap denominated in
 dollars cannot be enforced against an unknown dollar amount, and this module
 will not invent one.
 
+WHAT THE ALLOWLIST IS CHECKED AGAINST.  For a UserOperation, the action is
+          derived from the bytes being sponsored (`classify_user_operation`),
+          never from a label the requester writes about its own request. An
+          earlier route read `action_type` from the body and defaulted it to
+          "transfer", so the allowlist was satisfied by whatever the caller
+          said — §EE.
+
 Posture: an operator who has configured no policy sees exactly the previous
 behaviour. Denial happens only where a cap or an allowlist is configured.
 """
@@ -44,7 +51,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from functools import lru_cache
+from typing import Any, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +207,7 @@ class SponsorshipPolicy:
 
     # ── the decision ─────────────────────────────────────────────────────
 
-    def authorize_and_reserve(self, action: str, *, identity: str,
+    def authorize_and_reserve(self, action: Union[str, Sequence[str]], *, identity: str,
                               est_usd: float = 0.0,
                               now: Optional[float] = None) -> SponsorshipDecision:
         """Authorise one platform signature and take its budget atomically.
@@ -209,16 +217,29 @@ class SponsorshipPolicy:
         counting after RESERVATION_TTL_SECONDS.
         """
         now = time.time() if now is None else now
-        action = str(action or "")
+        # One operation can do several things (an account `executeBatch`), so
+        # the allowlist is checked against EVERY action in it: one allowed call
+        # must not carry a disallowed one through. A bare string is one action.
+        if action is None or isinstance(action, str):
+            labels = [str(action or "")]
+        else:
+            labels = [str(a or "") for a in action]
+        # Bounded: this string is stored in the ledger and echoed in a denial,
+        # and the label list is as long as the caller's batch.
+        action = summarize_labels(labels)
         identity = canonical_identity(identity)
         est_usd = max(0.0, float(est_usd or 0.0))
 
-        if self.allowed_actions is not None and action not in self.allowed_actions:
-            return SponsorshipDecision(
-                False, "action_not_allowed",
-                f"gas sponsorship not available for action '{action}'",
-                identity=identity, action=action, est_usd=est_usd,
-                cap_usd=self.daily_cap_usd)
+        if self.allowed_actions is not None:
+            # An empty list of actions is not vacuously allowed.
+            refused = [a for a in labels if a not in self.allowed_actions] or (
+                [] if labels else ["<nothing>"])
+            if refused:
+                return SponsorshipDecision(
+                    False, "action_not_allowed",
+                    f"gas sponsorship not available for action '{summarize_labels(refused)}'",
+                    identity=identity, action=action, est_usd=est_usd,
+                    cap_usd=self.daily_cap_usd)
 
         if not self.enforces_a_cap:
             # No cap configured: previous behaviour exactly, allowlist aside.
@@ -289,6 +310,275 @@ class SponsorshipPolicy:
             return self._spent(conn, canonical_identity(identity), now)
 
 
+# ── what is being sponsored ──────────────────────────────────────────────
+#
+# §EE: the sponsorship allowlist used to be checked against `action_type`, a
+# string the requester writes about its own request, defaulting to "transfer".
+# The paymaster digest commits to keccak(callData) and keccak(initCode), so
+# those bytes ARE what a signature sponsors — they are the only honest source for
+# the action, and they are right there in the request.
+#
+# WHAT THIS DECODES. The smart-account wrapper (contracts/OpenMatrixAccount.sol
+# `execute(dest, value, func)` and `executeBatch(dest[], func[])`, plus the
+# three-array `executeBatch` the MTRX client encodes), then the inner call's
+# 4-byte selector.
+#
+# HOW IT DECODES. By walking the ABI head/tail words by hand, reading only
+# lengths, address words, value words and each inner call's first four bytes.
+# Nothing the caller sends is copied per element. An earlier version called
+# eth_abi.decode, which accepts every bytes[] offset pointing at one shared blob
+# and copies that blob once per element: a ~1 MiB request allocated gigabytes,
+# on every sign request, before any policy check. Only the CANONICAL encoding —
+# the one eth_abi, ethers and the MTRX client's ABIEncoder all produce — is
+# described; any other offset layout, a dirty address word, or a length that
+# runs past the data is `unrecognized_call_data`. Describing non-canonical
+# layouts would mean agreeing with Solidity's decoder on each of them; refusing
+# them is the reading that cannot disagree. A batch longer than MAX_BATCH_CALLS
+# is the single label `oversized_batch`.
+#
+# WHAT IT CANNOT KNOW, stated so nobody reads more into it. The allowlist
+# constrains which ABI function NAMES the call data invokes. It does not
+# constrain what code runs, for three reasons, all of the same kind — each
+# needs an address or codehash registry this repo does not have:
+#
+#   * the TARGET. `transfer(address,uint256)` on a contract someone wrote to look
+#     like a token is still labelled "transfer", and runs whatever that contract
+#     does;
+#   * a VALUE TRANSFER. `execute(dest, value > 0, "")` is labelled "transfer"
+#     whatever `dest` is. If `dest` has code, its receive/fallback function runs
+#     on sponsored gas — the same property as the target above, since another
+#     user's smart account (a legitimate recipient) is itself a contract;
+#   * the SENDER. The wrapper decode assumes the sender IS an OpenMatrixAccount,
+#     whose execute/executeBatch mean what their ABI says. Nothing here checks
+#     the sender's code, and without an authenticated session the route takes
+#     the sender from the request. An account contract the caller wrote can give
+#     `execute(x, 1, "")` any meaning it likes. OpenMatrixVerifyingPaymaster
+#     puts no restriction on the sender either.
+#
+# So `allowed_actions` is a statement about the shape of honest requests, not a
+# security boundary against a caller who deploys contracts.
+#
+# Nor is the daily cap a boundary against such a caller. It is metered per
+# IDENTITY, and the identity is an address the caller chooses. With no session,
+# the route takes it from the X-Wallet-Address header or the body `sender`, both
+# written by the caller; with a SIWE session it is an address whose key the
+# caller holds, and keys cost nothing to make. Each new address starts with a
+# fresh cap. (With an Apple session the identity is the wallet linked to that
+# Apple user, or `apple:<sub>` when none is linked, not an address chosen per
+# request; what rotating those costs a caller is not measured here.) The cap
+# bounds sponsored spend per address, not per caller, and nothing in this repo
+# bounds the total a caller who rotates addresses can draw except the
+# EntryPoint deposit itself.
+
+# Past this many calls in one batch the operation is one label, so neither the
+# label list nor anything built from it grows with the caller's input.
+MAX_BATCH_CALLS = 256
+
+# How many distinct refused labels a denial names before summarising the rest.
+_MAX_LABELS_ECHOED = 8
+
+# Named inner calls. Each signature is hashed here rather than pasted as hex, so
+# a typo is a different signature rather than a silently wrong selector.
+_NAMED_SIGNATURES: dict[str, str] = {
+    "transfer(address,uint256)": "transfer",        # ERC-20 transfer
+    "approve(address,uint256)": "approve",          # ERC-20 approve
+    "swap(uint256,address,uint256)": "swap",        # contracts/OpenMatrixDEX.sol
+    "mint(address,string,uint96)": "mint_nft",      # contracts/OpenMatrixNFT.sol
+}
+
+_ACCOUNT_EXECUTE = "execute(address,uint256,bytes)"
+_ACCOUNT_BATCH = "executeBatch(address[],bytes[])"                # OpenMatrixAccount.sol
+_ACCOUNT_BATCH_VALUES = "executeBatch(address[],uint256[],bytes[])"  # MTRX client encoding
+
+
+@lru_cache(maxsize=None)
+def _selectors() -> dict[str, bytes]:
+    from eth_utils import keccak
+
+    sigs = [_ACCOUNT_EXECUTE, _ACCOUNT_BATCH, _ACCOUNT_BATCH_VALUES, *_NAMED_SIGNATURES]
+    return {sig: keccak(text=sig)[:4] for sig in sigs}
+
+
+class _NotCanonical(Exception):
+    """The bytes are not the canonical ABI encoding of the expected arguments."""
+
+
+class _TooManyCalls(Exception):
+    """A batch longer than MAX_BATCH_CALLS."""
+
+
+def _pad32(n: int) -> int:
+    return (n + 31) // 32 * 32
+
+
+class _Args:
+    """Read-only word access over the argument bytes. `memoryview` slices are
+    views, so reading a word never copies the caller's buffer."""
+
+    def __init__(self, data: bytes) -> None:
+        self._view = memoryview(data)
+        self.size = len(data)
+
+    def word(self, at: int) -> int:
+        if at < 0 or at + 32 > self.size:
+            raise _NotCanonical
+        return int.from_bytes(self._view[at:at + 32], "big")
+
+    def address_word(self, at: int) -> None:
+        if self.word(at) >> 160:
+            # Solidity reverts on dirty upper bits; nothing to describe.
+            raise _NotCanonical
+
+    def head(self, at: int, length: int) -> bytes:
+        if at < 0 or at + length > self.size:
+            raise _NotCanonical
+        return bytes(self._view[at:at + min(length, 4)])
+
+    def bytes_at(self, at: int) -> tuple[int, bytes, int]:
+        """A `bytes` value at `at`: (length, first four bytes, canonical end)."""
+        length = self.word(at)
+        end = at + 32 + _pad32(length)
+        if end > self.size:
+            raise _NotCanonical
+        return length, self.head(at + 32, length), end
+
+    def array_len(self, at: int) -> int:
+        n = self.word(at)
+        if n > MAX_BATCH_CALLS:
+            raise _TooManyCalls
+        return n
+
+
+def _walk_execute(a: _Args) -> list[tuple[int, int, bytes]]:
+    # execute(address, uint256, bytes): two static words, then one offset.
+    a.address_word(0)
+    value = a.word(32)
+    if a.word(64) != 96:
+        raise _NotCanonical
+    length, head, _end = a.bytes_at(96)
+    return [(value, length, head)]
+
+
+def _walk_batch(a: _Args, with_values: bool) -> list[tuple[int, int, bytes]]:
+    heads = 3 if with_values else 2
+    cursor = 32 * heads
+
+    # address[] dest
+    if a.word(0) != cursor:
+        raise _NotCanonical
+    n = a.array_len(cursor)
+    for i in range(n):
+        a.address_word(cursor + 32 + 32 * i)
+    cursor += 32 + 32 * n
+
+    values = [0] * n
+    if with_values:
+        if a.word(32) != cursor:
+            raise _NotCanonical
+        if a.array_len(cursor) != n:
+            raise _NotCanonical
+        values = [a.word(cursor + 32 + 32 * i) for i in range(n)]
+        cursor += 32 + 32 * n
+
+    # bytes[] func: its offsets are relative to the word after its length, and
+    # canonically each element starts exactly where the previous one ended — so
+    # no two elements can share, overlap or skip bytes.
+    if a.word(32 * (heads - 1)) != cursor:
+        raise _NotCanonical
+    if a.array_len(cursor) != n:
+        raise _NotCanonical
+    base = cursor + 32
+    expected = 32 * n
+    calls = []
+    for i in range(n):
+        if a.word(base + 32 * i) != expected:
+            raise _NotCanonical
+        length, head, end = a.bytes_at(base + expected)
+        calls.append((values[i], length, head))
+        expected = end - base
+    return calls
+
+
+def _inner_action(value: int, length: int, head: bytes) -> str:
+    if length == 0:
+        # Plain value transfer. With no value it moves nothing, so it is not a
+        # transfer — it is a bare call into whatever `dest` is. With value, see
+        # WHAT IT CANNOT KNOW above: `dest`'s receive/fallback code still runs.
+        return "transfer" if value > 0 else "empty_call"
+    if length < 4:
+        return "unrecognized_call_data"
+    for sig, label in _NAMED_SIGNATURES.items():
+        if _selectors()[sig] == head:
+            return label
+    # Unnamed: report the selector itself, so an operator can allowlist one
+    # exact function (`call:0x12345678`) rather than a whole category.
+    return "call:0x" + head.hex()
+
+
+def classify_user_operation(call_data: bytes, init_code: bytes = b"", *,
+                            account_factory: Optional[str] = None) -> list[str]:
+    """The actions a UserOperation performs, read from its own bytes.
+
+    Returns one label per thing the platform would be paying gas for. A caller's
+    declared action is deliberately not a parameter: nothing it says about its
+    own request can change the answer.
+
+    `init_code` is sponsored too — the EntryPoint runs it on the paymaster's
+    gas. Deploying the platform's own account through the configured
+    `account_factory` is part of every first operation and adds no label;
+    initCode through any other factory (or with no factory configured to
+    recognise it against) is labelled `init_code:<factory>`, which an
+    allowlist then has to name explicitly.
+
+    Time and memory are linear in the call data and the returned list has at
+    most MAX_BATCH_CALLS + 1 entries; see HOW IT DECODES above.
+    """
+    call_data = bytes(call_data or b"")
+    init_code = bytes(init_code or b"")
+    labels: list[str] = []
+
+    if init_code:
+        factory = "0x" + init_code[:20].hex() if len(init_code) >= 20 else "malformed"
+        if not (account_factory and factory == str(account_factory).lower()):
+            labels.append(f"init_code:{factory}")
+
+    if not call_data:
+        return labels + ["empty_call_data"]
+
+    sel = call_data[:4]
+    table = _selectors()
+    args = _Args(memoryview(call_data)[4:])
+    try:
+        if sel == table[_ACCOUNT_EXECUTE]:
+            calls = _walk_execute(args)
+        elif sel == table[_ACCOUNT_BATCH]:
+            calls = _walk_batch(args, with_values=False)
+        elif sel == table[_ACCOUNT_BATCH_VALUES]:
+            calls = _walk_batch(args, with_values=True)
+        else:
+            return labels + ["unrecognized_call_data"]
+    except _TooManyCalls:
+        return labels + ["oversized_batch"]
+    except _NotCanonical:
+        # Bytes that carry an account selector but are not the canonical
+        # encoding of its arguments are not a call anyone can describe.
+        return labels + ["unrecognized_call_data"]
+
+    if not calls:
+        return labels + ["empty_batch"]
+    return labels + [_inner_action(v, n, h) for v, n, h in calls]
+
+
+def summarize_labels(labels: Sequence[str]) -> str:
+    """A bounded, order-preserving rendering of a label list for a log line or a
+    response body: distinct labels only, at most _MAX_LABELS_ECHOED of them."""
+    distinct = list(dict.fromkeys(str(x) for x in labels))
+    shown = ",".join(distinct[:_MAX_LABELS_ECHOED])
+    if len(distinct) > _MAX_LABELS_ECHOED:
+        shown += f",+{len(distinct) - _MAX_LABELS_ECHOED} more"
+    return shown
+
+
 # ── who is spending ──────────────────────────────────────────────────────
 #
 # A ContextVar rather than a parameter on 17 files' `execute(**kwargs)`: the
@@ -319,8 +609,10 @@ def canonical_identity(identity: Any) -> str:
 
 
 def set_caller_identity(identity: str):
-    """Bind the authenticated caller for the current dispatch. Returns the token
-    to reset with — callers should reset in a `finally`."""
+    """Bind the caller identity for the current dispatch: whatever identity the
+    entry point bound, which is authenticated only if that entry point derived
+    it from a session. Returns the token to reset with — callers should reset in
+    a `finally`."""
     return _caller_identity.set(canonical_identity(identity))
 
 
@@ -337,9 +629,10 @@ def resolve_caller_identity() -> str:
     """The identity to meter this signature against.
 
     Two sources, in order: the tool dispatch that is running (set by the tool
-    dispatcher), then the authenticated HTTP request (set by the security
-    middleware). Empty when neither exists — which a configured cap treats as a
-    denial rather than as a free pass.
+    dispatcher), then the identity the security middleware bound for the HTTP
+    request (a session's identity, else the caller-written X-Wallet-Address
+    header or a body field). Empty when neither exists — which a configured cap
+    treats as a denial rather than as a free pass.
     """
     who = _caller_identity.get()
     if who:

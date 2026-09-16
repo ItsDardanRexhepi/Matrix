@@ -72,7 +72,10 @@ async def test_the_refusal_is_returned_so_the_attempt_is_recorded():
 @pytest.mark.asyncio
 async def test_the_record_says_who_set_it_and_how_we_know():
     """17-J's form: WHO, and separately HOW WE KNOW. `set_by: ""` alone cannot
-    distinguish "nobody was authenticated" from "we did not look"."""
+    distinguish "nothing was threaded" from "we did not look". The label
+    "authenticated" says only that a value was threaded (ServiceDispatcher,
+    17-J); on the capability route with no session that value is one the
+    caller wrote."""
     svc = NFTService(_shipped())
     out = await svc.configure_royalty("0xC", -1, _A, 500,
                                       caller_identity=_A,

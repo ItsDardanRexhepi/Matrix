@@ -234,8 +234,9 @@ class ToolDispatcher:
     #: arguments are authored by the model from its context, and its context
     #: includes tool output and user text — so anything the model can write is
     #: caller-controlled. `ServiceDispatcher.execute` takes a keyword-only
-    #: `caller_identity`, the authenticated address the HTTP and bridge entry
-    #: points deliberately DERIVE rather than accept; registering that method
+    #: `caller_identity`, the identity the HTTP and bridge entry points bind
+    #: from the request (a session, a header, a body field) and never from
+    #: tool arguments; registering that method
     #: as the `platform_action` tool and invoking it as `handler(**arguments)`
     #: let a model-authored key bind it. Found by the §CD sibling-axes pass.
     RESERVED_ARGUMENTS = frozenset({"caller_identity", "caller_source"})
@@ -280,12 +281,15 @@ class ToolDispatcher:
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
 
-        # Strip anything the model may not assert, then inject the TRUSTED value
-        # the caller passed in — the same treatment agent_name already gets.
+        # Strip anything the model may not assert, then inject the value the
+        # entry point bound — the same treatment agent_name already gets. It
+        # outranks the model's arguments; it is not thereby authenticated. On
+        # /chat it is the request body's `wallet` field (runtime/react_loop.py).
         supplied = set(arguments) & self.RESERVED_ARGUMENTS
         if supplied:
             logger.warning("Tool '%s' call carried reserved argument(s) %s — stripped; "
-                           "identity is derived, never asserted", tool_name, sorted(supplied))
+                           "the model may not assert an identity, only the value the "
+                           "entry point bound is used", tool_name, sorted(supplied))
             arguments = {k: v for k, v in arguments.items() if k not in self.RESERVED_ARGUMENTS}
         if caller_identity or caller_source:
             import inspect

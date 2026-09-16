@@ -37,11 +37,33 @@ _FEE_MODIFIER = """\
     }}
 """
 
+# The ERC-20 helper called `IERC20(token).transfer(...)`, but nothing injected
+# declares IERC20, and the contracts this is injected into do not all have it in
+# scope: the erc721 and erc1155 templates import neither IERC20.sol nor anything
+# that re-exports it, so a fee-injected template failed to compile (solc Error
+# 7576, Undeclared identifier) while convert() reported it as a success.
+#
+# The fix declares the one function the helper calls, at file level, under a
+# name no OpenZeppelin or template source uses, so it cannot collide with an
+# IERC20 that IS in scope. The declaration matches OpenZeppelin's IERC20.transfer
+# (same signature, same `returns (bool)`), so the external call, its selector,
+# and how its return data is decoded are unchanged. The fee arithmetic, the
+# recipient and the bps are untouched.
+_FEE_TOKEN_INTERFACE_NAME = "IOpenMatrixFeeToken"
+
+_FEE_TOKEN_INTERFACE = """\
+/// Minimal ERC-20 surface used by the injected platform-fee helper.
+interface IOpenMatrixFeeToken {
+    function transfer(address to, uint256 value) external returns (bool);
+}
+
+"""
+
 _ERC20_FEE_FUNCTION = """\
     function _collectERC20Fee(address token, uint256 amount) internal returns (uint256) {{
         uint256 fee = (amount * platformFeeBps) / 10000;
         if (fee > 0) {{
-            IERC20(token).transfer(platformFeeRecipient, fee);
+            IOpenMatrixFeeToken(token).transfer(platformFeeRecipient, fee);
         }}
         return amount - fee;
     }}
@@ -58,6 +80,23 @@ _SET_FEE_RECIPIENT = """\
         platformFeeBps = newBps;
     }}
 """
+
+
+# Every snippet inject_fee_logic can add, so a caller can know which names the
+# fee logic declares or uses (identifiers.py keeps a contract name off them).
+INJECTED_SNIPPETS = (
+    _FEE_STATE_VARS, _FEE_CONSTRUCTOR_INIT, _FEE_MODIFIER, _FEE_TOKEN_INTERFACE,
+    _ERC20_FEE_FUNCTION, _SET_FEE_RECIPIENT,
+    # _apply_modifier_to_payable writes this; the constructor it may create
+    # adds only the `constructor` keyword.
+    "collectPlatformFee(msg.value) constructor",
+)
+
+
+class InvalidFeeRecipient(ValueError):
+    """The configured fee recipient cannot be written as a Solidity address
+    literal. Unlike a missing recipient, this is not a reason to produce the
+    contract without fee logic: the conversion fails instead."""
 
 
 class RevenueEnforcer:
@@ -87,7 +126,9 @@ class RevenueEnforcer:
         The method:
         1. Adds ``platformFeeRecipient`` and ``platformFeeBps`` state vars.
         2. Adds the ``collectPlatformFee`` modifier.
-        3. Adds ``_collectERC20Fee`` internal helper.
+        3. Adds ``_collectERC20Fee`` internal helper, and declares the one
+           ERC-20 function it calls (``IOpenMatrixFeeToken.transfer``) at file
+           level, so the helper compiles whether or not IERC20 is in scope.
         4. Adds owner-only setters for recipient and bps.
         5. Initialises fee recipient in the constructor.
         6. Applies ``collectPlatformFee`` to all ``payable`` functions.
@@ -109,6 +150,8 @@ class RevenueEnforcer:
         ------
         ValueError
             If no fee recipient is available from config or argument.
+        InvalidFeeRecipient
+            (a ValueError) If the recipient is not a 20-byte hex address.
         """
         recipient = fee_recipient or self._platform_wallet
         if not recipient:
@@ -123,8 +166,9 @@ class RevenueEnforcer:
         # 2. Inject modifier
         source = self._inject_before_first_function(source, _FEE_MODIFIER)
 
-        # 3. Inject ERC-20 fee helper
+        # 3. Inject ERC-20 fee helper, and declare the token call it makes
         source = self._inject_before_closing_brace(source, _ERC20_FEE_FUNCTION)
+        source = self._declare_fee_token_interface(source)
 
         # 4. Inject setters
         source = self._inject_before_closing_brace(source, _SET_FEE_RECIPIENT)
@@ -155,6 +199,20 @@ class RevenueEnforcer:
             pos = match.end()
             return source[:pos] + "\n" + snippet + source[pos:]
         return source
+
+    @staticmethod
+    def _declare_fee_token_interface(source: str) -> str:
+        """Declare IOpenMatrixFeeToken at file level, on its own line just
+        before the first contract declaration (after the pragma and imports).
+        Once only."""
+        if re.search(rf"\binterface\s+{_FEE_TOKEN_INTERFACE_NAME}\b", source):
+            return source
+        match = re.search(r"^[ \t]*(?:abstract[ \t]+)?contract\s+\w+[^{]*\{",
+                          source, re.MULTILINE)
+        if match:
+            pos = match.start()
+            return source[:pos] + _FEE_TOKEN_INTERFACE + source[pos:]
+        return _FEE_TOKEN_INTERFACE + source
 
     @staticmethod
     def _inject_before_first_function(source: str, snippet: str) -> str:
@@ -205,7 +263,19 @@ class RevenueEnforcer:
 
     @staticmethod
     def _format_address(address: str) -> str:
-        """Ensure address is properly formatted for Solidity."""
-        if address.startswith("0x"):
-            return address
-        return f"0x{address}"
+        """The recipient as a Solidity address literal: 0x-prefixed and EIP-55
+        checksummed, which is the only form solc accepts (a lower-case literal
+        is Error 9429, a non-hex or wrong-length one Error 8936). Checksumming
+        changes the letters' case only, never the address.
+
+        Raises InvalidFeeRecipient for anything that is not 40 hex digits. The
+        value is not repeated in the message: a mis-pasted config field can be a
+        private key."""
+        text = str(address or "").strip()
+        digits = text[2:] if text[:2] in ("0x", "0X") else text
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", digits):
+            raise InvalidFeeRecipient(
+                "blockchain.platform_wallet is not a 20-byte hex address, so the "
+                "platform fee logic cannot be written into the contract")
+        from eth_utils import to_checksum_address
+        return to_checksum_address("0x" + digits.lower())

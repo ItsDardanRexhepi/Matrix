@@ -819,14 +819,16 @@ class NFTService:
     ) -> dict[str, Any]:
         """Set IP rights for an NFT.
 
-        `caller_identity` is the authenticated wallet of the caller, injected
-        by `ServiceDispatcher.execute` because this signature DECLARES it
+        `caller_identity` is the identity the entry point bound for the caller
+        (see `ServiceDispatcher.execute`; authenticated only when that entry
+        point derived it from a session), injected by
+        `ServiceDispatcher.execute` because this signature DECLARES it
         (DOMAIN 17-D). This is the dispatch target for the `set_nft_rights`
         action, so declaring the parameter here is what makes the identity
         reach `RightsManagement` at all — the dispatcher injects by signature
         and never by guesswork.
 
-        Optional, defaulting to "": entry points with no authenticated caller
+        Optional, defaulting to "": entry points that bind no caller identity
         still work and the grant is recorded as `set_by: ""` (unknown) rather
         than being refused or attributed to someone.
 
@@ -924,7 +926,10 @@ class NFTService:
     ) -> dict[str, Any]:
         """Fractionalize an NFT into fungible shares.
 
-        ``owner`` is the caller the route authenticated. The route demanded it
+        ``owner`` is the identity the route bound: the security middleware's
+        (a session's identity, else the caller-written X-Wallet-Address header or
+        a body field), else the body ``owner``. It is authenticated only when a
+        session was presented. The route demanded it
         and then dropped it — an authorization input that governed nothing
         (the audit's §CD sibling pass over NEW-89). It is recorded here and
         checked against the token's on-chain owner the moment a live contract

@@ -33,13 +33,16 @@ def _bare_stack():
     stack._morpheus_init_failed = False
     return stack
 
-# ── the identity class: derived, never asserted ──────────────────────────────
+# ── the identity class: the model may not assert it ──────────────────────────
 
 async def test_a_model_cannot_supply_caller_identity():
-    """The HTTP and bridge entry points derive identity from the session. The
-    TOOL path registered ServiceDispatcher.execute and called handler(**arguments)
-    with the model's own JSON, so a model-authored `caller_identity` bound the
-    keyword-only parameter those entry points refuse to accept."""
+    """The bridge entry point binds identity from the SIWE session; the HTTP
+    entry point binds a session's identity or, with no session, the
+    X-Wallet-Address header or a body field the caller wrote. Neither takes it
+    from tool arguments. The TOOL path registered ServiceDispatcher.execute and
+    called handler(**arguments) with the model's own JSON, so a model-authored
+    `caller_identity` bound the keyword-only parameter those entry points fill
+    only from their own binding."""
     seen = {}
 
     async def fake_execute(action: str, service: str | None = None, params: dict | None = None,

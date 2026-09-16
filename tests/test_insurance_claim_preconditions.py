@@ -227,7 +227,9 @@ def test_new_82_is_recorded_as_open_not_silently_assumed_closed():
     """THE BOUNDARY OF THIS COMMIT, made load-bearing.
 
     assert_owner can only compare the caller it is HANDED. On the gateway
-    route that caller is authenticated; on ServiceDispatcher it is whatever
+    route that caller is the identity the security middleware bound: a
+    session's subject, or with no session the X-Wallet-Address header or a
+    body field the requester wrote. On ServiceDispatcher it is whatever
     the requester typed, because execute() does `await method(**params)`.
     So `file_insurance_claim` with caller="<victim>" still impersonates.
 

@@ -148,7 +148,8 @@ def test_d_an_action_outside_the_allowlist_is_denied(tmp_path):
 def test_e_paymaster_sign_does_not_take_the_sponsored_account_from_the_body():
     """One static key holder could request sponsorship for ANY account: the
     handler read `sender` straight out of the request body and never compared
-    it to whoever was authenticated."""
+    it to the identity the request was bound to (a session's, else the header
+    or body field the caller wrote)."""
     import inspect
     from gateway.service_routes import ServiceRoutes
 
@@ -253,7 +254,7 @@ async def test_the_dispatcher_binds_the_caller_all_the_way_to_the_signer(tmp_pat
 @pytest.mark.asyncio
 async def test_an_unbound_dispatch_stays_unbound(tmp_path, monkeypatch):
     """The complement: no identity in, no identity invented. A dispatch with no
-    authenticated caller must not inherit one from a previous request."""
+    bound caller identity must not inherit one from a previous request."""
     from runtime.blockchain.sponsorship import resolve_caller_identity
     from runtime.tools.dispatcher import ToolDispatcher
 

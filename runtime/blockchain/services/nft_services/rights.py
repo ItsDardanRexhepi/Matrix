@@ -80,8 +80,10 @@ class RightsManagement:
             dicts with ``granted`` (bool), ``holder`` (str),
             ``expires_at`` (int, optional), ``terms`` (str, optional).
         caller_identity : str, optional
-            The AUTHENTICATED wallet address of whoever is setting these
-            rights, threaded from the dispatcher (DOMAIN 17-D). Optional and
+            The identity the entry point bound for whoever is setting these
+            rights, threaded from the dispatcher (DOMAIN 17-D). It is
+            authenticated only when that entry point derived it from a session;
+            see `ServiceDispatcher.execute`. Optional and
             defaulting to "" so existing callers — including this package's own
             `NFTService.mint`, which writes the default rights grant — keep
             working unchanged. "" is recorded as "" and means UNKNOWN.
@@ -112,11 +114,20 @@ class RightsManagement:
         # an ownership check would need once ownership is readable, plus a
         # record that answers "who" today.
         #
-        # A CALL WITH NO IDENTITY IS STILL SERVED. Refusing every unauthenticated
-        # caller would break `NFTService.mint`'s default-rights write and every
-        # non-gateway entry point, and would trade a gap in the record for an
-        # outage. It degrades to `set_by: ""` — the honest answer, "we do not
-        # know" — never to a fabricated or self-asserted address.
+        # A CALL WITH NO IDENTITY IS STILL SERVED. Refusing every call that
+        # arrives with no identity would break `NFTService.mint`'s default-rights
+        # write and every non-gateway entry point, and would trade a gap in the
+        # record for an outage. It degrades to `set_by: ""`, the honest answer
+        # "we do not know". This method invents no caller, and the dispatcher
+        # overwrites `params["caller_identity"]`.
+        #
+        # `set_by` IS WHATEVER THE ENTRY POINT BOUND, WHICH CAN BE WRITTEN BY
+        # THE CALLER. On POST /api/v1/capabilities/set_nft_rights/invoke with no
+        # session and no X-Wallet-Address header, the security middleware binds
+        # a body `wallet`, `from`, `sender` or `account` field, or `params.from`,
+        # and that address is recorded here as the grantor, with source
+        # "authenticated" (see ServiceDispatcher.execute, 17-J). Only a
+        # session-derived identity is authenticated.
         _set_by = caller_identity or ""
         # 17-J: WHO, and separately HOW WE KNOW. `set_by: ""` alone could not
         # distinguish "no human initiated this" from "we dropped the identity"
@@ -160,6 +171,16 @@ class RightsManagement:
         # shipped config there is no authenticated identity, so a rule
         # protecting only identified creators would protect nothing in the
         # deployment we ship.
+        #
+        # WHOM THIS STOPS. The comparison is between two BOUND identities, and
+        # it is a boundary only where the modifying caller's identity is derived.
+        # A session caller cannot rewrite another party's grant: the middleware
+        # binds the session's identity and nothing in the body overrides it. A
+        # caller with no session (holding the operator key, or on a gateway with
+        # auth off) is bound to the X-Wallet-Address header or a body
+        # wallet/from/sender/account field or params.from it wrote, so it can
+        # name the original grantor and pass. Against that caller the rule keeps
+        # attribution consistent; it does not stop a second party.
         #
         # PER RIGHT TYPE, NOT PER RECORD — and this granularity was CORRECTED
         # rather than chosen. My first version was record-level, reasoning that
@@ -328,7 +349,7 @@ class RightsManagement:
             # 17-D. A right that can be read must be readable back to whoever
             # granted it. Written by `set_rights` and surfaced here, so the
             # attribution is queryable and not just log-and-forget. "" means
-            # the granting call carried no authenticated identity — an honest
+            # the granting call carried no bound identity — an honest
             # "unknown", distinguishable from a real address.
             "set_by": right.get("set_by", ""),
             "source": "explicit",

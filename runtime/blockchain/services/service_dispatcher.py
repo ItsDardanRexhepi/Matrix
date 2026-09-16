@@ -18,9 +18,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 17-D. The parameter name a service method declares to receive the
-# AUTHENTICATED caller's wallet address from the dispatcher. One constant so
-# the service side and the injection side cannot drift apart.
+# 17-D. The parameter name a service method declares to receive, from the
+# dispatcher, the caller identity the entry point bound. That identity is
+# authenticated only when the entry point derived it from a session: on
+# POST /api/v1/capabilities/{id}/invoke without a session it is the
+# X-Wallet-Address header, a body wallet/from/sender/account field, or
+# params.from, all written by the caller; on /chat, through the
+# `platform_action` tool, it is the chat body's `wallet` field, session or not
+# (runtime/react_loop.py). One constant so the service side and the injection
+# side cannot drift apart.
 CALLER_IDENTITY_PARAM = "caller_identity"
 
 
@@ -1120,8 +1126,20 @@ class ServiceDispatcher:
         params:
             Keyword arguments forwarded to the underlying service method.
         caller_identity:
-            The AUTHENTICATED wallet address of the caller, or "" when the
-            entry point has none. See DOMAIN 17-D below. Keyword-only and
+            The wallet address the entry point bound for the caller, or "" when
+            it binds none: on the bridge, the wallet linked to the SIWE
+            session; on POST /api/v1/capabilities/{id}/invoke, the security
+            middleware's binding (a session's identity, else the caller-written
+            X-Wallet-Address header, else a body ``wallet``/``from``/``sender``/
+            ``account`` field or ``params.from``); on /chat, through the
+            ``platform_action`` tool, the chat body's ``wallet`` or
+            ``wallet_address`` field, session or not (runtime/react_loop.py);
+            /chat/stream and /ws thread none. This method never reads
+            ``params["caller_identity"]``, but the value it is handed can be a
+            copy of ``params.from``, made by the middleware before the
+            dispatcher runs. It is authenticated only when a session was its source,
+            although the ``caller_source`` recorded for it says "authenticated"
+            either way (see 17-J below). See DOMAIN 17-D below. Keyword-only and
             defaulting to "" so every existing call site — including the
             positional ``execute(action, None, params)`` in
             ``runtime/agents/handoff.py`` — keeps working unchanged.
@@ -1172,9 +1190,21 @@ class ServiceDispatcher:
         #
         # DERIVED FROM `caller_identity` ALONE, never from `_actor`. `_actor`
         # falls back to `params["wallet"]`, which is SELF-ASSERTED on the bridge
-        # path — labelling that "authenticated" would be exactly the fabrication
-        # this field exists to prevent. The source describes the CHANNEL the
-        # identity arrived through, not whether some address is present.
+        # path. The source describes the CHANNEL the identity arrived through,
+        # not whether some address is present.
+        #
+        # THE LABEL OVERSTATES THAT CHANNEL. "authenticated" here means only
+        # "threaded by an entry point". The dispatcher cannot see where the
+        # entry point got it. On POST /api/v1/capabilities/{id}/invoke with no
+        # session, the security middleware binds the X-Wallet-Address header,
+        # a body wallet/from/sender/account field, or params.from, and that
+        # caller-written value is recorded here as "authenticated". On /chat
+        # the react loop threads the chat body's `wallet` field, session or
+        # not, with the same label (for Neo, who takes the operator key there;
+        # Trinity's state-changing actions arrive through handoff.py with no
+        # identity). Changing
+        # the label changes stored records and the 17-J tests; it is disclosed,
+        # not changed.
         _actor_source = (
             "authenticated" if caller_identity
             else (caller_source or "unauthenticated")
@@ -1257,14 +1287,24 @@ class ServiceDispatcher:
             # service's own API, works identically from all four entry points,
             # and is checkable by `inspect`.
             #
-            # THE AUTHENTICATED VALUE OVERWRITES, IT DOES NOT DEFAULT. `params`
+            # THE THREADED VALUE OVERWRITES, IT DOES NOT DEFAULT. `params`
             # is attacker-controlled — it is the request body on the bridge
             # path. If a client-supplied `params["caller_identity"]` were left
-            # to stand when the real identity is unknown, this fix would ship a
-            # brand-new spoofing primitive: assert any address, have the
-            # platform record it. So the threaded value ALWAYS wins, including
-            # when it is "" — an unauthenticated call records "unknown", never
-            # a self-asserted address.
+            # to stand when the entry point bound no identity, this would ship
+            # a brand-new spoofing primitive: assert any address under that key,
+            # have the platform record it. So the threaded value ALWAYS wins,
+            # including when it is "": a call whose entry point bound nothing
+            # records "unknown", never `params["caller_identity"]`.
+            #
+            # WHAT THIS DOES NOT REFUSE. It only overwrites that one key. The
+            # threaded value is whatever the entry point bound, and the
+            # dispatcher cannot tell a session's identity from a written one.
+            # On POST /api/v1/capabilities/{id}/invoke with no session and no
+            # X-Wallet-Address header, the security middleware binds a body
+            # `wallet`, `from`, `sender` or `account` field, or `params.from`,
+            # and that self-asserted address is injected and recorded here
+            # (tests/test_bound_identity_is_not_called_authenticated.py drives
+            # it through the gateway).
             if _method_accepts_caller_identity(method):
                 params = {**params, "caller_identity": caller_identity or "",
                           "caller_source": _actor_source}
@@ -1302,9 +1342,10 @@ class ServiceDispatcher:
             #
             # Order is deliberate and conservative: the existing params-derived
             # actor keeps precedence so no currently-attributed action changes
-            # who it names, and the authenticated identity is the FALLBACK that
-            # fills the "" hole. Note the residual — a client-supplied `wallet`
-            # param still outranks the authenticated caller on this surface.
+            # who it names, and the threaded `caller_identity` is the FALLBACK
+            # that fills the "" hole. Note the residual — a client-supplied
+            # `wallet` param still outranks the threaded identity on this
+            # surface, even when that identity came from a session.
             # That is a pre-existing attribution weakness, wider than 17-D
             # (it touches every state-modifying action), and is not narrowed
             # here.
@@ -1501,8 +1542,8 @@ class ServiceDispatcher:
             # timestamp — everything except WHO. An attestation that a right
             # was granted, with the grantor unrecoverable (a hash is not a
             # name), is the evidence half of the same defect the authority half
-            # fixes upstream. Empty string is written when the entry point had
-            # no authenticated identity: the record says "unknown", which is a
+            # fixes upstream. Empty string is written when the entry point bound
+            # no identity: the record says "unknown", which is a
             # fact, rather than omitting the field, which reads as "not
             # applicable".
             #
