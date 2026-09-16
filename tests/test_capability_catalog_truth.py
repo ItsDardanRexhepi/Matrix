@@ -117,6 +117,9 @@ def test_a_conflict_is_reported_in_full_not_truncated(caplog):
 # generator's regex. Both derivations here and in the generator use the AST.
 
 
+_ROUTE_META: dict = {}
+
+
 @functools.lru_cache(maxsize=1)
 def _route_pairs():
     """(service, method) -> {canonical route} from the REAL app: its registered
@@ -151,7 +154,10 @@ def _route_pairs():
     app = GatewayServer({"memory_dir": scratch,
                          "database": {"path": f"{scratch}/t.db"}}).create_app()
     literal: dict = {}  # (route, service, method) -> {kw: binding} the handler fixes
+    _ROUTE_META["methods"] = methods = collections.defaultdict(set)
+    _ROUTE_META["literal"] = literal
     for route in app.router.routes():
+        methods[route.resource.canonical].add(route.method)
         try:
             src = inspect.getsource(getattr(route.handler, "__func__", route.handler))
         except (OSError, TypeError):
@@ -459,6 +465,107 @@ def _stores_read(service: str, method: str) -> set[str]:
     return {n.attr for n in ast.walk(fdef)
             if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
             and n.value.id == "self" and n.attr.startswith("_")}
+
+
+@functools.lru_cache(maxsize=None)
+def _private_touch(service: str, method: str) -> frozenset:
+    """Every private name of ``self`` the method reaches — a store (`_provenance`)
+    or a helper (`_verify_chain_integrity`) — following the private helpers it
+    calls, so a read that reaches the store through `self._load()` counts too."""
+    import ast
+
+    cls = _service_class(service)
+    out: set = set()
+    frontier, seen = [method], set()
+    while frontier:
+        current = frontier.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        fdef = _function_def(cls, current)
+        if fdef is None:
+            continue
+        for n in ast.walk(fdef):
+            if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                    and n.value.id == "self" and n.attr.startswith("_")):
+                out.add(n.attr)
+                if callable(getattr(cls, n.attr, None)):
+                    frontier.append(n.attr)
+    return frozenset(out)
+
+
+def _actions_of(pair) -> list[str]:
+    return sorted(a for a, p in sd.ACTION_MAP.items() if p == pair)
+
+
+def _is_read_anchor(pair) -> bool:
+    """True when an anonymous caller is refused this pair *as a read*: no
+    state-changing action maps to it, and either a dispatcher can be asked to
+    run it (an ACTION_MAP action the dispatcher classifies as a read) or a route
+    that names it literally serves only safe HTTP methods. A refused WRITE is
+    not an anchor: its route being credentialed says nothing about whether the
+    record it writes is publicly readable, and the platform publishes those
+    reads deliberately (get_loan, get_listing, get_balance...)."""
+    actions = _actions_of(pair)
+    if any(a in sd._STATE_MODIFYING_ACTIONS for a in actions):
+        return False
+    if actions:
+        return True
+    return any(frozenset(_ROUTE_META["methods"][route]) <= {"GET", "HEAD", "OPTIONS"}
+               for (route, service, method) in _ROUTE_META["literal"]
+               if (service, method) == pair)
+
+
+def _sibling_read_census(derived: dict, held_refused: set):
+    """The sibling axis, derived rather than listed.
+
+    For every pair an anonymous caller is refused *as a read*, every OPEN
+    dispatchable read of the same service that touches a private name — store or
+    helper — that the refused read touches is a candidate: it may be the same
+    operation under another label, which is how `verify_product` was refused
+    while `track_product` returned the whole provenance chain it verifies.
+
+    Each candidate must be adjudicated; *held_refused* is the set of pairs the
+    committed adjudication holds refused, and they join the anchor set as they
+    are added, so the census runs to a fixed point (refusing a read makes its
+    own siblings candidates).
+
+    Returns ``(candidates, refused)``: ``candidates`` is pair -> [(anchor,
+    shared names)], ``refused`` is the derived map plus the held pairs, each
+    under the route of the anchor it joins (a routed anchor wins the label).
+    """
+    _route_pairs()
+    refused = {tuple(k.split(".", 1)) if isinstance(k, str) else k: v
+               for k, v in derived.items()}
+    open_reads = sorted({p for a, p in sd.ACTION_MAP.items()
+                         if a not in sd._STATE_MODIFYING_ACTIONS})
+    candidates: dict = {}
+    while True:
+        anchors = sorted(p for p in refused if _is_read_anchor(p))
+        joined = False
+        for pair in open_reads:
+            if pair in refused:
+                continue
+            touched = _private_touch(*pair)
+            joins = [(a, sorted(touched & _private_touch(*a))) for a in anchors
+                     if a[0] == pair[0] and a != pair and touched & _private_touch(*a)]
+            if not joins:
+                continue
+            candidates[pair] = joins
+            if pair in held_refused:
+                routed = [a for a, _shared in joins if _routes_naming(a)]
+                anchor = routed[0] if routed else joins[0][0]
+                refused[pair] = refused[anchor]
+                joined = True
+        if not joined:
+            return candidates, refused
+
+
+def _routes_naming(pair) -> list[str]:
+    """The routes whose handler names *pair* in a literal ``self._call``."""
+    _route_pairs()
+    return sorted(route for (route, service, method) in _ROUTE_META["literal"]
+                  if (service, method) == pair)
 
 
 def _derived_escapes() -> dict[str, list[str]]:
@@ -835,19 +942,34 @@ def _public_paths():
                                     "database": {"path": f"{scratch}/p.db"}})._public_paths)
 
 
-def _derived_anonymous_refused_pairs() -> dict[tuple[str, str], list[str]]:
-    """What the AST derives, plus the reads held by decision under their routed
-    sibling's routes (each decision is checked on its own below; read with a
-    default so the derivation still runs on a tree that predates the table)."""
+def _anonymous_adjudications() -> dict:
+    """The DECISION on each sibling-read candidate, read from the committed
+    module: pair -> (disposition, sibling pair, shared name, why). The class
+    itself is re-derived here (§EE): only the disposition — the judgement a
+    derivation cannot make — comes from the artifact under test. Read with
+    defaults so the census still runs on a tree that predates either table."""
     from gateway import session_routes
 
-    public = _public_paths()
-    out = {pair: sorted(routes) for pair, routes in _route_pairs().items()
-           if any(r not in public for r in routes)}
-    for key, (sibling, _store) in getattr(session_routes, "ANONYMOUS_REFUSED_BY_DECISION",
-                                           {}).items():
-        out[tuple(key.split("."))] = out[tuple(sibling.split("."))]
+    out: dict = {}
+    for key, value in getattr(session_routes, "ANONYMOUS_REFUSED_BY_DECISION", {}).items():
+        out[tuple(key.split("."))] = ("refused", tuple(value[0].split(".")),
+                                      tuple(value[1]), "")
+    for key, value in getattr(session_routes, "ANONYMOUS_SIBLING_READS_HELD_OPEN",
+                              {}).items():
+        out[tuple(key.split("."))] = ("open", tuple(value[0].split(".")),
+                                      tuple(value[1]), value[2])
     return out
+
+
+def _derived_anonymous_refused_pairs() -> dict[tuple[str, str], list[str]]:
+    """What the AST derives, plus the sibling reads the committed adjudication
+    holds refused, each under the route of the refused read it joins."""
+    public = _public_paths()
+    derived = {pair: sorted(routes) for pair, routes in _route_pairs().items()
+               if any(r not in public for r in routes)}
+    held = {p for p, (d, *_rest) in _anonymous_adjudications().items() if d == "refused"}
+    _candidates, refused = _sibling_read_census(derived, held)
+    return refused
 
 
 def test_the_anonymous_pair_set_matches_what_the_routes_require():
@@ -1208,38 +1330,140 @@ def test_the_quote_that_performs_the_price_read_is_behind_its_route():
     assert caller_refused_route("anonymous", "get_cross_border_payment") is None
 
 
-def test_each_anonymous_refusal_by_decision_rests_on_what_it_names():
-    """A read refused by decision, not derivation. Each entry must still be
-    exactly that: no wrapper chain joins it to its routed sibling in either
-    direction (else it is derived and the decision is redundant), the sibling is
-    itself behind a route an anonymous caller cannot reach, both read the store
-    the decision names, and only the anonymous tier is held."""
+# ── Round 7: the sibling axis, derived instead of listed ─────────────────────
+#
+# c5f2de4 held two reads refused by decision — governance.list_proposals and
+# supply_chain.verify — and its control pinned the set to exactly those two, so
+# nothing could see a third. There was a third, and it gave away more than the
+# one recorded: supply_chain.track (track_product) runs the same
+# _verify_chain_integrity over the same self._provenance as verify_authenticity
+# and returns the ENTIRE provenance chain plus the product record. Measured at
+# 492abdd, an anonymous chat on /chat, /bridge/v1/chat and /ws reached
+# track_product, get_proposal, get_social_profile and get_activity, while
+# verify_product and list_proposals were denied in the same run and
+# /api/v1/supply-chain/verify, /api/v1/governance/daos/{daoId}/proposals,
+# /api/v1/social/feed/{wallet} and /api/v1/dashboard/{address} all answered that
+# caller 401.
+#
+# So the CLASS is derived here and in the generator, and every member is
+# adjudicated: refused, or held open with the reason. Where the census can be
+# LOW, in the order it would bite:
+#   * the anchors are the refused READS only. A refused WRITE does not anchor —
+#     its route needing a credential says nothing about whether the record is
+#     publicly readable, and the platform publishes those reads on purpose
+#     (get_loan beside create_loan). 60-odd such read/write pairs exist; none is
+#     examined here.
+#   * the join is within ONE service. The same data reached through another
+#     service's store (the dashboard aggregator holds every service) is not a
+#     candidate; the cross-service rule of Round 6 covers only what a route's
+#     own operation performs.
+#   * the join is on the NAME of a private attribute or helper. A store reached
+#     through a module-level function, a local bound some other way, or a second
+#     object holding the same records is invisible to it.
+#   * the candidates are the DISPATCHABLE reads. A public method no ACTION_MAP
+#     action names is not one — no dispatcher can be asked for it today — and it
+#     joins the census the moment an action maps to it.
+
+
+def test_every_sibling_read_of_an_anonymous_refused_read_is_adjudicated():
+    """The class, not the two instances somebody happened to name.
+
+    c5f2de4 recorded `governance.list_proposals` and `supply_chain.verify` and
+    pinned the set to those two, so a third sibling was invisible — and there
+    was one: `supply_chain.track` (track_product) runs `_verify_chain_integrity`
+    over the same `self._provenance` and returns the whole chain on top of it,
+    while an anonymous POST /api/v1/supply-chain/verify answers 401.
+
+    Here the CLASS is derived — every open dispatchable read that touches a
+    private name an anonymous-refused READ touches — and every member must be
+    adjudicated, refused or open, with what it rests on checked. A new sibling
+    fails this test instead of passing silently."""
+    from gateway import session_routes
     from gateway.session_routes import (
-        ANONYMOUS_REFUSED_BY_DECISION, SERVICE_METHODS_OFF_ALLOWLIST,
-        SERVICE_METHODS_OFF_ANONYMOUS, caller_refused_route,
+        SERVICE_METHODS_OFF_ALLOWLIST, SERVICE_METHODS_OFF_ANONYMOUS, caller_refused_route,
     )
 
-    assert set(ANONYMOUS_REFUSED_BY_DECISION) == {"governance.list_proposals",
-                                                  "supply_chain.verify"}
-    pairs = _route_pairs()
+    # Read with defaults: on a tree with neither table this test must fail on
+    # the unadjudicated CLASS below, not on a missing name.
+    refused_by_decision = getattr(session_routes, "ANONYMOUS_REFUSED_BY_DECISION", {})
+    held_open = getattr(session_routes, "ANONYMOUS_SIBLING_READS_HELD_OPEN", {})
     public = _public_paths()
-    for key, (sibling, store) in ANONYMOUS_REFUSED_BY_DECISION.items():
-        service, method = key.split(".")
-        s2, routed = sibling.split(".")
-        assert s2 == service
-        assert (service, method) not in pairs, f"{key} is derived now; drop the decision"
-        assert routed not in _wrapper_closure(service, method)
-        assert method not in _wrapper_closure(service, routed)
-        assert any(r not in public for r in pairs[(service, routed)]), sibling
-        assert SERVICE_METHODS_OFF_ANONYMOUS[key] == SERVICE_METHODS_OFF_ANONYMOUS[sibling]
-        assert store in _stores_read(service, method), (key, store)
-        assert store in _stores_read(service, routed), (sibling, store)
-        assert key not in SERVICE_METHODS_OFF_ALLOWLIST
-        actions = [a for a, p in sd.ACTION_MAP.items() if p == (service, method)]
+    derived = {pair: sorted(routes) for pair, routes in _route_pairs().items()
+               if any(r not in public for r in routes)}
+    adjudicated = _anonymous_adjudications()
+    held = {p for p, (d, *_r) in adjudicated.items() if d == "refused"}
+    candidates, refused = _sibling_read_census(derived, held)
+
+    unadjudicated = sorted(f"{s}.{m}" for s, m in set(candidates) - set(adjudicated))
+    assert unadjudicated == [], (
+        f"{len(unadjudicated)} public reads touch a store or helper an anonymous-refused "
+        "READ touches and nothing rules on them. Refuse each in "
+        "SAME_STORE_ADJUDICATED, or record there why the store is readable "
+        f"without the credential its sibling's route needs:\n  " + "\n  ".join(
+            f"{k}: {[(f'{a[0]}.{a[1]}', sh) for a, sh in candidates[tuple(k.split('.'))]]}"
+            for k in unadjudicated))
+    stale = sorted(f"{s}.{m}" for s, m in set(adjudicated) - set(candidates))
+    assert stale == [], f"adjudicated, but no longer a sibling of any refused read: {stale}"
+    # The instances this class was named after, and the one the pin hid.
+    for key in ("governance.list_proposals", "governance.get_proposal",
+                "supply_chain.verify", "supply_chain.track"):
+        assert key in SERVICE_METHODS_OFF_ANONYMOUS, key
+
+    for pair, (disposition, sibling, shared, why) in sorted(adjudicated.items()):
+        key, service = f"{pair[0]}.{pair[1]}", pair[0]
+        joins = candidates[pair]
+        assert sibling in [a for a, _sh in joins], (key, sibling, joins)
+        assert sibling[0] == service and sibling != pair
+        # Still a decision, not a derivation: were a wrapper chain or a route to
+        # join them, the pair would be refused without anybody ruling on it.
+        assert pair not in derived, f"{key} is derived now; drop the adjudication"
+        assert sibling in refused and _is_read_anchor(sibling), sibling
+        assert shared, key
+        # Every name the record claims they share, they still share — and the
+        # record is the WHOLE overlap, so a name dropping out fails here.
+        assert set(shared) == _private_touch(*pair) & _private_touch(*sibling), (key, shared)
+        assert dict(joins)[sibling] == sorted(shared), (key, joins)
+        actions = _actions_of(pair)
         assert actions, key
-        for action in actions:
-            assert caller_refused_route("anonymous", action) == SERVICE_METHODS_OFF_ANONYMOUS[key]
-            assert caller_refused_route("session", action) is None
+        if disposition == "refused":
+            assert SERVICE_METHODS_OFF_ANONYMOUS[key] == SERVICE_METHODS_OFF_ANONYMOUS[
+                f"{sibling[0]}.{sibling[1]}"], key
+            # Held one credential down only: a session keeps what its routes grant.
+            assert key not in SERVICE_METHODS_OFF_ALLOWLIST
+            for action in actions:
+                assert (caller_refused_route("anonymous", action)
+                        == SERVICE_METHODS_OFF_ANONYMOUS[key]), action
+                assert caller_refused_route("session", action) is None, action
+        else:
+            assert disposition == "open", disposition
+            assert why.strip(), f"{key} is held open with no reason recorded"
+            assert key not in SERVICE_METHODS_OFF_ANONYMOUS, key
+            for action in actions:
+                assert caller_refused_route("anonymous", action) is None, action
+
+    assert set(refused_by_decision) | set(held_open) == {f"{s}.{m}" for s, m in adjudicated}
+    assert not set(refused_by_decision) & set(held_open), "adjudicated both ways"
+
+
+def test_the_sibling_census_sees_the_join_it_is_asked_to_rule_out():
+    """The detector itself: track and verify_authenticity share the provenance
+    store AND the integrity helper; get_proposal and list_proposals_detailed
+    share the proposal store, its votes and the quorum component; and a read of
+    another service shares nothing, so the census is not joining everything."""
+    assert {"_provenance", "_verify_chain_integrity"} <= (
+        _private_touch("supply_chain", "track")
+        & _private_touch("supply_chain", "verify_authenticity"))
+    assert {"_proposals", "_votes", "_quorum"} <= (
+        _private_touch("governance", "get_proposal")
+        & _private_touch("governance", "list_proposals_detailed"))
+    assert not (_private_touch("supply_chain", "track")
+                & _private_touch("governance", "get_proposal"))
+    # The anchor rule: a refused READ anchors, a refused WRITE does not — which
+    # is why get_loan, whose store defi.create_loan writes, is not a candidate.
+    assert _is_read_anchor(("supply_chain", "verify_authenticity"))
+    assert _is_read_anchor(("governance", "list_proposals_detailed"))  # GET-only route
+    assert not _is_read_anchor(("defi", "create_loan"))
+    assert not _is_read_anchor(("stablecoin", "transfer"))
 
 
 async def test_an_anonymous_chat_cannot_read_the_price_proposals_or_provenance_its_routes_refuse(
@@ -1327,6 +1551,121 @@ async def test_an_anonymous_chat_cannot_read_the_price_proposals_or_provenance_i
         assert reached == expected, "\n".join(
             f"{k}: reads reached {v[0]}, remit reached {v[1]}"
             for k, v in reached.items() if v != expected[k])
+
+
+async def test_an_anonymous_chat_cannot_read_the_chain_proposal_profile_or_activity_of_a_wallet(
+        monkeypatch, tmp_path):
+    """Round 7: the siblings the pinned pair of decisions hid.
+
+    Measured at 492abdd, with no credential, on /chat, /bridge/v1/chat and /ws:
+      * platform_action track_product ran SupplyChainService.track, which runs
+        `_verify_chain_integrity` over the same `self._provenance` that
+        verify_authenticity runs it over and returns the whole provenance chain
+        — every event, handler, location and hash — plus the product record,
+        while verify_product and authenticity_verify were DENIED in the same run
+        and an anonymous POST /api/v1/supply-chain/verify answered 401.
+      * platform_action get_proposal returned the full proposal record while
+        list_proposals was denied and GET
+        /api/v1/governance/daos/{daoId}/proposals answered 401.
+      * platform_action get_social_profile returned the profile record — which
+        carries the wallet's followers and following — while GET
+        /api/v1/social/feed/{wallet}, whose read resolves who a wallet follows
+        out of that same store, answers 401.
+      * platform_action get_activity returned the named wallet's cross-component
+        activity through the same aggregator GET /api/v1/dashboard/{address}
+        runs, and that route answers 401.
+    A session reaches all four, as its routes grant it. get_platform_stats is
+    the other half of the census — adjudicated OPEN, a count with no wallet in
+    it — and every tier still reaches it, so the refusal is the sibling's, not
+    a blanket one on the service."""
+    import json
+    import sys
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    class _Allow:
+        async def evaluate(self, action, context):
+            return {"allow": True}
+
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda *a, **k: _Allow())
+    recorder = _RecordingExecute()
+    recorder.install(monkeypatch)
+
+    script = [("platform_action", {"action": "track_product", "params": {"product_id": "p1"}}),
+              ("platform_action", {"action": "get_proposal", "params": {"proposal_id": "gp1"}}),
+              ("platform_action", {"action": "get_social_profile", "params": {"address": "0xA"}}),
+              ("platform_action", {"action": "get_activity", "params": {"address": "0xA"}}),
+              ("platform_action", {"action": "get_platform_stats", "params": {}})]
+    siblings = ["get_activity", "get_proposal", "get_social_profile", "track_product"]
+    held_open = ["get_platform_stats"]
+
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+
+    async def chat(client, surface, headers, session_id):
+        _scripted_model(server, script)
+        recorder.calls.clear()
+        if surface == "/ws":
+            async with client.ws_connect("/ws", headers=headers) as ws:
+                await ws.send_json({"type": "chat", "message": "do it", "agent": "trinity",
+                                    "session_id": session_id})
+                while True:
+                    frame = json.loads((await ws.receive()).data)
+                    if frame.get("type") in ("done", "error"):
+                        assert frame["type"] == "done", frame
+                        break
+        else:
+            resp = await client.post(surface, headers=headers, json={
+                "message": "do it", "wallet_connected": True, "session_id": session_id})
+            assert resp.status == 200, await resp.text()
+        return sorted(c.split("@")[0] for c in recorder.calls)
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        now = time.time()
+        await server.wallet_sessions.add(token="0xTEST_SESSION", address="apple:sub",
+                                         issued_at=now, expires_at=now + 3600)
+        operator = {"Authorization": "Bearer k"}
+        session = {"Authorization": "Bearer 0xTEST_SESSION"}
+        everything = sorted(siblings + held_open)
+        runs = {
+            "operator /bridge/v1/chat": ("/bridge/v1/chat", operator, everything),
+            "session /bridge/v1/chat": ("/bridge/v1/chat", session, everything),
+            "session /ws": ("/ws", session, everything),
+            "anonymous /bridge/v1/chat": ("/bridge/v1/chat", {}, held_open),
+            "anonymous /chat": ("/chat", {}, held_open),
+            "anonymous /ws": ("/ws", {}, held_open),
+        }
+        reached, expected = {}, {}
+        for n, (label, (surface, headers, want)) in enumerate(runs.items()):
+            reached[label] = await chat(client, surface, headers, f"s{n}")
+            expected[label] = want
+        assert reached == expected, "\n".join(
+            f"{k}: reached {v}, expected {expected[k]}"
+            for k, v in reached.items() if v != expected[k])
+
+
+async def test_the_routes_those_siblings_read_behind_answer_an_anonymous_caller_401(tmp_path):
+    """The other half of the claim: each refused sibling's route really does
+    refuse a caller with no credential, so the refusal above is the same wall
+    one door down and not a rule invented for the chat."""
+    import sys
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, "tests")
+    from test_route_sweep import SWEEP_CONFIG
+
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+    async with TestClient(TestServer(server.create_app())) as client:
+        for method, path in (("post", "/api/v1/supply-chain/verify"),
+                             ("get", "/api/v1/governance/daos/d1/proposals"),
+                             ("get", "/api/v1/social/feed/0xA"),
+                             ("get", "/api/v1/dashboard/0xA")):
+            resp = await getattr(client, method)(path, json={"product_id": "p1"})
+            assert resp.status == 401, (path, resp.status, await resp.text())
 
 
 # ── The class: a "read" that writes must be adjudicated, not assumed ─────────

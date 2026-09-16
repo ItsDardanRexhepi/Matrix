@@ -190,6 +190,7 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "cross_border.remit": "/api/v1/crossborder/send",
     "cross_border.send_payment": "/api/v1/crossborder/send",
     "dao_management.create_dao": "/api/v1/dao/create",
+    "dashboard.get_activity": "/api/v1/dashboard/{address}",
     "dashboard.get_overview": "/api/v1/dashboard/{address}",
     "defi.accept_p2p_offer": "/api/v1/oracle/price/{pair}",
     "defi.bridge_execute": "/api/v1/defi/bridge/execute",
@@ -214,6 +215,7 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "fundraising.create_campaign": "/api/v1/fundraising/campaign/create",
     "gaming.register_game": "/api/v1/gaming/register",
     "governance.create_proposal": "/api/v1/governance/proposal/create",
+    "governance.get_proposal": "/api/v1/governance/daos/{daoId}/proposals",
     "governance.list_proposals": "/api/v1/governance/daos/{daoId}/proposals",
     "governance.list_proposals_detailed": "/api/v1/governance/daos/{daoId}/proposals",
     "governance.snapshot_vote": "/api/v1/governance/snapshot/vote",
@@ -266,6 +268,7 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "social.get_feed": "/api/v1/social/feed/{wallet}",
     "social.get_feed_view": "/api/v1/social/feed/{wallet}",
     "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
+    "social.get_profile": "/api/v1/social/feed/{wallet}",
     "social.share_proof": "/api/v1/social/message",
     "stablecoin.transfer": "/api/v1/stablecoin/transfer",
     "staking.stake": "/api/v1/staking/stake",
@@ -273,6 +276,7 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
     "subscriptions.subscribe": "/api/v1/subscriptions/subscribe",
     "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
     "supply_chain.register_product": "/api/v1/supply-chain/register",
+    "supply_chain.track": "/api/v1/supply-chain/verify",
     "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
     "supply_chain.verify": "/api/v1/supply-chain/verify",
     "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
@@ -280,14 +284,63 @@ SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
 }
 
 # Of those, the reads refused by DECISION rather than derivation: a public read
-# no wrapper chain joins to its routed sibling, held refused to an anonymous
-# caller because both read the named store, until a ruling on it is written.
-# A session is not refused these. Each: pair -> (routed sibling, shared store).
-ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, str]] = {
+# no wrapper chain and no cross-service walk joins to its sibling, held refused
+# to an anonymous caller because it touches a store or helper that sibling — a
+# read the same caller is refused — touches, until a ruling on it is written.
+# The CLASS is derived (scripts/generate_session_routes.py, sibling_read_census);
+# only the ruling is written by hand, and a member with no ruling stops the
+# generator. A session is not refused these: it keeps what its routes grant it.
+# Each: pair -> (the sibling it joins, every store or helper they share).
+ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, tuple[str, ...]]] = {
+    # aggregate_activity walks every registered service for the records of the wallet the
+    # caller names, through the same self._aggregator and self._formatter that
+    # get_overview — the operation GET /api/v1/dashboard/{address} runs, and answers an
+    # anonymous caller 401 — runs
+    "dashboard.get_activity": (
+        "dashboard.get_overview", ("_aggregator", "_formatter",)),
+    # returns the whole proposal record — proposer, description, options, tally, quorum —
+    # for a proposal list_proposals_detailed publishes a summary of; strictly more than
+    # the refused sibling, out of the same store
+    "governance.get_proposal": (
+        "governance.list_proposals_detailed", ("_proposals", "_quorum", "_votes",)),
     # both iterate self._proposals and apply the same active->expired transition
-    "governance.list_proposals": ("governance.list_proposals_detailed", "_proposals"),
+    "governance.list_proposals": (
+        "governance.list_proposals_detailed", ("_proposals",)),
+    # the profile record carries the wallet's followers and following lists, the follow
+    # graph get_feed resolves out of this same self._profiles; the feed route and both
+    # /social/{address}/followers|following answer 401
+    "social.get_profile": (
+        "social.get_feed_view", ("_profiles",)),
+    # runs the same _verify_chain_integrity over the same self._provenance and returns the
+    # entire chain (every event, handler, location and hash) plus the product record,
+    # where verify_authenticity returns only the verdict over it
+    "supply_chain.track": (
+        "supply_chain.verify_authenticity", ("_provenance", "_verify_chain_integrity",)),
     # both run _verify_chain_integrity over self._provenance[product_id]
-    "supply_chain.verify": ("supply_chain.verify_authenticity", "_provenance"),
+    "supply_chain.verify": (
+        "supply_chain.verify_authenticity", ("_provenance", "_verify_chain_integrity",)),
+}
+
+# The same census, adjudicated the other way: the shared name is not the refused
+# read's operation, so the read stays open to an anonymous caller. The reason is
+# data, not a comment — it is the whole of what holds the door open.
+# Each: pair -> (the sibling it joins, every store or helper they share, why).
+ANONYMOUS_SIBLING_READS_HELD_OPEN: dict[str, tuple[str, tuple[str, ...], str]] = {
+    "dashboard.get_component_status": (
+        "dashboard.get_overview", ("_aggregator", "_formatter",),
+        "its argument is a component name from a fixed list, never a wallet: it "
+        "reads whether the aggregator's _services registry holds that component "
+        "and, where a service exposes health_check(), calls it (none does "
+        "today), so it reaches no per-user store and returns no user record — "
+        "where get_overview runs aggregate_portfolio over the wallet it is "
+        "given"
+    ),
+    "dashboard.get_platform_stats": (
+        "dashboard.get_overview", ("_aggregator", "_user_components",),
+        "takes no argument and returns counts: component registration plus "
+        "len(self._user_components), a cardinality, never a key, a wallet or a "
+        "record"
+    ),
 }
 
 # What an anonymous refusal names when no route backs the operation at all:

@@ -571,25 +571,222 @@ def cross_service_runners(service: str, method: str) -> list:
     return _CROSS["index"].get((service, method), [])
 
 
-# Two public READS the wrapper rules cannot relate — neither hands its arguments
-# to the other, so no chain joins them — that read the same store, one of which
-# backs a route the auth wall answers an anonymous caller 401. Whether they are
-# the same operation is the owner's call; until it is made they are held
-# refused to an ANONYMOUS caller under the routed sibling's route, the direction
-# the module docstring says to err in. A session keeps what its routes grant it:
-# /api/v1/governance/daos/{daoId}/proposals is app-called, and
-# /api/v1/supply-chain/verify is operator-only only because the app never calls
-# it, which is not a decision about verify_product. Each entry names the store
-# both methods read; tests/test_capability_catalog_truth.py pins that both still
-# do and that the derivation still cannot see it, so a stale entry fails loudly.
-SAME_STORE_AS_ROUTED: dict = {
+def _private_touch(service: str, method: str) -> frozenset:
+    """Every private name of ``self`` *method* reaches — a store (``_provenance``)
+    or a helper (``_verify_chain_integrity``) — following the private methods it
+    calls, so a read that reaches the store through ``self._load()`` counts."""
+    import ast as _ast
+
+    cache = _LIVE.setdefault("touch", {})
+    if (service, method) in cache:
+        return cache[(service, method)]
+    cls = _service_class(service)
+    out: set = set()
+    frontier, seen = [method], set()
+    while frontier:
+        current = frontier.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        fdef = _function_def(cls, current) if cls is not None else None
+        if fdef is None:
+            continue
+        for n in _ast.walk(fdef):
+            if (isinstance(n, _ast.Attribute) and isinstance(n.value, _ast.Name)
+                    and n.value.id == "self" and n.attr.startswith("_")):
+                out.add(n.attr)
+                if callable(getattr(cls, n.attr, None)):
+                    frontier.append(n.attr)
+    cache[(service, method)] = frozenset(out)
+    return cache[(service, method)]
+
+
+def _route_http_methods() -> dict:
+    """canonical route -> the HTTP methods the real app registers on it."""
+    if "http_methods" not in _LIVE:
+        _server, app = _live_server()
+        methods: dict = {}
+        for route in app.router.routes():
+            if route.resource is not None:
+                methods.setdefault(route.resource.canonical, set()).add(route.method)
+        _LIVE["http_methods"] = methods
+    return _LIVE["http_methods"]
+
+
+def _routes_naming(pair) -> list:
+    """The routes whose handler names *pair* in a literal ``self._call``."""
+    live_route_pairs()
+    return sorted(route for route, pairs in _LIVE["literal"].items() if pair in pairs)
+
+
+def _is_read_anchor(pair) -> bool:
+    """True when an anonymous caller is refused this pair *as a read*: no
+    state-changing action maps to it, and either a dispatcher can be asked to run
+    it (an ACTION_MAP action the dispatcher itself classifies as a read) or a
+    route naming it literally serves only safe HTTP methods.
+
+    A refused WRITE is not an anchor. Its route needing a credential says
+    nothing about whether the record it writes is publicly readable, and the
+    platform publishes those reads deliberately — get_loan beside create_loan,
+    get_listing beside list_item, get_balance beside transfer. Anchoring on them
+    would put 60-odd ordinary read/write pairs in front of a judgement that has
+    already been made. This is the axis on which the census could be LOW.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from runtime.blockchain.services.service_dispatcher import (
+        ACTION_MAP, _STATE_MODIFYING_ACTIONS,
+    )
+    actions = [a for a, p in ACTION_MAP.items() if p == pair]
+    if any(a in _STATE_MODIFYING_ACTIONS for a in actions):
+        return False
+    if actions:
+        return True
+    return any(set(_route_http_methods().get(route, ())) <= {"GET", "HEAD", "OPTIONS"}
+               for route in _routes_naming(pair))
+
+
+# THE SIBLING AXIS, adjudicated as a class rather than listed as instances.
+#
+# Two public READS of one service that no wrapper chain and no cross-service
+# walk relates — neither hands its arguments to the other — can still be the
+# same operation: `verify` and `verify_authenticity` both run
+# `_verify_chain_integrity` over `self._provenance[product_id]`, and one of them
+# backs a route the auth wall answers an anonymous caller 401. c5f2de4 recorded
+# the two such pairs a reviewer happened to name and pinned the set to them, so
+# a third was invisible — and there was one: `track` (track_product) runs that
+# same helper over that same store and returns the WHOLE provenance chain on top
+# of the verdict, to a caller with no credential.
+#
+# So the class is derived (sibling_read_census below): every OPEN dispatchable
+# read that touches a private name — store or helper — an anonymous-refused READ
+# touches. Each member is a judgement a derivation cannot make, and each is
+# recorded here with its disposition and why:
+#   "refused" — held refused to an ANONYMOUS caller under the routed sibling's
+#               route, the direction the module docstring says to err in. A
+#               session keeps what its routes grant it.
+#   "open"    — the shared name is not the refused read's operation, and the
+#               reason says what makes it a different one.
+# Everything else about the entry — the sibling, the shared name, the route — is
+# derived; only the ruling is written here. A candidate with no entry stops the
+# generator, and an entry that is no longer a candidate stops it too.
+SAME_STORE_ADJUDICATED: dict = {
     ("governance", "list_proposals"): (
-        ("governance", "list_proposals_detailed"), "_proposals",
+        "refused",
         "both iterate self._proposals and apply the same active->expired transition"),
+    ("governance", "get_proposal"): (
+        "refused",
+        "returns the whole proposal record — proposer, description, options, tally, "
+        "quorum — for a proposal list_proposals_detailed publishes a summary of; "
+        "strictly more than the refused sibling, out of the same store"),
     ("supply_chain", "verify"): (
-        ("supply_chain", "verify_authenticity"), "_provenance",
+        "refused",
         "both run _verify_chain_integrity over self._provenance[product_id]"),
+    ("supply_chain", "track"): (
+        "refused",
+        "runs the same _verify_chain_integrity over the same self._provenance and "
+        "returns the entire chain (every event, handler, location and hash) plus the "
+        "product record, where verify_authenticity returns only the verdict over it"),
+    ("social", "get_profile"): (
+        "refused",
+        "the profile record carries the wallet's followers and following lists, the "
+        "follow graph get_feed resolves out of this same self._profiles; the feed "
+        "route and both /social/{address}/followers|following answer 401"),
+    ("dashboard", "get_activity"): (
+        "refused",
+        "aggregate_activity walks every registered service for the records of the wallet "
+        "the caller names, through the same self._aggregator and self._formatter that "
+        "get_overview — the operation GET /api/v1/dashboard/{address} runs, and answers "
+        "an anonymous caller 401 — runs"),
+    ("dashboard", "get_component_status"): (
+        "open",
+        "its argument is a component name from a fixed list, never a wallet: it reads "
+        "whether the aggregator's _services registry holds that component and, where a "
+        "service exposes health_check(), calls it (none does today), so it reaches no "
+        "per-user store and returns no user record — where get_overview runs "
+        "aggregate_portfolio over the wallet it is given"),
+    ("dashboard", "get_platform_stats"): (
+        "open",
+        "takes no argument and returns counts: component registration plus "
+        "len(self._user_components), a cardinality, never a key, a wallet or a record"),
 }
+
+
+def sibling_read_census(refused: dict):
+    """``(candidates, refused)`` — the sibling axis, run to a fixed point.
+
+    *refused* is the derived ``"service.method" -> route`` map. Every open
+    dispatchable read that shares a private name with an anonymous-refused READ
+    of its own service is a candidate; the ones SAME_STORE_ADJUDICATED holds
+    refused are added to the map under the route of the sibling they join (a
+    sibling with a route of its own wins the label), and they anchor in turn, so
+    refusing a read brings ITS siblings into the census.
+
+    The candidates are the DISPATCHABLE reads: a public method no ACTION_MAP
+    action names is not one, because no dispatcher can be asked for it today —
+    and it enters the census the moment an action maps to it.
+
+    Where it can be LOW: the anchors are refused READS only (_is_read_anchor);
+    the join is within ONE service, so the same records reached through another
+    service's store are not a candidate here; and the join is on the NAME of a
+    private attribute or helper, so a store reached through a module-level
+    function, a local bound some other way, or a second object holding the same
+    records is invisible to it.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from runtime.blockchain.services.service_dispatcher import (
+        ACTION_MAP, _STATE_MODIFYING_ACTIONS,
+    )
+    out = dict(refused)
+    open_reads = sorted({p for a, p in ACTION_MAP.items()
+                         if a not in _STATE_MODIFYING_ACTIONS})
+    candidates: dict = {}
+    while True:
+        anchors = sorted(p for p in (tuple(k.split(".", 1)) for k in out) if _is_read_anchor(p))
+        joined = False
+        for pair in open_reads:
+            key = f"{pair[0]}.{pair[1]}"
+            if key in out:
+                continue
+            touch = _private_touch(*pair)
+            joins = [(a, sorted(touch & _private_touch(*a))) for a in anchors
+                     if a[0] == pair[0] and a != pair and touch & _private_touch(*a)]
+            if not joins:
+                continue
+            candidates[pair] = joins
+            disposition = (SAME_STORE_ADJUDICATED.get(pair) or ("", ""))[0]
+            if not disposition:
+                raise SystemExit(
+                    f"SAME_STORE_ADJUDICATED: {key} reads what an anonymous caller is "
+                    f"refused — {[(f'{a[0]}.{a[1]}', sh) for a, sh in joins]} — and "
+                    "nothing rules on it. Refuse it, or record why that store is "
+                    "readable without the credential its sibling's route needs")
+            if disposition == "refused":
+                routed = [a for a, _sh in joins if _routes_naming(a)]
+                anchor = routed[0] if routed else joins[0][0]
+                out[key] = out[f"{anchor[0]}.{anchor[1]}"]
+                joined = True
+        if not joined:
+            stale = sorted(f"{s}.{m}" for s, m in set(SAME_STORE_ADJUDICATED) - set(candidates))
+            if stale:
+                raise SystemExit(f"SAME_STORE_ADJUDICATED: no longer a sibling of any "
+                                 f"refused read — drop the entry: {stale}")
+            return candidates, out
+
+
+def sibling_adjudication() -> dict:
+    """``pair -> (disposition, sibling, shared name, why)`` for every census
+    candidate, with the sibling and the shared name derived, not written."""
+    candidates, out = sibling_read_census(_refused_by(
+        lambda route: route in set(_live_server()[0]._public_paths)))
+    records: dict = {}
+    for pair, joins in candidates.items():
+        disposition, why = SAME_STORE_ADJUDICATED[pair]
+        routed = [(a, sh) for a, sh in joins if _routes_naming(a)]
+        anchor, shared = (routed or joins)[0]
+        records[pair] = (disposition, anchor, tuple(shared), why)
+    return records
 
 
 def refused_pairs(allowed: set) -> dict:
@@ -645,21 +842,18 @@ def anonymous_refused_pairs() -> dict:
     above models only the operator tier, so an anonymous chat ran operations
     whose own route answers it 401. Public is read from the real server's
     ``_public_paths`` — the set the wall itself consults. Same tie-break: a pair
-    behind ANY non-public route is refused. The SAME_STORE_AS_ROUTED reads join
-    under their routed sibling's route; an entry the derivation now sees, or
-    whose sibling is no longer refused, stops the generator.
+    behind ANY non-public route is refused. Then the sibling census: every open
+    read that touches what an anonymous-refused READ touches is adjudicated, and
+    the ones held refused join under their sibling's route.
     """
     server, _app = _live_server()
     public = set(server._public_paths)
-    out = _refused_by(lambda route: route in public)
-    for (service, method), ((_s, sibling), _store, _why) in SAME_STORE_AS_ROUTED.items():
-        key, routed = f"{service}.{method}", f"{_s}.{sibling}"
-        if key in out:
-            raise SystemExit(f"SAME_STORE_AS_ROUTED: {key} is derived now — drop the entry")
-        if routed not in out:
-            raise SystemExit(f"SAME_STORE_AS_ROUTED: {routed} is not behind a non-public "
-                             f"route — the entry for {key} is stale")
-        out[key] = out[routed]
+    derived = _refused_by(lambda route: route in public)
+    for service, method in sorted(SAME_STORE_ADJUDICATED):
+        if f"{service}.{method}" in derived:
+            raise SystemExit(f"SAME_STORE_ADJUDICATED: {service}.{method} is derived now "
+                             "— drop the entry")
+    _candidates, out = sibling_read_census(derived)
     return out
 
 
@@ -702,7 +896,22 @@ def derive(client: Path, routes_md: Path):
     return allowed, excluded, len(called), len(routes)
 
 
-def render(allowed, excluded, escapes=None, pairs=None, anonymous=None) -> str:
+def _wrap_comment(text: str, width: int = 84) -> list:
+    """*text* as comment lines that fit, indent included."""
+    import textwrap as _textwrap
+
+    return _textwrap.wrap(" ".join(text.split()), width=width) or [""]
+
+
+def _wrap_literal(text: str, width: int = 70) -> list:
+    """*text* as adjacent string literals Python concatenates back into it: every
+    line but the last keeps the space that joins it to the next."""
+    lines = _wrap_comment(text, width=width)
+    return [line + " " for line in lines[:-1]] + lines[-1:]
+
+
+def render(allowed, excluded, escapes=None, pairs=None, anonymous=None,
+           anonymous_adjudication=None) -> str:
     lines = [
         '"""GENERATED by scripts/generate_session_routes.py — do not edit by hand.',
         "",
@@ -753,14 +962,38 @@ def render(allowed, excluded, escapes=None, pairs=None, anonymous=None) -> str:
         "}",
         "",
         "# Of those, the reads refused by DECISION rather than derivation: a public read",
-        "# no wrapper chain joins to its routed sibling, held refused to an anonymous",
-        "# caller because both read the named store, until a ruling on it is written.",
-        "# A session is not refused these. Each: pair -> (routed sibling, shared store).",
-        "ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, str]] = {",
+        "# no wrapper chain and no cross-service walk joins to its sibling, held refused",
+        "# to an anonymous caller because it touches a store or helper that sibling — a",
+        "# read the same caller is refused — touches, until a ruling on it is written.",
+        "# The CLASS is derived (scripts/generate_session_routes.py, sibling_read_census);",
+        "# only the ruling is written by hand, and a member with no ruling stops the",
+        "# generator. A session is not refused these: it keeps what its routes grant it.",
+        "# Each: pair -> (the sibling it joins, every store or helper they share).",
+        "ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, tuple[str, ...]]] = {",
     ]
-    for (service, method), ((s2, sibling), store, why) in sorted(SAME_STORE_AS_ROUTED.items()):
-        lines += [f"    # {why}",
-                  f'    "{service}.{method}": ("{s2}.{sibling}", "{store}"),']
+    adjudication = anonymous_adjudication or {}
+    for pair, (disposition, sibling, shared, why) in sorted(adjudication.items()):
+        if disposition == "refused":
+            names = ", ".join('"%s"' % s for s in shared)
+            lines += [f"    # {w}" for w in _wrap_comment(why)]
+            lines += [f'    "{pair[0]}.{pair[1]}": (',
+                      f'        "{sibling[0]}.{sibling[1]}", ({names},)),']
+    lines += [
+        "}",
+        "",
+        "# The same census, adjudicated the other way: the shared name is not the refused",
+        "# read's operation, so the read stays open to an anonymous caller. The reason is",
+        "# data, not a comment — it is the whole of what holds the door open.",
+        "# Each: pair -> (the sibling it joins, every store or helper they share, why).",
+        "ANONYMOUS_SIBLING_READS_HELD_OPEN: dict[str, tuple[str, tuple[str, ...], str]] = {",
+    ]
+    for pair, (disposition, sibling, shared, why) in sorted(adjudication.items()):
+        if disposition != "refused":
+            names = ", ".join('"%s"' % s for s in shared)
+            lines += [f'    "{pair[0]}.{pair[1]}": (',
+                      f'        "{sibling[0]}.{sibling[1]}", ({names},),']
+            lines += [f'        "{w}"' for w in _wrap_literal(why)]
+            lines += ["    ),"]
     lines += [
         "}",
         "",
@@ -860,7 +1093,8 @@ def main() -> int:
     pairs = refused_pairs(set(allowed))
     escapes = capability_escapes(pairs)
     anonymous = anonymous_refused_pairs()
-    text = render(allowed, excluded, escapes, pairs, anonymous)
+    adjudication = sibling_adjudication()
+    text = render(allowed, excluded, escapes, pairs, anonymous, adjudication)
     if a.check:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
         if current != text:
@@ -872,7 +1106,9 @@ def main() -> int:
     print(f"wrote {OUT.relative_to(ROOT)}: {len(allowed)} session routes "
           f"(app paths {n_called} ∩ gateway routes {n_routes}) · excluded {len(excluded)} · "
           f"operations refused to a session {len(pairs)} (catalog capabilities {len(escapes)}) · "
-          f"to an anonymous caller {len(anonymous)} ({len(SAME_STORE_AS_ROUTED)} by decision) "
+          f"to an anonymous caller {len(anonymous)} "
+          f"({sum(1 for d, *_r in adjudication.values() if d == 'refused')} of "
+          f"{len(adjudication)} sibling reads by decision, the rest held open) "
           f"+ every unrouted state change")
     return 0
 
