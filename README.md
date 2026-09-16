@@ -226,6 +226,16 @@ check behind it:
   real spend than it names. The sponsored action is decoded from the call
   data being signed rather than read from a label the caller supplies. An
   operator who configures no cap keeps the previous behaviour
+- **The deployment tools will not put the old paymaster on a chain.** The
+  paymaster the platform uses is the ERC-4337 verifying one, which pays
+  gas out of its own EntryPoint deposit. Its predecessor can send any
+  calldata to any address from any authorized key, nothing in the runtime
+  calls it, and the tools used to deploy it as their first step and wire
+  0.1 ETH to it. They deploy what they declare, they say out loud what
+  they will not deploy and why, and a deployment manifest that names the
+  old one stops the pipeline before a single address is configured or a
+  single transfer is sent. Deploying it is now a deliberate act by hand,
+  which is the only kind of act it should ever have been
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused

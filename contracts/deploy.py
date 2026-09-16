@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-The Matrix Contract Deployment — deploys MatrixPaymaster and MatrixAttestation
-to Base Sepolia testnet.
+The Matrix Contract Deployment — deploys MatrixAttestation to Base Sepolia
+testnet.
 
 Usage:
     python contracts/deploy.py
@@ -12,6 +12,15 @@ Requires:
     - Base Sepolia testnet ETH in the platform wallet (get from faucet)
 
 All gas for deployment is paid by the platform wallet.
+
+WHAT THIS DEPLOYS IS DECLARED, in `CONTRACTS`, rather than written inline: a
+tool that deploys inline cannot be read for what it deploys. The shape is
+scripts/deploy_all.py's, which already worked this way.
+
+DO NOT DEPLOY — this tool deployed MatrixPaymaster as its first step. It no
+longer does. `legacy_notice_lines()` prints what it will not deploy and why on
+every run, and scripts/refuse_legacy_contracts.py holds the one table and the
+reason; a manifest that names it stops the pipeline there too.
 """
 
 import json
@@ -20,8 +29,41 @@ import sys
 import time
 from pathlib import Path
 
+# The retired-contract table lives in one place and is imported, not copied.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.refuse_legacy_contracts import LEGACY_CONTRACTS  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+#: Name, source file, config key and constructor arguments for everything this
+#: tool deploys. Adding an entry is the only way to make it deploy something.
+CONTRACTS: list[dict] = [
+    {
+        "name": "MatrixAttestation",
+        "source": "contracts/MatrixAttestation.sol",
+        "key": "attestation",
+        "constructor_args": lambda cfg: [],
+    },
+]
+
+
+def legacy_notice_lines() -> list[str]:
+    """What this tool will NOT deploy, and why — printed on every run.
+
+    Silence is not a gate. An operator who ran this tool expecting a paymaster
+    has to be told it did not deploy one, and told which contract replaced it,
+    or they will read the short run as a failure and reach for an older
+    revision that still deploys the arbitrary-call contract.
+    """
+    lines = ["", "  Not deployed by this tool:"]
+    for name, reason in LEGACY_CONTRACTS.items():
+        lines.append(f"    {name} — {reason}")
+    lines.append("")
+    return lines
 
 
 def load_config() -> dict:
@@ -138,41 +180,33 @@ def main():
         logger.error("No ETH in deployer wallet. Get testnet ETH from a faucet.")
         sys.exit(1)
 
+    # Say what will not be deployed BEFORE deploying anything, so the line sits
+    # above the run in the operator's scrollback rather than under it.
+    for line in legacy_notice_lines():
+        print(line)
+
     results = {}
 
-    # 1. Deploy MatrixPaymaster
-    print()
-    logger.info("═══ Deploying MatrixPaymaster ═══")
-    try:
-        abi, bytecode = compile_contract("contracts/MatrixPaymaster.sol", "MatrixPaymaster")
-        result = deploy_contract(web3, account, abi, bytecode, [platform_wallet], chain_id)
-        results["paymaster"] = result
-        logger.info(f"  Address: {result['contract_address']}")
-        logger.info(f"  Gas used: {result['gas_used']}")
-        logger.info(f"  Block: {result['block_number']}")
+    for entry in CONTRACTS:
+        name = entry["name"]
+        print()
+        logger.info(f"═══ Deploying {name} ═══")
+        try:
+            abi, bytecode = compile_contract(entry["source"], name)
+            result = deploy_contract(
+                web3, account, abi, bytecode,
+                entry["constructor_args"](bc), chain_id,
+            )
+            results[entry["key"]] = result
+            logger.info(f"  Address: {result['contract_address']}")
+            logger.info(f"  Gas used: {result['gas_used']}")
+            logger.info(f"  Block: {result['block_number']}")
 
-        # Save ABI
-        Path("contracts/MatrixPaymaster.abi.json").write_text(json.dumps(abi, indent=2))
-    except Exception as e:
-        logger.error(f"  Deployment failed: {e}")
-        results["paymaster"] = {"status": "failed", "error": str(e)}
-
-    # 2. Deploy MatrixAttestation
-    print()
-    logger.info("═══ Deploying MatrixAttestation ═══")
-    try:
-        abi, bytecode = compile_contract("contracts/MatrixAttestation.sol", "MatrixAttestation")
-        result = deploy_contract(web3, account, abi, bytecode, [], chain_id)
-        results["attestation"] = result
-        logger.info(f"  Address: {result['contract_address']}")
-        logger.info(f"  Gas used: {result['gas_used']}")
-        logger.info(f"  Block: {result['block_number']}")
-
-        # Save ABI
-        Path("contracts/MatrixAttestation.abi.json").write_text(json.dumps(abi, indent=2))
-    except Exception as e:
-        logger.error(f"  Deployment failed: {e}")
-        results["attestation"] = {"status": "failed", "error": str(e)}
+            # Save ABI
+            Path(f"contracts/{name}.abi.json").write_text(json.dumps(abi, indent=2))
+        except Exception as e:
+            logger.error(f"  Deployment failed: {e}")
+            results[entry["key"]] = {"status": "failed", "error": str(e)}
 
     # Save deployment results
     deployment_file = Path("contracts/deployment.json")
