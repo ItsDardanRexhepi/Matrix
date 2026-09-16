@@ -20,6 +20,7 @@ from runtime.blockchain.services.staking.arming import (
 )
 from runtime.blockchain.services.staking.pools import StakingPoolManager
 from runtime.blockchain.web3_manager import Web3Manager
+from runtime.protocols.outcome_truth import OUTCOME_FIELD, SUCCESS
 
 logger = logging.getLogger(__name__)
 
@@ -521,7 +522,14 @@ class StakingService:
         key = (staker, pool_id)
         position = self._positions.get(key)
         if not position:
+            # THE READ RAN AND THE ANSWER IS "NOTHING HERE". `no_position` is
+            # in the refusal vocabulary and no stored record is ever assigned
+            # it, so the read carve-out cannot discount it and the honest answer
+            # to a read reached the learner as a broken tool. The zeroed
+            # position IS the answer; the refusal for this method is the
+            # `not_deployed` above, and that one still says so.
             return {
+                OUTCOME_FIELD: SUCCESS,
                 "staker": staker,
                 "pool_id": pool_id,
                 "staked_amount": 0.0,

@@ -29,7 +29,7 @@ from multidict import MultiDict, MultiDictProxy
 from gateway.error_contract import (
     DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure, refusal_http_status,
 )
-from runtime.protocols.outcome_truth import FAILURE, report_of
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -694,7 +694,7 @@ class ServiceRoutes:
             else:
                 http_status = self._ERROR_CATEGORY_HTTP.get(category, 422)
             return web.json_response(
-                {"status": status, "outcome": report, "data": data},
+                {"status": status, OUTCOME_FIELD: report, "data": data},
                 status=http_status,
             )
         absent = refusal_http_status(data) if report == FAILURE else None
@@ -702,10 +702,10 @@ class ServiceRoutes:
             # The platform could not act. Its own status is the honest envelope
             # word; the client is told over HTTP as well.
             return web.json_response(
-                {"status": status or "refused", "outcome": report, "data": data},
+                {"status": status or "refused", OUTCOME_FIELD: report, "data": data},
                 status=absent,
             )
-        return web.json_response({"status": "ok", "outcome": report, "data": data})
+        return web.json_response({"status": "ok", OUTCOME_FIELD: report, "data": data})
 
     async def _call(self, service_name: str, method_name: str, **kwargs) -> Any:
         """Resolve a service and call its method.

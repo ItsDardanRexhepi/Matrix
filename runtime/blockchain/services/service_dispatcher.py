@@ -20,7 +20,7 @@ from typing import Any
 # `_REAL_OUTCOME_STATUSES` from this module LAZILY, inside a function, so
 # importing it here at module level closes no cycle — verified by importing this
 # module first in a bare interpreter.
-from runtime.protocols.outcome_truth import FAILURE, report_of
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
 
 logger = logging.getLogger(__name__)
 
@@ -1290,7 +1290,7 @@ class ServiceDispatcher:
         if action not in ACTION_MAP:
             return json.dumps({
                 "status": "error",
-                "outcome": FAILURE,
+                OUTCOME_FIELD: FAILURE,
                 "error_category": "not_found",
                 "degraded": False,
                 "error": f"Unknown action '{action}'",
@@ -1321,7 +1321,7 @@ class ServiceDispatcher:
                 )
                 return json.dumps({
                     "status": "error",
-                    "outcome": FAILURE,
+                    OUTCOME_FIELD: FAILURE,
                     "error_category": "service_unavailable",
                     "degraded": True,
                     "service": target_service,
@@ -1339,7 +1339,7 @@ class ServiceDispatcher:
                              action, target_service, method_name)
                 return json.dumps({
                     "status": "error",
-                    "outcome": FAILURE,
+                    OUTCOME_FIELD: FAILURE,
                     "error_category": "service_error",
                     "degraded": False,
                     "error": (
@@ -1400,7 +1400,7 @@ class ServiceDispatcher:
                 logger.error("Bad params for %s.%s: %s", target_service, method_name, exc)
                 return json.dumps({
                     "status": "error",
-                    "outcome": FAILURE,
+                    OUTCOME_FIELD: FAILURE,
                     "error_category": "validation",
                     "degraded": False,
                     "error": f"Invalid parameters for {action}: {exc}",
@@ -1538,7 +1538,7 @@ class ServiceDispatcher:
             elapsed = round(time.time() - start, 3)
             return json.dumps({
                 "status": "ok",
-                "outcome": report_of(
+                OUTCOME_FIELD: report_of(
                     result,
                     status_describes_the_call=action in _STATE_MODIFYING_ACTIONS,
                 ),
@@ -1552,7 +1552,7 @@ class ServiceDispatcher:
             logger.warning("Action %s not implemented: %s", action, exc)
             return json.dumps({
                 "status": "error",
-                "outcome": FAILURE,
+                OUTCOME_FIELD: FAILURE,
                 "error_category": "not_implemented",
                 "degraded": True,
                 "error": f"Action '{action}' is not implemented in this build: {exc}",
@@ -1561,7 +1561,7 @@ class ServiceDispatcher:
             logger.exception("Action %s failed", action)
             return json.dumps({
                 "status": "error",
-                "outcome": FAILURE,
+                OUTCOME_FIELD: FAILURE,
                 "error_category": "service_error",
                 "degraded": True,
                 "service": target_service,

@@ -302,29 +302,37 @@ the two parts answer different questions:
 ```json
 {
   "status": "ok",
-  "outcome": "success",
+  "call_outcome": "success",
   "data": { "...the service's own result..." }
 }
 ```
 
 `status` is about the **wrapping** — the gateway resolved the service, called
-it, and has its answer. `outcome` is about the **action**, read from the
+it, and has its answer. `call_outcome` is about the **action**, read from the
 payload's own named fields: `success`, `failure`, or `unknown` when the service
 reported something that does not decide the question (`pending` means "not
 paid" in one service and "record written" in another, so neither reading is
-correct for both). `outcome` is present on every response, not only on
+correct for both). `call_outcome` is present on every response, not only on
 refusals — a field that appears only when something went wrong reads as silence
 everywhere else.
 
+The name is namespaced because `outcome` is a word the **services** own: a
+prediction market has a resolved outcome, so do a dispute and a governance
+proposal, and `gaming.resolve_market` writes the caller's own argument into the
+record it returns. While the envelope used the bare word, resolving a market
+*to* `"failure"` was read as the CALL having failed — for an action the same
+response attested as real.
+
 A refusal that is a **domain answer** the caller asked for — a rejected claim,
-a failed transaction — stays `200` with `status: "ok"` and `outcome: "failure"`.
+a failed transaction — stays `200` with `status: "ok"` and
+`call_outcome: "failure"`.
 A refusal that means the platform **could not act at all** —
 `not_deployed`, `not_configured`, `not_available`, `unavailable` → `503`;
 `not_implemented`, `unsupported`, `provider_unsupported` → `501` — carries its
 own status word and a real HTTP failure, because a client that checks only the
 HTTP status (the Python SDK does exactly that) would otherwise read it as a
 success. The bridge's `/bridge/v1/*` envelope makes the same split with
-`ok` and `outcome`, and answers `ok: false, refused: true` for a refusal the
+`ok` and `call_outcome`, and answers `ok: false, refused: true` for a refusal the
 platform relayed.
 
 ---

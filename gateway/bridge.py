@@ -28,7 +28,7 @@ from typing import Any
 from aiohttp import web
 
 from gateway.error_contract import client_error, dispatcher_failure, refusal_http_status
-from runtime.protocols.outcome_truth import FAILURE, SUCCESS, report_of
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, report_of
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class MobileResponse:
         always, never only on failure, because a field that appears only when
         something went wrong is read as silence when it is absent.
         """
-        body = {"ok": True, "outcome": outcome or SUCCESS,
+        body = {"ok": True, OUTCOME_FIELD: outcome or SUCCESS,
                 "data": data or {}, "timestamp": time.time()}
         return web.json_response(body)
 
@@ -79,7 +79,7 @@ class MobileResponse:
         so the iOS side cannot close a send sheet on it (NEW-21).
         """
         return web.json_response(
-            {"ok": False, "outcome": FAILURE, "refused": True,
+            {"ok": False, OUTCOME_FIELD: FAILURE, "refused": True,
              "error": "The platform did not perform this action.",
              "data": data, "timestamp": time.time()},
             status=status,

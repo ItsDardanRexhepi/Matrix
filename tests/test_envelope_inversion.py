@@ -24,10 +24,12 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from gateway.service_routes import ServiceRoutes
+from runtime.protocols.outcome_truth import OUTCOME_FIELD
 
 
 @pytest.fixture
@@ -104,9 +106,10 @@ def test_domain_outcomes_are_not_treated_as_failures(routes, status):
 def test_non_dict_and_statusless_payloads_are_unaffected(routes):
     """Lists, scalars, and dicts without a status stay 200.
 
-    The envelope gained an ``outcome`` field — `status` reports the WRAPPING
-    (this gateway served the request) and `outcome` reports the ACTION, which
-    `status` was silently answering for. It is stated on every response, not
+    The envelope gained a ``call_outcome`` field — `status` reports the
+    WRAPPING (this gateway served the request) and `call_outcome` reports the
+    ACTION, which `status` was silently answering for. The name is namespaced
+    because the bare word is one the services themselves use for domain data. It is stated on every response, not
     only on refusals: a field that appears only when something went wrong reads
     as silence on every other path, which is the defect the field exists to
     close. Everything else about these payloads is unchanged, which is what
@@ -118,7 +121,7 @@ def test_non_dict_and_statusless_payloads_are_unaffected(routes):
         assert resp.status == 200
         assert body["status"] == "ok"
         assert body["data"] == payload
-        assert body["outcome"] == "success"
+        assert body[OUTCOME_FIELD] == "success"
 
 
 # ── end-to-end through a real route ────────────────────────────────────────
