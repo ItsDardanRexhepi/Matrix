@@ -30,6 +30,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Slither compiles the contracts, and they import forge-std,
+          # openzeppelin-contracts and account-abstraction from contracts/lib/,
+          # which are submodules. Without them the compile finds no imports.
+          submodules: recursive
+
+      # contracts/ is a Foundry project (contracts/foundry.toml), so Slither
+      # shells out to `forge` to build it. `forge` is not on the runner by
+      # default, and without it Slither dies on
+      #   FileNotFoundError: [Errno 2] No such file or directory: 'forge'
+      # produces no SARIF, and the upload step then fails on the missing file.
+      # That is why this workflow had never once gone green.
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
 
       - name: Run Slither
         id: slither
@@ -41,9 +55,13 @@ jobs:
           fail-on: 'high'
           sarif: results.sarif
 
+      # Guarded on the FILE, not on the output variable. The variable simply
+      # echoes the requested filename, so it is non-empty even when Slither
+      # produced nothing, and the upload then failed on a path that does not
+      # exist — reporting an upload problem for what was really a build problem.
       - name: Upload SARIF report
-        if: always() && steps.slither.outputs.sarif != ''
+        if: always() && hashFiles('results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: ${{ steps.slither.outputs.sarif }}
+          sarif_file: results.sarif
           category: slither

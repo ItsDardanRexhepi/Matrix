@@ -50,5 +50,5 @@ def test_the_quick_start_clones_and_enters_the_same_directory():
     """A rename that edits prose but leaves `cd <old name>` in the quick start
     hands a new user a command that cannot work."""
     readme = (REPO / "README.md").read_text()
-    assert "cd the-matrix" in readme
+    assert "cd TheMatrix" in readme
     assert "cd The Matrix" not in readme, "that is not a valid shell command"

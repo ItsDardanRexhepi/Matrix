@@ -7,8 +7,8 @@ By the end of this module, you will have The Matrix running on your machine, the
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/ItsDardanRexhepi/the-matrix.git
-cd the-matrix
+git clone https://github.com/ItsDardanRexhepi/TheMatrix.git
+cd TheMatrix
 ```
 
 Verify you are in the right directory:
