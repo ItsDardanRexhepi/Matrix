@@ -4,8 +4,19 @@ This is the "For You" scoring core. It is deliberately a pure function of a smal
 explicitly-named set of signals, with every weight living in one dataclass
 (`FeedWeights`) so the ranking is fully explainable and operator-tunable. There is
 NO machine learning and NO per-user model anywhere in v1 — the only personalization
-is the transparent, symmetric "do you follow this author" signal, which the viewer
-already controls by following/unfollowing.
+is the transparent, symmetric "do you follow this author" signal.
+
+That signal is NOT yet fully reversible by the viewer, and saying it was is the
+kind of claim this file must not make. The set the ranker reads is the social
+profile's `following` list, written by the `social_follow` action
+(`SocialService.follow_wallet`); no action removes an edge from it. The
+`POST /social/unfollow` route does delete an edge, but from a different store
+(`runtime/social/follows.py`, table `social_follows`), which this ranker never
+reads. So a viewer can add a personalization edge and cannot take it back. The
+ranker itself is symmetric and stateless — the gap is in the follow graph
+behind it, not in the scoring — but until one store backs both the follow and
+the unfollow, "the viewer controls it" is a sentence about a control that does
+not close.
 
 Design invariants (enforced + tested):
   • Privacy absolute — the ranker NEVER sees private/confidential content. Callers
@@ -21,18 +32,32 @@ Design invariants (enforced + tested):
     page comes from authors the viewer does NOT follow (default 20%). When followed
     content can't fill the page, the page is SHORTER — it is never backfilled with
     strangers. This is what stops a flood of high-engagement non-followed posts from
-    dominating (the "cap bypass" the ranker must resist); the excess isn't lost, it
-    surfaces on a larger page / next page.
-  • Author diversity — a HARD cap (every mode, incl. cold-start): no single author
-    may occupy more than `max_posts_per_author` slots on a page. This stops one
-    account (viral or spamming) from owning a page even when there is no follow
-    signal to lean on. It bounds per-account dominance, NOT distinct-account (Sybil)
-    collusion — that is an identity-layer concern a ranker cannot solve.
+    dominating (the "cap bypass" the ranker must resist); the excess isn't lost — a
+    LARGER `page_size` surfaces more of it. There is no "next page": `rank_for_you`
+    takes no offset and neither does any caller, so a second page is not something
+    the excess can arrive on. Saying it was made a bounded skip sound like a queue.
+  • Author diversity — a HARD cap in every RANKED mode, cold-start included: no
+    single author may occupy more than `max_posts_per_author` slots on an assembled
+    page. Every page `_assemble_page` builds is capped, which is every page
+    `rank_for_you` returns. It does NOT apply to `latest()`: a chronological tab of
+    the authors a viewer chose to follow is not a ranked page, and capping it would
+    hide posts the viewer asked for. So the scope is "every page the ranker ranks",
+    not "every feed the platform serves" — the wider reading was false, and the
+    difference matters to anyone reasoning about what bounds a flood on the Latest
+    tab (nothing here does; the follow set does). It bounds per-account dominance,
+    NOT distinct-account (Sybil) collusion — an identity-layer concern a ranker
+    cannot solve.
   • Cold-start — a viewer who follows no one has an all-discovery feed (the follow-
     based discovery cap is lifted, since "followed" is empty by definition) ranked by
     recency + engagement, still author-diversity-capped and bounded by page size.
   • Honest fallback — `latest()` is the chronological feed used both for the
-    "Latest" tab AND whenever ranking cannot run; it is never dressed up as "For You".
+    "Latest" tab AND whenever ranking cannot run. `SocialService.get_feed` calls
+    it on both paths (`_latest_order`), so this is one implementation and not a
+    sentence about an uncalled function. A fallback is not dressed up as "For
+    You": ranked items carry `_rank_score` and `_rank_breakdown` and fallback
+    items carry neither, so a caller can tell them apart from the item itself.
+    The `get_feed_view` envelope is `{"posts": [...]}` and names no mode either
+    way — it does not claim For You, and it does not announce the fallback.
 
 See FEED_ALGORITHM.md (generated from this module) for the operator-facing spec.
 """
@@ -67,13 +92,42 @@ class FeedWeights:
     discovery_cap_fraction: float = 0.20
 
     # Author diversity: no single author may occupy more than this many slots on a
-    # page — in EVERY mode, including cold-start. This is what stops one account
-    # (viral or spamming) from owning a page even when there is no follow signal to
-    # lean on (a brand-new viewer). It limits per-account dominance; it cannot solve
-    # distinct-account (Sybil) collusion, which is an identity-layer concern.
+    # page the RANKER assembles — for_you and cold-start alike. This is what stops
+    # one account (viral or spamming) from owning a page even when there is no
+    # follow signal to lean on (a brand-new viewer). It does not reach the
+    # chronological `latest()` tab, which is not an assembled page. It limits
+    # per-account dominance; it cannot solve distinct-account (Sybil) collusion,
+    # which is an identity-layer concern.
     max_posts_per_author: int = 3
 
     def validate(self) -> None:
+        """Refuse any weight that would switch a stated invariant off.
+
+        Every guard here was once a bare comparison (`< 0`, `<= 0`, `< 1`), and
+        NaN answers False to all of them. A `NaN` literal in `feed_ranker.*` —
+        which Python's own json parser accepts — therefore passed validation and
+        reached the scorer, where it does not raise: `min(raw, nan)` returns
+        `raw`, so the engagement ceiling stops existing, and
+        `max_per_author >= 1` is False, so the author-diversity cap this module
+        calls HARD is silently disabled. Infinity passes the same comparisons
+        and flattens every score to the same value, losing the ordering by
+        another route. A guarantee that can be turned off by a config value
+        nobody is told about is not a guarantee, so finiteness is checked
+        first — before the range — for every numeric knob.
+        """
+        for name in ("recency", "engagement", "affinity", "discovery",
+                     "comment_weight", "recency_halflife_hours",
+                     "engagement_ceiling", "discovery_cap_fraction",
+                     "max_posts_per_author"):
+            value = getattr(self, name)
+            try:
+                finite = math.isfinite(value)
+            except TypeError:  # a non-numeric config value (str, None, list, …)
+                raise ValueError(
+                    f"{name} must be a finite number, got {value!r}") from None
+            if not finite:
+                raise ValueError(
+                    f"{name} must be a finite number, got {value!r}")
         for name in ("recency", "engagement", "affinity", "discovery"):
             if getattr(self, name) < 0:
                 raise ValueError(f"weight {name} must be >= 0")

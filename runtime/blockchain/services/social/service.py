@@ -314,8 +314,40 @@ class SocialService:
         # Latest (default + honest fallback): followed authors + self, newest first.
         visible = following | {address}
         feed = [it for it in public_items if self._item_actor(it) in visible]
-        feed.sort(key=lambda x: self._item_ts(x), reverse=True)
-        return feed[:limit]
+        return self._latest_order(feed)[:limit]
+
+    def _latest_order(self, items: list[dict]) -> list[dict]:
+        """Chronological order, from the one function that defines it.
+
+        `feed_ranker.latest()` carries the module's stated guarantee — newest
+        first, ties broken by post id so the same store always answers with the
+        same page. This method existed as a private `sort(key=_item_ts)` with no
+        tie-break, which meant two posts sharing a timestamp came back in
+        whichever order the store happened to hold, and that `latest()` had no
+        production caller at all: the guarantee was prose about an uncalled
+        function. Both the Latest tab and the ranking fallback arrive here, so
+        there is one chronological order in the platform rather than two that
+        can drift.
+
+        Items are mapped back by object identity, not by id, so a record with a
+        missing or duplicated id is ordered rather than dropped or collapsed —
+        Latest has never filtered on id and must not start.
+        """
+        from runtime.social import feed_ranker
+        from runtime.social.feed_ranker import FeedCandidate
+
+        pairs = [
+            (FeedCandidate(
+                id=self._item_id(it),
+                author_id=self._item_actor(it),
+                created_at=self._item_ts(it),
+                likes=self._item_likes(it),
+                comments=self._item_comments(it),
+            ), it)
+            for it in items
+        ]
+        by_obj = {id(c): it for c, it in pairs}
+        return [by_obj[id(c)] for c in feed_ranker.latest([c for c, _ in pairs])]
 
     def _rank_for_you(
         self, public_items: list[dict], *, following: set[str], limit: int,
