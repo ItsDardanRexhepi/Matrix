@@ -2,8 +2,8 @@
 
 Reproduction (a clean clone, macOS, the Terminal's own interpreter):
 
-    git clone https://github.com/ItsDardanRexhepi/the-matrix.git
-    cd the-matrix
+    git clone https://github.com/ItsDardanRexhepi/TheMatrix.git
+    cd TheMatrix
     python setup.py            # zsh: command not found: python   (macOS ships no `python`)
     python3 setup.py           # step 2 fails: "externally-managed-environment" —
                                # Homebrew's python3 refuses `pip install` (PEP 668)

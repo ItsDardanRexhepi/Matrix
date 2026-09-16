@@ -679,8 +679,16 @@ class MemoryManager:
         transaction — both tables, so neither outlives the other."""
         if not scope:
             return
-        conn.execute(f"DELETE FROM agent_turns WHERE {cls._SCOPE_IS}", (scope,))
-        conn.execute(f"DELETE FROM agent_memory WHERE {cls._SCOPE_IS}", (scope,))
+        # nosec B608 - the f-string interpolates only `cls._SCOPE_IS`, a class
+        # constant defined above, and that constant ends in `= ?`. The one value
+        # that comes from a caller, `scope`, is BOUND as a parameter and never
+        # formatted into the SQL. Bandit flags any f-string in a query text; it
+        # cannot see that the interpolated name is a literal. Suppressed with the
+        # reason rather than left to fail the job forever, because a security
+        # check that is always red reports nothing when it finally has something
+        # real to say.
+        conn.execute(f"DELETE FROM agent_turns WHERE {cls._SCOPE_IS}", (scope,))  # nosec B608
+        conn.execute(f"DELETE FROM agent_memory WHERE {cls._SCOPE_IS}", (scope,))  # nosec B608
 
     def _forget_scoped_memory_cache(self, scope: str) -> None:
         """Drop the in-process copies of *scope*'s memory (after its rows are

@@ -76,7 +76,7 @@ EXAMPLE_PLUGINS: list[dict] = [
         "category": "example",
         "min_tier_required": "free",
         "capabilities": ["custom_command"],
-        "repository_url": "https://github.com/ItsDardanRexhepi/the-matrix",
+        "repository_url": "https://github.com/ItsDardanRexhepi/TheMatrix",
     },
     {
         "name": "Portfolio Tracker",
