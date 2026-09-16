@@ -274,6 +274,26 @@ KNOWN_FABRICATION_SHAPE = {
     "rwa_tokenization/legal_bridge.py::LegalBridge.create_legal_wrapper",
     "securities_exchange/exchange.py::ExchangeContract.place_order",
     "securities_exchange/negotiation.py::TermsNegotiation.create_offer",
+    # ADDED (43 -> 44) — VISIBLE rather than newly wrong, and the platform DID
+    # change, in the honest direction.
+    #   create_community minted comm_<uuid>, stamped "status": "active" and
+    #   RETURNED THE RECORD WITHOUT STORING IT — no dict, no db, no chain. This
+    #   shape requires a write, so the detector could not see it: the method
+    #   was below the floor the ratchet measures, not above it. The gateway
+    #   answered 200 with an id for a community that existed nowhere, and every
+    #   /api/v1/groups read leg is an honest 501, so nothing could contradict
+    #   it. It now keeps the record in `self._communities`, exactly as the
+    #   sibling `create_profile` has always kept a profile, which is what makes
+    #   the returned id name something — and which is what makes it visible
+    #   here.
+    #   ADJUDICATED: shape member, not a fabrication. A community has no
+    #   contract, no settlement and no funds; the platform record IS the
+    #   artifact, the same reading that listed a proposal, an appeal and a
+    #   moderation report. The honest caveat is stated at the method: the store
+    #   is process-local, so it does not survive a restart and is not shared
+    #   between workers, and the read legs stay 501 until they have somewhere
+    #   durable to read from.
+    "social/service.py::SocialService.create_community",
     "social/content_moderation.py::ContentModeration.report_content",
     "staking/pools.py::StakingPoolManager.create_pool",
     "subscriptions/grace_period.py::GracePeriodManager.enter_grace",
@@ -385,9 +405,17 @@ def test_the_measured_count_is_recorded():
     RWAService.fractional_buy / claim_income / verify_provenance. The count
     moves by three; the fix is wider than the count, which is what "43 under
     an assignment-only write clause" means.
+
+    43 -> 44, UPWARD, ON A METHOD THAT GOT BETTER. SocialService.create_community
+    minted an id, stamped "active" and stored NOTHING, which is below this
+    shape's floor rather than above it — the detector requires a write. Giving
+    it the store its sibling create_profile has always had is what made the
+    returned id name something, and it is what made the method visible. An
+    entry arriving because a method stopped fabricating is worth as much
+    explanation as one leaving for a structural reason.
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 43
-    assert len(find_fabrication_shape()) == 43
+    assert len(KNOWN_FABRICATION_SHAPE) == 44
+    assert len(find_fabrication_shape()) == 44
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -745,8 +773,11 @@ def test_the_shape_inventory_is_at_the_documented_baseline():
     shape: it now awaits an on-chain ownership read before minting an id, so
     the ratchet tightened by one (the §CD sibling pass over NEW-89). 46 -> 43
     on the attest-money cluster, where three took the RECORDED_UNSETTLED
-    remedy. See `_shape`'s docstring for the measured +5 the call-form gap
-    would add, which is deliberately NOT included pending adjudication."""
+    remedy. 43 -> 44 when SocialService.create_community started keeping the
+    record it had always minted an id for, which is how a method that stored
+    nothing enters an inventory of methods that store. See `_shape`'s docstring
+    for the measured +5 the call-form gap would add, which is deliberately NOT
+    included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 43
+    assert len(KNOWN_FABRICATION_SHAPE) == 44
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current
