@@ -20,7 +20,11 @@ from runtime.models.model_interface import ModelInterface, ModelResponse
 
 logger = logging.getLogger(__name__)
 
-PROVIDER_ORDER = ["ollama", "openai", "anthropic", "mythos", "nvidia", "gemini"]
+from runtime.models.providers import PROVIDERS, resolve as resolve_provider
+
+# Every provider the platform knows, in fallback order: the local one first (it
+# needs no key), then the rest as declared in runtime/models/providers.py.
+PROVIDER_ORDER = [p.key for p in PROVIDERS if p.key != "custom"] + ["custom"]
 MAX_RETRIES = 3
 
 # Mapping from TaskComplexity to preferred Anthropic model tiers
@@ -73,7 +77,17 @@ class ModelRouter:
 
     def __init__(self, config: dict):
         self.config = config
-        self.providers_config = config.get("providers", {})
+        # Two shapes have existed in the wild: the documented
+        # `model.providers.<name>` and the one the setup wizard used to write,
+        # `model.<name>`. A wizard-written config therefore initialised NO
+        # provider and silently fell back to Ollama — a user who configured
+        # OpenAI got "providers=['ollama']" and an error about a model they
+        # never chose. Both shapes are read now; `providers` wins on a clash.
+        self.providers_config = dict(config.get("providers", {}) or {})
+        for _p in PROVIDERS:
+            flat = config.get(_p.key)
+            if isinstance(flat, dict) and _p.key not in self.providers_config:
+                self.providers_config[_p.key] = flat
         self.primary_name = config.get("provider", "ollama")
         self.fallback_name = config.get("fallback")
         self.routing_strategy = config.get("routing_strategy", "intelligent")
@@ -144,6 +158,36 @@ class ModelRouter:
                     return None
                 from runtime.models.gemini_client import GeminiClient
                 return GeminiClient(config)
+
+            # Everything else declared in runtime/models/providers.py speaks the
+            # OpenAI chat-completions API — Grok (xAI), Hermes (Nous), DeepSeek,
+            # Mistral, Groq, Together, OpenRouter, Perplexity, Fireworks,
+            # Cerebras, and `custom` for any endpoint not on that list. They
+            # differ only in base URL, default model and key, so they share the
+            # client that already handles tool calls rather than each getting a
+            # near-copy of it.
+            spec = resolve_provider(name)
+            if spec is not None and spec.openai_compatible:
+                import os as _os
+                api_key = config.get("api_key") or _os.environ.get(spec.env_var, "")
+                if not api_key or api_key.startswith("YOUR_"):
+                    logger.debug("%s: no valid API key, skipping", spec.label)
+                    return None
+                base_url = config.get("base_url") or spec.base_url
+                if not base_url:
+                    logger.warning(
+                        "%s: no base_url configured. Set model.providers.%s.base_url "
+                        "to the endpoint's OpenAI-compatible URL.", spec.label, spec.key)
+                    return None
+                model = config.get("model") or spec.default_model
+                if not model:
+                    logger.warning(
+                        "%s: no model configured. Set model.providers.%s.model to the "
+                        "model id the endpoint serves.", spec.label, spec.key)
+                    return None
+                from runtime.models.openai_client import OpenAIClient
+                return OpenAIClient({**config, "api_key": api_key,
+                                     "base_url": base_url, "model": model})
         except Exception as e:
             logger.warning(f"Failed to initialize {name} provider: {e}")
         return None

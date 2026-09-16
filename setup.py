@@ -255,55 +255,92 @@ def install_dependencies():
     return True
 
 
+def _choose_model(prov, api_key: str, base_url: str) -> str:
+    """Let the user pick from what the provider is serving TODAY, or type any id.
+
+    The wizard used to offer one hardcoded model name per provider. A name in
+    this repository is out of date the day the provider ships a new version, and
+    an id the provider has retired fails at the first message. So the provider
+    is asked (runtime/models/catalog.py) and answers with its current list,
+    newest first. Typing an id by hand always works — a model released an hour
+    ago is usable whether or not it is in the listing yet.
+    """
+    from runtime.models.catalog import list_models
+
+    info(f"Asking {prov.label} which models your key can use…")
+    listing = list_models(prov, api_key=api_key, base_url=base_url)
+    if not listing:
+        warn(f"Could not read {prov.label}'s model list ({listing.detail or 'no models returned'}).")
+        return ask("Model", default=prov.default_model, required=True)
+
+    shown = list(listing.models[:20])
+    print(f"\n  {BOLD}Models {prov.label} is serving for your key{RESET} "
+          f"{DIM}(newest first; {len(listing.models)} available){RESET}\n")
+    for i, name in enumerate(shown, start=1):
+        marker = f" {DIM}(the provider's newest){RESET}" if i == 1 else ""
+        print(f"  {CYAN}{i}{RESET}  {name}{marker}")
+    print(f"\n  {DIM}Or type any model id — including one newer than this list.{RESET}\n")
+
+    answer = ask("Model (number or id)", default="1", required=True).strip()
+    if answer.isdigit() and 1 <= int(answer) <= len(shown):
+        return shown[int(answer) - 1]
+    return answer
+
+
 def configure_model(config):
-    """Set up AI model provider."""
+    """Set up AI model provider.
+
+    The menu is built from runtime/models/providers.py, so a provider added
+    there is selectable here the same day. It used to be a hand-written list of
+    five, which is how Grok, Hermes, DeepSeek, Mistral, Groq, Together,
+    OpenRouter, Perplexity, Fireworks and Cerebras came to be unreachable.
+    """
+    from runtime.models.providers import PROVIDERS
+
     print(f"""
   {BOLD}Which AI model provider do you want to use?{RESET}
-
-  {CYAN}1{RESET}  Ollama       {DIM}(free, local, private — recommended for getting started){RESET}
-  {CYAN}2{RESET}  Anthropic    {DIM}(best quality){RESET}
-  {CYAN}3{RESET}  OpenAI       {DIM}(GPT models){RESET}
-  {CYAN}4{RESET}  NVIDIA       {DIM}(NVIDIA AI endpoints){RESET}
-  {CYAN}5{RESET}  Google       {DIM}(Gemini models){RESET}
 """)
+    for i, prov in enumerate(PROVIDERS, start=1):
+        print(f"  {CYAN}{i}{RESET}  {prov.label:<16}{DIM}({prov.blurb}){RESET}")
+    print()
 
-    choice = ask("Choose provider", default="1", options=["1", "2", "3", "4", "5"])
+    options = [str(i) for i in range(1, len(PROVIDERS) + 1)]
+    choice = ask("Choose provider", default="1", options=options)
+    prov = PROVIDERS[int(choice) - 1]
 
-    providers = {
-        "1": ("ollama", "llama3.1:8b"),
-        "2": ("anthropic", "claude-sonnet-4-20250514"),
-        "3": ("openai", "gpt-4o"),
-        "4": ("nvidia", "meta/llama-3.1-70b-instruct"),
-        "5": ("gemini", "gemini-pro"),
+    # The shape the router reads: model.providers.<name>. This used to write
+    # model.<name>, which the router never looked at — a wizard-configured
+    # OpenAI key was ignored and the platform fell back to Ollama, then failed
+    # on a model the user had not chosen.
+    settings: dict = {}
+    if prov.local:
+        host = ask(f"{prov.label} host", default=prov.base_url)
+        model = ask("Model", default=prov.default_model)
+        settings = {"base_url": host, "host": host, "model": model}
+        info(f"Make sure {prov.label} is running, and pull the model: ollama pull {model}")
+    else:
+        key = ask(f"{prov.label} API key", secret=True, required=True)
+        settings["api_key"] = key
+        if prov.key == "custom":
+            settings["base_url"] = ask(
+                "Base URL of the OpenAI-compatible endpoint "
+                "(the part before /chat/completions)", required=True)
+            settings["model"] = _choose_model(prov, key, settings["base_url"]) or ask(
+                "Model id the endpoint serves", required=True)
+        else:
+            if prov.base_url:
+                settings["base_url"] = prov.base_url
+            settings["model"] = _choose_model(prov, key, settings.get("base_url", ""))
+        info(f"The key is sent only to {prov.label}"
+             + (f" ({settings.get('base_url')})" if settings.get("base_url") else "")
+             + f"; you can also supply it as ${prov.env_var}.")
+
+    config["model"] = {
+        "provider": prov.key,
+        "primary": settings.get("model", prov.default_model),
+        "providers": {prov.key: settings},
     }
-
-    provider, default_model = providers[choice]
-    config["model"] = {"provider": provider, "primary": default_model}
-
-    if provider == "ollama":
-        host = ask("Ollama host", default="http://localhost:11434")
-        model = ask("Ollama model", default=default_model)
-        config["model"]["ollama"] = {"host": host, "model": model}
-        info("Make sure Ollama is running: ollama serve")
-        info(f"Pull the model if needed: ollama pull {model}")
-    elif provider == "anthropic":
-        key = ask("Anthropic API key", secret=True, required=True)
-        model = ask("Model", default=default_model)
-        config["model"]["anthropic"] = {"api_key": key, "model": model}
-    elif provider == "openai":
-        key = ask("OpenAI API key", secret=True, required=True)
-        model = ask("Model", default=default_model)
-        config["model"]["openai"] = {"api_key": key, "model": model}
-    elif provider == "nvidia":
-        key = ask("NVIDIA API key", secret=True, required=True)
-        model = ask("Model", default=default_model)
-        config["model"]["nvidia"] = {"api_key": key, "model": model}
-    elif provider == "gemini":
-        key = ask("Google API key", secret=True, required=True)
-        model = ask("Model", default=default_model)
-        config["model"]["gemini"] = {"api_key": key, "model": model}
-
-    success(f"Model provider: {provider} ({config['model'].get(provider, {}).get('model', default_model)})")
+    success(f"Model provider: {prov.key} ({settings.get('model', prov.default_model)})")
 
 
 def configure_blockchain(config):
@@ -521,9 +558,13 @@ def verify_setup(config):
         return False
 
     # Check model provider connectivity
-    provider = config.get("model", {}).get("provider", "ollama")
+    model_cfg = config.get("model", {})
+    provider = model_cfg.get("provider", "ollama")
+    # Read the shape the router reads. This looked in model.<name>, which the
+    # wizard no longer writes and the router never read.
+    settings = (model_cfg.get("providers", {}) or {}).get(provider) or model_cfg.get(provider) or {}
     if provider == "ollama":
-        host = config.get("model", {}).get("ollama", {}).get("host", "http://localhost:11434")
+        host = settings.get("base_url") or settings.get("host") or "http://localhost:11434"
         try:
             import urllib.request
             req = urllib.request.urlopen(f"{host}/api/tags", timeout=5)
@@ -533,6 +574,23 @@ def verify_setup(config):
                 warn(f"Ollama returned status {req.status}")
         except Exception:
             warn(f"Cannot reach Ollama at {host}. Start it with: ollama serve")
+    else:
+        # Say whether the platform will actually LOAD this provider, rather than
+        # leaving the user to discover at first chat that it fell back to Ollama.
+        try:
+            from runtime.models.providers import resolve as _resolve_provider
+            from runtime.models.router import ModelRouter
+            spec = _resolve_provider(provider)
+            loaded = ModelRouter(dict(model_cfg)).providers
+            if provider in loaded:
+                success(f"{spec.label if spec else provider} configured "
+                        f"({settings.get('model', '')})".rstrip() + " — the platform will use it")
+            else:
+                warn(f"{spec.label if spec else provider} is selected but did not load, so the "
+                     f"platform would fall back to another provider. Check the API key"
+                     + (f" (or ${spec.env_var})" if spec and spec.env_var else "") + ".")
+        except Exception as exc:                       # never fail setup over a check
+            warn(f"Could not verify the model provider: {exc}")
 
     # Check blockchain RPC
     if config.get("blockchain", {}).get("enabled"):
