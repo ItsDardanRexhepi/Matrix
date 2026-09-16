@@ -31,6 +31,9 @@ def main() -> int:
     ap.add_argument("--execute", action="store_true")
     ap.add_argument("--i-understand-this-spends-gas", action="store_true")
     ap.add_argument("--owner", default="<PLATFORM_OWNER_ADDRESS>")
+    ap.add_argument("--p256-verifier", default="0x0000000000000000000000000000000000000000",
+                    help="fallback P-256 verifier contract; 0x0 = rely on the "
+                         "RIP-7212 precompile at 0x100")
     ap.add_argument("--verifying-signer", default="<PAYMASTER_SIGNER_ADDRESS>")
     args = ap.parse_args()
 
@@ -50,8 +53,17 @@ def main() -> int:
     print(f"# Compile first: forge build  (resolves account-abstraction + OZ)\n")
 
     print("[1] MatrixAccountFactory")
-    print(f"    constructor(IEntryPoint _entryPoint = {ep})")
-    print("    -> config: blockchain.paymaster.account_factory = <deployed address>\n")
+    print(f"    constructor(IEntryPoint _entryPoint = {ep},")
+    print(f"                address _p256Verifier = {args.p256_verifier})")
+    print("    -> config: blockchain.paymaster.account_factory = <deployed address>")
+    print("    NOTE: accounts are owned by a P-256 (secp256r1) PUBLIC KEY, not an")
+    print("    address, because the Secure Enclave signs P-256 and cannot produce")
+    print("    secp256k1. Verification uses the RIP-7212 precompile at 0x100 where")
+    print("    the chain has it. _p256Verifier is the fallback verifier CONTRACT for")
+    print("    chains that do not; address(0) means precompile-only, and an account")
+    print("    on a chain with neither will refuse every signature (fail closed).")
+    print("    CONFIRM RIP-7212 IS LIVE ON THE TARGET CHAIN, or deploy a verifier")
+    print("    and pass it here — this script cannot check that for you.\n")
 
     print("[2] MatrixVerifyingPaymaster")
     print(f"    constructor(IEntryPoint _entryPoint = {ep},")
@@ -62,7 +74,11 @@ def main() -> int:
     print("    addStake(unstakeDelaySec) so the EntryPoint accepts sponsored ops.\n")
 
     print("[3] MatrixAccount is NOT deployed directly — the factory CREATE2-deploys")
-    print("    one per user on the first UserOp (initCode). Nothing to deploy here.\n")
+    print("    one per user on the first UserOp (initCode). Nothing to deploy here.")
+    print("    The client's initCode must encode createAccount(ownerX, ownerY, salt)")
+    print("    with the owner's P-256 public key, and its counterfactual sender must")
+    print("    come from factory.getAddress(ownerX, ownerY, salt) — never from a")
+    print("    locally reimplemented CREATE2 hash.\n")
 
     print("# After deploy, also set: blockchain.paymaster.entry_point =", ep)
     print("# and the client's PendingCredentials AA/paymaster slots.")
