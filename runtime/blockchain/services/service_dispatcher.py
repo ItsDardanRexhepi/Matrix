@@ -623,14 +623,22 @@ RECORD_REFUSED = "refused"
 #: bytes were handed to a node, or a request was handed to a third party, and
 #: nobody has confirmed the result.
 #:
-#: MEASURED, not chosen: an AST census of `services/` finds 26 methods across
-#: nine services that build a transaction, broadcast it, and return one of these
-#: words with NO `settled` key and no receipt wait — the five CCIP bridges, both
-#: payment channels, both token-bound accounts, three auction/orderbook writes,
-#: four advanced-governance writes, three NFT lending writes, MPC recovery and
-#: session keys, the Lens profile, the keeper job, the compute job. Every one is
-#: reachable as a state-modifying action.
-#: `tests/test_a_broadcast_is_not_a_settlement.py` re-derives that census.
+#: MEASURED, not chosen: an AST census of `services/` finds 26 reachable methods
+#: across ten service directories that return one of these words with NO
+#: `settled` key and no receipt wait — the five CCIP bridges and the CCIP
+#: cross-chain message, both payment channels, both token-bound accounts, three
+#: auction/orderbook writes, four advanced-governance writes, three NFT lending
+#: writes, MPC recovery and session keys, the Lens profile, the keeper job, the
+#: compute job and the compute reward claim. Twenty-five broadcast a transaction;
+#: the compute job hands a request to a provider's API. Every one is reachable as
+#: a state-modifying action. `tests/test_a_broadcast_is_not_a_settlement.py`
+#: re-derives that census and pins its count.
+#:
+#: A WORD LIST CANNOT BE THE WHOLE GATE, and the first version of that census
+#: proved it by missing `kyc.issue_kyc_credential`, which broadcast and said
+#: "issued". The same test file now also derives the surface from the SEND — every
+#: function that calls a send primitive and waits for no receipt — and fails if
+#: any literal such a function returns would be recorded as settled.
 #:
 #: THE WORD IS NOT THE EVIDENCE — the flag is. `settle_transaction` returns its
 #: settled status once the receipt is in, and that status DEFAULTS to the word
@@ -765,7 +773,8 @@ def _record_verdict(result: Any) -> str:
     returned; `routed` reads as a real outcome, so this dispatcher EAS-attested
     it and the public feed announced platform revenue that may have reverted.
     That method now waits for its receipt. Twenty-six others do not: they return
-    `{"status": "submitted", "tx_hash": ...}` with no `settled` key, and
+    `{"status": "submitted", "tx_hash": ...}` (or `claim_submitted`; one of them
+    is a compute provider's API rather than a chain) with no `settled` key, and
     `"submitted"` is in `_REAL_OUTCOME_STATUSES`, so `_outcome_is_real` answered
     True and the platform wrote an EAS attestation — a durable claim addressed
     to third parties, whose entire value is that someone who does not trust this
@@ -782,6 +791,20 @@ def _record_verdict(result: Any) -> str:
 
     ORDER IS THE WHOLE ARGUMENT:
 
+      0. `broadcast is True` and not `settled is True` -> BROADCAST. The service
+         sent the transaction and no receipt has answered for it.
+         `web3_manager.settle_transaction` writes exactly this when its wait
+         runs out — `{"status": "pending", "settled": False, "broadcast":
+         True}` — and says in its own disclosure that it is NOT a refusal. It
+         is read BEFORE step 1 because `settled: False` makes
+         `_outcome_is_real` answer False, and the first version of this gate
+         sent that shape to `_attest_refusal`: "ACTION DECLINED" for a
+         transaction the platform signed, paid gas for and sent, in the very
+         services that do wait for their receipts. A mined REVERT carries the
+         flag too, with `settled: True`: a receipt answered, the outcome is
+         established, and it falls through to step 1 as the refusal it is.
+         Only the boolean counts; the emitters write it after
+         `send_transaction` has returned a hash.
       1. Not a real outcome            -> REFUSED. Unchanged; `_outcome_is_real`
          keeps its measured vocabulary and its two measured defaults.
       2. `settled is True`             -> SETTLED. The service positively stated
@@ -801,6 +824,9 @@ def _record_verdict(result: Any) -> str:
     docstring records making once, where "fail closed" was applied to the wrong
     axis. Only the measured broadcast vocabulary diverts.
     """
+    if (isinstance(result, dict) and result.get("broadcast") is True
+            and result.get("settled") is not True):
+        return RECORD_BROADCAST
     if not _outcome_is_real(result):
         return RECORD_REFUSED
     if isinstance(result, dict):
@@ -1550,9 +1576,11 @@ class ServiceDispatcher:
             # not that nothing occurred.
             #
             # AND A BROADCAST IS NEITHER. `_outcome_is_real` is a boolean, and
-            # the third case has to go somewhere: 26 methods return
-            # `{"status": "submitted", "tx_hash": ...}` straight off
-            # `send_transaction`, which read as real and were attested as done.
+            # the third case has to go somewhere: 25 methods return
+            # `{"status": "submitted", "tx_hash": ...}` (or `claim_submitted`)
+            # straight off `send_transaction`, which read as real and were
+            # attested as done — and `settle_transaction`'s own timeout shape
+            # says `broadcast: True` with `settled: False`.
             # Sending them to the refusal path instead would record "ACTION
             # DECLINED" for a transaction that may well be mined. Three records
             # for three answers — `_record_verdict` holds the argument.
@@ -1751,9 +1779,11 @@ class ServiceDispatcher:
         THE STANDING WORK THIS LEAVES. The honest end state is for these methods
         to wait for their own receipts through `web3_manager.settle_transaction`,
         which returns settled/failed/pending and is already used by `neosafe`,
-        `restaking` and `creator_platforms`. That is 26 methods each taking a
-        receipt wait, which changes their latency and is a behavioural decision
-        per service. This gate protects the durable records in the meantime, and
+        `restaking`, `creator_platforms` and `kyc.issue_kyc_credential`. That is
+        25 transaction-sending methods each taking a receipt wait (the 26th word
+        match, the compute job, is a provider API call with no receipt to wait
+        for), which changes their latency and is a behavioural decision per
+        service. This gate protects the durable records in the meantime, and
         protects any method added later on the same pattern — which a per-service
         sweep would not.
         """
