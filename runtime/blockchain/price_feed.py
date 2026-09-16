@@ -5,6 +5,26 @@ RPC); a Coinbase spot REST call is the fallback; results cache for 30s. If neith
 source is available the feed raises PriceUnavailable — the route then returns an
 honest 503 and NEVER a stale/invented number.
 
+STALE MEANS AGED, AND THE AGE WAS NOT CHECKED. `latestRoundData()` returns the
+round's `updatedAt`; this module read it, returned it in the payload, and
+compared it to nothing. An aggregator that has stopped updating — a paused
+feed, a dead node set, a correct address that nobody maintains any more — keeps
+answering with its last round forever, so that sentence held only against an
+unreachable source and not against a frozen one. A round older than
+``blockchain.price_feeds.max_age_seconds`` (default one hour, Chainlink's usual
+ETH/USD heartbeat) is now not a price: it falls through to the Coinbase
+fallback, and if that cannot be reached the feed raises, as it already did for
+no source at all. A round timestamped slightly AHEAD of local time is not
+rejected — a chain timestamp is not our wall clock, and refusing ordinary skew
+would turn drift into an outage. Which way this can be wrong: a deployment
+pointed at a feed whose heartbeat is longer than the bound will fall back to
+Coinbase on healthy rounds, which is the safe direction and is what the config
+key is for.
+
+This price is not only shown to a user: /api/v1/paymaster/sign meters every
+sponsorship request against it to enforce the per-identity daily USD cap, so a
+frozen round was a frozen cap.
+
 Feed addresses are config-driven (blockchain.price_feeds.eth_usd) with a
 verify-against-chainlink-docs note in the config example — not hardcoded trust.
 
@@ -26,6 +46,9 @@ from typing import Any, Callable, Optional
 logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 30.0
+#: How old a Chainlink round may be and still be the current price. One hour is
+#: the usual ETH/USD heartbeat; override with blockchain.price_feeds.max_age_seconds.
+DEFAULT_MAX_ROUND_AGE_SECONDS = 3600.0
 # Bound on one Chainlink read (the whole read, and each HTTP request in it).
 _SOURCE_TIMEOUT_SECONDS = 4.0
 COINBASE_SPOT_URL = "https://api.coinbase.com/v2/prices/ETH-USD/spot"
@@ -85,8 +108,35 @@ class PriceFeed:
         return None
 
     def _feed_address(self) -> str:
+        return str(self._price_feeds().get("eth_usd", "")).strip()
+
+    def _price_feeds(self) -> dict:
         bc = self._config.get("blockchain", {}) if isinstance(self._config, dict) else {}
-        return str((bc.get("price_feeds", {}) or {}).get("eth_usd", "")).strip()
+        feeds = bc.get("price_feeds", {}) if isinstance(bc, dict) else {}
+        return feeds if isinstance(feeds, dict) else {}
+
+    def _max_round_age(self) -> float:
+        try:
+            value = float(self._price_feeds().get(
+                "max_age_seconds", DEFAULT_MAX_ROUND_AGE_SECONDS))
+        except (TypeError, ValueError):
+            logger.warning(
+                "blockchain.price_feeds.max_age_seconds is not a number — "
+                "using the default bound of %.0fs", DEFAULT_MAX_ROUND_AGE_SECONDS)
+            return DEFAULT_MAX_ROUND_AGE_SECONDS
+        return value if value > 0 else DEFAULT_MAX_ROUND_AGE_SECONDS
+
+    def _round_is_stale(self, result: dict, now: float) -> bool:
+        """True when the source reported a round age past the configured bound.
+
+        A payload with no ``updated_at`` is not evidence of age and is not
+        refused — silence is not staleness. A round timestamped ahead of local
+        time is skew, not age.
+        """
+        updated_at = result.get("updated_at")
+        if not isinstance(updated_at, (int, float)):
+            return False
+        return (now - float(updated_at)) > self._max_round_age()
 
     async def eth_usd(self, *, now: Optional[float] = None) -> dict:
         now = time.time() if now is None else now
@@ -123,6 +173,15 @@ class PriceFeed:
             result = await self._chainlink()
         except Exception as exc:
             logger.info("Chainlink ETH/USD read failed: %s", exc)
+        # A round the aggregator stopped updating is not a current price. This
+        # is the check the module docstring's "NEVER a stale number" promised
+        # and did not have; without it a frozen feed answered forever.
+        if result is not None and self._round_is_stale(result, now):
+            logger.warning(
+                "Chainlink ETH/USD round is %.0fs old (bound %.0fs) — treating "
+                "the feed as unavailable rather than serving a frozen round",
+                now - float(result.get("updated_at", now)), self._max_round_age())
+            result = None
         # 2) Coinbase fallback
         if result is None:
             try:
