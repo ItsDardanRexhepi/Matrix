@@ -206,3 +206,54 @@ contract MatrixAccountTest is Test {
         });
     }
 }
+
+/// Records what it was called with, so a batch can be proved to have happened.
+contract BatchTarget {
+    uint256 public calls;
+    uint256 public totalValue;
+    function ping() external payable { calls += 1; totalValue += msg.value; }
+}
+
+contract MatrixAccountBatchTest is Test {
+    address constant ENTRY_POINT = address(0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789);
+    uint256 constant OWNER_X = 0x1ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83;
+    uint256 constant OWNER_Y = 0xce4014c68811f9a21a1fdb2c0e6113e06db7ca93b7404e78dc7ccd5ca89a4ca9;
+
+    function test_ExecuteBatchCarriesValuePerCall() public {
+        MatrixAccountFactory f = new MatrixAccountFactory(IEntryPoint(ENTRY_POINT), address(0));
+        MatrixAccount a = f.createAccount(OWNER_X, OWNER_Y, 0);
+        vm.deal(address(a), 10 ether);
+        BatchTarget t = new BatchTarget();
+
+        address[] memory dest = new address[](2);
+        uint256[] memory value = new uint256[](2);
+        bytes[] memory func = new bytes[](2);
+        dest[0] = address(t); value[0] = 1 ether; func[0] = abi.encodeWithSignature("ping()");
+        dest[1] = address(t); value[1] = 2 ether; func[1] = abi.encodeWithSignature("ping()");
+
+        vm.prank(ENTRY_POINT);
+        a.executeBatch(dest, value, func);
+        assertEq(t.calls(), 2);
+        assertEq(t.totalValue(), 3 ether, "each call must carry its own value");
+    }
+
+    function test_ExecuteBatchRejectsMismatchedLengths() public {
+        MatrixAccountFactory f = new MatrixAccountFactory(IEntryPoint(ENTRY_POINT), address(0));
+        MatrixAccount a = f.createAccount(OWNER_X, OWNER_Y, 0);
+        address[] memory dest = new address[](2);
+        uint256[] memory value = new uint256[](1);
+        bytes[] memory func = new bytes[](2);
+        vm.prank(ENTRY_POINT);
+        vm.expectRevert(bytes("MA: length mismatch"));
+        a.executeBatch(dest, value, func);
+    }
+
+    /// The selector the iOS client encodes must be the one this contract has.
+    function test_TheSelectorMatchesWhatTheClientSends() public pure {
+        assertEq(
+            bytes4(keccak256("executeBatch(address[],uint256[],bytes[])")),
+            MatrixAccount.executeBatch.selector,
+            "the client encodes executeBatch(address[],uint256[],bytes[])"
+        );
+    }
+}

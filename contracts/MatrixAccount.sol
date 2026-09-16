@@ -125,10 +125,24 @@ contract MatrixAccount is IAccount {
         }
     }
 
-    function executeBatch(address[] calldata dest, bytes[] calldata func) external onlyEntryPointOrSelf {
-        require(dest.length == func.length, "MA: length mismatch");
+    /// @notice Execute several calls in one operation, each able to send value.
+    ///
+    /// THE SIGNATURE CARRIES `value` BECAUSE THE CLIENT ALWAYS SENT IT. MTRX
+    /// encodes `executeBatch(address[],uint256[],bytes[])` — DAOManager and
+    /// NFTManager both build batches that way — while this contract implemented
+    /// `executeBatch(address[],bytes[])`. Those are different selectors, so
+    /// every batched operation the app produced would have hit no function here
+    /// at all, and a batch that could not carry value could not have paid for
+    /// the calls it made. The contract is brought up to what the app needs
+    /// rather than the app cut down to what the contract had.
+    function executeBatch(
+        address[] calldata dest,
+        uint256[] calldata value,
+        bytes[] calldata func
+    ) external onlyEntryPointOrSelf {
+        require(dest.length == func.length && dest.length == value.length, "MA: length mismatch");
         for (uint256 i = 0; i < dest.length; i++) {
-            (bool ok, bytes memory ret) = dest[i].call(func[i]);
+            (bool ok, bytes memory ret) = dest[i].call{value: value[i]}(func[i]);
             if (!ok) {
                 assembly { revert(add(ret, 32), mload(ret)) }
             }
