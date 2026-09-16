@@ -261,6 +261,14 @@ message, a service's exception text) the body is the redacted
 `{error, code, ref}` shape instead. `POST /bridge/v1/action` relays the
 dispatcher the same way.
 
+A refusal the service RETURNS — `not_deployed` above all — is not one of those
+statuses, and this route answered `200 {"status": "ok"}` over it while the
+dedicated `/api/v1` route for the same service answered `503`. The envelope
+states `call_outcome` beside its own `status` now, and a refusal that means the
+capability is absent carries the same HTTP status it carries everywhere else:
+`status` is this route saying the id resolved and the dispatcher ran,
+`call_outcome` is what the dispatcher answered.
+
 ```json
 { "params": { "token_in": "USDC", "token_out": "WETH", "amount": "1000" } }
 ```
@@ -296,8 +304,8 @@ rate limiting as the public surface but return iOS-friendly envelopes.
 
 ## Service envelope
 
-Every `/api/v1/*` service route answers with the same two-part envelope, and
-the two parts answer different questions:
+Every `/api/v1/*` route that calls a service answers with the same two-part
+envelope, and the two parts answer different questions:
 
 ```json
 {
@@ -322,6 +330,26 @@ proposal, and `gaming.resolve_market` writes the caller's own argument into the
 record it returns. While the envelope used the bare word, resolving a market
 *to* `"failure"` was read as the CALL having failed — for an action the same
 response attested as real.
+
+Of the 101 `/api/v1` routes, 14 answer with something else, and each of them
+answers with its own status rather than dressing a refusal as a success:
+
+* **The gateway's own answers**, which are not a service result to wrap —
+  `GET /api/v1/price/eth-usd` (the price, `503` when no source is reachable),
+  `POST /api/v1/paymaster/sign` (`{paymasterAndData}`),
+  `POST /api/v1/security/preflight` (`{allow, mode}`, or `403` for a denial),
+  `POST /api/v1/batch` (each item carries the sub-response's own status and
+  body, so an item inherits the `503` its route would have answered) and
+  `GET /api/v1/events/stream` (SSE).
+* **`POST /api/v1/capabilities/{id}/invoke`**, which relays the dispatcher
+  under `{status, call_outcome, capability_id, action, result}`. The
+  `call_outcome` rule holds there exactly as it does here, including the `503`.
+* **Eight routes that are not implemented and say so** — `501` with
+  `status: "not_implemented"`, what the platform does not do, and where to go
+  instead: `/api/v1/contracts/deploy`, `/api/v1/portfolio/history/{wallet}`,
+  `/api/v1/intent/summary/{plan_id}`, `/api/v1/intent/execute`,
+  `/api/v1/compute/arweave/store`, `/api/v1/governance/multisig/approve`,
+  `/api/v1/social/gate/create`, `/api/v1/social/message/send`.
 
 A refusal that is a **domain answer** the caller asked for — a rejected claim,
 a failed transaction — stays `200` with `status: "ok"` and

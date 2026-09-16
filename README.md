@@ -201,8 +201,12 @@ What works today, no chain required:
   fabricated transaction hashes. That refusal survives the trip out: the
   HTTP answer is a 503, not a 200, and every envelope the gateway builds
   states the verdict of the action in a `call_outcome` field of its own
-  rather than letting its own `ok` stand in for it. The field is spelled
-  that way on purpose: the services here already use the word `outcome`
+  rather than letting its own `ok` stand in for it — on both `/api/v1`
+  doors, the dedicated route and the capability-invoke one, which used to
+  give opposite answers for the same refusal. And a refusal the live feed
+  does not announce is still written down as a decline, on whichever
+  surface refused it: a trail has to show that the platform said no, not
+  that nothing was ever asked. The field is spelled that way on purpose: the services here already use the word `outcome`
   for their own data — a prediction market's resolved outcome, a
   dispute's, a proposal's — and while the platform borrowed it, resolving
   a market *to* "failure" made the platform say the *call* had failed
