@@ -1,12 +1,30 @@
-"""P1-8: Sign in with Apple — server-side identity-token verification and
-(credential-gated) token revocation for account deletion.
+"""P1-8: Sign in with Apple — server-side identity-token verification.
 
 The iOS app sends Apple's ``identityToken`` (a JWT signed by Apple). We verify
 it against Apple's published JWKS: RS256 signature, ``iss`` == Apple, ``aud`` ==
-our bundle id, and ``exp``. Revocation on account deletion needs a client-secret
-JWT signed with the team's ``.p8`` — only performed when those credentials are
-configured; otherwise local data is still deleted and revocation is skipped with
-a WARNING.
+our bundle id, and ``exp``. That half is real and is what this module does.
+
+TOKEN REVOCATION IS NOT IMPLEMENTED — this line used to read "only
+performed when those credentials are configured; otherwise local data is still
+deleted and revocation is skipped with a WARNING", which described a
+two-branch behaviour with one branch. No client-secret JWT is built anywhere
+in this tree, nothing posts to ``https://appleid.apple.com/auth/revoke``, and
+``handle_account_delete`` deletes the account's local data and answers 200
+whether or not ``auth.apple.{team_id,key_id,private_key_p8}`` are filled in.
+"Only performed when configured" was vacuously true because it is never
+performed. The operator is now told so on BOTH paths, because silence is the
+shape a working revocation would also have.
+
+What it would take, so the gap is a task and not a mystery: Apple's
+``/auth/revoke`` takes a refresh or access token, and the only way to get one
+is to exchange the sign-in ``authorizationCode`` at ``/auth/token``. The iOS
+client already sends that code (``MTRXAPIClient.authenticateWithApple``) and
+``handle_apple_auth`` discards it. Building this means exchanging the code at
+sign-in and STORING the user's Apple refresh token server-side until deletion
+— a new stored secret with its own schema and threat model.
+
+Consequence while it is missing: App Store 5.1.1(v) is unmet and a deleted
+account's Apple token stays live.
 """
 
 from __future__ import annotations
@@ -19,7 +37,10 @@ logger = logging.getLogger(__name__)
 
 APPLE_ISSUER = "https://appleid.apple.com"
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
-APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke"
+# There was an APPLE_REVOKE_URL here with zero callers. A module-level endpoint
+# constant reads as a capability the module has; this one was the whole of the
+# revocation. The URL lives in the module docstring, where it is a note about
+# work owed rather than a definition pretending to be reached.
 _JWKS_TTL_SECONDS = 3600
 
 
@@ -110,5 +131,12 @@ async def verify_apple_identity_token(
 
 
 def apple_revocation_configured(config: dict) -> bool:
+    """Whether the operator has FILLED IN the revocation credentials.
+
+    Configured is not performed: nothing in this tree revokes an Apple token
+    (see the module docstring). This predicate exists so the deletion path can
+    tell the operator which of the two gaps they are looking at — credentials
+    absent, or credentials present and the code that would use them missing.
+    """
     auth = ((config or {}).get("auth") or {}).get("apple") or {}
     return bool(auth.get("team_id") and auth.get("key_id") and auth.get("private_key_p8"))

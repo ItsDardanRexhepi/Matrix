@@ -1081,9 +1081,16 @@ class GatewayServer:
         the whole job. If the push-token or session removal fails the answer is
         503 too — a deletion that left the account's session token valid is not
         a deletion, and the client is told so rather than shown
-        ``{"success": true}``. Apple token revocation runs only when
-        auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
-        deletion still succeeds and revocation is skipped with a WARNING."""
+        ``{"success": true}``.
+
+        APPLE TOKEN REVOCATION IS NOT IMPLEMENTED. This said it "runs only when
+        auth.apple.{team_id,key_id,private_key_p8} are configured", which is a
+        two-branch sentence for a path with one branch: nothing in this tree
+        builds a client-secret JWT or calls appleid.apple.com/auth/revoke, on
+        either setting. The local erasure above is real and complete; the
+        user's Apple token stays live, App Store 5.1.1(v) is unmet, and the
+        operator is warned on both paths. See gateway/apple_auth.py for what
+        building it would take."""
         from gateway.apple_auth import apple_revocation_configured
         # The iOS app presents its Apple session as ``Authorization: Bearer``
         # (client :786); this handler read only ``X-Wallet-Session``, so the
@@ -1194,16 +1201,34 @@ class GatewayServer:
                 return web.json_response(
                     {"success": False, "error": "storage failure"}, status=503)
 
-        # Apple revocation stays a WARNING rather than a failure: it is a
-        # documented credential gate, the local deletion genuinely did complete,
-        # and saying so in the response would tell any caller how this
-        # deployment is configured — the targeting signal RUN-7 took out of
-        # /ready. The operator is told; the caller is told the truth about what
-        # this server holds, which is nothing.
+        # Apple revocation stays a WARNING rather than a failure: the local
+        # deletion genuinely did complete, and saying more in the response
+        # would tell any caller how this deployment is configured — the
+        # targeting signal RUN-7 took out of /ready. The operator is told; the
+        # caller is told the truth about what this server holds, which is
+        # nothing.
+        #
+        # THE WARNING USED TO FIRE ON ONE PATH. It was gated on
+        # `not apple_revocation_configured(...)`, which reads as "configured
+        # deployments revoke and say nothing about it" — and nothing in this
+        # tree revokes an Apple token on either path (gateway/apple_auth.py,
+        # module docstring). So the operator who filled in team_id, key_id and
+        # private_key_p8 precisely to meet App Store 5.1.1(v) got silence, and
+        # silence is exactly what a working revocation would also look like
+        # from here. Both paths say what happened, which is nothing, and which
+        # of the two gaps this deployment is in.
         if not apple_revocation_configured(self.config):
             logger.warning(
-                "Account deleted locally; Apple token revocation SKIPPED "
-                "(auth.apple.team_id/key_id/private_key_p8 not configured).")
+                "Account deleted locally; Apple token revocation is NOT "
+                "implemented, and auth.apple.team_id/key_id/private_key_p8 "
+                "are not configured either. The user's Apple token stays live.")
+        else:
+            logger.warning(
+                "Account deleted locally; Apple token revocation is NOT "
+                "implemented. auth.apple.team_id/key_id/private_key_p8 are "
+                "configured and unused — no client-secret JWT is built and "
+                "appleid.apple.com/auth/revoke is never called. App Store "
+                "5.1.1(v) is unmet and the user's Apple token stays live.")
 
         import datetime
         return web.json_response({
