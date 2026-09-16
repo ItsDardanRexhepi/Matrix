@@ -672,8 +672,28 @@ class ProtocolStack:
         arguments: dict,
         tool_result: str,
         context: dict,
+        *,
+        succeeded: bool | None = None,
+        status: str = "unknown",
+        code: str | None = None,
     ) -> None:
-        """Record outcomes and update state after a tool call completes."""
+        """Record outcomes and update state after a tool call completes.
+
+        `succeeded` is the GROUND TRUTH from the call site, which holds it and
+        used not to pass it: True, False, or None meaning the outcome carries no
+        label. This method used to construct ``{"success": True, "status":
+        "success"}`` with the comment "assume success if no exception", so every
+        refusal in the system — and in this codebase failure is usually a
+        RETURNED structure, not a raised exception — was learned as a success.
+        That fed ``OutcomeLearning`` success rates, the ``TrajectoryEngine``
+        base-rate blend below, and ``adjust_confidence``, which grades a
+        prediction against ``actual["success"]``: with the label pinned True, a
+        prediction that correctly foresaw failure was graded "very_poor" and
+        pushed down. The calibration learned backwards.
+
+        DEFAULT IS None, NOT True. A caller that does not know the outcome now
+        teaches the learner nothing instead of teaching it a fiction.
+        """
         from runtime.security.action_map import canonical_action
         action_type, signs = canonical_action(tool_name, arguments)
         action = {
@@ -686,12 +706,31 @@ class ProtocolStack:
         }
         outcome = {
             "result": tool_result,
-            "success": True,  # assume success if no exception
-            "status": "success",
+            "success": succeeded,
+            "status": status,
         }
+        if code:
+            outcome["code"] = code
+
+        # An outcome nobody established is not recorded and not calibrated
+        # against. Outcome learning may only learn from ground truth; a sample
+        # with no label costs one data point, a mislabelled one corrupts the
+        # rate and every confidence estimate derived from it.
+        #
+        # GUARDED PER BLOCK, NOT BY AN EARLY RETURN. An early `return` here
+        # would also skip the Jarvis plan tracking below, which is a different
+        # question with a different correct answer — and that is precisely the
+        # defect this engagement already fixed once in the auditor, where an
+        # early return threw away findings from checks that had genuinely run.
+        learnable = succeeded is not None
+        if not learnable:
+            logger.debug(
+                "post_action: outcome for tool=%s carries no verdict (status=%s); "
+                "not learned from", tool_name, status,
+            )
 
         # Outcome recording + confidence feedback loop
-        if self._outcome_learning is not None:
+        if learnable and self._outcome_learning is not None:
             try:
                 await self._outcome_learning.record_outcome(action, outcome, context)
 
@@ -717,7 +756,7 @@ class ProtocolStack:
                 logger.exception("OutcomeLearning post-action failed")
 
         # Confidence calibration — compare Trajectory prediction vs actual outcome
-        if self._outcome_learning is not None and self._trajectory is not None:
+        if learnable and self._outcome_learning is not None and self._trajectory is not None:
             try:
                 # Retrieve the cached prediction for this action type
                 action_type = str(action.get("action_type", action.get("type", "unknown")))
@@ -732,7 +771,10 @@ class ProtocolStack:
                 logger.debug("Confidence calibration skipped")
 
         # Jarvis — mark plan step as complete if it matches the tool call
-        if self._jarvis is not None and self._jarvis._active_plan is not None:
+        # §CD sibling axis: the same "no exception means it worked" assumption
+        # marked the PLAN STEP complete. A failed tool call must not advance the
+        # plan past the step it failed at.
+        if self._jarvis is not None and self._jarvis._active_plan is not None and succeeded is True:
             try:
                 next_step = self._jarvis.suggest_next_action()
                 if next_step and next_step.get("action") == tool_name:
