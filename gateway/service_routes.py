@@ -20,10 +20,12 @@ import logging
 import re
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl
 
 from aiohttp import web
+from multidict import MultiDict, MultiDictProxy
 
-from gateway.error_contract import client_error
+from gateway.error_contract import DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -55,7 +57,7 @@ class _BatchSubRequest:
     invoke them directly without spinning up an actual HTTP round trip.
     """
 
-    __slots__ = ("_body", "match_info", "headers", "method", "path")
+    __slots__ = ("_body", "match_info", "headers", "method", "path", "query")
 
     def __init__(
         self,
@@ -65,15 +67,27 @@ class _BatchSubRequest:
         method: str,
         path: str,
         headers: Optional[dict] = None,
+        query: Optional[Any] = None,
     ) -> None:
         self._body = body if body is not None else {}
         self.match_info = match_info
         self.headers = headers or {}
         self.method = method
         self.path = path
+        # The item path's query string, as aiohttp exposes it. Without it a
+        # GET handler reading request.query (bridge wallet/status, dashboard)
+        # raised AttributeError through batch while answering direct.
+        self.query = query if query is not None else MultiDictProxy(MultiDict())
 
     async def json(self) -> Any:
         return self._body
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """aiohttp's Request is a mapping of per-request values set by
+        middleware; a batch item carries none. Handlers read it
+        (``request.get("request_id")``), and without this the read raised
+        AttributeError through batch while answering direct."""
+        return default
 
 
 class ServiceRoutes:
@@ -538,22 +552,9 @@ class ServiceRoutes:
         # Without the bridge available we simply skip them so a bare
         # ``ServiceRoutes`` (as used in unit tests) still builds cleanly.
         if self._bridge_routes is not None:
-            br = self._bridge_routes
-            bridge_specs: List[Tuple[str, str, Callable[..., Awaitable[web.Response]]]] = [
-                ("POST", "/bridge/v1/session/create", br.create_session),
-                ("POST", "/bridge/v1/session/resume", br.resume_session),
-                ("POST", "/bridge/v1/chat", br.chat),
-                ("POST", "/bridge/v1/action", br.execute_action),
-                ("POST", "/bridge/v1/wallet/link", br.link_wallet),
-                ("GET",  "/bridge/v1/wallet/status", br.wallet_status),
-                ("GET",  "/bridge/v1/config", br.get_config),
-                ("GET",  "/bridge/v1/services", br.get_services),
-                ("GET",  "/bridge/v1/dashboard", br.get_dashboard),
-                ("GET",  "/bridge/v1/components", br.get_components),
-                ("GET",  "/bridge/v1/components/manifest", br.get_components_manifest),
-                ("GET",  "/bridge/v1/components/{component_id}", br.get_component),
-            ]
-            specs.extend(bridge_specs)
+            # The bridge's own table — the one its HTTP registration reads —
+            # never a copy kept here (see BridgeRoutes.route_specs).
+            specs.extend(self._bridge_routes.route_specs())
 
         # P2 completion routes participate in batch dispatch too, so
         # /api/v1/batch sub-calls resolve them identically to the live router.
@@ -619,16 +620,7 @@ class ServiceRoutes:
 
     # When the service says WHY, honour it; otherwise 422 — the request was
     # well-formed but the operation could not be completed.
-    _ERROR_CATEGORY_HTTP = {
-        "validation": 400,
-        "bad_request": 400,
-        "not_found": 404,
-        "forbidden": 403,
-        "not_implemented": 501,
-        "service_unavailable": 503,
-        "service_error": 502,
-        "timeout": 504,
-    }
+    _ERROR_CATEGORY_HTTP = DISPATCHER_CATEGORY_HTTP
 
     def _ok(self, data: Any) -> web.Response:
         """Wrap a service result — but never dress a failure as a success.
@@ -1687,8 +1679,13 @@ class ServiceRoutes:
             try:
                 return web.json_response(await self._price_feed().eth_usd())
             except PriceUnavailable as exc:
+                # No source reachable is the documented 503 (upstream), as on
+                # /api/v1/price/eth-usd. Without the code, client_error()
+                # classified it internal_error: the same outage was 503 on
+                # one route and 500 on this one.
                 _st, _err = client_error(
-                    exc, request.get("request_id"), what="PriceFeed"
+                    exc, request.get("request_id"), what="PriceFeed",
+                    code="upstream_unavailable",
                 )
                 return web.json_response(_err, status=_st)
             except Exception as exc:
@@ -2786,7 +2783,12 @@ class ServiceRoutes:
             body = await request.json()
         except Exception:
             body = {}
-        params = body.get("params", {}) if isinstance(body, dict) else {}
+        params = body.get("params") if isinstance(body, dict) else None
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            # Reached the dispatcher as-is and raised AttributeError there (500).
+            return web.json_response({"error": "params must be an object"}, status=400)
         reg = self._capability_registry()
         # 17-D. This route reaches the SAME ServiceDispatcher as gateway/bridge.py
         # — `set_nft_rights` is a catalog capability id — and it dropped the
@@ -2826,12 +2828,21 @@ class ServiceRoutes:
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
-        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security)
+        decision = await gate_action(action_label, params, security)
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
         result = await reg.invoke(capability_id, params, caller_identity=authed)
-        status = 200 if result.get("status") == "ok" else 400
-        return web.json_response(result, status=status)
+        if result.get("status") != "ok":
+            return web.json_response(result, status=400)
+        # The registry wraps the dispatcher's payload as {"status": "ok",
+        # "result": <payload>} whatever the payload says, so a crashed service
+        # answered 200 with its exception text inside (RUN-4 and RUN-5 at once,
+        # on the other route that relays the dispatcher; see bridge.py).
+        failure = dispatcher_failure(result.get("result"), what=f"Capability {capability_id}")
+        if failure is not None:
+            status, err = failure
+            return web.json_response({**err, "capability_id": capability_id}, status=status)
+        return web.json_response(result, status=200)
 
     # ------------------------------------------------------------------
     # Batch dispatch
@@ -2998,6 +3009,10 @@ class ServiceRoutes:
                 "error": "Batch item missing 'path'",
             }
 
+        # "/path?x=1": route on the path, hand the handler the query — as the
+        # HTTP router does. The whole string used to be matched as the path, so
+        # any item carrying a query answered 404 "No route".
+        path, _, query_string = path.partition("?")
         resolved = self._resolve_batch_route(method, path)
         if resolved is None:
             return {
@@ -3013,6 +3028,7 @@ class ServiceRoutes:
             match_info=match_info,
             method=method,
             path=path,
+            query=MultiDictProxy(MultiDict(parse_qsl(query_string, keep_blank_values=True))),
         )
 
         try:
@@ -3036,13 +3052,15 @@ class ServiceRoutes:
                 "body": None,
                 "error": self._extract_http_error(exc),
             }
-        except Exception as exc:  # pragma: no cover — defence in depth
-            logger.exception("Batch item %s crashed (%s %s)", item_id, method, literal_path)
+        except Exception as exc:
+            # RUN-5: this shipped str(exc) — the raw exception — as the item's
+            # error. Same contract as every other channel: logged with a ref.
+            status, err = client_error(exc, None, what=f"Batch item {item_id} ({method} {literal_path})")
             return {
                 "id": item_id,
-                "status": 500,
+                "status": status,
                 "body": None,
-                "error": str(exc),
+                "error": err["error"],
             }
 
         return {
@@ -3141,7 +3159,13 @@ class ServiceRoutes:
                 "X-Accel-Buffering": "no",  # disable nginx/Caddy buffering
             },
         )
-        await response.prepare(request)
+        # The subscriber is registered: a client gone before the headers must
+        # not keep its slot (the caps count slots per peer address).
+        try:
+            await response.prepare(request)
+        except BaseException:
+            await self._broadcaster.unregister(sub)
+            raise
 
         # Replay any events the client missed during the reconnect window.
         if last_event_id:

@@ -27,7 +27,7 @@ from typing import Any
 
 from aiohttp import web
 
-from gateway.error_contract import client_error
+from gateway.error_contract import client_error, dispatcher_failure
 
 logger = logging.getLogger(__name__)
 
@@ -524,8 +524,41 @@ class BridgeRoutes:
     def __init__(self, config: dict, gateway_server):
         self._config = config
         self._server = gateway_server
-        self._linked_wallets: dict[str, dict] = {}  # session_id → wallet info
+        # session_id → wallet info, including the `subject` of the wallet
+        # session that linked it. A session id is a name the caller chooses, so
+        # a link is shown to, and speaks for, only the account that made it.
+        self._linked_wallets: dict[str, dict] = {}
         self._web3_manager = None  # lazy; built on first balance lookup
+
+    # ─── Whose is this session id? ────────────────────────────────────────
+
+    def _key(self, raw) -> str:
+        """The gateway's one spelling of a session id (strip, 100 characters) —
+        the spelling conversations are stored under."""
+        key = getattr(self._server, "_session_key", None)
+        return key(raw) if key is not None else str(raw or "").strip()[:100]
+
+    def _held_elsewhere(self, request, session_id: str):
+        """Refusal message when *session_id* is a conversation another account
+        owns (never claims it); None otherwise, or on a server without T3."""
+        check = getattr(self._server, "_conversation_held_elsewhere", None)
+        return check(request, session_id) if check is not None else None
+
+    def _visible_link(self, request, session_id: str) -> dict:
+        """The wallet linked to *session_id*, if the request may see it: the
+        account whose wallet session made the link, or the operator. ``{}``
+        otherwise — including when the link belongs to someone else."""
+        record = self._linked_wallets.get(self._key(session_id)) or {}
+        if not record:
+            return {}
+        subject_of = getattr(self._server, "_session_subject", None)
+        is_operator = getattr(self._server, "_is_operator", None)
+        if subject_of is None or is_operator is None:
+            return record  # a bare server without T2 (unit-test fakes)
+        subject = subject_of(request)
+        if subject:
+            return record if record.get("subject") == subject else {}
+        return record if is_operator(request) else {}
 
     def _get_web3_manager(self):
         """Lazily instantiate a :class:`Web3Manager` for balance reads.
@@ -558,37 +591,47 @@ class BridgeRoutes:
             logger.warning("Balance lookup failed for %s: %s", address, exc)
             return None
 
+    def route_specs(self) -> list[tuple[str, str, Any]]:
+        """Every bridge endpoint, as ``(method, path, handler)`` — the ONE table
+        both entrances read: the HTTP router (register_routes) and
+        POST /api/v1/batch (ServiceRoutes._build_batch_route_map).
+
+        They were two hand-kept lists. e1232ca removed /bridge/v1/push/register
+        from the batch copy when its handler was deleted; P1-6 brought the
+        handler back on the router only, so the same call succeeded direct and
+        answered 404 "No route" through batch.
+        """
+        return [
+            # Session
+            ("POST", "/bridge/v1/session/create", self.create_session),
+            ("POST", "/bridge/v1/session/resume", self.resume_session),
+            # Chat
+            ("POST", "/bridge/v1/chat", self.chat),
+            # Direct actions (bypass chat, call services directly)
+            ("POST", "/bridge/v1/action", self.execute_action),
+            # Wallet
+            ("POST", "/bridge/v1/wallet/link", self.link_wallet),
+            ("GET", "/bridge/v1/wallet/status", self.wallet_status),
+            # Push notification registration (P1-6)
+            ("POST", "/bridge/v1/push/register", self.register_push),
+            # App config
+            ("GET", "/bridge/v1/config", self.get_config),
+            ("GET", "/bridge/v1/services", self.get_services),
+            # Dashboard (aggregated data for iOS home screen)
+            ("GET", "/bridge/v1/dashboard", self.get_dashboard),
+            # Component registry (dynamic UI schemas)
+            ("GET", "/bridge/v1/components", self.get_components),
+            ("GET", "/bridge/v1/components/manifest", self.get_components_manifest),
+            ("GET", "/bridge/v1/components/{component_id}", self.get_component),
+        ]
+
     def register_routes(self, app: web.Application) -> None:
-        """Register all bridge endpoints."""
-        # Session
-        app.router.add_post("/bridge/v1/session/create", self.create_session)
-        app.router.add_post("/bridge/v1/session/resume", self.resume_session)
-
-        # Chat
-        app.router.add_post("/bridge/v1/chat", self.chat)
-
-        # Direct actions (bypass chat, call services directly)
-        app.router.add_post("/bridge/v1/action", self.execute_action)
-
-        # Wallet
-        app.router.add_post("/bridge/v1/wallet/link", self.link_wallet)
-        app.router.add_get("/bridge/v1/wallet/status", self.wallet_status)
-
-        # Push notification registration (P1-6)
-        app.router.add_post("/bridge/v1/push/register", self.register_push)
-
-        # App config
-        app.router.add_get("/bridge/v1/config", self.get_config)
-        app.router.add_get("/bridge/v1/services", self.get_services)
-
-        # Dashboard (aggregated data for iOS home screen)
-        app.router.add_get("/bridge/v1/dashboard", self.get_dashboard)
-
-        # Component registry (dynamic UI schemas)
-        app.router.add_get("/bridge/v1/components", self.get_components)
-        app.router.add_get("/bridge/v1/components/manifest", self.get_components_manifest)
-        app.router.add_get("/bridge/v1/components/{component_id}", self.get_component)
-
+        """Register all bridge endpoints (from route_specs)."""
+        for method, path, handler in self.route_specs():
+            if method == "GET":
+                app.router.add_get(path, handler)   # GET also answers HEAD
+            else:
+                app.router.add_route(method, path, handler)
         logger.info("Bridge routes registered under /bridge/v1/")
 
     # ─── Session ──────────────────────────────────────────────────────────
@@ -604,8 +647,13 @@ class BridgeRoutes:
         device_id = body.get("device_id", "")
         app_version = body.get("app_version", "")
 
-        # Store session metadata
-        self._server.conversations[session_id] = []
+        # Open the (empty) conversation in the working set, through the same
+        # bounded path every chat entrance uses.
+        history = getattr(self._server, "_conversation_history", None)
+        if history is not None:
+            history(session_id)
+        else:  # a bare server without the shared helper (unit-test fakes)
+            self._server.conversations[session_id] = []
 
         return MobileResponse.ok({
             "session_id": session_id,
@@ -634,15 +682,33 @@ class BridgeRoutes:
         except Exception:
             return MobileResponse.error("Invalid JSON")
 
-        session_id = body.get("session_id", "")
+        # Keyed as the chat entrances key it, BEFORE the ownership check: the
+        # check ran on the raw id and the lookup on the normalised one, so
+        # "conv-A " (nobody owns that spelling) described conv-A.
+        session_id = self._key(body.get("session_id", "") if isinstance(body, dict) else "")
         if not session_id:
             return MobileResponse.error("session_id required")
+        # Existence and length of someone else's conversation are theirs.
+        held = self._held_elsewhere(request, session_id)
+        if held:
+            return MobileResponse.error(held, 403)
 
-        exists = session_id in self._server.conversations
+        # From the working set, else the store: the working set is bounded, so
+        # "not in memory" does not mean "does not exist" (it never did across a
+        # restart).
+        cached = self._server.conversations.get(session_id)
+        if cached is not None:
+            exists, count = True, len(cached)
+        else:
+            try:
+                stored = self._server.react_loop.memory.load_conversation(session_id)
+            except Exception:
+                stored = []
+            exists, count = bool(stored), len(stored)
         return MobileResponse.ok({
             "session_id": session_id,
             "resumed": exists,
-            "message_count": len(self._server.conversations.get(session_id, [])),
+            "message_count": count,
         })
 
     # ─── Chat ─────────────────────────────────────────────────────────────
@@ -657,20 +723,24 @@ class BridgeRoutes:
         except Exception:
             return MobileResponse.error("Invalid JSON")
 
-        message = body.get("message", "").strip()
+        # The same input bounds as /chat, /chat/stream and /ws — this entrance
+        # applied none: a message up to the 1 MiB body cap went into the shared
+        # conversation store, a non-string one 500'd, any agent name ran.
+        check = getattr(self._server, "_chat_turn_input", None)
+        if check is not None:
+            message, agent, invalid = check(body)
+            if invalid:
+                return MobileResponse.error(invalid, 400)
+        else:  # a bare server without the shared helper (unit-test fakes)
+            message = str(body.get("message", "")).strip()
+            agent = body.get("agent", "trinity")
         if not message:
             return MobileResponse.error("message required")
 
-        agent = body.get("agent", "trinity")
         forbid = getattr(self._server, "_agent_forbidden_for_caller", None)
         forbidden = forbid(request, agent) if forbid else None
         if forbidden:
             return MobileResponse.error(forbidden, 403)
-        # T2: the Apple user behind the presented session is the apple_id the
-        # Morpheus gate sees — not a value the body asserts.
-        apple_sub = getattr(self._server, "_session_apple_id", lambda _r: "")(request)
-        if apple_sub:
-            body = {**body, "apple_id": apple_sub}
         # T3: never the shared "default" — the body's own id, else a session
         # derived from the presented wallet session, else refused in production.
         resolve = getattr(self._server, "_resolve_session_id", None)
@@ -678,15 +748,16 @@ class BridgeRoutes:
             session_id, session_error = resolve(request, body.get("session_id"))
             if session_error:
                 return MobileResponse.error(session_error, 400)
-            denied = self._server._conversation_denied(request, session_id)
+            turn_claim, denied = self._server._open_turn(request, session_id)
             if denied:
                 return MobileResponse.error(denied, 403)
-            body = {**body, "memory_scope": self._server._memory_scope(request, session_id)}
         else:
             session_id = body.get("session_id", "default")
+            turn_claim = None
 
         try:
-            result = await self._handle_chat_internal(message, agent, session_id, body)
+            result = await self._handle_chat_internal(message, agent, session_id, body, request,
+                                                      claim=turn_claim)
             return MobileResponse.ok(result)
         except Exception as e:
             # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
@@ -707,63 +778,61 @@ class BridgeRoutes:
             return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
-        self, message: str, agent: str, session_id: str, body: dict,
+        self, message: str, agent: str, session_id: str, body: dict, request, *, claim=None,
     ) -> dict:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
 
-        if session_id not in self._server.conversations:
-            self._server.conversations[session_id] = []
-
-        self._server.conversations[session_id].append(
-            Message(role="user", content=message)
-        )
+        # The same working set, hydration and write-through as /chat, /chat/
+        # stream and /ws. This entrance neither loaded the stored history nor
+        # saved its turns: a conversation begun here existed only in memory,
+        # and the first other entrance to touch it replaced it with the (empty)
+        # stored copy.
+        shared = getattr(self._server, "_turn_conversation", None)
+        if shared is not None:
+            conversation = shared(session_id, message)
+        else:  # a bare server without the shared helpers (unit-test fakes)
+            conversation = [*self._server.conversations.setdefault(session_id, []),
+                            Message(role="user", content=message)]
 
         system_prompt = self._server.react_loop.get_agent_prompt(agent)
         time_context = self._server.temporal.get_context_string()
         full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
-        # Honor the client's per-turn context exactly like the WS handler does
-        # (language mirroring, conversation recap, portfolio line) — the REST
-        # fallback must not be lower-fidelity than /ws for the same chat.
-        client_context = str(body.get("context", ""))[:8000].strip()
-        if client_context:
-            full_prompt = f"{full_prompt}\n\n{client_context}"
 
         from runtime.react_loop import ReActContext
         context = ReActContext(
             agent_name=agent,
-            conversation=self._server.conversations[session_id].copy(),
+            conversation=conversation,
             system_prompt=full_prompt,
         )
 
+        # The same builder /chat, /chat/stream and /ws use: identity from the
+        # presented session, never from the body or from whatever wallet was
+        # linked to the session id this caller chose to name.
+        #
+        # This used to inject `_linked_wallets[session_id]` as wallet_address.
+        # /bridge/v1/chat is public, so ANYONE naming a session id inherited
+        # the wallet a SIWE holder had linked to it — as the dispatcher's
+        # caller identity. The holder who linked gets that identity anyway by
+        # presenting their session: `_session_identity` derives it.
         context.metadata["user_context"] = {
-            "session_id": session_id,
-            "memory_scope": body.get("memory_scope") or session_id,
-            "agent": agent,
-            "wallet_connected": body.get("wallet_connected", False),
-            "network": body.get("network"),
+            **self._server._chat_user_context(
+                request, session_id=session_id, agent=agent, body=body),
             "platform": "ios",
-            # Threaded so the Morpheus gate in pre_action can verify the request.
-            "apple_id": body.get("apple_id", ""),
-            "app_attest": body.get("app_attest"),
         }
-
-        # Inject linked wallet if available
-        wallet = self._linked_wallets.get(session_id)
-        if wallet:
-            context.metadata["user_context"]["wallet_address"] = wallet.get("address")
-            context.metadata["user_context"]["wallet_connected"] = True
+        context.metadata["client_context"] = self._server._client_turn_context(body)
+        # The claim the turn was admitted under: the loop writes scoped memory,
+        # and _record_turn the conversation, only while it stands.
+        context.metadata["turn_claim"] = claim
 
         result = await self._server.react_loop.run(context)
 
-        self._server.conversations[session_id].append(
-            Message(role="assistant", content=result.response)
-        )
-
-        # Trim history
-        if len(self._server.conversations[session_id]) > 100:
-            self._server.conversations[session_id] = \
-                self._server.conversations[session_id][-50:]
+        record = getattr(self._server, "_record_turn", None)
+        if record is not None:
+            await record(session_id, message, result.response, claim=claim)
+        else:
+            self._server.conversations[session_id].extend(
+                conversation[-1:] + [Message(role="assistant", content=result.response)])
 
         return {
             "response": result.response,
@@ -786,13 +855,27 @@ class BridgeRoutes:
             body = await request.json()
         except Exception:
             return MobileResponse.error("Invalid JSON")
+        if not isinstance(body, dict):
+            return MobileResponse.error("request body must be a JSON object", 400)
 
         action = body.get("action", "")
-        params = body.get("params", {})
+        params = body.get("params")
         session_id = body.get("session_id", "")
 
         if not action:
             return MobileResponse.error("action required")
+        # The caller's own mistakes, named as the caller's, before the gate or
+        # the dispatcher sees them. An unvalidated dict action (NEW-9's shape,
+        # from the wire) reached `action not in ACTION_MAP` and came back as a
+        # TypeError the handler below reported as "Invalid parameters: unhashable
+        # type"; list or string params raised AttributeError inside execute.
+        if not isinstance(action, str):
+            return MobileResponse.error("action must be a string", 400)
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return MobileResponse.error("params must be an object", 400)
+        session_id = self._key(session_id)
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.
@@ -802,17 +885,20 @@ class BridgeRoutes:
             bind_request_security, current_request_security, gate_action,
             generic_denial, is_blocked,
         )
-        linked = self._linked_wallets.get(session_id) or {}
         # T2: the session the request presents (the app's Apple Bearer) names
-        # the caller; the bridge-session's linked wallet is the fallback.
+        # the caller. The wallet linked to the session id in the body is the
+        # fallback only for a request with no session (the operator) or when
+        # the link is the caller's own — a session id is a name the caller
+        # chose, not a credential.
         session_identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
+        linked = self._visible_link(request, session_id)
+        identity = session_identity or linked.get("address", "")
         bind_request_security(
-            identity=session_identity or linked.get("address", ""),
+            identity=identity,
             app_attest=body.get("app_attest"),
             session_id=session_id,
         )
-        decision = await gate_action(action, params if isinstance(params, dict) else {},
-                                     current_request_security())
+        decision = await gate_action(action, params, current_request_security())
         if is_blocked(decision):
             return MobileResponse.error(generic_denial(decision), 403)
 
@@ -855,34 +941,57 @@ class BridgeRoutes:
             # the request died before the service was called, and a caller
             # identity threaded into a call that never happens is not a fix.
             # Passing by keyword so the slot cannot be misaligned again.
+            #
+            # ── ONE IDENTITY, NOT TWO ───────────────────────────────────────
+            # This passed `linked.get("address", "")` while the gate above was
+            # bound to `session_identity or linked`. So a request presenting
+            # account B's session and naming the session id account W had
+            # linked a wallet to was GATED as B and EXECUTED as W: the service
+            # decided ownership for the account that linked, not the one that
+            # asked. The dispatcher now gets exactly the identity the gate saw.
             result = await dispatcher.execute(
                 action,
                 params=params,
-                caller_identity=linked.get("address", ""),
+                caller_identity=identity,
             )
-            return MobileResponse.ok(result)
-        except KeyError as e:
-            return MobileResponse.error(f"Unknown action: {action}", 404)
-        except TypeError as e:
-            return MobileResponse.error(f"Invalid parameters: {e}", 422)
         except Exception as e:
-            logger.error(f"Bridge action error: {e}", exc_info=True)
-            # RUN-5: was the raw exception as the response body.
-            return MobileResponse.from_exception(e, what='Bridge')
+            # RUN-5: was the raw exception as the response body. And this
+            # caught TypeError as "Invalid parameters" (422, the raw binding
+            # message quoted back) and KeyError as "Unknown action" (404) —
+            # but the dispatcher returns every caller-attributable failure as a
+            # payload; an exception that escapes it is an internal defect,
+            # which is what the error contract says: internal_error, a ref.
+            return MobileResponse.from_exception(e, what="Bridge action")
+        return self._action_response(action, result)
+
+    @staticmethod
+    def _action_response(action: str, result) -> web.Response:
+        """Relay the dispatcher's payload with the status it means.
+
+        Every payload was HTTP 200 ``ok: true`` — including
+        ``{"status": "error"}`` — the RUN-4 inversion ServiceRoutes._ok fixed
+        for /api/v1 and never reached here. A success is relayed exactly as
+        before; a failure is decided by error_contract.dispatcher_failure."""
+        failure = dispatcher_failure(result, what=f"Bridge action {action}")
+        if failure is None:
+            return MobileResponse.ok(result)
+        status, err = failure
+        return MobileResponse.error(err["error"], status, error_code=err.get("code"), ref=err.get("ref"))
 
     # ─── Push notifications ─────────────────────────────────────────────────
 
     async def register_push(self, request: web.Request) -> web.Response:
         """POST /bridge/v1/push/register — {session_id, push_token} ->
         {registered: bool}. Persists the APNs device token so iOSPushChannel can
-        fan out pushes. Actually SENDING pushes stays credential-gated (APNs
-        .p8/key_id/team_id/bundle_id) — see HUMAN_ACTIONS.md."""
+        fan out pushes. Nothing sends one yet: no gateway event is wired to the
+        NotificationDispatcher (GatewayServer.__init__), and APNs credentials
+        (.p8/key_id/team_id/bundle_id) alone would not change that."""
         try:
             body = await request.json()
         except Exception:
             return MobileResponse.error("invalid JSON")
         push_token = str(body.get("push_token", "")).strip()
-        session_id = str(body.get("session_id", "")).strip()
+        session_id = self._key(body.get("session_id", ""))
         if not push_token:
             return MobileResponse.error("push_token required")
         # T3: a token registered under the shared "default" (or no) session
@@ -893,8 +1002,16 @@ class BridgeRoutes:
             session_id, session_error = resolve(request, session_id)
             if session_error:
                 return MobileResponse.error(session_error, 400)
-        linked = self._linked_wallets.get(session_id) or {}
-        wallet = linked.get("address", "")
+        # A device token attached to someone else's conversation would receive
+        # what is sent for it.
+        held = self._held_elsewhere(request, session_id)
+        if held:
+            return MobileResponse.error(held, 403)
+        # The wallet the token is filed under is the caller's — derived from the
+        # presented session — never the wallet linked to a session id it named.
+        identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
+        wallet = (identity if identity and not identity.startswith("apple:")
+                  else self._visible_link(request, session_id).get("address", ""))
         try:
             from runtime.notifications.token_store import PushTokenStore
             db = self._server.react_loop.memory.db
@@ -905,6 +1022,9 @@ class BridgeRoutes:
                 wallet=wallet,
                 platform="ios",
                 bundle_id=str(body.get("bundle_id", "")),
+                # The account behind the presented session — what account
+                # deletion finds this device by.
+                owner=getattr(self._server, "_session_subject", lambda _r: "")(request),
             )
         except Exception as exc:
             logger.error("push token registration failed: %s", exc)
@@ -938,13 +1058,25 @@ class BridgeRoutes:
         except Exception:
             body = {}
 
-        session_id = body.get("session_id", "")
+        session_id = self._key(body.get("session_id", "") if isinstance(body, dict) else "")
         if not session_id:
             return MobileResponse.error("session_id required")
 
         address = wallet_session["address"]
+        # The address came from the session (above); the session id did not —
+        # it is whatever the body named. Linking into a conversation another
+        # account owns, or over a link another account made, is refused.
+        # (The X-Wallet-Session is read first, so the request's subject here is
+        # `address`.)
+        held = self._held_elsewhere(request, session_id)
+        if held:
+            return MobileResponse.error(held, 403)
+        existing = self._linked_wallets.get(session_id)
+        if existing and existing.get("subject") not in (None, address):
+            return MobileResponse.error("this session is linked to another account", 403)
         self._linked_wallets[session_id] = {
             "address": address,
+            "subject": address,
             "linked_at": time.time(),
             "network": body.get("network", "base-sepolia"),
             "verified": True,
@@ -958,8 +1090,10 @@ class BridgeRoutes:
 
     async def wallet_status(self, request: web.Request) -> web.Response:
         """Get wallet status for a session."""
-        session_id = request.query.get("session_id", "")
-        wallet = self._linked_wallets.get(session_id)
+        session_id = self._key(request.query.get("session_id", ""))
+        if self._linked_wallets.get(session_id) and not self._visible_link(request, session_id):
+            return MobileResponse.error("this session is linked to another account", 403)
+        wallet = self._visible_link(request, session_id)
 
         if not wallet:
             return MobileResponse.ok({"linked": False})
@@ -1070,8 +1204,10 @@ class BridgeRoutes:
         Aggregated dashboard data for the iOS home screen.
         Returns wallet balance, recent activity, active positions, and suggestions.
         """
-        session_id = request.query.get("session_id", "")
-        wallet = self._linked_wallets.get(session_id)
+        session_id = self._key(request.query.get("session_id", ""))
+        # The caller's own link only; another account's address and balance
+        # are not part of this caller's home screen.
+        wallet = self._visible_link(request, session_id)
 
         dashboard = {
             "wallet": None,

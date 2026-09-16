@@ -197,6 +197,81 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    (
+        5,
+        "conversation_owners — a claim is durable when it is made, rows or not",
+        [
+            # v4 stored the owner only ON the turn rows, so a conversation with
+            # no rows yet (a signed-in caller's first turn, model call still
+            # running) had its owner in an evictable cache and nowhere else.
+            # One row per claimed conversation; the PRIMARY KEY makes the first
+            # claim win at the store, not in a cache.
+            """
+            CREATE TABLE IF NOT EXISTS conversation_owners (
+                session_id  TEXT PRIMARY KEY,
+                owner       TEXT NOT NULL,
+                claimed_at  REAL NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_owners_owner
+                ON conversation_owners (owner)
+            """,
+            """
+            INSERT OR IGNORE INTO conversation_owners (session_id, owner, claimed_at)
+                SELECT session_id, MAX(owner), MIN(ts) FROM conversation_turns
+                WHERE owner IS NOT NULL AND owner <> ''
+                GROUP BY session_id
+            """,
+        ],
+    ),
+    (
+        6,
+        "conversation_owners.claim_id — a turn is tied to the claim, not to the owner string",
+        [
+            # Erasure deletes a claim; the same subject signing in again makes
+            # a claim with the same owner string. A turn admitted before the
+            # erasure compared owner strings, matched the new claim, and was
+            # written back. Each claim gets its own id; a claim from before
+            # this column has '' and every new claim a random one, so the two
+            # never compare equal.
+            "ALTER TABLE conversation_owners ADD COLUMN claim_id TEXT NOT NULL DEFAULT ''",
+        ],
+    ),
+    (
+        7,
+        "conversation_erasures — the unclaimed state has a generation too",
+        [
+            # A turn admitted to an unclaimed conversation was admitted under
+            # ("", ""), and erasing a claim deleted its row: ("", "") again.
+            # An anonymous turn in flight while an account claimed the
+            # conversation and was deleted matched and was written back. Each
+            # erasure takes the next sequence number and logs the conversations
+            # it erased; an unclaimed turn is admitted under the sequence
+            # number it saw. The log is pruned (MemoryManager.prune_erasure_log);
+            # pruned_through says how far, and a turn older than that is refused.
+            """
+            CREATE TABLE IF NOT EXISTS conversation_erasures (
+                seq         INTEGER NOT NULL,
+                session_id  TEXT NOT NULL,
+                erased_at   REAL NOT NULL,
+                PRIMARY KEY (session_id, seq)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_erasures_erased_at
+                ON conversation_erasures (erased_at)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS conversation_erasure_state (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                seq             INTEGER NOT NULL,
+                pruned_through  INTEGER NOT NULL
+            )
+            """,
+            "INSERT OR IGNORE INTO conversation_erasure_state (id, seq, pruned_through) VALUES (1, 0, 0)",
+        ],
+    ),
 ]
 
 # The schema_version table itself is bootstrapped by the Database class
@@ -391,6 +466,42 @@ class Database:
             return cur.fetchone()
         except sqlite3.Error as exc:
             logger.error("DB fetchone failed: %s | sql=%s", exc, sql.strip()[:120])
+            raise
+
+    async def run_in_transaction(self, work):
+        """Run ``work(conn)`` — synchronous statements only — as ONE transaction
+        under the write lock, and return what it returns.
+
+        :meth:`execute` and :meth:`executemany` take the lock per statement, so
+        two of them in a row leave a gap another coroutine queued on the lock
+        runs in, and the connection autocommits each statement, so a crash in
+        that gap keeps the first. A replace written as DELETE-then-INSERT that
+        way was observable (and survivable) half done. Nothing awaits inside
+        *work*, so nothing interleaves; an exception rolls the whole of it back.
+        """
+        async with self._get_lock():
+            conn = self._require_conn()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                result = work(conn)
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+            return result
+
+    def execute_sync(self, sql: str, params: Sequence[Any] | None = None) -> None:
+        """One synchronous statement, for sync callers that must write now.
+
+        The connection is in autocommit mode and the event loop is single
+        threaded, so a statement run here cannot interleave with another
+        statement; it can land between two awaited statements of a coroutine
+        holding the write lock, so use it only for a self-contained write."""
+        conn = self._require_conn()
+        try:
+            conn.execute(sql, params or ())
+        except sqlite3.Error as exc:
+            logger.error("DB execute_sync failed: %s | sql=%s", exc, sql.strip()[:120])
             raise
 
     # Convenience: synchronous reads for cold-cache lookups during init

@@ -41,7 +41,7 @@ Everything a user needs. All 221 Web3 capabilities across 21 categories translat
 - **Securities & Compliance** — issue tokenised securities, manage compliance requirements, transfer restrictions
 - **App Deployment** — deploy decentralised applications, manage hosting, configure domains
 - **Analytics & Monitoring** — portfolio tracking, transaction history, gas analytics, position monitoring
-- **Notifications & Alerts** — price alerts, governance deadlines, loan health warnings, staking reward reminders
+- **Monitoring on Request** — check price moves, governance deadlines, loan health and staking rewards when the user asks. Trinity cannot send alerts or reminders outside the conversation — nothing delivers them — so she never promises to notify the user later; she suggests they ask again
 - **Contract Verification** — verify contract source code on block explorers, audit contract interactions
 - **Gas Optimisation** — estimate gas costs, suggest optimal timing, batch transactions for savings
 - **Account Management** — manage connected wallets, switch networks, view account summaries

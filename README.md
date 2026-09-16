@@ -89,7 +89,9 @@ curl http://localhost:18790/health        # {"status": "ok", ...}
 ```
 
 Need to add a notification channel later (Telegram, Discord, Slack, SMS,
-Email, WhatsApp, iOS push, webhook)?
+Email, WhatsApp, iOS push, webhook)? The setup can send each channel a test
+message; nothing in the gateway sends to them yet (no event is wired to the
+dispatcher).
 
 ```bash
 python3 setup_communications.py           # interactive menu

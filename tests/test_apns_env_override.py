@@ -32,7 +32,7 @@ def test_mounted_p8_contents_are_loaded(clean_apns_env, tmp_path):
     os.environ["APNS_KEY_ID"] = "K1"
     os.environ["APNS_TEAM_ID"] = "T1"
     os.environ["APNS_BUNDLE_ID"] = "com.opnmatrx.mtrx"
-    ios = _apply_env_overrides({})["notifications"]["channels"]["ios_push"]
+    ios = _apply_env_overrides({})["notifications"]["ios_push"]
     assert "CONTENTS" in ios["auth_key_p8"]
     assert (ios["key_id"], ios["team_id"], ios["bundle_id"]) == ("K1", "T1", "com.opnmatrx.mtrx")
 
@@ -40,13 +40,13 @@ def test_mounted_p8_contents_are_loaded(clean_apns_env, tmp_path):
 def test_absent_p8_leaves_channel_unconfigured(clean_apns_env):
     # No APNS_AUTH_KEY_P8_PATH -> the ios_push channel is untouched (no-op push).
     cfg = _apply_env_overrides({})
-    channels = (cfg.get("notifications", {}).get("channels", {}))
-    assert "auth_key_p8" not in channels.get("ios_push", {})
+    notifications = cfg.get("notifications", {})
+    assert "auth_key_p8" not in notifications.get("ios_push", {})
 
 
 def test_unreadable_p8_fails_safe(clean_apns_env):
     os.environ["APNS_AUTH_KEY_P8_PATH"] = "/nonexistent/apns_key.p8"
-    ios = _apply_env_overrides({})["notifications"]["channels"]["ios_push"]
+    ios = _apply_env_overrides({})["notifications"]["ios_push"]
     # No crash; contents never set -> push channel stays unavailable.
     assert "auth_key_p8" not in ios
 
@@ -57,7 +57,7 @@ def test_directory_p8_fails_safe(clean_apns_env, tmp_path):
     d = tmp_path / "apns_key.p8"
     d.mkdir()
     os.environ["APNS_AUTH_KEY_P8_PATH"] = str(d)
-    ios = _apply_env_overrides({}).get("notifications", {}).get("channels", {}).get("ios_push", {})
+    ios = _apply_env_overrides({}).get("notifications", {}).get("ios_push", {})
     assert "auth_key_p8" not in ios
 
 
@@ -67,7 +67,7 @@ def test_binary_p8_fails_safe(clean_apns_env, tmp_path):
     p8 = tmp_path / "apns_key.p8"
     p8.write_bytes(b"\x30\x82\x01\x22\xff\xfe\x00\x80binary")
     os.environ["APNS_AUTH_KEY_P8_PATH"] = str(p8)
-    ios = _apply_env_overrides({})["notifications"]["channels"]["ios_push"]
+    ios = _apply_env_overrides({})["notifications"]["ios_push"]
     assert "auth_key_p8" not in ios
 
 
