@@ -8,6 +8,11 @@ dist/
 
 # Config (real config has secrets)
 matrix.config.json
+# The previous name of the same file. A local config is not renamed just because
+# the project is, so ignoring only the new name un-ignored every existing
+# install's config — and a `git add -A` then committed one, with its API key, to
+# a public repository. Both names stay listed.
+openmatrix.config.json
 .env
 .env.stripe
 .env.rotated
