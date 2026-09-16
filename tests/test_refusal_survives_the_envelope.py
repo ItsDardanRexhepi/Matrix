@@ -336,3 +336,56 @@ async def test_a_service_transaction_is_metered_against_the_cap(tmp_path, monkey
         "the transaction was signed and broadcast and the sponsorship ledger "
         "recorded nothing — the cap does not see what the platform signs"
     )
+
+
+async def test_the_readiness_probe_asks_every_provider_at_once():
+    """A real probe has a real cost, and a serial one is a new defect.
+
+    Three providers answered ``bool(self.api_key)`` without leaving the
+    process, so a serial loop over five of them was free. Asking for real makes
+    the loop cost the SUM of five timeouts, and an orchestrator reads a
+    readiness probe that times out as "not ready" — the instance is pulled for
+    being slow to say it was fine.
+    """
+    from runtime.models.router import ModelRouter
+
+    in_flight = {"now": 0, "peak": 0}
+
+    class _Slow:
+        async def health_check(self) -> bool:
+            in_flight["now"] += 1
+            in_flight["peak"] = max(in_flight["peak"], in_flight["now"])
+            await asyncio.sleep(0.05)
+            in_flight["now"] -= 1
+            return True
+
+    router = ModelRouter.__new__(ModelRouter)
+    router.providers = {f"p{i}": _Slow() for i in range(5)}
+
+    started = time.monotonic()
+    health = await router.health_check()
+    elapsed = time.monotonic() - started
+
+    assert health == {f"p{i}": True for i in range(5)}
+    assert in_flight["peak"] == 5, (
+        f"the probes ran {in_flight['peak']} at a time; five real timeouts in "
+        "series is a readiness probe that fails by being slow")
+    assert elapsed < 0.2, elapsed
+
+
+async def test_a_provider_that_raises_is_not_ready_rather_than_an_exception():
+    """``/ready`` must answer. A provider whose probe blows up is one that did
+    not answer, which is what this method is asked to report."""
+    from runtime.models.router import ModelRouter
+
+    class _Broken:
+        async def health_check(self) -> bool:
+            raise RuntimeError("no route to host")
+
+    class _Fine:
+        async def health_check(self) -> bool:
+            return True
+
+    router = ModelRouter.__new__(ModelRouter)
+    router.providers = {"broken": _Broken(), "fine": _Fine()}
+    assert await router.health_check() == {"broken": False, "fine": True}

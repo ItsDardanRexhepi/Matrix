@@ -290,7 +290,25 @@ class ModelRouter:
         raise RuntimeError(f"All model providers failed: {'; '.join(errors)}")
 
     async def health_check(self) -> dict[str, bool]:
-        result = {}
-        for name, provider in self.providers.items():
-            result[name] = await provider.health_check()
-        return result
+        """Every provider's reachability, asked concurrently.
+
+        This awaited each provider in turn, which cost nothing while three of
+        them answered `bool(self.api_key)` without leaving the process. They ask
+        the provider now, so a serial loop would make `/health` and `/ready`
+        take the SUM of five five-second timeouts — a readiness probe that times
+        out is read as "not ready" by the orchestrator, which would take an
+        instance out of rotation for being slow to say it was fine. Concurrent,
+        the worst case is one timeout.
+
+        A probe that raises is False, not an exception out of the endpoint:
+        "did not answer" is exactly the thing this method reports.
+        """
+        names = list(self.providers)
+        results = await asyncio.gather(
+            *(p.health_check() for p in self.providers.values()),
+            return_exceptions=True,
+        )
+        return {
+            name: (outcome is True)
+            for name, outcome in zip(names, results)
+        }

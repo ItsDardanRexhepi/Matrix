@@ -318,8 +318,18 @@ curl -X POST http://localhost:18790/chat \
 
 **Check platform health**
 ```bash
-curl http://localhost:18790/health
+curl http://localhost:18790/health        # liveness: is this process serving?
+curl http://localhost:18790/ready         # readiness: should it take traffic?
 ```
+
+The `models` map in `/health` says which providers **answered**, not which ones
+you configured a key for — each one is asked, with a short timeout, and they are
+all asked at once so the probe costs one timeout rather than five. `/ready` is
+the one an orchestrator should point at: it answers 503 when no provider
+answered, or when the platform is running in production with security in
+observe-only mode, and it deliberately tells you nothing else. Which check
+failed is in the log against the request id, because a readiness endpoint that
+announces what is not enforcing is telling whoever asks where to push.
 
 **Get platform status**
 ```bash
