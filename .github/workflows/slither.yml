@@ -45,15 +45,26 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
+      # Built HERE, on the runner, and not by Slither. crytic-compile's Foundry
+      # platform shells out to `forge`, and slither-action is a DOCKER action —
+      # the container has no Foundry, so installing it on the host above is not
+      # enough on its own and the compile died on
+      #   FileNotFoundError: [Errno 2] No such file or directory: 'forge'
+      # even after Foundry was installed. So the host builds, and Slither reads
+      # the artifacts with ignore-compile.
+      - name: Build contracts
+        run: forge build
+        working-directory: contracts
+
       - name: Run Slither
         id: slither
         uses: crytic/slither-action@v0.4.0
         with:
           target: 'contracts/'
           slither-version: '0.10.4'
-          solc-version: '0.8.24'
           fail-on: 'high'
           sarif: results.sarif
+          ignore-compile: true
 
       # Guarded on the FILE, not on the output variable. The variable simply
       # echoes the requested filename, so it is non-empty even when Slither
