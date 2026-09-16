@@ -36,9 +36,9 @@ When a marketplace sells an NFT, it calls this function to determine how much ro
 
 **Important distinction**: EIP-2981 tells marketplaces what the royalty should be, but it does not enforce payment. Whether the royalty is actually paid depends on the marketplace's implementation. This leads to the enforcement problem discussed below.
 
-## Creating an NFT with Automatic Royalties on 0pnMatrx
+## Creating an NFT with Automatic Royalties on The Matrix
 
-Through 0pnMatrx, creating an NFT with royalties is a conversation:
+Through The Matrix, creating an NFT with royalties is a conversation:
 
 ```
 You: Create an NFT collection called "Cityscapes" with a 7.5% 
@@ -70,7 +70,7 @@ This matters because it changes the economics of being a creator. If royalties a
 
 **On-chain enforcement** means the royalty is built into the transfer function of the NFT itself. The NFT cannot be transferred unless the royalty is paid. This is technically possible through operator filtering and transfer hooks, though it comes with tradeoffs (it can limit where the NFT can be traded).
 
-0pnMatrx supports on-chain royalty enforcement through its NFT creation service. When you create an NFT collection, you can choose between:
+The Matrix supports on-chain royalty enforcement through its NFT creation service. When you create an NFT collection, you can choose between:
 
 1. **Standard royalties (EIP-2981)**: Marketplaces are informed of the royalty but enforcement is up to them. Maximum compatibility.
 2. **Enforced royalties**: The transfer function checks for royalty payment. The NFT can only be traded through compliant marketplaces. Guaranteed creator income but reduced marketplace compatibility.
@@ -90,7 +90,7 @@ The choice depends on your priorities: maximum reach or guaranteed royalties.
 - NFTs are ownership certificates on a blockchain, not just images
 - EIP-2981 defines how royalties should work, but enforcement is marketplace-dependent
 - On-chain enforcement guarantees royalties but limits marketplace compatibility
-- 0pnMatrx lets you create NFT collections with royalties through conversation
+- The Matrix lets you create NFT collections with royalties through conversation
 - Royalty percentages between 2.5% and 10% are standard
 - Metadata storage must be permanent (IPFS, Arweave) or it can disappear
 

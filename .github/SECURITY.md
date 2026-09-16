@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in 0pnMatrx, do not open a public GitHub issue.
+If you discover a security vulnerability in The Matrix, do not open a public GitHub issue.
 
 Email: security@openmatrix-ai.com
 

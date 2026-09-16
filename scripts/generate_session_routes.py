@@ -135,7 +135,7 @@ def _live_server():
             sys.path.insert(0, str(ROOT))
         from gateway.server import GatewayServer
 
-        scratch = _tempfile.mkdtemp(prefix="opnmatrx-session-routes-")
+        scratch = _tempfile.mkdtemp(prefix="the-matrix-session-routes-")
         server = GatewayServer({"memory_dir": scratch,
                                 "database": {"path": f"{scratch}/g.db"}})
         _LIVE["server"], _LIVE["app"] = server, server.create_app()

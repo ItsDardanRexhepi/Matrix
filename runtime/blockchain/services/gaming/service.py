@@ -1,5 +1,5 @@
 """
-GamingService — blockchain gaming platform for 0pnMatrx.
+GamingService — blockchain gaming platform for The Matrix.
 
 Provides game registration, in-game NFT asset minting and transfer,
 vetting pipeline, milestone-based funding, and revenue sharing.

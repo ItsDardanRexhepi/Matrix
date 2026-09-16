@@ -2,7 +2,7 @@
 #
 # scripts/build-contracts.sh
 #
-# One-shot Foundry bootstrap for the 0pnMatrx Solidity contracts.
+# One-shot Foundry bootstrap for the Matrix Solidity contracts.
 #
 # What this script does:
 #   1. Verifies `forge` is installed (Foundry).

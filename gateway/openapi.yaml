@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: 0pnMatrx Gateway API
+  title: The Matrix Gateway API
   summary: Unified REST + SSE surface for the MTRX iOS app and third-party integrators.
   description: |
-    This document describes every route exposed by the 0pnMatrx gateway
+    This document describes every route exposed by the Matrix gateway
     process. The gateway is a single aiohttp server that mounts three
     families of endpoints:
 
@@ -21,7 +21,7 @@ info:
     `encodeSnakeCase` / `decodeSnakeCase` strategies.
   version: "1.0.0"
   contact:
-    name: 0pnMatrx engineering
+    name: The Matrix engineering
     url: https://openmatrix-ai.com
   license:
     name: Proprietary
@@ -44,7 +44,7 @@ components:
       scheme: bearer
       description: |
         Static API key set at gateway boot via `gateway.api_key` in
-        `openmatrix.config.json` or `MTRX_API_KEY` environment override.
+        `matrix.config.json` or `MTRX_API_KEY` environment override.
         Sent as `Authorization: Bearer <key>`. The `/health`,
         `/auth/nonce` and `/auth/verify` endpoints are public.
 

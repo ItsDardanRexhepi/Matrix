@@ -44,7 +44,7 @@ def _config(scratch: str) -> dict:
 
 
 def _server() -> GatewayServer:
-    server = GatewayServer(_config(tempfile.mkdtemp(prefix="opnmatrx-convcache-")))
+    server = GatewayServer(_config(tempfile.mkdtemp(prefix="the-matrix-convcache-")))
     server.react_loop.run = AsyncMock(
         return_value=SimpleNamespace(response="ok", tool_calls=[], provider="stub"))
     return server
@@ -96,7 +96,7 @@ async def test_naming_ids_on_the_describe_only_legs_allocates_no_unbounded_state
 
 
 async def test_agent_memory_caches_are_bounded_in_scopes_and_evicted_scopes_reload():
-    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-agentcache-")))
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="the-matrix-agentcache-")))
     for i in range(4 * CAP):
         await memory.save_turn("trinity", f"my wallet is 0x{i:040x}", "noted", scope=f"anon-{i}")
         await memory.write(f"trinity@anon-{i}", "pref", i)
@@ -109,7 +109,7 @@ async def test_agent_memory_caches_are_bounded_in_scopes_and_evicted_scopes_relo
 
 
 async def test_first_boot_tracking_holds_no_set_of_every_session_ever_greeted():
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-firstboot-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-firstboot-")
     memory = MemoryManager(_config(scratch))
     for i in range(4 * CAP):
         await memory.mark_first_boot_sent(f"greeted-{i}")

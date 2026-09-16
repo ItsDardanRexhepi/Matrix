@@ -106,7 +106,7 @@ class BadgeManager:
 
         out = report.to_dict()
         out["status"] = "passed"
-        out["audited_by"] = "openmatrix-glasswing"
+        out["audited_by"] = "matrix-glasswing"
         out["audited_at"] = time.time()
         return out
 

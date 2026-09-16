@@ -1,7 +1,7 @@
 """D-045: the gas-sponsorship policy the platform already documents as enforced.
 
 gateway/paymaster.py, the /api/v1/paymaster/sign docstring and the shipped
-`openmatrix.config.json.example` all state that an action allowlist and a
+`matrix.config.json.example` all state that an action allowlist and a
 per-identity daily USD cap are checked before the platform signs. Only the
 allowlist was ever read, and only in one handler; `daily_cap_usd` had no reader
 anywhere in the tree. Meanwhile 32 call sites across runtime/blockchain/ signed
@@ -169,7 +169,7 @@ class SponsorshipPolicy:
                 cap = 0.0
 
         db_cfg = cfg.get("database", {}) or {}
-        base = Path(str(db_cfg.get("path", "data/0pnmatrx.db"))).expanduser()
+        base = Path(str(db_cfg.get("path", "data/the-matrix.db"))).expanduser()
         if not base.is_absolute():
             base = Path.cwd() / base
         return cls(allowed_actions=list(allowed) if allowed is not None else None,
@@ -318,7 +318,7 @@ class SponsorshipPolicy:
 # those bytes ARE what a signature sponsors — they are the only honest source for
 # the action, and they are right there in the request.
 #
-# WHAT THIS DECODES. The smart-account wrapper (contracts/OpenMatrixAccount.sol
+# WHAT THIS DECODES. The smart-account wrapper (contracts/MatrixAccount.sol
 # `execute(dest, value, func)` and `executeBatch(dest[], func[])`, plus the
 # three-array `executeBatch` the MTRX client encodes), then the inner call's
 # 4-byte selector.
@@ -348,11 +348,11 @@ class SponsorshipPolicy:
 #     whatever `dest` is. If `dest` has code, its receive/fallback function runs
 #     on sponsored gas — the same property as the target above, since another
 #     user's smart account (a legitimate recipient) is itself a contract;
-#   * the SENDER. The wrapper decode assumes the sender IS an OpenMatrixAccount,
+#   * the SENDER. The wrapper decode assumes the sender IS an MatrixAccount,
 #     whose execute/executeBatch mean what their ABI says. Nothing here checks
 #     the sender's code, and without an authenticated session the route takes
 #     the sender from the request. An account contract the caller wrote can give
-#     `execute(x, 1, "")` any meaning it likes. OpenMatrixVerifyingPaymaster
+#     `execute(x, 1, "")` any meaning it likes. MatrixVerifyingPaymaster
 #     puts no restriction on the sender either.
 #
 # So `allowed_actions` is a statement about the shape of honest requests, not a
@@ -382,12 +382,12 @@ _MAX_LABELS_ECHOED = 8
 _NAMED_SIGNATURES: dict[str, str] = {
     "transfer(address,uint256)": "transfer",        # ERC-20 transfer
     "approve(address,uint256)": "approve",          # ERC-20 approve
-    "swap(uint256,address,uint256)": "swap",        # contracts/OpenMatrixDEX.sol
-    "mint(address,string,uint96)": "mint_nft",      # contracts/OpenMatrixNFT.sol
+    "swap(uint256,address,uint256)": "swap",        # contracts/MatrixDEX.sol
+    "mint(address,string,uint96)": "mint_nft",      # contracts/MatrixNFT.sol
 }
 
 _ACCOUNT_EXECUTE = "execute(address,uint256,bytes)"
-_ACCOUNT_BATCH = "executeBatch(address[],bytes[])"                # OpenMatrixAccount.sol
+_ACCOUNT_BATCH = "executeBatch(address[],bytes[])"                # MatrixAccount.sol
 _ACCOUNT_BATCH_VALUES = "executeBatch(address[],uint256[],bytes[])"  # MTRX client encoding
 
 

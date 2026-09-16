@@ -22,7 +22,7 @@ contradicted by its own caller.
 
 THE FACTORY IS CORRECT, AND THAT IS THE POINT. `_collections` is declared in
 its own comment as a "cache for in-process queries"; ownership lives on-chain
-in OpenMatrixNFT.sol, a real ERC721, and the D2 twin reads `ownerOf()`. So
+in MatrixNFT.sol, a real ERC721, and the D2 twin reads `ownerOf()`. So
 refusing while that contract is undeployed is right. The defect was never a
 missing implementation — it was an IMPLEMENTED REFUSAL BEING OVERWRITTEN, which
 is worse than a stub: someone did the work correctly and the caller unmade it.

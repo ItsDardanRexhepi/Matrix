@@ -1,5 +1,5 @@
 /**
- * Main HTTP client for the 0pnMatrx gateway.
+ * Main HTTP client for the Matrix gateway.
  *
  * Provides methods for chat, health checks, memory operations,
  * blockchain actions, subscription management, and component registry.
@@ -15,9 +15,9 @@ import type {
   ComponentManifest,
   ComponentEntry,
 } from './types';
-import { OpenMatrixStream } from './stream';
+import { MatrixStream } from './stream';
 
-export class OpenMatrixClient {
+export class MatrixClient {
   private baseUrl: string;
   private apiKey?: string;
   private walletSession?: string;
@@ -25,7 +25,7 @@ export class OpenMatrixClient {
   private sessionId: string;
 
   /**
-   * Create a new 0pnMatrx client.
+   * Create a new The Matrix client.
    *
    * @param baseUrl - Gateway URL (default: http://localhost:18790)
    * @param options - Configuration options
@@ -120,7 +120,7 @@ export class OpenMatrixClient {
   async chatStream(
     message: string,
     options: { agent?: Agent; sessionId?: string } = {}
-  ): Promise<OpenMatrixStream> {
+  ): Promise<MatrixStream> {
     const body: ChatRequest = {
       message,
       agent: options.agent || this.defaultAgent,
@@ -137,7 +137,7 @@ export class OpenMatrixClient {
       throw new Error(`Stream failed (${resp.status})`);
     }
 
-    return new OpenMatrixStream(resp);
+    return new MatrixStream(resp);
   }
 
   /**

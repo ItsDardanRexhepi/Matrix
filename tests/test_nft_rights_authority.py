@@ -36,7 +36,7 @@ _A = "0x2222222222222222222222222222222222222222"
 
 
 def _shipped():
-    return json.loads(Path("openmatrix.config.json.example").read_text())
+    return json.loads(Path("matrix.config.json.example").read_text())
 
 
 async def _granted(svc, coll="0xCOLL", tok=7):

@@ -162,7 +162,7 @@ class KYCService:
         domain 19. Domain-qualified names only.
         """
         # 23-D. `services.kyc.enabled` HAD A WRITER AND NO READERS.
-        # Writer set = {openmatrix.config.json.example}; reader set inside this
+        # Writer set = {matrix.config.json.example}; reader set inside this
         # package = EMPTY (enumerated: every config read is provider, endpoint,
         # api_key, secret_key, template_id, level_name, eas_contract,
         # eas_schema — 'enabled' appears nowhere). An operator reading the

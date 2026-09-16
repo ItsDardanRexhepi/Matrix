@@ -153,7 +153,7 @@ async def test_routes_registered_and_validate(aiohttp_client, tmp_path):
     """400 (required-field validation), never 404 — proves registration."""
     from tests.test_gateway import _build_mock_server
     cfg = {
-        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "platform": "The Matrix", "memory_dir": str(tmp_path / "m"),
         "workspace": str(tmp_path), "timezone": "UTC",
         "model": {"provider": "ollama", "providers": {}},
         "agents": {"neo": {"enabled": True}},

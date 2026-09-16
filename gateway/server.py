@@ -1,5 +1,5 @@
 """
-Gateway Server — the HTTP interface to 0pnMatrx.
+Gateway Server — the HTTP interface to The Matrix.
 
 Runs on port 18790 by default (configurable). Exposes endpoints for
 chat, health, status, and memory operations. Handles CORS, API key
@@ -54,7 +54,7 @@ from runtime.config.validation import (
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = "openmatrix.config.json"
+CONFIG_PATH = "matrix.config.json"
 START_TIME = time.time()
 
 #: The four entrances to the one chat flow. They share ONE auth posture (all
@@ -140,9 +140,9 @@ def _apply_env_overrides(config: dict) -> dict:
     """Apply environment variable overrides on top of the JSON config.
 
     Recognised vars:
-        OPENMATRIX_API_KEY               -> gateway.api_key
-        OPENMATRIX_PORT                  -> gateway.port
-        OPENMATRIX_HOST                  -> gateway.host
+        MATRIX_API_KEY               -> gateway.api_key
+        MATRIX_PORT                  -> gateway.port
+        MATRIX_HOST                  -> gateway.host
         OPENAI_API_KEY                   -> model.providers.openai.api_key
         ANTHROPIC_API_KEY                -> model.providers.anthropic.api_key
                                             (and mythos)
@@ -152,17 +152,17 @@ def _apply_env_overrides(config: dict) -> dict:
         TELEGRAM_BOT_TOKEN               -> notifications.telegram.bot_token
     """
     gw = config.setdefault("gateway", {})
-    if os.environ.get("OPENMATRIX_API_KEY"):
-        gw["api_key"] = os.environ["OPENMATRIX_API_KEY"]
-    # PORT (Railway/Heroku convention) takes precedence, then OPENMATRIX_PORT.
-    port_val = os.environ.get("PORT") or os.environ.get("OPENMATRIX_PORT")
+    if os.environ.get("MATRIX_API_KEY"):
+        gw["api_key"] = os.environ["MATRIX_API_KEY"]
+    # PORT (Railway/Heroku convention) takes precedence, then MATRIX_PORT.
+    port_val = os.environ.get("PORT") or os.environ.get("MATRIX_PORT")
     if port_val:
         try:
             gw["port"] = int(port_val)
         except ValueError:
             pass
-    if os.environ.get("OPENMATRIX_HOST"):
-        gw["host"] = os.environ["OPENMATRIX_HOST"]
+    if os.environ.get("MATRIX_HOST"):
+        gw["host"] = os.environ["MATRIX_HOST"]
 
     providers = config.setdefault("model", {}).setdefault("providers", {})
     env_to_provider = {
@@ -218,7 +218,7 @@ def _apply_env_overrides(config: dict) -> dict:
 def load_config() -> dict:
     """Load, env-override, enforce secret-env rules, and validate the config.
 
-    In **production mode** (``OPNMATRX_ENV=production``):
+    In **production mode** (``MATRIX_ENV=production``):
       - Secrets must come from environment variables. Any plaintext
         copies in the JSON file are stripped.
       - Validation errors abort startup.
@@ -291,7 +291,7 @@ def attach_social_feed(react_loop, engine):
 
 class GatewayServer:
     """
-    The main HTTP server for 0pnMatrx.
+    The main HTTP server for The Matrix.
 
     Endpoints:
         POST /chat          — Send a message to an agent
@@ -314,7 +314,7 @@ class GatewayServer:
 
         # Auth: API key from config or environment
         gw = config.get("gateway", {})
-        self.api_key = gw.get("api_key") or os.environ.get("OPENMATRIX_API_KEY", "")
+        self.api_key = gw.get("api_key") or os.environ.get("MATRIX_API_KEY", "")
         self.auth_enabled = bool(self.api_key)
         # Endpoints that don't require auth
         self._public_paths = {
@@ -367,7 +367,7 @@ class GatewayServer:
         #
         # H2's principle applied to THIS branch: a security service that fails to
         # construct is a normal local state and an unacceptable production one.
-        # Morpheus's own production guards raise here (OPNMATRX_OTP_PEPPER unset,
+        # Morpheus's own production guards raise here (MATRIX_OTP_PEPPER unset,
         # for one); swallowing them booted a production gateway with phone and
         # owner verification silently off — /security/phone/* answered 503 and
         # nothing refused. In production: refuse, naming the cause. Elsewhere:
@@ -379,10 +379,10 @@ class GatewayServer:
         except Exception as exc:
             if is_production_mode():
                 raise RuntimeError(
-                    "OPNMATRX_ENV=production but the security OTP services failed to "
+                    "MATRIX_ENV=production but the security OTP services failed to "
                     f"initialise: {exc}. Refusing to start rather than running with "
                     "phone and owner verification silently unavailable. Fix the named "
-                    "cause, or unset OPNMATRX_ENV for a non-production run."
+                    "cause, or unset MATRIX_ENV for a non-production run."
                 ) from exc
             logger.exception("Failed to initialise security OTP services")
             self._otp = None
@@ -391,7 +391,7 @@ class GatewayServer:
         # App Attest verifier — seam-backed (real when morpheus_security is
         # installed, inert no-op otherwise). Reached only through runtime.security.
         # If its construction raises (Morpheus's own production guards do, e.g.
-        # OPNMATRX_STATE_BACKEND=memory under production), the backend is
+        # MATRIX_STATE_BACKEND=memory under production), the backend is
         # relabelled noop and H2 below refuses — carrying THIS cause, not the
         # generic "not installed" one, so the loudest message names the real reason.
         self._security_backend_cause: str | None = None
@@ -418,10 +418,10 @@ class GatewayServer:
                 "morpheus_security is not installed or failed to load"
             )
             raise RuntimeError(
-                "OPNMATRX_ENV=production but the security backend is 'noop' — "
+                "MATRIX_ENV=production but the security backend is 'noop' — "
                 f"{cause}, so nothing is enforcing. Refusing to start. Install the "
                 "private security package and fix the named cause, or unset "
-                "OPNMATRX_ENV for a non-production run."
+                "MATRIX_ENV for a non-production run."
             )
 
         # NEW-26: production must not BOOT with the credential wall down.
@@ -429,8 +429,8 @@ class GatewayServer:
         # `auth_enabled = bool(self.api_key)`, and `_auth_middleware` opens with
         # `if not self.auth_enabled: return await handler(request)` — it waves
         # EVERY protected route through when no key is configured. The shipped
-        # openmatrix.config.json carries `"api_key": ""`, so an operator who
-        # copies the example and starts the gateway without OPENMATRIX_API_KEY
+        # matrix.config.json carries `"api_key": ""`, so an operator who
+        # copies the example and starts the gateway without MATRIX_API_KEY
         # serves the entire surface anonymously, having chosen nothing.
         #
         # This is H2's disease one layer up: a fail-open where nothing refuses
@@ -444,10 +444,10 @@ class GatewayServer:
         # one hole for another. The example stays empty; production refuses.
         if is_production_mode() and not self.auth_enabled:
             raise RuntimeError(
-                "OPNMATRX_ENV=production but no gateway API key is configured, so "
+                "MATRIX_ENV=production but no gateway API key is configured, so "
                 "authentication is DISABLED and every protected route would serve "
-                "anonymously. Refusing to start. Set OPENMATRIX_API_KEY (or "
-                "gateway.api_key in the config), or unset OPNMATRX_ENV for a "
+                "anonymously. Refusing to start. Set MATRIX_API_KEY (or "
+                "gateway.api_key in the config), or unset MATRIX_ENV for a "
                 "non-production run."
             )
 
@@ -590,7 +590,7 @@ class GatewayServer:
         first_boot = None
         if agent == "trinity" and not self.react_loop.memory.is_first_boot_sent(session_id):
             await self.react_loop.memory.mark_first_boot_sent(session_id)
-            first_boot = "Hi, my name is Trinity\n\nWelcome to the world of 0pnMatrx, I'll be by your side the entire time if you need me"
+            first_boot = "Hi, my name is Trinity\n\nWelcome to the world of The Matrix, I'll be by your side the entire time if you need me"
 
         system_prompt = self.react_loop.get_agent_prompt(agent)
         time_context = self.temporal.get_context_string()
@@ -690,7 +690,7 @@ class GatewayServer:
           means the private ``morpheus_security`` package failed to load and
           the platform is running with security in OBSERVE — no enforcement.
           That is a legitimate local/dev state and a NON-STARTER in production,
-          so it is only fatal when ``OPNMATRX_ENV=production``.
+          so it is only fatal when ``MATRIX_ENV=production``.
 
         THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
         endpoint returned each check with its values — `"backend": "noop"`,
@@ -765,7 +765,7 @@ class GatewayServer:
         subsystems = await self._subsystem_health()
 
         return web.json_response({
-            "platform": "0pnMatrx",
+            "platform": "The Matrix",
             "version": "1.0.0",
             "agents": active,
             "model": {
@@ -885,7 +885,7 @@ class GatewayServer:
         await self.wallet_nonces.add(nonce)
 
         gw = self.config.get("gateway", {})
-        domain = gw.get("siwe_domain", "0pnmatrx.local")
+        domain = gw.get("siwe_domain", "the-matrix.local")
         uri = gw.get("siwe_uri", f"https://{domain}")
         chain_id = self.config.get("blockchain", {}).get("chain_id", 84532)
 
@@ -3207,12 +3207,12 @@ class GatewayServer:
 
 def main():
     # Emit JSON logs by default in production, plain text otherwise.
-    json_logs = os.environ.get("OPNMATRX_LOG_FORMAT", "").strip().lower() == "json" or (
+    json_logs = os.environ.get("MATRIX_LOG_FORMAT", "").strip().lower() == "json" or (
         is_production_mode()
-        and os.environ.get("OPNMATRX_LOG_FORMAT", "").strip().lower() != "text"
+        and os.environ.get("MATRIX_LOG_FORMAT", "").strip().lower() != "text"
     )
     configure_logging(
-        level=os.environ.get("OPNMATRX_LOG_LEVEL", "INFO").upper(),
+        level=os.environ.get("MATRIX_LOG_LEVEL", "INFO").upper(),
         json_format=json_logs,
     )
 
@@ -3227,7 +3227,7 @@ def main():
     port = config.get("gateway", {}).get("port", 18790)
 
     logger.info(
-        "0pnMatrx gateway starting",
+        "The Matrix gateway starting",
         extra={
             "host": host,
             "port": port,

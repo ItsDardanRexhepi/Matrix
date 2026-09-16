@@ -1,10 +1,10 @@
 """
-0pnMatrx unified notification layer.
+The Matrix unified notification layer.
 
 Drop-in multi-channel dispatcher that fans out a single message across
 every enabled channel (Telegram, Discord, Slack, Email, SMS, WhatsApp,
 Web chat, iOS push, and arbitrary webhooks). Config lives under the
-``notifications`` subtree of ``openmatrix.config.json``.
+``notifications`` subtree of ``matrix.config.json``.
 
     from runtime.notifications import NotificationDispatcher
     notifier = NotificationDispatcher(config)

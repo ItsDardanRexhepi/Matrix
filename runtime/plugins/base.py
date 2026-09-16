@@ -1,6 +1,6 @@
-"""Base class for 0pnMatrx plugins.
+"""Base class for The Matrix plugins.
 
-All third-party plugins must extend ``OpenMatrixPlugin`` and implement
+All third-party plugins must extend ``MatrixPlugin`` and implement
 the required lifecycle methods. The platform calls these methods at
 specific points during startup, request handling, and shutdown.
 """
@@ -14,8 +14,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class OpenMatrixPlugin(ABC):
-    """Base class for all 0pnMatrx plugins.
+class MatrixPlugin(ABC):
+    """Base class for all The Matrix plugins.
 
     Subclasses must implement:
       - ``name`` — unique plugin identifier

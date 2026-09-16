@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-0pnMatrx Contract Deployment — deploys OpenMatrixPaymaster and OpenMatrixAttestation
+The Matrix Contract Deployment — deploys MatrixPaymaster and MatrixAttestation
 to Base Sepolia testnet.
 
 Usage:
     python contracts/deploy.py
 
 Requires:
-    - openmatrix.config.json with blockchain config (rpc_url, paymaster_private_key, platform_wallet)
+    - matrix.config.json with blockchain config (rpc_url, paymaster_private_key, platform_wallet)
     - py-solc-x and web3 packages installed
     - Base Sepolia testnet ETH in the platform wallet (get from faucet)
 
@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 
 
 def load_config() -> dict:
-    config_path = Path("openmatrix.config.json")
+    config_path = Path("matrix.config.json")
     if not config_path.exists():
-        logger.error("openmatrix.config.json not found. Run ./install.sh first.")
+        logger.error("matrix.config.json not found. Run ./install.sh first.")
         sys.exit(1)
     return json.loads(config_path.read_text())
 
@@ -88,7 +88,7 @@ def deploy_contract(web3, account, abi: list, bytecode: str, constructor_args: l
 def main():
     print()
     print("  ┌──────────────────────────────────────┐")
-    print("  │  0pnMatrx — Contract Deployment       │")
+    print("  │  The Matrix — Contract Deployment       │")
     print("  │  Network: Base Sepolia Testnet         │")
     print("  └──────────────────────────────────────┘")
     print()
@@ -111,7 +111,7 @@ def main():
 
     if missing:
         logger.error(f"Missing blockchain config: {', '.join(missing)}")
-        logger.error("Set these in openmatrix.config.json before deploying.")
+        logger.error("Set these in matrix.config.json before deploying.")
         logger.error("Get Base Sepolia ETH from: https://www.coinbase.com/faucets/base-ethereum-goerli-faucet")
         sys.exit(1)
 
@@ -140,11 +140,11 @@ def main():
 
     results = {}
 
-    # 1. Deploy OpenMatrixPaymaster
+    # 1. Deploy MatrixPaymaster
     print()
-    logger.info("═══ Deploying OpenMatrixPaymaster ═══")
+    logger.info("═══ Deploying MatrixPaymaster ═══")
     try:
-        abi, bytecode = compile_contract("contracts/OpenMatrixPaymaster.sol", "OpenMatrixPaymaster")
+        abi, bytecode = compile_contract("contracts/MatrixPaymaster.sol", "MatrixPaymaster")
         result = deploy_contract(web3, account, abi, bytecode, [platform_wallet], chain_id)
         results["paymaster"] = result
         logger.info(f"  Address: {result['contract_address']}")
@@ -152,16 +152,16 @@ def main():
         logger.info(f"  Block: {result['block_number']}")
 
         # Save ABI
-        Path("contracts/OpenMatrixPaymaster.abi.json").write_text(json.dumps(abi, indent=2))
+        Path("contracts/MatrixPaymaster.abi.json").write_text(json.dumps(abi, indent=2))
     except Exception as e:
         logger.error(f"  Deployment failed: {e}")
         results["paymaster"] = {"status": "failed", "error": str(e)}
 
-    # 2. Deploy OpenMatrixAttestation
+    # 2. Deploy MatrixAttestation
     print()
-    logger.info("═══ Deploying OpenMatrixAttestation ═══")
+    logger.info("═══ Deploying MatrixAttestation ═══")
     try:
-        abi, bytecode = compile_contract("contracts/OpenMatrixAttestation.sol", "OpenMatrixAttestation")
+        abi, bytecode = compile_contract("contracts/MatrixAttestation.sol", "MatrixAttestation")
         result = deploy_contract(web3, account, abi, bytecode, [], chain_id)
         results["attestation"] = result
         logger.info(f"  Address: {result['contract_address']}")
@@ -169,7 +169,7 @@ def main():
         logger.info(f"  Block: {result['block_number']}")
 
         # Save ABI
-        Path("contracts/OpenMatrixAttestation.abi.json").write_text(json.dumps(abi, indent=2))
+        Path("contracts/MatrixAttestation.abi.json").write_text(json.dumps(abi, indent=2))
     except Exception as e:
         logger.error(f"  Deployment failed: {e}")
         results["attestation"] = {"status": "failed", "error": str(e)}

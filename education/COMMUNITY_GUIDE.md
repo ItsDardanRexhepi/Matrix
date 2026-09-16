@@ -2,16 +2,16 @@
 
 ## Discord Server Structure
 
-The 0pnMatrx community Discord is organized into channels that match the topics people need help with:
+The Matrix community Discord is organized into channels that match the topics people need help with:
 
 ### Public Channels
-- **#general** -- Open discussion about 0pnMatrx, blockchain, and AI. Introductions welcome. Keep it constructive.
+- **#general** -- Open discussion about The Matrix, blockchain, and AI. Introductions welcome. Keep it constructive.
 - **#announcements** -- Official updates from the core team. Read-only for members.
-- **#showcase** -- Share what you have built with 0pnMatrx. Deployed contracts, plugins, integrations, projects in progress. This is the place to get feedback and recognition.
+- **#showcase** -- Share what you have built with The Matrix. Deployed contracts, plugins, integrations, projects in progress. This is the place to get feedback and recognition.
 
 ### Course Channels (accessible after purchase)
 - **#course-help** -- General questions about course content, exercises, and setup issues. If your question is specific to a course topic, use the dedicated channel below.
-- **#plugin-dev** -- Discussion about plugin development, the OpenMatrixPlugin interface, marketplace submissions, and integration patterns.
+- **#plugin-dev** -- Discussion about plugin development, the MatrixPlugin interface, marketplace submissions, and integration patterns.
 - **#smart-contract-security** -- Security questions, vulnerability analysis, Glasswing audit results, and contract review requests.
 - **#defi-questions** -- DeFi concepts, lending mechanics, staking strategies, and risk assessment.
 
@@ -47,7 +47,7 @@ Community members are encouraged to run workshops for their teams, meetup groups
 
 ### Workshop Template Agenda
 
-**Title**: Introduction to 0pnMatrx -- Hands-On Workshop
+**Title**: Introduction to The Matrix -- Hands-On Workshop
 
 **Duration**: 2 hours
 
@@ -58,7 +58,7 @@ Community members are encouraged to run workshops for their teams, meetup groups
 | Time | Activity | Description |
 |------|----------|-------------|
 | 0:00-0:10 | Welcome and Setup | Verify all attendees have Python and git. Help with any installation issues. |
-| 0:10-0:25 | What is 0pnMatrx? | Present Module 01 content. Cover the three agents, the architecture, and the 221-capability catalog organized by category. |
+| 0:10-0:25 | What is The Matrix? | Present Module 01 content. Cover the three agents, the architecture, and the 221-capability catalog organized by category. |
 | 0:25-0:45 | Live Setup | Everyone clones the repo, runs setup, and starts the gateway. Troubleshoot together. |
 | 0:45-1:00 | First Interaction | Attendees send their first /chat request via curl. Discuss the response format. |
 | 1:00-1:10 | Break | |
@@ -74,7 +74,7 @@ Community members are encouraged to run workshops for their teams, meetup groups
 
 ## How to Certify Workshop Completion
 
-Attendees who complete all workshop exercises can receive a **0pnMatrx Workshop Completion Certificate**.
+Attendees who complete all workshop exercises can receive a **The Matrix Workshop Completion Certificate**.
 
 ### Certification Process
 

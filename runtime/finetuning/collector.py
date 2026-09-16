@@ -5,7 +5,7 @@ supports quality ratings, and exports high-quality examples in JSONL
 format for Anthropic or OpenAI fine-tuning APIs.
 
 Collection is opt-in: set ``finetuning.collect: true`` in
-``openmatrix.config.json`` to enable recording.
+``matrix.config.json`` to enable recording.
 """
 
 from __future__ import annotations
@@ -164,7 +164,7 @@ class FinetuningCollector:
             for ex in examples:
                 record = {
                     "messages": [
-                        {"role": "system", "content": f"You are {agent}, an AI agent on the 0pnMatrx platform."},
+                        {"role": "system", "content": f"You are {agent}, an AI agent on the Matrix platform."},
                         {"role": "user", "content": ex["user_message"]},
                         {"role": "assistant", "content": ex["agent_response"]},
                     ],

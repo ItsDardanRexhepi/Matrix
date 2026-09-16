@@ -1,7 +1,7 @@
-# 0pnMatrx Component Registry
+# The Matrix Component Registry
 
 The component registry is the machine-readable manifest of all blockchain
-services available on the 0pnMatrx platform. It serves three purposes:
+services available on the Matrix platform. It serves three purposes:
 
 1. **MTRX iOS app** — fetches the registry on launch to discover available
    components and their tier requirements

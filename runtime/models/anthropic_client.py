@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Anthropic model provider for 0pnMatrx.
+Anthropic model provider for The Matrix.
 
 Supports Anthropic models via the Messages API.
 API key loaded from config — never hardcoded.

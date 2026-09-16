@@ -1,1 +1,1 @@
-"""Configuration management for 0pnMatrx."""
+"""Configuration management for The Matrix."""

@@ -1,23 +1,21 @@
-# 0pnMatrx
+# The Matrix
 
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/ItsDardanRexhepi?style=flat&logo=github)](https://github.com/sponsors/ItsDardanRexhepi)
-[![Open Collective](https://img.shields.io/opencollective/all/openmatrix?style=flat&logo=opencollective)](https://opencollective.com/openmatrix)
+[![Open Collective](https://img.shields.io/opencollective/all/the-matrix?style=flat&logo=opencollective)](https://opencollective.com/the-matrix)
 
 ---
 
 Hello world,
 
-My name is Dardan. I would like to welcome you to 0pnMatrx, where the world of possibilities are endless and free.
-
-The name of this platform is 0pnMatrx. It is read as OpenMatrix.
+My name is Dardan. I would like to welcome you to The Matrix, where the world of possibilities are endless and free.
 
 I created this platform because I believe everyone deserves a balanced chance at life, and that they get to decide what they want to do with it, without barriers from others who may be more financially comfortable than they are.
 
-0pnMatrx is as free as it can be. It welcomes the traditional world we all know and love into a new technological revolution. It is built by the people, for the people, and will always remain that at its core.
+The Matrix is as free as it can be. It welcomes the traditional world we all know and love into a new technological revolution. It is built by the people, for the people, and will always remain that at its core.
 
-On 0pnMatrx, if you can think it, you can achieve it.
+On The Matrix, if you can think it, you can achieve it.
 
-What you can do on 0pnMatrx:
+What you can do on The Matrix:
 
 - Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
@@ -52,9 +50,9 @@ Allow your imagination to meet your creativity.
 
 ---
 
-## What is 0pnMatrx
+## What is The Matrix
 
-0pnMatrx is a free, open source AI agent platform. It combines a personal AI agent with a complete blockchain financial infrastructure, developer ecosystem, identity system, and governance architecture — all in one release, all free.
+The Matrix is a free, open source AI agent platform. It combines a personal AI agent with a complete blockchain financial infrastructure, developer ecosystem, identity system, and governance architecture — all in one release, all free.
 
 **This repository is the platform itself**: the gateway, the three agents, the Web3 service surface, the contract-conversion pipeline, the SDKs, and the example scripts. It is the part you can read, run, fork and change, and it is the whole of what the project asks you to trust — everything a request touches on its way in is in this tree.
 
@@ -91,12 +89,12 @@ If you ever catch this repository claiming something it cannot do, that is a bug
 ## Quick Start
 
 ```bash
-git clone https://github.com/ItsDardanRexhepi/0pnMatrx.git
-cd 0pnMatrx
+git clone https://github.com/ItsDardanRexhepi/the-matrix.git
+cd the-matrix
 python3 setup.py
 ```
 
-The interactive setup walks you through everything — model provider, blockchain network, agent configuration, API key generation, and security settings. It creates a virtual environment in `.venv`, installs dependencies into it, verifies connectivity, and writes your config. One command, done. (Python 3.10 or newer; on macOS `python3` is the command — there is no `python`. Set `OPNMATRX_SETUP_NO_VENV=1` to skip the venv in a container.)
+The interactive setup walks you through everything — model provider, blockchain network, agent configuration, API key generation, and security settings. It creates a virtual environment in `.venv`, installs dependencies into it, verifies connectivity, and writes your config. One command, done. (Python 3.10 or newer; on macOS `python3` is the command — there is no `python`. Set `MATRIX_SETUP_NO_VENV=1` to skip the venv in a container.)
 
 After setup:
 
@@ -120,7 +118,7 @@ python3 setup_communications.py --list    # show enabled channels
 Or use the one-liner install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/the-matrix/main/install.sh | bash
 ```
 
 ---
@@ -128,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 ## Model Support
 
 Use whichever model you want, from whoever you want. Pick a provider during
-setup and 0pnMatrx asks it which models your key can use, newest first — so a
+setup and The Matrix asks it which models your key can use, newest first — so a
 version released after this README was written is on the list. You can also
 type any model id by hand, including one newer than the list.
 
@@ -150,7 +148,7 @@ type any model id by hand, including one newer than the list.
 | Cerebras | `cerebras` | open models on Cerebras inference | `CEREBRAS_API_KEY` |
 | NVIDIA | `nvidia` | NVIDIA NIM endpoints (Hermes and many open models) | `NVIDIA_API_KEY` |
 | Mythos | `mythos` | the platform's own Claude-backed profile | `ANTHROPIC_API_KEY` |
-| Custom endpoint | `custom` | any OpenAI-compatible API — you give the base URL and model | `OPENMATRIX_MODEL_API_KEY` |
+| Custom endpoint | `custom` | any OpenAI-compatible API — you give the base URL and model | `MATRIX_MODEL_API_KEY` |
 
 Every provider talks to **its own endpoint with your own key** — nothing is
 proxied through another company. The ones marked OpenAI-compatible in
@@ -163,10 +161,10 @@ from this table is still usable today.
 Keeping your model current, after setup:
 
 ```bash
-openmatrix models            # what your provider serves right now, newest first
-openmatrix models --check    # is the model you configured still served? (exit 1 if not)
-openmatrix models --latest   # switch to the newest the provider reports
-openmatrix models --set <id> # switch to any version you name
+matrix models            # what your provider serves right now, newest first
+matrix models --check    # is the model you configured still served? (exit 1 if not)
+matrix models --latest   # switch to the newest the provider reports
+matrix models --set <id> # switch to any version you name
 ```
 
 The provider list, the setup menu, the environment-variable bridge and the
@@ -179,7 +177,7 @@ provider".
 
 ## Current Status
 
-0pnMatrx is **build-complete and offline-ready**. The complete Web3
+The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
@@ -234,19 +232,19 @@ check behind it:
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
 responses in place of every `not_deployed`. Populate `blockchain.*` in
-`openmatrix.config.json` to flip them.
+`matrix.config.json` to flip them.
 
 ---
 
 ## The Security Layer
 
-0pnMatrx has a closed-source security layer that governs all agent behavior. This layer is not in this repository by design. See `SECURITY_STUB.md` for details.
+The Matrix has a closed-source security layer that governs all agent behavior. This layer is not in this repository by design. See `SECURITY_STUB.md` for details.
 
 ---
 
 ## The Unified Rexhepi Framework
 
-Every decision made by every agent on 0pnMatrx passes through the Unified Rexhepi Framework. See `docs/unified-rexhepi-framework.md`.
+Every decision made by every agent on The Matrix passes through the Unified Rexhepi Framework. See `docs/unified-rexhepi-framework.md`.
 
 ---
 
@@ -380,12 +378,12 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 
 ## Production Deployment
 
-0pnMatrx ships with the plumbing required for a hardened mainnet
+The Matrix ships with the plumbing required for a hardened mainnet
 launch:
 
 - **Env-only secrets** — `runtime/config/validation.py` strips
   placeholder values (`YOUR_`, `CHANGE_ME`, …) and, with
-  `OPNMATRX_ENV=production`, refuses to start if a required secret is
+  `MATRIX_ENV=production`, refuses to start if a required secret is
   missing from the environment.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
@@ -424,7 +422,7 @@ See `docs/api-reference.md` for the complete HTTP / WebSocket surface.
 
 ## Sponsors
 
-0pnMatrx is free and open source because of the people who sponsor it.
+The Matrix is free and open source because of the people who sponsor it.
 Sponsorship keeps the free tier free forever.
 
 [Become a Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
@@ -437,7 +435,7 @@ Sponsorship keeps the free tier free forever.
 | Infrastructure Partner | $500 | Logo on landing page, dedicated Slack, quarterly calls |
 | Founding Sponsor | $2,500 | Everything above + white-label rights, press mentions |
 
-**Corporate sponsors:** See [Open Collective](https://opencollective.com/openmatrix) for invoiced tiers with tax receipts.
+**Corporate sponsors:** See [Open Collective](https://opencollective.com/the-matrix) for invoiced tiers with tax receipts.
 
 ### Founding Sponsors
 
@@ -520,7 +518,7 @@ See `/glasswing` for the badge registry.
 
 Three comprehensive courses for developers at every level:
 
-- **Introduction to 0pnMatrx** ($49) — Build plugins, deploy contracts with your own wallet, use the SDK
+- **Introduction to The Matrix** ($49) — Build plugins, deploy contracts with your own wallet, use the SDK
 - **Smart Contract Security** ($79) — Reentrancy, access control, Glasswing methodology
 - **DeFi from Scratch** ($49) — Loans, NFTs, DAOs, staking, explained simply
 
@@ -538,7 +536,7 @@ Professional certifications backed by on-chain attestations:
 
 ## Plugin Development
 
-Build and sell plugins for 0pnMatrx. Developers keep 90% of revenue.
+Build and sell plugins for The Matrix. Developers keep 90% of revenue.
 
 ```bash
 # See the example plugin
@@ -555,12 +553,12 @@ Submit plugins at `/marketplace` or via `POST /marketplace/plugins/submit`.
 ## JavaScript SDK
 
 ```bash
-npm install @opnmatrx/sdk
+npm install @the-matrix/sdk
 ```
 
 ```typescript
-import { OpenMatrixClient } from '@opnmatrx/sdk';
-const client = new OpenMatrixClient('http://localhost:18790');
+import { MatrixClient } from '@the-matrix/sdk';
+const client = new MatrixClient('http://localhost:18790');
 const response = await client.chat('What can you do?');
 ```
 

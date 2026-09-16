@@ -1,4 +1,4 @@
-"""Twitter/X integration for 0pnMatrx agents.
+"""Twitter/X integration for The Matrix agents.
 
 Posts agent-generated content to Twitter/X using OAuth 1.0a.
 Requires requests-oauthlib (added to requirements.txt).

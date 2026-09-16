@@ -18,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # QR code version/format identifier
-QR_FORMAT_VERSION = "0pnmatrx-sc-v1"
+QR_FORMAT_VERSION = "the-matrix-sc-v1"
 
 
 class QRCodeGenerator:
@@ -39,7 +39,7 @@ class QRCodeGenerator:
         self.config = config
         sc = config.get("supply_chain", {})
 
-        self.qr_secret: str = sc.get("qr_secret", "0pnmatrx-default-qr-secret")
+        self.qr_secret: str = sc.get("qr_secret", "the-matrix-default-qr-secret")
         self.qr_box_size: int = sc.get("qr_box_size", 10)
         self.qr_border: int = sc.get("qr_border", 4)
 

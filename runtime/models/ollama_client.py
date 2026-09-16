@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 Ollama model provider — local, private, free inference.
 
-Default provider for 0pnMatrx. Connects to a locally running
+Default provider for The Matrix. Connects to a locally running
 Ollama instance, supports tool calling, and alerts via Telegram
 when both primary and fallback models fail.
 """
@@ -105,7 +105,7 @@ class OllamaClient(ModelInterface):
         if not bot_token or not owner_id:
             return
         msg = (
-            f"0pnMatrx Ollama ALERT\n"
+            f"The Matrix Ollama ALERT\n"
             f"Primary ({self.model}): {primary_err[:200]}\n"
             f"Fallback ({self.fallback_model}): {fallback_err[:200]}"
         )

@@ -20,7 +20,7 @@ from runtime.models.model_interface import ModelResponse
 def gateway_config(tmp_path):
     """Config for GatewayServer with auth enabled."""
     return {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "memory_dir": str(tmp_path / "memory"),
         "workspace": str(tmp_path),
         "timezone": "UTC",

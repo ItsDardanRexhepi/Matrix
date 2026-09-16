@@ -12,9 +12,9 @@ Across disciplines — neuroscience, artificial intelligence, control theory, ev
 
 The Unified Rexhepi Framework provides that cross-domain organizing principle. Any system that can be reasonably described as intelligent or adaptive can be modeled as maintaining beliefs over possible futures, subject to feasibility constraints, and using internal mechanisms to evaluate and select from those futures.
 
-## How It Governs 0pnMatrx
+## How It Governs The Matrix
 
-Every decision made by every agent on 0pnMatrx passes through the Unified Rexhepi Framework before execution. This is not optional and cannot be bypassed.
+Every decision made by every agent on The Matrix passes through the Unified Rexhepi Framework before execution. This is not optional and cannot be bypassed.
 
 The framework operates through a defined governance structure. Decisions are evaluated across multiple scored dimensions that assess different aspects of the decision problem. Based on these scores, the framework produces one of a fixed set of canonical outcomes that determine whether and how the decision proceeds. Hard rules function as inviolable constraints — decisions that violate them are rejected regardless of how they score on other dimensions.
 
@@ -26,4 +26,4 @@ This document is a public-facing overview only. The full framework — including
 
 The framework's theoretical foundations, formal mathematical structure, cross-domain applications, and empirical predictions are detailed in the full manuscript authored by Dardan Rexhepi. That manuscript is not reproduced here.
 
-What is published here is the principle: every agent decision on 0pnMatrx is governed by a rigorous, scored, auditable decision protocol with defined outputs and inviolable constraints. The protocol is the same for every decision, every agent, every time.
+What is published here is the principle: every agent decision on The Matrix is governed by a rigorous, scored, auditable decision protocol with defined outputs and inviolable constraints. The protocol is the same for every decision, every agent, every time.

@@ -1,4 +1,4 @@
-"""Governance & Voting — Component 19 of the 0pnMatrx platform.
+"""Governance & Voting — Component 19 of the Matrix platform.
 
 PLATFORM governance only. Bilateral disputes are handled by Component 30.
 """

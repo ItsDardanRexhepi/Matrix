@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class PlatformVerifier:
-    """End-to-end verification of all deployed OpenMatrix contracts."""
+    """End-to-end verification of all deployed Matrix contracts."""
 
     def __init__(self, config: dict, manifest: dict) -> None:
         self.config = config
@@ -250,7 +250,7 @@ class PlatformVerifier:
     async def run_all(self) -> dict:
         """Run all verification checks and produce a health report."""
         logger.info("=" * 60)
-        logger.info("OpenMatrix Platform Verification")
+        logger.info("Matrix Platform Verification")
         logger.info("=" * 60)
 
         # Run independent checks concurrently
@@ -322,11 +322,11 @@ def load_config(config_path: str | None = None) -> dict:
             config = json.load(f)
 
     env_map = {
-        "OPENMATRIX_RPC_URL": "rpc_url",
-        "OPENMATRIX_CHAIN_ID": "chain_id",
-        "OPENMATRIX_PRIVATE_KEY": "private_key",
-        "OPENMATRIX_NEOSAFE_ADDRESS": "neosafe_address",
-        "OPENMATRIX_ORACLE_ADDRESS": "oracle_address",
+        "MATRIX_RPC_URL": "rpc_url",
+        "MATRIX_CHAIN_ID": "chain_id",
+        "MATRIX_PRIVATE_KEY": "private_key",
+        "MATRIX_NEOSAFE_ADDRESS": "neosafe_address",
+        "MATRIX_ORACLE_ADDRESS": "oracle_address",
     }
     for env_key, cfg_key in env_map.items():
         val = os.environ.get(env_key)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "0pnMatrx Component Registry",
-  "description": "Schema for the component registry manifest used by 0pnMatrx gateway and MTRX iOS app",
+  "title": "The Matrix Component Registry",
+  "description": "Schema for the component registry manifest used by The Matrix gateway and MTRX iOS app",
   "type": "object",
   "required": ["version", "components"],
   "properties": {

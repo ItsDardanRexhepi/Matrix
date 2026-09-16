@@ -12,7 +12,7 @@ PAYMASTER = "0x00000000000000000000000000000000caFe0001"
 
 def _config(tmp_path, paymaster=None, blockchain_paymaster=None, flat_key=None):
     cfg = {
-        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "platform": "The Matrix", "memory_dir": str(tmp_path / "m"),
         "workspace": str(tmp_path), "timezone": "UTC",
         "model": {"provider": "ollama", "providers": {}},
         "agents": {"neo": {"enabled": True}},
@@ -94,7 +94,7 @@ async def test_policy_denies_disallowed_action(aiohttp_client, tmp_path):
 
 
 # ── config-path reconciliation: the block is filled at the DOCUMENTED location ──
-# (openmatrix.config.json.example + DEPLOYMENT_GUIDE put it at blockchain.paymaster;
+# (matrix.config.json.example + DEPLOYMENT_GUIDE put it at blockchain.paymaster;
 #  the env-bridge lands the key at blockchain.paymaster_private_key). Before the fix
 #  the reader looked only at top-level `paymaster`, so both of these 503'd.
 

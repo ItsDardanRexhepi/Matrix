@@ -1,5 +1,5 @@
 """
-CrossBorderService — cross-border payments with FX conversion for 0pnMatrx.
+CrossBorderService — cross-border payments with FX conversion for The Matrix.
 
 All cross-border payments are attested via Component 8
 (AttestationService).

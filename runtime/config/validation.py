@@ -60,8 +60,8 @@ def _provider_secret_fields() -> tuple[tuple[str, str, bool], ...]:
 
 SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # Blockchain signer keys
-    ("blockchain.paymaster_private_key", "OPENMATRIX_PAYMASTER_KEY", True),
-    ("blockchain.demo_wallet_private_key", "OPENMATRIX_DEMO_WALLET_KEY", False),
+    ("blockchain.paymaster_private_key", "MATRIX_PAYMASTER_KEY", True),
+    ("blockchain.demo_wallet_private_key", "MATRIX_DEMO_WALLET_KEY", False),
     # Model provider API keys (fallback to the per-provider env vars
     # that ``_apply_env_overrides`` in gateway/server.py already reads)
     # Every provider declared in runtime/models/providers.py that takes a key,
@@ -85,12 +85,12 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # Observability
     ("monitoring.sentry_dsn", "SENTRY_DSN", False),
     # Gateway auth
-    ("gateway.api_key", "OPENMATRIX_API_KEY", False),
+    ("gateway.api_key", "MATRIX_API_KEY", False),
 )
 
 # Fields that MUST exist and be non-placeholder in production.
 REQUIRED_FIELDS: tuple[tuple[str, str], ...] = (
-    ("platform", "platform name (e.g. '0pnMatrx')"),
+    ("platform", "platform name (e.g. 'The Matrix')"),
     ("gateway.host", "HTTP listen host (use 0.0.0.0 inside containers)"),
     ("gateway.port", "HTTP listen port"),
     ("model.provider", "default model provider name"),
@@ -203,13 +203,13 @@ def _is_placeholder(value: Any) -> bool:
 def is_production_mode() -> bool:
     """Return ``True`` if the environment says we're running in production.
 
-    Controlled by the ``OPNMATRX_ENV`` env var: set it to ``production``
+    Controlled by the ``MATRIX_ENV`` env var: set it to ``production``
     (case-insensitive) to enable the strict validation path. Anything
     else — unset, ``development``, ``testnet``, etc. — uses lenient
     mode so local testing and Sepolia runs don't need a fully-wired
     secret stack.
     """
-    return os.environ.get("OPNMATRX_ENV", "").strip().lower() == "production"
+    return os.environ.get("MATRIX_ENV", "").strip().lower() == "production"
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -343,7 +343,7 @@ def validate_config(
     if strict and not api_key:
         report.add_error(
             "gateway.api_key",
-            "must be set in production (via OPENMATRIX_API_KEY env var)",
+            "must be set in production (via MATRIX_API_KEY env var)",
         )
 
     # TLS termination should happen externally in production

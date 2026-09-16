@@ -121,11 +121,11 @@ def test_ios_service_catalog_does_not_offer_deployment():
 
 def test_sdk_deploy_wrapper_refuses_and_convert_exists():
     """The SDK must refuse to deploy and must offer the real capability."""
-    from sdk.client import OpenMatrixClient
+    from sdk.client import MatrixClient
 
-    doc = inspect.getdoc(OpenMatrixClient.deploy_contract) or ""
+    doc = inspect.getdoc(MatrixClient.deploy_contract) or ""
     assert "NOT IMPLEMENTED" in doc
-    assert hasattr(OpenMatrixClient, "convert_contract"), (
+    assert hasattr(MatrixClient, "convert_contract"), (
         "convert_contract must exist — the examples and docs point at it"
     )
 

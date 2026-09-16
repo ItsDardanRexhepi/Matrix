@@ -1,5 +1,5 @@
 """
-Mobile Converter — converts deployed 0pnMatrx components for the MTRX iOS app.
+Mobile Converter — converts deployed The Matrix components for the MTRX iOS app.
 
 Takes bridge-validated, Dardan-approved components and packages them for the
 MTRX iOS app. Generates:
@@ -296,7 +296,7 @@ class MobileConverter:
             "quantization": self.config.ollama_quantization,
             "memory_limit_mb": self.config.ollama_memory_limit_mb,
             "fallback_to_cloud": True,
-            "system_prompt_prefix": "You are Trinity, the AI assistant for 0pnMatrx.",
+            "system_prompt_prefix": "You are Trinity, the AI assistant for The Matrix.",
         }
 
         path = self.output_dir / "ollama_config.json"

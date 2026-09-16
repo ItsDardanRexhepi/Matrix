@@ -75,7 +75,7 @@ def test_load_config_rejects_directory_path(tmp_path, monkeypatch):
     # P2 (bind-mount footgun): a DIRECTORY at CONFIG_PATH passes exists() but
     # must trigger the clean hard-exit, not an uncaught IsADirectoryError.
     from gateway import server
-    cfg_dir = tmp_path / "openmatrix.config.json"
+    cfg_dir = tmp_path / "matrix.config.json"
     cfg_dir.mkdir()
     monkeypatch.setattr(server, "CONFIG_PATH", str(cfg_dir))
     with pytest.raises(SystemExit) as ei:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-OpenAI model provider for 0pnMatrx.
+OpenAI model provider for The Matrix.
 
 Supports GPT-4o and other OpenAI models via the chat completions API.
 API key loaded from config — never hardcoded.

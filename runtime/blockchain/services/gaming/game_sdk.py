@@ -1,5 +1,5 @@
 """
-GameSDK — helper methods for game developers on the 0pnMatrx platform.
+GameSDK — helper methods for game developers on the Matrix platform.
 
 Provides convenience functions for item types, achievements,
 leaderboards, and match recording.
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class GameSDK:
-    """Developer SDK for building games on 0pnMatrx.
+    """Developer SDK for building games on The Matrix.
 
     Config keys (under ``config["gaming"]``):
         leaderboard_max_entries (int): Max leaderboard size (default 1000).

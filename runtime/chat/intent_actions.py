@@ -65,7 +65,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "unavailable": True,
         "description": (
             # DEFECT HISTORY: none. This entry never fabricated anything —
-            # 0pnMatrx has genuinely never deployed contracts, and this
+            # The Matrix has genuinely never deployed contracts, and this
             # description has always stated the boundary rather than a post-
             # mortem. It is one of the two worked examples the sanitisation rule
             # was derived FROM.
@@ -73,7 +73,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # RE-ENABLE BAR: there is nothing to re-enable. If deployment is
             # ever built, this stops being an `unavailable` entry entirely and
             # gains an action_name.
-            "NOT AVAILABLE — 0pnMatrx does not deploy contracts. It generates "
+            "NOT AVAILABLE — The Matrix does not deploy contracts. It generates "
             "Solidity scaffolding from a structured declaration; deploying it is "
             "a separate step the user performs with their own tooling and signer."
         ),
@@ -702,11 +702,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             #
             # RE-ENABLE BAR: Do not restore until a subgraph reader actually
             # executes the query and returns its results.
-            "NOT AVAILABLE — 0pnMatrx has no EAS subgraph reader, so attestations cannot be searched."
+            "NOT AVAILABLE — The Matrix has no EAS subgraph reader, so attestations cannot be searched."
         ),
         "keywords": ["find attestations", "search attestations", "list attestations", "my attestations", "query attestations"],
         "follow_up": (
-            "I can't search attestations — 0pnMatrx has no attestation index. "
+            "I can't search attestations — The Matrix has no attestation index. "
             # EXISTENCE IS NOT THE TEST; CONFIGURATION IS. `attestation.verify`
             # is real code, but under the shipped config it returns "Missing EAS
             # config: rpc_url, eas_contract, eas_schema, paymaster_private_key,
@@ -2358,7 +2358,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # erasure path exists across every data store — the same bar as
             # execute_deletion. Accepting a request that cannot be honoured is
             # the fabrication, even if nothing is reported done.
-            "NOT AVAILABLE — 0pnMatrx cannot delete user data. There is no "
+            "NOT AVAILABLE — The Matrix cannot delete user data. There is no "
             "verified erasure path across its data stores. Requests are not "
             "accepted, not queued, and no deletion can be reported as done. Do "
             "not offer to delete data, and do not describe deletion as pending "
@@ -2366,7 +2366,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         ),
         "keywords": ["delete my data", "data deletion", "GDPR", "right to be forgotten", "erase data", "delete account"],
         "follow_up": (
-            "I can't delete your data — 0pnMatrx doesn't have a working erasure "
+            "I can't delete your data — The Matrix doesn't have a working erasure "
             "path yet, and I won't tell you it's been deleted when it hasn't. If "
             "you're exercising a legal right to erasure, contact the operator "
             "directly so it's handled by a person and on the record."
@@ -2374,7 +2374,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "example_conversation": (
             "User: I want to delete all my data\n"
             "Trinity: I can't do that, and I don't want to pretend otherwise — "
-            "0pnMatrx has no working data-deletion path right now. For a formal "
+            "The Matrix has no working data-deletion path right now. For a formal "
             "erasure request, contact the operator directly."
         ),
     },
@@ -2435,17 +2435,17 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # RE-ENABLE BAR: Do not restore until a verified erasure path exists
             # across every data store. A deletion that cannot be verified must
             # not be reported as done — that is the whole defect.
-            "NOT AVAILABLE — there is nothing to execute: 0pnMatrx cannot delete user data, so no deletion is ever queued and none can be confirmed."
+            "NOT AVAILABLE — there is nothing to execute: The Matrix cannot delete user data, so no deletion is ever queued and none can be confirmed."
         ),
         "keywords": ["execute deletion", "confirm deletion", "proceed with deletion", "finalize deletion"],
         "follow_up": (
-            "There's no deletion to execute — 0pnMatrx can't delete user data "
+            "There's no deletion to execute — The Matrix can't delete user data "
             "yet, so nothing was queued in the first place. It won't confirm a "
             "deletion it didn't perform."
         ),
         "example_conversation": (
             "User: Yes, proceed with deleting my data\n"
-            "Trinity: There's nothing queued to proceed with. 0pnMatrx has no "
+            "Trinity: There's nothing queued to proceed with. The Matrix has no "
             "working data-deletion path, so I can't start one or confirm one."
         ),
     },
@@ -2958,7 +2958,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             #   balance.
             #
             # RE-ENABLE BAR: Do not restore until the platform actually builds
-            # and signs a treasuryWithdraw call. contracts/OpenMatrixDAO.sol:210
+            # and signs a treasuryWithdraw call. contracts/MatrixDAO.sol:210
             # declares that function; nothing in runtime/ calls it, and the gap
             # between those two facts is this entry.
             "Transfer funds from a DAO treasury. NOT AVAILABLE — the platform has no wired path to the DAO's on-chain treasury function."
@@ -2966,7 +2966,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "keywords": ["treasury transfer", "dao funds", "treasury send", "dao payment"],
         # THE PRE-REPOINT READ CAUGHT THIS BEFORE IT WAS EVER SPOKEN. The first
         # version said "there's no execution path to move treasury funds".
-        # FALSE — contracts/OpenMatrixDAO.sol:210 declares
+        # FALSE — contracts/MatrixDAO.sol:210 declares
         # `treasuryWithdraw(address,uint256)`. Same defect as the queue_timelock
         # disclosure: a platform-wide negative asserted without grepping, in
         # caller-visible text. The narrow claim IS verified: no Python caller of
@@ -3110,11 +3110,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "Stream a payment continuously over time. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+            "Stream a payment continuously over time. NOT AVAILABLE — The Matrix has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["stream payment", "streaming payment", "pay by second", "continuous payment", "real-time payment", "salary stream"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
+            "I can't do that — The Matrix has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3135,11 +3135,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "Set up a recurring payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+            "Set up a recurring payment. NOT AVAILABLE — The Matrix has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["recurring payment", "automatic payment", "autopay", "scheduled payment", "monthly payment"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
+            "I can't do that — The Matrix has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3160,11 +3160,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "Release an escrow milestone payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+            "Release an escrow milestone payment. NOT AVAILABLE — The Matrix has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["escrow", "milestone payment", "escrow release", "project payment", "milestone escrow"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
+            "I can't do that — The Matrix has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3185,11 +3185,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "Split a payment across several recipients. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+            "Split a payment across several recipients. NOT AVAILABLE — The Matrix has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["split payment", "divide payment", "split bill", "pay multiple", "shared payment"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
+            "I can't do that — The Matrix has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3234,11 +3234,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "Factor an invoice for early payment. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+            "Factor an invoice for early payment. NOT AVAILABLE — The Matrix has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["invoice factoring", "factor invoice", "early payment", "invoice financing"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
+            "I can't do that — The Matrix has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3259,11 +3259,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # value through the signed path. The entry existing is not evidence
             # the operation works — that is precisely what the removed version
             # pretended.
-            "Run a payroll disbursement. NOT AVAILABLE — 0pnMatrx has no implementation of it. It cannot move value, so it is not offered."
+            "Run a payroll disbursement. NOT AVAILABLE — The Matrix has no implementation of it. It cannot move value, so it is not offered."
         ),
         "keywords": ["payroll", "pay employees", "salary distribution", "mass payment", "batch payroll"],
         "follow_up": (
-            "I can't do that — 0pnMatrx has no working implementation of it, so nothing would move and I won't report it as done."
+            "I can't do that — The Matrix has no working implementation of it, so nothing would move and I won't report it as done."
         ),
     },
 
@@ -3309,11 +3309,11 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             # RE-ENABLE BAR: Do not restore until a real commitment scheme
             # persists the vote AND it reaches a tally. A hash committing to
             # nothing is worse than no privacy, because it looks like privacy.
-            "NOT AVAILABLE — 0pnMatrx has no private-ballot implementation, so a private vote cannot be cast or counted."
+            "NOT AVAILABLE — The Matrix has no private-ballot implementation, so a private vote cannot be cast or counted."
         ),
         "keywords": ["private vote", "anonymous vote", "secret ballot", "hidden vote"],
         "follow_up": (
-            "I can't cast a private vote — 0pnMatrx has no private-ballot implementation, so nothing would be recorded. Use the ordinary governance vote, which is real."
+            "I can't cast a private vote — The Matrix has no private-ballot implementation, so nothing would be recorded. Use the ordinary governance vote, which is real."
         ),
     },
 
@@ -3949,7 +3949,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             #
             # RE-ENABLE BAR: Do not restore until a real client uploads and
             # returns a transaction id issued by the Arweave network.
-            "NOT AVAILABLE — 0pnMatrx has no Arweave upload client, so nothing can be stored to Arweave."
+            "NOT AVAILABLE — The Matrix has no Arweave upload client, so nothing can be stored to Arweave."
         ),
         "keywords": ["arweave", "permanent storage", "store forever", "arweave upload"],
         "follow_up": (

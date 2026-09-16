@@ -1,12 +1,12 @@
 /**
- * Basic usage example for the 0pnMatrx SDK.
+ * Basic usage example for the Matrix SDK.
  */
 
-import { OpenMatrixClient } from '../index';
+import { MatrixClient } from '../index';
 
 async function main() {
   // Connect to the gateway
-  const client = new OpenMatrixClient('http://localhost:18790');
+  const client = new MatrixClient('http://localhost:18790');
 
   // Check health
   const health = await client.health();

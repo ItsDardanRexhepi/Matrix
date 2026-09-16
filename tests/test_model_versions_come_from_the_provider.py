@@ -2,7 +2,7 @@
 
 A model id written into this repository is out of date the day the provider
 ships a new version, and offering a retired id fails at the user's first
-message. So the setup wizard and `openmatrix models` ask the provider what it
+message. So the setup wizard and `matrix models` ask the provider what it
 serves and show that, newest first, while still accepting any id typed by hand —
 including one newer than the listing.
 
@@ -117,7 +117,7 @@ def test_the_cli_can_check_and_switch_versions_after_setup():
     names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
     assert {"cmd_models", "register_models_commands"} <= names
     for flag in ("--check", "--set", "--latest", "--all"):
-        assert flag in src, f"openmatrix models is missing {flag}"
+        assert flag in src, f"matrix models is missing {flag}"
 
 
 def test_grok_and_hermes_listings_go_to_their_own_hosts():

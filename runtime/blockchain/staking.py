@@ -88,7 +88,7 @@ class Staking(BlockchainInterface):
                 "status": "staked" if receipt["status"] == 1 else "failed",
                 "amount": params.get("amount"),
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Stake failed: {e}"
@@ -123,7 +123,7 @@ class Staking(BlockchainInterface):
                 "status": "unstaked" if receipt["status"] == 1 else "failed",
                 "amount": params.get("amount"),
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Unstake failed: {e}"
@@ -156,7 +156,7 @@ class Staking(BlockchainInterface):
             return json.dumps({
                 "status": "claimed" if receipt["status"] == 1 else "failed",
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Claim failed: {e}"

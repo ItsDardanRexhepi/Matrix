@@ -99,7 +99,7 @@ class Governance(BlockchainInterface):
                 "status": "scheduled" if receipt["status"] == 1 else "failed",
                 "delay_seconds": delay,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Schedule failed: {e}"
@@ -144,7 +144,7 @@ class Governance(BlockchainInterface):
             return json.dumps({
                 "status": "executed" if receipt["status"] == 1 else "failed",
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Execution failed: {e}"
@@ -209,7 +209,7 @@ class Governance(BlockchainInterface):
                 "role": role_hash,
                 "account": account_addr,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Grant role failed: {e}"
@@ -262,7 +262,7 @@ class Governance(BlockchainInterface):
                 "role": role_hash,
                 "account": account_addr,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Revoke role failed: {e}"

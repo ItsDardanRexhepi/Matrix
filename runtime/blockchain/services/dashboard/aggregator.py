@@ -1,5 +1,5 @@
 """
-DashboardAggregator — collects and aggregates data from all 0pnMatrx services
+DashboardAggregator — collects and aggregates data from all The Matrix services
 for the unified dashboard.
 
 For staking APY: uses Component 16's canonical APY calculator exclusively.

@@ -1,4 +1,4 @@
-"""openmatrix info commands — version, health, setup."""
+"""matrix info commands — version, health, setup."""
 
 import json
 import os
@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_FILE = PROJECT_ROOT / "openmatrix.config.json"
+CONFIG_FILE = PROJECT_ROOT / "matrix.config.json"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -19,32 +19,33 @@ YELLOW = "\033[33m"
 DIM = "\033[2m"
 NC = "\033[0m"
 
-VERSION = "0.5.0"
+# One source of truth (see runtime/__init__.py); never restate the number.
+from runtime import __version__ as VERSION
 
 
 def _info(msg: str) -> None:
-    print(f"{GREEN}[openmatrix]{NC} {msg}")
+    print(f"{GREEN}[matrix]{NC} {msg}")
 
 
 def _warn(msg: str) -> None:
-    print(f"{YELLOW}[openmatrix]{NC} {msg}")
+    print(f"{YELLOW}[matrix]{NC} {msg}")
 
 
 def _error(msg: str) -> None:
-    print(f"{RED}[openmatrix]{NC} {msg}", file=sys.stderr)
+    print(f"{RED}[matrix]{NC} {msg}", file=sys.stderr)
 
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 def cmd_version(args) -> None:
     """Show version."""
-    print(f"0pnMatrx v{VERSION}")
+    print(f"The Matrix v{VERSION}")
 
 
 def cmd_health(args) -> None:
     """Quick health check of the running gateway."""
     if not CONFIG_FILE.exists():
-        _error("No config found. Run: openmatrix setup")
+        _error("No config found. Run: matrix setup")
         sys.exit(1)
 
     config = json.loads(CONFIG_FILE.read_text())
@@ -75,7 +76,7 @@ def cmd_health(args) -> None:
         print(f"  {RED}●{NC} {BOLD}Gateway not reachable{NC}")
         print(f"  {DIM}Tried:{NC} http://localhost:{port}/health")
         print()
-        _info(f"Start with: {CYAN}openmatrix gateway start{NC}")
+        _info(f"Start with: {CYAN}matrix gateway start{NC}")
         sys.exit(1)
 
 
@@ -96,7 +97,7 @@ def cmd_setup(args) -> None:
 def cmd_config(args) -> None:
     """Show current configuration (redacted secrets)."""
     if not CONFIG_FILE.exists():
-        _error("No config found. Run: openmatrix setup")
+        _error("No config found. Run: matrix setup")
         sys.exit(1)
 
     config = json.loads(CONFIG_FILE.read_text())

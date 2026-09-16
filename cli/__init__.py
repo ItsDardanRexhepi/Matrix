@@ -1,4 +1,4 @@
-"""openmatrix CLI — command-line interface for 0pnMatrx."""
+"""matrix CLI — command-line interface for The Matrix."""
 
 import argparse
 import sys
@@ -10,20 +10,20 @@ from cli.models import register_models_commands
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="openmatrix",
-        description="0pnMatrx — multi-agent crypto-native platform",
+        prog="matrix",
+        description="The Matrix — multi-agent crypto-native platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 examples:
-  openmatrix gateway start          Start the gateway server
-  openmatrix gateway start -d       Start in background (daemon)
-  openmatrix gateway stop           Stop a running gateway
-  openmatrix gateway status         Check if gateway is running
-  openmatrix gateway restart        Restart the gateway
-  openmatrix gateway logs           Tail gateway logs
-  openmatrix setup                  Run interactive setup
-  openmatrix health                 Quick health check
-  openmatrix version                Show version
+  matrix gateway start          Start the gateway server
+  matrix gateway start -d       Start in background (daemon)
+  matrix gateway stop           Stop a running gateway
+  matrix gateway status         Check if gateway is running
+  matrix gateway restart        Restart the gateway
+  matrix gateway logs           Tail gateway logs
+  matrix setup                  Run interactive setup
+  matrix health                 Quick health check
+  matrix version                Show version
 """,
     )
 

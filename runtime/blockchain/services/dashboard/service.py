@@ -1,6 +1,6 @@
 """
 DashboardService — unified dashboard aggregating data across all 44 services / 221 capabilities of the
-0pnMatrx platform.
+The Matrix platform.
 
 Activity-based visibility: only shows components the user has interacted with.
 All descriptions in plain English (no jargon).
@@ -33,7 +33,7 @@ _ALL_COMPONENTS = [
 
 
 class DashboardService:
-    """Unified dashboard service for the 0pnMatrx platform.
+    """Unified dashboard service for the Matrix platform.
 
     Config keys (under ``config["dashboard"]``):
         max_activity (int): Maximum activity items (default 50).
@@ -245,7 +245,7 @@ class DashboardService:
         total_users = len(self._user_components)
 
         return {
-            "platform": "0pnMatrx",
+            "platform": "The Matrix",
             "total_components": total,
             "registered_components": registered,
             "healthy_components": healthy,

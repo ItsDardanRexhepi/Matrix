@@ -2,7 +2,7 @@
 ERC-8004 Agent Identity -- Component 9.
 
 Implements on-chain agent identity registration, reputation tracking,
-and safe update monitoring for autonomous AI agents on 0pnMatrx.
+and safe update monitoring for autonomous AI agents on The Matrix.
 Compliant with the ERC-8004 agent identity standard.
 """
 

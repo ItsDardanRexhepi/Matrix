@@ -12,7 +12,7 @@ from tests.test_gateway import _build_mock_server
 
 def _config(tmp_path):
     return {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "memory_dir": str(tmp_path / "memory"),
         "workspace": str(tmp_path),
         "timezone": "UTC",

@@ -1,7 +1,7 @@
 """
 Oracle Integration Layer — Component 11.
 
-Single gateway for ALL oracle data requests across the 0pnMatrx platform.
+Single gateway for ALL oracle data requests across the Matrix platform.
 Every component that needs external data (prices, weather, sports,
 randomness, etc.) routes through :class:`OracleGateway`.
 """

@@ -4,7 +4,7 @@
 
 import type { StreamEvent } from './types';
 
-export class OpenMatrixStream implements AsyncIterable<StreamEvent> {
+export class MatrixStream implements AsyncIterable<StreamEvent> {
   private response: Response;
 
   constructor(response: Response) {

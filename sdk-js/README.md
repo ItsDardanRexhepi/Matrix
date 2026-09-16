@@ -1,19 +1,19 @@
-# @opnmatrx/sdk
+# @the-matrix/sdk
 
-JavaScript/TypeScript SDK for the 0pnMatrx AI agent platform.
+JavaScript/TypeScript SDK for the Matrix AI agent platform.
 
 ## Installation
 
 ```bash
-npm install @opnmatrx/sdk
+npm install @the-matrix/sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { OpenMatrixClient } from '@opnmatrx/sdk';
+import { MatrixClient } from '@the-matrix/sdk';
 
-const client = new OpenMatrixClient('http://localhost:18790');
+const client = new MatrixClient('http://localhost:18790');
 
 // Chat with Trinity
 const response = await client.chat('What can you do?');
@@ -30,7 +30,7 @@ for await (const event of stream) {
 
 ## API Reference
 
-### `OpenMatrixClient`
+### `MatrixClient`
 
 | Method | Description |
 |--------|-------------|
@@ -44,7 +44,7 @@ for await (const event of stream) {
 | `subscriptionStatus()` | Get subscription status |
 | `checkout(tier)` | Start checkout session |
 
-### `OpenMatrixWebSocket`
+### `MatrixWebSocket`
 
 | Method | Description |
 |--------|-------------|

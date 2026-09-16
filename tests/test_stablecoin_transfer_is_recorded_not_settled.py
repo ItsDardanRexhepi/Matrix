@@ -245,7 +245,7 @@ def test_set_balance_is_refused_outside_the_test_environment(monkeypatch):
     it makes every transfer permanently impossible. Gated instead.
     """
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.delenv("OPENMATRIX_ALLOW_TEST_MINT", raising=False)
+    monkeypatch.delenv("MATRIX_ALLOW_TEST_MINT", raising=False)
     monkeypatch.setitem(__import__("sys").modules, "pytest", None)
     monkeypatch.delitem(__import__("sys").modules, "pytest")
 

@@ -1,4 +1,4 @@
-"""SQLite-backed memory manager for 0pnMatrx agents.
+"""SQLite-backed memory manager for The Matrix agents.
 
 The public interface is intentionally identical to the previous
 file-backed implementation so the rest of the codebase does not need to
@@ -109,7 +109,7 @@ class MemoryManager:
         # legacy memory directory.
         from pathlib import Path
         if "database" not in config and "memory_dir" in config:
-            db_path = str(Path(config["memory_dir"]) / "0pnmatrx.db")
+            db_path = str(Path(config["memory_dir"]) / "the-matrix.db")
             db_config = dict(config)
             db_config["database"] = {"path": db_path}
         else:

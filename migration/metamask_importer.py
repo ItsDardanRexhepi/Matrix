@@ -2,7 +2,7 @@
 MetaMask Importer — imports wallet data from MetaMask exports.
 
 Reads MetaMask's exported JSON format and creates corresponding
-wallet records in 0pnMatrx. Only public data is imported.
+wallet records in The Matrix. Only public data is imported.
 """
 
 import argparse
@@ -95,7 +95,7 @@ def import_wallets(records: list[WalletRecord], output_dir: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import MetaMask wallet data into 0pnMatrx")
+    parser = argparse.ArgumentParser(description="Import MetaMask wallet data into The Matrix")
     parser.add_argument("--input", required=True, help="Path to MetaMask export JSON")
     parser.add_argument("--output", default="imported/metamask", help="Output directory")
     args = parser.parse_args()

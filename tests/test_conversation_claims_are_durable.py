@@ -80,7 +80,7 @@ class _HeldModel:
 
 
 def _server() -> GatewayServer:
-    return GatewayServer(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-")))
+    return GatewayServer(_config(tempfile.mkdtemp(prefix="the-matrix-claims-")))
 
 
 async def _session(server: GatewayServer, subject: str) -> dict:
@@ -121,7 +121,7 @@ async def test_a_first_turn_claim_survives_eviction_while_its_model_call_runs(en
 async def test_a_claim_with_no_stored_rows_is_on_disk_when_it_is_made():
     """The claim is the durable fact, not a side effect of the next save: a
     fresh process (nothing cached) already refuses another account."""
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-disk-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-claims-disk-")
     memory = MemoryManager(_config(scratch))
     memory.claim_conversation("fresh-conv", "apple:owner")
     again = MemoryManager(_config(scratch))
@@ -160,7 +160,7 @@ async def test_account_deletion_while_a_turn_is_in_flight_leaves_nothing_behind(
 async def test_a_reload_while_a_save_is_waiting_on_the_store_reads_the_whole_conversation():
     """save_conversation was DELETE then INSERT under two separate lock
     acquisitions. A request queued on the lock ran between them."""
-    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-gap-")))
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="the-matrix-claims-gap-")))
     sid = "gap-conv"
     before = [{"role": "user", "content": "one"}, {"role": "assistant", "content": "two"}]
     await memory.save_conversation(sid, before, owner="apple:gap")
@@ -402,7 +402,7 @@ async def test_an_anonymous_turn_in_flight_while_another_conversations_account_i
 
 
 async def test_an_unclaimed_claim_stops_standing_once_the_conversation_is_claimed_and_erased():
-    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-unclaimed-")))
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="the-matrix-claims-unclaimed-")))
     before = memory.conversation_claim("c1")
     untouched = memory.conversation_claim("c2")
     assert memory.claim_stands(before) and before.owner == ""
@@ -429,7 +429,7 @@ async def test_the_erasure_log_is_pruned_and_a_turn_older_than_the_pruned_log_is
     """The log of erased ids is kept only for its retention window. A turn
     admitted unclaimed before an erasure whose entry was pruned cannot be
     cleared by the log any more, and is refused rather than assumed safe."""
-    memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="opnmatrx-claims-prune-")),
+    memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="the-matrix-claims-prune-")),
                             "conversation_erasure_log_seconds": 60})
     before = memory.conversation_claim("c1")
     memory.claim_conversation("c9", "apple:gone")
@@ -449,7 +449,7 @@ async def test_the_erasure_log_is_pruned_and_a_turn_older_than_the_pruned_log_is
 async def test_the_periodic_sweep_prunes_the_erasure_log():
     from test_every_rate_limiter_is_swept import _one_sweep
 
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-sweep-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-claims-sweep-")
     server = GatewayServer({**_config(scratch), "conversation_erasure_log_seconds": 0})
     memory = server.react_loop.memory
     memory.claim_conversation("swept-conv", "apple:swept")
@@ -508,7 +508,7 @@ def _erasure_ids(memory) -> list[str]:
 
 @pytest.mark.parametrize("retention", ["1h", None, "nan", float("inf"), -5, True])
 async def test_account_deletion_erases_the_account_whatever_the_erasure_log_retention_is_set_to(retention):
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-retention-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-claims-retention-")
     server = GatewayServer({**_config(scratch), "conversation_erasure_log_seconds": retention})
     server.react_loop.router.complete = _HeldRouter("never-held").complete
     memory = server.react_loop.memory
@@ -552,7 +552,7 @@ async def test_an_unusable_retention_falls_back_to_the_default_window(retention,
     from runtime.memory.manager import ERASURE_LOG_SECONDS
 
     with caplog.at_level("WARNING", logger="runtime.memory.manager"):
-        memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="opnmatrx-claims-badret-")),
+        memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="the-matrix-claims-badret-")),
                                 "conversation_erasure_log_seconds": retention})
     memory.claim_conversation("c9", "apple:badret")
     assert await memory.erase_owner("apple:badret") == ["c9"]
@@ -566,7 +566,7 @@ async def test_an_unusable_retention_falls_back_to_the_default_window(retention,
 
 
 async def test_a_deletion_that_erases_no_conversation_still_prunes_the_log():
-    memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="opnmatrx-claims-emptyprune-")),
+    memory = MemoryManager({**_config(tempfile.mkdtemp(prefix="the-matrix-claims-emptyprune-")),
                             "conversation_erasure_log_seconds": 0})
     memory.claim_conversation("c9", "apple:first")
     assert await memory.erase_owner("apple:first") == ["c9"]
@@ -597,7 +597,7 @@ async def test_an_unclaimed_claim_on_an_account_conversation_id_never_stands():
     """What makes leaving user:<subject> out of the log safe: no turn stands
     on such an id without its account's claim, whichever entrance admits it
     (the gateway answers 403 to every caller but the account)."""
-    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-userid-")))
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="the-matrix-claims-userid-")))
     sid = "user:apple:x"
     before = memory.conversation_claim(sid)
     assert before.owner == "" and not memory.claim_stands(before)
@@ -613,7 +613,7 @@ async def test_an_unclaimed_claim_on_an_account_conversation_id_never_stands():
 
 
 async def test_a_missing_erasure_state_row_refuses_unclaimed_turns_and_erasure_restores_it():
-    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-staterow-")))
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="the-matrix-claims-staterow-")))
     before = memory.conversation_claim("c1")
     assert memory.claim_stands(before)
     memory.db.execute_sync("DELETE FROM conversation_erasure_state")
@@ -631,7 +631,7 @@ async def test_a_missing_erasure_state_row_refuses_unclaimed_turns_and_erasure_r
 
 
 async def test_a_fresh_process_restores_a_missing_erasure_state_row():
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-claims-staterow-boot-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-claims-staterow-boot-")
     memory = MemoryManager(_config(scratch))
     memory.claim_conversation("c1", "apple:x")
     assert await memory.erase_owner("apple:x") == ["c1"]
@@ -650,7 +650,7 @@ async def test_restoring_a_missing_state_row_revives_no_turn_whose_erasure_was_p
     longer says how far erasures had gone."""
     from runtime.memory.manager import ERASURE_LOG_SECONDS
 
-    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="opnmatrx-claims-staterow-prune-")))
+    memory = MemoryManager(_config(tempfile.mkdtemp(prefix="the-matrix-claims-staterow-prune-")))
     memory.claim_conversation("c0", "apple:a")
     assert await memory.erase_owner("apple:a") == ["c0"]
     mid = memory.conversation_claim("c1")          # admitted unclaimed after erasure 1

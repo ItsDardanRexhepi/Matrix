@@ -1,4 +1,4 @@
-# 0pnMatrx End-to-End Examples
+# The Matrix End-to-End Examples
 
 Runnable scripts that prove the platform works on-chain (Base Sepolia).
 
@@ -11,7 +11,7 @@ Runnable scripts that prove the platform works on-chain (Base Sepolia).
 
 2. **Configure the platform:**
    ```bash
-   cp openmatrix.config.json.example openmatrix.config.json
+   cp matrix.config.json.example matrix.config.json
    ```
    Fill in at minimum:
    - `blockchain.rpc_url` — Base Sepolia RPC (get one free at [Alchemy](https://www.alchemy.com/))
@@ -110,7 +110,7 @@ Every example works on mainnet with zero code changes — just update your confi
 
 ## EAS Attestation on Every Action
 
-Every state-modifying action in 0pnMatrx creates an on-chain EAS (Ethereum Attestation Service) attestation. This is built into `ServiceDispatcher.execute()` — you don't need to do anything extra.
+Every state-modifying action in The Matrix creates an on-chain EAS (Ethereum Attestation Service) attestation. This is built into `ServiceDispatcher.execute()` — you don't need to do anything extra.
 
 What gets attested:
 - Contract deployments (code hash, deployer, audit status)

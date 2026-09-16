@@ -107,7 +107,7 @@ class DeFiRouter:
                     "status": "not_configured",
                     "message": (
                         "No DeFi protocols configured. "
-                        "Add protocol endpoints to openmatrix.config.json"
+                        "Add protocol endpoints to matrix.config.json"
                     ),
                     "supported_protocols": ["aave", "compound", "morpho", "spark"],
                 }
@@ -172,7 +172,7 @@ class DeFiRouter:
                     "status": "not_configured",
                     "message": (
                         "No DEX protocols configured. "
-                        "Add DEX endpoints to openmatrix.config.json"
+                        "Add DEX endpoints to matrix.config.json"
                     ),
                     "supported_dexes": ["uniswap_v3", "curve", "balancer", "1inch"],
                 }
@@ -228,7 +228,7 @@ class DeFiRouter:
                     "status": "not_configured",
                     "message": (
                         "No lending protocols configured. "
-                        "Add protocol endpoints to openmatrix.config.json"
+                        "Add protocol endpoints to matrix.config.json"
                     ),
                     "supported_protocols": ["aave", "compound", "morpho", "spark"],
                 }

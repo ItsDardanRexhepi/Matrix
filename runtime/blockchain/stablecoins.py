@@ -112,7 +112,7 @@ class Stablecoins(BlockchainInterface):
                 "amount": params.get("amount"),
                 "to": params["to"],
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Transfer failed: {e}"
@@ -169,7 +169,7 @@ class Stablecoins(BlockchainInterface):
                 "token": token,
                 "spender": params["spender"],
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Approve failed: {e}"

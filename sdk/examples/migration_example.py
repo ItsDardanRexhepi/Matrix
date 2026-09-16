@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-0pnMatrx SDK — Migration Example
+The Matrix SDK — Migration Example
 
 Demonstrates importing agents from other frameworks.
 """

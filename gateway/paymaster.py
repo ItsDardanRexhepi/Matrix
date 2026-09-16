@@ -1,8 +1,8 @@
-"""P4: verifying-paymaster signing (server half of OpenMatrixVerifyingPaymaster).
+"""P4: verifying-paymaster signing (server half of MatrixVerifyingPaymaster).
 
 The platform's off-chain signer approves gas sponsorship by signing a digest over
 a UserOperation's material fields. The digest MUST match the on-chain
-`OpenMatrixVerifyingPaymaster.digest` byte-for-byte (two-level keccak) — proven by
+`MatrixVerifyingPaymaster.digest` byte-for-byte (two-level keccak) — proven by
 tests/test_paymaster_digest.py against a foundry-produced vector.
 
 paymasterAndData layout the client expects:
@@ -55,7 +55,7 @@ def compute_paymaster_digest(
     valid_until: int,
     valid_after: int,
 ) -> bytes:
-    """Mirror of OpenMatrixVerifyingPaymaster.digest (two-level keccak).
+    """Mirror of MatrixVerifyingPaymaster.digest (two-level keccak).
 
     opHash = keccak(abi.encode(sender,nonce,keccak(initCode),keccak(callData),
                     callGasLimit,verificationGasLimit,preVerificationGas,
@@ -101,11 +101,11 @@ def paymaster_config(config: dict) -> dict:
     mutating the source. Precedence:
 
       1. top-level ``paymaster``            (test/legacy shape)
-      2. ``blockchain.paymaster``           (openmatrix.config.json.example + DEPLOYMENT_GUIDE)
+      2. ``blockchain.paymaster``           (matrix.config.json.example + DEPLOYMENT_GUIDE)
 
     Then, if ``signer_key`` is still absent, fall back to the env-bridged
     ``blockchain.paymaster_private_key`` (runtime/config/validation.py
-    SECRET_FIELDS, fed by ``OPENMATRIX_PAYMASTER_KEY``). ``address``/``policy``
+    SECRET_FIELDS, fed by ``MATRIX_PAYMASTER_KEY``). ``address``/``policy``
     come from the resolved block. This is why an operator who fills the
     *documented* location no longer gets a permanent 503 on /paymaster/sign.
     """

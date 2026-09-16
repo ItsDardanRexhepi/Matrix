@@ -13,7 +13,7 @@ stop matching the code.
 
 ## Where it runs
 
-**Server-side, in the 0pnMatrx platform** — never on the device. The iOS client calls
+**Server-side, in the Matrix platform** — never on the device. The iOS client calls
 `GET /api/v1/social/feed/{wallet}?mode=for_you`, which crosses the standard
 `_call → gate_action` security seam like every other service, then invokes
 `SocialService.get_feed(address, limit, mode)`. **The server ranks; the client

@@ -2,7 +2,7 @@
 Stablecoin Infrastructure -- Component 7.
 
 Provides stablecoin transfer, balance tracking, tiered fee calculation,
-and rate limiting for the 0pnMatrx platform. Supports USDC, USDT, DAI,
+and rate limiting for the Matrix platform. Supports USDC, USDT, DAI,
 and other ERC-20 stablecoins on Base.
 """
 

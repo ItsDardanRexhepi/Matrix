@@ -2,13 +2,13 @@
 
 ## Overview
 
-Decentralized Finance (DeFi) replaces banks, brokers, and exchanges with smart contracts that anyone can use. This course explains DeFi in plain language -- no jargon, no assumed knowledge. By the end, you will understand how lending, NFTs, DAOs, and staking actually work, and how to use them through 0pnMatrx.
+Decentralized Finance (DeFi) replaces banks, brokers, and exchanges with smart contracts that anyone can use. This course explains DeFi in plain language -- no jargon, no assumed knowledge. By the end, you will understand how lending, NFTs, DAOs, and staking actually work, and how to use them through The Matrix.
 
 ## Prerequisites
 
 **None.** This course is written for complete beginners. If you can read this page, you have the prerequisites.
 
-Some familiarity with 0pnMatrx (Course 01) is helpful but not required. Each module explains the relevant 0pnMatrx features as they come up.
+Some familiarity with The Matrix (Course 01) is helpful but not required. Each module explains the relevant The Matrix features as they come up.
 
 ## What You Will Learn
 

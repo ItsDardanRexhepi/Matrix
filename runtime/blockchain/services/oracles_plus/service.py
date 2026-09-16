@@ -458,7 +458,7 @@ class OraclesPlusService:
         try:
             account = self._web3.get_account()
             admin_address = account.address  # platform account — non-custodial
-            name = params.get("name") or "0pnMatrx upkeep"
+            name = params.get("name") or "The Matrix upkeep"
             gas_limit = int(params.get("gas_limit") or 500_000)
             amount = int(params.get("amount") or 0)  # LINK juels to fund
             trigger_type = int(params.get("trigger_type") or 0)
@@ -510,6 +510,6 @@ class OraclesPlusService:
             "registrar": registrar,
             "upkeep_contract": upkeep_contract,
             "admin_address": admin_address,
-            "gas_paid_by": "platform (0pnMatrx paymaster)",
+            "gas_paid_by": "platform (The Matrix paymaster)",
             "non_custodial": True,
         }

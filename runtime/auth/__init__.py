@@ -1,4 +1,4 @@
-"""Authentication utilities for 0pnMatrx runtime."""
+"""Authentication utilities for The Matrix runtime."""
 
 from __future__ import annotations
 

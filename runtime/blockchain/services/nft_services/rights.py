@@ -32,7 +32,7 @@ _DEFAULT_RIGHTS: dict[str, bool] = {
 
 
 class RightsManagement:
-    """Manage IP rights for NFTs on the 0pnMatrx platform.
+    """Manage IP rights for NFTs on the Matrix platform.
 
     Parameters
     ----------

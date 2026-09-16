@@ -129,6 +129,6 @@ class TestVerifyAbis:
 # ── SDK parity ──────────────────────────────────────────────────────
 
 def test_python_sdk_has_iap_parity():
-    from sdk.client import OpenMatrixClient
-    c = OpenMatrixClient(base_url="http://localhost:18790")
+    from sdk.client import MatrixClient
+    c = MatrixClient(base_url="http://localhost:18790")
     assert hasattr(c, "verify_iap") and hasattr(c, "averify_iap")

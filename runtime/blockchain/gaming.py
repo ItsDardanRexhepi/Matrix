@@ -94,7 +94,7 @@ class Gaming(BlockchainInterface):
                 "amount": params.get("amount", 1),
                 "player": player,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Mint failed: {e}"
@@ -133,7 +133,7 @@ class Gaming(BlockchainInterface):
             return json.dumps({
                 "status": "transferred" if receipt["status"] == 1 else "failed",
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Transfer failed: {e}"

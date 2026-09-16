@@ -5,7 +5,7 @@ transaction fees to integrators who route volume through them.  This is
 a standard incentive mechanism: protocols want distribution, and
 integrators earn a cut for delivering users.
 
-0pnMatrx collects these referral fees automatically whenever a user
+The Matrix collects these referral fees automatically whenever a user
 executes a DeFi transaction through the platform.  The fees are routed
 to the NeoSafe multisig so they accrue to the protocol treasury without
 any manual intervention.

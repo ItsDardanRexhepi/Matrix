@@ -1,4 +1,4 @@
-"""Shared fixtures for 0pnMatrx test suite."""
+"""Shared fixtures for The Matrix test suite."""
 
 import os
 
@@ -8,7 +8,7 @@ import pytest
 # the gateway credential wall, the test-mint switch, the seam's state/attest/OTP
 # settings. Cleared by PREFIX rather than by name so a switch added later is
 # isolated without anyone remembering to list it here.
-_AMBIENT_SWITCH_PREFIXES = ("OPNMATRX_", "OPENMATRIX_")
+_AMBIENT_SWITCH_PREFIXES = ("MATRIX_", "MATRIX_")
 
 # A fixed, test-only pepper. With the private security package importable its
 # production OTP guard refuses to construct without one, which made every
@@ -19,13 +19,13 @@ _TEST_OTP_PEPPER = "test-suite-otp-pepper-not-a-secret"
 
 def _clear_ambient_security_switches():
     """Put os.environ's switch variables back to the documented default: every
-    OPNMATRX_* / OPENMATRIX_* variable removed, then the test pepper. Written to
+    MATRIX_* / MATRIX_* variable removed, then the test pepper. Written to
     os.environ directly, NOT through monkeypatch: a monkeypatch reset records
     whatever it removes and puts it back at teardown, so a value code under test
     wrote directly was restored into os.environ between tests."""
     for name in [n for n in os.environ if n.startswith(_AMBIENT_SWITCH_PREFIXES)]:
         del os.environ[name]
-    os.environ["OPNMATRX_OTP_PEPPER"] = _TEST_OTP_PEPPER
+    os.environ["MATRIX_OTP_PEPPER"] = _TEST_OTP_PEPPER
 
 
 def _pin_backend_label():
@@ -49,14 +49,14 @@ def _ambient_security_switches_session():
     credential wall was up, and which security backend it reported were decided
     by whatever the person running the suite had exported — and by whether the
     private package happened to be importable. Measured across the 21 modules
-    that build a server: OPNMATRX_ENV=production -> 65 failed + 552 errors;
-    OPENMATRIX_API_KEY set -> 12 failed; private package importable -> 6 failed.
+    that build a server: MATRIX_ENV=production -> 65 failed + 552 errors;
+    MATRIX_API_KEY set -> 12 failed; private package importable -> 6 failed.
 
     Three ambient SOURCES, all isolated here:
       * the shell's variables — cleared by prefix;
       * the .env FILE — load_config calls gateway.server._load_dotenv, which
         loads ./.env with override=False into variables this fixture just
-        cleared, so a developer's `.env` holding OPNMATRX_ENV=production decided
+        cleared, so a developer's `.env` holding MATRIX_ENV=production decided
         the suite (measured: test_apns_env_override then test_route_sweep ->
         547 errors). python-dotenv's load_dotenv is a no-op for the session,
         patched on the package so any loader that imports it at call time is
@@ -85,7 +85,7 @@ def _ambient_security_switches_session():
             yield
         finally:
             _clear_ambient_security_switches()
-            del os.environ["OPNMATRX_OTP_PEPPER"]
+            del os.environ["MATRIX_OTP_PEPPER"]
             os.environ.update(saved)
 
 
@@ -112,7 +112,7 @@ def _ambient_security_switches(_ambient_security_switches_session):
 def mock_config(tmp_path):
     """Return a minimal valid config dict with temp directories."""
     return {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "memory_dir": str(tmp_path / "memory"),
         "workspace": str(tmp_path),
         "timezone": "UTC",

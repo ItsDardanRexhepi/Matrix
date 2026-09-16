@@ -2,7 +2,7 @@
 runtime/social/feed_engine.py
 =============================
 
-Live social feed engine for 0pnMatrx — ranks, persists, and serves
+Live social feed engine for The Matrix — ranks, persists, and serves
 blockchain activity events so every user sees what the platform is
 doing in real time.
 

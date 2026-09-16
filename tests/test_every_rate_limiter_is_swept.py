@@ -40,7 +40,7 @@ async def _one_sweep(server) -> None:
 
 
 async def test_the_sweep_prunes_stale_buckets_in_every_limiter_the_server_holds():
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-sweep-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-sweep-")
     server = GatewayServer({**SWEEP_CONFIG, "memory_dir": scratch,
                             "database": {"path": f"{scratch}/s.db"}})
     limiters = _limiters(server)

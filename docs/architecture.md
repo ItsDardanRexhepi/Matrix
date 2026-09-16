@@ -2,7 +2,7 @@
 
 ## Overview
 
-0pnMatrx is a three-agent platform where every operation flows through a unified decision framework. The architecture is simple by design — complexity is in the intelligence, not the plumbing.
+The Matrix is a three-agent platform where every operation flows through a unified decision framework. The architecture is simple by design — complexity is in the intelligence, not the plumbing.
 
 ```
 User

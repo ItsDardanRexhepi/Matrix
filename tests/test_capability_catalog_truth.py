@@ -150,7 +150,7 @@ def _route_pairs():
 
     from gateway.server import GatewayServer
 
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-catalog-truth-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-catalog-truth-")
     app = GatewayServer({"memory_dir": scratch,
                          "database": {"path": f"{scratch}/t.db"}}).create_app()
     literal: dict = {}  # (route, service, method) -> {kw: binding} the handler fixes
@@ -622,7 +622,7 @@ async def test_a_session_cannot_invoke_any_derived_escape(monkeypatch):
 
     derived = _derived_escapes()
     assert derived, "precondition: some capability reaches an operator-only route"
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-catalog-truth-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-catalog-truth-")
     server = GatewayServer({**SWEEP_CONFIG, "memory_dir": scratch,
                             "database": {"path": f"{scratch}/s.db"},
                             "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}})
@@ -937,7 +937,7 @@ def _public_paths():
 
     from gateway.server import GatewayServer
 
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-catalog-truth-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-catalog-truth-")
     return frozenset(GatewayServer({"memory_dir": scratch,
                                     "database": {"path": f"{scratch}/p.db"}})._public_paths)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-OpenAI Assistants Importer — converts OpenAI Assistants API configs to 0pnMatrx.
+OpenAI Assistants Importer — converts OpenAI Assistants API configs to The Matrix.
 
 Imports assistant definitions either from a JSON export file or
 directly from the OpenAI API (if API key is configured).
@@ -16,7 +16,7 @@ from migration.base import BaseImporter, ImportedAgent
 
 logger = logging.getLogger(__name__)
 
-# OpenAI tool type -> 0pnMatrx mapping
+# OpenAI tool type -> The Matrix mapping
 TOOL_TYPE_MAPPING = {
     "code_interpreter": "bash",
     "retrieval": "file_ops",
@@ -81,7 +81,7 @@ class OpenAIAssistantsImporter(BaseImporter):
         return agents
 
     def _convert_assistant(self, data: dict) -> ImportedAgent | None:
-        """Convert an OpenAI Assistant API object to 0pnMatrx format."""
+        """Convert an OpenAI Assistant API object to The Matrix format."""
         name = (data.get("name") or "assistant").lower().replace(" ", "_")
         instructions = data.get("instructions", "")
         model = data.get("model", "")
@@ -104,7 +104,7 @@ class OpenAIAssistantsImporter(BaseImporter):
                     "parameters": fn.get("parameters", {}),
                     "source": "openai_function",
                 })
-                warnings.append(f"Function tool '{fn_name}' needs a handler implementation in 0pnMatrx")
+                warnings.append(f"Function tool '{fn_name}' needs a handler implementation in The Matrix")
 
         # Determine role
         has_execution_tools = any(t["name"] in ("bash", "file_ops") for t in tools)

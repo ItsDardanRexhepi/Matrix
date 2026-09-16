@@ -70,7 +70,7 @@ class WebSearchTool:
         import aiohttp
 
         url = "https://html.duckduckgo.com/html/"
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; 0pnMatrx/1.0)"}
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; The Matrix/1.0)"}
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data={"q": query}, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:

@@ -2,9 +2,9 @@
 
 ## Overview
 
-Getting a loan in DeFi is faster than getting a bank loan, but it carries different risks. This module walks through the entire process using 0pnMatrx, from depositing collateral to repaying the loan.
+Getting a loan in DeFi is faster than getting a bank loan, but it carries different risks. This module walks through the entire process using The Matrix, from depositing collateral to repaying the loan.
 
-## Step 1: Using 0pnMatrx to Borrow
+## Step 1: Using The Matrix to Borrow
 
 Instead of navigating a DeFi protocol's website, connecting a wallet, and approving multiple transactions, you chat with Trinity:
 

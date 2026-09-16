@@ -10,9 +10,9 @@ In a DAO, there is no CEO. Decisions are made through proposals and votes. The r
 
 Think of it like this: a traditional company is a monarchy. A DAO is a direct democracy.
 
-## Creating a DAO on 0pnMatrx
+## Creating a DAO on The Matrix
 
-Setting up a DAO through 0pnMatrx is a conversation with Trinity:
+Setting up a DAO through The Matrix is a conversation with Trinity:
 
 ```
 You: Create a DAO called "BuilderDAO" for our development community. 

@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # ── Config (read-only; no env-override side effects, no secret enforcement) ──
 
-def _load_config_readonly(path: str = "openmatrix.config.json") -> dict:
+def _load_config_readonly(path: str = "matrix.config.json") -> dict:
     p = Path(path)
     if not p.is_absolute():
         p = ROOT / path
@@ -66,10 +66,10 @@ CONFIGURED = "CONFIGURED"
 
 def check_config_file(config: dict) -> tuple:
     if config.get("__invalid_json__"):
-        return ("config file", HALF, "openmatrix.config.json is not valid JSON")
+        return ("config file", HALF, "matrix.config.json is not valid JSON")
     if not config:
         return ("config file", UNCONFIGURED,
-                "no openmatrix.config.json — all features are no-ops (dev default)")
+                "no matrix.config.json — all features are no-ops (dev default)")
     return ("config file", READY, "loaded")
 
 
@@ -170,7 +170,7 @@ def check_security_backend(config: dict) -> tuple:
     detail = ("morpheus_security NOT installed — App Attest / OTP soft-fail "
               "(noop seam)")
     if is_production_mode():
-        detail += " — FATAL in production (OPNMATRX_ENV=production)"
+        detail += " — FATAL in production (MATRIX_ENV=production)"
     return ("security backend", STUB, detail)
 
 
@@ -199,7 +199,7 @@ def run(config: dict) -> list[tuple]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Read-only gateway posture diagnostic")
-    ap.add_argument("--config", default="openmatrix.config.json")
+    ap.add_argument("--config", default="matrix.config.json")
     ap.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = ap.parse_args()
 

@@ -231,7 +231,7 @@ jobs:
           context: .
           push: false
           load: true
-          tags: opnmatrx-gateway:ci
+          tags: matrix-gateway:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -242,7 +242,7 @@ jobs:
         # and the gateway exits immediately with "Config file not found" — by
         # design: the documented contract is that compose mounts the config
         # read-only (docker-compose.yml:31-32), and the repository deliberately
-        # ships no openmatrix.config.json (it is gitignored; the example is the
+        # ships no matrix.config.json (it is gitignored; the example is the
         # shipped artefact). So the test asserted something the design never
         # promised, and earlier failures in `test` kept the job skipped, which
         # hid it. Mount the shipped example, exactly as compose mounts a real
@@ -250,14 +250,14 @@ jobs:
         # tests/test_readiness.py.
         run: |
           set -e
-          cp openmatrix.config.json.example openmatrix.config.json
+          cp matrix.config.json.example matrix.config.json
           # No --rm: the container must survive long enough for `docker logs` to
           # explain a failure. The old version removed it on exit and then asked
           # for its logs, which answered "No such container" — a diagnostic that
           # could never diagnose.
           cid=$(docker run -d -p 18790:18790 \
-            -v "$PWD/openmatrix.config.json:/app/openmatrix.config.json:ro" \
-            opnmatrx-gateway:ci)
+            -v "$PWD/matrix.config.json:/app/matrix.config.json:ro" \
+            matrix-gateway:ci)
           trap "docker kill $cid >/dev/null 2>&1 || true; docker rm -f $cid >/dev/null 2>&1 || true" EXIT
           for i in 1 2 3 4 5 6 7 8 9 10; do
             if curl -fsS http://localhost:18790/health >/dev/null; then

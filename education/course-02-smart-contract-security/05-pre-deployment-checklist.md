@@ -48,7 +48,7 @@ Airline pilots use checklists before every flight, even after 10,000 hours of ex
 
 - [ ] **14. Contract source code is verified.** After deployment, verify the source code on the block explorer (Basescan for Base). This lets anyone read and audit your contract. Unverified contracts are treated with suspicion by users and integrators.
 
-- [ ] **15. Deployment transaction is reviewed.** Before signing the deployment transaction, review: the constructor arguments, the gas limit, the network (confirm it is mainnet, not testnet), and the deployer address. Morpheus handles this confirmation step in 0pnMatrx, but double-check anyway.
+- [ ] **15. Deployment transaction is reviewed.** Before signing the deployment transaction, review: the constructor arguments, the gas limit, the network (confirm it is mainnet, not testnet), and the deployer address. Morpheus handles this confirmation step in The Matrix, but double-check anyway.
 
 ## Using This Checklist
 
@@ -56,12 +56,12 @@ Copy this checklist into your project's deployment documentation. Before every m
 
 If any item fails, stop the deployment. Fix the issue. Re-run the checklist from the beginning. Partially checked deployments are how bugs ship to production.
 
-## Integrating with 0pnMatrx
+## Integrating with The Matrix
 
-When deploying through 0pnMatrx, several checklist items are handled automatically:
+When deploying through The Matrix, several checklist items are handled automatically:
 
 - **Item 7**: Glasswing audit runs automatically before deployment
-- **Item 6**: 0pnMatrx deploys to testnet first by default
+- **Item 6**: The Matrix deploys to testnet first by default
 - **Item 14**: Source verification can be requested through Trinity
 - **Item 15**: Morpheus presents the deployment details for confirmation
 
@@ -71,7 +71,7 @@ The remaining items require your judgment and cannot be automated. They are your
 
 - 15 items across five categories: code quality, testing, security, operations, deployment
 - No item is optional for mainnet deployments
-- Several items are automated by 0pnMatrx, but most require human judgment
+- Several items are automated by The Matrix, but most require human judgment
 - If any item fails, stop and fix before proceeding
 - Copy and use this checklist for every deployment
 

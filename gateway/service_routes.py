@@ -1270,7 +1270,7 @@ class ServiceRoutes:
         result = await self._call(
             "did_identity", "create_did",
             owner=body["owner"],
-            method=body.get("method", "openmatrix"),
+            method=body.get("method", "matrix"),
         )
         return self._ok(result)
 
@@ -1984,7 +1984,7 @@ class ServiceRoutes:
         result = await self._call(
             "did_identity", "create_did",
             owner=body["owner"],
-            method=body.get("method", "openmatrix"),
+            method=body.get("method", "matrix"),
         )
         return self._ok(result)
 

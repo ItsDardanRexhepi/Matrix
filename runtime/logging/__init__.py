@@ -1,4 +1,4 @@
-"""Structured logging utilities for 0pnMatrx.
+"""Structured logging utilities for The Matrix.
 
 Exposes a single public entry point, :func:`configure_logging`, which
 installs a JSON or text formatter on the root logger, plus

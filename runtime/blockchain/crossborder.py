@@ -78,7 +78,7 @@ class CrossBorderPayments(BlockchainInterface):
             "status": "payment_attested",
             "attestation": attestation,
             "next_step": "Execute stablecoin transfer via stablecoin capability",
-            "gas_paid_by": "platform (0pnMatrx)",
+            "gas_paid_by": "platform (The Matrix)",
         }, indent=2, default=str)
 
     async def _estimate(self, params: dict) -> str:
@@ -86,7 +86,7 @@ class CrossBorderPayments(BlockchainInterface):
         return json.dumps({
             "token": params.get("token", "USDC"),
             "amount": params.get("amount", "0"),
-            "gas_cost": "Covered by platform (0pnMatrx)",
+            "gas_cost": "Covered by platform (The Matrix)",
             "transfer_fee": "$0.00 (no platform fee)",
             "estimated_time": "< 2 minutes (Base L2 finality)",
             "network": self.network,

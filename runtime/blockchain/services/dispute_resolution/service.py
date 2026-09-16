@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """
 DisputeResolution — main service orchestrating decentralised dispute
-resolution across the 0pnMatrx platform.
+resolution across the Matrix platform.
 
 Coordinates:
   - EvidenceVault   (immutable evidence storage)

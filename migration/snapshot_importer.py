@@ -2,7 +2,7 @@
 Snapshot Importer — imports governance voting history from Snapshot.
 
 Fetches voting records for an address from the Snapshot GraphQL API
-and creates local records in 0pnMatrx.
+and creates local records in The Matrix.
 """
 
 import argparse
@@ -91,7 +91,7 @@ async def fetch_votes(address: str) -> list[dict]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import Snapshot voting history into 0pnMatrx")
+    parser = argparse.ArgumentParser(description="Import Snapshot voting history into The Matrix")
     parser.add_argument("--address", required=True, help="Ethereum address to import votes for")
     parser.add_argument("--output", default="imported/snapshot", help="Output directory")
     args = parser.parse_args()

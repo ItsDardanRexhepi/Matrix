@@ -6,7 +6,7 @@ THE CLAIM, made in three places and read by no code:
                                   per-identity daily USD cap) is enforced
                                   before signing"
   gateway/service_routes.py      the handler docstring repeats it
-  openmatrix.config.json.example `"policy": {"allowed_actions": [...],
+  matrix.config.json.example `"policy": {"allowed_actions": [...],
                                   "daily_cap_usd": 50}`
 
 At 9819e06 the only policy key any code read was `allowed_actions`, in one

@@ -1,4 +1,4 @@
-"""Real-time knowledge injection for 0pnMatrx agents.
+"""Real-time knowledge injection for The Matrix agents.
 
 Fetches live blockchain data, market prices, and platform activity
 to enrich agent context.  Every external call has a strict timeout

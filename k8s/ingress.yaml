@@ -10,10 +10,10 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: opnmatrx-gateway
-  namespace: opnmatrx
+  name: matrix-gateway
+  namespace: the-matrix
   labels:
-    app.kubernetes.io/name: opnmatrx-gateway
+    app.kubernetes.io/name: matrix-gateway
   annotations:
     # cert-manager — automatically provision a Let's Encrypt cert.
     cert-manager.io/cluster-issuer: letsencrypt-prod
@@ -31,7 +31,7 @@ spec:
   tls:
     - hosts:
         - api.openmatrix-ai.com
-      secretName: opnmatrx-gateway-tls
+      secretName: matrix-gateway-tls
   rules:
     - host: api.openmatrix-ai.com
       http:
@@ -40,6 +40,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: opnmatrx-gateway
+                name: matrix-gateway
                 port:
                   name: http

@@ -1,6 +1,6 @@
 """
 Capability Catalog — the single source of truth for every capability the
-0pnMatrx platform can perform across Web3.
+The Matrix platform can perform across Web3.
 
 Each entry is a plain dict (not a dataclass — matches the duck-typed style
 used by services) with the following shape:
