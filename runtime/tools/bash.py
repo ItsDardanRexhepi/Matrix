@@ -15,8 +15,13 @@ What it does do:
   denylist, because a denylist is only right until the next secret is added
   under a name nobody thought to block.
 
-* In production (`MATRIX_ENV=production`) the tool REFUSES TO RUN unless an
-  operator sets `tools.bash.allow_in_production` to the boolean `True`. Scrubbing
+* The tool RUNS ONLY in an environment that has POSITIVELY declared itself
+  development (`MATRIX_ENV` in `DEVELOPMENT_ENVIRONMENTS`), or where an operator
+  sets `tools.bash.allow_in_production` to the boolean `True`. Everywhere else —
+  including an unset `MATRIX_ENV` — it refuses. It used to refuse only when
+  `MATRIX_ENV` was exactly "production", and railway.toml, the Dockerfile, the
+  Procfile and start.sh set no `MATRIX_ENV` at all, so every shipped launcher ran
+  it. A safe default cannot depend on someone remembering a variable. Scrubbing
   the child's environment is not isolation: a same-user process can still read
   its parent's environment through the operating system (`/proc/<ppid>/environ`
   on Linux, `ps eww` on macOS) and still reach the network. Only a real sandbox
@@ -43,6 +48,14 @@ COMMAND_TIMEOUT = 30
 #: is absent from the child, whatever it is called.
 SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
                  "USER", "LOGNAME", "SHELL", "TZ")
+
+
+#: The only MATRIX_ENV values in which the shell runs without an explicit opt-in.
+DEVELOPMENT_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+
+
+def _declared_development() -> bool:
+    return os.environ.get("MATRIX_ENV", "").strip().lower() in DEVELOPMENT_ENVIRONMENTS
 
 
 def _child_environment() -> dict[str, str]:
@@ -88,12 +101,13 @@ class BashTool:
         return isinstance(bash, dict) and bash.get("allow_in_production") is True
 
     async def execute(self, command: str, timeout: int | None = None) -> str:
-        from runtime.config.validation import is_production_mode
-        if is_production_mode() and not self._allowed_in_production():
+        if not _declared_development() and not self._allowed_in_production():
             return refusal(
-                "Error: the shell tool does not run in production. It has no sandbox: "
-                "a command runs as the platform's own user and can reach the network. "
-                "An operator can opt in with tools.bash.allow_in_production = true.",
+                "Error: the shell tool does not run outside a declared development "
+                "environment. It has no sandbox: a command runs as the platform's own "
+                "user, can read the platform process's environment and can reach the "
+                "network. Set MATRIX_ENV=development locally, or an operator can opt in "
+                "with tools.bash.allow_in_production = true.",
                 code="disabled_in_production",
             )
         if any(blocked in command for blocked in BLOCKED_COMMANDS):

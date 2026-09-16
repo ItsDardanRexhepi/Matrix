@@ -44,7 +44,7 @@ SECRET_VALUE = "0xthis-must-never-reach-the-agent-" + "a1b2c3d4e5f6"
 @pytest.fixture
 def planted_secret(monkeypatch):
     monkeypatch.setenv(SECRET_NAME, SECRET_VALUE)
-    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    monkeypatch.setenv("MATRIX_ENV", "development")
     yield
 
 
@@ -141,7 +141,8 @@ def test_known_residual_the_parent_environment_is_still_readable_which_is_why_pr
         "cmd = \"ps eww -p $PPID 2>/dev/null || tr '\\\\0' ' ' < /proc/$PPID/environ 2>/dev/null\"\n"
         "print(asyncio.run(BashTool({}).execute(cmd)))\n"
     )
-    env = {k: v for k, v in os.environ.items() if k != "MATRIX_ENV"}
+    env = dict(os.environ)
+    env["MATRIX_ENV"] = "development"
     env[SECRET_NAME] = SECRET_VALUE
     env["PYTHONPATH"] = str(repo)
     out = subprocess.run([sys.executable, "-c", probe], cwd=repo, env=env,
@@ -151,3 +152,40 @@ def test_known_residual_the_parent_environment_is_still_readable_which_is_why_pr
     assert SECRET_VALUE in out, (
         "the parent environment is no longer readable — isolation has been added, "
         "so the production refusal in bash.py can be revisited")
+
+
+# ── the default must not depend on someone remembering a variable ──────────
+
+@pytest.mark.parametrize("value", [None, "", "testnet", "staging", "prod", "Production-ish"])
+def test_an_environment_that_has_not_declared_itself_development_does_not_run_a_shell(monkeypatch, value):
+    """THE FAIL-OPEN AN INDEPENDENT REVIEW FOUND. The refusal used to apply only
+    when MATRIX_ENV was exactly "production" — and railway.toml, the Dockerfile,
+    the Procfile and start.sh set no MATRIX_ENV at all. On every one of those
+    launch paths the shell ran, and the parent environment was readable. Now an
+    environment has to POSITIVELY say it is development before the shell runs."""
+    if value is None:
+        monkeypatch.delenv("MATRIX_ENV", raising=False)
+    else:
+        monkeypatch.setenv("MATRIX_ENV", value)
+    out = _run(BashTool({}), "echo should-not-run")
+    assert "should-not-run" not in out, f"MATRIX_ENV={value!r} ran a shell"
+
+
+@pytest.mark.parametrize("value", ["development", "DEVELOPMENT", " dev ", "local", "test"])
+def test_a_declared_development_environment_runs_the_shell(monkeypatch, value):
+    monkeypatch.setenv("MATRIX_ENV", value)
+    assert "ran" in _run(BashTool({}), "echo ran")
+
+
+def test_every_shipped_launcher_gets_the_refusal():
+    """Derived from the launch descriptors in the tree: none of them may declare
+    a development environment, because each is how the platform is deployed."""
+    import pathlib
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    for name in ("railway.toml", "Dockerfile", "Procfile", "start.sh"):
+        path = repo / name
+        if not path.exists():
+            continue
+        text = path.read_text().lower()
+        for dev in ("matrix_env=development", "matrix_env=dev", "matrix_env=local", "matrix_env=test"):
+            assert dev not in text, f"{name} declares a development environment, which would run the shell"
