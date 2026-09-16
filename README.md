@@ -217,6 +217,14 @@ check behind it:
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it
+- **A cheap-model setting does not reach an irreversible turn.** The
+  router classifies each turn, and a turn that names a transfer, a
+  deploy, a burn or a revoke takes the best model configured even when
+  the operator asked for the fast one everywhere. The tier reaches as
+  far as the provider config does — only Anthropic and Mythos declare
+  model tiers today, so an Ollama or OpenAI primary still runs the one
+  model it was given, and the README says that rather than implying a
+  tier that is not there
 - **Gas sponsorship is metered.** The per-identity daily cap the
   configuration documents is enforced before signing, over a durable
   ledger, and the sponsored action is decoded from the call data being

@@ -9,12 +9,25 @@ Retries 3 times on transient errors before moving to the next provider.
 Logs which provider handled each request.
 
 Supports intelligent task-based routing: simple tasks go to fast models,
-complex tasks to the most capable, and critical tasks always route to
-the best model regardless of cost.
+complex tasks to the most capable, and critical tasks route to the best model
+regardless of cost — including under ``always_fast``, which is the only
+strategy that would otherwise trade a transfer or a deploy for a cheaper model.
+
+The tier reaches as far as the configuration does. It resolves to a model name
+out of ``model.providers.anthropic.models`` (or ``mythos``), and only the
+Anthropic and Mythos clients read the resulting ``model_override``. A
+deployment whose primary is Ollama or OpenAI therefore runs whatever model its
+own provider config names, whatever the classifier decided — the classification
+still happens and is still logged and counted, it just has nothing to act on.
+Per-provider tier tables are what would close that, and this paragraph is not
+a substitute for them.
 """
 
 import asyncio
+import errno
 import logging
+import socket
+import ssl
 
 from runtime.models.model_interface import ModelInterface, ModelResponse
 
@@ -26,6 +39,16 @@ from runtime.models.providers import PROVIDERS, resolve as resolve_provider
 # needs no key), then the rest as declared in runtime/models/providers.py.
 PROVIDER_ORDER = [p.key for p in PROVIDERS if p.key != "custom"] + ["custom"]
 MAX_RETRIES = 3
+
+# errnos that mean the connection never completed. Everything else — a reset, a
+# broken pipe, a TLS failure — happened to a connection that DID complete, and
+# is retryable.
+_UNREACHABLE_ERRNOS = frozenset(
+    getattr(errno, name) for name in
+    ("ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "ENETDOWN", "EHOSTDOWN",
+     "EADDRNOTAVAIL", "ENOTCONN")
+    if hasattr(errno, name)
+)
 
 # Mapping from TaskComplexity to preferred Anthropic model tiers
 _COMPLEXITY_MODEL_MAP = {
@@ -53,13 +76,30 @@ def _is_unreachable(exc: Exception) -> bool:
     # connection will not. Check timeouts first and keep them retryable.
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return False
-    if isinstance(exc, (ConnectionError, ConnectionRefusedError, OSError)):
+    # "Cannot be reached at all" means the connection never completed. A RESET,
+    # a broken pipe or an SSL failure comes from a host that WAS reached and
+    # DID answer — those are the transient failures retries exist for, and a
+    # bare `isinstance(exc, OSError)` called every one of them unreachable and
+    # skipped the retry. Reset and BrokenPipe are ConnectionError subclasses,
+    # so they have to be excluded before ConnectionError is consulted.
+    if isinstance(exc, (ConnectionResetError, BrokenPipeError, ssl.SSLError)):
+        return False
+    if isinstance(exc, (ConnectionRefusedError, ConnectionAbortedError,
+                        socket.gaierror, socket.herror)):
         return True
+    if isinstance(exc, OSError) and exc.errno in _UNREACHABLE_ERRNOS:
+        return True
+    # Last resort: the message. A library that wraps its socket errors in a
+    # bare OSError (errno None) still says what happened in the text, and
+    # "no route to host" is exactly as unreachable as ECONNREFUSED — the errno
+    # check above cannot see it because there is no errno to see.
     text = str(exc).lower()
     return any(
         m in text
         for m in ("cannot connect to host", "connection refused",
-                  "connect call failed", "name or service not known")
+                  "connect call failed", "name or service not known",
+                  "no route to host", "network is unreachable",
+                  "host is unreachable", "nodename nor servname")
     )
 
 
@@ -68,11 +108,23 @@ class ModelRouter:
     Routes model requests to the configured provider.
     Falls back through the provider chain on failure.
 
-    Supports four routing strategies:
+    Supports four routing strategies. Each one picks a model TIER; none of them
+    picks the provider. The configured primary is tried first and the rest of
+    the chain backs it up under every strategy, ``always_best`` included — that
+    line used to read "always use the configured primary", which described a
+    fallback behaviour the router has never had.
+
     - ``intelligent`` (default): classify task complexity and route accordingly
-    - ``always_best``: always use the configured primary (current behaviour)
-    - ``always_fast``: always prefer the fastest model
-    - ``cost_optimised``: prefer the cheapest model that can handle the task
+    - ``always_best``: ask for the ``best`` tier on every turn, without
+      classifying. It used to return no override at all, which made it the one
+      strategy that never asked for the best model.
+    - ``always_fast``: ask for the ``fast`` tier — except on a CRITICAL turn,
+      where the classifier's ``best`` stands. It applies whether or not
+      classification succeeded.
+    - ``cost_optimised``: prefer the cheapest model that can handle the task.
+      This is not separately implemented: it takes the ``intelligent`` path,
+      whose tier map already sends simple work to the fast model. The name
+      promises more tuning than exists.
     """
 
     def __init__(self, config: dict):
@@ -192,6 +244,24 @@ class ModelRouter:
             logger.warning(f"Failed to initialize {name} provider: {e}")
         return None
 
+    def _model_for_tier(self, tier: str) -> str | None:
+        """The concrete model name configured for *tier*, or None.
+
+        Only ``anthropic`` and ``mythos`` declare a ``models`` block, and the
+        name it yields is an Anthropic model id, so this is the tier's reach:
+        a deployment whose primary is Ollama or OpenAI gets no override and
+        runs whatever model its own provider config names. The router's
+        opening paragraph used to read as if the tier applied everywhere. It
+        does not, and the fix for that is a per-provider tier table, not a
+        sentence.
+        """
+        for provider_name in ("anthropic", "mythos"):
+            pcfg = self.providers_config.get(provider_name, {})
+            models = pcfg.get("models", {}) if isinstance(pcfg, dict) else {}
+            if models and tier in models:
+                return models[tier]
+        return None
+
     def _classify_and_get_kwargs(
         self, messages: list, tools: list[dict] | None,
     ) -> dict:
@@ -200,37 +270,56 @@ class ModelRouter:
         For ``intelligent`` routing, this determines the model tier and
         injects a ``model_override`` kwarg so Anthropic/Mythos providers
         use the right model variant.
+
+        Three things the strategy names promised and this method did not do:
+
+        ``always_best`` returned an empty dict — no override at all. The one
+        strategy whose whole name is "best" was the only one that never asked
+        for the best model, so it ran each provider's default. It asks now.
+
+        ``always_fast`` overwrote the tier the classifier had just chosen,
+        CRITICAL included, sending a transfer or a deploy to the fast model.
+        Both module docstrings say critical work routes to the best model
+        REGARDLESS OF COST, and a cost strategy is exactly the cost this
+        outranks. Ordinary turns still go fast; a critical one does not.
+
+        ``always_fast`` also sat after the classification ``try``'s early
+        return, so a classifier that raised skipped it. A standing instruction
+        is not a consequence of classification, and it now applies on the path
+        where the router knows least about the turn — which is the path where
+        a default matters most.
         """
         extra: dict = {}
 
         if self.routing_strategy == "always_best":
+            best = self._model_for_tier("best")
+            if best:
+                extra["model_override"] = best
             return extra
 
         try:
-            from runtime.models.task_classifier import classify_task, TaskComplexity
+            from runtime.models.task_classifier import classify_task
             complexity = classify_task(messages, tools)
         except Exception:
             logger.debug("Task classification failed, using default routing")
+            if self.routing_strategy == "always_fast":
+                fast = self._model_for_tier("fast")
+                if fast:
+                    extra["model_override"] = fast
             return extra
 
         tier = _COMPLEXITY_MODEL_MAP.get(complexity.value, "balanced")
         self.routing_stats[complexity.value] = self.routing_stats.get(complexity.value, 0) + 1
 
-        # Resolve tier to a concrete model name from provider config
-        for provider_name in ("anthropic", "mythos"):
-            pcfg = self.providers_config.get(provider_name, {})
-            models = pcfg.get("models", {})
-            if models and tier in models:
-                extra["model_override"] = models[tier]
-                break
+        # always_fast prefers the cheap model for everything it is allowed to.
+        # CRITICAL is the one it is not allowed to: an irreversible or
+        # high-value turn keeps the tier the classifier gave it.
+        if self.routing_strategy == "always_fast" and complexity.value != "critical":
+            tier = "fast"
 
-        if self.routing_strategy == "always_fast":
-            for provider_name in ("anthropic", "mythos"):
-                pcfg = self.providers_config.get(provider_name, {})
-                models = pcfg.get("models", {})
-                if models and "fast" in models:
-                    extra["model_override"] = models["fast"]
-                    break
+        model = self._model_for_tier(tier)
+        if model:
+            extra["model_override"] = model
 
         logger.info("Task classified as %s, routing to tier=%s", complexity.value, tier)
         return extra

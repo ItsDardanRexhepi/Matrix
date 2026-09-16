@@ -3,7 +3,15 @@
 Analyses user messages and conversation context to determine the
 appropriate model tier.  Simple tasks go to fast models, complex
 tasks to the most capable, and critical (irreversible / high-value)
-tasks always route to the best available model regardless of cost.
+tasks route to the best available model regardless of cost — the
+``always_fast`` strategy in :mod:`runtime.models.router` used to
+override exactly that case, and no longer does.
+
+This module classifies; it does not route. What the tier reaches is
+the router's business, and it reaches only providers that declare a
+``models`` block and read ``model_override`` — Anthropic and Mythos
+today. A CRITICAL verdict on an Ollama-primary deployment is counted
+and logged and changes no model.
 """
 
 from __future__ import annotations
