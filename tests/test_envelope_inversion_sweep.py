@@ -46,11 +46,36 @@ from __future__ import annotations
 import ast
 import pathlib
 
+from runtime.protocols.outcome_truth import OUTCOME_FIELD
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SEARCH_ROOTS = ("runtime", "gateway", "extensions", "sdk")
 
 #: Status values that assert the call worked.
 SUCCESS_STATUSES = {"ok", "success", "completed"}
+
+
+def states_the_wrapped_verdict(node: ast.Dict) -> bool:
+    """True when this returned dict STATES the outcome of what it carries.
+
+    A wrapper that says "I served this request" over a payload that says the
+    action was refused is an inversion. A wrapper that ALSO states the verdict
+    it read out of that payload is not: both claims are made, and the reader
+    is no longer left with only the one about the wrapping.
+
+    Two conditions, and the second is the one that matters. The key is the
+    platform's stated-verdict field, spelled through the symbol as the tree
+    spells it everywhere. And the value is COMPUTED — `OUTCOME_FIELD:
+    report_of(result)` states what the carried payload said; `OUTCOME_FIELD:
+    "success"` would be the same unconditional claim wearing a second field,
+    and still fires.
+    """
+    for key, value in zip(node.keys, node.values):
+        named = ((isinstance(key, ast.Name) and key.id == "OUTCOME_FIELD")
+                 or (isinstance(key, ast.Constant) and key.value == OUTCOME_FIELD))
+        if named and not isinstance(value, ast.Constant):
+            return True
+    return False
 
 
 def find_wrapped_answers() -> list[str]:
@@ -91,7 +116,8 @@ def find_wrapped_answers() -> list[str]:
                             literal_status = value.value
                         if isinstance(value, ast.Name) and value.id in awaited:
                             carried.append(f"{value.id} <- {awaited[value.id]}")
-                    if literal_status in SUCCESS_STATUSES and carried:
+                    if (literal_status in SUCCESS_STATUSES and carried
+                            and not states_the_wrapped_verdict(node.value)):
                         hits.append(
                             f"{rel}:{node.lineno} {fn.name}() returns literal "
                             f"status={literal_status!r} while carrying {carried}"
@@ -100,28 +126,26 @@ def find_wrapped_answers() -> list[str]:
 
 
 def test_no_site_wraps_an_awaited_answer_in_an_unconditional_success():
-    """RATCHET AT ONE — and the one is a KNOWN, RECORDED defect, not an accepted
-    one.
+    """RATCHET AT ZERO. It stood at one, and the one is now closed.
 
-    `CapabilityRegistry.invoke` is deliberately left in place: it is the known
-    instance of a far larger architectural finding (enforcement lives at the
-    caller rather than the chokepoint — `invoke` satisfies ZERO of the nine
-    contracts the gateway `_call` path enforces), which is on the deferred
-    register merged with NEW-82 and scoped as a design change rather than a
-    patch. Fixing this one contract on this one caller would be the same
-    instance-not-pattern error RUN-4 made, made knowingly.
+    `CapabilityRegistry.invoke` was left in place as a recorded defect: the
+    known instance of a larger architectural finding (enforcement at the caller
+    rather than the chokepoint — `invoke` satisfies none of the contracts the
+    gateway `_call` path enforces), deferred as a design change. What was NOT
+    deferrable is the half this file is about: the envelope answered for what
+    it wrapped. It states the carried payload's own verdict now, and
+    `POST /api/v1/capabilities/{id}/invoke` answers a `not_deployed` with 503
+    rather than 200 — the same answer the /api/v1 route for the same service
+    gives. The deferred half is still deferred, and it is not this query's.
 
-    If this count rises, a NEW inversion has appeared and wants fixing on its own
-    terms.
+    If this count rises, a NEW inversion has appeared and wants fixing on its
+    own terms.
     """
     hits = find_wrapped_answers()
 
-    assert len(hits) == 1, (
-        "envelope-inversion count changed — expected exactly the known "
-        f"CapabilityRegistry.invoke site:\n  " + "\n  ".join(hits)
-    )
-    assert "capabilities/registry.py" in hits[0], (
-        f"the one known site is no longer the one found: {hits[0]}"
+    assert hits == [], (
+        "an envelope states a success over an answer it did not read:\n  "
+        + "\n  ".join(hits)
     )
 
 
@@ -144,7 +168,8 @@ def test_the_detector_sees_the_shape_it_exists_for():
                     lit = v.value
                 if isinstance(v, ast.Name) and v.id in awaited:
                     carried = True
-            if lit in SUCCESS_STATUSES and carried:
+            if (lit in SUCCESS_STATUSES and carried
+                    and not states_the_wrapped_verdict(node.value)):
                 return True
         return False
 
@@ -175,6 +200,22 @@ async def invoke(self):
     result = await dispatcher.execute()
     return {"status": "error", "result": result}
 ''') is False, "the detector fires on an error envelope"
+
+    # CORRECT: the wrapping is claimed and the wrapped verdict is STATED. Both
+    # claims are made, which is the fix this query was ratcheted down for.
+    assert hits('''
+async def invoke(self):
+    result = await dispatcher.execute()
+    return {"status": "ok", OUTCOME_FIELD: report_of(result), "result": result}
+''') is False, "a wrapper that states what it wraps is not an inversion"
+
+    # THE DEFECT, WEARING THE FIX'S CLOTHES: a hard-coded verdict states
+    # nothing about the payload — it is the same unconditional claim twice.
+    assert hits('''
+async def invoke(self):
+    result = await dispatcher.execute()
+    return {"status": "ok", OUTCOME_FIELD: "success", "result": result}
+''') is True, "a literal outcome was accepted as a reading of the payload"
 
 
 def test_the_sweep_is_actually_reading_the_tree():

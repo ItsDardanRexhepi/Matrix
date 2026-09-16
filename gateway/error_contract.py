@@ -40,6 +40,8 @@ import asyncio
 import logging
 from typing import Any
 
+from runtime.protocols.outcome_truth import envelope_chain
+
 logger = logging.getLogger(__name__)
 
 # Failures that mean "a dependency we call is not reachable". These are 503:
@@ -152,11 +154,31 @@ def refusal_http_status(payload: Any) -> int | None:
     None is not "this succeeded" — it is "this refusal is a domain answer, and
     the transport did deliver it". The refusal is still visible, in the
     envelope's own status and in the payload.
+
+    READ THROUGH THE PLATFORM'S OWN ENVELOPES, because that is how the payload
+    arrives on two of the three surfaces that ask. This read the OUTERMOST
+    status only, and `CapabilityRegistry.invoke` hands the gateway
+    ``{"status": "ok", "result": <the dispatcher's envelope>}`` whatever the
+    service said — so the same `not_deployed` that leaves /api/v1/licensing/ip
+    as 503 left /api/v1/capabilities/{id}/invoke as 200. `report_of` had always
+    read through those envelopes; this now walks the same chain, so the outcome
+    the envelope states and the status the transport answers can no longer
+    disagree.
+
+    THE STRONGEST REFUSAL WINS, not the innermost. A refusal that carries a
+    payload of its own (`not_deployed` with a deployment guide under `data`)
+    keeps its 503 rather than being read as the guide inside it: walking outward
+    -> inward and stopping at the first absent-capability status can only ever
+    ADD a refusal where the outer envelope stated none.
     """
-    status = payload.get("status") if isinstance(payload, dict) else None
-    if not isinstance(status, str):
-        return None
-    return CAPABILITY_ABSENT_HTTP.get(status.strip().lower())
+    for level in envelope_chain(payload) or [payload]:
+        status = level.get("status") if isinstance(level, dict) else None
+        if not isinstance(status, str):
+            continue
+        absent = CAPABILITY_ABSENT_HTTP.get(status.strip().lower())
+        if absent is not None:
+            return absent
+    return None
 
 
 def classify(exc: BaseException) -> str:

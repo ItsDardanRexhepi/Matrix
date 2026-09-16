@@ -3165,7 +3165,26 @@ class ServiceRoutes:
         if failure is not None:
             status, err = failure
             return web.json_response({**err, "capability_id": capability_id}, status=status)
-        return web.json_response(result, status=200)
+        # AND `dispatcher_failure` FIRES ONLY ON status == "error". Every other
+        # refusal idiom in the platform's 163-word vocabulary went out of here
+        # as HTTP 200 {"status": "ok"} — `not_deployed` above all, which means
+        # the platform could not act at all. The registry states the action's
+        # own verdict now (`CapabilityRegistry.invoke`), and this relays it
+        # with the same two claims, the same HTTP status and the same split as
+        # `_ok`: a domain refusal is a real answer and keeps its 200; a refusal
+        # that means the capability is ABSENT is a transport-level fact and
+        # gets `error_contract.CAPABILITY_ABSENT_HTTP`, read through the
+        # envelopes this route relays rather than off the outermost one.
+        #
+        # THE TWO /api/v1 SURFACES AGREED ON EVERYTHING BUT THIS. The same
+        # `not_deployed` left /api/v1/licensing/ip as 503 with the outcome in
+        # its own field and left this route as 200 {"status": "ok"} with no
+        # outcome anywhere a client reads — and this route is on the session
+        # allowlist, so it is one the app calls. sdk/client.py raises only on a
+        # non-200, so its caller proceeded as though the action had happened.
+        report = result.get(OUTCOME_FIELD)
+        absent = refusal_http_status(result) if report == FAILURE else None
+        return web.json_response(result, status=absent or 200)
 
     # ------------------------------------------------------------------
     # Batch dispatch

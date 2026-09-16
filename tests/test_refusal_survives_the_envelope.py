@@ -50,7 +50,13 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from gateway.bridge import MobileResponse
 from gateway.service_routes import ServiceRoutes
-from runtime.protocols.outcome_truth import FAILURE, SUCCESS, UNKNOWN, report_of
+from runtime.protocols.outcome_truth import (
+    FAILURE,
+    OUTCOME_FIELD,
+    SUCCESS,
+    UNKNOWN,
+    report_of,
+)
 
 
 # The canonical refusal, built by the platform's own helper rather than typed
@@ -126,6 +132,70 @@ def test_a_capability_the_platform_does_not_have_is_not_a_200(routes):
     platform saying it cannot act at all. RUN-4 protects genuine domain outcomes
     at 200 and was right to; this is not one of them."""
     assert routes._ok(_refusal()).status in (501, 503)
+
+
+# ── 2b. …and neither may the OTHER route that relays the same payload ─────
+#
+# The /api/v1 surface answers a `not_deployed` refusal with 503 and the outcome
+# in its own field. `POST /api/v1/capabilities/{id}/invoke` relays the SAME
+# dispatcher payload through `CapabilityRegistry.invoke`, which wraps it as
+# {"status": "ok", "result": <the dispatcher's envelope>} whatever it says, and
+# answered HTTP 200 {"status": "ok"} with no outcome anywhere a client reads.
+# Two /api/v1 surfaces gave opposite answers for the same refusal, and this one
+# is on the session allowlist — the iOS app calls it.
+
+
+async def _invoke(capability_id: str, params: dict | None = None):
+    from aiohttp import web as _web
+
+    routes = ServiceRoutes(config={})
+    app = _web.Application()
+    routes.register_routes(app)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(f"/api/v1/capabilities/{capability_id}/invoke",
+                                 json={"params": params or {}})
+        return resp.status, await resp.json()
+
+
+async def test_the_invoke_route_does_not_answer_200_ok_over_a_relayed_refusal():
+    """`place_limit_order` reaches `auctions`, which is not deployed here."""
+    status, body = await _invoke("place_limit_order", {
+        "auction_id": "a1", "bidder": "0xabc", "amount": 1.0,
+    })
+    assert body.get("result"), f"premise changed — nothing was relayed: {body}"
+    assert report_of(body) == FAILURE, f"premise changed — not a refusal: {body}"
+    assert status != 200, (
+        f"HTTP {status} {{'status': {body.get('status')!r}}} over a refusal the "
+        "same platform answers 503 for on /api/v1/licensing/ip; sdk/client.py "
+        "raises only on a non-200, so the caller proceeds as though it worked"
+    )
+    assert body.get(OUTCOME_FIELD) == FAILURE, (
+        f"the envelope states no outcome of its own: {sorted(body)}")
+
+
+async def test_the_invoke_route_still_relays_an_executed_action():
+    """The scope pin. A capability that really runs keeps its 200 and says so."""
+    status, body = await _invoke("community_create", {
+        "creator": "0xabc", "name": "Builders",
+    })
+    assert status == 200, body
+    assert body.get(OUTCOME_FIELD) == SUCCESS, body
+
+
+async def test_the_registry_envelope_states_what_it_wraps():
+    """Read at the source, not only through the route: the registry's envelope
+    is where the verdict went missing, and the route is not its only caller."""
+    from runtime.capabilities.registry import CapabilityRegistry
+
+    reg = CapabilityRegistry({})
+    refused = await reg.invoke("place_limit_order", {
+        "auction_id": "a1", "bidder": "0xabc", "amount": 1.0,
+    }, caller_identity="0xabc")
+    assert refused[OUTCOME_FIELD] == FAILURE, refused
+    ran = await reg.invoke("community_create", {
+        "creator": "0xabc", "name": "Builders",
+    }, caller_identity="0xabc")
+    assert ran[OUTCOME_FIELD] == SUCCESS, ran
 
 
 # ── 3. the live feed must not publish a refusal as an executed action ──────

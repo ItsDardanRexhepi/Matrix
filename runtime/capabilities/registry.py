@@ -17,6 +17,7 @@ import logging
 from typing import Any
 
 from runtime.capabilities import catalog
+from runtime.protocols.outcome_truth import OUTCOME_FIELD, report_of
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +170,22 @@ class CapabilityRegistry:
         result = await dispatcher.execute(
             action=action, params=params or {}, caller_identity=caller_identity,
         )
+        # `status` is about THIS layer: the capability id resolved, the
+        # dispatcher ran, and its answer is in hand. It said "ok" over a
+        # refusal too — the dispatcher returns `{"status": "ok", "result":
+        # <the refusal>}` as a JSON STRING, so the only verdict a caller of
+        # this facade could read was this one, and it was about the wrapping.
+        # The gateway route relayed it as HTTP 200 {"status": "ok"} while the
+        # /api/v1 route for the same service answered 503.
+        #
+        # The action's own verdict is stated here, in the field the platform
+        # states it in everywhere else, read by `report_of` from the named
+        # fields of the structure the dispatcher returned — never its prose.
+        # A wrapper may report on the wrapping; it may not answer for what it
+        # wraps, and it must not stay silent about it either.
         return {
             "status": "ok",
+            OUTCOME_FIELD: report_of(result),
             "capability_id": capability_id,
             "action": action,
             "result": result,

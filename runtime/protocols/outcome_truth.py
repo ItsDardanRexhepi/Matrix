@@ -311,6 +311,32 @@ def _wrapped_report(obj: dict, depth: int) -> str | None:
 _CANONICAL: dict[str, str] = {SUCCESS: SUCCESS, FAILURE: FAILURE, UNKNOWN: UNKNOWN}
 
 
+def envelope_chain(result: Any, *, _depth: int = 0) -> list[dict]:
+    """*result* and every structured report it carries, outermost first.
+
+    THE SAME UNWRAPPING, FOR THE CALLERS THAT NEED THE PAYLOAD AND NOT THE
+    VERDICT. ``report_of`` reads THROUGH the platform's envelopes; a transport
+    that has to ACT on the refusal — decide the HTTP status it deserves, relay
+    the service's own detail — needs the structures themselves. Two gateway
+    surfaces unwrapped by hand and a third read only the outermost ``status``,
+    so ``refusal_http_status`` and ``report_of`` disagreed on exactly the shape
+    ``POST /api/v1/capabilities/{id}/invoke`` relays: outcome ``failure``, HTTP
+    200. One walk, the same keys, the same JSON-string handling.
+
+    A non-object returns an empty list: there is no report to read.
+    """
+    obj = _as_object(result)
+    if obj is None:
+        return []
+    chain = [obj]
+    if _depth >= _MAX_UNWRAP:
+        return chain
+    for key in _WRAPPED_KEYS:
+        if key in obj and _as_object(obj[key]) is not None:
+            chain.extend(envelope_chain(obj[key], _depth=_depth + 1))
+    return chain
+
+
 def _stated_verdict(obj: dict) -> str | None:
     """The verdict *obj* states outright in ``OUTCOME_FIELD``, as the CONSTANT.
 
