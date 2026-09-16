@@ -58,6 +58,32 @@ from runtime.monitoring.metrics import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_INTERVAL_SECONDS = 30.0
+
+
+def _as_interval(value: object) -> float:
+    """The configured emit interval, or the default and a warning saying so.
+
+    `float("thirty")` is a ValueError and `float(None)` is a TypeError, and
+    this read sat outside every `try` in `start()` — so a mistyped interval
+    raised out of a bridge whose module docstring promises it "never raises on
+    initialisation failure". A non-positive or non-finite interval is refused
+    for a different reason: it would spin the background loop.
+    """
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        logger.warning(
+            "monitoring.otel.interval_seconds is not a number (%r) — using %s",
+            value, _DEFAULT_INTERVAL_SECONDS)
+        return _DEFAULT_INTERVAL_SECONDS
+    if not (parsed > 0) or parsed != parsed or parsed == float("inf"):
+        logger.warning(
+            "monitoring.otel.interval_seconds must be a finite positive number "
+            "(%r) — using %s", value, _DEFAULT_INTERVAL_SECONDS)
+        return _DEFAULT_INTERVAL_SECONDS
+    return parsed
+
 
 def _parse_headers(raw: str) -> dict[str, str]:
     """Parse a ``key1=v1,key2=v2`` header string."""
@@ -107,9 +133,13 @@ class OTelMetricsBridge:
             logger.debug("OTel bridge disabled in config — skipping")
             return False
 
+        # `.get("endpoint", "")` applies its default only to a MISSING key, so
+        # `"endpoint": null` — or a number an operator typed without quotes —
+        # reached `.strip()` as a non-string and raised out of a module whose
+        # own contract says it never does. str() first, then strip.
         endpoint = (
             os.environ.get("MATRIX_OTEL_ENDPOINT", "").strip()
-            or otel_cfg.get("endpoint", "").strip()
+            or str(otel_cfg.get("endpoint") or "").strip()
         )
         if not endpoint:
             logger.warning("OTel bridge enabled but no endpoint configured")
@@ -129,7 +159,17 @@ class OTelMetricsBridge:
             )
             return False
 
-        headers = dict(otel_cfg.get("headers") or {})
+        # dict() on a string, an int or a list of scalars raises. Headers are a
+        # mapping or they are nothing; a malformed block loses the headers and
+        # says so, rather than taking the bridge — and the boot — down with it.
+        raw_headers = otel_cfg.get("headers") or {}
+        if isinstance(raw_headers, dict):
+            headers = dict(raw_headers)
+        else:
+            logger.warning(
+                "monitoring.otel.headers is not a mapping (%r) — sending none",
+                raw_headers)
+            headers = {}
         env_headers = _parse_headers(os.environ.get("MATRIX_OTEL_HEADERS", ""))
         headers.update(env_headers)
 
@@ -146,7 +186,7 @@ class OTelMetricsBridge:
             self._exporter = None
             return False
 
-        interval = float(otel_cfg.get("interval_seconds", 30))
+        interval = _as_interval(otel_cfg.get("interval_seconds", 30))
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
