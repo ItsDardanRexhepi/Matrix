@@ -569,9 +569,15 @@ class GatewayServer:
         message, agent, invalid = self._chat_turn_input(body)
         if invalid:
             return web.json_response({"error": invalid}, status=400)
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
+        # The canonical agent, and the same refusal on every entrance. The
+        # earlier check compared the RAW name while the access policy lowercases
+        # it, so "NEO", " neo" and null reached Neo's tools with no credential.
+        agent, refused = self._resolve_chat_agent(request, agent)
+        if refused:
+            status, why = refused
+            if status == 403:
+                return web.json_response({"error": "forbidden", "message": why}, status=403)
+            return web.json_response({"error": why}, status=status)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
@@ -1066,9 +1072,13 @@ class GatewayServer:
         session of this account, and ones with no recorded owner filed under one
         of its conversations. A device registered with no session to a
         conversation the account never owned is not the account's to find.
-        If the erasure fails, the deletion answers 503 ``storage failure`` and
-        removes nothing further: the session stays valid, so the client can
-        retry. Apple token revocation runs only when
+        No live session, no deletion: the handler answers 401 rather than 200
+        ``{"success": true}`` — with an expired or absent token it has no
+        account to identify, erased nothing and said it had. If the erasure
+        fails, the deletion answers 503 ``storage failure``, erases nothing at
+        all (erase_owner is one transaction) and removes nothing further: the
+        session stays valid, so the same client can retry and the retry does
+        the whole job. Apple token revocation runs only when
         auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
         deletion still succeeds and revocation is skipped with a WARNING."""
         from gateway.apple_auth import apple_revocation_configured
@@ -1082,30 +1092,53 @@ class GatewayServer:
         # The account's conversations and scoped agent memory (T3 / C2b: erasure
         # can identify a user's rows now that conversations carry an owner).
         subject = str(session.get("address", "")) if session is not None else ""
+        if not subject:
+            # A request with no live session (an expired token, or none) named
+            # no account: this erased nothing, removed no device and answered
+            # 200 {"success": true}, which the client shows the user as the
+            # account having been deleted. It is the client's cue to
+            # re-authenticate and send the deletion again.
+            return web.json_response({"success": False, "error": "session required"}, status=401)
+
+        memory = self.react_loop.memory
+        holding: list[str] = []
         erased: list[str] = []
-        if subject:
+        try:
+            # What this process holds of the account, read BEFORE the erasure.
+            # The copies have to go whether or not the erasure finishes: a
+            # retry after a failure finds no conversation of the account left
+            # to name, so an id only the first attempt could see would keep its
+            # working-set entry — and the next caller naming the id would be
+            # handed that history. A store that cannot answer this cannot
+            # erase either, and is answered as the failure it is.
+            holding = memory.owner_conversation_ids(subject)
+            erased = await memory.erase_owner(subject)
+        except Exception:
+            # This was caught at debug level and the handler went on: it
+            # removed the push tokens and the session and answered 200
+            # {"success": true} with the account's conversations, scoped
+            # memory and claim all still stored — and the session gone, so
+            # the client could not retry. A deletion that erased nothing
+            # is a failure: nothing after the erasure is removed, and the
+            # session stays valid so the same client can retry.
+            logger.exception("account delete: conversation erasure failed; the deletion was not completed")
+            return web.json_response({"success": False, "error": "storage failure"}, status=503)
+        finally:
+            # The store and the memory manager's cache were cleared; the
+            # gateway's own working-set copy was not, so the next caller to
+            # name the id — ownerless now — was handed the history. Nor were
+            # the protocol stacks: Jarvis renders a scope's "User said: …"
+            # patterns into its next prompt, and the same subject signing in
+            # again was shown what the deleted account said. Both go here,
+            # on the failure path too, and from the ids read before the
+            # erasure as well as the ones it reports.
+            holding = sorted({*holding, *erased})
             try:
-                erased = await self.react_loop.memory.erase_owner(subject)
-                # The store and the memory manager's cache were cleared; the
-                # gateway's own working-set copy was not, so the next caller to
-                # name the id — ownerless now — was handed the history.
-                self._forget_conversations(erased)
-                # Nor were the protocol stacks: Jarvis renders a scope's "User
-                # said: …" patterns into its next prompt, and the same subject
-                # signing in again was shown what the deleted account said.
-                memory = self.react_loop.memory
+                self._forget_conversations(holding)
                 self.react_loop.forget_scopes(
-                    [subject, *(memory.conversation_scope(sid) for sid in erased)])
+                    [subject, *(memory.conversation_scope(sid) for sid in holding)])
             except Exception:
-                # This was caught at debug level and the handler went on: it
-                # removed the push tokens and the session and answered 200
-                # {"success": true} with the account's conversations, scoped
-                # memory and claim all still stored — and the session gone, so
-                # the client could not retry. A deletion that erased nothing
-                # is a failure: nothing after the erasure is removed, and the
-                # session stays valid so the same client can retry.
-                logger.exception("account delete: conversation erasure failed; the deletion was not completed")
-                return web.json_response({"success": False, "error": "storage failure"}, status=503)
+                logger.exception("account delete: dropping this process's copies of %s failed", subject)
 
         # Push tokens the account registered. This looked them up by the bearer
         # TOKEN string as a session id; /bridge/v1/push/register files a device
@@ -1115,14 +1148,14 @@ class GatewayServer:
         # stored before they did is found by the conversation it was filed
         # under — one of the account's own (erased above, or its reserved
         # user:<subject>) — and only when no other owner is recorded on it.
+        # The ids come from the pre-erasure read too, so a retry after a
+        # failure still knows which conversations were the account's.
         try:
             from runtime.notifications.token_store import PushTokenStore
             store = PushTokenStore(self.react_loop.memory.db)
-            if session is not None:
-                filed_under = {*erased, token}
-                if subject:
-                    filed_under.add(f"user:{subject}"[:100])
-                await store.remove_for_account(subject, filed_under)
+            filed_under = {*holding, token}
+            filed_under.add(f"user:{subject}"[:100])
+            await store.remove_for_account(subject, filed_under)
         except Exception:
             logger.debug("account delete: push-token cleanup skipped")
 
@@ -1344,9 +1377,15 @@ class GatewayServer:
         message, agent, invalid = self._chat_turn_input(body)
         if invalid:
             return web.json_response({"error": invalid}, status=400)
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
+        # The canonical agent, and the same refusal on every entrance. The
+        # earlier check compared the RAW name while the access policy lowercases
+        # it, so "NEO", " neo" and null reached Neo's tools with no credential.
+        agent, refused = self._resolve_chat_agent(request, agent)
+        if refused:
+            status, why = refused
+            if status == 403:
+                return web.json_response({"error": "forbidden", "message": why}, status=403)
+            return web.json_response({"error": why}, status=status)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
@@ -1457,9 +1496,12 @@ class GatewayServer:
             if invalid:
                 await ws.send_json({"type": "error", "error": invalid})
                 continue
-            forbidden = self._agent_forbidden_for_caller(request, agent)
-            if forbidden:
-                await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
+            agent, refused = self._resolve_chat_agent(request, agent)
+            if refused:
+                status, why = refused
+                await ws.send_json({"type": "error",
+                                    "error": "forbidden" if status == 403 else "invalid agent",
+                                    "message": why})
                 continue
 
             session_id, session_error = self._resolve_session_id(request, payload.get("session_id"))
@@ -2594,15 +2636,52 @@ class GatewayServer:
             return request.headers.get("X-Wallet-Address", "").strip()
         return ""
 
+    def _caller_kind(self, request: web.Request) -> str:
+        """Which credential this request carries: ``"operator"`` (the operator
+        key, or auth off — development, where whoever runs the gateway is the
+        operator), ``"session"`` (a live wallet session), else ``"anonymous"``.
+
+        Never read from a body field. ``request["auth"]`` is used when the auth
+        wall recorded one, but it is not enough on its own: the chat surfaces
+        (/chat, /ws, /bridge/v1/chat) are public paths the wall passes straight
+        through, so for them the kind is derived from the presented credential. Carried into a chat's user_context so the
+        tool dispatcher refuses a non-operator caller the operations a session's
+        own routes refuse (gateway/session_routes.py) — an anonymous caller is
+        refused at least what a signed-in one is, and one tier further: every
+        operation behind a route that is not public, and every state change
+        (session_routes.caller_refused_route).
+        """
+        # A non-public route already passed the wall, which recorded the kind it
+        # accepted (a batch sub-request inherits its batch's). Public paths
+        # record nothing and are derived from the presented credential.
+        recorded = (request.get("auth") if hasattr(request, "get") else None) or {}
+        if recorded.get("kind") in ("operator", "session"):
+            return str(recorded["kind"])
+        if self._is_operator(request):
+            return "operator"
+        if self._wallet_session_from_request(request) is not None:
+            return "session"
+        return "anonymous"
+
+    def _resolve_chat_agent(self, request: web.Request, raw):
+        """``(agent, None)`` or ``(None, (status, message))`` for the agent a chat
+        names: canonicalised once (gateway/chat_agents.py), then membership, then
+        the operator check on the canonical name. Every chat surface calls this
+        and runs the canonical name it returns.
+
+        On a user-facing chat surface the agent is Trinity. Naming Neo or
+        Morpheus, in any spelling, takes the operator key; a user or anonymous
+        caller who does is refused explicitly (403), never silently redirected.
+        The check used to compare the raw name exactly while the tool policy
+        lowercased it, so ``"Neo"`` on /bridge/v1/chat was Neo for anyone."""
+        from gateway.chat_agents import resolve_chat_agent
+        return resolve_chat_agent(raw, self._is_operator(request))
+
     def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
-        """On a user-facing chat surface the agent is Trinity. Naming Neo or
-        Morpheus takes the operator key; a user or anonymous caller who does is
-        refused explicitly (403), never silently redirected. Unknown names
-        return None so the existing 400 answers them."""
-        if agent in ("neo", "morpheus") and not self._is_operator(request):
-            return (f"agent '{agent}' requires the operator key; users talk to Trinity "
-                    "(omit 'agent' or send 'trinity')")
-        return None
+        """The 403 message ``_resolve_chat_agent`` gives *agent*, or None (an
+        allowed name, or one that is no agent at all, which is a 400)."""
+        _agent, refused = self._resolve_chat_agent(request, agent)
+        return refused[1] if refused and refused[0] == 403 else None
 
     # ─── T3 · one session per caller, never one for everyone ─────────────
 
@@ -2820,8 +2899,13 @@ class GatewayServer:
             return "", "", "message is required"
         if len(message) > CHAT_MESSAGE_MAX_CHARS:
             return "", "", f"message too long (at most {CHAT_MESSAGE_MAX_CHARS} characters)"
+        # The agent is returned RAW. Membership is decided once, by
+        # _resolve_chat_agent, which canonicalises first — this check compared
+        # the raw name while the access policy lowercases it, so "Neo" was
+        # refused here as invalid while " neo" sailed past the operator check
+        # further down. One resolver owns the spelling and the membership.
         agent = body.get("agent", "trinity")
-        if not isinstance(agent, str) or agent not in CHAT_AGENTS:
+        if not isinstance(agent, str):
             return "", "", f"invalid agent, must be one of: {', '.join(CHAT_AGENTS)}"
         return message, agent, None
 
@@ -2865,6 +2949,7 @@ class GatewayServer:
             "session_id": session_id,
             "memory_scope": self._memory_scope(request, session_id),
             "agent": agent,
+            "caller_kind": self._caller_kind(request),
             "wallet_address": identity,
             "apple_id": apple_id,
             "app_attest": body.get("app_attest"),

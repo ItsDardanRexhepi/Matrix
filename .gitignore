@@ -15,6 +15,30 @@ openmatrix.config.json
 # Memory data (agent conversation/kv storage at runtime)
 /memory/
 
+# Hivemind runtime state. hivemind/ itself is tracked SOURCE; the orchestrator
+# (default workspace ".") writes its event log, sessions and queues into it.
+# tests/test_runtime_artifacts_ignored.py derives these paths by running the
+# writers, and fails if one lands somewhere git would commit.
+/hivemind/events.jsonl
+/hivemind/sessions/
+/hivemind/queues/
+
+# Private on the release axis too (scripts/prepare_release.py PRIVATE_FILES),
+# none of them tracked. Anchored at the root, so same-named source directories
+# elsewhere (runtime/blockchain/services/governance/, …) stay tracked.
+/neowrite.env
+/secrets/
+/identity/
+/governance/
+/runtime/cache/
+/runtime/streams/
+/runtime/usage/
+/runtime/memory_sync/
+/gateway/gateway.pid
+/gateway/gateway.log
+/gateway/gateway.err.log
+/gateway/status.json
+
 # SQLite database, WAL/SHM files, and daily backups
 /data/
 *.db

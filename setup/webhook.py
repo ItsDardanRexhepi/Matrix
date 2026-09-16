@@ -26,7 +26,7 @@ def configure(config: dict, persist: bool = True) -> dict:
     channel_cfg = {"url": url, "bearer_token": bearer}
     update_channel(config, "webhook", channel_cfg)
     save_config(config, persist=persist)
-    update_env({"NOTIFY_WEBHOOK_URL": url})
+    update_env({"NOTIFY_WEBHOOK_URL": url}, persist=persist)
     result = test_channel_via_dispatcher(config, "webhook")
     if result.get("status") == "ok":
         success("Webhook saved and test delivered.")

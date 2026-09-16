@@ -82,7 +82,7 @@ def configure(config: dict, persist: bool = True) -> dict:
     channel_cfg = {"bot_token": token, "chat_id": chat_id, "owner_id": chat_id}
     update_channel(config, "telegram", channel_cfg)
     save_config(config, persist=persist)
-    update_env({"TELEGRAM_BOT_TOKEN": token, "OWNER_TELEGRAM_ID": chat_id})
+    update_env({"TELEGRAM_BOT_TOKEN": token, "OWNER_TELEGRAM_ID": chat_id}, persist=persist)
     success("Telegram saved.")
     return channel_cfg
 

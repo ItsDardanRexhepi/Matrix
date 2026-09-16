@@ -58,7 +58,7 @@ class _BatchSubRequest:
     invoke them directly without spinning up an actual HTTP round trip.
     """
 
-    __slots__ = ("_body", "match_info", "headers", "method", "path", "query")
+    __slots__ = ("_body", "match_info", "headers", "method", "path", "query", "_state")
 
     def __init__(
         self,
@@ -69,6 +69,7 @@ class _BatchSubRequest:
         path: str,
         headers: Optional[dict] = None,
         query: Optional[Any] = None,
+        auth: Optional[dict] = None,
     ) -> None:
         self._body = body if body is not None else {}
         self.match_info = match_info
@@ -79,16 +80,24 @@ class _BatchSubRequest:
         # GET handler reading request.query (bridge wallet/status, dashboard)
         # raised AttributeError through batch while answering direct.
         self.query = query if query is not None else MultiDictProxy(MultiDict())
+        # The credential the auth wall accepted for the BATCH, inherited by each
+        # item: the sub-request carries no header of its own, and a handler that
+        # asks who is calling (GatewayServer._caller_kind) must get the batch's
+        # answer, not "anonymous".
+        self._state = {"auth": auth} if auth else {}
 
     async def json(self) -> Any:
         return self._body
 
     def get(self, key: str, default: Any = None) -> Any:
         """aiohttp's Request is a mapping of per-request values set by
-        middleware; a batch item carries none. Handlers read it
-        (``request.get("request_id")``), and without this the read raised
+        middleware; a batch item carries none of its own, so this reads the
+        state the BATCH was given — above all the credential the auth wall
+        accepted for it, which `GatewayServer._caller_kind` needs to answer
+        "operator" for an item of an operator's batch rather than "anonymous".
+        Handlers also read it for `request_id`, and without this the read raised
         AttributeError through batch while answering direct."""
-        return default
+        return self._state.get(key, default)
 
 
 class ServiceRoutes:
@@ -676,7 +685,8 @@ class ServiceRoutes:
             generic_denial, is_blocked,
         )
         decision = await gate_action(
-            action_type_for(service_name, method_name), kwargs, current_request_security()
+            action_type_for(service_name, method_name), kwargs, current_request_security(),
+            operation=(service_name, method_name),
         )
         if is_blocked(decision):
             raise web.HTTPForbidden(
@@ -3062,23 +3072,30 @@ class ServiceRoutes:
         # The invoke route is on the session allowlist because the app calls it,
         # but it is a DISPATCHER into the same ServiceDispatcher the dedicated
         # /api/v1 routes use. Allowlisting the URL is not allowlisting the
-        # operation: seven catalog ids reach a service method whose own route
+        # operation: catalog ids reach a service method whose own route
         # answers 403 to a session. A session is refused those explicitly; the
-        # operator key is unaffected.
-        from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST, session_may_invoke
-        # aiohttp's Request is a mapping; the suite's fake request objects are not.
-        auth = (request.get("auth") if hasattr(request, "get") else None) or {}
-        if auth.get("kind") == "session" and not session_may_invoke(capability_id):
-            return web.json_response(
-                {"error": "forbidden",
-                 "message": "This capability is not available to a user session; "
-                            f"its route ({CAPABILITIES_OFF_ALLOWLIST[capability_id]}) requires the operator key."},
-                status=403)
-
+        # operator key is unaffected. The decision is keyed on the (service,
+        # method) pair the capability's action RESOLVES to — the same key
+        # /bridge/v1/action and the chat tools use — with the catalog-id table
+        # kept as a second, identical-by-construction check.
+        from gateway.session_routes import CAPABILITIES_OFF_ALLOWLIST, session_refused_route
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
-        decision = await gate_action(action_label, params, security)
+        # aiohttp's Request is a mapping; the suite's fake request objects are not.
+        auth = (request.get("auth") if hasattr(request, "get") else None) or {}
+        if auth.get("kind") == "session":
+            refused = (CAPABILITIES_OFF_ALLOWLIST.get(capability_id)
+                       or session_refused_route(action_label))
+            if refused:
+                return web.json_response(
+                    {"error": "forbidden",
+                     "message": "This capability is not available to a user session; "
+                                f"its route ({refused}) requires the operator key."},
+                    status=403)
+        from runtime.access_policy import dispatch_pair
+        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security,
+                                     operation=dispatch_pair(action_label))
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
         result = await reg.invoke(capability_id, params, caller_identity=authed)
@@ -3129,6 +3146,7 @@ class ServiceRoutes:
 
         start_wall = time.monotonic()
         self._metric_incr("batch.requests")
+        outer_auth = request.get("auth") if hasattr(request, "get") else None
         body = await self._parse_body(request)
         self._require(body, "requests")
 
@@ -3161,10 +3179,10 @@ class ServiceRoutes:
 
         if sequential:
             self._metric_incr("batch.mode.sequential")
-            results = await self._run_batch_sequential(items, abort_on_failure)
+            results = await self._run_batch_sequential(items, abort_on_failure, auth=outer_auth)
         else:
             self._metric_incr("batch.mode.parallel")
-            results = await self._run_batch_parallel(items, abort_on_failure)
+            results = await self._run_batch_parallel(items, abort_on_failure, auth=outer_auth)
 
         total_ms = int((time.monotonic() - start_wall) * 1000)
         self._metric_observe("batch.duration_ms", float(total_ms))
@@ -3202,10 +3220,11 @@ class ServiceRoutes:
         self,
         items: list,
         abort_on_failure: bool,
+        auth: Optional[dict] = None,
     ) -> List[dict]:
         results: List[dict] = []
         for item in items:
-            result = await self._dispatch_batch_item(item)
+            result = await self._dispatch_batch_item(item, auth=auth)
             results.append(result)
             if abort_on_failure and not (200 <= result["status"] < 300):
                 # Pad remaining items so the response shape stays aligned
@@ -3225,8 +3244,9 @@ class ServiceRoutes:
         self,
         items: list,
         abort_on_failure: bool,
+        auth: Optional[dict] = None,
     ) -> List[dict]:
-        tasks = [self._dispatch_batch_item(item) for item in items]
+        tasks = [self._dispatch_batch_item(item, auth=auth) for item in items]
         results = await asyncio.gather(*tasks)
         if abort_on_failure:
             # For parallel mode abort_on_failure is a no-op by design —
@@ -3235,7 +3255,7 @@ class ServiceRoutes:
             pass
         return results
 
-    async def _dispatch_batch_item(self, item: Any) -> dict:
+    async def _dispatch_batch_item(self, item: Any, auth: Optional[dict] = None) -> dict:
         """Run one batch item and return a ``BatchItemResult`` dict."""
 
         if not isinstance(item, dict):
@@ -3279,6 +3299,7 @@ class ServiceRoutes:
             method=method,
             path=path,
             query=MultiDictProxy(MultiDict(parse_qsl(query_string, keep_blank_values=True))),
+            auth=auth,
         )
 
         try:

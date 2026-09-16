@@ -47,7 +47,7 @@ def configure(config: dict, persist: bool = True) -> dict:
         "APNS_KEY_ID": key_id,
         "APNS_TEAM_ID": team_id,
         "APNS_BUNDLE_ID": bundle_id,
-    })
+    }, persist=persist)
     success("iOS push saved. Device tokens are registered at runtime from the app.")
     return channel_cfg
 

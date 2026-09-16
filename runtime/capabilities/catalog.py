@@ -183,7 +183,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     # `bridge_completed` outright because bridging is disabled, whereas this
     # method does real arithmetic and writes a real ledger line, so it is
     # renamed rather than removed.
-    _cap("claim_staking_rewards",   "Claim Staking Rewards",   "staking", "staking", "claim_staking_rewards", feed_event="rewards_recorded"),
+    _cap("claim_staking_rewards",   "Claim Staking Rewards",   "staking", "staking", "claim_rewards", feed_event="rewards_recorded"),
     _cap("get_staking_position",    "Get Staking Position",    "staking", "staking", "get_position", state_modifying=False, uses_paymaster=False),
 
     # ── NFTs ───────────────────────────────────────────────────────────────
@@ -197,13 +197,13 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("set_nft_rights",          "Set NFT Rights",          "nft", "nft_services", "set_rights"),
     _cap("check_nft_rights",        "Check NFT Rights",        "nft", "nft_services", "check_rights",      state_modifying=False, uses_paymaster=False),
     _cap("configure_nft_royalty",   "Configure NFT Royalty",   "nft", "nft_services", "configure_royalty"),
-    _cap("nft_fractionalize",       "Fractionalize NFT",       "nft", "nft_services", "nft_fractionalize"),
-    _cap("nft_rent",                "Rent NFT",                "nft", "nft_services", "nft_rent"),
-    _cap("nft_dynamic_update",      "Update Dynamic NFT",      "nft", "nft_services", "nft_dynamic_update"),
-    _cap("nft_batch_mint",          "Batch Mint NFTs",         "nft", "nft_services", "nft_batch_mint"),
-    _cap("nft_royalty_claim",       "Claim NFT Royalties",     "nft", "nft_services", "nft_royalty_claim"),
-    _cap("nft_bridge",              "Bridge NFT",              "nft", "nft_services", "nft_bridge"),
-    _cap("soulbound_mint",          "Mint Soulbound NFT",      "nft", "nft_services", "soulbound_mint",    subcategory="soulbound"),
+    _cap("nft_fractionalize",       "Fractionalize NFT",       "nft", "nft_services", "fractionalize", feed_event="nft_fractionalized"),
+    _cap("nft_rent",                "Rent NFT",                "nft", "nft_services", "rent"),
+    _cap("nft_dynamic_update",      "Update Dynamic NFT",      "nft", "nft_services", "dynamic_update"),
+    _cap("nft_batch_mint",          "Batch Mint NFTs",         "nft", "nft_services", "batch_mint", feed_event="nft_batch_minted"),
+    _cap("nft_royalty_claim",       "Claim NFT Royalties",     "nft", "nft_services", "royalty_claim"),
+    _cap("nft_bridge",              "Bridge NFT",              "nft", "nft_services", "bridge_nft", feed_event="nft_bridged"),
+    _cap("soulbound_mint",          "Mint Soulbound NFT",      "nft", "nft_services", "mint_soulbound", feed_event="soulbound_minted", subcategory="soulbound"),
 
     # ── NFT Finance ────────────────────────────────────────────────────────
     _cap("borrow_against_nft",      "Borrow Against NFT",      "nft_finance", "nft_lending", "borrow_against_nft", protocol="benddao",  available=False),
@@ -215,31 +215,31 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("execute_as_tba",          "Execute As TBA",             "nft_finance", "tba", "execute_as_tba",   protocol="erc6551", available=False),
 
     # ── Identity ───────────────────────────────────────────────────────────
-    _cap("create_did",              "Create DID",              "identity", "did_identity", "create",           feed_event="did_created"),
-    _cap("update_did",              "Update DID",              "identity", "did_identity", "update"),
-    _cap("deactivate_did",          "Deactivate DID",          "identity", "did_identity", "deactivate"),
-    _cap("credential_issue",        "Issue Credential",        "identity", "did_identity", "credential_issue"),
-    _cap("reputation_query",        "Query Reputation",        "identity", "agent_identity", "reputation_query", state_modifying=False, uses_paymaster=False),
+    _cap("create_did",              "Create DID",              "identity", "did_identity", "create_did",           feed_event="did_created"),
+    _cap("update_did",              "Update DID",              "identity", "did_identity", "update_did"),
+    _cap("deactivate_did",          "Deactivate DID",          "identity", "did_identity", "deactivate_did"),
+    _cap("credential_issue",        "Issue Credential",        "identity", "did_identity", "issue_credential", feed_event="credential_issued"),
+    _cap("reputation_query",        "Query Reputation",        "identity", "did_identity", "query_reputation", state_modifying=False, uses_paymaster=False),
     _cap("start_kyc",               "Start KYC",               "identity", "kyc", "start_kyc",         protocol="sumsub", available=False),
     _cap("check_aml_risk",          "Check AML Risk",          "identity", "kyc", "check_aml_risk",    state_modifying=False, uses_paymaster=False, available=False),
     _cap("issue_kyc_credential",    "Issue KYC Credential",    "identity", "kyc", "issue_kyc_credential", available=False),
-    _cap("register_agent",          "Register AI Agent",       "identity", "agent_identity", "register"),
-    _cap("update_agent",            "Update Agent",            "identity", "agent_identity", "update"),
-    _cap("deregister_agent",        "Deregister Agent",        "identity", "agent_identity", "deregister"),
-    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "create"),
+    _cap("register_agent",          "Register AI Agent",       "identity", "agent_identity", "register_agent", feed_event="ai_agent_registered"),
+    _cap("update_agent",            "Update Agent",            "identity", "agent_identity", "update_agent"),
+    _cap("deregister_agent",        "Deregister Agent",        "identity", "agent_identity", "deregister_agent"),
+    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest"),
     _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke"),
     _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest"),
 
     # ── Governance ─────────────────────────────────────────────────────────
-    _cap("create_dao",              "Create DAO",              "governance", "dao_management", "create",         feed_event="dao_created"),
-    _cap("join_dao",                "Join DAO",                "governance", "dao_management", "join"),
-    _cap("leave_dao",               "Leave DAO",               "governance", "dao_management", "leave"),
+    _cap("create_dao",              "Create DAO",              "governance", "dao_management", "create_dao",         feed_event="dao_created"),
+    _cap("join_dao",                "Join DAO",                "governance", "dao_management", "join_dao"),
+    _cap("leave_dao",               "Leave DAO",               "governance", "dao_management", "leave_dao"),
     _cap("create_proposal",         "Create Proposal",         "governance", "governance", "create_proposal", feed_event="proposal_created"),
     _cap("vote",                    "Vote on Proposal",        "governance", "governance", "vote",            feed_event="vote_cast"),
     _cap("finalize_proposal",       "Finalize Proposal",       "governance", "governance", "finalize"),
     _cap("snapshot_vote",           "Snapshot Vote",           "governance", "governance", "snapshot_vote",   protocol="snapshot", available=False),
-    _cap("timelock_queue",          "Queue Timelock Action",   "governance", "governance", "timelock_queue"),
-    _cap("multisig_propose",        "Propose Multisig Action", "governance", "governance", "multisig_propose"),
+    _cap("timelock_queue",          "Queue Timelock Action",   "governance", "governance", "queue_timelock"),
+    _cap("multisig_propose",        "Propose Multisig Action", "governance", "governance", "propose_multisig"),
     # CLUSTER B FOLLOW-UP: both methods now raise NotImplementedError
     # unconditionally, so advertising them as available was the five-doors
     # doctrine stated in this very file and then not walked. They stay ROUTED
@@ -247,7 +247,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     # a lifting condition is a better answer than "unknown action" for a
     # capability that is intended to exist — but `available` must tell the
     # truth about whether it works today.
-    _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "multisig_approve", available=False),
+    _cap("multisig_approve",        "Approve Multisig Action", "governance", "governance", "approve_multisig", available=False),
     # CLUSTER B: `treasury_transfer` REMOVED from the catalog — door 3 of 5.
     # The gateway route went in Tier 2 and the ACTION_MAP literal goes with this
     # change; this entry alone would have kept the action installed, because
@@ -270,13 +270,13 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("delegate_voting",         "Delegate Voting Power",   "governance", "advanced_governance", "delegate_voting",      available=False),
 
     # ── Social ─────────────────────────────────────────────────────────────
-    _cap("create_social_profile",   "Create Social Profile",   "social", "social", "create_social_profile", feed_event="profile_created"),
-    _cap("update_social_profile",   "Update Social Profile",   "social", "social", "update_social_profile"),
-    _cap("social_post",             "Social Post",             "social", "social", "social_post"),
-    _cap("social_gate",             "Gated Social Content",    "social", "social", "social_gate"),
-    _cap("community_create",        "Create Community",        "social", "social", "create_community"),
-    _cap("send_message",            "Send Message (XMTP)",     "social", "social", "send_message",       protocol="xmtp"),
-    _cap("message_encrypt",         "Encrypted Message",       "social", "social", "message_encrypt"),
+    _cap("create_social_profile",   "Create Social Profile",   "social", "social", "create_profile", feed_event="profile_created"),
+    _cap("update_social_profile",   "Update Social Profile",   "social", "social", "update_profile"),
+    _cap("social_post",             "Social Post",             "social", "social", "publish_post", feed_event="social_post_published"),
+    _cap("social_gate",             "Gated Social Content",    "social", "social", "create_token_gate"),
+    _cap("community_create",        "Create Community",        "social", "social", "create_community", feed_event="community_created"),
+    _cap("send_message",            "Send Message (XMTP)",     "social", "social", "share_proof",       protocol="xmtp"),
+    _cap("message_encrypt",         "Encrypted Message",       "social", "social", "send_encrypted_message"),
     _cap("create_lens_profile",     "Create Lens Profile",     "social", "social_protocols", "create_lens_profile",     protocol="lens",    available=False),
     _cap("publish_cast",            "Publish Farcaster Cast",  "social", "social_protocols", "publish_cast",            protocol="farcaster", available=False),
     _cap("push_subscribe",          "Subscribe to Push",       "social", "social_protocols", "push_subscribe",          protocol="push",    available=False),
@@ -284,20 +284,20 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("launch_creator_coin",     "Launch Creator Coin",     "social", "social_protocols", "launch_creator_coin",     available=False),
 
     # ── Creator Economy ────────────────────────────────────────────────────
-    _cap("creator_monetize",        "Monetize Content",        "creator", "social", "creator_monetize"),
+    _cap("creator_monetize",        "Monetize Content",        "creator", "social", "setup_monetization"),
     _cap("mint_sound",              "Mint Sound.xyz Drop",     "creator", "creator_platforms", "mint_sound",            protocol="sound",     available=False),
     _cap("publish_mirror_post",     "Publish Mirror Post",     "creator", "creator_platforms", "publish_mirror_post",   protocol="mirror",    available=False),
     _cap("publish_paragraph_post",  "Publish Paragraph Post",  "creator", "creator_platforms", "publish_paragraph_post",protocol="paragraph", available=False),
-    _cap("register_ip",             "Register IP",             "creator", "ip_royalties", "register",    feed_event="ip_registered"),
-    _cap("transfer_ip",             "Transfer IP",             "creator", "ip_royalties", "transfer"),
-    _cap("license_ip",              "License IP",              "creator", "ip_royalties", "license"),
-    _cap("agreement_execute",       "Execute Agreement",       "creator", "ip_royalties", "agreement_execute"),
+    _cap("register_ip",             "Register IP",             "creator", "ip_royalties", "register_ip",    feed_event="ip_registered"),
+    _cap("transfer_ip",             "Transfer IP",             "creator", "ip_royalties", "transfer_ip"),
+    _cap("license_ip",              "License IP",              "creator", "ip_royalties", "license_ip"),
+    _cap("agreement_execute",       "Execute Agreement",       "creator", "ip_royalties", "execute_agreement", feed_event="agreement_executed"),
 
     # ── Payments ───────────────────────────────────────────────────────────
     _cap("create_payment",          "Create Payment",          "payments", "x402_payments", "create_payment", feed_event="payment_created"),
     # NEW-53: authorize_payment / refund_payment capabilities removed — the
     # actions are disabled pending identity + ownership verification.
-    _cap("complete_payment",        "Complete Payment",        "payments", "x402_payments", "complete"),
+    _cap("complete_payment",        "Complete Payment",        "payments", "x402_payments", "complete_payment"),
     # NEW-85: feed_event was "payment_sent". This action resolves through
     # ACTION_MAP to cross_border.send_payment, which RECORDS a payment
     # instruction and moves no value — so announcing "payment_sent" to the
@@ -305,9 +305,9 @@ CAPABILITIES: list[dict[str, Any]] = [
     # every surface. (The descriptor's service="stablecoin" is a separate,
     # unfixed defect: ACTION_MAP wins and lands on cross_border. Left for the
     # 49-binding work rather than silently corrected here.)
-    _cap("send_payment",            "Send Payment",            "payments", "stablecoin",    "send_payment",  feed_event="payment_recorded"),
+    _cap("send_payment",            "Send Payment",            "payments", "cross_border",    "send_payment",  feed_event="payment_recorded"),
     _cap("transfer_stablecoin",     "Transfer Stablecoin",     "payments", "stablecoin",    "transfer",      feed_event="stablecoin_sent"),
-    _cap("cross_border_remit",      "Cross-border Remit",      "payments", "cross_border",  "cross_border_remit"),
+    _cap("cross_border_remit",      "Cross-border Remit",      "payments", "cross_border",  "remit"),
     _cap("open_channel",            "Open Payment Channel",    "payments", "payment_channels", "open_channel",  subcategory="state_channels", available=False),
     _cap("route_payment",           "Route via Channel",       "payments", "payment_channels", "route_payment", subcategory="state_channels", available=False),
     _cap("close_channel",           "Close Payment Channel",   "payments", "payment_channels", "close_channel", subcategory="state_channels", available=False),
@@ -320,7 +320,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     # capability advertised as available=True. The fabrication was the one
     # offered to clients and to the model; the real implementations were the
     # ones marked unavailable. Now False, matching its honest siblings.
-    _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "cross_chain_bridge", available=False),
+    _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "bridge_transfer", available=False),
     _cap("bridge_token_ccip",       "Bridge via CCIP",         "bridging", "ccip",         "bridge_token_ccip",       protocol="ccip",      available=False),
     _cap("send_cross_chain_message","Cross-chain Message",     "bridging", "ccip",         "send_cross_chain_message",protocol="ccip",      available=False),
     _cap("bridge_hyperlane",        "Bridge via Hyperlane",    "bridging", "ccip",         "bridge_hyperlane",        protocol="hyperlane", available=False),
@@ -330,7 +330,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("query_remote_chain",      "Query Remote Chain",      "bridging", "ccip",         "query_remote_chain",      state_modifying=False, uses_paymaster=False, available=False),
 
     # ── Privacy & ZK ───────────────────────────────────────────────────────
-    _cap("zk_proof_generate",       "Generate ZK Proof",       "privacy", "privacy", "zk_proof_generate"),
+    _cap("zk_proof_generate",       "Generate ZK Proof",       "privacy", "privacy", "generate_zk_proof"),
     _cap("mpc_sign",                "MPC Sign",                "privacy", "mpc", "mpc_sign",           subcategory="mpc", available=False),
     _cap("recover_wallet",          "Social Recovery",         "privacy", "mpc", "recover_wallet",     subcategory="recovery", available=False),
     _cap("create_session_key",      "Create Session Key",      "privacy", "mpc", "create_session_key", subcategory="session_keys", available=False),
@@ -353,39 +353,39 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("register_keeper_job",     "Register Keeper Job",     "oracles", "oracles_plus",   "register_keeper_job", protocol="chainlink_keepers", available=False),
 
     # ── Storage ────────────────────────────────────────────────────────────
-    _cap("ipfs_pin",                "Pin to IPFS",             "storage", "privacy", "ipfs_pin"),
+    _cap("ipfs_pin",                "Pin to IPFS",             "storage", "privacy", "pin_to_ipfs", feed_event="ipfs_content_pinned"),
     _cap("store_filecoin",          "Store on Filecoin",       "storage", "storage", "store_filecoin",   protocol="filecoin", available=False),
     _cap("ceramic_stream_create",   "Create Ceramic Stream",   "storage", "storage", "ceramic_stream_create", protocol="ceramic", available=False),
     _cap("orbit_db_write",          "Write to OrbitDB",        "storage", "storage", "orbit_db_write",   protocol="orbitdb", available=False),
-    _cap("decentralized_store",     "Decentralized Store",     "storage", "privacy", "decentralized_store"),
+    _cap("decentralized_store",     "Decentralized Store",     "storage", "privacy", "decentralized_store", feed_event="file_stored"),
 
     # ── Compute & DePIN ────────────────────────────────────────────────────
     _cap("submit_compute_job",      "Submit Compute Job",      "compute", "compute", "submit_compute_job", subcategory="compute", protocol="akash", available=False),
     _cap("rent_device",             "Rent DePIN Device",       "compute", "compute", "rent_device",        subcategory="depin", available=False),
     _cap("claim_compute_reward",    "Claim Compute Reward",    "compute", "compute", "claim_compute_reward", available=False),
-    _cap("compute_job_submit",      "Submit Legacy Compute",   "compute", "privacy", "compute_job_submit"),
+    _cap("compute_job_submit",      "Submit Legacy Compute",   "compute", "privacy", "submit_compute_job"),
 
     # ── Real-World Assets & ReFi ───────────────────────────────────────────
-    _cap("tokenize_asset",          "Tokenize Asset",          "real_world", "rwa_tokenization", "tokenize_asset"),
+    _cap("tokenize_asset",          "Tokenize Asset",          "real_world", "rwa_tokenization", "tokenize_asset", feed_event="rwa_tokenized"),
     _cap("transfer_rwa_ownership",  "Transfer RWA Ownership",  "real_world", "rwa_tokenization", "transfer_ownership"),
-    _cap("rwa_tokenize",            "RWA Tokenize",            "real_world", "rwa_tokenization", "rwa_tokenize"),
-    _cap("rwa_fractional_buy",      "Buy RWA Fraction",        "real_world", "rwa_tokenization", "rwa_fractional_buy"),
-    _cap("rwa_income_claim",        "Claim RWA Income",        "real_world", "rwa_tokenization", "rwa_income_claim"),
+    _cap("rwa_tokenize",            "RWA Tokenize",            "real_world", "rwa_tokenization", "tokenize_asset", feed_event="rwa_tokenized"),
+    _cap("rwa_fractional_buy",      "Buy RWA Fraction",        "real_world", "rwa_tokenization", "fractional_buy", feed_event="rwa_purchased"),
+    _cap("rwa_income_claim",        "Claim RWA Income",        "real_world", "rwa_tokenization", "claim_income"),
     _cap("register_product",        "Register Product",        "real_world", "supply_chain", "register_product"),
-    _cap("update_product_status",   "Update Product Status",   "real_world", "supply_chain", "update_product_status"),
-    _cap("transfer_custody",        "Transfer Custody",        "real_world", "supply_chain", "transfer_custody"),
-    _cap("provenance_log",          "Log Provenance",          "real_world", "supply_chain", "provenance_log"),
-    _cap("batch_track",             "Batch Track",             "real_world", "supply_chain", "batch_track"),
-    _cap("custody_transfer",        "Custody Transfer",        "real_world", "supply_chain", "custody_transfer"),
-    _cap("carbon_credit_buy",       "Buy Carbon Credit",       "real_world", "privacy", "carbon_credit_buy",    protocol="toucan"),
-    _cap("carbon_credit_retire",    "Retire Carbon Credit",    "real_world", "privacy", "carbon_credit_retire", protocol="klimadao"),
-    _cap("renewable_cert_buy",      "Buy Renewable Cert",      "real_world", "privacy", "renewable_cert_buy"),
-    _cap("green_bond_invest",       "Invest in Green Bond",    "real_world", "privacy", "green_bond_invest"),
+    _cap("update_product_status",   "Update Product Status",   "real_world", "supply_chain", "update_status"),
+    _cap("transfer_custody",        "Transfer Custody",        "real_world", "supply_chain", "transfer_custody", feed_event="custody_transferred"),
+    _cap("provenance_log",          "Log Provenance",          "real_world", "supply_chain", "log_event", feed_event="provenance_logged"),
+    _cap("batch_track",             "Batch Track",             "real_world", "supply_chain", "track_batch"),
+    _cap("custody_transfer",        "Custody Transfer",        "real_world", "supply_chain", "transfer_custody", feed_event="custody_transferred"),
+    _cap("carbon_credit_buy",       "Buy Carbon Credit",       "real_world", "fundraising", "buy_carbon_credit", feed_event="carbon_credit_purchased", protocol="toucan"),
+    _cap("carbon_credit_retire",    "Retire Carbon Credit",    "real_world", "fundraising", "retire_carbon_credit", feed_event="carbon_credit_retired", protocol="klimadao"),
+    _cap("renewable_cert_buy",      "Buy Renewable Cert",      "real_world", "fundraising", "buy_renewable_cert", feed_event="renewable_cert_purchased"),
+    _cap("green_bond_invest",       "Invest in Green Bond",    "real_world", "fundraising", "invest_green_bond", feed_event="green_bond_invested"),
 
     # ── Markets ────────────────────────────────────────────────────────────
-    _cap("market_create",           "Create Prediction Market","markets", "gaming", "market_create", protocol="polymarket"),
-    _cap("market_bet",              "Place Prediction Bet",    "markets", "gaming", "market_bet"),
-    _cap("market_resolve",          "Resolve Market",          "markets", "gaming", "market_resolve"),
+    _cap("market_create",           "Create Prediction Market","markets", "gaming", "create_prediction_market", feed_event="prediction_market_created", protocol="polymarket"),
+    _cap("market_bet",              "Place Prediction Bet",    "markets", "gaming", "place_prediction_bet", feed_event="prediction_bet_placed"),
+    _cap("market_resolve",          "Resolve Market",          "markets", "gaming", "resolve_market", feed_event="prediction_market_resolved"),
     _cap("create_auction",          "Create Auction",          "markets", "auctions", "create_auction",  subcategory="auction", available=False),
     _cap("place_bid",               "Place Auction Bid",       "markets", "auctions", "place_bid",      subcategory="auction", available=False),
     _cap("settle_auction",          "Settle Auction",          "markets", "auctions", "settle_auction", subcategory="auction", available=False),
@@ -401,54 +401,54 @@ CAPABILITIES: list[dict[str, Any]] = [
     # SAME miss as multisig_approve/snapshot_vote in domain 11. It stays ROUTED
     # so callers get an honest 501 with the lifting condition rather than
     # "unknown action".
-    _cap("buy_security",            "Buy Security",            "markets", "securities_exchange", "buy_security", available=False),
-    _cap("sell_security",           "Sell Security",           "markets", "securities_exchange", "sell_security"),
+    _cap("buy_security",            "Buy Security",            "markets", "securities_exchange", "buy", available=False),
+    _cap("sell_security",           "Sell Security",           "markets", "securities_exchange", "sell"),
 
     # ── Gaming ─────────────────────────────────────────────────────────────
     _cap("register_game",           "Register Game",           "gaming", "gaming", "register_game"),
-    _cap("mint_game_asset",         "Mint Game Asset",         "gaming", "gaming", "mint_game_asset"),
-    _cap("transfer_game_asset",     "Transfer Game Asset",     "gaming", "gaming", "transfer_game_asset"),
+    _cap("mint_game_asset",         "Mint Game Asset",         "gaming", "gaming", "mint_game_asset", feed_event="game_asset_minted"),
+    _cap("transfer_game_asset",     "Transfer Game Asset",     "gaming", "gaming", "transfer_asset"),
     _cap("approve_game",            "Approve Game",            "gaming", "gaming", "approve_game"),
-    _cap("game_asset_mint",         "Mint Game Asset (Legacy)","gaming", "gaming", "game_asset_mint"),
-    _cap("tournament_enter",        "Enter Tournament",        "gaming", "gaming", "tournament_enter"),
-    _cap("game_item_trade",         "Trade Game Item",         "gaming", "gaming", "game_item_trade"),
-    _cap("achievement_attest",      "Attest Achievement",      "gaming", "gaming", "achievement_attest"),
+    _cap("game_asset_mint",         "Mint Game Asset (Legacy)","gaming", "gaming", "mint_game_asset", feed_event="game_asset_minted"),
+    _cap("tournament_enter",        "Enter Tournament",        "gaming", "gaming", "enter_tournament", feed_event="tournament_entered"),
+    _cap("game_item_trade",         "Trade Game Item",         "gaming", "gaming", "trade_item"),
+    _cap("achievement_attest",      "Attest Achievement",      "gaming", "gaming", "attest_achievement", feed_event="achievement_attested"),
 
     # ── Insurance ──────────────────────────────────────────────────────────
     _cap("create_insurance",        "Create Policy",           "real_world", "insurance", "create_policy"),
     _cap("file_insurance_claim",    "File Claim",              "real_world", "insurance", "file_claim"),
     _cap("cancel_insurance",        "Cancel Policy",           "real_world", "insurance", "cancel_policy"),
-    _cap("parametric_policy",       "Parametric Policy",       "real_world", "insurance", "parametric_policy"),
-    _cap("claim_auto_settle",       "Auto-settle Claim",       "real_world", "insurance", "claim_auto_settle"),
-    _cap("cover_renew",             "Renew Cover",             "real_world", "insurance", "cover_renew"),
+    _cap("parametric_policy",       "Parametric Policy",       "real_world", "insurance", "create_parametric_policy", feed_event="insurance_policy_created"),
+    _cap("claim_auto_settle",       "Auto-settle Claim",       "real_world", "insurance", "auto_settle_claim", feed_event="insurance_claim_settled"),
+    _cap("cover_renew",             "Renew Cover",             "real_world", "insurance", "renew_coverage"),
 
     # ── Marketplace / Loyalty / Rewards ───────────────────────────────────
-    _cap("list_marketplace",        "List Marketplace Item",   "markets", "marketplace", "list_marketplace"),
-    _cap("buy_marketplace",         "Buy Marketplace Item",    "markets", "marketplace", "buy_marketplace"),
+    _cap("list_marketplace",        "List Marketplace Item",   "markets", "marketplace", "list_item"),
+    _cap("buy_marketplace",         "Buy Marketplace Item",    "markets", "marketplace", "buy_item"),
     _cap("cancel_listing",          "Cancel Listing",          "markets", "marketplace", "cancel_listing"),
-    _cap("earn_loyalty",            "Earn Loyalty Points",     "markets", "loyalty", "earn_loyalty"),
-    _cap("redeem_loyalty",          "Redeem Loyalty Points",   "markets", "loyalty", "redeem_loyalty"),
+    _cap("earn_loyalty",            "Earn Loyalty Points",     "markets", "loyalty", "earn_points"),
+    _cap("redeem_loyalty",          "Redeem Loyalty Points",   "markets", "loyalty", "redeem_points"),
     _cap("track_spending",          "Track Spending",          "markets", "cashback", "track_spending"),
     _cap("claim_cashback",          "Claim Cashback",          "markets", "cashback", "claim_cashback"),
-    _cap("create_brand_campaign",   "Create Brand Campaign",   "markets", "brand_rewards", "create_brand_campaign"),
-    _cap("distribute_brand_reward", "Distribute Brand Reward", "markets", "brand_rewards", "distribute_brand_reward"),
-    _cap("create_subscription_plan","Create Subscription Plan","markets", "subscriptions", "create_subscription_plan"),
+    _cap("create_brand_campaign",   "Create Brand Campaign",   "markets", "brand_rewards", "create_campaign"),
+    _cap("distribute_brand_reward", "Distribute Brand Reward", "markets", "brand_rewards", "distribute_reward"),
+    _cap("create_subscription_plan","Create Subscription Plan","markets", "subscriptions", "create_plan"),
     _cap("subscribe",               "Subscribe",               "markets", "subscriptions", "subscribe"),
-    _cap("cancel_subscription",     "Cancel Subscription",     "markets", "subscriptions", "cancel_subscription"),
+    _cap("cancel_subscription",     "Cancel Subscription",     "markets", "subscriptions", "cancel"),
 
     # ── Disputes ───────────────────────────────────────────────────────────
     _cap("file_dispute",            "File Dispute",            "governance", "dispute_resolution", "file_dispute"),
     _cap("submit_dispute_evidence", "Submit Evidence",         "governance", "dispute_resolution", "submit_evidence"),
-    _cap("resolve_dispute",         "Resolve Dispute",         "governance", "dispute_resolution", "resolve_dispute"),
-    _cap("appeal_dispute",          "Appeal Dispute",          "governance", "dispute_resolution", "appeal_dispute"),
-    _cap("dispute_file",            "Dispute File (Legacy)",   "governance", "dispute_resolution", "dispute_file"),
-    _cap("arbitration_request",     "Request Arbitration",     "governance", "dispute_resolution", "arbitration_request"),
+    _cap("resolve_dispute",         "Resolve Dispute",         "governance", "dispute_resolution", "resolve"),
+    _cap("appeal_dispute",          "Appeal Dispute",          "governance", "dispute_resolution", "appeal"),
+    _cap("dispute_file",            "Dispute File (Legacy)",   "governance", "dispute_resolution", "file_dispute"),
+    _cap("arbitration_request",     "Request Arbitration",     "governance", "dispute_resolution", "request_arbitration"),
 
     # ── AI Agents / ML ─────────────────────────────────────────────────────
-    _cap("ai_agent_register",       "Register AI Agent",       "infra", "agent_identity", "ai_agent_register"),
-    _cap("ai_model_trade",          "Trade AI Model",          "infra", "agent_identity", "ai_model_trade"),
-    _cap("training_data_sell",      "Sell Training Data",      "infra", "agent_identity", "training_data_sell"),
-    _cap("ip_license_grant",        "Grant IP License",        "infra", "ip_royalties",   "ip_license_grant"),
+    _cap("ai_agent_register",       "Register AI Agent",       "infra", "agent_identity", "register_agent", feed_event="ai_agent_registered"),
+    _cap("ai_model_trade",          "Trade AI Model",          "infra", "agent_identity", "trade_model_access"),
+    _cap("training_data_sell",      "Sell Training Data",      "infra", "agent_identity", "sell_training_data"),
+    _cap("ip_license_grant",        "Grant IP License",        "infra", "ip_royalties",   "grant_license", feed_event="ip_license_granted"),
 ]
 
 

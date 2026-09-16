@@ -204,7 +204,14 @@ async def test_the_body_wallet_never_reaches_the_dispatcher_as_the_caller():
     from runtime.tools.dispatcher import ToolOutcome
 
     server = _server(api_key=KEY, stub="router")
-    server.react_loop._get_protocol_stack = lambda *a, **k: None   # isolate the identity path
+    # Isolate the identity path with a PERMISSIVE stack, not a missing one:
+    # a stack that cannot be built now fail-closes the tool call (react_loop),
+    # which is the right behaviour and would make this test pass for the wrong
+    # reason — the dispatcher would never be reached at all.
+    _allow = SimpleNamespace(
+        pre_action=AsyncMock(return_value={"approved": True, "decision": "allow"}),
+        post_action=AsyncMock(return_value=None))
+    server.react_loop._get_protocol_stack = lambda *a, **k: _allow
     tool_turn = SimpleNamespace(
         content="", provider="stub",
         tool_calls=[{"id": "t1", "type": "function",

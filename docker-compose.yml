@@ -5,6 +5,13 @@
 #   # edit openmatrix.config.json with real keys
 #   docker compose up -d
 #
+# The container reads the mounted config as uid 1000 (Dockerfile `USER
+# opnmatrx`). A copy of the .example, or a config `python3 setup.py` created,
+# is readable by it under the usual 022 umask. On a Linux host, if the file is
+# 600 (a chmod, or a 077 umask), it must be owned by uid 1000
+# (`sudo chown 1000 openmatrix.config.json`), or the gateway exits with
+# "could not be read".
+#
 # Persistent state lives in the ``opnmatrx_data`` named volume so the
 # SQLite database, daily backups, and any tool workspace files survive
 # container rebuilds.

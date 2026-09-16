@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 
 from runtime.blockchain.services.ip_royalties.ip_registry import IPRegistry
-from runtime.blockchain.services.ip_royalties.royalty_enforcement import RoyaltyEnforcement
+from runtime.blockchain.services.ip_royalties.royalty_enforcement import IPRoyaltyEnforcement
 from runtime.blockchain.services.ip_royalties.distribution import RoyaltyDistribution
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
@@ -44,7 +44,7 @@ class IPRoyaltyService:
         self._web3 = Web3Manager.get_shared(config)
 
         self._registry = IPRegistry(config)
-        self._enforcement = RoyaltyEnforcement(config)
+        self._enforcement = IPRoyaltyEnforcement(config)
         self._distribution = RoyaltyDistribution(config)
 
         # License store
@@ -59,7 +59,7 @@ class IPRoyaltyService:
         return self._registry
 
     @property
-    def enforcement(self) -> RoyaltyEnforcement:
+    def enforcement(self) -> IPRoyaltyEnforcement:
         return self._enforcement
 
     @property

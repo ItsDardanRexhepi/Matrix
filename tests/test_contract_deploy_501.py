@@ -64,9 +64,8 @@ async def test_deploy_and_convert_no_longer_return_the_same_thing(client):
     )
 
 
-def test_sdk_wrapper_refuses_rather_than_pretending():
+async def test_sdk_wrapper_refuses_rather_than_pretending():
     """The SDK method must not silently route to conversion either."""
-    import asyncio
     import inspect
 
     from sdk.client import OpenMatrixClient
@@ -79,6 +78,4 @@ def test_sdk_wrapper_refuses_rather_than_pretending():
 
     client = OpenMatrixClient.__new__(OpenMatrixClient)
     with pytest.raises(NotImplementedError):
-        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
-            client.deploy_contract("contract X")
-        )
+        await client.deploy_contract("contract X")

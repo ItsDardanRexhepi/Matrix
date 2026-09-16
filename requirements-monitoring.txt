@@ -4,6 +4,9 @@
 # reporting enabled. The runtime imports ``sentry_sdk`` only inside a
 # try/except, so leaving this file uninstalled cleanly disables Sentry.
 #
-#   pip install -r requirements.txt -r requirements-monitoring.txt
+#   pip install -r requirements.txt && pip install -r requirements-monitoring.txt
+#
+# (Two commands: requirements.txt is hashed, and pip will not mix hashed and
+# unhashed requirements in one command.)
 
 sentry-sdk~=2.14

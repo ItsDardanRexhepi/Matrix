@@ -464,19 +464,34 @@ def configure_communications(config):
         ("iOS push",   "no",  cfg_ios.configure),
         ("Webhook",    "no",  cfg_webhook.configure),
     ]
+    from setup import _shared
+    import copy
+
     for label, default, fn in prompts:
         pick = ask(f"Configure {label}?", default=default, options=["yes", "no"])
         if pick.lower().startswith("y"):
+            # A channel module writes its config block and stages its .env
+            # values BEFORE its last step (several send a test message). An
+            # interrupt or error after that point used to print "Skipped." over
+            # a half-configured channel that was then written out with
+            # everything else. Snapshot both, and put both back.
+            config_before = copy.deepcopy(config)
+            env_before = _shared.pending_env()
             try:
                 # persist=False: the wizard owns the write. Channel modules
-                # mutate the dict and return it; only write_config() touches
-                # disk, and only after the operator has agreed to overwrite.
-                # RUN-1 was these nine calls each writing immediately.
+                # mutate the dict and stage .env updates; only commit_setup()
+                # touches disk, and only after the operator has agreed to
+                # overwrite. RUN-1 was these nine calls each writing
+                # immediately — and the .env half of it survived RUN-1.
                 fn(config, persist=False)
-            except KeyboardInterrupt:
-                info("Skipped.")
-            except Exception as exc:
-                info(f"{label} setup failed ({exc}); continuing.")
+            except (KeyboardInterrupt, Exception) as exc:
+                config.clear()
+                config.update(config_before)
+                _shared.restore_pending_env(env_before)
+                if isinstance(exc, KeyboardInterrupt):
+                    info("Skipped — nothing from this channel was kept.")
+                else:
+                    info(f"{label} setup failed ({exc}); nothing from it was kept. Continuing.")
 
     # Ensure the unified "notifications" block exists even if empty.
     config.setdefault("notifications", {})
@@ -566,31 +581,57 @@ def write_config(config):
     stays safe if it is ever called from somewhere else.
     """
     path = Path("openmatrix.config.json")
-    if path.exists():
+    existed = path.exists()
+    if existed:
         overwrite = ask("openmatrix.config.json already exists. Overwrite?", default="no", options=["yes", "no"])
         if overwrite.lower() != "yes":
             warn("Setup cancelled. Existing config preserved.")
             return False
 
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(config, indent=2) + "\n")
-    os.replace(tmp, path)
+    from setup._shared import CONFIG_NEW_FILE_MODE, write_secret_file   # keeps mode and symlinks
+    # .gitignore is checked (setup_gitignore, once) before the first key lands on disk.
+    write_secret_file(path, json.dumps(config, indent=2) + "\n",
+                      new_file_mode=CONFIG_NEW_FILE_MODE, check=setup_gitignore)
     success(f"Config written to {path}")
+    if not existed:
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o077:
+            info(f"{path} holds your keys and was created mode {mode:o}, readable by other local "
+                 f"accounts, because the Docker image reads it as uid 1000 (see docker-compose.yml).")
+            info(f"Not deploying with Docker?  chmod 600 {path}")
     return True
 
 
+def commit_setup(config):
+    """Everything the wizard writes, in order, only once the operator agreed.
+
+    The config (write_config re-asks if one exists and returns False on "no"),
+    then the .env values the channel modules staged. Declining writes none of
+    them. Both go through setup._shared.write_secret_file, so .gitignore is
+    checked, and the operator told by name about any secret file git would
+    still commit, before the first of them is written.
+    """
+    from setup import _shared
+    if not write_config(config):
+        return False
+    _shared.flush_pending_env()
+    return True
+
+
+def _git_verdict(names):
+    """git's verdict on which of *names* it would commit (setup/_gitignore.py)."""
+    from setup import _gitignore
+    return _gitignore.git_verdict(names, info=info)
+
+
 def setup_gitignore():
-    """Ensure config file with real keys isn't committed."""
-    gitignore = Path(".gitignore")
-    if gitignore.exists():
-        content = gitignore.read_text()
-        if "openmatrix.config.json" not in content:
-            with open(gitignore, "a") as f:
-                f.write("\n# Real config with secrets — never commit\nopenmatrix.config.json\n")
-            success(".gitignore updated")
-    else:
-        gitignore.write_text("openmatrix.config.json\n__pycache__/\n*.pyc\n.env\n")
-        success(".gitignore created")
+    """Keep the files holding real keys out of commits, and say so when it cannot.
+
+    The implementation is setup/_gitignore.py, shared with the channel wizards
+    run on their own; this is it with the wizard's own output.
+    """
+    from setup import _gitignore
+    _gitignore.setup_gitignore(warn=warn, info=info, success=success, verdict=_git_verdict)
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -656,10 +697,9 @@ def main():
     print(f"\n{CYAN}{BOLD}{'═' * 60}{RESET}")
     step("✓", "✓", "Finalizing Setup")
 
-    if not write_config(config):
+    if not commit_setup(config):
         return
 
-    setup_gitignore()
     verify_setup(config)
 
     # Done

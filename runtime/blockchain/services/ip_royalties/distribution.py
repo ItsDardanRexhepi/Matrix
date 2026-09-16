@@ -53,9 +53,9 @@ class RoyaltyDistribution:
         beneficiaries: list[dict[str, Any]] = []
         try:
             from runtime.blockchain.services.ip_royalties.royalty_enforcement import (
-                RoyaltyEnforcement,
+                IPRoyaltyEnforcement,
             )
-            enforcement = RoyaltyEnforcement(self._config)
+            enforcement = IPRoyaltyEnforcement(self._config)
             config = await enforcement.get_config(ip_id)
             beneficiaries = config.get("beneficiaries", [])
         except Exception:

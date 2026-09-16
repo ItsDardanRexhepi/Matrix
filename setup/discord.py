@@ -25,7 +25,7 @@ def configure(config: dict, persist: bool = True) -> dict:
     channel_cfg = {"webhook_url": url, "username": username}
     update_channel(config, "discord", channel_cfg)
     save_config(config, persist=persist)
-    update_env({"DISCORD_WEBHOOK_URL": url})
+    update_env({"DISCORD_WEBHOOK_URL": url}, persist=persist)
     result = test_channel_via_dispatcher(config, "discord")
     if result.get("status") == "ok":
         success("Discord saved and test message delivered.")

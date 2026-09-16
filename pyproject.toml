@@ -32,17 +32,34 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
-    "aiohttp~=3.9",
-    "aiofiles~=23.2",
-    "web3~=6.20",
-    "eth-account~=0.11",
-    "eth-abi~=5.0",
+    # Compatible ranges for `pip install .`. The lower bound is the version the
+    # suite runs on; requirements.txt locks that exact point (and the closure).
+    # tests/test_dependency_manifests.py keeps the two in agreement and derives
+    # this list's completeness from the code's own imports.
+    "aiohttp~=3.14",
+    "aiofiles~=25.1",
+    "web3~=7.16",
+    "eth-account~=0.13.7",
+    "eth-abi~=6.0",
+    "eth-utils~=6.0",
     "py-solc-x~=2.0",
-    "pynacl~=1.5",
-    "requests~=2.32",
-    "python-dotenv~=1.0",
+    "pynacl~=1.6",
+    "requests~=2.34",
+    "python-dotenv~=1.2",
     "pyyaml~=6.0",
-    "duckduckgo_search~=5.3",
+    "duckduckgo_search~=8.1",
+    "python-telegram-bot~=22.8",
+    "cryptography~=50.0",
+    "qrcode~=8.2",
+    "requests-oauthlib~=2.0",
+    "httpx~=0.28.1",
+    # Without it Sign in with Apple and App Store receipt verification fail
+    # closed on this install path, and the route answers a 401 that looks
+    # exactly like a bad token.
+    "PyJWT[crypto]~=2.14",
+    # Imported directly by gateway/service_routes.py for the batch sub-request's
+    # query mapping; it arrives with aiohttp, but a direct import is declared.
+    "multidict~=6.7",
 ]
 
 [project.optional-dependencies]

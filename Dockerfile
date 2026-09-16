@@ -3,37 +3,45 @@
 # 0pnMatrx gateway image.
 #
 # Multi-stage build:
-#   1. ``builder`` installs Python dependencies into a virtualenv. Build
-#      tools (gcc, etc.) live only in this stage so they don't bloat the
-#      runtime image.
+#   1. ``builder`` installs Python dependencies into a virtualenv, from
+#      hashed locks and wheels only.
 #   2. ``runtime`` copies the prebuilt venv plus application code, runs
 #      as a non-root user, and exposes the gateway HTTP port.
+#
+# Every input the builder takes is pinned to content, not to a name that can
+# move. The base image is pinned by digest: `python:3.11-slim` alone is
+# re-pointed on every Python and Debian patch release. That digest is the
+# multi-arch index for python:3.11.16-slim-trixie as of 2026-09-12. pip and
+# setuptools come from requirements-build.txt, and every runtime package from
+# requirements.txt. Each is exact and --require-hashes, so a new version, or
+# a new file uploaded for a pinned version, is refused. --only-binary=:all:
+# means nothing is compiled, so no unpinned build backend (setuptools, a
+# Rust or C toolchain) takes part in the build; the compiler packages this
+# stage used to apt-get are gone with it. Still floating, and so NOT
+# bit-for-bit reproducible: the runtime stage's apt-get packages below come
+# from whatever the Debian mirror serves that day.
+#
+# To move the base image: resolve the new digest (for example
+# `docker buildx imagetools inspect python:3.11-slim`), replace BOTH FROM
+# lines, rebuild, and run the suite in the result.
 
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM python:3.11.16-slim-trixie@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Build deps for native wheels (eth-hash, pynacl, etc.).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        gcc \
-        libssl-dev \
-        libffi-dev \
-        pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /build
-COPY requirements.txt ./
+COPY requirements-build.txt requirements.txt ./
 RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
-    && /opt/venv/bin/pip install -r requirements.txt
+    && /opt/venv/bin/pip install --require-hashes -r requirements-build.txt \
+    && /opt/venv/bin/pip install --require-hashes --only-binary=:all: -r requirements.txt
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM python:3.11-slim AS runtime
+# Same digest as the builder: the venv's compiled wheels were chosen for it.
+FROM python:3.11.16-slim-trixie@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
