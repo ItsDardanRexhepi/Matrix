@@ -737,10 +737,22 @@ class BridgeRoutes:
         if not message:
             return MobileResponse.error("message required")
 
-        forbid = getattr(self._server, "_agent_forbidden_for_caller", None)
-        forbidden = forbid(request, agent) if forbid else None
-        if forbidden:
-            return MobileResponse.error(forbidden, 403)
+        # The same canonical agent and the same refusal as /chat and /ws. This
+        # surface had no membership check, and the operator check compared the
+        # raw name, so {"agent": "Neo"} reached Neo's tools with no credential.
+        # A server that cannot say whether the caller is the operator gets
+        # Trinity or nothing.
+        from gateway.chat_agents import resolve_chat_agent
+        resolve = getattr(self._server, "_resolve_chat_agent", None)
+        agent, refused = (resolve(request, body.get("agent", "trinity")) if resolve
+                          else resolve_chat_agent(body.get("agent", "trinity"), False))
+        if refused:
+            return MobileResponse.error(refused[1], refused[0])
+        # T2: the Apple user behind the presented session is the apple_id the
+        # Morpheus gate sees — not a value the body asserts.
+        apple_sub = getattr(self._server, "_session_apple_id", lambda _r: "")(request)
+        if apple_sub:
+            body = {**body, "apple_id": apple_sub}
         # T3: never the shared "default" — the body's own id, else a session
         # derived from the presented wallet session, else refused in production.
         resolve = getattr(self._server, "_resolve_session_id", None)
@@ -756,8 +768,10 @@ class BridgeRoutes:
             turn_claim = None
 
         try:
-            result = await self._handle_chat_internal(message, agent, session_id, body, request,
-                                                      claim=turn_claim)
+            caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
+            result = await self._handle_chat_internal(
+                message, agent, session_id, body, request,
+                claim=turn_claim, caller_kind=caller_kind)
             return MobileResponse.ok(result)
         except Exception as e:
             # NEW-8 + RUN-5: this was `MobileResponse.error(str(e), 500)` — the
@@ -778,7 +792,8 @@ class BridgeRoutes:
             return MobileResponse.from_exception(e, what="Bridge chat")
 
     async def _handle_chat_internal(
-        self, message: str, agent: str, session_id: str, body: dict, request, *, claim=None,
+        self, message: str, agent: str, session_id: str, body: dict, request, *,
+        claim=None, caller_kind: str = "",
     ) -> dict:
         """Internal chat handler that reuses gateway logic."""
         from runtime.react_loop import Message
@@ -819,6 +834,17 @@ class BridgeRoutes:
             **self._server._chat_user_context(
                 request, session_id=session_id, agent=agent, body=body),
             "platform": "ios",
+            # app_attest is threaded from the body because it is a SIGNED
+            # assertion the Morpheus gate verifies, not a claim the caller makes
+            # about itself. apple_id is NOT re-read here: the builder above
+            # derives it from the presented session, and letting the body spread
+            # over it would hand an anonymous caller any identity it named.
+            "app_attest": body.get("app_attest"),
+            # Which CREDENTIAL this request carries (operator / session /
+            # anonymous), computed by the gateway — never read from the body. The
+            # tool dispatcher refuses a non-operator caller the operations a
+            # session's own routes refuse (gateway/session_routes.py).
+            "caller_kind": caller_kind,
         }
         context.metadata["client_context"] = self._server._client_turn_context(body)
         # The claim the turn was admitted under: the loop writes scoped memory,
@@ -877,6 +903,22 @@ class BridgeRoutes:
             return MobileResponse.error("params must be an object", 400)
         session_id = self._key(session_id)
 
+        # This route is on the session allowlist because the app's client has a
+        # call for it, and it is a DISPATCHER: it takes any ACTION_MAP action name
+        # into the same ServiceDispatcher the dedicated /api/v1 routes use. A
+        # session refused `POST /api/v1/crossborder/send` (and refused the same
+        # operation as a catalog capability) got HTTP 200 here for
+        # `send_payment`. The refusal is keyed on the (service, method) the
+        # action resolves to, so every dispatcher gives one answer; the operator
+        # key is unaffected.
+        caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
+        if caller_kind and caller_kind != "operator":
+            # One refusal for every dispatcher and every credential tier.
+            from gateway.session_routes import caller_refusal_message, caller_refused_route
+            refused = caller_refused_route(caller_kind, action)
+            if refused:
+                return MobileResponse.error(caller_refusal_message(caller_kind, refused), 403)
+
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.
         # Identity comes from the session's linked wallet; the App Attest assertion
@@ -898,7 +940,9 @@ class BridgeRoutes:
             app_attest=body.get("app_attest"),
             session_id=session_id,
         )
-        decision = await gate_action(action, params, current_request_security())
+        from runtime.access_policy import dispatch_pair
+        decision = await gate_action(action, params if isinstance(params, dict) else {},
+                                     current_request_security(), operation=dispatch_pair(action))
         if is_blocked(decision):
             return MobileResponse.error(generic_denial(decision), 403)
 

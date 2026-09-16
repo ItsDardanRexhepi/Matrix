@@ -178,7 +178,17 @@ check behind it:
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
-  rather than adopted
+  rather than adopted. Which agent answers is settled by one resolver, so
+  a different spelling of a privileged agent's name is not a way past the
+  operator check
+- **Deleting your account is all or nothing.** The conversations, their
+  claims, the scoped memory and the erasure record go in a single
+  transaction; if any part of it fails the request answers 503 and
+  removes nothing, rather than reporting success over data it left behind
+- **A batch request carries the credential it was sent with.** Each item
+  inherits the batch's caller, so an operator's batch reaches what an
+  operator reaches and an anonymous one does not borrow more than it
+  brought
 - **Security posture is stated, not assumed.** With no enforcement core
   installed the platform runs in OBSERVE mode and says so at boot
 

@@ -569,9 +569,15 @@ class GatewayServer:
         message, agent, invalid = self._chat_turn_input(body)
         if invalid:
             return web.json_response({"error": invalid}, status=400)
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
+        # The canonical agent, and the same refusal on every entrance. The
+        # earlier check compared the RAW name while the access policy lowercases
+        # it, so "NEO", " neo" and null reached Neo's tools with no credential.
+        agent, refused = self._resolve_chat_agent(request, agent)
+        if refused:
+            status, why = refused
+            if status == 403:
+                return web.json_response({"error": "forbidden", "message": why}, status=403)
+            return web.json_response({"error": why}, status=status)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
@@ -1371,9 +1377,15 @@ class GatewayServer:
         message, agent, invalid = self._chat_turn_input(body)
         if invalid:
             return web.json_response({"error": invalid}, status=400)
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
+        # The canonical agent, and the same refusal on every entrance. The
+        # earlier check compared the RAW name while the access policy lowercases
+        # it, so "NEO", " neo" and null reached Neo's tools with no credential.
+        agent, refused = self._resolve_chat_agent(request, agent)
+        if refused:
+            status, why = refused
+            if status == 403:
+                return web.json_response({"error": "forbidden", "message": why}, status=403)
+            return web.json_response({"error": why}, status=status)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
@@ -1484,9 +1496,12 @@ class GatewayServer:
             if invalid:
                 await ws.send_json({"type": "error", "error": invalid})
                 continue
-            forbidden = self._agent_forbidden_for_caller(request, agent)
-            if forbidden:
-                await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
+            agent, refused = self._resolve_chat_agent(request, agent)
+            if refused:
+                status, why = refused
+                await ws.send_json({"type": "error",
+                                    "error": "forbidden" if status == 403 else "invalid agent",
+                                    "message": why})
                 continue
 
             session_id, session_error = self._resolve_session_id(request, payload.get("session_id"))
@@ -2621,15 +2636,52 @@ class GatewayServer:
             return request.headers.get("X-Wallet-Address", "").strip()
         return ""
 
+    def _caller_kind(self, request: web.Request) -> str:
+        """Which credential this request carries: ``"operator"`` (the operator
+        key, or auth off — development, where whoever runs the gateway is the
+        operator), ``"session"`` (a live wallet session), else ``"anonymous"``.
+
+        Never read from a body field. ``request["auth"]`` is used when the auth
+        wall recorded one, but it is not enough on its own: the chat surfaces
+        (/chat, /ws, /bridge/v1/chat) are public paths the wall passes straight
+        through, so for them the kind is derived from the presented credential. Carried into a chat's user_context so the
+        tool dispatcher refuses a non-operator caller the operations a session's
+        own routes refuse (gateway/session_routes.py) — an anonymous caller is
+        refused at least what a signed-in one is, and one tier further: every
+        operation behind a route that is not public, and every state change
+        (session_routes.caller_refused_route).
+        """
+        # A non-public route already passed the wall, which recorded the kind it
+        # accepted (a batch sub-request inherits its batch's). Public paths
+        # record nothing and are derived from the presented credential.
+        recorded = (request.get("auth") if hasattr(request, "get") else None) or {}
+        if recorded.get("kind") in ("operator", "session"):
+            return str(recorded["kind"])
+        if self._is_operator(request):
+            return "operator"
+        if self._wallet_session_from_request(request) is not None:
+            return "session"
+        return "anonymous"
+
+    def _resolve_chat_agent(self, request: web.Request, raw):
+        """``(agent, None)`` or ``(None, (status, message))`` for the agent a chat
+        names: canonicalised once (gateway/chat_agents.py), then membership, then
+        the operator check on the canonical name. Every chat surface calls this
+        and runs the canonical name it returns.
+
+        On a user-facing chat surface the agent is Trinity. Naming Neo or
+        Morpheus, in any spelling, takes the operator key; a user or anonymous
+        caller who does is refused explicitly (403), never silently redirected.
+        The check used to compare the raw name exactly while the tool policy
+        lowercased it, so ``"Neo"`` on /bridge/v1/chat was Neo for anyone."""
+        from gateway.chat_agents import resolve_chat_agent
+        return resolve_chat_agent(raw, self._is_operator(request))
+
     def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
-        """On a user-facing chat surface the agent is Trinity. Naming Neo or
-        Morpheus takes the operator key; a user or anonymous caller who does is
-        refused explicitly (403), never silently redirected. Unknown names
-        return None so the existing 400 answers them."""
-        if agent in ("neo", "morpheus") and not self._is_operator(request):
-            return (f"agent '{agent}' requires the operator key; users talk to Trinity "
-                    "(omit 'agent' or send 'trinity')")
-        return None
+        """The 403 message ``_resolve_chat_agent`` gives *agent*, or None (an
+        allowed name, or one that is no agent at all, which is a 400)."""
+        _agent, refused = self._resolve_chat_agent(request, agent)
+        return refused[1] if refused and refused[0] == 403 else None
 
     # ─── T3 · one session per caller, never one for everyone ─────────────
 
@@ -2847,8 +2899,13 @@ class GatewayServer:
             return "", "", "message is required"
         if len(message) > CHAT_MESSAGE_MAX_CHARS:
             return "", "", f"message too long (at most {CHAT_MESSAGE_MAX_CHARS} characters)"
+        # The agent is returned RAW. Membership is decided once, by
+        # _resolve_chat_agent, which canonicalises first — this check compared
+        # the raw name while the access policy lowercases it, so "Neo" was
+        # refused here as invalid while " neo" sailed past the operator check
+        # further down. One resolver owns the spelling and the membership.
         agent = body.get("agent", "trinity")
-        if not isinstance(agent, str) or agent not in CHAT_AGENTS:
+        if not isinstance(agent, str):
             return "", "", f"invalid agent, must be one of: {', '.join(CHAT_AGENTS)}"
         return message, agent, None
 
@@ -2892,6 +2949,7 @@ class GatewayServer:
             "session_id": session_id,
             "memory_scope": self._memory_scope(request, session_id),
             "agent": agent,
+            "caller_kind": self._caller_kind(request),
             "wallet_address": identity,
             "apple_id": apple_id,
             "app_attest": body.get("app_attest"),

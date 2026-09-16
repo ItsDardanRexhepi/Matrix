@@ -1,5 +1,9 @@
 """
-RoyaltyEnforcement — configure and enforce royalties on IP usage.
+IPRoyaltyEnforcement — configure and enforce royalties on IP usage.
+
+Named for its package: nft_services/royalty_enforcement.py defines an unrelated
+RoyaltyEnforcement (NFT sale royalties, a different API). Two classes sharing
+one name is the DataAggregator collision 499aef9 ended; this ends the other one.
 
 Qualifying transaction types: sale, license, stream, download,
 derivative, syndication.  Each type can have a different royalty
@@ -31,7 +35,7 @@ _DEFAULT_ROYALTIES: dict[str, float] = {
 }
 
 
-class RoyaltyEnforcement:
+class IPRoyaltyEnforcement:
     """Enforces royalty rules on IP usage.
 
     Config keys (under ``config["ip_royalties"]``):

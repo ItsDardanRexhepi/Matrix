@@ -452,6 +452,12 @@ class SocialService:
         if target_profile:
             if follower not in target_profile.get("followers", []):
                 target_profile.setdefault("followers", []).append(follower)
+        if not follower_profile and not target_profile:
+            # Nothing was written: neither wallet has a profile. social_follow is
+            # a state change (and so attested), and "following" here would
+            # attest a follow that did not happen.
+            return {"status": "not_found", "follower": follower, "target": target,
+                    "error": "neither wallet has a social profile; nothing was followed"}
         record = {
             "id": follow_id,
             "status": "following",

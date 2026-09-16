@@ -571,17 +571,24 @@ def test_the_exemptions_still_quote_something_that_is_there():
     assert not stale, f"TRUE_IN_CONTEXT no longer matches: {stale}"
 
 
-def test_the_docs_name_the_chat_exception_to_session_identity():
-    """docs/api-reference.md says that with a wallet session the caller's
-    identity is the session's subject and nothing in the request overrides it.
-    That holds for the /api/v1/* routes the middleware binds. It does not hold
-    on /chat: gateway/server.py builds user_context["wallet_address"] from the
-    request body alone, session or not, and that is the value threaded to the
-    tools and recorded as the actor (the two chat-path tests above). The
-    paragraph has to say so."""
+def test_the_docs_state_the_chat_rule_that_now_holds():
+    """MERGE of cd/routes-honesty and cd/gateway changed what this must say.
+
+    Written when /chat built user_context["wallet_address"] from the request
+    body alone, session or not, this required the docs to name that as an
+    exception to session identity. cd/gateway removed the exception: all four
+    chat entrances derive identity from the presented session
+    (_chat_user_context), and a caller-written field is consulted only for an
+    operator request. The paragraph must state the RULE and name the operator
+    path as asserted — there is no longer a /chat exception to disclose."""
     doc = _folded((REPO / "docs/api-reference.md").read_text())
     assert "nothing in the request overrides it" in doc, (
-        "the identity paragraph moved; re-check that its exception is still stated")
-    assert "/chat" in doc.split("nothing in the request overrides it")[1][:900], (
-        "the identity paragraph does not name the /chat exception: with a session, "
-        "the identity /chat threads to the tools is still the body's `wallet` field")
+        "the identity paragraph moved; re-check that the session rule is still stated")
+    # The whole identity paragraph. It cannot be cut on "**" — the paragraph
+    # bolds words inside itself ("an anonymous chat has **no** identity") — so
+    # it runs to the next paragraph by name.
+    after = doc.split("nothing in the request overrides it")[1].split("Conversations belong to")[0]
+    assert "asserted" in after.lower(), (
+        "the paragraph states the session rule but does not name the operator path "
+        "as ASSERTED rather than authenticated")
+

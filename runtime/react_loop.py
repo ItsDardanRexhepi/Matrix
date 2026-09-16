@@ -39,6 +39,34 @@ from runtime.tools.dispatcher import ToolDispatcher
 from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
 
+
+def _caller_kind_of(user_context: Any) -> str:
+    """The credential behind this turn, as the gateway computed it ("operator",
+    "session", "anonymous"), carried like agent_name from the gateway-built
+    context only. A context the gateway built WITHOUT the field is read as
+    "anonymous", so a chat surface that forgets to set it is refused the
+    session-refused operations rather than granted them. No user_context at all
+    (A2A, internal runs) has no HTTP caller: ""."""
+    if not isinstance(user_context, dict) or not user_context:
+        return ""
+    return str(user_context.get("caller_kind") or "anonymous")
+
+
+def _gate_fault_denies(tool_name: str, arguments: Any) -> bool:
+    """True when a tool call must NOT run because the protocol gate could not
+    decide on it. The same direction `ProtocolStack._deny_on_gate_fault` gives a
+    single faulted gate: whatever `could_move_value` (value-moving, state-
+    modifying, owner-gated or unrecognised) is refused — for the dispatching
+    tools, judged on the (service, method) the call resolves to as well as its
+    label; a clearly benign read proceeds. If the classification itself cannot
+    run, refuse."""
+    try:
+        from runtime.access_policy import dispatch_could_move_value
+        return bool(dispatch_could_move_value(tool_name, arguments))
+    except Exception:
+        logger.exception("gate-fault classification failed for tool=%s; refusing", tool_name)
+        return True
+
 logger = logging.getLogger(__name__)
 
 _LOOP_DETECTION_THRESHOLD = 3
@@ -133,8 +161,12 @@ class ReActLoop:
             from runtime.protocols.integration import ProtocolStack
             stack = ProtocolStack(self.config, agent_name)
         except Exception:
+            # The integration module ships in this repo, so None here is a
+            # construction FAULT, never an absent install. It is not cached (the
+            # next turn retries), and run() treats it as a gate that could not
+            # decide: value-moving calls are refused, not run ungated.
             logger.exception("Failed to create ProtocolStack for agent=%s", agent_name)
-            stack = None
+            return None
         self._protocol_stacks[key] = stack
         while len(self._protocol_stacks) > self._protocol_stack_cap:
             self._protocol_stacks.popitem(last=False)
@@ -338,35 +370,54 @@ class ReActLoop:
 
                 # ── Protocol pre-action ────────────────────────────
                 morpheus_prefix = ""
+                denial = None
+                # No stack (construction fault) and a pre_action that RAISED are
+                # the same fact: the gate decided nothing. This used to log and
+                # fall through to dispatch, so any exception outside pre_action's
+                # own per-gate handlers — a function-local import, a refusal check
+                # tripping on a `security: null` config — read as approval. The
+                # direction is the one pre_action uses for a single faulted gate.
+                gate_fault = protocol_stack is None
                 if protocol_stack is not None:
                     try:
                         gate = await protocol_stack.pre_action(
                             tool_name, arguments, context.metadata.get("user_context", {}),
                         )
-                        if not gate.get("approved", True):
-                            # Tool call denied by protocol gate
-                            denial = gate.get("denial_reason", "Action denied by security protocols.")
-                            logger.warning(
-                                "[%s] tool %s DENIED: %s", context.agent_name, tool_name, denial,
-                            )
-                            messages.append(Message(
-                                role="tool",
-                                content=f"[DENIED] {denial}",
-                                tool_call_id=tool_call.get("id", ""),
-                                name=tool_name,
-                            ))
-                            all_tool_calls.append({
-                                "tool": tool_name,
-                                "arguments": arguments,
-                                "result_preview": f"[DENIED] {denial}",
-                                "success": False,
-                            })
-                            confidence_scores.append(0.2)
-                            continue  # skip execution, let the model see the denial
-                        if gate.get("morpheus_message"):
+                        # The VERDICT decides, never its reason: be88818 skipped
+                        # dispatch only when a reason string came back, so
+                        # `approved: False, denial_reason: None` ran the call.
+                        # Only the literal approval is an approval.
+                        if gate.get("approved") is not True:
+                            reason = gate.get("denial_reason")
+                            denial = (reason if isinstance(reason, str) and reason.strip()
+                                      else "Action denied by security protocols.")
+                        elif gate.get("morpheus_message"):
                             morpheus_prefix = gate["morpheus_message"] + "\n\n"
                     except Exception:
                         logger.exception("Protocol pre-action failed for tool=%s", tool_name)
+                        gate_fault = True
+                if gate_fault and denial is None and _gate_fault_denies(tool_name, arguments):
+                    logger.error("[%s] protocol gate unavailable; FAIL-CLOSED deny of tool=%s",
+                                 context.agent_name, tool_name)
+                    denial = "This action couldn't be authorized right now. Please try again."
+                if denial is not None:
+                    logger.warning(
+                        "[%s] tool %s DENIED: %s", context.agent_name, tool_name, denial,
+                    )
+                    messages.append(Message(
+                        role="tool",
+                        content=f"[DENIED] {denial}",
+                        tool_call_id=tool_call.get("id", ""),
+                        name=tool_name,
+                    ))
+                    all_tool_calls.append({
+                        "tool": tool_name,
+                        "arguments": arguments,
+                        "result_preview": f"[DENIED] {denial}",
+                        "success": False,
+                    })
+                    confidence_scores.append(0.2)
+                    continue  # skip execution, let the model see the denial
 
                 logger.info(f"[{context.agent_name}] calling tool: {tool_name}({list(arguments.keys())})")
                 # Pass the TRUSTED agent identity (gateway-validated context) so the
@@ -387,7 +438,8 @@ class ReActLoop:
                 outcome = await self.dispatcher.dispatch(
                     tool_name, arguments, agent_name=context.agent_name,
                     caller_identity=str(_uc.get("wallet_address") or ""),
-                    caller_source="agent")
+                    caller_source="agent",
+                    caller_kind=_caller_kind_of(_uc))
 
                 # NEW-27: three audiences, three values. These used to be one
                 # string, which is why a tool failure could ship its exception

@@ -25,8 +25,13 @@ class ProtocolStack:
     """Unified protocol interface for the ReAct loop.
 
     Lazily initialises all sub-protocols with graceful error handling.
-    Any protocol that fails to load or errors at runtime is logged
-    and skipped — the agent continues operating.
+    An ADVISORY protocol (Jarvis, Friday, Vision, Trajectory, Ultron, the
+    Morpheus triggers) that fails to load or errors at runtime is logged and
+    skipped — the agent continues operating. A protocol that can REFUSE an
+    action (Morpheus security, RexhepiGate, the Glasswing auditor) is not
+    skipped on a fault: a fault is not a posture, so an action that could move
+    value fails closed and only a benign read proceeds (see
+    ``_deny_on_gate_fault``).
     """
 
     def __init__(self, config: dict, agent_name: str) -> None:
@@ -50,6 +55,11 @@ class ProtocolStack:
         # (§CD sibling axis: the evaluate-time fault fails closed, the init-time
         # one silently skipped the whole block).
         self._morpheus_init_failed = False
+        # The same distinction for the other two gates that can refuse an
+        # action. Both are PUBLIC modules that always ship, so for them "None"
+        # after init can only mean the construction raised.
+        self._rexhepi_init_failed = False
+        self._auditor_init_failed = False
 
         self._init_protocols()
 
@@ -105,6 +115,7 @@ class ProtocolStack:
             self._rexhepi_gate = RexhepiGate(self.config.get("rexhepi", {}))
         except Exception:
             logger.exception("Failed to initialise RexhepiGate")
+            self._rexhepi_init_failed = True
 
         try:
             from runtime.protocols.omega import OmegaMind
@@ -117,6 +128,7 @@ class ProtocolStack:
             self._auditor = ContractAuditor(self.config)
         except Exception:
             logger.exception("Failed to initialise ContractAuditor")
+            self._auditor_init_failed = True
 
         # Morpheus — the authoritative server-side security gate (the spine).
         # Consulted first in pre_action, ahead of RexhepiGate. Uses the process-wide
@@ -358,7 +370,73 @@ class ProtocolStack:
 
     # ── Pre-action: runs BEFORE each tool call ───────────────────────
 
+    @staticmethod
+    def _deny_on_gate_fault(result: dict[str, Any], action_type: str, gate: str,
+                            phase: str, *, call: tuple[str, Any] | None = None) -> bool:
+        """The ONE fail-direction for a gate that faulted, whichever gate it is.
+
+        A gate that raised (``phase="evaluate"``) or never constructed
+        (``phase="init"``) has made no decision, and no decision must not read
+        as approval. Anything ``could_move_value`` — value-moving, owner-gated or
+        simply unrecognised — is denied with the generic label; a clearly benign
+        read proceeds so a transient fault doesn't break it. Returns True when
+        the caller must return ``result`` now.
+
+        This used to live only on the Morpheus branch. RexhepiGate and the
+        Glasswing auditor logged the same fault and fell through with
+        ``approved`` still True, so a transfer Morpheus's fault denies was
+        waved through one block later.
+
+        ``call`` is the ``(tool_name, arguments)`` being gated. With it the
+        direction is also keyed on the (service, method) a dispatching tool
+        RESOLVES to — a platform_action ``service`` override moves an action
+        name onto another service's method, and the label alone would not see
+        it. If the classification itself cannot run, the call is refused.
+        """
+        try:
+            if call is not None:
+                from runtime.access_policy import dispatch_could_move_value
+                moves_value = dispatch_could_move_value(*call)
+            else:
+                from runtime.access_policy import could_move_value
+                moves_value = could_move_value(action_type)
+        except Exception:
+            logger.exception("gate-fault classification failed (action=%s); refusing", action_type)
+            moves_value = True
+        if moves_value:
+            logger.error("%s gate unavailable (%s fault); FAIL-CLOSED deny (action=%s)",
+                         gate, phase, action_type)
+            result["approved"] = False
+            result["denial_reason"] = (
+                "This action couldn't be authorized right now. Please try again."
+            )
+            return True
+        logger.warning("%s gate unavailable (%s fault); benign read allowed (action=%s)",
+                       gate, phase, action_type)
+        return False
+
     async def pre_action(
+        self,
+        tool_name: str,
+        arguments: dict,
+        context: dict,
+    ) -> dict[str, Any]:
+        """Gate-check a tool call before execution (see ``_pre_action``).
+
+        The one exit every verdict passes: ``approved`` is the literal True or
+        the literal False, and a False always carries a non-empty string
+        ``denial_reason``. A deny with no stated reason must never be readable
+        as anything but a deny, whichever branch produced it.
+        """
+        result = await self._pre_action(tool_name, arguments, context)
+        if result.get("approved") is not True:
+            result["approved"] = False
+            reason = result.get("denial_reason")
+            if not (isinstance(reason, str) and reason.strip()):
+                result["denial_reason"] = "Action denied by security protocols."
+        return result
+
+    async def _pre_action(
         self,
         tool_name: str,
         arguments: dict,
@@ -419,17 +497,8 @@ class ProtocolStack:
             # The gate could not be CONSTRUCTED. That is a fault, not a posture,
             # and it gets the same fail-direction the evaluate-time fault gets:
             # a value-moving or unrecognised action must not proceed ungated.
-            from runtime.access_policy import could_move_value
-            if could_move_value(action_type):
-                logger.error("Morpheus gate unavailable (init failed); FAIL-CLOSED deny "
-                             "(action=%s)", action_type)
-                result["approved"] = False
-                result["denial_reason"] = (
-                    "This action couldn't be authorized right now. Please try again."
-                )
+            if self._deny_on_gate_fault(result, action_type, "Morpheus", "init", call=(tool_name, arguments)):
                 return result
-            logger.warning("Morpheus gate unavailable (init failed); benign read allowed "
-                           "(action=%s)", action_type)
 
         if self._morpheus_security is not None:
             try:
@@ -437,8 +506,14 @@ class ProtocolStack:
                 result["morpheus_security"] = decision
                 if not decision.get("allow", True):
                     result["approved"] = False
-                    result["denial_reason"] = decision.get(
-                        "reason", "Blocked by Morpheus security."
+                    # `.get("reason", default)` applies the default only to a
+                    # MISSING key: `reason: None` came through as None, and a
+                    # caller that read the reason instead of the verdict ran the
+                    # denied call (be88818's ReActLoop). A deny always states one.
+                    reason = decision.get("reason")
+                    result["denial_reason"] = (
+                        reason if isinstance(reason, str) and reason.strip()
+                        else "Blocked by Morpheus security."
                     )
                     return result
             except Exception:
@@ -450,18 +525,18 @@ class ProtocolStack:
                 # arguments. The authoritative classification lives in the private gate.
                 # The canonical action type carries the twins' real verb and
                 # platform_action's inner action alike.
-                from runtime.access_policy import could_move_value
-                if could_move_value(action_type):
-                    result["approved"] = False
-                    result["denial_reason"] = (
-                        "This action couldn't be authorized right now. Please try again."
-                    )
+                if self._deny_on_gate_fault(result, action_type, "Morpheus", "evaluate", call=(tool_name, arguments)):
                     return result
 
         # Rexhepi gate evaluation — the URF reasoning loop scores the six
         # gates and resolves one canonical outcome. Only EXECUTE is a green
         # light; PROBE/ASK/DEFER/ABORT hold the action and tell the loop what
         # canonical move to make instead (URF §12).
+        if self._rexhepi_gate is None and self._rexhepi_init_failed:
+            # RexhepiGate ships in this repo, so None here is a construction
+            # fault, never an absent install — same direction as Morpheus's.
+            if self._deny_on_gate_fault(result, action_type, "RexhepiGate", "init", call=(tool_name, arguments)):
+                return result
         if self._rexhepi_gate is not None:
             try:
                 gate_result = await self._rexhepi_gate.evaluate(action, context)
@@ -480,6 +555,11 @@ class ProtocolStack:
                     return result
             except Exception:
                 logger.exception("RexhepiGate pre-action failed")
+                # This fell through with `approved` still True: the exact fault
+                # that denies a transfer on the Morpheus branch above allowed it
+                # here. A gate that raised has decided nothing.
+                if self._deny_on_gate_fault(result, action_type, "RexhepiGate", "evaluate", call=(tool_name, arguments)):
+                    return result
 
         # Trajectory — outcome prediction (feeds into Ultron and Morpheus)
         if self._trajectory is not None:
@@ -515,32 +595,61 @@ class ProtocolStack:
                 logger.exception("Ultron risk assessment failed")
 
         # Glasswing security audit — runs on contract-related tool calls
-        if self._auditor is not None and tool_name in _CONTRACT_TOOLS:
-            try:
-                source_code = arguments.get("source_code", "")
-                if source_code:
+        source_code = (arguments.get("source_code", "")
+                       if isinstance(arguments, dict) else "")
+        if tool_name in _CONTRACT_TOOLS and source_code:
+            if self._auditor is None and self._auditor_init_failed:
+                # The audit this call would have received cannot be performed.
+                # `ContractAuditor.should_block` already blocks an audit that
+                # "could not be performed"; an auditor that never constructed is
+                # that case, one step earlier.
+                if self._deny_on_gate_fault(result, action_type, "Glasswing", "init", call=(tool_name, arguments)):
+                    return result
+            elif self._auditor is not None:
+                try:
                     audit_report = self._auditor.audit(
                         source_code, arguments.get("contract_name", "")
                     )
-                    result["audit"] = audit_report.to_dict()
-                    if self._auditor.should_block(audit_report):
+                    blocked = self._auditor.should_block(audit_report)
+                except Exception:
+                    logger.exception("Glasswing audit pre-action failed")
+                    # An audit that raised is an audit that was not performed,
+                    # and should_block treats that as a block. Falling through
+                    # approved the source it never read.
+                    if self._deny_on_gate_fault(result, action_type, "Glasswing", "evaluate", call=(tool_name, arguments)):
+                        return result
+                    audit_report, blocked = None, False
+                if audit_report is not None:
+                    # Reporting is bookkeeping and runs AFTER the verdict is
+                    # known: a report that cannot render must neither raise out
+                    # of pre_action nor turn a block into an approval.
+                    try:
+                        result["audit"] = audit_report.to_dict()
+                        summary = str(audit_report.summary)
+                        findings = audit_report.findings
+                    except Exception:
+                        logger.exception("Glasswing audit report could not be rendered")
+                        summary, findings = "the audit report could not be rendered.", None
+                    if blocked:
                         result["approved"] = False
                         result["denial_reason"] = (
-                            f"Glasswing audit blocked deployment: {audit_report.summary}"
+                            f"Glasswing audit blocked deployment: {summary}"
                         )
                         result["morpheus_message"] = (
-                            f"[Morpheus] Security audit failed. {audit_report.summary} "
+                            f"[Morpheus] Security audit failed. {summary} "
                             "Review the findings and fix the vulnerabilities before deploying."
                         )
                         return result
-                    elif audit_report.findings:
-                        # Findings exist but not blocking — feed to Morpheus as context
-                        if result.get("risk"):
+                    if findings and result.get("risk"):
+                        # Findings exist but not blocking — feed to Morpheus as
+                        # context. Bookkeeping, not a decision: its failure is
+                        # logged and never changes the verdict.
+                        try:
                             result["risk"]["concerns"].append(
                                 f"Glasswing audit: {audit_report.summary}"
                             )
-            except Exception:
-                logger.exception("Glasswing audit pre-action failed")
+                        except Exception:
+                            logger.exception("Glasswing audit context enrichment failed")
 
         # Morpheus intervention check
         if self._morpheus_triggers is not None:

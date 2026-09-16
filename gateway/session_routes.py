@@ -104,18 +104,313 @@ EXCLUDED_FROM_SESSION: frozenset[str] = frozenset({
 # dispatcher, so allowlisting the URL is not allowlisting the operation.
 CAPABILITIES_OFF_ALLOWLIST: dict[str, str] = {
     "community_create": "/api/v1/social/community/create",
+    "create_brand_campaign": "/api/v1/brand/campaign/create",
     "create_nft_collection": "/api/v1/nft/collection/create",
+    "create_social_profile": "/api/v1/social/profile",
+    "credential_issue": "/api/v1/identity/credential/issue",
+    "cross_border_remit": "/api/v1/crossborder/send",
+    "custody_transfer": "/api/v1/supply-chain/custody/transfer",
     "decentralized_store": "/api/v1/compute/store",
+    "earn_loyalty": "/api/v1/loyalty/earn",
+    "ipfs_pin": "/api/v1/compute/ipfs/pin",
+    "nft_batch_mint": "/api/v1/nft/batch-mint",
+    "nft_bridge": "/api/v1/nft/bridge",
+    "nft_fractionalize": "/api/v1/nft/fractionalize",
+    "nft_rent": "/api/v1/nft/rent",
+    "nft_royalty_claim": "/api/v1/nft/royalty/claim",
+    "parametric_policy": "/api/v1/insurance/parametric/create",
+    "provenance_log": "/api/v1/supply-chain/provenance/log",
     "request_deletion": "/api/v1/privacy/delete",
+    "send_message": "/api/v1/social/message",
+    "send_payment": "/api/v1/crossborder/send",
     "snapshot_vote": "/api/v1/governance/snapshot/vote",
     "track_spending": "/api/v1/cashback/track",
     "transfer_custody": "/api/v1/supply-chain/custody/transfer",
 }
 
+# The same refusal keyed on what a dispatch RUNS: every (service, method) whose
+# dedicated route is refused to a session, whichever dispatcher reaches it —
+# the invoke route (catalog id), /bridge/v1/action (action name) or the chat
+# agent's request_execution / platform_action tools (action name + service).
+SERVICE_METHODS_OFF_ALLOWLIST: dict[str, str] = {
+    "brand_rewards.create_campaign": "/api/v1/brand/campaign/create",
+    "cashback.track_spending": "/api/v1/cashback/track",
+    "cross_border.remit": "/api/v1/crossborder/send",
+    "cross_border.send_payment": "/api/v1/crossborder/send",
+    "dex.add_liquidity": "/api/v1/dex/liquidity/add",
+    "did_identity.issue_credential": "/api/v1/identity/credential/issue",
+    "did_identity.verify_credential": "/api/v1/identity/credential/verify",
+    "governance.snapshot_vote": "/api/v1/governance/snapshot/vote",
+    "insurance.create_parametric_policy": "/api/v1/insurance/parametric/create",
+    "loyalty.earn_points": "/api/v1/loyalty/earn",
+    "nft_services.batch_mint": "/api/v1/nft/batch-mint",
+    "nft_services.bridge_nft": "/api/v1/nft/bridge",
+    "nft_services.create_collection": "/api/v1/nft/collection/create",
+    "nft_services.fractionalize": "/api/v1/nft/fractionalize",
+    "nft_services.rent": "/api/v1/nft/rent",
+    "nft_services.royalty_claim": "/api/v1/nft/royalty/claim",
+    "privacy.decentralized_store": "/api/v1/compute/store",
+    "privacy.pin_to_ipfs": "/api/v1/compute/ipfs/pin",
+    "privacy.request_deletion": "/api/v1/privacy/delete",
+    "real_estate.confirm_settlement": "/api/v1/realestate/escrow/{id}/confirm",
+    "real_estate.create_property": "/api/v1/realestate/properties",
+    "real_estate.execute_purchase": "/api/v1/realestate/purchase",
+    "real_estate.get_buyer_verification": "/api/v1/realestate/buyers/{wallet}/verification",
+    "real_estate.get_documents": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.get_escrow": "/api/v1/realestate/escrow/{id}",
+    "real_estate.get_property": "/api/v1/realestate/properties/{id}",
+    "real_estate.get_readiness": "/api/v1/realestate/properties/{id}/readiness",
+    "real_estate.list_properties": "/api/v1/realestate/properties",
+    "real_estate.mark_recording_complete": "/api/v1/realestate/escrow/{id}/recording-complete",
+    "real_estate.query_expiring_documents": "/api/v1/realestate/documents/expiring",
+    "real_estate.refund_escrow": "/api/v1/realestate/escrow/{id}/refund",
+    "real_estate.update_listing_status": "/api/v1/realestate/properties/{id}/status",
+    "real_estate.upload_document": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.verify_buyer": "/api/v1/realestate/buyers/verify",
+    "social.create_community": "/api/v1/social/community/create",
+    "social.create_profile": "/api/v1/social/profile",
+    "social.get_conversations": "/api/v1/messaging/conversations",
+    "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
+    "social.share_proof": "/api/v1/social/message",
+    "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
+    "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
+    "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
+}
+
+# One credential down: every (service, method) whose route a caller with NO
+# credential cannot reach (not a public path). The chat surfaces are public,
+# so without this an anonymous chat ran operations its own routes answer 401.
+SERVICE_METHODS_OFF_ANONYMOUS: dict[str, str] = {
+    "agent_identity.register_agent": "/api/v1/agent/register",
+    "attestation.verify": "/api/v1/attestation/verify/{uid}",
+    "brand_rewards.create_campaign": "/api/v1/brand/campaign/create",
+    "cashback.track_spending": "/api/v1/cashback/track",
+    "contract_conversion.convert": "/api/v1/contracts/convert",
+    "cross_border.get_quote": "/api/v1/oracle/price/{pair}",
+    "cross_border.remit": "/api/v1/crossborder/send",
+    "cross_border.send_payment": "/api/v1/crossborder/send",
+    "dao_management.create_dao": "/api/v1/dao/create",
+    "dashboard.get_activity": "/api/v1/dashboard/{address}",
+    "dashboard.get_overview": "/api/v1/dashboard/{address}",
+    "defi.accept_p2p_offer": "/api/v1/oracle/price/{pair}",
+    "defi.bridge_execute": "/api/v1/defi/bridge/execute",
+    "defi.bridge_quote": "/api/v1/defi/bridge/quote",
+    "defi.create_loan": "/api/v1/defi/loan/create",
+    "defi.get_health_factor": "/api/v1/oracle/price/{pair}",
+    "defi.liquidate": "/api/v1/oracle/price/{pair}",
+    "defi.repay_loan": "/api/v1/defi/loan/repay",
+    "defi.swap_execute": "/api/v1/defi/swap/execute",
+    "defi.swap_route": "/api/v1/defi/swap/route",
+    "defi.withdraw_collateral": "/api/v1/oracle/price/{pair}",
+    "dex.add_liquidity": "/api/v1/dex/liquidity/add",
+    "dex.swap": "/api/v1/dex/swap",
+    "did_identity.create_did": "/api/v1/identity/create",
+    "did_identity.generate_zk_proof": "/api/v1/identity/zk-proof/generate",
+    "did_identity.issue_credential": "/api/v1/identity/credential/issue",
+    "did_identity.verify_credential": "/api/v1/identity/credential/verify",
+    "dispute_resolution.claim": "/api/v1/dispute/claim",
+    "dispute_resolution.file_dispute": "/api/v1/dispute/file",
+    "dispute_resolution.vote": "/api/v1/dispute/vote",
+    "fundraising.contribute": "/api/v1/fundraising/contribute",
+    "fundraising.create_campaign": "/api/v1/fundraising/campaign/create",
+    "gaming.register_game": "/api/v1/gaming/register",
+    "governance.create_proposal": "/api/v1/governance/proposal/create",
+    "governance.get_proposal": "/api/v1/governance/daos/{daoId}/proposals",
+    "governance.list_proposals": "/api/v1/governance/daos/{daoId}/proposals",
+    "governance.list_proposals_detailed": "/api/v1/governance/daos/{daoId}/proposals",
+    "governance.snapshot_vote": "/api/v1/governance/snapshot/vote",
+    "governance.vote": "/api/v1/governance/vote",
+    "insurance.check_triggers": "/api/v1/insurance/claim",
+    "insurance.create_parametric_policy": "/api/v1/insurance/parametric/create",
+    "insurance.create_policy": "/api/v1/insurance/policy/create",
+    "insurance.file_claim": "/api/v1/insurance/claim",
+    "ip_royalties.license_ip": "/api/v1/licensing/licenses",
+    "ip_royalties.register_ip": "/api/v1/ip/register",
+    "loyalty.earn_points": "/api/v1/loyalty/earn",
+    "loyalty.redeem_points": "/api/v1/loyalty/redeem",
+    "marketplace.buy_item": "/api/v1/marketplace/buy",
+    "marketplace.list_item": "/api/v1/marketplace/list",
+    "nft_services.batch_mint": "/api/v1/nft/batch-mint",
+    "nft_services.bridge_nft": "/api/v1/nft/bridge",
+    "nft_services.create_collection": "/api/v1/nft/collection/create",
+    "nft_services.fractionalize": "/api/v1/nft/fractionalize",
+    "nft_services.mint": "/api/v1/nft/mint",
+    "nft_services.rent": "/api/v1/nft/rent",
+    "nft_services.royalty_claim": "/api/v1/nft/royalty/claim",
+    "oracle_gateway.query_price": "/api/v1/oracle/price/{pair}",
+    "oracle_gateway.request": "/api/v1/oracle/price/{pair}",
+    "oracle_gateway.request_safe": "/api/v1/oracle/price/{pair}",
+    "privacy.decentralized_store": "/api/v1/compute/store",
+    "privacy.pin_to_ipfs": "/api/v1/compute/ipfs/pin",
+    "privacy.request_deletion": "/api/v1/privacy/delete",
+    "real_estate.confirm_settlement": "/api/v1/realestate/escrow/{id}/confirm",
+    "real_estate.create_property": "/api/v1/realestate/properties",
+    "real_estate.execute_purchase": "/api/v1/realestate/purchase",
+    "real_estate.get_buyer_verification": "/api/v1/realestate/buyers/{wallet}/verification",
+    "real_estate.get_documents": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.get_escrow": "/api/v1/realestate/escrow/{id}",
+    "real_estate.get_property": "/api/v1/realestate/properties/{id}",
+    "real_estate.get_readiness": "/api/v1/realestate/properties/{id}/readiness",
+    "real_estate.list_properties": "/api/v1/realestate/properties",
+    "real_estate.mark_recording_complete": "/api/v1/realestate/escrow/{id}/recording-complete",
+    "real_estate.query_expiring_documents": "/api/v1/realestate/documents/expiring",
+    "real_estate.refund_escrow": "/api/v1/realestate/escrow/{id}/refund",
+    "real_estate.update_listing_status": "/api/v1/realestate/properties/{id}/status",
+    "real_estate.upload_document": "/api/v1/realestate/properties/{id}/documents",
+    "real_estate.verify_buyer": "/api/v1/realestate/buyers/verify",
+    "rwa_tokenization.list_assets": "/api/v1/rwa/listings",
+    "rwa_tokenization.tokenize_asset": "/api/v1/rwa/tokenize",
+    "securities_exchange.create_security": "/api/v1/securities/create",
+    "social.create_community": "/api/v1/groups",
+    "social.create_post": "/api/v1/social/post",
+    "social.create_profile": "/api/v1/social/profile",
+    "social.get_conversations": "/api/v1/messaging/conversations",
+    "social.get_feed": "/api/v1/social/feed/{wallet}",
+    "social.get_feed_view": "/api/v1/social/feed/{wallet}",
+    "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
+    "social.get_profile": "/api/v1/social/feed/{wallet}",
+    "social.share_proof": "/api/v1/social/message",
+    "stablecoin.transfer": "/api/v1/stablecoin/transfer",
+    "staking.stake": "/api/v1/staking/stake",
+    "staking.unstake": "/api/v1/staking/unstake",
+    "subscriptions.subscribe": "/api/v1/subscriptions/subscribe",
+    "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
+    "supply_chain.register_product": "/api/v1/supply-chain/register",
+    "supply_chain.track": "/api/v1/supply-chain/verify",
+    "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
+    "supply_chain.verify": "/api/v1/supply-chain/verify",
+    "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",
+    "x402_payments.create_payment": "/api/v1/payments/create",
+}
+
+# Of those, the reads refused by DECISION rather than derivation: a public read
+# no wrapper chain and no cross-service walk joins to its sibling, held refused
+# to an anonymous caller because it touches a store or helper that sibling — a
+# read the same caller is refused — touches, until a ruling on it is written.
+# The CLASS is derived (scripts/generate_session_routes.py, sibling_read_census);
+# only the ruling is written by hand, and a member with no ruling stops the
+# generator. A session is not refused these: it keeps what its routes grant it.
+# Each: pair -> (the sibling it joins, every store or helper they share).
+ANONYMOUS_REFUSED_BY_DECISION: dict[str, tuple[str, tuple[str, ...]]] = {
+    # aggregate_activity walks every registered service for the records of the wallet the
+    # caller names, through the same self._aggregator and self._formatter that
+    # get_overview — the operation GET /api/v1/dashboard/{address} runs, and answers an
+    # anonymous caller 401 — runs
+    "dashboard.get_activity": (
+        "dashboard.get_overview", ("_aggregator", "_formatter",)),
+    # returns the whole proposal record — proposer, description, options, tally, quorum —
+    # for a proposal list_proposals_detailed publishes a summary of; strictly more than
+    # the refused sibling, out of the same store
+    "governance.get_proposal": (
+        "governance.list_proposals_detailed", ("_proposals", "_quorum", "_votes",)),
+    # both iterate self._proposals and apply the same active->expired transition
+    "governance.list_proposals": (
+        "governance.list_proposals_detailed", ("_proposals",)),
+    # the profile record carries the wallet's followers and following lists, the follow
+    # graph get_feed resolves out of this same self._profiles; the feed route and both
+    # /social/{address}/followers|following answer 401
+    "social.get_profile": (
+        "social.get_feed_view", ("_profiles",)),
+    # runs the same _verify_chain_integrity over the same self._provenance and returns the
+    # entire chain (every event, handler, location and hash) plus the product record,
+    # where verify_authenticity returns only the verdict over it
+    "supply_chain.track": (
+        "supply_chain.verify_authenticity", ("_provenance", "_verify_chain_integrity",)),
+    # both run _verify_chain_integrity over self._provenance[product_id]
+    "supply_chain.verify": (
+        "supply_chain.verify_authenticity", ("_provenance", "_verify_chain_integrity",)),
+}
+
+# The same census, adjudicated the other way: the shared name is not the refused
+# read's operation, so the read stays open to an anonymous caller. The reason is
+# data, not a comment — it is the whole of what holds the door open.
+# Each: pair -> (the sibling it joins, every store or helper they share, why).
+ANONYMOUS_SIBLING_READS_HELD_OPEN: dict[str, tuple[str, tuple[str, ...], str]] = {
+    "dashboard.get_component_status": (
+        "dashboard.get_overview", ("_aggregator", "_formatter",),
+        "its argument is a component name from a fixed list, never a wallet: it "
+        "reads whether the aggregator's _services registry holds that component "
+        "and, where a service exposes health_check(), calls it (none does "
+        "today), so it reaches no per-user store and returns no user record — "
+        "where get_overview runs aggregate_portfolio over the wallet it is "
+        "given"
+    ),
+    "dashboard.get_platform_stats": (
+        "dashboard.get_overview", ("_aggregator", "_user_components",),
+        "takes no argument and returns counts: component registration plus "
+        "len(self._user_components), a cardinality, never a key, a wallet or a "
+        "record"
+    ),
+}
+
+# What an anonymous refusal names when no route backs the operation at all:
+# no public route changes state, and there is no identity to attribute it to.
+UNROUTED_STATE_CHANGE = "no public route; it changes state"
+
 
 def session_may_invoke(capability_id: str) -> bool:
     """False when this capability would reach a route the session is refused."""
     return capability_id not in CAPABILITIES_OFF_ALLOWLIST
+
+
+def session_refused_route(action, service=None):
+    """The operator-only route behind what dispatching *action* would RUN, or None.
+
+    Resolved the way ServiceDispatcher.execute resolves it — ACTION_MAP at call
+    time, then a truthy ``service`` override replaces the service — so the
+    answer follows the operation, not the label a caller or catalog row gives
+    it. An unknown or non-string action resolves to nothing (the dispatcher
+    refuses those itself)."""
+    if not isinstance(action, str):
+        return None
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    pair = ACTION_MAP.get(action)
+    if pair is None:
+        return None
+    target = service if service else pair[0]
+    return SERVICE_METHODS_OFF_ALLOWLIST.get(f"{target}.{pair[1]}")
+
+
+def caller_refused_route(caller_kind, action, service=None):
+    """What refuses *caller_kind* the operation dispatching *action* RUNS, or None.
+
+    ``caller_kind`` is the credential the gateway computed ("operator",
+    "session", "anonymous"; "" for a dispatch with no HTTP caller). The
+    operator and a caller-less dispatch are not refused here. A session is
+    refused what its routes refuse it. Anything else — anonymous, or a kind
+    this module does not recognise — is refused every operation behind a
+    non-public route, and every state change whether or not a route backs it.
+    Resolved on the pair, the way ServiceDispatcher.execute resolves it."""
+    if caller_kind in ("operator", ""):
+        return None
+    if caller_kind == "session":
+        return session_refused_route(action, service)
+    if not isinstance(action, str):
+        return None
+    from runtime.blockchain.services.service_dispatcher import (
+        ACTION_MAP, _STATE_MODIFYING_ACTIONS,
+    )
+    pair = ACTION_MAP.get(action)
+    if pair is None:
+        return None
+    target = service if service else pair[0]
+    key = f"{target}.{pair[1]}"
+    routed = SERVICE_METHODS_OFF_ALLOWLIST.get(key) or SERVICE_METHODS_OFF_ANONYMOUS.get(key)
+    if routed:
+        return routed
+    if action in _STATE_MODIFYING_ACTIONS or any(
+            ACTION_MAP.get(a) == (target, pair[1]) for a in _STATE_MODIFYING_ACTIONS):
+        return UNROUTED_STATE_CHANGE
+    return None
+
+
+def caller_refusal_message(caller_kind, refused):
+    """The client-facing text for a ``caller_refused_route`` refusal."""
+    if caller_kind == "session":
+        return ("This action is not available to a user session; "
+                f"its route ({refused}) requires the operator key.")
+    return ("This action is not available without signing in "
+            f"({refused}); sign in and try again.")
 
 
 def session_may_reach(canonical_route: str) -> bool:

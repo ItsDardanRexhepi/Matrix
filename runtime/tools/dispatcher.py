@@ -241,9 +241,20 @@ class ToolDispatcher:
     #: let a model-authored key bind it. Found by the §CD sibling-axes pass.
     RESERVED_ARGUMENTS = frozenset({"caller_identity", "caller_source"})
 
+    #: Tools whose handler resolves a model-written action name to a
+    #: ServiceDispatcher (service, method) pair: `platform_action` runs it
+    #: directly (with an optional `service` override), `request_execution` hands
+    #: it to Neo. For a user SESSION these are dispatchers into the same
+    #: operations the session's own /api/v1 routes may refuse.
+    ACTION_DISPATCH_TOOLS = frozenset({"platform_action", "request_execution"})
+
+    #: The agent whose reach bounds any caller without the operator key
+    #: ("session", "anonymous", or a kind the gateway did not name).
+    NON_OPERATOR_AGENT = "trinity"
+
     async def dispatch(
         self, tool_name: str, arguments: dict, agent_name: str | None = None,
-        caller_identity: str = "", caller_source: str = "",
+        caller_identity: str = "", caller_source: str = "", caller_kind: str = "",
     ) -> ToolOutcome:
         """Run one tool. Returns a typed outcome — see ToolOutcome for why.
 
@@ -281,10 +292,60 @@ class ToolDispatcher:
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
 
+        # The same boundary keyed on the CREDENTIAL, not on the agent name. A
+        # caller without the operator key is served by Trinity on every chat
+        # surface (gateway/chat_agents.py), so it reaches at most what Trinity
+        # reaches, whatever agent_name arrived with it. Round 4: the gateway
+        # compared the name exactly while the policy above lowercases it, and an
+        # anonymous {"agent": "Neo"} on /bridge/v1/chat ran bash. The credential
+        # refusals below see only the two dispatching tools, so without this the
+        # rest of the toolset was fenced by the agent name alone.
+        if caller_kind not in ("operator", ""):
+            allowed, reason = agent_access_allowed(self.NON_OPERATOR_AGENT, tool_name, action)
+            if not allowed:
+                logger.warning("Caller '%s' DENIED tool '%s'%s as agent '%s': %s", caller_kind,
+                               tool_name, f" action '{action}'" if action else "",
+                               agent_name, reason)
+                return ToolOutcome.failure(f"[DENIED] {reason}", code="denied", ref=ref)
+
+        # Session boundary for the dispatching tools. A session is refused, on
+        # its own routes, operations such as a cross-border send; through chat
+        # (a PUBLIC path) it — or an anonymous caller — asked Trinity, whose
+        # request_execution ran it as Neo. Keyed on the pair the call RESOLVES to
+        # (ACTION_MAP + platform_action's `service` override), the same key
+        # /bridge/v1/action and the capability invoke route use. `caller_kind` is
+        # computed by the gateway from the presented credential, never taken from
+        # the arguments; "" is a caller with no HTTP request behind it (A2A,
+        # internal), which this boundary does not describe.
+        #
+        # One credential down (round 3): the chat surfaces are public, and the
+        # session tier modelled only routes that need the OPERATOR key, so a
+        # caller with no credential had request_execution run operations whose
+        # own route answers it 401. An anonymous caller — or any kind the
+        # gateway did not name — is refused every operation behind a non-public
+        # route and every state change (gateway/session_routes.py
+        # caller_refused_route).
+        if caller_kind not in ("operator", "") and tool_name in self.ACTION_DISPATCH_TOOLS:
+            from gateway.session_routes import caller_refusal_message, caller_refused_route
+            args = arguments if isinstance(arguments, dict) else {}
+            refused = caller_refused_route(
+                caller_kind,
+                args.get("action"),
+                args.get("service") if tool_name == "platform_action" else None,
+            )
+            if refused:
+                who = "Session" if caller_kind == "session" else "Anonymous"
+                logger.warning("%s DENIED tool '%s' action '%s': %s", who, tool_name,
+                               args.get("action"), refused)
+                return ToolOutcome.failure(
+                    f"[DENIED] {caller_refusal_message(caller_kind, refused)}",
+                    code="denied", ref=ref,
+                )
+
         # Strip anything the model may not assert, then inject the value the
         # entry point bound — the same treatment agent_name already gets. It
         # outranks the model's arguments; it is not thereby authenticated. On
-        # /chat it is the request body's `wallet` field (runtime/react_loop.py).
+        # /chat it is the identity the session carries (runtime/react_loop.py).
         supplied = set(arguments) & self.RESERVED_ARGUMENTS
         if supplied:
             logger.warning("Tool '%s' call carried reserved argument(s) %s — stripped; "
