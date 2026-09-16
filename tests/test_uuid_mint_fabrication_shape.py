@@ -253,7 +253,6 @@ KNOWN_FABRICATION_SHAPE = {
     "gaming/service.py::GamingService.register_game",
     "gaming/service.py::GamingService.enter_tournament",
     "gaming/service.py::GamingService.trade_item",
-    "gaming/service.py::GamingService.attest_achievement",
     "gaming/service.py::GamingService.create_prediction_market",
     "gaming/service.py::GamingService.place_prediction_bet",
     "gaming/service.py::GamingService.resolve_market",
@@ -272,8 +271,6 @@ KNOWN_FABRICATION_SHAPE = {
     "loyalty/programs.py::ProgramManager.create_program",
     "marketplace/appeals.py::AppealProcess.file_appeal",
     "marketplace/compliance_filter.py::ComplianceFilter.flag_listing",
-    "nft_services/service.py::NFTService.rent",
-    "nft_services/service.py::NFTService.mint_soulbound",
     "rwa_tokenization/legal_bridge.py::LegalBridge.create_legal_wrapper",
     "securities_exchange/exchange.py::ExchangeContract.place_order",
     "securities_exchange/negotiation.py::TermsNegotiation.create_offer",
@@ -371,9 +368,26 @@ def test_the_measured_count_is_recorded():
     single added entry was adjudicated individually before being listed. See
     the re-baseline block above KNOWN_FABRICATION_SHAPE, and `_shape`'s
     docstring for the call-form gap that remains OPEN and measured (+5).
+
+    46 -> 43, THE attest-money CLUSTER. Three took the remedy this file's own
+    ratchet docstring names — "say plainly that it does not (the
+    RECORDED_UNSETTLED idiom: settled=False / value_moved=False)" — and left
+    the shape because the status literal they stamped is gone:
+
+        gaming/service.py::GamingService.attest_achievement
+        nft_services/service.py::NFTService.rent
+        nft_services/service.py::NFTService.mint_soulbound
+
+    Four more in the same pass are fixed the same way and were never in this
+    inventory, because the detector's assignment-only write clause or its
+    `not awaits` clause did not see them: NFTService.fractionalize,
+    batch_mint, royalty_claim, bridge_nft, dynamic_update, and
+    RWAService.fractional_buy / claim_income / verify_provenance. The count
+    moves by three; the fix is wider than the count, which is what "43 under
+    an assignment-only write clause" means.
     """
-    assert len(KNOWN_FABRICATION_SHAPE) == 46
-    assert len(find_fabrication_shape()) == 46
+    assert len(KNOWN_FABRICATION_SHAPE) == 43
+    assert len(find_fabrication_shape()) == 43
 
 
 # ── Gate asymmetry (NEW-65b) ─────────────────────────────────────────────
@@ -726,12 +740,13 @@ def f(self, k):
 
 
 def test_the_shape_inventory_is_at_the_documented_baseline():
-    """46 under an ASSIGNMENT-ONLY write clause — the scope is part of the
+    """43 under an ASSIGNMENT-ONLY write clause — the scope is part of the
     number. It was 47 until `NFTService.fractionalize` stopped matching the
     shape: it now awaits an on-chain ownership read before minting an id, so
-    the ratchet tightened by one (the §CD sibling pass over NEW-89). See
-    `_shape`'s docstring for the measured +5 the call-form gap would add,
-    which is deliberately NOT included pending adjudication."""
+    the ratchet tightened by one (the §CD sibling pass over NEW-89). 46 -> 43
+    on the attest-money cluster, where three took the RECORDED_UNSETTLED
+    remedy. See `_shape`'s docstring for the measured +5 the call-form gap
+    would add, which is deliberately NOT included pending adjudication."""
     current = find_fabrication_shape()
-    assert len(KNOWN_FABRICATION_SHAPE) == 46
+    assert len(KNOWN_FABRICATION_SHAPE) == 43
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current

@@ -13,6 +13,7 @@ from typing import Any
 
 from runtime.a2a.protocol import JobRequest, JobResult, JobStatus
 from runtime.a2a.marketplace import A2AMarketplace
+from runtime.protocols.outcome_truth import FAILURE, SUCCESS, UNKNOWN, combine
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class A2ACoordinator:
             result = JobResult(
                 job_id=job.job_id,
                 success=False,
+                outcome=FAILURE,
                 error_message=f"Service {job.service_id} not found",
             )
             await self.marketplace.complete_job(result)
@@ -93,29 +95,67 @@ class A2ACoordinator:
 
                 execution_time = int((time.time() - start_time) * 1000)
 
+                # WHAT THE LOOP RETURNING MEANS. `react_loop.run` returns
+                # whenever the model stops calling tools. A loop in which every
+                # tool was REFUSED returns exactly like one in which every tool
+                # worked — `success=True` here was written from the fact that
+                # this line was reached. The difference was in `tool_calls`, a
+                # list the coordinator was already holding and did not read.
+                #
+                # `reported` is each tool's own verdict, as the dispatcher read
+                # it out of the structure the tool returned. `combine` collapses
+                # them, and keeps the mixed case as UNKNOWN rather than picking
+                # a side: an agent that recovered from a refusal and one that
+                # did not look the same from here, and the honest record of the
+                # second is not "failed", it is "not established".
+                verdicts = [
+                    str(call.get("reported") or UNKNOWN)
+                    for call in (loop_result.tool_calls or [])
+                ]
+                outcome = combine(verdicts)
+                refused = sum(1 for v in verdicts if v == FAILURE)
+
                 result = JobResult(
                     job_id=job.job_id,
                     output_data={
                         "response": loop_result.response,
                         "tool_calls": loop_result.tool_calls,
+                        "tool_outcomes": verdicts,
                     },
-                    actual_price_usd=service.get("price_usd", 0.0),
+                    # NOT INVOICED unless the work is established. An
+                    # unestablished outcome is not a discount and not a
+                    # write-off: it is a bill nobody can support.
+                    actual_price_usd=(
+                        service.get("price_usd", 0.0) if outcome == SUCCESS else 0.0
+                    ),
                     execution_time_ms=execution_time,
-                    success=True,
+                    success=outcome == SUCCESS,
+                    outcome=outcome,
+                    error_message=(
+                        "" if outcome == SUCCESS else
+                        f"{refused} of {len(verdicts)} tool call(s) reported a "
+                        f"refusal; the job's outcome is "
+                        f"{'a failure' if outcome == FAILURE else 'not established'}"
+                    ),
                 )
             else:
-                # No ReAct loop — return a placeholder
+                # NO EXECUTION ENGINE. The job was accepted and nothing ran, so
+                # this is not a success and it is not the provider's failure
+                # either — and it has never been billable.
                 result = JobResult(
                     job_id=job.job_id,
                     output_data={"message": "Job accepted but execution engine not available"},
                     execution_time_ms=int((time.time() - start_time) * 1000),
-                    success=True,
+                    success=False,
+                    outcome=UNKNOWN,
+                    error_message="no execution engine is available; the job did not run",
                 )
 
         except asyncio.TimeoutError:
             result = JobResult(
                 job_id=job.job_id,
                 success=False,
+                outcome=UNKNOWN,
                 error_message=f"Job timed out after {job.timeout_seconds}s",
                 execution_time_ms=int((time.time() - start_time) * 1000),
             )
@@ -124,6 +164,7 @@ class A2ACoordinator:
             result = JobResult(
                 job_id=job.job_id,
                 success=False,
+                outcome=FAILURE,
                 error_message=str(exc),
                 execution_time_ms=int((time.time() - start_time) * 1000),
             )

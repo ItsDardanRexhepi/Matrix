@@ -19,6 +19,7 @@ from runtime.a2a.protocol import (
     JobResult,
     JobStatus,
 )
+from runtime.protocols.outcome_truth import UNKNOWN
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,22 @@ BUILTIN_SERVICES: list[dict] = [
         "capabilities": ["bridge_routing", "fee_comparison", "chain_selection"],
     },
 ]
+
+
+def _job_status_for(result: JobResult) -> str:
+    """The lifecycle status a finished job gets, from its OUTCOME.
+
+    `COMPLETED if result.success else FAILED` had nowhere to put the third
+    answer, so a job whose tool calls disagreed was filed as a provider failure.
+    `DISPUTED` is the status this enum already has for "finished, and what
+    happened is contested".
+    """
+    outcome = getattr(result, "outcome", None)
+    if result.success:
+        return JobStatus.COMPLETED.value
+    if outcome == UNKNOWN:
+        return JobStatus.DISPUTED.value
+    return JobStatus.FAILED.value
 
 
 class A2AMarketplace:
@@ -236,7 +253,11 @@ class A2AMarketplace:
 
         if result.job_id in self.jobs:
             job = self.jobs[result.job_id]
-            job.status = JobStatus.COMPLETED.value if result.success else JobStatus.FAILED.value
+            # A job whose outcome is not established is DISPUTED, not FAILED.
+            # Recording "failed" for an agent that may well have done the work
+            # is a claim about the provider, and it feeds `total_jobs` and the
+            # success rate buyers pick a service on.
+            job.status = _job_status_for(result)
             job.completed_at = time.time()
 
             # Update service stats
@@ -252,7 +273,7 @@ class A2AMarketplace:
                 WHERE job_id = ?
                 """,
                 (
-                    JobStatus.COMPLETED.value if result.success else JobStatus.FAILED.value,
+                    _job_status_for(result),
                     json.dumps(result.output_data),
                     time.time(),
                     result.actual_price_usd,

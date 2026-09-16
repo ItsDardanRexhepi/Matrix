@@ -532,7 +532,13 @@ def test_the_walker_sees_every_form_it_has_been_blind_to():
         "else 'failed'` (smart_contracts.py) — or the scope narrowed back to "
         "services/ and no longer sees the shared helpers services return through"
     )
-    assert "payment_attested" in censused, (
+    # WAS `assert "payment_attested" in censused`. That canary named a single
+    # status string as its proof the file was in scope — and the attest-money
+    # cluster DELETED that string, because `_send` attests and sends nothing and
+    # must not report a payment. A canary keyed on one literal fails when the
+    # literal is fixed, which teaches the next reader to put it back. Keyed on
+    # the FILE, it says what it always meant.
+    assert any(where.startswith("crossborder.py:") for where in censused.values()), (
         "SCOPE narrowed: runtime/blockchain/crossborder.py is no longer walked"
     )
     assert len(censused) >= 147, (

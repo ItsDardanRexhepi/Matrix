@@ -12,6 +12,7 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.web3_manager import recorded_unsettled_response
 from runtime.blockchain.services.gaming.vetting import VettingPipeline
 from runtime.blockchain.services.gaming.milestone_funding import MilestoneFunding
 from runtime.blockchain.services.gaming.revenue_share import RevenueShare
@@ -253,20 +254,42 @@ class GamingService:
     async def attest_achievement(
         self, game_id: str, player: str, achievement: str, proof: dict | None = None,
     ) -> dict:
-        """Attest a player achievement on-chain."""
+        """Record a player achievement. NOTHING IS ATTESTED ON-CHAIN HERE.
+
+        The method wrote `status: "attested"` and `attested_at` into a durable
+        record and made no attestation call of any kind — no EAS client, no
+        schema, no transaction. An attestation is a claim addressed to third
+        parties: its entire value is that someone who does not trust this
+        platform can check it, and there was nothing to check.
+
+        THE FIX IS THE RECORD, NOT A NEW ON-CHAIN WRITE. Making this call
+        `EASClient.attest` would put a gas-spending, paymaster-signed write on a
+        path a player can drive, which is a product and funding decision, not an
+        audit remediation. What the record may not do is claim the write
+        happened. `attest_achievement` is the seam an attestation would hang
+        from; until it does, the record says so.
+        """
         ach_id = f"ach_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
-        record: dict[str, Any] = {
-            "id": ach_id,
-            "status": "attested",
-            "game_id": game_id,
-            "player": player,
-            "achievement": achievement,
-            "proof": proof or {},
-            "attested_at": now,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "gaming", "attest_achievement", {
+                "id": ach_id,
+                "game_id": game_id,
+                "player": player,
+                "achievement": achievement,
+                "proof": proof or {},
+                "recorded_at": now,
+            },
+            value_moved=None,
+            disclosure=(
+                "No attestation was written to any chain. This is a record on "
+                "The Matrix and nothing more — a third party cannot verify it "
+                "without trusting this platform, which is the whole point of "
+                "an attestation."
+            ),
+        )
         self._assets[ach_id] = record
-        logger.info("Achievement attested: id=%s player=%s", ach_id, player)
+        logger.info("Achievement recorded (not attested): id=%s player=%s", ach_id, player)
         return record
 
     async def create_prediction_market(

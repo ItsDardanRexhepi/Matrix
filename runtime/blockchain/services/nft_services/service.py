@@ -14,7 +14,11 @@ from typing import Any
 
 from runtime.blockchain.services.nft_services._guards import require_finite_amount
 
-from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    not_deployed_response,
+    recorded_unsettled_response,
+)
 
 from runtime.blockchain.services.nft_services.factory import NFTFactory
 from runtime.blockchain.services.nft_services.rights import RightsManagement
@@ -947,18 +951,25 @@ class NFTService:
             return {"status": "error", "error": "not_token_owner",
                     "detail": "only the token's owner may fractionalize it"}
         frac_id = f"frac_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": frac_id,
-            "status": "fractionalized",
-            "collection": collection,
-            "token_id": token_id,
-            "total_fractions": fractions,
-            "price_per_fraction": price_per_fraction,
-            "sold_fractions": 0,
-            "owner": owner,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "fractionalize", {
+                "id": frac_id,
+                "collection": collection,
+                "token_id": token_id,
+                "total_fractions": fractions,
+                "price_per_fraction": price_per_fraction,
+                "sold_fractions": 0,
+                "owner": owner,
+            },
+            disclosure=(
+                "No fraction contract was deployed and no token was locked. "
+                "The on-chain owner WAS read and checked, which is why this "
+                "refuses a non-owner — but the NFT is untouched and the "
+                "fractions exist only in this record."
+            ),
+        )
         self._fractions[frac_id] = record
-        logger.info("NFT fractionalized: id=%s", frac_id)
+        logger.info("NFT fractionalisation recorded (unsettled): id=%s", frac_id)
         return record
 
     async def _owner_of(self, collection: str, token_id: int) -> str:
@@ -980,17 +991,23 @@ class NFTService:
                 "requested": {"collection": collection, "token_id": token_id, "renter": renter},
             })
         rental_id = f"rent_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": rental_id,
-            "status": "rented",
-            "collection": collection,
-            "token_id": token_id,
-            "renter": renter,
-            "duration_days": duration_days,
-            "price": price,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "rent", {
+                "id": rental_id,
+                "collection": collection,
+                "token_id": token_id,
+                "renter": renter,
+                "duration_days": duration_days,
+                "price": price,
+            },
+            disclosure=(
+                "ERC-4907 setUser was never called, so the renter has no "
+                "on-chain user role and no rent was collected. The rental "
+                "exists only in this record."
+            ),
+        )
         self._rentals[rental_id] = record
-        logger.info("NFT rented: id=%s", rental_id)
+        logger.info("NFT rental recorded (unsettled): id=%s", rental_id)
         return record
 
     async def dynamic_update(
@@ -1003,14 +1020,21 @@ class NFTService:
                 "requested": {"collection": collection, "token_id": token_id, "updates": updates},
             })
         update_id = f"dynup_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": update_id,
-            "status": "updated",
-            "collection": collection,
-            "token_id": token_id,
-            "updates": updates,
-        }
-        logger.info("Dynamic NFT updated: id=%s", update_id)
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "dynamic_update", {
+                "id": update_id,
+                "collection": collection,
+                "token_id": token_id,
+                "updates": updates,
+            },
+            value_moved=None,
+            disclosure=(
+                "The token's metadata URI was not written on-chain and no "
+                "metadata document was published. Anything reading the token "
+                "from the chain still sees the old metadata."
+            ),
+        )
+        logger.info("Dynamic NFT update recorded (unsettled): id=%s", update_id)
         return record
 
     async def batch_mint(
@@ -1023,16 +1047,25 @@ class NFTService:
                 "requested": {"collection": collection, "creator": creator, "count": count},
             })
         batch_id = f"batch_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": batch_id,
-            "status": "minted",
-            "collection": collection,
-            "creator": creator,
-            "count": count,
-            "metadata_template": metadata_template,
-            "token_ids": list(range(1, count + 1)),
-        }
-        logger.info("Batch mint completed: id=%s count=%d", batch_id, count)
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "batch_mint", {
+                "id": batch_id,
+                "collection": collection,
+                "creator": creator,
+                "count": count,
+                "metadata_template": metadata_template,
+                # NOT `token_ids`. `list(range(1, count + 1))` was a made-up
+                # sequence presented as the ids of tokens that exist; ids are
+                # assigned by the contract and nothing was minted.
+                "requested_count": count,
+            },
+            value_moved=None,
+            disclosure=(
+                "No mint transaction was sent. No token exists, and no token "
+                "id has been assigned — the ids are decided by the contract."
+            ),
+        )
+        logger.info("Batch mint recorded (unsettled): id=%s count=%d", batch_id, count)
         return record
 
     async def royalty_claim(
@@ -1045,15 +1078,24 @@ class NFTService:
                 "requested": {"collection": collection, "token_id": token_id, "claimer": claimer},
             })
         claim_id = f"rclaim_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": claim_id,
-            "status": "claimed",
-            "collection": collection,
-            "token_id": token_id,
-            "claimer": claimer,
-            "amount_claimed": 0.0,
-        }
-        logger.info("Royalty claimed: id=%s", claim_id)
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "royalty_claim", {
+                "id": claim_id,
+                "collection": collection,
+                "token_id": token_id,
+                "claimer": claimer,
+                # NOT `amount_claimed: 0.0`, which reads as "we paid you
+                # nothing because you were owed nothing". Nothing was read and
+                # nothing was paid; the amount is not known here.
+                "amount_claimed": None,
+            },
+            disclosure=(
+                "No royalty contract was called, no accrued balance was read "
+                "and nothing was transferred. This record does not discharge a "
+                "royalty claim and does not establish that none is owed."
+            ),
+        )
+        logger.info("Royalty claim recorded (unsettled): id=%s", claim_id)
         return record
 
     async def bridge_nft(
@@ -1066,15 +1108,21 @@ class NFTService:
                 "requested": {"collection": collection, "token_id": token_id, "destination_chain": destination_chain},
             })
         bridge_id = f"nftbr_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": bridge_id,
-            "status": "bridged",
-            "collection": collection,
-            "token_id": token_id,
-            "destination_chain": destination_chain,
-            "owner": owner,
-        }
-        logger.info("NFT bridged: id=%s", bridge_id)
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "bridge_nft", {
+                "id": bridge_id,
+                "collection": collection,
+                "token_id": token_id,
+                "destination_chain": destination_chain,
+                "owner": owner,
+            },
+            disclosure=(
+                "Nothing was locked on the source chain and nothing was minted "
+                "on the destination chain. The token has not moved and exists "
+                "in exactly one place, where it started."
+            ),
+        )
+        logger.info("NFT bridge recorded (unsettled): id=%s", bridge_id)
         return record
 
     async def mint_soulbound(
@@ -1087,14 +1135,21 @@ class NFTService:
                 "requested": {"recipient": recipient, "issuer": issuer},
             })
         sbt_id = f"sbt_{uuid.uuid4().hex[:16]}"
-        record: dict[str, Any] = {
-            "id": sbt_id,
-            "status": "minted",
-            "recipient": recipient,
-            "issuer": issuer,
-            "metadata": metadata,
-            "transferable": False,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "nft_services", "mint_soulbound", {
+                "id": sbt_id,
+                "recipient": recipient,
+                "issuer": issuer,
+                "metadata": metadata,
+                "transferable": False,
+            },
+            value_moved=None,
+            disclosure=(
+                "No mint transaction was sent. A soulbound token is a CREDENTIAL "
+                "— a third party relying on it must be able to read it on-chain, "
+                "and there is nothing on-chain to read."
+            ),
+        )
         self._soulbound[sbt_id] = record
-        logger.info("Soulbound token minted: id=%s", sbt_id)
+        logger.info("Soulbound token recorded (unsettled): id=%s", sbt_id)
         return record
