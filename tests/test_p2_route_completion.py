@@ -58,8 +58,10 @@ async def test_licensing_register_ip_wire_returns_real_record(client):
         json={"owner": "0xabc", "type": "patent", "name": "Widget", "evidenceHash": "0xdead"},
     )
     # register_ip validates ip_type: a valid type -> 200 record; an unknown type
-    # -> honest 400 (via the _call ValueError->400 mapping). Never a 500.
-    assert resp.status in (200, 400), await resp.text()
+    # -> honest 400 (via the _call ValueError->400 mapping); no deployed IP
+    # contract -> 503, the `not_deployed` refusal reaching the transport rather
+    # than riding inside an HTTP 200 the SDK reads as success. Never a 500.
+    assert resp.status in (200, 400, 503), await resp.text()
     assert resp.status != 500
 
 
@@ -80,8 +82,15 @@ async def test_licensing_accepts_snake_case_body(client):
         "/api/v1/licensing/ip",
         json={"owner": "0xabc", "type": "patent", "name": "Snakey", "evidence_hash": "0xfeed"},
     )
-    assert reg.status in (200, 400), await reg.text()   # 200 record or honest ip_type 400
+    # 200 record, honest ip_type 400, or 503 when no IP contract is deployed —
+    # and a 503 proves the point harder than a 200 would: the snake_case body
+    # was bound and the call reached the service, which then refused for a
+    # reason that has nothing to do with the field names.
+    assert reg.status in (200, 400, 503), await reg.text()
     assert reg.status != 500
+    if reg.status == 400:
+        assert "required" not in (await reg.json()).get("error", "").lower(), (
+            "a snake_case body was rejected as missing a field")
 
     lic = await client.post(
         "/api/v1/licensing/licenses",

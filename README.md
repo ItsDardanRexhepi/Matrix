@@ -69,6 +69,7 @@ Getting there is not one commit, it is a long line of them, so I hold every one 
 - **Nothing here claims to do something it does not do.** When a claim in the code, the docs, or this README turns out to be untrue, the rule is to build it true where that is possible, and to correct it plainly where it is not. Both happen, and the correction is written down either way.
 - **A fix arrives with the check that catches it.** Every change ships with a test that fails against the old behaviour and passes against the new one, and I run it against the old behaviour first — a test that was never seen failing has not proven anything.
 - **A refusal is a feature.** When a service has no chain, it says `not_deployed`. When the platform cannot do a thing, it says so instead of returning something that looks like success. When a number is not known, you get a dash and not a plausible figure. Money is the place where a comforting lie costs the most, so that is the place it is least welcome.
+- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested`. Cashback you have not been paid stays claimable. A subscription counts the charges that settled. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from.
 - **The security layer is described as it is.** With no enforcement core installed the platform runs in OBSERVE mode and announces it at boot, because "secured" is a claim like any other and has to be earned.
 - **This README is part of the software.** Each commit that changes what the platform can do updates this file in the same breath, so what you read here keeps matching what you would find if you went looking in the code.
 
@@ -186,12 +187,29 @@ run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
 
-- **Trinity / Morpheus / Neo agents** — full ReAct loop, tool use, session memory
+- **Trinity / Morpheus / Neo agents** — full ReAct loop, tool use, session
+  memory. Trinity never holds Neo's execution tools; anything that moves
+  value goes through the gated hand-off, and that channel says what
+  happened to it. A denial by the security gate, a gate that could not be
+  reached, an executor that was not wired and an execution that threw are
+  each reported as the refusal they are, and when Neo does run, the
+  hand-off relays Neo's own verdict rather than its own opinion of it
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 50+ blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
-  fabricated transaction hashes
+  fabricated transaction hashes. That refusal survives the trip out: the
+  HTTP answer is a 503, not a 200, and every envelope the gateway builds
+  states the verdict of the action in a `call_outcome` field of its own
+  rather than letting its own `ok` stand in for it — on both `/api/v1`
+  doors, the dedicated route and the capability-invoke one, which used to
+  give opposite answers for the same refusal. And a refusal the live feed
+  does not announce is still written down as a decline, on whichever
+  surface refused it: a trail has to show that the platform said no, not
+  that nothing was ever asked. The field is spelled that way on purpose: the services here already use the word `outcome`
+  for their own data — a prediction market's resolved outcome, a
+  dispute's, a proposal's — and while the platform borrowed it, resolving
+  a market *to* "failure" made the platform say the *call* had failed
 - **Gateway** — REST + WebSocket, rate limiting, background cleanup,
   graceful shutdown, full middleware chain
 - **EAS attestation client** — skips gracefully when offline
@@ -276,7 +294,13 @@ operator configures** — an allowlist of actions and a per-identity daily
 cap, decided from the call data being signed. Inside that policy a user
 pays no gas; past the cap, or for an action the allowlist does not cover,
 sponsorship is refused rather than silently granted, and an operator who
-configures no policy sponsors everything. Capabilities return
+configures no policy sponsors everything. Every transaction the platform
+signs goes through that policy, including the ones the services send
+through the shared web3 manager — if you configure an allowlist, list
+`web3.send_transaction` or those will be refused. The only operations
+exempt are the platform's own record-keeping writes, and they are listed
+by name in `runtime/blockchain/sponsorship.py` so the exemptions can be
+read rather than guessed at. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 
@@ -302,8 +326,18 @@ curl -X POST http://localhost:18790/chat \
 
 **Check platform health**
 ```bash
-curl http://localhost:18790/health
+curl http://localhost:18790/health        # liveness: is this process serving?
+curl http://localhost:18790/ready         # readiness: should it take traffic?
 ```
+
+The `models` map in `/health` says which providers **answered**, not which ones
+you configured a key for — each one is asked, with a short timeout, and they are
+all asked at once so the probe costs one timeout rather than five. `/ready` is
+the one an orchestrator should point at: it answers 503 when no provider
+answered, or when the platform is running in production with security in
+observe-only mode, and it deliberately tells you nothing else. Which check
+failed is in the log against the request id, because a readiness endpoint that
+announces what is not enforcing is telling whoever asks where to push.
 
 **Get platform status**
 ```bash
@@ -364,7 +398,7 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 
 **Trajectory** — Outcome prediction and path optimization. Predicts likely results of actions and suggests the optimal sequence to reach a goal.
 
-**Outcome Learning** — Feedback loop. Captures the real result of each tool call and uses it to improve future reasoning. It learns from the outcome the tool actually reported, not from the absence of a crash: most things here refuse by returning a structure (`{"status": "not_deployed"}`, `{"ok": false}`), and a refusal is recorded as a refusal. Where a tool reports something that does not decide whether it worked — `pending` means "not paid" in one service and "record written" in another — the sample is left unlabelled and is not learned from at all. An unlabelled sample costs one data point; a mislabelled one corrupts the success rate and every confidence estimate built on it.
+**Outcome Learning** — Feedback loop. Captures the real result of each tool call and uses it to improve future reasoning. It learns from the outcome the tool actually reported, not from the absence of a crash: most things here refuse by returning a structure (`{"status": "not_deployed"}`, `{"ok": false}`), and a refusal is recorded as a refusal. Where a tool reports something that does not decide whether it worked — `pending` means "not paid" in one service and "record written" in another — the sample is left unlabelled and is not learned from at all. An unlabelled sample costs one data point; a mislabelled one corrupts the success rate and every confidence estimate built on it. It also reads through the platform's own envelopes: a layer that wraps a service's answer may report on the wrapping and never on what it wrapped, so a refusal relayed through the gateway, the bridge or the service dispatcher is still a refusal when it arrives. Where a layer knows something the reader cannot see, it says so in a field of its own instead of leaving it to be inferred — the service dispatcher knows whether an action changes state, which is what separates a call that failed from a successful read of a campaign whose own status is `failed`, and where those two cannot be told apart the answer is again "unknown" rather than a guess. That field is named so the services cannot collide with it, and it cannot talk a refusal into a success: a structure that states one thing and declares the opposite about itself in the same breath is left unlabelled. A check that ran and answered no is a call that worked — an unknown credential is answered, not errored, and a staking read for someone who never staked answers "no position" — while a check that could not look at all still says so. Tools that used to answer a failure in prose now refuse in a structure: `bash`, the file and web tools and every blockchain capability say when they did not do the thing, instead of handing back a sentence with no verdict in it. The same verdict is what a client is told about each tool call — and when nobody established one, the field goes out empty rather than as a tick.
 
 **Morpheus Triggers** — Determines when Morpheus appears. Activates before irreversible actions, significant events, and high-stakes moments.
 

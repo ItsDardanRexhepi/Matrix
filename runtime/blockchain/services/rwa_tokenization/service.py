@@ -12,7 +12,11 @@ import time
 import uuid
 from typing import Any
 
-from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    not_deployed_response,
+    recorded_unsettled_response,
+)
 
 from .joint_ownership import JointOwnership
 from .legal_bridge import LegalBridge
@@ -221,16 +225,22 @@ class RWAService:
                 "requested": {"token_id": token_id, "buyer": buyer, "fraction_pct": fraction_pct},
             })
         buy_id = f"rwafb_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": buy_id,
-            "status": "purchased",
-            "token_id": token_id,
-            "buyer": buyer,
-            "fraction_pct": fraction_pct,
-            "amount": amount,
-        }
+        record = recorded_unsettled_response(
+            "rwa_tokenization", "fractional_buy", {
+                "id": buy_id,
+                "token_id": token_id,
+                "buyer": buyer,
+                "fraction_pct": fraction_pct,
+                "amount": amount,
+            },
+            disclosure=(
+                "No payment was taken from the buyer and no fraction was "
+                "transferred. `amount` is what was ASKED FOR, not what was "
+                "paid, and the seller's holding is unchanged."
+            ),
+        )
         self._tokens.setdefault(f"_frac_{buy_id}", record)
-        logger.info("Fractional buy: id=%s", buy_id)
+        logger.info("Fractional buy recorded (unsettled): id=%s", buy_id)
         return record
 
     async def claim_income(
@@ -243,14 +253,22 @@ class RWAService:
                 "requested": {"token_id": token_id, "holder": holder},
             })
         claim_id = f"rwaci_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": claim_id,
-            "status": "claimed",
-            "token_id": token_id,
-            "holder": holder,
-            "amount_claimed": 0.0,
-        }
-        logger.info("Income claimed: id=%s", claim_id)
+        record = recorded_unsettled_response(
+            "rwa_tokenization", "claim_income", {
+                "id": claim_id,
+                "token_id": token_id,
+                "holder": holder,
+                # NOT 0.0, which reads as "you were owed nothing". No
+                # distribution was read and none was paid.
+                "amount_claimed": None,
+            },
+            disclosure=(
+                "No distribution contract was called, no accrued income was "
+                "read and nothing was paid. This record does not discharge a "
+                "claim and does not establish that none is owed."
+            ),
+        )
+        logger.info("Income claim recorded (unsettled): id=%s", claim_id)
         return record
 
     async def verify_provenance(
@@ -263,12 +281,22 @@ class RWAService:
                 "requested": {"token_id": token_id, "verifier": verifier},
             })
         verify_id = f"rwavp_{uuid.uuid4().hex[:16]}"
-        record = {
-            "id": verify_id,
-            "status": "verified",
-            "token_id": token_id,
-            "verifier": verifier,
-            "provenance_valid": True,
-        }
-        logger.info("Provenance verified: id=%s", verify_id)
+        record = recorded_unsettled_response(
+            "rwa_tokenization", "verify_provenance", {
+                "id": verify_id,
+                "token_id": token_id,
+                "verifier": verifier,
+                # NOT `provenance_valid: True`. Nothing was checked, so the
+                # answer is not known — and "valid" is the one field a
+                # counterparty would rely on.
+                "provenance_valid": None,
+            },
+            value_moved=None,
+            disclosure=(
+                "No provenance chain was read and nothing was verified. This "
+                "is not a finding that the provenance is valid, and it is not "
+                "a finding that it is not."
+            ),
+        )
+        logger.info("Provenance verification recorded (unsettled): id=%s", verify_id)
         return record

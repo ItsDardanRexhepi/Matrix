@@ -26,7 +26,10 @@ from urllib.parse import parse_qsl
 from aiohttp import web
 from multidict import MultiDict, MultiDictProxy
 
-from gateway.error_contract import DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure
+from gateway.error_contract import (
+    DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure, refusal_http_status,
+)
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -657,7 +660,32 @@ class ServiceRoutes:
         A failing payload now gets a real HTTP status so the failure is
         impossible to miss, and the body keeps the service's own detail so
         callers lose nothing they had before.
+
+        AND `status` NEVER ANSWERED FOR THE PAYLOAD. `_FAILURE_STATUSES` is two
+        strings wide, so every other refusal idiom in the platform's own
+        163-word vocabulary went out as `{"status": "ok"}` — including
+        `not_deployed`, which 42 modules return and which means the platform
+        could not act at all.
+
+        `status` and `outcome` are TWO DIFFERENT CLAIMS and the envelope now
+        makes both. `status` is about the WRAPPING — this gateway resolved the
+        service, called it and has its answer — and RUN-4 is right that it must
+        stay `ok` for a domain outcome: a rejected claim is a real answer the
+        caller asked for, and MTRXAPIClient.rejectIfEnvelopeReportsFailure
+        throws on anything else, so promoting one would break a working flow
+        rather than fix it. `outcome` is about the ACTION, read from the
+        payload by `outcome_truth.report_of` (named fields of the structure the
+        service returned, never its prose). It is always present, because a
+        field that appears only on failure is read as silence on every other
+        path — the shape this whole cluster is about. `ServiceDispatcher`'s own
+        envelope states the same field with the same values.
+
+        THE HTTP STATUS MOVES ONLY WHERE THE PLATFORM COULD NOT ACT. A refusal
+        that means the capability is ABSENT is a transport-level fact and gets
+        one (`error_contract.CAPABILITY_ABSENT_HTTP`); a domain refusal keeps
+        200 and is carried by `outcome`.
         """
+        report = report_of(data)
         status = data.get("status") if isinstance(data, dict) else None
         if isinstance(status, str) and status in self._FAILURE_STATUSES:
             category = data.get("error_category")
@@ -666,9 +694,18 @@ class ServiceRoutes:
             else:
                 http_status = self._ERROR_CATEGORY_HTTP.get(category, 422)
             return web.json_response(
-                {"status": status, "data": data}, status=http_status
+                {"status": status, OUTCOME_FIELD: report, "data": data},
+                status=http_status,
             )
-        return web.json_response({"status": "ok", "data": data})
+        absent = refusal_http_status(data) if report == FAILURE else None
+        if absent is not None:
+            # The platform could not act. Its own status is the honest envelope
+            # word; the client is told over HTTP as well.
+            return web.json_response(
+                {"status": status or "refused", OUTCOME_FIELD: report, "data": data},
+                status=absent,
+            )
+        return web.json_response({"status": "ok", OUTCOME_FIELD: report, "data": data})
 
     async def _call(self, service_name: str, method_name: str, **kwargs) -> Any:
         """Resolve a service and call its method.
@@ -779,8 +816,16 @@ class ServiceRoutes:
             )
 
         # Step 13 of the loop — ripple out. A successfully executed action
-        # publishes to the live feed. Reached ONLY after a real result, so an
-        # honest failure (which raised above) never ripples.
+        # publishes to the live feed; a refusal is recorded as a decline and
+        # announced to nobody.
+        #
+        # THIS SAID "Reached ONLY after a real result, so an honest failure
+        # (which raised above) never ripples" — and the clauses above catch a
+        # RAISED failure, which is not the kind this codebase returns. Every
+        # `not_deployed`, every `{"ok": false}`, every declined action arrives
+        # here with a result in hand. `_maybe_ripple` reads that structure, so
+        # what decides is what the service reported and not how it chose to
+        # report it.
         self._maybe_ripple(service_name, method_name, kwargs, result)
         return result
 
@@ -793,6 +838,28 @@ class ServiceRoutes:
         "get_", "list_", "fetch_", "iter_", "is_", "has_", "read_", "query_", "query",
     )
 
+    @staticmethod
+    def _record_decline(service_name: str, method_name: str, result: Any,
+                        *, actor: str) -> None:
+        """Record that the platform DECLINED to act — as a decline.
+
+        Deliberately the same sentence, level and fields as
+        ``ServiceDispatcher._attest_refusal``, which never runs on this path:
+        one grep finds a decline whichever surface refused it. A log record and
+        not an attestation, for the reason given there — an operational event
+        is not a counterparty-facing claim.
+
+        The status is read from the structure the service returned, and no
+        negative fact is asserted beyond it: if the payload states none, the
+        record says so rather than inventing one.
+        """
+        status = result.get("status") if isinstance(result, dict) else None
+        logger.info(
+            "ACTION DECLINED (not attested, not published): action=%s service=%s "
+            "actor=%s status=%s — no outcome evidence in the service result",
+            method_name, service_name, actor or "<unnamed>", status,
+        )
+
     def _maybe_ripple(self, service_name: str, method_name: str, kwargs: dict, result: Any) -> None:
         """Publish a ``feed.ripple`` event for an executed consequential action.
 
@@ -800,8 +867,42 @@ class ServiceRoutes:
         confidential_compute and the privacy-backed storage legs all live on the
         ``privacy`` service). Reads never ripple. A publish failure can never
         break the action itself.
+
+        AND A REFUSAL IS NOT AN ACTIVITY. The docstring above `_call` said an
+        honest failure "raised above" and so never rippled — true of a RAISED
+        refusal and false of the kind this codebase actually returns. Every
+        `not_deployed`, every `{"ok": false}`, every declined action reached
+        here and was published to the live feed as an executed action, under
+        the actor's own address. The dispatcher established the rule on its own
+        feed path (`_outcome_is_real`, 16-K); this is the same rule on the HTTP
+        one, read through `report_of` so both surfaces answer from the
+        structure the service returned.
+
+        A REFUSAL IS STILL RECORDED, AND ON THIS PATH THAT MEANS HERE. The line
+        above read "the dispatcher attests it as a decline", which is true of
+        /bridge/v1/action and of the chat mega-tool and false of the surface it
+        is written on: `_call` resolves the service registry and calls the
+        method itself, so `ServiceDispatcher.execute` — the only caller of
+        `_attest_refusal` — is never entered, and a refused /api/v1 action left
+        nothing behind but a `logger.debug`. Suppressing the announcement while
+        writing no record trades a false entry for no entry, which is the same
+        defect facing the other way: a trail has to show that the platform
+        DECLINED, not that nothing was ever asked. So the same record is written
+        here, in the dispatcher's own words and at its level, for the calls that
+        would otherwise have rippled.
+
+        A privacy action's decline is recorded WITHOUT its actor. Naming who was
+        refused is exactly what the privacy exclusion exists to prevent, and the
+        record is still the record that the platform declined.
+
+        What stops is announcing it as something that happened. An outcome
+        nobody established (UNKNOWN — `pending`, `queued`) still ripples and
+        still carries its status: those calls did begin.
         """
+        refused = report_of(result) == FAILURE
         if service_name == "privacy":
+            if refused:
+                self._record_decline(service_name, method_name, result, actor="")
             return
         # A collection result is a read/lookup, never a single consequential action.
         if isinstance(result, list):
@@ -820,6 +921,13 @@ class ServiceRoutes:
             if isinstance(v, str) and v:
                 actor = v
                 break
+        if refused:
+            # The read and collection clauses run first deliberately: the
+            # dispatcher records a decline for the actions it would have
+            # attested (`_STATE_MODIFYING_ACTIONS`), and these are the calls
+            # this surface would have rippled. Same scope, same record.
+            self._record_decline(service_name, method_name, result, actor=actor)
+            return
         from gateway.security_gate import action_type_for
         payload: Dict[str, Any] = {
             "action": action_type_for(service_name, method_name),
@@ -3109,7 +3217,26 @@ class ServiceRoutes:
         if failure is not None:
             status, err = failure
             return web.json_response({**err, "capability_id": capability_id}, status=status)
-        return web.json_response(result, status=200)
+        # AND `dispatcher_failure` FIRES ONLY ON status == "error". Every other
+        # refusal idiom in the platform's 163-word vocabulary went out of here
+        # as HTTP 200 {"status": "ok"} — `not_deployed` above all, which means
+        # the platform could not act at all. The registry states the action's
+        # own verdict now (`CapabilityRegistry.invoke`), and this relays it
+        # with the same two claims, the same HTTP status and the same split as
+        # `_ok`: a domain refusal is a real answer and keeps its 200; a refusal
+        # that means the capability is ABSENT is a transport-level fact and
+        # gets `error_contract.CAPABILITY_ABSENT_HTTP`, read through the
+        # envelopes this route relays rather than off the outermost one.
+        #
+        # THE TWO /api/v1 SURFACES AGREED ON EVERYTHING BUT THIS. The same
+        # `not_deployed` left /api/v1/licensing/ip as 503 with the outcome in
+        # its own field and left this route as 200 {"status": "ok"} with no
+        # outcome anywhere a client reads — and this route is on the session
+        # allowlist, so it is one the app calls. sdk/client.py raises only on a
+        # non-200, so its caller proceeded as though the action had happened.
+        report = result.get(OUTCOME_FIELD)
+        absent = refusal_http_status(result) if report == FAILURE else None
+        return web.json_response(result, status=absent or 200)
 
     # ------------------------------------------------------------------
     # Batch dispatch

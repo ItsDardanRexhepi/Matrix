@@ -150,12 +150,19 @@ class CashbackService:
         }
 
     async def claim_cashback(self, user: str) -> dict:
-        """Claim all available cashback.
+        """Record a claim for all available cashback. THE MONEY IS NOT SENT.
 
-        Cashback is paid from platform revenue.
+        This method used to write ``cashback_claimed += available`` and answer
+        with ``paid_from: <platform revenue wallet>`` and ``cashback_remaining:
+        0.0``. There is no payment rail anywhere in this service: no transfer,
+        no transaction, no external ledger call. So the claimable balance — which
+        IS the platform's liability to the user — was discharged, the user was
+        told where the money came from, and nothing moved. The record was the
+        only evidence the debt had ever existed, and the record said it was paid.
 
-        Returns:
-            Dict with claimed amount and payment details.
+        The balance is now left standing until something settles the claim, the
+        response says plainly that nothing was sent, and a second press returns
+        the SAME open claim rather than minting another id for the same money.
         """
         if not user:
             raise ValueError("user is required")
@@ -175,19 +182,49 @@ class CashbackService:
                 f"Available: ${available:.2f}"
             )
 
+        # AN OPEN CLAIM IS NOT CLAIMED TWICE. Without this, every call minted a
+        # new claim id for the same money, and a settlement process reading the
+        # records would pay the same balance as many times as the user pressed
+        # the button.
+        pending = self._open_claim(data)
+        if pending is not None:
+            return dict(pending)
+
         claim_id = f"claim_{uuid.uuid4().hex[:12]}"
-        data["cashback_claimed"] = round(data["cashback_claimed"] + available, 8)
-
-        logger.info("User %s claimed $%.2f cashback", user, available)
-
-        return {
+        claim = {
+            # `recorded_unsettled` — the word this codebase already uses for a
+            # record that exists while nothing has settled.
+            "status": "recorded_unsettled",
+            "settled": False,
+            "value_moved": False,
             "user": user,
             "claim_id": claim_id,
-            "amount_claimed": available,
-            "paid_from": self.config["platform_revenue_wallet"],
-            "cashback_remaining": 0.0,
-            "claimed_at": time.time(),
+            "amount_requested": available,
+            "payable_from": self.config["platform_revenue_wallet"],
+            "cashback_remaining": available,
+            "requested_at": time.time(),
+            "disclosure": (
+                "This service has no payment rail. The claim is RECORDED and "
+                "the money has NOT been sent: no transfer was made from "
+                f"{self.config['platform_revenue_wallet']} and no transaction "
+                "exists. The balance stays claimable until something settles it."
+            ),
         }
+        data.setdefault("claims", []).append(claim)
+
+        logger.info(
+            "User %s requested $%.2f cashback — recorded, NOT paid (claim=%s)",
+            user, available, claim_id,
+        )
+        return dict(claim)
+
+    @staticmethod
+    def _open_claim(data: dict) -> dict | None:
+        """The user's unsettled claim, if one is already on the books."""
+        for claim in reversed(data.get("claims", [])):
+            if not claim.get("settled"):
+                return claim
+        return None
 
     async def get_spending_summary(self, user: str) -> dict:
         """Get a detailed spending summary for the current year.

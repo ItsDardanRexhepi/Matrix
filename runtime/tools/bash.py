@@ -12,6 +12,7 @@ import logging
 import shlex
 
 logger = logging.getLogger(__name__)
+from runtime.protocols.outcome_truth import refusal
 
 COMMAND_TIMEOUT = 30
 
@@ -50,7 +51,8 @@ class BashTool:
 
     async def execute(self, command: str, timeout: int | None = None) -> str:
         if any(blocked in command for blocked in BLOCKED_COMMANDS):
-            return "Error: this command is blocked for safety"
+            return refusal("Error: this command is blocked for safety",
+                           code="blocked_command")
 
         # Validate timeout
         effective_timeout = min(max(timeout or COMMAND_TIMEOUT, 1), 120)
@@ -72,7 +74,14 @@ class BashTool:
             errors = stderr.decode("utf-8", errors="replace").strip()
 
             if proc.returncode != 0:
-                return f"Exit code {proc.returncode}\n{errors}\n{output}".strip()
+                # The command did not succeed. The detail the agent needs is
+                # unchanged — it is carried in a named field instead of being
+                # the whole return value, so the one consumer that needs a
+                # verdict can read one.
+                return refusal(
+                    f"Exit code {proc.returncode}\n{errors}\n{output}".strip(),
+                    code="nonzero_exit",
+                )
 
             result = output
             if errors:
@@ -88,4 +97,5 @@ class BashTool:
                 proc.kill()
             except ProcessLookupError:
                 pass
-            return f"Error: command timed out after {effective_timeout}s"
+            return refusal(f"Error: command timed out after {effective_timeout}s",
+                           code="tool_timeout")

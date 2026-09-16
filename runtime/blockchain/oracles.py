@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,9 @@ class Oracles(BlockchainInterface):
             return await self._list_feeds(kwargs)
         elif action == "query_custom":
             return await self._query_custom(kwargs)
-        return f"Unknown oracle action: {action}"
+        return refusal(
+            f"Unknown oracle action: {action}",
+            code="unknown_action")
 
     async def _get_price(self, params: dict) -> str:
         """Get latest price from Chainlink feed."""
@@ -74,7 +77,9 @@ class Oracles(BlockchainInterface):
                 # Try custom oracle address
                 feed_address = params.get("oracle_address", "")
                 if not feed_address:
-                    return f"Unknown price pair: {pair}. Available: {', '.join(BASE_PRICE_FEEDS.keys())}"
+                    return refusal(
+                        f"Unknown price pair: {pair}. Available: {', '.join(BASE_PRICE_FEEDS.keys())}",
+                        code="unknown_input")
 
             contract = self.web3.eth.contract(
                 address=Web3.to_checksum_address(feed_address),
@@ -97,7 +102,9 @@ class Oracles(BlockchainInterface):
                 "network": self.network,
             }, indent=2)
         except Exception as e:
-            return f"Price query failed: {e}"
+            return refusal(
+                f"Price query failed: {e}",
+                code="capability_error")
 
     async def _list_feeds(self, params: dict) -> str:
         return json.dumps({
@@ -109,5 +116,7 @@ class Oracles(BlockchainInterface):
         """Query a custom oracle contract's latestRoundData."""
         oracle_addr = params.get("oracle_address", "")
         if not oracle_addr:
-            return "Error: oracle_address required"
+            return refusal(
+                "Error: oracle_address required",
+                code="invalid_request")
         return await self._get_price({"pair": "CUSTOM", "oracle_address": oracle_addr})

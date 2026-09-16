@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,9 @@ class DeFi(BlockchainInterface):
         }
         handler = handlers.get(action)
         if not handler:
-            return f"Unknown DeFi action: {action}. Available: {', '.join(handlers.keys())}"
+            return refusal(
+                f"Unknown DeFi action: {action}. Available: {', '.join(handlers.keys())}",
+                code="unknown_action")
         return await handler(kwargs)
 
     async def _supply(self, params: dict) -> str:
@@ -128,7 +131,9 @@ class DeFi(BlockchainInterface):
             token = params.get("token", "WETH").upper()
             token_address = BASE_SEPOLIA_TOKENS.get(token)
             if not token_address:
-                return f"Unknown token: {token}. Available: {', '.join(BASE_SEPOLIA_TOKENS.keys())}"
+                return refusal(
+                    f"Unknown token: {token}. Available: {', '.join(BASE_SEPOLIA_TOKENS.keys())}",
+                    code="unknown_input")
 
             amount = int(float(params.get("amount", "0")) * 10**18)
             pool_address = params.get("pool_address", "")
@@ -165,7 +170,9 @@ class DeFi(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Supply failed: {e}"
+            return refusal(
+                f"Supply failed: {e}",
+                code="capability_error")
 
     async def _borrow(self, params: dict) -> str:
         """Borrow tokens from Aave. Gas covered by platform."""
@@ -177,7 +184,9 @@ class DeFi(BlockchainInterface):
             token = params.get("token", "USDC").upper()
             token_address = BASE_SEPOLIA_TOKENS.get(token)
             if not token_address:
-                return f"Unknown token: {token}"
+                return refusal(
+                    f"Unknown token: {token}",
+                    code="unknown_input")
 
             amount = int(float(params.get("amount", "0")) * 10**18)
             pool_address = params.get("pool_address", "")
@@ -216,7 +225,9 @@ class DeFi(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Borrow failed: {e}"
+            return refusal(
+                f"Borrow failed: {e}",
+                code="capability_error")
 
     async def _withdraw(self, params: dict) -> str:
         """Withdraw supplied tokens from Aave. Gas covered by platform."""
@@ -228,7 +239,9 @@ class DeFi(BlockchainInterface):
             token = params.get("token", "WETH").upper()
             token_address = BASE_SEPOLIA_TOKENS.get(token)
             if not token_address:
-                return f"Unknown token: {token}"
+                return refusal(
+                    f"Unknown token: {token}",
+                    code="unknown_input")
 
             amount = int(float(params.get("amount", "0")) * 10**18)
             pool_address = params.get("pool_address", "")
@@ -262,7 +275,9 @@ class DeFi(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Withdraw failed: {e}"
+            return refusal(
+                f"Withdraw failed: {e}",
+                code="capability_error")
 
     async def _repay(self, params: dict) -> str:
         """Repay borrowed tokens to Aave. Gas covered by platform."""
@@ -274,7 +289,9 @@ class DeFi(BlockchainInterface):
             token = params.get("token", "USDC").upper()
             token_address = BASE_SEPOLIA_TOKENS.get(token)
             if not token_address:
-                return f"Unknown token: {token}"
+                return refusal(
+                    f"Unknown token: {token}",
+                    code="unknown_input")
 
             amount = int(float(params.get("amount", "0")) * 10**18)
             pool_address = params.get("pool_address", "")
@@ -309,7 +326,9 @@ class DeFi(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Repay failed: {e}"
+            return refusal(
+                f"Repay failed: {e}",
+                code="capability_error")
 
     async def _get_rates(self, params: dict) -> str:
         """Get current lending/borrowing rates from Aave V3 data provider."""
@@ -382,7 +401,9 @@ class DeFi(BlockchainInterface):
                 "rates": rates,
             }, indent=2)
         except Exception as e:
-            return f"Rate query failed: {e}"
+            return refusal(
+                f"Rate query failed: {e}",
+                code="capability_error")
 
     async def _get_positions(self, params: dict) -> str:
         """Get user's current DeFi positions by querying aToken balances."""
@@ -436,4 +457,6 @@ class DeFi(BlockchainInterface):
                 "token_balances": positions,
             }, indent=2)
         except Exception as e:
-            return f"Position query failed: {e}"
+            return refusal(
+                f"Position query failed: {e}",
+                code="capability_error")

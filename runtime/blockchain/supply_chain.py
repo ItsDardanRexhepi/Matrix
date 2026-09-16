@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,9 @@ class SupplyChain(BlockchainInterface):
             return await self._track(kwargs)
         elif action == "verify_provenance":
             return await self._verify_provenance(kwargs)
-        return f"Unknown supply chain action: {action}"
+        return refusal(
+            f"Unknown supply chain action: {action}",
+            code="unknown_action")
 
     async def _create_record(self, params: dict) -> str:
         """Create a supply chain record attested on-chain."""

@@ -172,9 +172,30 @@ def test_the_repoint_target_is_not_a_known_fabrication():
     from tests.test_uuid_mint_fabrication_shape import KNOWN_FABRICATION_SHAPE
 
     assert not any(k.endswith(".log_event") for k in KNOWN_FABRICATION_SHAPE)
-    # and the two that were refused a repoint really are fabrications
-    assert any(k.endswith(".mint_soulbound") for k in KNOWN_FABRICATION_SHAPE)
+    # and the two that were refused a repoint still do not do the thing.
+    #
+    # `propose_multisig` is still a D6 instance and is asserted against that
+    # list. `mint_soulbound` LEFT the list in the attest-money cluster — not
+    # because it started minting, but because it stopped claiming to: it now
+    # answers `recorded_unsettled` with `settled: False`. Asserting against the
+    # service rather than against the inventory is the stronger form of the same
+    # claim, and it does not go quiet the next time an entry is fixed the same
+    # way.
     assert any(k.endswith(".propose_multisig") for k in KNOWN_FABRICATION_SHAPE)
+
+    import asyncio
+
+    from runtime.blockchain.services.nft_services.service import NFTService
+
+    svc = NFTService({})
+    svc._web3 = type("_Deployed", (), {
+        "available": True,
+        "is_placeholder": staticmethod(lambda _a: False),
+    })()
+    record = asyncio.run(svc.mint_soulbound("0xR", {}, "0xI"))
+    assert record["status"] == "recorded_unsettled" and record["settled"] is False, (
+        f"the repoint target started claiming to mint again: {record}"
+    )
 
 
 # ── HONEST-501 — unbuilt, and the near-twin is unusable or fake ──────────

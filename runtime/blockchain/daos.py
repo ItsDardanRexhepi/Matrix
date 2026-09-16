@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,9 @@ class DAOs(BlockchainInterface):
             return await self._get_state(kwargs)
         elif action == "deploy_dao":
             return await self._deploy_dao(kwargs)
-        return f"Unknown DAO action: {action}"
+        return refusal(
+            f"Unknown DAO action: {action}",
+            code="unknown_action")
 
     async def _create_proposal(self, params: dict) -> str:
         try:
@@ -102,7 +105,9 @@ class DAOs(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Proposal creation failed: {e}"
+            return refusal(
+                f"Proposal creation failed: {e}",
+                code="capability_error")
 
     async def _vote(self, params: dict) -> str:
         try:
@@ -140,7 +145,9 @@ class DAOs(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Vote failed: {e}"
+            return refusal(
+                f"Vote failed: {e}",
+                code="capability_error")
 
     async def _execute_proposal(self, params: dict) -> str:
         """Execute a succeeded proposal. Gas covered by platform."""
@@ -185,7 +192,9 @@ class DAOs(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Proposal execution failed: {e}"
+            return refusal(
+                f"Proposal execution failed: {e}",
+                code="capability_error")
 
     async def _get_state(self, params: dict) -> str:
         try:
@@ -201,7 +210,9 @@ class DAOs(BlockchainInterface):
                 "state_code": state,
             })
         except Exception as e:
-            return f"State check failed: {e}"
+            return refusal(
+                f"State check failed: {e}",
+                code="capability_error")
 
     async def _deploy_dao(self, params: dict) -> str:
         dao_name = params.get("dao_name", "MatrixDAO")

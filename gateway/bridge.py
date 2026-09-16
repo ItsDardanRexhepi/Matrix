@@ -27,7 +27,8 @@ from typing import Any
 
 from aiohttp import web
 
-from gateway.error_contract import client_error, dispatcher_failure
+from gateway.error_contract import client_error, dispatcher_failure, refusal_http_status
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, report_of
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,17 @@ class MobileResponse:
     """Consistent response envelope for mobile clients."""
 
     @staticmethod
-    def ok(data: Any = None) -> web.Response:
-        body = {"ok": True, "data": data or {}, "timestamp": time.time()}
+    def ok(data: Any = None, *, outcome: str | None = None) -> web.Response:
+        """`ok` is about the WRAPPING — the bridge served this request.
+
+        `outcome` is about the ACTION, and it is the field that was missing:
+        this envelope's `ok: true` was the only verdict a client could read, so
+        every refusal the bridge relayed arrived as a success. It is stated
+        always, never only on failure, because a field that appears only when
+        something went wrong is read as silence when it is absent.
+        """
+        body = {"ok": True, OUTCOME_FIELD: outcome or SUCCESS,
+                "data": data or {}, "timestamp": time.time()}
         return web.json_response(body)
 
     @staticmethod
@@ -58,6 +68,22 @@ class MobileResponse:
         if ref:
             body["ref"] = ref
         return web.json_response(body, status=code)
+
+    @staticmethod
+    def refused(data: Any, *, status: int = 200) -> web.Response:
+        """The platform declined, and the client is told so.
+
+        Distinct from `error`: nothing malfunctioned and there is nothing to
+        correlate — the service answered, and its answer was no. The payload
+        rides along under `data` so the client loses nothing, and `ok` is false
+        so the iOS side cannot close a send sheet on it (NEW-21).
+        """
+        return web.json_response(
+            {"ok": False, OUTCOME_FIELD: FAILURE, "refused": True,
+             "error": "The platform did not perform this action.",
+             "data": data, "timestamp": time.time()},
+            status=status,
+        )
 
     @staticmethod
     def from_exception(exc: BaseException, *, what: str = "Bridge") -> web.Response:
@@ -1015,12 +1041,37 @@ class BridgeRoutes:
         Every payload was HTTP 200 ``ok: true`` — including
         ``{"status": "error"}`` — the RUN-4 inversion ServiceRoutes._ok fixed
         for /api/v1 and never reached here. A success is relayed exactly as
-        before; a failure is decided by error_contract.dispatcher_failure."""
+        before; a failure is decided by error_contract.dispatcher_failure.
+
+        AND THAT READ ONLY THE DISPATCHER'S OUTER STATUS, WHICH SAYS ``ok``
+        WHENEVER THE SERVICE RETURNED. ``ServiceDispatcher.execute`` wraps the
+        service's answer — ``{"status": "ok", "result": <the answer>}`` — and
+        reaches that line for a raised failure only; in this codebase a refusal
+        is RETURNED. So the dispatcher computed ``_outcome_is_real``, attested
+        the call as a DECLINE, and then handed this method a payload whose
+        outer status said ok, which went to the client as ``ok: true``. The
+        dispatcher knew. The envelope covered it.
+
+        ``report_of`` reads through that envelope now (named fields of the
+        structure, never prose), so the refusal the dispatcher already recorded
+        is the refusal the client is given."""
         failure = dispatcher_failure(result, what=f"Bridge action {action}")
-        if failure is None:
-            return MobileResponse.ok(result)
-        status, err = failure
-        return MobileResponse.error(err["error"], status, error_code=err.get("code"), ref=err.get("ref"))
+        if failure is not None:
+            status, err = failure
+            return MobileResponse.error(err["error"], status,
+                                        error_code=err.get("code"), ref=err.get("ref"))
+        report = report_of(result)
+        if report == FAILURE:
+            inner = result
+            if isinstance(inner, (str, bytes)):
+                try:
+                    inner = json.loads(inner)
+                except (ValueError, TypeError):
+                    inner = result
+            payload = inner.get("result", inner) if isinstance(inner, dict) else inner
+            return MobileResponse.refused(
+                payload, status=refusal_http_status(payload) or 200)
+        return MobileResponse.ok(result, outcome=report)
 
     # ─── Push notifications ─────────────────────────────────────────────────
 

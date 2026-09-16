@@ -13,6 +13,7 @@ import logging
 import aiohttp
 
 logger = logging.getLogger(__name__)
+from runtime.protocols.outcome_truth import refusal
 
 MAX_BODY = 100_000
 
@@ -63,11 +64,13 @@ class WebTool:
         timeout: int = 30,
     ) -> str:
         if not url.startswith(("http://", "https://")):
-            return "Error: URL must start with http:// or https://"
+            return refusal("Error: URL must start with http:// or https://",
+                           code="bad_url")
 
         method = method.upper()
         if method not in ("GET", "POST", "PUT", "DELETE"):
-            return f"Error: unsupported method '{method}'"
+            return refusal(f"Error: unsupported method '{method}'",
+                           code="unsupported_method")
 
         req_headers = {"User-Agent": "Mozilla/5.0 (compatible; The Matrix/1.0)"}
         if headers:
@@ -112,10 +115,10 @@ class WebTool:
             return "\n".join(result_lines)
 
         except aiohttp.ClientError as e:
-            return f"Error: {e}"
+            return refusal(f"Error: {e}", code="http_error")
         except Exception as e:
             logger.error(f"Web request failed: {e}")
-            return f"Error: {e}"
+            return refusal(f"Error: {e}", code="web_error")
 
     def _extract_text(self, html: str) -> str:
         for tag in ["script", "style", "nav", "footer", "header"]:

@@ -59,5 +59,12 @@ async def test_a_caller_who_is_not_the_token_owner_is_refused(monkeypatch):
 
     allowed = await svc.fractionalize(collection="0xC", token_id=1, fractions=10,
                                       price_per_fraction=1.0, owner="0xtest_real_owner")
-    assert allowed.get("status") == "fractionalized"
+    # The subject of this test is the OWNER CHECK, not the word in `status`.
+    # The owner-matched call is allowed through; what it then records is
+    # `recorded_unsettled` rather than `fractionalized`, because no fraction
+    # contract was deployed and the NFT was never locked — the on-chain owner
+    # WAS read, which is what this test is about, and nothing was fractionalised.
+    assert allowed.get("error") != "not_token_owner"
+    assert allowed.get("status") == "recorded_unsettled"
+    assert allowed.get("settled") is False
     assert allowed.get("owner") == "0xtest_real_owner"

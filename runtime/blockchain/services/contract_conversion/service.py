@@ -138,7 +138,15 @@ class ContractConversionService:
             return {"status": "error", "stage": "compile", "error": "empty bytecode"}
 
         try:
-            account = self._web3.get_account()
+            # The one site in services/** that signs without going through
+            # `Web3Manager.send_transaction` — it needs the receipt's
+            # contractAddress, so it drives the broadcast itself. It took the
+            # account handle and signed with it, which was an UNMETERED
+            # exemption; a contract deployment is the most expensive thing the
+            # platform signs and the D-045 cap could not see it. Metered here
+            # under its own action name, like every capability in
+            # runtime/blockchain/*.py already is.
+            account = await self._web3.signer("contract_conversion.deploy")
             w3 = self._web3.w3
             contract = w3.eth.contract(abi=abi, bytecode=bytecode)
             tx = contract.constructor().build_transaction({

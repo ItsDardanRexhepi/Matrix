@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ class Staking(BlockchainInterface):
             return await self._get_staked(kwargs)
         elif action == "get_rewards":
             return await self._get_rewards(kwargs)
-        return f"Unknown staking action: {action}"
+        return refusal(
+            f"Unknown staking action: {action}",
+            code="unknown_action")
 
     async def _stake(self, params: dict) -> str:
         try:
@@ -91,7 +94,9 @@ class Staking(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Stake failed: {e}"
+            return refusal(
+                f"Stake failed: {e}",
+                code="capability_error")
 
     async def _unstake(self, params: dict) -> str:
         try:
@@ -126,7 +131,9 @@ class Staking(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Unstake failed: {e}"
+            return refusal(
+                f"Unstake failed: {e}",
+                code="capability_error")
 
     async def _claim_rewards(self, params: dict) -> str:
         try:
@@ -159,7 +166,9 @@ class Staking(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Claim failed: {e}"
+            return refusal(
+                f"Claim failed: {e}",
+                code="capability_error")
 
     async def _get_staked(self, params: dict) -> str:
         try:
@@ -172,7 +181,9 @@ class Staking(BlockchainInterface):
             staked = contract.functions.stakedBalance(Web3.to_checksum_address(addr)).call()
             return json.dumps({"staked": str(staked / 10**18), "address": addr})
         except Exception as e:
-            return f"Staked balance check failed: {e}"
+            return refusal(
+                f"Staked balance check failed: {e}",
+                code="capability_error")
 
     async def _get_rewards(self, params: dict) -> str:
         try:
@@ -185,4 +196,6 @@ class Staking(BlockchainInterface):
             rewards = contract.functions.earned(Web3.to_checksum_address(addr)).call()
             return json.dumps({"pending_rewards": str(rewards / 10**18), "address": addr})
         except Exception as e:
-            return f"Rewards check failed: {e}"
+            return refusal(
+                f"Rewards check failed: {e}",
+                code="capability_error")

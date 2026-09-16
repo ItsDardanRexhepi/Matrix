@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,9 @@ class Governance(BlockchainInterface):
             return await self._grant_role(kwargs)
         elif action == "revoke_role":
             return await self._revoke_role(kwargs)
-        return f"Unknown governance action: {action}"
+        return refusal(
+            f"Unknown governance action: {action}",
+            code="unknown_action")
 
     async def _schedule(self, params: dict) -> str:
         try:
@@ -102,7 +105,9 @@ class Governance(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Schedule failed: {e}"
+            return refusal(
+                f"Schedule failed: {e}",
+                code="capability_error")
 
     async def _execute_op(self, params: dict) -> str:
         """Execute a scheduled timelock operation. Gas covered by platform."""
@@ -147,7 +152,9 @@ class Governance(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Execution failed: {e}"
+            return refusal(
+                f"Execution failed: {e}",
+                code="capability_error")
 
     async def _get_delay(self, params: dict) -> str:
         try:
@@ -159,7 +166,9 @@ class Governance(BlockchainInterface):
             delay = timelock.functions.getMinDelay().call()
             return json.dumps({"min_delay_seconds": delay, "min_delay_hours": delay / 3600})
         except Exception as e:
-            return f"Delay check failed: {e}"
+            return refusal(
+                f"Delay check failed: {e}",
+                code="capability_error")
 
     async def _grant_role(self, params: dict) -> str:
         """Grant a role via AccessControl contract. Gas covered by platform."""
@@ -212,7 +221,9 @@ class Governance(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Grant role failed: {e}"
+            return refusal(
+                f"Grant role failed: {e}",
+                code="capability_error")
 
     async def _revoke_role(self, params: dict) -> str:
         """Revoke a role via AccessControl contract. Gas covered by platform."""
@@ -265,4 +276,6 @@ class Governance(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Revoke role failed: {e}"
+            return refusal(
+                f"Revoke role failed: {e}",
+                code="capability_error")

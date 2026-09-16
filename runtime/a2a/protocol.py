@@ -107,12 +107,23 @@ class JobRequest:
 
 @dataclass
 class JobResult:
-    """The result of a completed A2A job."""
+    """The result of a completed A2A job.
+
+    `success` is TWO-VALUED and the question is not. A job whose agent made five
+    tool calls, two of which the platform refused, did not fail and did not
+    succeed; `outcome` carries that third answer — "success", "failure" or
+    "unknown", from `runtime.protocols.outcome_truth` — and `success` stays what
+    every existing consumer reads, True only for an established success.
+
+    It matters because `actual_price_usd` is an INVOICE. Billing an outcome
+    nobody established is the same defect as attesting one.
+    """
     job_id: str = ""
     output_data: dict = field(default_factory=dict)
     actual_price_usd: float = 0.0
     execution_time_ms: int = 0
     success: bool = True
+    outcome: str = "success"
     error_message: str = ""
 
     def to_dict(self) -> dict:
@@ -123,5 +134,6 @@ class JobResult:
             "price_usd": self.actual_price_usd,
             "execution_time_ms": self.execution_time_ms,
             "success": self.success,
+            "outcome": self.outcome,
             "error": self.error_message if not self.success else None,
         }

@@ -10,6 +10,7 @@ import logging
 
 from runtime.blockchain.interface import BlockchainInterface
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,9 @@ class Payments(BlockchainInterface):
             return await self._get_balance(kwargs)
         elif action == "estimate_fee":
             return await self._estimate_fee(kwargs)
-        return f"Unknown payment action: {action}"
+        return refusal(
+            f"Unknown payment action: {action}",
+            code="unknown_action")
 
     async def _send_eth(self, params: dict) -> str:
         manager = Web3Manager.get_shared(self.config)
@@ -179,7 +182,9 @@ class Payments(BlockchainInterface):
                 "network": self.network,
             })
         except Exception as e:
-            return f"Balance check failed: {e}"
+            return refusal(
+                f"Balance check failed: {e}",
+                code="capability_error")
 
     async def _estimate_fee(self, params: dict) -> str:
         try:
@@ -192,4 +197,6 @@ class Payments(BlockchainInterface):
                 "network": self.network,
             })
         except Exception as e:
-            return f"Fee estimation failed: {e}"
+            return refusal(
+                f"Fee estimation failed: {e}",
+                code="capability_error")

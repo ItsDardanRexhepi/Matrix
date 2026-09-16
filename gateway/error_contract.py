@@ -40,6 +40,8 @@ import asyncio
 import logging
 from typing import Any
 
+from runtime.protocols.outcome_truth import envelope_chain
+
 logger = logging.getLogger(__name__)
 
 # Failures that mean "a dependency we call is not reachable". These are 503:
@@ -111,6 +113,72 @@ DISPATCHER_CATEGORY_HTTP: dict[str, int] = {
 #: Every other category's message carries raw exception text (a Python binding
 #: message, a service's own exception), which stays server-side against a ref.
 DISPATCHER_CALLER_MESSAGES = frozenset({"not_found", "not_implemented", "forbidden"})
+
+
+# ── refusals that are not domain answers ──────────────────────────────────
+#
+# RUN-4 drew a line the HTTP surfaces still need: a `rejected` claim or a
+# `failed` transaction is a REAL ANSWER the caller asked for, and turning it
+# into a transport failure would break flows that work. That line is kept.
+#
+# But `_FAILURE_STATUSES` was two strings wide — `error` and `unavailable` — and
+# the canonical refusal this platform emits most often is none of them. A
+# service with no deployed contract returns `not_deployed_response()`, 42 modules
+# use it, and it went out as HTTP 200 `{"status": "ok"}`. `sdk/client.py` raises
+# only on `resp.status != 200`, so the caller proceeded as though it had worked.
+#
+# These are the refusals that are NOT an answer about the caller's domain: the
+# platform saying it cannot act at all. Each maps to the status that says so.
+# Everything else in the refusal vocabulary keeps 200 and is distinguished by the
+# envelope's own status instead (ServiceRoutes._ok), which is what a client
+# actually branches on.
+CAPABILITY_ABSENT_HTTP: dict[str, int] = {
+    # No contract deployed; `validation.py` already describes this as the
+    # short-circuit for an unconfigured chain.
+    "not_deployed": 503,
+    "not_configured": 503,
+    "not_available": 503,
+    "unavailable": 503,
+    # The capability does not exist in this build. Same status the dispatcher's
+    # `not_implemented` category and the `NotImplementedError` clause in
+    # ServiceRoutes._call already return, so the three surfaces agree.
+    "not_implemented": 501,
+    "unsupported": 501,
+    "provider_unsupported": 501,
+}
+
+
+def refusal_http_status(payload: Any) -> int | None:
+    """The HTTP status for a payload that reports a refusal, or None for 200.
+
+    None is not "this succeeded" — it is "this refusal is a domain answer, and
+    the transport did deliver it". The refusal is still visible, in the
+    envelope's own status and in the payload.
+
+    READ THROUGH THE PLATFORM'S OWN ENVELOPES, because that is how the payload
+    arrives on two of the three surfaces that ask. This read the OUTERMOST
+    status only, and `CapabilityRegistry.invoke` hands the gateway
+    ``{"status": "ok", "result": <the dispatcher's envelope>}`` whatever the
+    service said — so the same `not_deployed` that leaves /api/v1/licensing/ip
+    as 503 left /api/v1/capabilities/{id}/invoke as 200. `report_of` had always
+    read through those envelopes; this now walks the same chain, so the outcome
+    the envelope states and the status the transport answers can no longer
+    disagree.
+
+    THE STRONGEST REFUSAL WINS, not the innermost. A refusal that carries a
+    payload of its own (`not_deployed` with a deployment guide under `data`)
+    keeps its 503 rather than being read as the guide inside it: walking outward
+    -> inward and stopping at the first absent-capability status can only ever
+    ADD a refusal where the outer envelope stated none.
+    """
+    for level in envelope_chain(payload) or [payload]:
+        status = level.get("status") if isinstance(level, dict) else None
+        if not isinstance(status, str):
+            continue
+        absent = CAPABILITY_ABSENT_HTTP.get(status.strip().lower())
+        if absent is not None:
+            return absent
+    return None
 
 
 def classify(exc: BaseException) -> str:

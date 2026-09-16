@@ -11,6 +11,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ class Stablecoins(BlockchainInterface):
             return await self._approve(kwargs)
         elif action == "list":
             return await self._list(kwargs)
-        return f"Unknown stablecoin action: {action}"
+        return refusal(
+            f"Unknown stablecoin action: {action}",
+            code="unknown_action")
 
     def _get_token_address(self, token: str) -> str | None:
         network_tokens = STABLECOIN_ADDRESSES.get(self.network, {})
@@ -85,7 +88,9 @@ class Stablecoins(BlockchainInterface):
             token = params.get("token", "USDC").upper()
             token_addr = self._get_token_address(token)
             if not token_addr:
-                return f"Unknown stablecoin: {token} on {self.network}"
+                return refusal(
+                    f"Unknown stablecoin: {token} on {self.network}",
+                    code="unknown_input")
 
             contract = self.web3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=ERC20_ABI)
             decimals = contract.functions.decimals().call()
@@ -115,7 +120,9 @@ class Stablecoins(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Transfer failed: {e}"
+            return refusal(
+                f"Transfer failed: {e}",
+                code="capability_error")
 
     async def _balance(self, params: dict) -> str:
         try:
@@ -123,7 +130,9 @@ class Stablecoins(BlockchainInterface):
             token = params.get("token", "USDC").upper()
             token_addr = self._get_token_address(token)
             if not token_addr:
-                return f"Unknown stablecoin: {token}"
+                return refusal(
+                    f"Unknown stablecoin: {token}",
+                    code="unknown_input")
 
             contract = self.web3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=ERC20_ABI)
             decimals = contract.functions.decimals().call()
@@ -131,7 +140,9 @@ class Stablecoins(BlockchainInterface):
             balance = contract.functions.balanceOf(Web3.to_checksum_address(addr)).call()
             return json.dumps({"token": token, "balance": str(balance / 10**decimals), "address": addr})
         except Exception as e:
-            return f"Balance check failed: {e}"
+            return refusal(
+                f"Balance check failed: {e}",
+                code="capability_error")
 
     async def _approve(self, params: dict) -> str:
         try:
@@ -143,7 +154,9 @@ class Stablecoins(BlockchainInterface):
             token = params.get("token", "USDC").upper()
             token_addr = self._get_token_address(token)
             if not token_addr:
-                return f"Unknown stablecoin: {token}"
+                return refusal(
+                    f"Unknown stablecoin: {token}",
+                    code="unknown_input")
 
             contract = self.web3.eth.contract(address=Web3.to_checksum_address(token_addr), abi=ERC20_ABI)
             decimals = contract.functions.decimals().call()
@@ -172,7 +185,9 @@ class Stablecoins(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Approve failed: {e}"
+            return refusal(
+                f"Approve failed: {e}",
+                code="capability_error")
 
     async def _list(self, params: dict) -> str:
         tokens = STABLECOIN_ADDRESSES.get(self.network, {})

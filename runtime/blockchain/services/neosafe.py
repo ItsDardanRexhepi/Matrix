@@ -10,7 +10,8 @@ import logging
 import time
 from typing import Any
 
-from runtime.blockchain.web3_manager import Web3Manager
+from runtime.blockchain.web3_manager import Web3Manager, settle_transaction
+from runtime.protocols.outcome_truth import SUCCESS, report_of
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +126,17 @@ class NeoSafeRouter:
     ) -> dict[str, Any]:
         """Send *amount_eth* ETH to the NeoSafe multisig and attest the routing.
 
-        Returns a dict describing the on-chain action. When the platform
-        is not yet configured for live execution, the routing is queued
-        in-memory and a ``status='queued'`` response is returned.
+        Reports what the CHAIN did, not what the node accepted:
+
+            mined, status 1   -> "routed", settled, value moved, and only then
+                                 is the EAS attestation written
+            mined, status 0   -> "failed" — it REVERTED; nothing moved and gas
+                                 was still spent
+            no receipt in time-> "pending", carrying the hash: not a refusal and
+                                 not a failure, and not attested
+
+        When the platform is not configured for live execution the routing is
+        queued in-memory and ``status='queued'`` is returned.
         """
         if amount_eth <= 0:
             return {"status": "skipped", "reason": "non-positive amount"}
@@ -165,12 +174,42 @@ class NeoSafeRouter:
                 "value": amount_wei,
                 "gas": 21000,
             })
+        except Exception as exc:
+            logger.error("Revenue routing failed: %s", exc)
+            return {
+                "status": "error",
+                "error": str(exc),
+                "amount_eth": amount_eth,
+                "source": source_action,
+            }
+
+        # A BROADCAST IS NOT A SETTLEMENT. `send_transaction` returns when a
+        # NODE ACCEPTED the raw bytes. `"routed"` was returned from that, and
+        # `routed` reads as a real outcome, so the dispatcher EAS-attested it and
+        # the public feed announced platform revenue that may have reverted.
+        # 19-C established the fix in restaking and 21-C wrote it again in
+        # creator_platforms; this is the same helper, next to `wait_for_receipt`.
+        outcome = await settle_transaction(
+            self._web3, tx_hash_hex, "route_revenue", "neosafe",
+            {
+                "amount_eth": amount_eth,
+                "source": source_action,
+                "recipient": self._neosafe_wallet,
+                "explorer": self._web3.explorer_url(tx_hash_hex),
+            },
+            settled_status="routed",
+        )
+
+        # THE ATTESTATION FOLLOWS THE RECEIPT, NOT THE BROADCAST. It was written
+        # from the same unconfirmed hash — a claim about platform revenue put on
+        # a public chain, for third parties, before anything was mined. An
+        # attestation of a transfer that reverted cannot be taken back.
+        outcome["attestation_uid"] = None
+        if outcome.get("settled") and outcome.get("value_moved"):
             logger.info(
                 "Revenue routed: %s ETH from %s, tx=%s",
                 amount_eth, source_action, tx_hash_hex,
             )
-            # Best-effort attestation
-            attestation_uid = None
             try:
                 from runtime.blockchain.eas_client import EASClient
                 eas = EASClient(self._config)
@@ -183,27 +222,20 @@ class NeoSafeRouter:
                         "tx_hash": tx_hash_hex,
                     },
                 )
-                attestation_uid = attest_result.get("attestation_tx") if isinstance(attest_result, dict) else None
+                outcome["attestation_uid"] = (
+                    attest_result.get("attestation_tx")
+                    if isinstance(attest_result, dict) else None
+                )
+                # The client reports a refusal by RETURNING one, so "we attested
+                # it" is read from the attestation, not from reaching this line.
+                outcome["attested"] = report_of(attest_result) is SUCCESS
             except Exception as exc:
                 logger.warning("NeoSafe attestation skipped: %s", exc)
+                outcome["attested"] = False
+        else:
+            outcome["attested"] = False
 
-            return {
-                "status": "routed",
-                "amount_eth": amount_eth,
-                "source": source_action,
-                "recipient": self._neosafe_wallet,
-                "tx_hash": tx_hash_hex,
-                "explorer": self._web3.explorer_url(tx_hash_hex),
-                "attestation_uid": attestation_uid,
-            }
-        except Exception as exc:
-            logger.error("Revenue routing failed: %s", exc)
-            return {
-                "status": "error",
-                "error": str(exc),
-                "amount_eth": amount_eth,
-                "source": source_action,
-            }
+        return outcome
 
     async def get_total_revenue(self) -> dict[str, Any]:
         """Return accumulated revenue totals by token.

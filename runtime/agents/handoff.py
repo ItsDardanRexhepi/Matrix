@@ -28,6 +28,8 @@ import json
 import logging
 from typing import Any
 
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,7 +48,28 @@ class AgentHandoff:
         context: dict | None = None,
     ) -> dict[str, Any]:
         """Escalate a single execution request from Trinity to Neo through the
-        Morpheus gate. Returns a structured result describing the hand-off."""
+        Morpheus gate. Returns a structured result describing the hand-off.
+
+        EVERY RETURN BELOW STATES ITS OUTCOME, and none of them did.
+
+        This is the only channel Trinity has to anything that moves value, and
+        its refusal shape — `{"handoff": ..., "approved": false, "reason": ...}`
+        — carries no field the outcome classifier reads. No `ok`, no `success`,
+        no `status`, and `approved` means "the gate allowed it", not "it
+        happened". So a structure whose entire content is a denial fell through
+        to the measured default for a report that says nothing about itself, and
+        every Morpheus denial, every fail-closed gate fault and every unwired
+        executor was recorded as a successful execution. Outcome learning then
+        blended those into the base rates that drive future confidence: the more
+        often the gate refused Trinity, the more confident the platform became.
+
+        The relay path was no better. `{"approved": true, "executed_as": "neo",
+        "result": <Neo's envelope>}` asserts nothing about itself either, so
+        Neo's own refusal — already wrapped in the dispatcher's envelope —
+        arrived as a success too. It is stated here rather than inferred
+        downstream: this frame is the one that knows the gate's decision, knows
+        whether an executor existed, and holds Neo's structured report.
+        """
         params = params or {}
         ctx = {**(context or {}), "via_agent_flow": True, "origin_agent": "trinity"}
 
@@ -63,6 +86,7 @@ class AgentHandoff:
             logger.exception("Morpheus gate failed during hand-off; refusing (fail-closed)")
             return {
                 "handoff": "trinity->morpheus->neo",
+                OUTCOME_FIELD: FAILURE,
                 "approved": False,
                 "reason": "Security gate unavailable — request not escalated.",
             }
@@ -70,6 +94,7 @@ class AgentHandoff:
         if not decision.get("allow", True):
             return {
                 "handoff": "trinity->morpheus->neo",
+                OUTCOME_FIELD: FAILURE,
                 "approved": False,
                 "reason": decision.get("reason", "Blocked by the Morpheus security gate."),
                 "morpheus": decision,
@@ -81,6 +106,9 @@ class AgentHandoff:
         if self._dispatcher is None:
             return {
                 "handoff": "trinity->morpheus->neo",
+                # Approved and NOT executed. Nothing ran, so nothing succeeded —
+                # the gate's verdict is not the call's.
+                OUTCOME_FIELD: FAILURE,
                 "approved": True,
                 "executed": False,
                 "reason": "No executor wired (service dispatcher unavailable).",
@@ -98,14 +126,21 @@ class AgentHandoff:
             logger.exception("Neo execution failed during hand-off")
             return {
                 "handoff": "trinity->morpheus->neo",
+                OUTCOME_FIELD: FAILURE,
                 "approved": True,
                 "executed": False,
                 "reason": f"Neo execution error: {exc}",
                 "morpheus": decision,
             }
 
+        # NEO'S VERDICT, RELAYED — not the hand-off's opinion of it. The
+        # dispatcher's envelope already states what the service reported, so this
+        # reads that field rather than re-classifying a payload it did not
+        # produce; a second classification here would be a second source of
+        # truth for the same fact.
         return {
             "handoff": "trinity->morpheus->neo",
+            OUTCOME_FIELD: report_of(result),
             "approved": True,
             "executed_as": "neo",
             "morpheus": decision,

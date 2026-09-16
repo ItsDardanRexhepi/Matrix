@@ -52,7 +52,16 @@ class ModelInterface(ABC):
 
     @abstractmethod
     async def health_check(self) -> bool:
-        """Return True if the provider is reachable and ready."""
+        """Return True if the provider is REACHABLE and ready.
+
+        Reachable means this process asked the provider and it answered. A key
+        being present in the config is not an answer: three implementations
+        returned ``bool(self.api_key)`` and ``/ready`` kept dead instances in
+        rotation on the strength of it. Ask, with a short timeout, and return
+        False for every outcome that is not a live affirmative — unreachable and
+        unconfigured both mean "do not send traffic here", which is the question
+        this method is asked.
+        """
         ...
 
     @property

@@ -45,7 +45,12 @@ async def test_privacy_action_does_not_ripple(env):
         "/api/v1/compute/store",
         json={"owner": "0xabc", "data": "0xdead", "storage_type": "ipfs"},
     )
-    assert resp.status == 200, await resp.text()
+    # 503 under the shipped config: the storage contract is not deployed, and a
+    # `not_deployed` refusal is now the transport-level fact it always was
+    # rather than HTTP 200 (`error_contract.CAPABILITY_ABSENT_HTTP`). The status
+    # is incidental here — what this test pins is that a privacy action never
+    # ripples, whichever way the action itself came out.
+    assert resp.status in (200, 503), await resp.text()
     assert _published(routes) == before, "privacy actions must not ripple"
 
 
@@ -87,6 +92,14 @@ async def test_write_with_readish_prefix_still_ripples(env):
 
 async def test_ripple_payload_shape(env):
     # The ripple event carries the actor + action so the feed can render it.
+    #
+    # ON A ROUTE THAT EXECUTES HERE, AND UNCONDITIONALLY. This posted to
+    # /api/v1/licensing/ip with its whole body under `if resp.status == 200:`.
+    # That route relays a `not_deployed` refusal, which the transport answers
+    # 503 for — so every assertion about the payload stopped running, the test
+    # went on passing having checked only that the status was one of three, and
+    # the shape it exists for was pinned by nothing. A guard that can swallow
+    # the test is not a guard; the fix is a route whose action really runs.
     routes, client = env
     events = []
     orig = routes.broadcaster.publish_dict
@@ -97,12 +110,35 @@ async def test_ripple_payload_shape(env):
 
     routes.broadcaster.publish_dict = _spy  # type: ignore[assignment]
     resp = await client.post(
-        "/api/v1/licensing/ip",
-        json={"owner": "0xowner", "type": "patent", "name": "Widget"},
+        "/api/v1/groups",
+        json={"creator": "0xowner", "name": "Builders"},
     )
-    assert resp.status in (200, 400), await resp.text()
-    if resp.status == 200:
-        ripples = [p for t, p in events if t == "feed.ripple"]
-        assert ripples, "an executed register_ip must emit feed.ripple"
-        assert ripples[0]["actor"] == "0xowner"
-        assert ripples[0]["service"] == "ip_royalties"
+    assert resp.status == 200, await resp.text()
+    ripples = [p for t, p in events if t == "feed.ripple"]
+    assert ripples, "an executed create_community must emit feed.ripple"
+    assert ripples[0]["actor"] == "0xowner"
+    assert ripples[0]["service"] == "social"
+    assert ripples[0]["method"] == "create_community"
+
+
+async def test_a_refused_action_is_recorded_as_a_decline(env, caplog):
+    """The other half of the suppression. A refusal must leave a trail entry
+    saying the platform DECLINED — the dispatcher writes one on its own path
+    and never runs on this one, so this surface writes its own."""
+    import logging
+
+    routes, client = env
+    before = _published(routes)
+    with caplog.at_level(logging.INFO, logger="gateway.service_routes"):
+        resp = await client.post(
+            "/api/v1/licensing/ip",
+            json={"owner": "0xowner", "type": "patent", "name": "Widget"},
+        )
+    assert resp.status == 503, await resp.text()
+    assert _published(routes) == before, "a refusal must not ripple"
+    declines = [r for r in caplog.records if "ACTION DECLINED" in r.getMessage()]
+    assert declines, (
+        "a refused /api/v1 action left no record at all: it is not announced, "
+        "and the dispatcher that would have recorded it is never entered here")
+    message = declines[0].getMessage()
+    assert "register_ip" in message and "not_deployed" in message, message

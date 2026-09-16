@@ -13,6 +13,8 @@ import uuid
 from typing import Any
 
 from .rewards import RecurringRewards
+from runtime.protocols.outcome_truth import FAILURE, SUCCESS, report_of
+
 from .grace_period import GracePeriodManager
 
 logger = logging.getLogger(__name__)
@@ -147,8 +149,13 @@ class SubscriptionService:
             "current_period_start": now,
             "current_period_end": now + plan["interval_seconds"],
             "next_renewal_at": now + plan["interval_seconds"],
-            "billing_count": 1,
-            "total_paid": plan["price"],
+            # NOT 1 and NOT plan["price"]. Nothing was charged: `payment_token`
+            # is a string the subscriber supplies and no code in this service
+            # presents it to anything. These are the counters a provider is paid
+            # from and a user is shown; they count SETTLED charges.
+            "billing_count": 0,
+            "total_paid": 0.0,
+            "charges_settled": False,
             "subscribed_at": now,
             "cancelled_at": None,
             "grace_entries": 0,
@@ -253,15 +260,43 @@ class SubscriptionService:
             sub["status"] = "cancelled"
             return {"subscription_id": sub_id, "action": "cancelled", "reason": "plan_not_found"}
 
-        # Simulate payment attempt (in production, call payment gateway)
-        payment_success = await self._attempt_payment(sub)
+        payment = await self._attempt_payment(sub)
+        outcome = payment.get("status")
 
-        if payment_success:
+        if outcome not in ("paid", "declined"):
+            # THE THIRD ANSWER. The charge neither settled nor was refused, so
+            # the counters do not move, the period does not roll forward and the
+            # subscription is NOT pushed toward cancellation. The renewal stays
+            # due, which is what it is: when a gateway appears, it is charged.
+            sub["renewal_blocked_since"] = sub.get("renewal_blocked_since") or now
+            logger.warning(
+                "Subscription %s renewal not charged: %s",
+                sub_id, payment.get("reason") or payment.get("status"),
+            )
+            return {
+                "subscription_id": sub_id,
+                "action": "not_charged",
+                "status": "recorded_unsettled",
+                "settled": False,
+                "value_moved": False,
+                "reason": payment.get("reason") or payment.get("status"),
+                "payment": payment,
+                "disclosure": (
+                    "No charge was attempted or none could be confirmed. The "
+                    "billing counters were NOT advanced and the subscription "
+                    "was NOT moved toward cancellation — the renewal is still "
+                    "due."
+                ),
+            }
+
+        if outcome == "paid":
+            sub.pop("renewal_blocked_since", None)
             fee_pct = self.config["platform_fee_pct"] / 100.0
             platform_fee = round(plan["price"] * fee_pct, 8)
 
             sub["billing_count"] += 1
             sub["total_paid"] = round(sub["total_paid"] + plan["price"], 8)
+            sub["charges_settled"] = True
             sub["current_period_start"] = now
             sub["current_period_end"] = now + plan["interval_seconds"]
             sub["next_renewal_at"] = now + plan["interval_seconds"]
@@ -291,11 +326,64 @@ class SubscriptionService:
                 "grace_expires_at": now + self.config["grace_period_hours"] * 3600,
             }
 
-    async def _attempt_payment(self, sub: dict) -> bool:
-        """Attempt payment for a subscription renewal.
+    async def _attempt_payment(self, sub: dict) -> dict:
+        """Attempt payment for a subscription renewal, and say what happened.
 
-        In production, this integrates with the payment gateway.
-        Returns True if payment succeeds.
+        THIS RETURNED ``bool(sub.get("payment_token"))`` — a truthiness test on
+        a string the subscriber wrote. It was True for every subscription that
+        had ever been created, so every renewal "succeeded", the billing
+        counters advanced and the period rolled forward on a schedule, with no
+        payment gateway anywhere in this service.
+
+        A BOOLEAN CANNOT CARRY THE ANSWER, which is why the return type changed.
+        "The card was declined" and "there is no payment gateway configured" are
+        both not-a-payment and they are NOT the same fact: the first belongs in
+        a grace period that ends in cancellation, and doing that to the second
+        would cancel a subscription for a charge nobody ever attempted.
+
+        Returns a report with `status`:
+            "paid"           the charge settled
+            "declined"       the charge was attempted and refused
+            "not_configured" no gateway — the outcome is not established
         """
-        # Payment token validation (non-empty = success in this implementation)
-        return bool(sub.get("payment_token"))
+        gateway = self.config.get("payment_gateway")
+        if not gateway:
+            return {
+                "status": "not_configured",
+                "settled": False,
+                "value_moved": False,
+                "reason": (
+                    "no payment gateway is configured "
+                    "(subscriptions.payment_gateway)"
+                ),
+            }
+        if not sub.get("payment_token"):
+            return {"status": "declined", "settled": False, "value_moved": False,
+                    "reason": "no payment authorisation on file"}
+
+        try:
+            raw = await gateway.charge(
+                token=sub["payment_token"],
+                amount=self._plans[sub["plan_id"]]["price"],
+                reference=sub["subscription_id"],
+            )
+        except Exception as exc:  # noqa: BLE001 — a transport fault is not a decline
+            logger.error("Subscription %s charge raised: %s",
+                         sub["subscription_id"], exc)
+            return {"status": "unresolved", "settled": False, "value_moved": None,
+                    "reason": f"the charge raised before reporting: {exc}"}
+
+        # The gateway is a foreign structure, so its verdict is read with the
+        # platform's own predicate rather than guessed from its wording, and
+        # normalised into the three answers this service acts on.
+        verdict = report_of(raw)
+        if verdict is SUCCESS:
+            return {"status": "paid", "settled": True, "value_moved": True,
+                    "gateway_response": raw}
+        if verdict is FAILURE:
+            return {"status": "declined", "settled": False, "value_moved": False,
+                    "reason": "the gateway refused the charge",
+                    "gateway_response": raw}
+        return {"status": "unresolved", "settled": False, "value_moved": None,
+                "reason": "the gateway did not report an outcome",
+                "gateway_response": raw}

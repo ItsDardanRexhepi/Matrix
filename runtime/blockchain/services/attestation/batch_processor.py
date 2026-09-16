@@ -4,6 +4,24 @@ Batch Processor for EAS attestations in The Matrix.
 Collects non-time-critical attestations and submits them in batches to
 reduce gas costs. The batch is flushed when either the batch size limit
 is reached or the flush interval elapses — whichever comes first.
+
+A FLUSH IS JUDGED PER ATTESTATION, BY WHAT THE CLIENT RETURNED.
+`EASClient.attest` reports failure by RETURNING a structure — `{"status":
+"skipped", "reason": "blockchain not configured"}` when the chain is not
+configured, `{"status": "failed", "error": ...}` when the transaction reverts —
+and it raises almost never. `flush()` took the queue, CLEARED it, submitted, and
+then logged "submitted successfully" on the strength of nothing having been
+raised; the only re-queue sat under an `except` that a returned refusal cannot
+reach. So an unconfigured deployment lost every attestation it ever queued, and
+said it had written them.
+
+Each result is now read with `report_of`, the same predicate outcome learning
+uses, so a refusal is a refusal here whatever idiom the client reports it in.
+Anything that did not land goes back on the queue rather than being reported
+as submitted; `_MAX_ATTEMPTS` bounds that so a permanently unconfigured
+deployment cannot grow the queue without limit — and when it gives up it says
+which ids it abandoned, by id, at ERROR. A record that stops is not the same as
+a record that never existed.
 """
 
 from __future__ import annotations
@@ -14,7 +32,27 @@ import time
 import uuid
 from typing import Any
 
+from runtime.protocols.outcome_truth import SUCCESS, report_of
+
 logger = logging.getLogger(__name__)
+
+#: How many flushes an attestation may fail to land in before the processor
+#: stops re-queueing it. It is then reported abandoned, by id, at ERROR — the
+#: queue is bounded and the loss is stated rather than silent.
+_MAX_ATTEMPTS = 5
+
+
+def _eas_client_for(config: dict[str, Any]):
+    """The EAS client this processor submits through.
+
+    A named seam rather than an inline import: the submission path is the one
+    thing in this module that has to be substitutable to be testable at all, and
+    an inline `from ... import EASClient` inside a `try: ... except ImportError`
+    is not.
+    """
+    from runtime.blockchain.eas_client import EASClient
+
+    return EASClient(config)
 
 
 class BatchProcessor:
@@ -154,15 +192,9 @@ class BatchProcessor:
 
         try:
             results = await self._submit_batch(batch)
-            logger.info("Batch of %d attestations submitted successfully.", len(batch))
-            return results
         except Exception as exc:
             logger.error("Batch submission failed: %s", exc, exc_info=True)
-            # Re-queue failed attestations for retry
-            async with self._get_lock():
-                self._queue = batch + self._queue
-            logger.warning("Re-queued %d attestations after failure.", len(batch))
-            return [
+            results = [
                 {
                     "id": att["id"],
                     "status": "failed",
@@ -170,6 +202,61 @@ class BatchProcessor:
                 }
                 for att in batch
             ]
+
+        return await self._reconcile(batch, results)
+
+    async def _reconcile(
+        self, batch: list[dict[str, Any]], results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Put back what did not land, and report each attestation as itself.
+
+        The verdict is `report_of` on the result the client returned — the same
+        predicate outcome learning reads — never on whether this coroutine
+        reached its last line. An UNKNOWN is treated like a failure HERE and
+        only here: the queue's question is "may this attestation still be
+        owed?", and the honest answer to an unestablished submission is yes.
+        """
+        # `_submit_batch` is contracted to return one result per attestation, in
+        # order, so the pairing is POSITIONAL — matching on `id` alone would
+        # silently treat every result from a submitter that does not echo the id
+        # as a non-landing and re-queue a batch that went through.
+        if len(results) == len(batch):
+            paired = dict(zip((att["id"] for att in batch), results))
+        else:
+            paired = {r.get("id"): r for r in results if isinstance(r, dict)}
+
+        landed: list[dict[str, Any]] = []
+        requeue: list[dict[str, Any]] = []
+        abandoned: list[str] = []
+
+        for att in batch:
+            result = paired.get(att["id"])
+            if result is not None and report_of(result) is SUCCESS:
+                landed.append(att)
+                continue
+            attempts = int(att.get("attempts", 0)) + 1
+            att["attempts"] = attempts
+            if attempts >= _MAX_ATTEMPTS:
+                abandoned.append(att["id"])
+            else:
+                requeue.append(att)
+
+        if requeue:
+            async with self._get_lock():
+                self._queue = requeue + self._queue
+
+        if abandoned:
+            logger.error(
+                "Abandoning %d attestation(s) after %d failed flushes — these "
+                "were NOT written to the chain: %s",
+                len(abandoned), _MAX_ATTEMPTS, ", ".join(abandoned),
+            )
+
+        logger.info(
+            "Flush complete: %d of %d attestations landed, %d re-queued, %d abandoned.",
+            len(landed), len(batch), len(requeue), len(abandoned),
+        )
+        return results
 
     async def _submit_batch(self, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
@@ -179,25 +266,7 @@ class BatchProcessor:
         this would use the EAS multiAttest function for a single transaction.
         """
         try:
-            from runtime.blockchain.eas_client import EASClient
-
-            client = EASClient(self.config)
-            results: list[dict[str, Any]] = []
-
-            for att in batch:
-                result = await client.attest(
-                    action=att.get("data", {}).get("action", "batch_attestation"),
-                    agent=att.get("data", {}).get("agent", "system"),
-                    details=att.get("data", {}),
-                    recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
-                )
-                result["batch_id"] = att["id"]
-                result["queued_at"] = att["queued_at"]
-                result["submitted_at"] = time.time()
-                results.append(result)
-
-            return results
-
+            client = _eas_client_for(self.config)
         except ImportError as exc:
             logger.warning("Batch submission skipped — missing dependency: %s", exc)
             return [
@@ -208,6 +277,37 @@ class BatchProcessor:
                 }
                 for att in batch
             ]
+
+        results: list[dict[str, Any]] = []
+        for att in batch:
+            # PER ATTESTATION. A raise used to unwind past every result already
+            # collected, and `flush`'s handler then re-queued the WHOLE batch:
+            # the ones that HAD landed lost their record and were queued to be
+            # written to the chain a second time.
+            try:
+                result = await client.attest(
+                    action=att.get("data", {}).get("action", "batch_attestation"),
+                    agent=att.get("data", {}).get("agent", "system"),
+                    details=att.get("data", {}),
+                    recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — one failure is not the batch's
+                logger.error("Attestation %s failed: %s", att["id"], exc)
+                result = {"status": "failed", "error": str(exc)}
+            if not isinstance(result, dict):
+                result = {"status": "unknown", "returned": str(result)}
+            # `id` is the key the queue and every failure path use; the success
+            # path set only `batch_id`, so a landed attestation and a failed one
+            # could not be matched back to the same entry.
+            result["id"] = att["id"]
+            result["batch_id"] = att["id"]
+            result["queued_at"] = att["queued_at"]
+            result["submitted_at"] = time.time()
+            results.append(result)
+
+        return results
 
     async def _auto_flush_loop(self) -> None:
         """Background loop that auto-flushes the queue at the configured interval."""

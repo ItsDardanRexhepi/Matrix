@@ -14,6 +14,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from runtime.protocols.outcome_truth import FAILURE, SUCCESS, combine, report_of
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +28,10 @@ class ScheduledPost:
     scheduled_at: float      # Unix timestamp
     agent: str = "trinity"   # Which agent's voice
     metadata: dict = field(default_factory=dict)
-    status: str = "pending"  # pending, published, failed, cancelled
+    # partial: delivered to some platforms and refused by others. Neither
+    # published nor failed, and it is not selected for a retry — a retry
+    # posts again everywhere it already landed.
+    status: str = "pending"  # pending, published, partial, failed, cancelled
     published_at: float | None = None
     result: dict = field(default_factory=dict)
 
@@ -188,7 +193,26 @@ class PostScheduler:
                 await asyncio.sleep(60)
 
     async def _publish(self, post: ScheduledPost) -> None:
-        """Publish a single post."""
+        """Publish a single post, and record what each platform actually did.
+
+        `post.status = "published"` used to be set because `manager.post`
+        RETURNED. It always returns: `TwitterClient.post_tweet` answers
+        `{"status": "not_configured"}` when credentials are unset and
+        `{"status": "error", "message": ...}` on a non-2xx, and `DiscordClient`
+        does the same — RETURNED refusals, never raised, so the `except` below
+        never fired for any of them.
+
+        THE ROW IS THE ONLY RECORD THE POST EVER HAD. `_publish_loop` selects on
+        `status == "pending"`, so a post marked `published` is never retried and
+        never reported: the content is gone, silently, and the timestamp says it
+        went out.
+
+        `manager.post` returns one report PER PLATFORM, and the three answers
+        are all real here: every platform took it, every platform refused it, or
+        some did and some did not. The third is not a hedge — a post that landed
+        on Discord and was refused by Twitter is neither published nor failed,
+        and recording either loses what the row exists to record.
+        """
         if not self.manager:
             post.status = "failed"
             post.result = {"error": "No social manager configured"}
@@ -200,14 +224,41 @@ class PostScheduler:
                 platform=post.platform,
                 metadata=post.metadata,
             )
-            post.status = "published"
-            post.published_at = time.time()
-            post.result = result
-            logger.info("Published post %s to %s", post.post_id, post.platform)
         except Exception as exc:
             post.status = "failed"
             post.result = {"error": str(exc)}
             logger.error("Failed to publish post %s: %s", post.post_id, exc)
+        else:
+            post.result = result
+            per_platform = {
+                name: report_of(report)
+                for name, report in (result or {}).items()
+            }
+            verdict = combine(per_platform.values())
+            if verdict is SUCCESS:
+                post.status = "published"
+                post.published_at = time.time()
+                logger.info("Published post %s to %s", post.post_id, post.platform)
+            elif verdict is FAILURE:
+                post.status = "failed"
+                logger.error(
+                    "Post %s was not delivered anywhere: %s",
+                    post.post_id, per_platform,
+                )
+            else:
+                # Delivered to some platforms and not others, or a platform
+                # that said nothing that decides it. NOT retried as a whole:
+                # re-running `_publish` would post again everywhere it already
+                # landed. It is left for a human, which is what an unresolved
+                # record is for.
+                post.status = "partial"
+                post.published_at = time.time()
+                logger.warning(
+                    "Post %s was delivered to some platforms and not others: "
+                    "%s — NOT retried, a retry would duplicate the deliveries "
+                    "that succeeded",
+                    post.post_id, per_platform,
+                )
 
         if self.db:
             await self.db.execute(

@@ -11,6 +11,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, refusal
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class AgentIdentity(BlockchainInterface):
             return await self._attest_action(kwargs)
         elif action == "get_identity":
             return await self._get_identity(kwargs)
-        return f"Unknown agent identity action: {action}"
+        return refusal(f"Unknown agent identity action: {action}", code="unknown_action")
 
     async def _register(self, params: dict) -> str:
         """Register an agent's on-chain identity via EAS attestation."""
@@ -91,6 +92,21 @@ class AgentIdentity(BlockchainInterface):
           • no registration resolved   -> verified False ("no registration")
           • RPC/EAS unconfigured        -> verified False ("lookup unconfigured")
           • attestation absent/revoked  -> verified False (honest reason)
+
+        AND ``verified`` IS NOT A FIELD THE OUTCOME CLASSIFIER READS. Every
+        branch below returns a structure with no ``ok``, no ``status`` and no
+        ``error``, so all of them — the two that could not look and the three
+        that looked and answered — were read as clean successes and learned from
+        as such. The refusals and the answers are not the same fact, and they are
+        not labelled the same way here:
+
+          • no registration, or the lookup unconfigured -> the verification did
+            NOT RUN. The call failed to do what was asked. FAILURE.
+          • absent, revoked, invalid, or verified -> the verification RAN and
+            answered. The call succeeded; ``verified: False`` is its answer about
+            the SUBJECT, not a report of its own failure. Labelling those as
+            failed calls would teach the learner that checking a bad credential
+            is a broken tool.
         """
         agent_name = params.get("agent_name", "neo")
         uid = params.get("attestation_uid") or self._registrations.get(agent_name)
@@ -99,7 +115,8 @@ class AgentIdentity(BlockchainInterface):
                 "capabilities": self._get_capabilities(agent_name)}
 
         if not (uid and str(uid).startswith("0x")):
-            return json.dumps({**base, "verified": False,
+            # Nothing to check against: the verification did not run.
+            return json.dumps({**base, OUTCOME_FIELD: FAILURE, "verified": False,
                                "reason": f"No registration attestation found for agent '{agent_name}'. "
                                          "Register the agent first (action=register)."}, indent=2)
 
@@ -108,12 +125,15 @@ class AgentIdentity(BlockchainInterface):
 
         if result.get("error"):
             # RPC / EAS contract not configured — cannot confirm; never say true.
-            return json.dumps({**base, "verified": False, "attestation_uid": uid,
+            # The platform could not look. That is a refusal, not an answer.
+            return json.dumps({**base, OUTCOME_FIELD: FAILURE, "verified": False,
+                               "attestation_uid": uid,
                                "reason": "Attestation lookup unconfigured (RPC / EAS contract "
                                          "not configured); this agent's identity cannot be confirmed."},
                               indent=2)
         if result.get("verified"):
-            return json.dumps({**base, "verified": True, "attestation_uid": uid,
+            return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": True,
+                               "attestation_uid": uid,
                                "attester": result.get("attester"),
                                "verified_via": "eas:getAttestation"}, indent=2)
         if not result.get("exists"):
@@ -122,8 +142,9 @@ class AgentIdentity(BlockchainInterface):
             reason = "This agent's attestation has been revoked."
         else:
             reason = "This agent's attestation is invalid."
-        return json.dumps({**base, "verified": False, "attestation_uid": uid,
-                           "reason": reason}, indent=2)
+        # The check RAN and returned a negative answer. The call succeeded.
+        return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": False,
+                           "attestation_uid": uid, "reason": reason}, indent=2)
 
     async def _attest_action(self, params: dict) -> str:
         """Attest an action performed by an agent."""

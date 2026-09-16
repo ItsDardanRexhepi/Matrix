@@ -209,17 +209,36 @@ async def test_the_totals_say_recorded_not_paid():
 # ── The scope boundary ───────────────────────────────────────────────────
 
 
-async def test_the_seven_gated_fabrications_are_untouched():
-    """SCOPE PIN. fractionalize/rent/batch_mint/royalty_claim/bridge_nft/
-    mint_soulbound/dynamic_update are category 3 — armed-on-deployment, NOT
-    fixed here. They are items 4-5 and need a compound gating condition.
+async def test_the_seven_gated_fabrications_now_disclose():
+    """THE SCOPE PIN, DISCHARGED — and it did its job.
 
-    If any silently changed, this commit did undisclosed work.
+    This test used to assert the opposite: that fractionalize / rent /
+    batch_mint / royalty_claim / bridge_nft / mint_soulbound / dynamic_update
+    still answered "fractionalized" / "rented" / "claimed". They were category 3
+    — armed-on-deployment — and deferred, and the pin existed so that a later
+    commit could not change them QUIETLY. The attest-money cluster changes them,
+    openly, and the pin is inverted rather than deleted: all seven now take the
+    house idiom, `recorded_unsettled` with `settled: False`.
+
+    None of them is gated any harder than before. A deployed contract still lets
+    them through, exactly as it did; what they may no longer do is report an
+    on-chain action none of them performs. `fractionalize` still reads the
+    on-chain owner and still refuses a non-owner (NEW-89) — that check is real
+    and is untouched.
     """
     svc = _armed()
-    assert (await svc.fractionalize("0xC", 1, 10, 1.0))["status"] == "fractionalized"
-    assert (await svc.rent("0xC", 1, "0xR", 7, 1.0))["status"] == "rented"
-    assert (await svc.royalty_claim("0xC", 1, "0xA"))["status"] == "claimed"
+    for label, record in [
+        ("fractionalize", await svc.fractionalize("0xC", 1, 10, 1.0)),
+        ("rent", await svc.rent("0xC", 1, "0xR", 7, 1.0)),
+        ("royalty_claim", await svc.royalty_claim("0xC", 1, "0xA")),
+        ("batch_mint", await svc.batch_mint("0xC", "0xA", 2, {})),
+        ("bridge_nft", await svc.bridge_nft("0xC", 1, "base", "0xA")),
+        ("mint_soulbound", await svc.mint_soulbound("0xR", {}, "0xI")),
+        ("dynamic_update", await svc.dynamic_update("0xC", 1, {})),
+    ]:
+        assert record["status"] == "recorded_unsettled", (label, record)
+        assert record["settled"] is False, (label, record)
+        assert record["disclosure"], (label, record)
 
 
 async def test_those_seven_still_refuse_when_undeployed():

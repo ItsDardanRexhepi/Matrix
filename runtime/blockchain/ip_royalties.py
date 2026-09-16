@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,9 @@ class IPRoyalties(BlockchainInterface):
             return await self._distribute(kwargs)
         elif action == "get_ip":
             return await self._get_ip(kwargs)
-        return f"Unknown IP action: {action}"
+        return refusal(
+            f"Unknown IP action: {action}",
+            code="unknown_action")
 
     async def _register_ip(self, params: dict) -> str:
         """Register intellectual property on-chain via EAS attestation."""
@@ -75,7 +78,9 @@ class IPRoyalties(BlockchainInterface):
         recipients = params.get("royalty_recipients", [])
         total_bps = sum(r.get("share_bps", 0) for r in recipients)
         if total_bps > 10000:
-            return "Error: total royalty shares exceed 100% (10000 bps)"
+            return refusal(
+                "Error: total royalty shares exceed 100% (10000 bps)",
+                code="invalid_request")
         return json.dumps({
             "ip_id": params.get("ip_id", ""),
             "royalty_config": recipients,
@@ -145,7 +150,9 @@ class IPRoyalties(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Distribution failed: {e}"
+            return refusal(
+                f"Distribution failed: {e}",
+                code="capability_error")
 
     async def _get_ip(self, params: dict) -> str:
         """Query IP registration details by verifying the EAS attestation."""

@@ -98,6 +98,41 @@ class PushTokenStore:
             return []
         return [r[0] for r in rows]
 
+    async def adopt_ownerless(self, owner: str, session_ids=()) -> list[str]:
+        """Record *owner* on every OWNERLESS device filed under one of
+        *session_ids*, and return the tokens adopted.
+
+        WHY THIS EXISTS, AND WHY IT IS NOT A NEW CLAIM. A device registered
+        before this table had an ``owner`` column is the account's only through
+        its conversation ids — and account deletion reads those ids, then
+        erases the rows they live in. So the handle survived exactly one
+        attempt: if anything after the erasure failed, the retry looked for the
+        account's conversations, found none, and the device was unreachable for
+        every deletion that would ever run again — while the retry answered
+        ``{"success": true}`` over it.
+
+        Writing the owner down first is the same inference :meth:`remove_for_account`
+        already acts on (filed under a conversation this account owns, and
+        nobody else has claimed it), made durable BEFORE the evidence for it is
+        erased, so a retry can finish the job by owner alone. It removes
+        nothing: a deletion that then fails leaves the device registered, which
+        is what a deletion that did not happen must leave behind."""
+        await self._ensure_table()
+        adopted: set[str] = set()
+        if not owner:
+            return []
+        for sid in {s for s in session_ids if s}:
+            rows = await self._db.fetchall(
+                "SELECT device_token FROM push_tokens "
+                "WHERE session_id = ? AND (owner IS NULL OR owner = '')", (sid,))
+            for row in rows:
+                adopted.add(row[0])
+        for device_token in sorted(adopted):
+            await self._db.execute(
+                "UPDATE push_tokens SET owner = ? WHERE device_token = ? "
+                "AND (owner IS NULL OR owner = '')", (owner, device_token))
+        return sorted(adopted)
+
     async def remove_for_account(self, owner: str, session_ids=()) -> list[str]:
         """Remove every device *owner* registered, and every device with NO
         recorded owner filed under one of *session_ids* (the account's own

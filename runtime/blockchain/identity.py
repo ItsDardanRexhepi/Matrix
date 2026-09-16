@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +47,26 @@ class Identity(BlockchainInterface):
             return await self._verify(kwargs)
         elif action == "lookup":
             return await self._lookup(kwargs)
-        return f"Unknown identity action: {action}"
+        return refusal(
+            f"Unknown identity action: {action}",
+            code="unknown_action")
 
     async def _resolve(self, params: dict) -> str:
         """Resolve a name (ENS/Basename) to an address."""
         try:
             name = params.get("name", "")
             if not name:
-                return "Error: name is required"
+                return refusal(
+                    "Error: name is required",
+                    code="invalid_request")
             address = self.web3.ens.address(name) if hasattr(self.web3, 'ens') and self.web3.ens else None
             if address:
                 return json.dumps({"name": name, "address": address, "resolved": True})
             return json.dumps({"name": name, "resolved": False, "note": "Name not found or ENS not available on this network"})
         except Exception as e:
-            return f"Resolve failed: {e}"
+            return refusal(
+                f"Resolve failed: {e}",
+                code="capability_error")
 
     async def _register(self, params: dict) -> str:
         """Register an identity attestation on-chain via EAS. Gas covered by platform."""
@@ -116,7 +123,9 @@ class Identity(BlockchainInterface):
                 "network": self.network,
             }, indent=2)
         except Exception as e:
-            return f"Verify failed: {e}"
+            return refusal(
+                f"Verify failed: {e}",
+                code="capability_error")
 
     async def _lookup(self, params: dict) -> str:
         """Reverse lookup — address to name."""
@@ -125,4 +134,6 @@ class Identity(BlockchainInterface):
             name = self.web3.ens.name(address) if hasattr(self.web3, 'ens') and self.web3.ens else None
             return json.dumps({"address": address, "name": name or "not_found"})
         except Exception as e:
-            return f"Lookup failed: {e}"
+            return refusal(
+                f"Lookup failed: {e}",
+                code="capability_error")

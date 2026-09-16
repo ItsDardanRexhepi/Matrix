@@ -12,6 +12,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.protocols.outcome_truth import OUTCOME_FIELD, SUCCESS
+
 from .credential_vault import CredentialVault
 from .selective_disclosure import SelectiveDisclosure
 from .zkp import ZKPVerifier
@@ -317,7 +319,19 @@ class DIDService:
         """
         credential = self.credential_vault._credentials.get(credential_id)
         if credential is None:
+            # THE CHECK RAN AND THE ANSWER IS NO — WHICH IS NOT A FAILED CALL.
+            # `invalid` is in the refusal vocabulary, so this branch reached the
+            # learner and the client as "credential_verify is broken", while the
+            # branch right below it — a credential that IS in the vault and has
+            # expired — reported SUCCESS, because the vault's result carries no
+            # status at all. The same kind of question, answered the same way,
+            # labelled two different things. `status` stays what it is, because
+            # it describes the CREDENTIAL; the call says for itself that it
+            # looked. Failing closed on an unknown id is this method's whole
+            # design (see above), and a design that answers is not a design
+            # that broke.
             return {
+                OUTCOME_FIELD: SUCCESS,
                 "status": "invalid",
                 "credential_id": credential_id,
                 "verifier": verifier_did,
