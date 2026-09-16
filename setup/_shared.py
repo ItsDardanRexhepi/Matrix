@@ -23,7 +23,7 @@ RED   = "\033[31m"
 CYAN  = "\033[36m"
 RESET = "\033[0m"
 
-CONFIG_PATH = Path("openmatrix.config.json")
+CONFIG_PATH = Path("matrix.config.json")
 ENV_PATH = Path(".env")
 
 
@@ -136,9 +136,9 @@ def _atomic_write_text(path: Path, text: str, *, new_file_mode: int | None) -> N
 
 # Who reads each secret file decides the mode it is CREATED with (an existing
 # file always keeps its own):
-#   openmatrix.config.json — the host gateway, and the Docker image, which
+#   matrix.config.json — the host gateway, and the Docker image, which
 #     bind-mounts it read-only (docker-compose.yml) and runs as uid 1000. It is
-#     created the way `cp openmatrix.config.json.example` or write_text would
+#     created the way `cp matrix.config.json.example` or write_text would
 #     create it, so a wizard run as any other uid (root on a VPS) still starts.
 #   .env — only processes on the host running as the operator: the gateway's
 #     load_dotenv and docker compose's variable interpolation. .dockerignore

@@ -1,14 +1,14 @@
-# 0pnMatrx Sponsors
+# The Matrix Sponsors
 
-0pnMatrx is free because of the people and organizations listed on this page. Their support pays for infrastructure, development, and iOS app maintenance so that every feature remains open and accessible to everyone.
+The Matrix is free because of the people and organizations listed on this page. Their support pays for infrastructure, development, and iOS app maintenance so that every feature remains open and accessible to everyone.
 
-If you want to join them, visit [github.com/sponsors/ItsDardanRexhepi](https://github.com/sponsors/ItsDardanRexhepi) or [opencollective.com/openmatrix](https://opencollective.com/openmatrix).
+If you want to join them, visit [github.com/sponsors/ItsDardanRexhepi](https://github.com/sponsors/ItsDardanRexhepi) or [opencollective.com/the-matrix](https://opencollective.com/the-matrix).
 
 ---
 
 ## Founding Sponsors
 
-Partners who have shaped the direction of 0pnMatrx from the ground up.
+Partners who have shaped the direction of The Matrix from the ground up.
 
 | | | |
 |:---:|:---:|:---:|
@@ -20,7 +20,7 @@ Partners who have shaped the direction of 0pnMatrx from the ground up.
 
 ## Infrastructure Partners
 
-Organizations that keep 0pnMatrx running at scale.
+Organizations that keep The Matrix running at scale.
 
 | | | |
 |:---:|:---:|:---:|
@@ -44,7 +44,7 @@ Companies and teams who invest in the platform they depend on.
 
 ## Platform Backers
 
-Developers and professionals who back the future of 0pnMatrx.
+Developers and professionals who back the future of The Matrix.
 
 - [Your name here](https://github.com/sponsors/ItsDardanRexhepi)
 - [Your name here](https://github.com/sponsors/ItsDardanRexhepi)
@@ -73,4 +73,4 @@ Individuals who keep the free tier alive for everyone.
 
 ---
 
-Thank you. Every name on this page is someone who chose to keep 0pnMatrx free. That matters more than you know.
+Thank you. Every name on this page is someone who chose to keep The Matrix free. That matters more than you know.

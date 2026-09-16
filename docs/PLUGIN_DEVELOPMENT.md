@@ -1,13 +1,13 @@
 # Plugin Development Guide
 
-Build and sell plugins for the 0pnMatrx platform.
+Build and sell plugins for the Matrix platform.
 
 ## Quick Start
 
 ```python
-from runtime.plugins.base import OpenMatrixPlugin
+from runtime.plugins.base import MatrixPlugin
 
-class MyPlugin(OpenMatrixPlugin):
+class MyPlugin(MatrixPlugin):
     @property
     def name(self) -> str:
         return "my-plugin"
@@ -26,7 +26,7 @@ class MyPlugin(OpenMatrixPlugin):
 ## Plugin Lifecycle
 
 1. **Discovery** — The `PluginLoader` scans `plugins/installed/` for Python packages
-2. **Loading** — Each package is imported and scanned for `OpenMatrixPlugin` subclasses
+2. **Loading** — Each package is imported and scanned for `MatrixPlugin` subclasses
 3. **Initialization** — `on_load(config)` is called with the platform config
 4. **Runtime** — Hooks are called during message processing
 5. **Shutdown** — `on_unload()` is called on platform shutdown
@@ -88,7 +88,7 @@ any revenue share.
 
 ```
 plugins/installed/my-plugin/
-├── __init__.py          # Must contain OpenMatrixPlugin subclass
+├── __init__.py          # Must contain MatrixPlugin subclass
 ├── handlers.py          # Optional: tool and command handlers
 ├── config.py            # Optional: plugin configuration
 └── README.md            # Optional: documentation
@@ -107,9 +107,9 @@ def min_tier(self) -> str:
 ## Example: Portfolio Tracker Plugin
 
 ```python
-from runtime.plugins.base import OpenMatrixPlugin
+from runtime.plugins.base import MatrixPlugin
 
-class PortfolioTracker(OpenMatrixPlugin):
+class PortfolioTracker(MatrixPlugin):
     @property
     def name(self) -> str:
         return "portfolio-tracker"

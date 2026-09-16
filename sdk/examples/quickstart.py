@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-0pnMatrx SDK Quickstart — demonstrates basic usage of the OpenMatrixClient.
+The Matrix SDK Quickstart — demonstrates basic usage of the MatrixClient.
 
 Before running:
-1. Start the 0pnMatrx gateway: python -m gateway.server
+1. Start the Matrix gateway: python -m gateway.server
 2. Run this script: python -m sdk.examples.quickstart
 """
 
@@ -11,11 +11,11 @@ import asyncio
 import sys
 sys.path.insert(0, ".")
 
-from sdk import OpenMatrixClient
+from sdk import MatrixClient
 
 
 async def main():
-    client = OpenMatrixClient("http://localhost:18790")
+    client = MatrixClient("http://localhost:18790")
     print(f"Connected: {client}")
 
     # 1. Health check

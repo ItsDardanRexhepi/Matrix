@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 """
-LangChain Importer — converts LangChain agents to 0pnMatrx format.
+LangChain Importer — converts LangChain agents to The Matrix format.
 
 Parses LangChain agent configs, chain definitions, and tool setups
-to produce 0pnMatrx-compatible agent definitions.
+to produce The Matrix-compatible agent definitions.
 """
 
 import ast
@@ -16,7 +16,7 @@ from migration.base import BaseImporter, ImportedAgent
 
 logger = logging.getLogger(__name__)
 
-# LangChain tool names -> 0pnMatrx tool mappings
+# LangChain tool names -> The Matrix tool mappings
 TOOL_MAPPING = {
     "serpapi": "web_search",
     "google-search": "web_search",
@@ -126,7 +126,7 @@ class LangChainImporter(BaseImporter):
                         pass  # explicitly unmapped
                     else:
                         tools.append({"name": func_name, "source": "langchain"})
-                        warnings.append(f"Tool '{func_name}' has no direct 0pnMatrx mapping — manual setup may be needed")
+                        warnings.append(f"Tool '{func_name}' has no direct The Matrix mapping — manual setup may be needed")
 
             # Look for AgentType or agent_type assignments
             if isinstance(node, ast.Assign):

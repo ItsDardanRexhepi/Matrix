@@ -90,7 +90,7 @@ class Identity(BlockchainInterface):
                 "address": address,
                 "claims": claims,
                 "attestation": result,
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2, default=str)
 
         except Exception as e:

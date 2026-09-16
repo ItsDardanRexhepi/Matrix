@@ -44,7 +44,7 @@ async def test_bridge_route_registers_token(aiohttp_client, tmp_path):
     from gateway.bridge import BridgeRoutes
 
     config = {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "memory_dir": str(tmp_path / "memory"),
         "workspace": str(tmp_path),
         "timezone": "UTC",

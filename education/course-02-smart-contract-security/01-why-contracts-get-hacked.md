@@ -40,7 +40,7 @@ Most contract exploits fall into a handful of categories:
 
 Manual code review is essential but not sufficient. Human reviewers catch logic errors, design flaws, and protocol-level issues that automated tools miss. But they also miss things. Automated scanners are tireless, consistent, and fast. They check every function against known vulnerability patterns in seconds.
 
-Glasswing, the 0pnMatrx auditing engine, performs a 12-point scan against the most critical vulnerability categories. It does not replace human auditing for high-value contracts, but it catches the common patterns that cause the majority of exploits.
+Glasswing, the Matrix auditing engine, performs a 12-point scan against the most critical vulnerability categories. It does not replace human auditing for high-value contracts, but it catches the common patterns that cause the majority of exploits.
 
 ## The Cost of NOT Auditing
 
@@ -51,7 +51,7 @@ A professional smart contract audit costs $5,000 to $50,000 depending on complex
 - Wormhole Bridge: $320 million lost
 - Nomad Bridge: $190 million lost
 
-The most expensive audit is still cheaper than the cheapest exploit. And with Glasswing integrated into 0pnMatrx, every contract gets a baseline audit for free as part of the deployment pipeline.
+The most expensive audit is still cheaper than the cheapest exploit. And with Glasswing integrated into The Matrix, every contract gets a baseline audit for free as part of the deployment pipeline.
 
 ## Key Takeaways
 
@@ -59,7 +59,7 @@ The most expensive audit is still cheaper than the cheapest exploit. And with Gl
 - Reentrancy, integer overflow, and access control failures cause the majority of exploits
 - The same vulnerability patterns have been exploited repeatedly over years
 - Automated auditing catches common patterns; manual review catches logic errors
-- Every contract deployed through 0pnMatrx passes a Glasswing audit automatically
+- Every contract deployed through The Matrix passes a Glasswing audit automatically
 
 ---
 

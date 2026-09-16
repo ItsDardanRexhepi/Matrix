@@ -1,5 +1,5 @@
 """
-DEXService — native decentralized exchange for the 0pnMatrx platform.
+DEXService — native decentralized exchange for the Matrix platform.
 
 Uniswap wrapper with native constant-product AMM fallback.
 ZERO FEES to users (platform absorbs gas costs).

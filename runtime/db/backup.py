@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 24 * 60 * 60  # daily
 DEFAULT_RETENTION = 7  # keep one week of daily snapshots
-BACKUP_PREFIX = "0pnmatrx-"
+BACKUP_PREFIX = "the-matrix-"
 BACKUP_SUFFIX = ".db"
 
 

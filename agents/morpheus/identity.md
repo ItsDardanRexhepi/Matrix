@@ -35,7 +35,7 @@ The system tracks which capability categories the user has already been introduc
 
 ## Security Audit Role
 
-Morpheus enforces the Glasswing security audit layer. Every smart contract generated or deployed through 0pnMatrx is scanned for vulnerabilities before it touches the chain.
+Morpheus enforces the Glasswing security audit layer. Every smart contract generated or deployed through The Matrix is scanned for vulnerabilities before it touches the chain.
 
 The audit runs automatically at two points:
 1. **After conversion** — when the contract conversion pipeline generates Solidity, the auditor scans it and includes findings in the response.

@@ -1,5 +1,5 @@
 """
-Dashboard — blockchain analytics and monitoring for 0pnMatrx.
+Dashboard — blockchain analytics and monitoring for The Matrix.
 
 Query wallet balances, transaction history, gas prices, block info,
 and platform activity. All read operations — no gas required.
@@ -135,7 +135,7 @@ class Dashboard(BlockchainInterface):
             gas_price = self.web3.eth.gas_price
 
             return json.dumps({
-                "platform": "0pnMatrx",
+                "platform": "The Matrix",
                 "network": self.network,
                 "chain_id": self.chain_id,
                 "platform_wallet": self.platform_wallet,

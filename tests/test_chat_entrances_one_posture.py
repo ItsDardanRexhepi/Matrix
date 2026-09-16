@@ -54,7 +54,7 @@ VICTIM = "0x" + "d" * 40
 
 
 def _server(api_key: str = "", stub: str = "run") -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-entrances-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-entrances-")
     config = {**SWEEP_CONFIG, "memory_dir": scratch,
               "database": {**SWEEP_CONFIG.get("database", {}), "path": f"{scratch}/e.db"},
               "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": api_key}}

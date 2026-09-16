@@ -1,4 +1,4 @@
-"""Security seam for 0pnMatrx — the interface to the closed-source layer.
+"""Security seam for The Matrix — the interface to the closed-source layer.
 
 This package is a BOUNDARY, not an implementation. It exposes the security
 contract the open platform calls (the Morpheus gate, OTP, owner verification)

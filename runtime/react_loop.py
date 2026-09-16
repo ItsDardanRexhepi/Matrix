@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-ReAct Reasoning Loop — The core reasoning engine for all 0pnMatrx agents.
+ReAct Reasoning Loop — The core reasoning engine for all The Matrix agents.
 
 Implements the Reason-Act cycle:
 1. Observe — receive user input and context
@@ -11,7 +11,7 @@ Implements the Reason-Act cycle:
 5. Repeat until the task is complete
 
 Model-agnostic: works with any provider that implements ModelInterface.
-Loads config from openmatrix.config.json. Injects temporal context on
+Loads config from matrix.config.json. Injects temporal context on
 every turn. Loads agent identity from agents/{agent}/identity.md.
 
 Protocol integration: the ProtocolStack is initialised per agent and
@@ -123,7 +123,7 @@ class ReActResult:
 
 class ReActLoop:
     """
-    The core reasoning loop that drives every agent on 0pnMatrx.
+    The core reasoning loop that drives every agent on The Matrix.
     """
 
     def __init__(self, config: dict):

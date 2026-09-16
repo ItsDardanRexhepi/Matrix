@@ -1,5 +1,5 @@
 """
-Schema definitions for EAS attestations across the 0pnMatrx platform.
+Schema definitions for EAS attestations across the Matrix platform.
 
 Each component type maps to a schema UID registered on-chain. EAS schema UIDs
 are keccak256 hashes produced by the SchemaRegistry — they are chain-specific

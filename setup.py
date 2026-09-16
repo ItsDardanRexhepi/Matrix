@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-0pnMatrx — Interactive First-Boot Setup
+The Matrix — Interactive First-Boot Setup
 
-Guides you through configuring 0pnMatrx on your machine.
+Guides you through configuring The Matrix on your machine.
 Run once after cloning:
 
     python3 setup.py          # or ./setup.py — the file is executable
 
 Creates a virtual environment in .venv next to this file and re-launches
-itself inside it, then creates openmatrix.config.json with your settings,
+itself inside it, then creates matrix.config.json with your settings,
 installs dependencies, verifies connectivity, and boots the platform.
 
 Why the venv: macOS ships no `python`, and its `python3` is Apple's 3.9 or a
 Homebrew build marked externally managed (PEP 668) that refuses
 `pip install`. Debian and Fedora do the same. A project-local .venv works
 everywhere and leaves the global interpreter alone (install.sh does the same).
-Set OPNMATRX_SETUP_NO_VENV=1 to opt out (containers, CI).
+Set MATRIX_SETUP_NO_VENV=1 to opt out (containers, CI).
 """
 
 import json
@@ -29,8 +29,8 @@ from pathlib import Path
 
 PYTHON_FLOOR = (3, 10)   # the code uses `X | None` annotations at import time
 VENV_DIR = ".venv"
-_BOOTSTRAP_ENV = "OPNMATRX_SETUP_BOOTSTRAPPED"   # loop guard for the re-launch
-_NO_VENV_ENV = "OPNMATRX_SETUP_NO_VENV"          # opt-out (containers, CI)
+_BOOTSTRAP_ENV = "MATRIX_SETUP_BOOTSTRAPPED"   # loop guard for the re-launch
+_NO_VENV_ENV = "MATRIX_SETUP_NO_VENV"          # opt-out (containers, CI)
 
 # setuptools executes a project's setup.py as __main__ during every build:
 # `pip install .`, `pip install -e .`, `python -m build`. Those runs arrive
@@ -240,7 +240,7 @@ def install_dependencies():
     )
     success("All dependencies installed")
 
-    # The package itself, editable, so the `openmatrix` command the closing
+    # The package itself, editable, so the `matrix` command the closing
     # banner advertises actually exists (inside .venv). Before this, setup
     # installed only requirements.txt and the command was never created.
     result = subprocess.run(
@@ -248,10 +248,10 @@ def install_dependencies():
         capture_output=True, text=True,
     )
     if result.returncode != 0:
-        warn("Could not install the `openmatrix` command; `python -m cli` does the same job")
+        warn("Could not install the `matrix` command; `python -m cli` does the same job")
         print(f"  {DIM}{result.stderr[-500:]}{RESET}")
     else:
-        success("`openmatrix` command installed")
+        success("`matrix` command installed")
     return True
 
 
@@ -348,7 +348,7 @@ def configure_blockchain(config):
     print(f"""
   {BOLD}Blockchain Network{RESET}
 
-  0pnMatrx runs on Base (Ethereum L2). Choose your network:
+  The Matrix runs on Base (Ethereum L2). Choose your network:
 
   {CYAN}1{RESET}  Base Sepolia  {DIM}(testnet — free, for development){RESET}
   {CYAN}2{RESET}  Base Mainnet  {DIM}(real money — for production){RESET}
@@ -399,7 +399,7 @@ def configure_agents(config):
     print(f"""
   {BOLD}Agent Configuration{RESET}
 
-  0pnMatrx has three agents:
+  The Matrix has three agents:
   • {CYAN}Trinity{RESET}  — your AI assistant (user-facing)
   • {CYAN}Neo{RESET}      — the execution engine (backend)
   • {CYAN}Morpheus{RESET} — the guardian (safety & guidance)
@@ -474,7 +474,7 @@ def configure_communications(config):
         python3 setup_communications.py
     """
     print(f"""
-  {BOLD}How should 0pnMatrx reach you?{RESET}
+  {BOLD}How should The Matrix reach you?{RESET}
   {DIM}You can enable any combination of channels. Everything is optional.{RESET}
   {DIM}Rerun `python3 setup_communications.py` anytime to add more.{RESET}
 """)
@@ -619,11 +619,11 @@ def confirm_overwrite_upfront():
 
     Returns True to proceed, False if the operator wants their config left alone.
     """
-    path = Path("openmatrix.config.json")
+    path = Path("matrix.config.json")
     if not path.exists():
         return True
     overwrite = ask(
-        "openmatrix.config.json already exists. Overwrite it when setup finishes?",
+        "matrix.config.json already exists. Overwrite it when setup finishes?",
         default="no", options=["yes", "no"],
     )
     if overwrite.lower() != "yes":
@@ -638,10 +638,10 @@ def write_config(config):
     Still re-checks rather than trusting confirm_overwrite_upfront(), so this
     stays safe if it is ever called from somewhere else.
     """
-    path = Path("openmatrix.config.json")
+    path = Path("matrix.config.json")
     existed = path.exists()
     if existed:
-        overwrite = ask("openmatrix.config.json already exists. Overwrite?", default="no", options=["yes", "no"])
+        overwrite = ask("matrix.config.json already exists. Overwrite?", default="no", options=["yes", "no"])
         if overwrite.lower() != "yes":
             warn("Setup cancelled. Existing config preserved.")
             return False
@@ -699,7 +699,7 @@ def main():
     bootstrap_venv()   # re-launches under .venv/bin/python3 unless already inside a venv
     banner()
 
-    print(f"  {DIM}This setup will guide you through configuring 0pnMatrx.{RESET}")
+    print(f"  {DIM}This setup will guide you through configuring The Matrix.{RESET}")
     print(f"  {DIM}Press Enter to accept defaults shown in [brackets].{RESET}")
     print(f"  {DIM}You can re-run this anytime to change settings.{RESET}")
 
@@ -711,8 +711,8 @@ def main():
 
     total = 9
     config = {
-        "platform": "0pnMatrx",
-        "database": {"path": "data/0pnmatrx.db"},
+        "platform": "The Matrix",
+        "database": {"path": "data/the-matrix.db"},
     }
 
     # Step 1: Python check
@@ -778,16 +778,16 @@ def main():
 
   {BOLD}Start the gateway:{RESET}
 
-    {CYAN}openmatrix gateway start{RESET}        Foreground (see logs live)
-    {CYAN}openmatrix gateway start -d{RESET}     Background (daemon mode)
+    {CYAN}matrix gateway start{RESET}        Foreground (see logs live)
+    {CYAN}matrix gateway start -d{RESET}     Background (daemon mode)
 
   {BOLD}Manage the gateway:{RESET}
 
-    {CYAN}openmatrix gateway status{RESET}       Check if running
-    {CYAN}openmatrix gateway stop{RESET}         Stop the gateway
-    {CYAN}openmatrix gateway restart{RESET}      Restart
-    {CYAN}openmatrix gateway logs -f{RESET}      Follow logs in real time
-    {CYAN}openmatrix health{RESET}               Quick health check
+    {CYAN}matrix gateway status{RESET}       Check if running
+    {CYAN}matrix gateway stop{RESET}         Stop the gateway
+    {CYAN}matrix gateway restart{RESET}      Restart
+    {CYAN}matrix gateway logs -f{RESET}      Follow logs in real time
+    {CYAN}matrix health{RESET}               Quick health check
 
   {BOLD}Send a message:{RESET}
 
@@ -796,7 +796,7 @@ def main():
       -H "Authorization: Bearer {api_key}" \\
       -d '{{"agent": "trinity", "message": "Hello", "session_id": "demo"}}'{RESET}
 
-  {DIM}Run 'openmatrix setup' anytime to reconfigure.{RESET}
+  {DIM}Run 'matrix setup' anytime to reconfigure.{RESET}
 """)
 
 

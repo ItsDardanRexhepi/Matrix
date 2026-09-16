@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-0pnMatrx SDK — Blockchain Operations Example
+The Matrix SDK — Blockchain Operations Example
 
 Demonstrates all blockchain capabilities through the SDK.
 All gas fees are covered by the platform — users never pay.
@@ -10,11 +10,11 @@ import asyncio
 import sys
 sys.path.insert(0, ".")
 
-from sdk import OpenMatrixClient
+from sdk import MatrixClient
 
 
 async def main():
-    client = OpenMatrixClient("http://localhost:18790")
+    client = MatrixClient("http://localhost:18790")
 
     # 1. Check price feed
     print("── Oracle: ETH/USD Price ──")
@@ -27,8 +27,8 @@ async def main():
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-contract Hello0pnMatrx {
-    string public message = "Hello from 0pnMatrx!";
+contract HelloMatrix {
+    string public message = "Hello from The Matrix!";
 
     function setMessage(string memory _msg) public {
         message = _msg;

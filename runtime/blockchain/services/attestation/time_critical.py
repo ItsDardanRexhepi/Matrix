@@ -1,5 +1,5 @@
 """
-Time-Critical Attestation Handler for 0pnMatrx.
+Time-Critical Attestation Handler for The Matrix.
 
 Certain attestations must NEVER be batched — they must be submitted
 immediately to the chain. This includes dispute filings, rights reversions,
@@ -101,7 +101,7 @@ class TimeCriticalHandler:
             encoded_data = encode(
                 ["string", "string", "string", "uint256"],
                 [
-                    "0pnMatrx",
+                    "The Matrix",
                     category,
                     data.get("agent", "system"),
                     int(submitted_at),
@@ -159,7 +159,7 @@ class TimeCriticalHandler:
                 "block_number": receipt["blockNumber"],
                 "latency_ms": latency_ms,
                 "time_critical": True,
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
                 "data": data,
             }
 

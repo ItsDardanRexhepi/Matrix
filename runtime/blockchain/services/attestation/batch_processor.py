@@ -1,5 +1,5 @@
 """
-Batch Processor for EAS attestations in 0pnMatrx.
+Batch Processor for EAS attestations in The Matrix.
 
 Collects non-time-critical attestations and submits them in batches to
 reduce gas costs. The batch is flushed when either the batch size limit

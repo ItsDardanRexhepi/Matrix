@@ -153,7 +153,7 @@ class NotificationDispatcher:
         if c is None:
             return {"status": "error", "error": f"unknown channel: {name}"}
         return await c.send(
-            "✅ 0pnMatrx test notification. If you see this, the channel is wired correctly.",
+            "✅ The Matrix test notification. If you see this, the channel is wired correctly.",
             level="success",
         )
 

@@ -10,7 +10,7 @@ Demonstrates the DeFi service (Component 2):
   3. Monitors the collateral ratio
   4. Repays the loan in full
 
-This shows how 0pnMatrx wraps complex DeFi lending logic into simple
+This shows how The Matrix wraps complex DeFi lending logic into simple
 platform_action calls that any AI agent can invoke.
 
 NOTE: Until ``defi.lending_pool_address`` points at a deployed contract
@@ -43,10 +43,10 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
-        fail("Copy openmatrix.config.json.example and configure it.")
+        fail("Copy matrix.config.json.example and configure it.")
         sys.exit(1)
     with open(config_path) as f:
         return json.load(f)
@@ -55,7 +55,7 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 02: DeFi Collateralised Loan
+  The Matrix Example 02: DeFi Collateralised Loan
 {'=' * 60}{RESET}
 
   This example creates a DeFi loan on Base Sepolia:

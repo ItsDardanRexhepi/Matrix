@@ -2,9 +2,9 @@
 
 Reproduction from the audit:
 
-    echo '{"SENTINEL":"do-not-overwrite"}' > openmatrix.config.json
+    echo '{"SENTINEL":"do-not-overwrite"}' > matrix.config.json
     python setup.py          # accept defaults, answer "no" to the overwrite prompt
-    cat openmatrix.config.json   # sentinel is gone
+    cat matrix.config.json   # sentinel is gone
 
 `write_config()` is correct in isolation — it checks, and returns False without
 writing. The damage is done earlier: step 7 hands the in-memory config to the
@@ -46,10 +46,10 @@ def sandbox(tmp_path, monkeypatch):
     """Run inside a throwaway cwd holding a sentinel config.
 
     CONFIG_PATH is a cwd-relative constant, so chdir fully isolates this from
-    the developer's real openmatrix.config.json.
+    the developer's real matrix.config.json.
     """
     monkeypatch.chdir(tmp_path)
-    cfg = tmp_path / "openmatrix.config.json"
+    cfg = tmp_path / "matrix.config.json"
     cfg.write_text(json.dumps(SENTINEL) + "\n", encoding="utf-8")
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
@@ -88,7 +88,7 @@ def test_channel_modules_do_not_write_when_told_not_to_persist(sandbox, monkeypa
 
         assert sandbox.read_bytes() == before, (
             f"setup.{name}.configure(persist=False) wrote to "
-            "openmatrix.config.json. Channel modules must not touch disk when "
+            "matrix.config.json. Channel modules must not touch disk when "
             "the wizard drives them — that is RUN-1's mechanism."
         )
 
@@ -314,7 +314,7 @@ def test_env_write_is_atomic(sandbox, tmp_path):
     assert env.read_text() == ENV_SENTINEL, "a failed write destroyed the existing .env"
     # .gitignore: the writer ensures the secret files are ignored before writing.
     left = sorted(p.name for p in tmp_path.iterdir() if p.name != ".gitignore")
-    assert left == [".env", "openmatrix.config.json"], (
+    assert left == [".env", "matrix.config.json"], (
         "a failed write left a temp file behind"
     )
 
@@ -328,7 +328,7 @@ def test_rewrite_keeps_owner_only_permissions(sandbox, tmp_path, writer):
     """
     import stat
     from setup import _shared
-    path = tmp_path / (".env" if writer == "env" else "openmatrix.config.json")
+    path = tmp_path / (".env" if writer == "env" else "matrix.config.json")
     path.write_text(ENV_SENTINEL if writer == "env" else "{}\n")
     path.chmod(0o600)
     if writer == "env":
@@ -362,8 +362,8 @@ def test_new_config_is_created_the_way_the_docker_image_can_read_it(
         sandbox, monkeypatch, umask, writer, operator_umask, expected):
     """Round-1 review, REGRESSION. The shared writer created a NEW config 600.
 
-    docker-compose.yml bind-mounts ./openmatrix.config.json read-only into an
-    image running as uid 1000 (Dockerfile `useradd --uid 1000`, `USER opnmatrx`),
+    docker-compose.yml bind-mounts ./matrix.config.json read-only into an
+    image running as uid 1000 (Dockerfile `useradd --uid 1000`, `USER the-matrix`),
     and gateway/server.py load_config exits 1 on an unreadable config. So a
     config the wizard created as root on a VPS — or as any uid but 1000 — stopped
     the documented Docker deploy from starting, where the write_text it replaced
@@ -401,7 +401,7 @@ def test_every_secret_write_states_its_new_file_mode():
 def test_rewrite_goes_through_a_symlinked_file(sandbox, tmp_path, writer):
     """A .env kept elsewhere and linked in must be updated, not replaced by a copy."""
     from setup import _shared
-    name = ".env" if writer == "env" else "openmatrix.config.json"
+    name = ".env" if writer == "env" else "matrix.config.json"
     vault = tmp_path / "vault"
     vault.mkdir()
     real = vault / name
@@ -432,7 +432,7 @@ def test_wizard_config_write_keeps_owner_only_permissions(sandbox, monkeypatch):
 #
 # setup_gitignore() had two branches that disagreed. Creating a .gitignore
 # wrote `.env`; amending an existing one checked for and appended only
-# `openmatrix.config.json`. The common case is the amend branch — nearly every
+# `matrix.config.json`. The common case is the amend branch — nearly every
 # project already has a .gitignore — so the file the channel wizards put
 # Telegram/SMTP/Twilio credentials in was never ensured ignored. The verdict
 # below is git's own, not a string search of the file.
@@ -486,37 +486,37 @@ def _isolated_wizard(name, monkeypatch):
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
 @pytest.mark.parametrize("existing", [
     None,                                            # create branch
-    "openmatrix.config.json\n",                      # amend branch, the finding
+    "matrix.config.json\n",                      # amend branch, the finding
     "node_modules/\n.env.example\n",                 # substring trap: `.env` in `.env.example`
-    "# openmatrix.config.json\n# .env\n",            # mentioned only in comments
-    ".env\nopenmatrix.config.json\n!.env\n",         # re-included later in the file
+    "# matrix.config.json\n# .env\n",            # mentioned only in comments
+    ".env\nmatrix.config.json\n!.env\n",         # re-included later in the file
     # Round-1 review: the helper said "covered" and appended nothing, and git
     # still committed the file. Git keeps leading whitespace (and tabs) as part
     # of the pattern, and any later negation whose pattern can match — not only
     # the literal `!.env` — re-includes it.
-    "openmatrix.config.json\n  .env\n",              # leading spaces: pattern is "  .env"
-    "openmatrix.config.json\n\t.env\n",              # leading tab
-    ".env\t\nopenmatrix.config.json\n",              # trailing tab is NOT stripped by git
-    "openmatrix.config.json\n.env\n!.env*\n",        # wildcard negation
-    "openmatrix.config.json\n.env\n!**/.env\n",      # double-star negation
-    "openmatrix.config.json\n.env\n!*\n",            # negate-everything (both files)
-    "openmatrix.config.json\n.env\n!.e[n]v\n",       # bracket negation
-    "openmatrix.config.json\n.env\n!.env \n",        # negation with a trailing space git strips
-    "openmatrix.config.json\r\n.env\r\n!.env\r\n",   # CRLF file: git strips the \r
-    "openmatrix.config.json\n.env\n!\\.env\n",       # escaped negation
-    "!.env\r.env\nopenmatrix.config.json\n",         # lone CR: one literal negation to git
+    "matrix.config.json\n  .env\n",              # leading spaces: pattern is "  .env"
+    "matrix.config.json\n\t.env\n",              # leading tab
+    ".env\t\nmatrix.config.json\n",              # trailing tab is NOT stripped by git
+    "matrix.config.json\n.env\n!.env*\n",        # wildcard negation
+    "matrix.config.json\n.env\n!**/.env\n",      # double-star negation
+    "matrix.config.json\n.env\n!*\n",            # negate-everything (both files)
+    "matrix.config.json\n.env\n!.e[n]v\n",       # bracket negation
+    "matrix.config.json\n.env\n!.env \n",        # negation with a trailing space git strips
+    "matrix.config.json\r\n.env\r\n!.env\r\n",   # CRLF file: git strips the \r
+    "matrix.config.json\n.env\n!\\.env\n",       # escaped negation
+    "!.env\r.env\nmatrix.config.json\n",         # lone CR: one literal negation to git
     # Round-2 review: a literal negation was ruled out by a case-SENSITIVE
     # compare, but under core.ignorecase=true git re-includes .env for `!.ENV`.
-    "openmatrix.config.json\n.env\n!.ENV\n",         # case-variant negation
-    "openmatrix.config.json\n.env\n!/.Env\n",        # anchored, mixed case
-    ".env\nopenmatrix.config.json\n!OPENMATRIX.CONFIG.JSON\n",
-    ".env\nopenmatrix.config.json\n!OpenMatrix.config.json\n",
-    "OPENMATRIX.CONFIG.JSON\n.ENV\n",               # covers only caselessly
+    "matrix.config.json\n.env\n!.ENV\n",         # case-variant negation
+    "matrix.config.json\n.env\n!/.Env\n",        # anchored, mixed case
+    ".env\nmatrix.config.json\n!MATRIX.CONFIG.JSON\n",
+    ".env\nmatrix.config.json\n!Matrix.config.json\n",
+    "MATRIX.CONFIG.JSON\n.ENV\n",               # covers only caselessly
     # Round-3 review: git reads each pattern as a C string, so a NUL ends it.
-    "openmatrix.config.json\n.env\n!.env\x00junk\n",  # to git: `!.env`
-    "openmatrix.config.json\n.env\n!.ENV\x00\n",      # to git: `!.ENV`
-    ".env\r\x00\nopenmatrix.config.json\n",          # CR not before LF: `.env<CR>`, covers nothing
-    "\ufeff.env\nopenmatrix.config.json\n",          # git skips a leading UTF-8 BOM
+    "matrix.config.json\n.env\n!.env\x00junk\n",  # to git: `!.env`
+    "matrix.config.json\n.env\n!.ENV\x00\n",      # to git: `!.ENV`
+    ".env\r\x00\nmatrix.config.json\n",          # CR not before LF: `.env<CR>`, covers nothing
+    "\ufeff.env\nmatrix.config.json\n",          # git skips a leading UTF-8 BOM
 ])
 def test_setup_gitignore_ignores_both_secret_files(sandbox, monkeypatch, existing):
     repo = sandbox.parent
@@ -526,7 +526,7 @@ def test_setup_gitignore_ignores_both_secret_files(sandbox, monkeypatch, existin
     wizard, said = _isolated_wizard("setup_main_gitignore", monkeypatch)
     wizard.setup_gitignore()
     for ignorecase in IGNORECASE:
-        for secret in ("openmatrix.config.json", ".env"):
+        for secret in ("matrix.config.json", ".env"):
             assert _git_ignores(repo, secret, ignorecase), (
                 f"after setup_gitignore(), git (core.ignorecase={ignorecase}) would "
                 f"commit {secret} (starting .gitignore: {existing!r})"
@@ -551,7 +551,7 @@ PATTERN_MAX_FILE_SIZE = 100 * 1024 * 1024   # git: dir.c, `size >= PATTERN_MAX_F
 def test_setup_gitignore_warns_when_git_will_not_read_it(sandbox, monkeypatch, kind):
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
-    listing = b"openmatrix.config.json\n.env\n"
+    listing = b"matrix.config.json\n.env\n"
     gitignore = repo / ".gitignore"
     elsewhere = repo / "dotfiles" / "gitignore"
     elsewhere.parent.mkdir()
@@ -579,7 +579,7 @@ def test_setup_gitignore_warns_when_git_will_not_read_it(sandbox, monkeypatch, k
     try:
         wizard.setup_gitignore()
         # Git's verdict must be taken while the file is still in that state.
-        committable = {s for ic in IGNORECASE for s in ("openmatrix.config.json", ".env")
+        committable = {s for ic in IGNORECASE for s in ("matrix.config.json", ".env")
                        if not _git_ignores(repo, s, ic, index=True)}
     finally:
         if kind == "unreadable":
@@ -607,7 +607,7 @@ def test_setup_gitignore_warns_when_git_will_not_read_it(sandbox, monkeypatch, k
     finally:
         if kind == "unreadable":
             gitignore.chmod(0o644)
-    assert all(any(s in w for w in said["warn"]) for s in ("openmatrix.config.json", ".env")), said
+    assert all(any(s in w for w in said["warn"]) for s in ("matrix.config.json", ".env")), said
 
 
 @pytest.mark.skipif(GIT is None, reason="needs git for the ignore verdict")
@@ -621,7 +621,7 @@ def test_setup_gitignore_warns_when_it_cannot_add_the_lines(sandbox, monkeypatch
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
     gitignore = repo / ".gitignore"
     with open(gitignore, "wb") as f:
-        f.write(b"openmatrix.config.json\n#")
+        f.write(b"matrix.config.json\n#")
         if kind != "read-only":
             f.truncate(PATTERN_MAX_FILE_SIZE - 16)   # sparse; the append is longer than 16
     if kind == "read-only":
@@ -632,7 +632,7 @@ def test_setup_gitignore_warns_when_it_cannot_add_the_lines(sandbox, monkeypatch
     wizard, said = _isolated_wizard("setup_main_gitignore_cannot_add", monkeypatch)
     try:
         wizard.setup_gitignore()
-        committable = {s for ic in IGNORECASE for s in ("openmatrix.config.json", ".env")
+        committable = {s for ic in IGNORECASE for s in ("matrix.config.json", ".env")
                        if not _git_ignores(repo, s, ic, index=True)}
     finally:
         gitignore.chmod(0o644)
@@ -659,7 +659,7 @@ def test_setup_gitignore_warns_when_it_cannot_create_the_file(sandbox, monkeypat
         wizard.setup_gitignore()
     finally:
         project.chmod(0o755)
-    assert all(any(s in w for w in said["warn"]) for s in ("openmatrix.config.json", ".env")), said
+    assert all(any(s in w for w in said["warn"]) for s in ("matrix.config.json", ".env")), said
     assert not said["success"], said
 
 
@@ -669,14 +669,14 @@ def test_setup_gitignore_warns_about_a_tracked_secret(sandbox, monkeypatch):
     committed on the next `git commit -a` however well .gitignore lists it."""
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
-    (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+    (repo / ".gitignore").write_text("matrix.config.json\n.env\n")
     (repo / ".env").write_text("TOKEN=real\n")
     subprocess.run([GIT, "-C", str(repo), "add", "-f", ".env"], check=True, capture_output=True)
     wizard, said = _isolated_wizard("setup_main_gitignore_tracked", monkeypatch)
     wizard.setup_gitignore()
     assert not _git_ignores(repo, ".env", "true", index=True)     # the scenario is real
     assert any(".env" in w and "git rm --cached" in w for w in said["warn"]), said["warn"]
-    assert not any("openmatrix.config.json" in w for w in said["warn"]), said["warn"]
+    assert not any("matrix.config.json" in w for w in said["warn"]), said["warn"]
 
 
 def _filesystem_ignores_case(directory: Path) -> bool:
@@ -706,14 +706,14 @@ def test_setup_gitignore_warns_about_a_secret_tracked_under_another_case(
     subprocess.run([GIT, "-C", str(repo), "config", "core.ignorecase", ignorecase],
                    check=True, capture_output=True)
     sandbox.unlink()
-    (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+    (repo / ".gitignore").write_text("matrix.config.json\n.env\n")
     (repo / ".ENV").write_text("TOKEN=old\n")
-    (repo / "OpenMatrix.config.json").write_text("{}\n")
-    subprocess.run([GIT, "-C", str(repo), "add", "-f", ".ENV", "OpenMatrix.config.json"],
+    (repo / "Matrix.config.json").write_text("{}\n")
+    subprocess.run([GIT, "-C", str(repo), "add", "-f", ".ENV", "Matrix.config.json"],
                    check=True, capture_output=True)
     wizard, said = _isolated_wizard("setup_main_gitignore_tracked_case", monkeypatch)
     wizard.setup_gitignore()
-    for tracked in (".ENV", "OpenMatrix.config.json"):
+    for tracked in (".ENV", "Matrix.config.json"):
         assert any(f"git rm --cached {tracked}" in w for w in said["warn"]), (
             f"core.ignorecase={ignorecase}: {tracked} is tracked and is the file the "
             f"wizard writes, and nothing said so (warnings: {said['warn']})"
@@ -734,13 +734,13 @@ def test_git_verdict_is_not_blinded_by_a_pathspec_switch_in_the_environment(
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
     sandbox.unlink()
     if scenario == "tracked":
-        (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+        (repo / ".gitignore").write_text("matrix.config.json\n.env\n")
         (repo / ".env").write_text("TOKEN=real\n")
         subprocess.run([GIT, "-C", str(repo), "add", "-f", ".env"], check=True, capture_output=True)
         expected = {".env": [".env"]}
     else:
         (repo / ".gitignore").write_text("__pycache__/\n*.pyc\nnode_modules/\n")
-        expected = {"openmatrix.config.json": [], ".env": []}
+        expected = {"matrix.config.json": [], ".env": []}
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.setenv(pathspec_env, "1")
@@ -765,7 +765,7 @@ def test_without_the_scrub_every_pathspec_switch_stops_the_first_git_call(
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
     sandbox.unlink()
-    (repo / ".gitignore").write_text("openmatrix.config.json\n.env\n")
+    (repo / ".gitignore").write_text("matrix.config.json\n.env\n")
     (repo / ".env").write_text("TOKEN=real\n")
     subprocess.run([GIT, "-C", str(repo), "add", "-f", ".env"], check=True, capture_output=True)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
@@ -815,7 +815,7 @@ def test_setup_gitignore_warns_when_the_new_file_cannot_be_written(sandbox, monk
     monkeypatch.setattr(os, "fdopen", fdopen)
     wizard.setup_gitignore()                                   # must not raise
     assert not Path(".gitignore").exists(), "an empty .gitignore was left behind"
-    assert all(any(s in w for w in said["warn"]) for s in ("openmatrix.config.json", ".env")), said
+    assert all(any(s in w for w in said["warn"]) for s in ("matrix.config.json", ".env")), said
     assert not said["success"], said
 
 
@@ -831,7 +831,7 @@ def test_git_verdict_survives_undecodable_git_output(sandbox, monkeypatch):
     wizard.setup_gitignore()                                   # must not raise
     monkeypatch.delitem(os.environb, b"GIT_DIR")
     for ignorecase in IGNORECASE:
-        for secret in ("openmatrix.config.json", ".env"):
+        for secret in ("matrix.config.json", ".env"):
             assert _git_ignores(repo, secret, ignorecase)
 
 
@@ -878,8 +878,8 @@ def test_a_channel_wizard_run_on_its_own_keeps_its_secrets_out_of_git(
 
     importlib.import_module(f"setup.{name}").configure({})     # persist defaults to True
 
-    written = [s for s in ("openmatrix.config.json", ".env") if (repo / s).exists()]
-    assert "openmatrix.config.json" in written, "not vacuous: the module must have written"
+    written = [s for s in ("matrix.config.json", ".env") if (repo / s).exists()]
+    assert "matrix.config.json" in written, "not vacuous: the module must have written"
     if name in ENV_WRITING_CHANNELS:
         assert ".env" in written, "not vacuous: the module must have written .env"
     for ignorecase in IGNORECASE:
@@ -898,7 +898,7 @@ def test_setup_communications_entry_point_keeps_secrets_out_of_git(tmp_path):
     subprocess.run([GIT, "init", "-q", str(tmp_path)], check=True, capture_output=True)
     (tmp_path / ".gitignore").write_text(DERIVED_GITIGNORE)
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
-           "OPNMATRX_SETUP_NO_VENV": "1", "PYTHONDONTWRITEBYTECODE": "1",
+           "MATRIX_SETUP_NO_VENV": "1", "PYTHONDONTWRITEBYTECODE": "1",
            "PYTHONPATH": str(ROOT)}
     run = subprocess.run(
         [sys.executable, str(ROOT / "setup_communications.py"), "discord"],
@@ -908,7 +908,7 @@ def test_setup_communications_entry_point_keeps_secrets_out_of_git(tmp_path):
     assert (tmp_path / ".env").read_text().startswith("DISCORD_WEBHOOK_URL="), run.stdout + run.stderr
     staged = subprocess.run([GIT, "-C", str(tmp_path), "add", "-A", "--dry-run"],
                             capture_output=True, text=True, env=env).stdout
-    for secret in (".env", "openmatrix.config.json"):
+    for secret in (".env", "matrix.config.json"):
         assert f"'{secret}'" not in staged or secret in run.stdout, (
             f"`git add -A` would stage {secret} and the wizard said nothing:\n"
             f"{staged}\n--- wizard output ---\n{run.stdout}{run.stderr}"
@@ -954,7 +954,7 @@ def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox, mo
     """
     import random
     rng = random.Random(20260912)
-    pool = sorted({ln for e in ("openmatrix.config.json", ".env") for ln in _line_pool(e)}
+    pool = sorted({ln for e in ("matrix.config.json", ".env") for ln in _line_pool(e)}
                   | {"", "node_modules/", "!keep.txt", "dist/", ".env.example"})
     repo = sandbox.parent
     subprocess.run([GIT, "init", "-q", str(repo)], check=True, capture_output=True)
@@ -972,7 +972,7 @@ def test_setup_gitignore_never_leaves_a_secret_committable_generated(sandbox, mo
         # root one does to the root, so each case is its own project here.
         os.chdir(case)
         wizard.setup_gitignore()
-        paths += [f"{case.name}/openmatrix.config.json", f"{case.name}/.env"]
+        paths += [f"{case.name}/matrix.config.json", f"{case.name}/.env"]
     os.chdir(sandbox.parent)
     committable = []
     for ignorecase in IGNORECASE:
@@ -1009,7 +1009,7 @@ def test_the_setup_wizard_checks_gitignore_once_before_it_writes(sandbox, monkey
     real = wizard.setup_gitignore
 
     def recording():
-        runs.append([s for s in ("openmatrix.config.json", ".env") if (tmp_path / s).exists()])
+        runs.append([s for s in ("matrix.config.json", ".env") if (tmp_path / s).exists()])
         real()
     monkeypatch.setattr(wizard, "setup_gitignore", recording)
 
@@ -1017,9 +1017,9 @@ def test_the_setup_wizard_checks_gitignore_once_before_it_writes(sandbox, monkey
     wizard.configure_communications(config)
     assert wizard.commit_setup(config) is True
     assert runs == [[]], f"check ran {len(runs)} times; secret files already on disk: {runs}"
-    assert (tmp_path / ".env").exists() and (tmp_path / "openmatrix.config.json").exists()
+    assert (tmp_path / ".env").exists() and (tmp_path / "matrix.config.json").exists()
     for ignorecase in IGNORECASE:
-        for secret in ("openmatrix.config.json", ".env"):
+        for secret in ("matrix.config.json", ".env"):
             assert _git_ignores(tmp_path, secret, ignorecase, index=True), secret
     assert not said["warn"], said["warn"]
 

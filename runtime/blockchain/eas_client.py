@@ -1,7 +1,7 @@
 """
 EAS Client — Ethereum Attestation Service integration.
 
-Every blockchain action in 0pnMatrx is attested on-chain via EAS.
+Every blockchain action in The Matrix is attested on-chain via EAS.
 Attestations provide a permanent, verifiable record of what was done,
 by whom, and when. All attestation gas is covered by the platform.
 """
@@ -113,7 +113,7 @@ class EASClient:
 
             # Encode attestation data
             attestation_data = {
-                "platform": "0pnMatrx",
+                "platform": "The Matrix",
                 "action": action,
                 "agent": agent,
                 "timestamp": int(time.time()),
@@ -170,7 +170,7 @@ class EASClient:
                 "action": action,
                 "agent": agent,
                 "block_number": receipt["blockNumber"],
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }
 
         except ImportError as e:

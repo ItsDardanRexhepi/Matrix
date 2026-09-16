@@ -1,6 +1,6 @@
 # Kubernetes manifests
 
-These YAML files deploy the 0pnMatrx gateway as a single-replica
+These YAML files deploy the Matrix gateway as a single-replica
 Deployment with a ConfigMap, Secret, PersistentVolumeClaim, Service, and
 optional Ingress.
 
@@ -8,9 +8,9 @@ optional Ingress.
 
 | File                   | Purpose                                         |
 |------------------------|-------------------------------------------------|
-| `namespace.yaml`       | Dedicated `opnmatrx` namespace                  |
-| `configmap.yaml`       | Non-secret `openmatrix.config.json`             |
-| `secret.example.yaml`  | Template for `opnmatrx-secrets` (do not commit) |
+| `namespace.yaml`       | Dedicated `the-matrix` namespace                  |
+| `configmap.yaml`       | Non-secret `matrix.config.json`             |
+| `secret.example.yaml`  | Template for `matrix-secrets` (do not commit) |
 | `pvc.yaml`             | Persistent storage for SQLite + backups         |
 | `deployment.yaml`      | Gateway Deployment with health probes           |
 | `service.yaml`         | ClusterIP Service on port 80                    |
@@ -22,10 +22,10 @@ optional Ingress.
 kubectl apply -f namespace.yaml
 kubectl apply -f configmap.yaml
 # Create the Secret from literals (never commit real values):
-kubectl -n opnmatrx create secret generic opnmatrx-secrets \
-    --from-literal=OPENMATRIX_PAYMASTER_KEY=... \
+kubectl -n the-matrix create secret generic matrix-secrets \
+    --from-literal=MATRIX_PAYMASTER_KEY=... \
     --from-literal=ANTHROPIC_API_KEY=... \
-    --from-literal=OPENMATRIX_API_KEY=...
+    --from-literal=MATRIX_API_KEY=...
 kubectl apply -f pvc.yaml
 kubectl apply -f deployment.yaml
 kubectl apply -f service.yaml
@@ -41,7 +41,7 @@ kubectl apply -f ingress.yaml  # optional — only if using cert-manager + nginx
   daily backups, and the event log. Without it every pod restart loses
   state.
 - **Required secrets** — the gateway refuses to start in production
-  mode without `OPENMATRIX_PAYMASTER_KEY` in the environment. Other
+  mode without `MATRIX_PAYMASTER_KEY` in the environment. Other
   provider keys are optional.
 
 ## Probes

@@ -177,7 +177,7 @@ class TestBadgeIssuance:
             json.dumps(result["audit_report"], sort_keys=True).encode()
         ).hexdigest()
         assert result["audit_report_hash"] == expected_hash
-        assert result["audit_report"]["audited_by"] == "openmatrix-glasswing"
+        assert result["audit_report"]["audited_by"] == "matrix-glasswing"
 
     @pytest.mark.asyncio
     async def test_issue_badge_one_year_expiry(self, badge_manager):

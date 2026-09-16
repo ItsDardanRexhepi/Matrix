@@ -3,7 +3,7 @@ ArtistClassifier — detect whether a contract is art/music/creative NFT.
 
 Inspects source code for creative-domain signals (ERC-721 patterns,
 metadata URIs referencing art/music, royalty logic, etc.) and recommends
-the best template from the 0pnMatrx library.
+the best template from the Matrix library.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Cross-Border Payments — Component 17 of the 0pnMatrx platform."""
+"""Cross-Border Payments — Component 17 of the Matrix platform."""
 
 from runtime.blockchain.services.cross_border.service import CrossBorderService
 

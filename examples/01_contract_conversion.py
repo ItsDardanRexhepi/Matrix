@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 01 — Contract Conversion: End-to-End Pipeline
 
-Demonstrates the 0pnMatrx contract conversion flow, targeting Base:
+Demonstrates the Matrix contract conversion flow, targeting Base:
 
   1. Takes a plain English rental agreement description
   2. Estimates the conversion cost
@@ -51,10 +51,10 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
-        fail("Copy openmatrix.config.json.example to openmatrix.config.json and fill in your credentials.")
+        fail("Copy matrix.config.json.example to matrix.config.json and fill in your credentials.")
         sys.exit(1)
     with open(config_path) as f:
         return json.load(f)
@@ -118,7 +118,7 @@ contract RentalAgreement
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 01: Contract Conversion Pipeline
+  The Matrix Example 01: Contract Conversion Pipeline
 {'=' * 60}{RESET}
 """)
 

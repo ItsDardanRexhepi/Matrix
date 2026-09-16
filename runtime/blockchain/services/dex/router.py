@@ -1,5 +1,5 @@
 """
-SwapRouter — multi-hop swap routing for the 0pnMatrx native DEX.
+SwapRouter — multi-hop swap routing for the Matrix native DEX.
 
 Checks Uniswap pools first, falls back to native pools.
 Calculates price impact and enforces slippage protection.

@@ -1,17 +1,17 @@
-"""openmatrix models — see what your provider serves now, and switch version.
+"""matrix models — see what your provider serves now, and switch version.
 
 Setup picks a model once. Providers ship new versions and retire old ones
 afterwards, so a choice made at install time goes stale on its own, and the
 first sign of it is usually a failed message. These commands keep it current
 without anyone editing this repository:
 
-    openmatrix models                 what your provider is serving right now,
+    matrix models                 what your provider is serving right now,
                                       newest first, with your current choice marked
-    openmatrix models --check         say whether the configured model is still
+    matrix models --check         say whether the configured model is still
                                       served — exit 1 if it is not
-    openmatrix models --set <id>      switch to another version (or any id)
-    openmatrix models --latest        switch to the newest the provider reports
-    openmatrix models --all           ask EVERY configured provider, not just
+    matrix models --set <id>      switch to another version (or any id)
+    matrix models --latest        switch to the newest the provider reports
+    matrix models --all           ask EVERY configured provider, not just
                                       the one in use
 
 Nothing here carries a list of model names. The provider is asked, and if it
@@ -26,7 +26,7 @@ import pathlib
 import sys
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-CONFIG_FILE = PROJECT_ROOT / "openmatrix.config.json"
+CONFIG_FILE = PROJECT_ROOT / "matrix.config.json"
 
 
 def _load() -> dict:
@@ -88,7 +88,7 @@ def cmd_models(args) -> None:
             if current and current not in listing.models:
                 print(f"  CURRENT MODEL NOT SERVED: {current}")
                 print(f"  the provider's newest is {listing.models[0]}; "
-                      f"switch with: openmatrix models --latest")
+                      f"switch with: matrix models --latest")
                 exit_code = 1
             else:
                 print(f"  current: {current} — still served")

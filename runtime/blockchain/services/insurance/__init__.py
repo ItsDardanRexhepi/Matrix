@@ -1,4 +1,4 @@
-"""Parametric Insurance — Component 13 of the 0pnMatrx platform."""
+"""Parametric Insurance — Component 13 of the Matrix platform."""
 
 from runtime.blockchain.services.insurance.service import InsuranceService
 

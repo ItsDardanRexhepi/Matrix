@@ -1,6 +1,6 @@
 # Security Interface
 
-This directory is the **seam** to 0pnMatrx's closed-source security layer. It is
+This directory is the **seam** to The Matrix's closed-source security layer. It is
 a boundary, not an implementation: `__init__.py` exposes the security contract
 the platform calls and binds it to the private security package when that package
 is installed. The rules — how the layer detects, classifies, bans, verifies
@@ -41,6 +41,6 @@ static analysis of generated Solidity — and is imported directly as
 `runtime.security.audit`. It does not pass through this seam.
 
 The security implementation is proprietary. See `SECURITY_STUB.md` in the project
-root for the public-facing statement. Developers extending 0pnMatrx should treat
+root for the public-facing statement. Developers extending The Matrix should treat
 the security layer as an opaque boundary: never bypass, replicate, or reach
 around it. If you need security-layer behavior in a fork, implement your own.

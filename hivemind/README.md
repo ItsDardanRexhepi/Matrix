@@ -1,6 +1,6 @@
 # Hivemind
 
-The hivemind is the orchestration layer that coordinates the three agents of 0pnMatrx.
+The hivemind is the orchestration layer that coordinates the three agents of The Matrix.
 
 ## How It Works
 
@@ -23,6 +23,6 @@ Users only ever see Trinity and Morpheus. Neo is invisible.
 To add a new agent to the hivemind:
 
 1. Create an identity document in `agents/<name>/identity.md`
-2. Add the agent to `openmatrix.config.json`
+2. Add the agent to `matrix.config.json`
 3. Register the agent's role in `orchestrator.py`
 4. Define routing rules for when the agent should be invoked

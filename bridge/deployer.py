@@ -6,7 +6,7 @@ Only deploys components that have:
     2. Been approved by Dardan (ApprovalStatus.APPROVED)
     3. A valid manifest entry
 
-Deployment targets the 0pnMatrx runtime service directory, registers the
+Deployment targets the Matrix runtime service directory, registers the
 component with the ServiceRegistry, and records an EAS attestation on-chain.
 """
 
@@ -56,7 +56,7 @@ class DeploymentResult:
 
 
 class ComponentDeployer:
-    """Deploys approved, sanitized components into the 0pnMatrx runtime.
+    """Deploys approved, sanitized components into the Matrix runtime.
 
     Usage::
 

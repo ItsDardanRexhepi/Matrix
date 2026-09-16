@@ -101,9 +101,9 @@ async def test_ready_is_503_when_security_backend_is_noop_in_production(monkeypa
     """`noop` means morpheus_security failed to load and NOTHING is enforcing.
 
     That is a normal local state and an unacceptable production one, so it is
-    fatal only under OPNMATRX_ENV=production.
+    fatal only under MATRIX_ENV=production.
     """
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     _with_live_security(monkeypatch)
     server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
@@ -117,7 +117,7 @@ async def test_ready_is_503_when_security_backend_is_noop_in_production(monkeypa
 
 async def test_noop_security_is_not_fatal_outside_production(monkeypatch):
     """The other direction — otherwise no developer could ever be ready."""
-    monkeypatch.delenv("OPNMATRX_ENV", raising=False)
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
     server = GatewayServer(SWEEP_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
     server._security_backend = "noop"
@@ -129,7 +129,7 @@ async def test_noop_security_is_not_fatal_outside_production(monkeypatch):
 
 
 async def test_real_security_backend_is_ready_in_production(monkeypatch):
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     _with_live_security(monkeypatch)
     server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(return_value={"ollama": True})
@@ -229,7 +229,7 @@ async def test_ready_body_carries_no_operator_detail(monkeypatch):
     """
     import json as _json
 
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     _with_live_security(monkeypatch)
     server = GatewayServer(PROD_CONFIG)
     server.react_loop.router.health_check = AsyncMock(
@@ -269,13 +269,13 @@ async def test_ready_failure_still_gives_the_operator_a_handle():
 def test_production_refuses_to_start_with_authentication_disabled(monkeypatch):
     """`auth_enabled = bool(api_key)`, and `_auth_middleware` opens with
     `if not self.auth_enabled: return await handler(request)` — it waves EVERY
-    protected route through. The shipped openmatrix.config.json carries
+    protected route through. The shipped matrix.config.json carries
     `"api_key": ""`, so an operator who copies the example and starts without
-    OPENMATRIX_API_KEY serves the whole surface anonymously, having chosen
+    MATRIX_API_KEY serves the whole surface anonymously, having chosen
     nothing. Same fail-open shape as H2, one layer up.
     """
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
-    monkeypatch.delenv("OPENMATRIX_API_KEY", raising=False)
+    monkeypatch.setenv("MATRIX_ENV", "production")
+    monkeypatch.delenv("MATRIX_API_KEY", raising=False)
     # Isolate NEW-26 from H2: with a noop backend, H2's guard would raise first
     # and this test would pass for the wrong reason.
     _with_live_security(monkeypatch)
@@ -289,7 +289,7 @@ def test_production_refuses_to_start_with_authentication_disabled(monkeypatch):
 
 
 def test_production_starts_when_a_key_is_configured(monkeypatch):
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     _with_live_security(monkeypatch)
     config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": "k"}}
     server = GatewayServer(config)
@@ -299,8 +299,8 @@ def test_production_starts_when_a_key_is_configured(monkeypatch):
 def test_development_still_runs_open(monkeypatch):
     """Anonymous in dev is useful and intended; anonymous in production that
     nobody selected is the bug. Fail-closed must not become fail-always."""
-    monkeypatch.delenv("OPNMATRX_ENV", raising=False)
-    monkeypatch.delenv("OPENMATRIX_API_KEY", raising=False)
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    monkeypatch.delenv("MATRIX_API_KEY", raising=False)
     config = {**SWEEP_CONFIG, "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": ""}}
     server = GatewayServer(config)
     assert server.auth_enabled is False
@@ -317,10 +317,10 @@ def test_the_shipped_example_config_still_has_no_key():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parents[1]
-    # The SHIPPED file is the .example; openmatrix.config.json is gitignored
+    # The SHIPPED file is the .example; matrix.config.json is gitignored
     # (the wizard writes it), so reading that one passed only on a machine
     # that had run setup — and failed in every fresh clone and in CI.
-    cfg = _json.loads((root / "openmatrix.config.json.example").read_text())
+    cfg = _json.loads((root / "matrix.config.json.example").read_text())
     assert not cfg.get("gateway", {}).get("api_key"), (
         "a credential was committed to the example config"
     )
@@ -349,31 +349,31 @@ def test_ready_is_reachable_without_credentials():
 def test_production_refuses_to_start_when_otp_services_fail_to_initialise(monkeypatch):
     """`OTPService(self.config)` is constructed inside `try/except Exception`
     with `self._otp = None` on failure. Morpheus's own production guard
-    ("OPNMATRX_OTP_PEPPER is not set under production") raises there — and was
+    ("MATRIX_OTP_PEPPER is not set under production") raises there — and was
     swallowed: the boot continued, /security/phone/* answered 503 and owner OTP
     was silently unavailable. H2's principle on the OTP branch: in production,
     refuse, naming the cause. (Driven in the census: entry::OTP-PEPPER-SWALLOWED.)
     """
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     _with_live_security(monkeypatch)
 
     def _pepper_missing(*_a, **_k):
         raise RuntimeError(
-            "OPNMATRX_OTP_PEPPER is not set under production. A stable pepper is required."
+            "MATRIX_OTP_PEPPER is not set under production. A stable pepper is required."
         )
     monkeypatch.setattr("runtime.security.OTPService", _pepper_missing, raising=False)
 
-    with pytest.raises(RuntimeError, match=r"OTP.*OPNMATRX_OTP_PEPPER|OPNMATRX_OTP_PEPPER.*OTP"):
+    with pytest.raises(RuntimeError, match=r"OTP.*MATRIX_OTP_PEPPER|MATRIX_OTP_PEPPER.*OTP"):
         GatewayServer(PROD_CONFIG)
 
 
 def test_development_runs_without_otp_when_its_service_fails_to_initialise(monkeypatch):
     """The other direction — a developer without the pepper still gets a gateway,
     with the OTP surface honestly unavailable (503), not a refusal."""
-    monkeypatch.delenv("OPNMATRX_ENV", raising=False)
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
 
     def _pepper_missing(*_a, **_k):
-        raise RuntimeError("OPNMATRX_OTP_PEPPER is not set under production.")
+        raise RuntimeError("MATRIX_OTP_PEPPER is not set under production.")
     monkeypatch.setattr("runtime.security.OTPService", _pepper_missing, raising=False)
 
     server = GatewayServer(SWEEP_CONFIG)
@@ -382,21 +382,21 @@ def test_development_runs_without_otp_when_its_service_fails_to_initialise(monke
 
 def test_h2_refusal_names_the_cause_that_flipped_the_backend_to_noop(monkeypatch):
     """When the App Attest verifier's own production guard raises (for example
-    "OPNMATRX_STATE_BACKEND=memory under production"), the gateway relabels the
+    "MATRIX_STATE_BACKEND=memory under production"), the gateway relabels the
     backend `noop` and H2 refuses — but its message said "morpheus_security is
     not installed or failed to load", naming the wrong cause at the loudest
     moment. The refusal is right; the message must carry the real reason.
     (Driven in the census: entry::DEPLOY-DRIVE.)
     """
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     _with_live_security(monkeypatch)
 
     def _store_refused(*_a, **_k):
         raise RuntimeError(
-            "OPNMATRX_STATE_BACKEND=memory under production. The in-memory store is "
-            "single-node and loses state on restart. Set OPNMATRX_STATE_BACKEND=redis or sql."
+            "MATRIX_STATE_BACKEND=memory under production. The in-memory store is "
+            "single-node and loses state on restart. Set MATRIX_STATE_BACKEND=redis or sql."
         )
     monkeypatch.setattr("runtime.security.get_app_attest_verifier", _store_refused, raising=False)
 
-    with pytest.raises(RuntimeError, match=r"OPNMATRX_STATE_BACKEND=memory"):
+    with pytest.raises(RuntimeError, match=r"MATRIX_STATE_BACKEND=memory"):
         GatewayServer(PROD_CONFIG)

@@ -1,5 +1,5 @@
 """
-DeFiService — orchestrate all DeFi operations on 0pnMatrx.
+DeFiService — orchestrate all DeFi operations on The Matrix.
 
 This is the single entry point for lending, borrowing, collateral
 management, P2P lending, governance, and reputation tracking.
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class DeFiService:
-    """Orchestrate all DeFi operations on 0pnMatrx.
+    """Orchestrate all DeFi operations on The Matrix.
 
     Config keys used (under ``defi``):
         min_collateral_ratio, liquidation_threshold, liquidation_penalty,

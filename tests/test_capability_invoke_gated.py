@@ -29,7 +29,7 @@ CAPABILITY = "settle_auction"
 
 
 def _server() -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-t5-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-t5-")
     config = {**SWEEP_CONFIG, "memory_dir": scratch,
               "database": {**SWEEP_CONFIG.get("database", {}), "path": f"{scratch}/t5.db"}}
     return GatewayServer(config)

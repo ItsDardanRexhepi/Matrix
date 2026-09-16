@@ -75,7 +75,7 @@ class Tokenization(BlockchainInterface):
 
     async def _deploy(self, params: dict) -> str:
         """Deploy a new ERC-20 token. Gas covered by platform."""
-        name = params.get("token_name", "OpenMatrixToken")
+        name = params.get("token_name", "MatrixToken")
         symbol = params.get("token_symbol", "MTRX")
         supply = params.get("initial_supply", "1000000")
 
@@ -138,7 +138,7 @@ contract {symbol}Token is ERC20, Ownable {{
                 "to": params["to"],
                 "amount": params.get("amount"),
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Transfer failed: {e}"
@@ -175,7 +175,7 @@ contract {symbol}Token is ERC20, Ownable {{
                 "status": "approved" if receipt["status"] == 1 else "failed",
                 "spender": params["spender"],
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Approve failed: {e}"
@@ -241,7 +241,7 @@ contract {symbol}Token is ERC20, Ownable {{
                 "to": to,
                 "amount": params.get("amount"),
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Mint failed: {e}"

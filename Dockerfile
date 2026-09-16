@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.6
 #
-# 0pnMatrx gateway image.
+# The Matrix gateway image.
 #
 # Multi-stage build:
 #   1. ``builder`` installs Python dependencies into a virtualenv, from
@@ -46,7 +46,7 @@ FROM python:3.11.16-slim-trixie@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
-    OPNMATRX_HOME=/app
+    MATRIX_HOME=/app
 
 # Minimal runtime libs (sqlite3 is part of stdlib but the C library is needed
 # at runtime; tini gives us a proper PID 1 for clean shutdown signals).
@@ -58,19 +58,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user
-RUN groupadd --system --gid 1000 opnmatrx \
-    && useradd --system --uid 1000 --gid opnmatrx --home /app --shell /sbin/nologin opnmatrx
+RUN groupadd --system --gid 1000 the-matrix \
+    && useradd --system --uid 1000 --gid the-matrix --home /app --shell /sbin/nologin the-matrix
 
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
-COPY --chown=opnmatrx:opnmatrx . /app
+COPY --chown=the-matrix:the-matrix . /app
 
 # Persistent state lives under /app/data — mount this as a volume.
 RUN mkdir -p /app/data /app/data/backups \
-    && chown -R opnmatrx:opnmatrx /app/data
+    && chown -R the-matrix:the-matrix /app/data
 
-USER opnmatrx
+USER the-matrix
 EXPOSE 18790
 
 # RUN-7: probes /ready, not /health. /health is liveness and answers 200 as long

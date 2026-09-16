@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SDK integration test — validates the OpenMatrixClient against a live gateway.
+SDK integration test — validates the MatrixClient against a live gateway.
 
 Usage:
     python -m sdk.test_sdk          # gateway must be running on :18790
@@ -12,14 +12,14 @@ import os
 # Ensure the repo root is on sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sdk.client import OpenMatrixClient
+from sdk.client import MatrixClient
 
 
 def main():
     passed = 0
     failed = 0
 
-    client = OpenMatrixClient("http://localhost:18790")
+    client = MatrixClient("http://localhost:18790")
     print(f"SDK client: {client}\n")
 
     # ── Test 1: Health ─────────────────────────────────────────────

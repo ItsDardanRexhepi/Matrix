@@ -80,7 +80,7 @@ class CrossChainRouter:
                     "status": "not_configured",
                     "message": (
                         "No bridge endpoints configured. "
-                        "Add bridge endpoints to openmatrix.config.json"
+                        "Add bridge endpoints to matrix.config.json"
                     ),
                     "supported_bridges": list(SUPPORTED_BRIDGES.keys()),
                 }

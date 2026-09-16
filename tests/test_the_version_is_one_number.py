@@ -4,12 +4,12 @@ THE DEFECT THIS EXISTS FOR. The tree carried four version strings and they did
 not agree:
 
     pyproject.toml          0.5.0     <- what `pip install .` records
-    cli/info.py  VERSION    0.5.0     <- what `openmatrix version` printed
+    cli/info.py  VERSION    0.5.0     <- what `matrix version` printed
     runtime/__init__.py     1.0.0
     sdk/__init__.py         1.0.0
     git tag                 v1.0.0    <- dated 2026-03-31, 425 commits behind main
 
-So `openmatrix version` said 0.5.0 while the runtime it was running said 1.0.0,
+So `matrix version` said 0.5.0 while the runtime it was running said 1.0.0,
 and the only public release tag claimed a HIGHER version than the code that
 superseded it by 425 commits. A packaged install makes that contradiction the
 first thing a user sees, and a Homebrew formula has to pin one of them.
@@ -30,7 +30,7 @@ def test_every_module_reports_the_same_version():
     import sdk
     from cli.info import VERSION
     assert VERSION == runtime.__version__, (
-        f"openmatrix version prints {VERSION} but the runtime is {runtime.__version__}")
+        f"matrix version prints {VERSION} but the runtime is {runtime.__version__}")
     assert sdk.__version__ == runtime.__version__, (
         f"the SDK reports {sdk.__version__} but the runtime is {runtime.__version__}")
 
@@ -59,9 +59,9 @@ def test_the_installed_distribution_agrees_when_it_is_installed():
     import runtime
     try:
         from importlib.metadata import version as dist_version
-        installed = dist_version("opnmatrx")
+        installed = dist_version("the-matrix")
     except Exception:
         import pytest
-        pytest.skip("opnmatrx is not installed in this environment")
+        pytest.skip("the-matrix is not installed in this environment")
     assert installed == runtime.__version__, (
         f"the installed distribution says {installed}, the source says {runtime.__version__}")

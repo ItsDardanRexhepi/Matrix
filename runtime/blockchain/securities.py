@@ -168,7 +168,7 @@ contract {symbol}Security is ERC20, Ownable {{
                 "amount": params.get("amount", "0"),
                 "contract": contract_address,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Security token transfer failed: {e}"
@@ -283,7 +283,7 @@ contract {symbol}Security is ERC20, Ownable {{
                 "investor": investor,
                 "contract": contract_address,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Freeze failed: {e}"

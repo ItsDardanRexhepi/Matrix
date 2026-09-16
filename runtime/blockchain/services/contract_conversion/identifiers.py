@@ -8,7 +8,7 @@ reported status "success" with the audit passed, for source solc rejects:
 
     is, 2026Drop, Gällery         Error 2314  Expected identifier
     ERC721, Strings, Context,     Error 2333  Identifier already declared
-    IERC165, IOpenMatrixFeeToken
+    IERC165, IMatrixFeeToken
     mint                          Error 5796  Functions are not allowed to have
                                               the same name as the contract
 

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
-# 0pnMatrx — One-Command Installer
+# The Matrix — One-Command Installer
 #
 # Install:
-#   curl -sSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/ItsDardanRexhepi/the-matrix/main/install.sh | bash
 #
 # Or clone first, then:
 #   ./install.sh
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="https://github.com/ItsDardanRexhepi/0pnMatrx.git"
-INSTALL_DIR="${OPNMATRX_DIR:-$HOME/.opnmatrx}"
-BRANCH="${OPNMATRX_BRANCH:-main}"
+REPO="https://github.com/ItsDardanRexhepi/the-matrix.git"
+INSTALL_DIR="${MATRIX_DIR:-$HOME/.the-matrix}"
+BRANCH="${MATRIX_BRANCH:-main}"
 MIN_PYTHON="3.10"
 
 # ── Colors ───────────────────────────────────────────────────────────
@@ -24,15 +24,15 @@ YELLOW='\033[33m'
 RED='\033[31m'
 NC='\033[0m'
 
-info()  { echo -e "${GREEN}[0pnMatrx]${NC} $1"; }
-warn()  { echo -e "${YELLOW}[0pnMatrx]${NC} $1"; }
-error() { echo -e "${RED}[0pnMatrx]${NC} $1" >&2; }
+info()  { echo -e "${GREEN}[The Matrix]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[The Matrix]${NC} $1"; }
+error() { echo -e "${RED}[The Matrix]${NC} $1" >&2; }
 
 # ── Banner ───────────────────────────────────────────────────────────
 banner() {
     echo ""
     echo -e "  ${CYAN}${BOLD}┌──────────────────────────────────────┐${NC}"
-    echo -e "  ${CYAN}${BOLD}│        0pnMatrx — Installer          │${NC}"
+    echo -e "  ${CYAN}${BOLD}│        The Matrix — Installer          │${NC}"
     echo -e "  ${CYAN}${BOLD}└──────────────────────────────────────┘${NC}"
     echo ""
 }
@@ -92,7 +92,7 @@ clone_repo() {
             warn "Pull failed. Continuing with existing code."
         }
     else
-        info "Cloning 0pnMatrx..."
+        info "Cloning The Matrix..."
         git clone --depth 1 --branch "$BRANCH" "$REPO" "$INSTALL_DIR"
     fi
     cd "$INSTALL_DIR"
@@ -118,9 +118,9 @@ install_deps() {
 
 install_cli() {
     local venv_bin="$INSTALL_DIR/.venv/bin"
-    local wrapper="$venv_bin/openmatrix"
+    local wrapper="$venv_bin/matrix"
 
-    # Create wrapper that resolves symlinks (so ~/.local/bin/openmatrix works).
+    # Create wrapper that resolves symlinks (so ~/.local/bin/matrix works).
     # rm first: `cat >` follows a link, so a symlink already sitting at this
     # path would have been written THROUGH (or, if it looped, failed) instead
     # of replaced.
@@ -137,7 +137,7 @@ HOPS=0
 while [ -L "$SOURCE" ]; do
     HOPS=$((HOPS + 1))
     if [ "$HOPS" -gt 40 ]; then
-        echo "openmatrix: too many symbolic links resolving ${BASH_SOURCE[0]}" >&2
+        echo "matrix: too many symbolic links resolving ${BASH_SOURCE[0]}" >&2
         exit 1
     fi
     DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -153,7 +153,7 @@ exec python3 -m cli "$@"
 WRAPPER
     chmod +x "$wrapper"
 
-    # ── Make 'openmatrix' available system-wide ──
+    # ── Make 'matrix' available system-wide ──
     # Strategy: symlink into a directory that's already in PATH.
     # Try /usr/local/bin first, then ~/.local/bin, then fall back to
     # shell rc PATH addition.
@@ -164,8 +164,8 @@ WRAPPER
     if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
         # -n: if the destination is a link to a directory, replace the link
         # rather than creating a new one inside whatever it points at.
-        ln -sfn "$wrapper" /usr/local/bin/openmatrix
-        info "Linked: /usr/local/bin/openmatrix"
+        ln -sfn "$wrapper" /usr/local/bin/matrix
+        info "Linked: /usr/local/bin/matrix"
         linked=true
     fi
 
@@ -173,8 +173,8 @@ WRAPPER
     if [ "$linked" = false ]; then
         local local_bin="$HOME/.local/bin"
         mkdir -p "$local_bin"
-        ln -sfn "$wrapper" "$local_bin/openmatrix"
-        info "Linked: $local_bin/openmatrix"
+        ln -sfn "$wrapper" "$local_bin/matrix"
+        info "Linked: $local_bin/matrix"
         linked=true
 
         # Exact PATH-component match. `grep -q "$local_bin"` matched any
@@ -194,12 +194,12 @@ WRAPPER
     # behind Option 1, never ran for the installs that have the line.
     _report_legacy_path_prepends
 
-    info "CLI ready: openmatrix"
+    info "CLI ready: matrix"
 }
 
 # Report PATH prepends that an earlier version of this installer wrote.
-# Earlier versions wrote `export PATH="<dir>:$PATH"` under a `# 0pnMatrx` or
-# `# 0pnMatrx CLI` comment, into whichever of these rc files they picked, for
+# Earlier versions wrote `export PATH="<dir>:$PATH"` under a `# The Matrix` or
+# `# The Matrix CLI` comment, into whichever of these rc files they picked, for
 # ~/.local/bin or for the project venv's bin. Reported, not rewritten: rc files
 # are often symlinks into a dotfiles repo, and an installer editing one in
 # place is the worse failure if a match is ever wrong.
@@ -210,7 +210,7 @@ _report_legacy_path_prepends() {
         while IFS= read -r line; do
             dir="${line#export PATH=\"}"
             dir="${dir%:\$PATH\"}"
-            warn "$rc puts $dir at the FRONT of PATH (an earlier 0pnMatrx installer wrote it)."
+            warn "$rc puts $dir at the FRONT of PATH (an earlier The Matrix installer wrote it)."
             warn "  Anything later written into $dir outranks /usr/bin. Replace:"
             warn "    $line"
             warn "  with:"
@@ -219,7 +219,7 @@ _report_legacy_path_prepends() {
             L1="export PATH=\"$HOME/.local/bin:\$PATH\"" \
             L2="export PATH=\"$INSTALL_DIR/.venv/bin:\$PATH\"" \
             awk '
-                (prev == "# 0pnMatrx" || prev == "# 0pnMatrx CLI") && /^export PATH="[^"]*:\$PATH"$/ { print; prev = $0; next }
+                (prev == "# The Matrix" || prev == "# The Matrix CLI") && /^export PATH="[^"]*:\$PATH"$/ { print; prev = $0; next }
                 $0 == ENVIRON["L1"] || $0 == ENVIRON["L2"] { print }
                 { prev = $0 }
             ' "$rc" 2>/dev/null
@@ -261,7 +261,7 @@ _add_path_to_rc() {
     # process running as the user (a `pip install --user` of a typosquat, for
     # one) would shadow git, python3, curl. Appended, it can only supply
     # commands nothing earlier on PATH already provides — which is all the
-    # `openmatrix` link needs.
+    # `matrix` link needs.
     local line="export PATH=\"\$PATH:$dir_to_add\""
 
     # Already mentioned — an older installer's prepend line (which
@@ -269,13 +269,13 @@ _add_path_to_rc() {
     # Leave the file alone, but say so rather than claim the CLI is ready.
     if [ -f "$shell_rc" ] && grep -qF "$dir_to_add" "$shell_rc" 2>/dev/null; then
         info "$shell_rc already mentions $dir_to_add; left unchanged."
-        info "  If 'openmatrix' is not found in a new shell, add:  $line"
+        info "  If 'matrix' is not found in a new shell, add:  $line"
         return
     fi
 
-    printf '\n# 0pnMatrx CLI (delete this line and the next to undo)\n%s\n' "$line" >> "$shell_rc"
+    printf '\n# The Matrix CLI (delete this line and the next to undo)\n%s\n' "$line" >> "$shell_rc"
     info "Added $dir_to_add to the end of PATH in $shell_rc"
-    info "  To undo, delete the '# 0pnMatrx CLI' comment line and the line after it."
+    info "  To undo, delete the '# The Matrix CLI' comment line and the line after it."
 }
 
 check_ollama() {
@@ -291,7 +291,7 @@ check_ollama() {
 main() {
     banner
 
-    echo -e "  ${DIM}This will install 0pnMatrx and the 'openmatrix' CLI command.${NC}"
+    echo -e "  ${DIM}This will install The Matrix and the 'matrix' CLI command.${NC}"
     echo ""
 
     # Checks
@@ -314,7 +314,7 @@ main() {
     # If no config exists yet, walk the user through first-boot setup
     # using the interactive setup wizard.
     cd "$INSTALL_DIR"
-    if [ ! -f "openmatrix.config.json" ]; then
+    if [ ! -f "matrix.config.json" ]; then
         echo -e "  ${BOLD}Launching first-time setup...${NC}"
         echo ""
         sleep 1
@@ -324,13 +324,13 @@ main() {
         echo ""
         echo -e "  ${BOLD}Quick start:${NC}"
         echo ""
-        echo -e "    ${CYAN}openmatrix gateway start${NC}     Start the gateway"
-        echo -e "    ${CYAN}openmatrix gateway start -d${NC}  Start in background"
-        echo -e "    ${CYAN}openmatrix gateway status${NC}    Check status"
-        echo -e "    ${CYAN}openmatrix gateway stop${NC}      Stop the gateway"
-        echo -e "    ${CYAN}openmatrix gateway logs${NC}      View logs"
-        echo -e "    ${CYAN}openmatrix health${NC}            Health check"
-        echo -e "    ${CYAN}openmatrix version${NC}           Show version"
+        echo -e "    ${CYAN}matrix gateway start${NC}     Start the gateway"
+        echo -e "    ${CYAN}matrix gateway start -d${NC}  Start in background"
+        echo -e "    ${CYAN}matrix gateway status${NC}    Check status"
+        echo -e "    ${CYAN}matrix gateway stop${NC}      Stop the gateway"
+        echo -e "    ${CYAN}matrix gateway logs${NC}      View logs"
+        echo -e "    ${CYAN}matrix health${NC}            Health check"
+        echo -e "    ${CYAN}matrix version${NC}           Show version"
         echo ""
     fi
 }

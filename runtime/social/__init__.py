@@ -1,4 +1,4 @@
-"""Social media integration and live activity feed for 0pnMatrx agents.
+"""Social media integration and live activity feed for The Matrix agents.
 
 Provides Twitter/X and Discord posting, scheduling, and management,
 plus a real-time ranked activity feed that surfaces platform actions

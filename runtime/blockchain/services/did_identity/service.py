@@ -30,7 +30,7 @@ class DIDService:
     config : dict
         Platform configuration.  Reads ``did.*`` sub-key:
 
-        - ``did.method`` (str, default ``"openmatrix"``)
+        - ``did.method`` (str, default ``"matrix"``)
         - ``did.network`` (str, default ``"base"``)
         - ``did.key_type`` (str, default ``"Ed25519VerificationKey2020"``)
 
@@ -42,7 +42,7 @@ class DIDService:
                 "platform_wallet": "0x..."
             },
             "did": {
-                "method": "openmatrix",
+                "method": "matrix",
                 "network": "base",
                 "key_type": "Ed25519VerificationKey2020"
             }
@@ -52,7 +52,7 @@ class DIDService:
     def __init__(self, config: dict) -> None:
         self._config = config
         did_cfg = config.get("did", {})
-        self._method: str = did_cfg.get("method", "openmatrix")
+        self._method: str = did_cfg.get("method", "matrix")
         self._network: str = did_cfg.get("network", "base")
         self._key_type: str = did_cfg.get("key_type", "Ed25519VerificationKey2020")
 
@@ -75,7 +75,7 @@ class DIDService:
     # Core DID operations
     # ------------------------------------------------------------------
 
-    async def create_did(self, owner: str, method: str = "openmatrix") -> dict:
+    async def create_did(self, owner: str, method: str = "matrix") -> dict:
         """Create a new DID for *owner*.
 
         Returns a full W3C DID Document.

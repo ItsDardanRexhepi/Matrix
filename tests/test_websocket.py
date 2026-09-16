@@ -20,7 +20,7 @@ from runtime.react_loop import ReActResult
 def ws_config(tmp_path):
     """Config for GatewayServer with auth disabled (WS path is open)."""
     return {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "memory_dir": str(tmp_path / "memory"),
         "workspace": str(tmp_path),
         "timezone": "UTC",

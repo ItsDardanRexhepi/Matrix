@@ -68,14 +68,14 @@ async def test_sdk_wrapper_refuses_rather_than_pretending():
     """The SDK method must not silently route to conversion either."""
     import inspect
 
-    from sdk.client import OpenMatrixClient
+    from sdk.client import MatrixClient
 
-    doc = inspect.getdoc(OpenMatrixClient.deploy_contract) or ""
+    doc = inspect.getdoc(MatrixClient.deploy_contract) or ""
     assert "NOT IMPLEMENTED" in doc, (
         "the wrapper's docstring must not promise deployment — it was the most "
         "convincing part of the illusion"
     )
 
-    client = OpenMatrixClient.__new__(OpenMatrixClient)
+    client = MatrixClient.__new__(MatrixClient)
     with pytest.raises(NotImplementedError):
         await client.deploy_contract("contract X")

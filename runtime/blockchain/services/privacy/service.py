@@ -145,7 +145,7 @@ class PrivacyService:
                     "In-memory record held by the running gateway process. It is "
                     "not an on-chain commitment and does not survive a restart."
                 ),
-                "did_reference": f"did:0pnmatrx:{user}",  # Component 5 DID
+                "did_reference": f"did:the-matrix:{user}",  # Component 5 DID
                 "created_at": now,
                 "deletion_requests": [],
                 "total_deletions_completed": 0,

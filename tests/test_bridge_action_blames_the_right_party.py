@@ -45,7 +45,7 @@ SIGNATURE_TEXT = "get_loan() missing 1 required positional argument: 'loan_id'"
 
 
 def _server(dispatcher=None) -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-bridge-action-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-bridge-action-")
     server = GatewayServer({**SWEEP_CONFIG, "memory_dir": scratch,
                             "database": {"path": f"{scratch}/a.db"}})
     server._test_dispatcher = dispatcher

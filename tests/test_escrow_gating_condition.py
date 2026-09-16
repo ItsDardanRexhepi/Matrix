@@ -74,7 +74,7 @@ def test_no_escrow_config_key_exists_yet():
     """
     import json
 
-    example = Path(__file__).resolve().parent.parent / "openmatrix.config.json.example"
+    example = Path(__file__).resolve().parent.parent / "matrix.config.json.example"
     cfg = json.loads(example.read_text()).get("fundraising", {})
     for key in ("escrow_address", "escrow_contract", "custody_address", "treasury"):
         assert key not in cfg, (

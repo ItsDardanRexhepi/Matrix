@@ -1,4 +1,4 @@
-"""SQLite database layer for 0pnMatrx persistence.
+"""SQLite database layer for The Matrix persistence.
 
 A thin async wrapper around the standard ``sqlite3`` module, with:
 
@@ -13,8 +13,8 @@ The class is intentionally minimal — it does *not* try to be an ORM. The
 memory manager, session store, etc. issue raw SQL through
 :meth:`execute`, :meth:`executemany`, and :meth:`fetchall`.
 
-The default database path is ``data/0pnmatrx.db``. Override via
-``database.path`` in ``openmatrix.config.json`` (relative paths are
+The default database path is ``data/the-matrix.db``. Override via
+``database.path`` in ``matrix.config.json`` (relative paths are
 resolved against the project root).
 
 Adding a new migration
@@ -296,7 +296,7 @@ class Database:
 
     def __init__(self, config: dict) -> None:
         db_cfg = config.get("database", {}) if isinstance(config, dict) else {}
-        path = db_cfg.get("path", "data/0pnmatrx.db")
+        path = db_cfg.get("path", "data/the-matrix.db")
         self.db_path: Path = Path(path).expanduser()
         if not self.db_path.is_absolute():
             # Resolve relative paths against the project root (cwd at startup).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ops.sh — 0pnMatrx operator kit.
+# ops.sh — The Matrix operator kit.
 #
 # One entrypoint for the read-only checks an operator runs before and during a
 # deploy. Nothing here signs, spends gas, sends a push, or mutates state — the

@@ -1,25 +1,25 @@
-# 0pnMatrx SDK
+# The Matrix SDK
 
-A Python SDK for building on top of the 0pnMatrx platform.
+A Python SDK for building on top of the Matrix platform.
 
 ## Installation
 
 ```bash
-pip install openmatrix-sdk
+pip install matrix-sdk
 ```
 
 Or use directly from the repository:
 
 ```python
-from sdk import OpenMatrixClient
+from sdk import MatrixClient
 ```
 
 ## Quick Start
 
 ```python
-from sdk import OpenMatrixClient
+from sdk import MatrixClient
 
-client = OpenMatrixClient("http://localhost:18790")
+client = MatrixClient("http://localhost:18790")
 
 # Send a message to Trinity
 response = client.chat("What can you help me with?")

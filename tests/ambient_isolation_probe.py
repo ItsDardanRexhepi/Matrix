@@ -21,8 +21,8 @@ def seen_at_module_setup():
     function scope never reached it."""
     import runtime.security as seam
     return {
-        "env_mode": os.environ.get("OPNMATRX_ENV"),
-        "api_key_set": os.environ.get("OPENMATRIX_API_KEY") is not None,
+        "env_mode": os.environ.get("MATRIX_ENV"),
+        "api_key_set": os.environ.get("MATRIX_API_KEY") is not None,
         "backend": seam.SECURITY_BACKEND,
     }
 
@@ -38,16 +38,16 @@ def test_probe_sees_the_documented_default_not_the_ambient_one():
 
     # Read into locals first: an assertion on os.environ itself would print the
     # whole environment of whoever runs the suite into the failure report.
-    env_mode = os.environ.get("OPNMATRX_ENV")
-    api_key = os.environ.get("OPENMATRIX_API_KEY")
-    test_mint = os.environ.get("OPENMATRIX_ALLOW_TEST_MINT")
-    pepper_is_ambient = os.environ.get("OPNMATRX_OTP_PEPPER") == "ambient-pepper"
+    env_mode = os.environ.get("MATRIX_ENV")
+    api_key = os.environ.get("MATRIX_API_KEY")
+    test_mint = os.environ.get("MATRIX_ALLOW_TEST_MINT")
+    pepper_is_ambient = os.environ.get("MATRIX_OTP_PEPPER") == "ambient-pepper"
     backend = seam.SECURITY_BACKEND
 
-    assert env_mode is None, "ambient OPNMATRX_ENV reached a test"
-    assert api_key is None, "ambient OPENMATRIX_API_KEY reached a test"
-    assert test_mint is None, "ambient OPENMATRIX_ALLOW_TEST_MINT reached a test"
-    assert not pepper_is_ambient, "ambient OPNMATRX_OTP_PEPPER reached a test"
+    assert env_mode is None, "ambient MATRIX_ENV reached a test"
+    assert api_key is None, "ambient MATRIX_API_KEY reached a test"
+    assert test_mint is None, "ambient MATRIX_ALLOW_TEST_MINT reached a test"
+    assert not pepper_is_ambient, "ambient MATRIX_OTP_PEPPER reached a test"
     assert backend == "noop", f"ambient backend {backend!r} reached a test"
 
     # And the consequence, not just the variables: a gateway built the way the
@@ -79,16 +79,16 @@ def test_probe_the_dotenv_file_is_not_an_ambient_source():
 
     assert os.path.isfile(".env"), "precondition: the control put a hostile .env here"
     server._load_dotenv()  # exactly what load_config calls
-    env_mode = os.environ.get("OPNMATRX_ENV")
-    api_key = os.environ.get("OPENMATRIX_API_KEY")
-    assert env_mode is None, ".env's OPNMATRX_ENV reached a test"
-    assert api_key is None, ".env's OPENMATRIX_API_KEY reached a test"
+    env_mode = os.environ.get("MATRIX_ENV")
+    api_key = os.environ.get("MATRIX_API_KEY")
+    assert env_mode is None, ".env's MATRIX_ENV reached a test"
+    assert api_key is None, ".env's MATRIX_API_KEY reached a test"
 
 
 def test_probe_code_under_test_writes_the_environment_directly():
     """Not through monkeypatch — the way a loader or a service does it."""
-    os.environ["OPNMATRX_ENV"] = "production"
-    os.environ["OPNMATRX_SWITCH_ADDED_DURING_A_TEST"] = "1"
+    os.environ["MATRIX_ENV"] = "production"
+    os.environ["MATRIX_SWITCH_ADDED_DURING_A_TEST"] = "1"
 
 
 @pytest.fixture(scope="module")
@@ -97,8 +97,8 @@ def built_after_a_direct_write():
     test's teardown and any function-scoped fixture of the next one — the
     window test_route_sweep's `sweep_results` is built in."""
     return {
-        "env_mode": os.environ.get("OPNMATRX_ENV"),
-        "added": os.environ.get("OPNMATRX_SWITCH_ADDED_DURING_A_TEST"),
+        "env_mode": os.environ.get("MATRIX_ENV"),
+        "added": os.environ.get("MATRIX_SWITCH_ADDED_DURING_A_TEST"),
     }
 
 
@@ -106,5 +106,5 @@ def test_probe_a_direct_write_does_not_reach_a_later_module_fixture(built_after_
     assert built_after_a_direct_write == {"env_mode": None, "added": None}, (
         "a value written during one test was in os.environ when a later "
         "module-scoped fixture was built")
-    assert os.environ.get("OPNMATRX_ENV") is None
-    assert os.environ.get("OPNMATRX_SWITCH_ADDED_DURING_A_TEST") is None
+    assert os.environ.get("MATRIX_ENV") is None
+    assert os.environ.get("MATRIX_SWITCH_ADDED_DURING_A_TEST") is None

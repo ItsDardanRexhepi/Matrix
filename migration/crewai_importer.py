@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 """
-CrewAI Importer — converts CrewAI crew and agent definitions to 0pnMatrx.
+CrewAI Importer — converts CrewAI crew and agent definitions to The Matrix.
 
 Parses CrewAI's Python-based agent/crew configs, YAML configs,
-and converts the multi-agent setup to 0pnMatrx hivemind format.
+and converts the multi-agent setup to The Matrix hivemind format.
 """
 
 import ast
@@ -135,7 +135,7 @@ class CrewAIImporter(BaseImporter):
         if backstory:
             prompt_parts.append(f"Backstory: {backstory}")
 
-        # Determine 0pnMatrx role
+        # Determine The Matrix role
         role_lower = (role_desc + " " + goal).lower()
         if any(kw in role_lower for kw in ["execute", "code", "develop", "build", "deploy"]):
             agent_role = "execution"

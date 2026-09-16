@@ -1,4 +1,4 @@
-"""Discord integration for 0pnMatrx agents.
+"""Discord integration for The Matrix agents.
 
 Posts agent content to Discord channels via webhook URLs.
 No bot token required — uses simple webhook posting.

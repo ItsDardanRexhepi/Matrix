@@ -1,0 +1,493 @@
+{
+  "_readme": "Replace all YOUR_* values before the platform is functional. See contracts/DEPLOYMENT_GUIDE.md for instructions. Environment variables in .env override values here.",
+  "platform": "The Matrix",
+  "version": "1.0.0",
+  "workspace": ".",
+  "timezone": "America/Los_Angeles",
+  "max_steps": 10,
+  "database": {
+    "path": "data/the-matrix.db"
+  },
+  "model": {
+    "provider": "ollama",
+    "primary": "llama3.1",
+    "fallback": "mistral",
+    "routing_strategy": "intelligent",
+    "providers": {
+      "//": "Every provider The Matrix can use. The set is declared in runtime/models/providers.py and the setup wizard builds its menu from it, so this list, the wizard and the router cannot drift apart. Fill in ONLY the one you use (or set its env var); the rest stay as placeholders and are skipped. The OpenAI-compatible ones (xai/Grok, nous/Hermes, deepseek, mistral, groq, together, openrouter, perplexity, fireworks, cerebras, custom) each talk to their OWN endpoint with their OWN key — base_url shows where. `custom` reaches any endpoint speaking the chat-completions API. A model id is what the provider served when this file was written; set yours if it differs.",
+      "ollama": {
+        "base_url": "http://localhost:11434",
+        "model": "llama3.1:8b"
+      },
+      "anthropic": {
+        "api_key": "YOUR_ANTHROPIC_API_KEY",
+        "model": "claude-sonnet-4-6",
+        "models": { "fast": "claude-haiku-4-5-20251001", "balanced": "claude-sonnet-4-6", "best": "claude-opus-4-6" }
+      },
+      "openai": {
+        "api_key": "YOUR_OPENAI_API_KEY",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o"
+      },
+      "xai": {
+        "api_key": "YOUR_XAI_API_KEY",
+        "base_url": "https://api.x.ai/v1",
+        "model": "grok-4"
+      },
+      "nous": {
+        "api_key": "YOUR_NOUS_API_KEY",
+        "base_url": "https://inference-api.nousresearch.com/v1",
+        "model": "Hermes-4-405B"
+      },
+      "gemini": {
+        "api_key": "YOUR_GOOGLE_API_KEY",
+        "model": "gemini-2.5-pro"
+      },
+      "deepseek": {
+        "api_key": "YOUR_DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat"
+      },
+      "mistral": {
+        "api_key": "YOUR_MISTRAL_API_KEY",
+        "base_url": "https://api.mistral.ai/v1",
+        "model": "mistral-large-latest"
+      },
+      "groq": {
+        "api_key": "YOUR_GROQ_API_KEY",
+        "base_url": "https://api.groq.com/openai/v1",
+        "model": "llama-3.3-70b-versatile"
+      },
+      "together": {
+        "api_key": "YOUR_TOGETHER_API_KEY",
+        "base_url": "https://api.together.xyz/v1",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      },
+      "openrouter": {
+        "api_key": "YOUR_OPENROUTER_API_KEY",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "openai/gpt-4o"
+      },
+      "perplexity": {
+        "api_key": "YOUR_PERPLEXITY_API_KEY",
+        "base_url": "https://api.perplexity.ai",
+        "model": "sonar-pro"
+      },
+      "fireworks": {
+        "api_key": "YOUR_FIREWORKS_API_KEY",
+        "base_url": "https://api.fireworks.ai/inference/v1",
+        "model": "accounts/fireworks/models/llama-v3p3-70b-instruct"
+      },
+      "cerebras": {
+        "api_key": "YOUR_CEREBRAS_API_KEY",
+        "base_url": "https://api.cerebras.ai/v1",
+        "model": "llama-3.3-70b"
+      },
+      "nvidia": {
+        "api_key": "YOUR_NVIDIA_API_KEY",
+        "model": "meta/llama-3.3-70b-instruct"
+      },
+      "mythos": {
+        "api_key": "YOUR_ANTHROPIC_API_KEY",
+        "model": "claude-opus-4-6"
+      },
+      "custom": {
+        "api_key": "YOUR_MATRIX_MODEL_API_KEY",
+        "base_url": "https://your-endpoint.example/v1",
+        "model": "the-model-id-your-endpoint-serves"
+      }
+    }
+  },
+  "finetuning": {
+    "collect": false,
+    "min_rating_for_export": 4,
+    "export_path": "data/finetuning/"
+  },
+  "gateway": {
+    "port": 18790,
+    "host": "0.0.0.0",
+    "cors_origins": [],
+    "api_key": "",
+    "rate_limit_rpm": 60,
+    "rate_limit_burst": 15,
+    "rate_limit_rpm_authenticated": 120,
+    "rate_limit_burst_authenticated": 30,
+    "rate_limit_rpm_anonymous": 20,
+    "rate_limit_burst_anonymous": 5
+  },
+  "agents": {
+    "neo": {
+      "enabled": true,
+      "role": "execution"
+    },
+    "trinity": {
+      "enabled": true,
+      "role": "conversation"
+    },
+    "morpheus": {
+      "enabled": true,
+      "role": "guidance"
+    }
+  },
+  "blockchain": {
+    "network": "base-sepolia",
+    "rpc_url": "YOUR_BASE_RPC_URL",
+    "chain_id": 84532,
+    "eas_contract//": "EAS address is CHAIN-SPECIFIC — verify against https://docs.attest.org before trusting. For chain_id 84532 (Base Sepolia) and Base mainnet the OP-stack predeploys are EAS 0x4200...0021 / SchemaRegistry 0x4200...0020 (what the iOS client hardcodes). The previous example value 0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587 is ETHEREUM Sepolia — pasting it with a Base chain_id attests against the wrong contract.",
+    "eas_contract": "0x4200000000000000000000000000000000000021",
+    "eas_schema": "YOUR_EAS_SCHEMA_UID",
+    "price_feeds": {
+      "//": "Chainlink AggregatorV3 feed addresses per chain — VERIFY against https://docs.chain.link/data-feeds/price-feeds/addresses before trusting. eth_usd example is Base Sepolia ETH/USD; empty -> the price route falls back to Coinbase, and if that is also unreachable returns 503 (never a stale number).",
+      "eth_usd": ""
+    },
+    "paymaster": {
+      "//": "P4 verifying-paymaster gas sponsorship. address = deployed MatrixVerifyingPaymaster; signer_key = the platform signing key (env/secret, never user funds); policy.allowed_actions gates which actions get sponsored (omit = allow all); each action is decoded from the userOp's own callData/initCode, never taken from the request's action_type: transfer (value, or ERC-20 transfer), approve, swap (MatrixDEX), mint_nft (MatrixNFT), call:0x<selector> for any other function, init_code:<factory> for a deployment not through account_factory. A batch is sponsored only if every call in it is allowed; only canonical ABI encodings are described and a batch over 256 calls is oversized_batch. LIMIT: the allowlist constrains which ABI function names the call data invokes, not what code runs - the target contract, a value recipient's receive/fallback and the sender account itself are not verified (no address/codehash registry), so it is not a boundary against a caller who deploys contracts. daily_cap_usd is not one either: it is metered per identity, and without a session the identity is the X-Wallet-Address header or body sender the caller writes (with a SIWE session, an address whose key the caller holds), so it bounds spend per address, not per caller. Unset signer/address -> /api/v1/paymaster/sign returns 503.",
+      "address": "0x0E393e90af2DAb65e60318F110270f045B125880",
+      "signer_key": "",
+      "bundler_url": "",
+      "entry_point": "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+      "account_factory": "0x62a31367C97A5fB3E36839fbB64268F3De4fC943",
+      "policy": { "allowed_actions": ["transfer", "swap"], "daily_cap_usd": 50 }
+    },
+    "schemas": {
+      "//": "EAS schema UIDs are chain-specific keccak256 SchemaRegistry hashes (bytes32), NOT easscan display numbers like '348'. Register per chain with scripts/register_eas_schemas.py and paste the resulting UIDs here. Empty/malformed values fail closed (no attestation against a placeholder). 'primary' overrides blockchain.eas_schema for the core schema.",
+      "primary": "0x42e29fbfef86deaa4f27a5e364f818ee736badfbc40904bd261b508308372d0a",
+      "identity": "0x620c47f46c463bca27a27a89604509546f225960c99912fd9f10615a38047e0a",
+      "payments": "0xa8fa684437236a3c2311d59f7d235a56b8a15da3f44611eac09b32b9451b0aa6",
+      "governance": "0x638d35f0b6687e1c4a63c94c3492018ecf9b900a55b86665608990649876a7e2",
+      "ip_royalties": "0xcf3008f2e97c30a84004075d40c13a4a1dad5f5c9069578736fe4375bb3b5c24",
+      "disputes": "0x7dd4ad3c7daf66a30655782c1eeca7125ca04a5b2bd0a5c00eeab8d7efa72f8a",
+      "nfts": "0xaff53453f10eb19c00f8367545a5480e772602bce25c7c9e8aad80af3b45ceb0",
+      "defi": "0xf4c2e511d79c687b47ca5bcad59efe9c0333035c7766a0441b6da26d0743e1ab",
+      "staking": "0x6ba6c00f8a6e8ef34ce70c16e40b9da8366dbdc8b4f40c73b8adadbc8fbd1ea7",
+      "insurance": "0xf44d5e620facacaad805e7d018c6abfc1ca05906894b434b0c890dd984435c9d",
+      "gaming": "0xf509a99804ed95cfb043b2305b3dd50872313bb878514cfd9e6ef95547a95185",
+      "supply_chain": "0x33c91fdb1046fea83f007d29b635cd5ba3e968c26b7f501fb883d3864d92b55c",
+      "crossborder": "0x31f5ff10cc9e05fc3c8e378728b7642a5fa2e23a64f9b88b347d9b877600359c",
+      "securities": "0x597c91e758a243c4bfedc04eb1ad6ef1d70f391f58108b473e08e1246310336e",
+      "tokenization": "0xe55b0b5aa2b007f820dea3fe465d500c307508ba35ea4eb165b12802a6fad0f9",
+      "agent_identity": "0x8605f9454822fb13c967d3059ea043b4ef9744a551e584110f565fbd1713cef9",
+      "ban_record": "0xcd0ff0f31e8133334e45da8f475d58b5ae72e8784a86ef0c7d7eea72c31364f0",
+      "rights_reversion": "0x343089ed74a2146847d9d58ca5ca095266b4db5ea005debc972553c12888c774",
+      "emergency_freeze": "0x1fa9a51e1ca6da6f83d7878f538d69e7c354e35a7bf924ab7a8003237e007009"
+    },
+    "paymaster_address": "YOUR_PAYMASTER_ADDRESS",
+    "paymaster_private_key": "YOUR_PAYMASTER_PRIVATE_KEY",
+    "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS",
+    "demo_wallet_private_key": "YOUR_DEMO_WALLET_PRIVATE_KEY",
+    "demo_wallet_address": "YOUR_DEMO_WALLET_ADDRESS"
+  },
+  "notifications": {
+    "telegram": {
+      "enabled": false,
+      "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "chat_id": "YOUR_TELEGRAM_CHAT_ID",
+      "owner_id": "YOUR_TELEGRAM_USER_ID"
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": "YOUR_DISCORD_WEBHOOK_URL",
+      "username": "The Matrix"
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": "YOUR_SLACK_WEBHOOK_URL"
+    },
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "smtp_user": "YOUR_SMTP_USER",
+      "smtp_pass": "YOUR_SMTP_APP_PASSWORD",
+      "from": "YOUR_SMTP_USER",
+      "to": "YOUR_NOTIFICATION_EMAIL",
+      "use_ssl": false
+    },
+    "sms": {
+      "enabled": false,
+      "account_sid": "YOUR_TWILIO_ACCOUNT_SID",
+      "auth_token": "YOUR_TWILIO_AUTH_TOKEN",
+      "from_number": "+15551234567",
+      "to_number": "+15559876543"
+    },
+    "whatsapp": {
+      "enabled": false,
+      "account_sid": "YOUR_TWILIO_ACCOUNT_SID",
+      "auth_token": "YOUR_TWILIO_AUTH_TOKEN",
+      "from_number": "+14155238886",
+      "to_number": "+15551234567"
+    },
+    "web_chat": {
+      "enabled": true
+    },
+    "ios_push": {
+      "enabled": false,
+      "auth_key_p8": "",
+      "key_id": "YOUR_APNS_KEY_ID",
+      "team_id": "YOUR_APPLE_TEAM_ID",
+      "bundle_id": "com.opnmatrx.mtrx",
+      "sandbox": false,
+      "device_tokens": []
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "YOUR_WEBHOOK_URL",
+      "bearer_token": ""
+    }
+  },
+  "auth": {
+    "apple": {
+      "//": "Sign in with Apple (P1-8). bundle_id is REQUIRED for /api/v1/auth/apple to verify the identity token's audience; without it the route fails closed (503). team_id/key_id/private_key_p8 are ONLY needed for token revocation on account deletion — App Review requires working deletion once server accounts are live.",
+      "bundle_id": "com.opnmatrx.mtrx",
+      "team_id": "",
+      "key_id": "",
+      "private_key_p8": ""
+    }
+  },
+  "services": {
+    "agent_identity": {
+      "enabled": true,
+      "did_method": "did:ethr",
+      "registry_contract": "YOUR_AGENT_IDENTITY_REGISTRY_ADDRESS"
+    },
+    "attestation": {
+      "enabled": true,
+      "eas_contract": "0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587",
+      "batch_size": 50,
+      "flush_interval": 60
+    },
+    "brand_rewards": {
+      "enabled": true,
+      "contract_address": "YOUR_BRAND_REWARDS_CONTRACT_ADDRESS",
+      "min_cohort_size": 100,
+      "zkp_verifier_address": "YOUR_ZKP_VERIFIER_ADDRESS"
+    },
+    "cashback": {
+      "enabled": true,
+      "contract_address": "YOUR_CASHBACK_CONTRACT_ADDRESS",
+      "annual_threshold": 10000,
+      "reward_rate": 0.01
+    },
+    "contract_conversion": {
+      "enabled": true,
+      "template_registry": "YOUR_CONTRACT_TEMPLATE_REGISTRY_ADDRESS"
+    },
+    "cross_border": {
+      "enabled": true,
+      "contract_address": "YOUR_CROSS_BORDER_CONTRACT_ADDRESS",
+      "supported_fiat": ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "INR", "BRL"],
+      "fx_oracle_address": "YOUR_FX_ORACLE_ADDRESS"
+    },
+    "dao_management": {
+      "enabled": true,
+      "factory_contract": "YOUR_DAO_FACTORY_ADDRESS",
+      "governor_contract": "YOUR_GOVERNOR_CONTRACT_ADDRESS"
+    },
+    "dashboard": {
+      "enabled": true,
+      "cache_ttl_seconds": 300,
+      "max_history_days": 90
+    },
+    "defi": {
+      "enabled": true,
+      "router_address": "YOUR_DEFI_ROUTER_ADDRESS",
+      "max_slippage_bps": 100
+    },
+    "dex": {
+      "enabled": true,
+      "router_address": "YOUR_DEX_ROUTER_ADDRESS",
+      "factory_address": "YOUR_DEX_FACTORY_ADDRESS",
+      "max_slippage_bps": 50
+    },
+    "did_identity": {
+      "enabled": true,
+      "resolver_url": "YOUR_DID_RESOLVER_URL",
+      "registry_address": "YOUR_DID_REGISTRY_ADDRESS"
+    },
+    "dispute_resolution": {
+      "enabled": true,
+      "contract_address": "YOUR_DISPUTE_RESOLUTION_CONTRACT_ADDRESS",
+      "base_stake": 0.01,
+      "min_juror_stake": 0.1,
+      "minority_slash_ratio": 0.1,
+      "appeal_window_hours": 72
+    },
+    "fundraising": {
+      "enabled": true,
+      "contract_address": "YOUR_FUNDRAISING_CONTRACT_ADDRESS",
+      "milestone_verifier_address": "YOUR_MILESTONE_VERIFIER_ADDRESS",
+      "refund_window_days": 30
+    },
+    "gaming": {
+      "enabled": true,
+      "contract_address": "YOUR_GAMING_CONTRACT_ADDRESS",
+      "platform_fee_rate": 0.05,
+      "required_approvals": 2,
+      "vrf_coordinator": "YOUR_VRF_COORDINATOR_ADDRESS"
+    },
+    "governance": {
+      "enabled": true,
+      "contract_address": "YOUR_GOVERNANCE_CONTRACT_ADDRESS",
+      "quorum_thresholds": {
+        "standard": 0.04,
+        "critical": 0.10,
+        "emergency": 0.20
+      },
+      "voting_period_blocks": 50400,
+      "timelock_delay_seconds": 172800
+    },
+    "insurance": {
+      "enabled": true,
+      "contract_address": "YOUR_INSURANCE_CONTRACT_ADDRESS",
+      "min_reserve_ratio": 1.5,
+      "claims_oracle_address": "YOUR_CLAIMS_ORACLE_ADDRESS"
+    },
+    "ip_royalties": {
+      "enabled": true,
+      "contract_address": "YOUR_IP_ROYALTIES_CONTRACT_ADDRESS",
+      "royalty_registry_address": "YOUR_ROYALTY_REGISTRY_ADDRESS"
+    },
+    "loyalty": {
+      "enabled": true,
+      "contract_address": "YOUR_LOYALTY_CONTRACT_ADDRESS",
+      "points_to_token_ratio": 100
+    },
+    "marketplace": {
+      "enabled": true,
+      "contract_address": "YOUR_MARKETPLACE_CONTRACT_ADDRESS",
+      "platform_fee_bps": 500,
+      "platform_wallet": "YOUR_PLATFORM_WALLET_ADDRESS"
+    },
+    "nft_services": {
+      "enabled": true,
+      "collection_factory_address": "YOUR_NFT_FACTORY_ADDRESS",
+      "metadata_base_url": "YOUR_NFT_METADATA_BASE_URL"
+    },
+    "oracle_gateway": {
+      "enabled": true,
+      "chainlink_feeds": {
+        "eth_usd": "YOUR_ETH_USD_FEED_ADDRESS",
+        "btc_usd": "YOUR_BTC_USD_FEED_ADDRESS",
+        "link_usd": "YOUR_LINK_USD_FEED_ADDRESS"
+      },
+      "vrf_coordinator": "YOUR_VRF_COORDINATOR_ADDRESS",
+      "vrf_key_hash": "YOUR_VRF_KEY_HASH",
+      "vrf_subscription_id": "YOUR_VRF_SUBSCRIPTION_ID",
+      "weather_api_key": "YOUR_WEATHER_API_KEY"
+    },
+    "privacy": {
+      "enabled": true,
+      "zkp_prover_url": "YOUR_ZKP_PROVER_URL",
+      "encryption_scheme": "aes-256-gcm"
+    },
+    "rwa_tokenization": {
+      "enabled": true,
+      "contract_address": "YOUR_RWA_TOKEN_CONTRACT_ADDRESS",
+      "custodian_address": "YOUR_CUSTODIAN_ADDRESS",
+      "appraisal_oracle": "YOUR_APPRAISAL_ORACLE_ADDRESS"
+    },
+    "securities_exchange": {
+      "enabled": true,
+      "contract_address": "YOUR_SECURITIES_EXCHANGE_ADDRESS",
+      "holding_period_days": 365,
+      "accredited_verifier_address": "YOUR_ACCREDITED_VERIFIER_ADDRESS"
+    },
+    "social": {
+      "enabled": true,
+      "proof_registry_address": "YOUR_SOCIAL_PROOF_REGISTRY_ADDRESS",
+      "feed": {
+        "enabled": true,
+        "max_events": 10000,
+        "trending_window_hours": 24
+      }
+    },
+    "stablecoin": {
+      "enabled": true,
+      "contract_address": "YOUR_STABLECOIN_CONTRACT_ADDRESS",
+      "rate_limits": {
+        "daily": 50000,
+        "weekly": 200000,
+        "monthly": 500000
+      },
+      "collateral_oracle": "YOUR_COLLATERAL_ORACLE_ADDRESS"
+    },
+    "staking": {
+      "enabled": true,
+      "contract_address": "YOUR_STAKING_CONTRACT_ADDRESS",
+      "commission_rate": 0.05,
+      "min_stake": 1.0,
+      "unbonding_period_days": 14
+    },
+    "subscriptions": {
+      "enabled": true,
+      "contract_address": "YOUR_SUBSCRIPTIONS_CONTRACT_ADDRESS",
+      "platform_fee_rate": 0.10,
+      "grace_period_hours": 48
+    },
+    "supply_chain": {
+      "enabled": true,
+      "contract_address": "YOUR_SUPPLY_CHAIN_CONTRACT_ADDRESS",
+      "iot_oracle_address": "YOUR_IOT_ORACLE_ADDRESS"
+    },
+    "x402_payments": {
+      "enabled": true,
+      "contract_address": "YOUR_X402_PAYMENTS_CONTRACT_ADDRESS",
+      "supported_tokens": ["USDC", "ETH"]
+    },
+    "restaking":            {"enabled": false},
+    "mpc":                  {"enabled": false},
+    "tba":                  {"enabled": false},
+    "auctions":             {"enabled": false},
+    "nft_lending":          {"enabled": false},
+    "compute":              {"enabled": false},
+    "storage":              {"enabled": false},
+    "ccip":                 {"enabled": false},
+    "creator_platforms":    {"enabled": false,
+                             "_comment": "21-A: `enabled` is now READ and fails closed. 21-B: the four keys below are the ONLY source for values that were previously caller-supplied params; a caller supplying a different one is refused.",
+                             "sound_edition_address": "",
+                             "mirror_author": "",
+                             "mirror_publication": "",
+                             "paragraph_publication": "",
+                             "mirror_endpoint": "",
+                             "max_mint_quantity": 10},
+    "social_protocols":     {"enabled": false},
+    "advanced_governance":  {"enabled": false},
+    "oracles_plus":         {"enabled": false},
+    "kyc":                  {"enabled": false},
+    "payment_channels":     {"enabled": false}
+  },
+  "protocol_referrals": {
+    "enabled": true,
+    "neosafe_address": "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
+  },
+  "badges": {
+    "enabled": true,
+    "annual_renewal_usd": 99.00
+  },
+  "certification": {
+    "enabled": true
+  },
+  "security": {
+    "audit_on_conversion": true,
+    "audit_on_deploy": true,
+    "block_on_critical": true,
+    "block_on_high": false
+  },
+  "_supply_chain_note": "qr_secret has a WORKING DEFAULT that is published in this public repo. Unset, the product-authenticity hash is forgeable by anyone who can read the source. Set it to a long random per-deployment value BEFORE issuing any QR code you intend to treat as authoritative.",
+  "supply_chain": {
+    "qr_secret": "CHANGE-ME-long-random-per-deployment-value"
+  },
+
+  "social": {
+    "twitter": {
+      "api_key": "YOUR_TWITTER_API_KEY",
+      "api_secret": "YOUR_TWITTER_API_SECRET",
+      "access_token": "YOUR_TWITTER_ACCESS_TOKEN",
+      "access_secret": "YOUR_TWITTER_ACCESS_SECRET"
+    },
+    "discord": {
+      "webhook_url": "YOUR_DISCORD_WEBHOOK_URL",
+      "announcements_webhook": "YOUR_DISCORD_ANNOUNCEMENTS_WEBHOOK"
+    }
+  }
+}

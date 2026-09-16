@@ -405,7 +405,7 @@ def not_deployed_response(service_name: str, extra: dict | None = None) -> dict:
         "service": service_name,
         "message": "This service requires a deployed contract. See contracts/DEPLOYMENT_GUIDE.md.",
         "deployment_guide": "contracts/DEPLOYMENT_GUIDE.md",
-        "action_required": "Deploy contracts and add addresses to openmatrix.config.json",
+        "action_required": "Deploy contracts and add addresses to matrix.config.json",
     }
     if extra:
         response.update(extra)

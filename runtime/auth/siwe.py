@@ -42,7 +42,7 @@ def build_siwe_message(
         f"{domain} wants you to sign in with your Ethereum account:\n"
         f"{address}\n"
         f"\n"
-        f"Sign in to 0pnMatrx\n"
+        f"Sign in to The Matrix\n"
         f"\n"
         f"URI: {uri}\n"
         f"Version: 1\n"

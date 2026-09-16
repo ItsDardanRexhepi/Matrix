@@ -51,7 +51,7 @@ contract PropertyDeed is
     // ---------------------------------------------------------------
     // Constructor
     // ---------------------------------------------------------------
-    constructor() ERC721("OpenMatrix Property Deed", "OMDEED") Ownable(msg.sender) {}
+    constructor() ERC721("Matrix Property Deed", "OMDEED") Ownable(msg.sender) {}
 
     // ---------------------------------------------------------------
     // Minting — platform operator only

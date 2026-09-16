@@ -1,8 +1,8 @@
 """P4 HARD GATE: the server paymaster digest must equal the on-chain
-OpenMatrixVerifyingPaymaster.digest byte-for-byte.
+MatrixVerifyingPaymaster.digest byte-for-byte.
 
 The vector below is produced by the foundry test
-contracts/test/OpenMatrixVerifyingPaymaster.t.sol::test_digest_vector (pinned
+contracts/test/MatrixVerifyingPaymaster.t.sol::test_digest_vector (pinned
 there too). If these ever disagree, the client/contract/server would sign
 different bytes and every sponsored UserOp would be rejected — so this test fails
 loud rather than papering over it.

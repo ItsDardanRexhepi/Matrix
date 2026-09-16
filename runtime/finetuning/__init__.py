@@ -1,4 +1,4 @@
-"""Fine-tuning data collection infrastructure for 0pnMatrx agents.
+"""Fine-tuning data collection infrastructure for The Matrix agents.
 
 Captures conversation turns as potential training examples, supports
 quality rating, and exports high-quality examples in JSONL format

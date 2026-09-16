@@ -7,7 +7,7 @@ Smart contracts are immutable once deployed. A bug in traditional software gets 
 ## Prerequisites
 
 - **Solidity basics**: You should be able to read a simple Solidity contract (functions, state variables, modifiers)
-- **Course 01 completion recommended**: Familiarity with 0pnMatrx, the gateway, and contract deployment
+- **Course 01 completion recommended**: Familiarity with The Matrix, the gateway, and contract deployment
 - No prior security experience required
 
 ## What You Will Learn

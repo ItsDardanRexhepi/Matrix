@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Hivemind Orchestrator — coordinates the three agents of 0pnMatrx.
+Hivemind Orchestrator — coordinates the three agents of The Matrix.
 
 Components:
 - AgentOrchestrator: central coordinator for task assignment and tracking

@@ -21,7 +21,7 @@ def configure(config: dict, persist: bool = True) -> dict:
     if not url.startswith("https://"):
         error("Invalid URL (must be https://)")
         return {}
-    username = ask("Bot username shown in Discord", default=existing.get("username", "0pnMatrx"))
+    username = ask("Bot username shown in Discord", default=existing.get("username", "The Matrix"))
     channel_cfg = {"webhook_url": url, "username": username}
     update_channel(config, "discord", channel_cfg)
     save_config(config, persist=persist)

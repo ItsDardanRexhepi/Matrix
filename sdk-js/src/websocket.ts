@@ -6,7 +6,7 @@ import type { Agent, WebSocketMessage, WebSocketResponse } from './types';
 
 type MessageHandler = (response: WebSocketResponse) => void;
 
-export class OpenMatrixWebSocket {
+export class MatrixWebSocket {
   private url: string;
   private ws: WebSocket | null = null;
   private handlers: Map<string, MessageHandler[]> = new Map();

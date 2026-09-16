@@ -70,13 +70,13 @@ def _config(tmp_path, policy=None, account_factory=None):
     if account_factory is not None:
         block["account_factory"] = account_factory
     return {
-        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "platform": "The Matrix", "memory_dir": str(tmp_path / "m"),
         "workspace": str(tmp_path), "timezone": "UTC",
         "model": {"provider": "ollama", "providers": {}},
         "agents": {"neo": {"enabled": True}},
         "gateway": {"api_key": "", "rate_limit_rpm": 60, "rate_limit_burst": 10},
         "security": {}, "blockchain": {"chain_id": 84532, "paymaster": block},
-        "database": {"path": str(tmp_path / "db" / "0pnmatrx.db")},
+        "database": {"path": str(tmp_path / "db" / "the-matrix.db")},
     }
 
 

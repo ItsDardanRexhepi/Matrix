@@ -1,1 +1,1 @@
-"""Memory persistence layer for 0pnMatrx agents."""
+"""Memory persistence layer for The Matrix agents."""

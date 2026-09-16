@@ -1,4 +1,4 @@
-# 0pnMatrx — Runtime Dependencies (the lock)
+# The Matrix — Runtime Dependencies (the lock)
 #
 #   pip install -r requirements.txt
 #

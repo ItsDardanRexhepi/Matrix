@@ -3,7 +3,7 @@ ContractConversionService — orchestrate the full contract conversion
 pipeline: parse source, classify complexity, detect creative patterns,
 generate optimised Solidity, and inject platform fees.
 
-This is the single entry point for all contract conversions on 0pnMatrx.
+This is the single entry point for all contract conversions on The Matrix.
 """
 
 from __future__ import annotations

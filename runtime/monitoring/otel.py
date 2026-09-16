@@ -32,14 +32,14 @@ Config shape::
             "enabled": true,
             "endpoint": "https://otel-collector:4318/v1/metrics",
             "interval_seconds": 30,
-            "headers": {"x-tenant": "opnmatrx"},
-            "service_name": "opnmatrx-gateway"
+            "headers": {"x-tenant": "the-matrix"},
+            "service_name": "matrix-gateway"
         }
     }
 
 Environment variable overrides:
-- ``OPNMATRX_OTEL_ENDPOINT`` — OTLP endpoint URL
-- ``OPNMATRX_OTEL_HEADERS`` — ``key1=v1,key2=v2`` header string
+- ``MATRIX_OTEL_ENDPOINT`` — OTLP endpoint URL
+- ``MATRIX_OTEL_HEADERS`` — ``key1=v1,key2=v2`` header string
 
 The bridge never raises on initialisation failure; instead it logs a
 warning and remains a no-op. This matches the soft-failing pattern used
@@ -108,7 +108,7 @@ class OTelMetricsBridge:
             return False
 
         endpoint = (
-            os.environ.get("OPNMATRX_OTEL_ENDPOINT", "").strip()
+            os.environ.get("MATRIX_OTEL_ENDPOINT", "").strip()
             or otel_cfg.get("endpoint", "").strip()
         )
         if not endpoint:
@@ -130,14 +130,14 @@ class OTelMetricsBridge:
             return False
 
         headers = dict(otel_cfg.get("headers") or {})
-        env_headers = _parse_headers(os.environ.get("OPNMATRX_OTEL_HEADERS", ""))
+        env_headers = _parse_headers(os.environ.get("MATRIX_OTEL_HEADERS", ""))
         headers.update(env_headers)
 
         try:
             self._exporter = OTLPMetricExporter(endpoint=endpoint, headers=headers)
             self._resource = Resource.create(
                 {
-                    "service.name": otel_cfg.get("service_name", "opnmatrx-gateway"),
+                    "service.name": otel_cfg.get("service_name", "matrix-gateway"),
                     "service.version": self.config.get("version", "unknown"),
                 }
             )
@@ -151,7 +151,7 @@ class OTelMetricsBridge:
         self._thread = threading.Thread(
             target=self._run_loop,
             args=(interval,),
-            name="opnmatrx-otel-bridge",
+            name="the-matrix-otel-bridge",
             daemon=True,
         )
         self._thread.start()

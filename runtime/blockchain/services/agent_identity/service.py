@@ -34,7 +34,7 @@ class AgentIdentityService:
     Each agent receives a unique DID (Decentralised Identifier).
 
     Config keys (under config["agent_identity"]):
-        did_method      -- DID method prefix (default "did:0pnmatrx")
+        did_method      -- DID method prefix (default "did:the-matrix")
         max_capabilities-- max capabilities per agent
         network         -- blockchain network
     """
@@ -44,7 +44,7 @@ class AgentIdentityService:
         ai = config.get("agent_identity", {})
         bc = config.get("blockchain", {})
 
-        self.did_method: str = ai.get("did_method", "did:0pnmatrx")
+        self.did_method: str = ai.get("did_method", "did:the-matrix")
         self.max_capabilities: int = ai.get("max_capabilities", MAX_CAPABILITIES)
         self.network: str = bc.get("network", "base-sepolia")
 

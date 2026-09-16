@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
 
-Demonstrates how 0pnMatrx routes revenue to the NeoSafe multisig wallet:
+Demonstrates how The Matrix routes revenue to the NeoSafe multisig wallet:
 
   1. A contract conversion generates a platform fee
   2. The RevenueEnforcer injects fee logic into the contract
@@ -46,7 +46,7 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
         sys.exit(1)
@@ -57,7 +57,7 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 07: Revenue Routing to NeoSafe
+  The Matrix Example 07: Revenue Routing to NeoSafe
 {'=' * 60}{RESET}
 
   All platform fees flow to the NeoSafe multisig wallet.

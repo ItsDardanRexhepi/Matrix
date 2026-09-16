@@ -1,5 +1,5 @@
 """
-GovernanceService — platform governance and voting for the 0pnMatrx platform.
+GovernanceService — platform governance and voting for the Matrix platform.
 
 IMPORTANT: This is PLATFORM governance only. Bilateral disputes must
 use Component 30 (Dispute Resolution). Attempts to file bilateral

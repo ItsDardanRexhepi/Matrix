@@ -2,7 +2,7 @@
 
 ## 221 Capabilities Across 21 Categories
 
-0pnMatrx provides 221 discrete Web3 capabilities organised into 21 categories, all accessible through conversation:
+The Matrix provides 221 discrete Web3 capabilities organised into 21 categories, all accessible through conversation:
 
 1. **Smart Contracts** — deploy, convert, templates
 2. **DeFi** — swaps, lending, yield, LP, vaults, flash loans
@@ -38,4 +38,4 @@ The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-val
 
 ## Fees
 
-There are none. The platform covers all blockchain transaction fees for every capability across all 21 categories — smart contracts, DeFi, NFTs, staking, restaking, identity, governance, payments, cross-chain, privacy, oracles, storage, compute, real-world assets, markets, gaming, infrastructure, and everything else. Users never pay gas on 0pnMatrx. No exceptions. No conditions. Ever.
+There are none. The platform covers all blockchain transaction fees for every capability across all 21 categories — smart contracts, DeFi, NFTs, staking, restaking, identity, governance, payments, cross-chain, privacy, oracles, storage, compute, real-world assets, markets, gaming, infrastructure, and everything else. Users never pay gas on The Matrix. No exceptions. No conditions. Ever.

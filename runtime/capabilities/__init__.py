@@ -1,5 +1,5 @@
 """
-0pnMatrx Capability Framework.
+The Matrix Capability Framework.
 
 A thin, data-driven layer on top of the ServiceRegistry + ServiceDispatcher
 that turns the platform from a flat service list into 221 discrete Web3

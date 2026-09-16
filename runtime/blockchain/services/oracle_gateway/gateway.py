@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-OracleGateway — single entry point for ALL oracle data across 0pnMatrx.
+OracleGateway — single entry point for ALL oracle data across The Matrix.
 
 Every component that needs external data (prices, weather, sports,
 randomness, etc.) must route through this gateway.  It provides:
@@ -33,7 +33,7 @@ _DEFAULT_RATE_LIMIT = 60
 
 
 class OracleGateway:
-    """Unified oracle gateway for the 0pnMatrx platform.
+    """Unified oracle gateway for the Matrix platform.
 
     Parameters
     ----------

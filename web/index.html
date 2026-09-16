@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>0pnMatrx - Chat</title>
+<title>The Matrix - Chat</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -187,7 +187,7 @@ body{
 
 <!-- Top Bar -->
 <div class="topbar">
-  <div class="logo">0pnMatrx<span>v0.1</span></div>
+  <div class="logo">The Matrix<span>v0.1</span></div>
   <select class="agent-select" id="agent-select">
     <option value="trinity" selected>Trinity</option>
     <option value="neo">Neo</option>
@@ -213,7 +213,7 @@ body{
 </div>
 
 <!-- Footer -->
-<div class="footer">Powered by <a href="https://github.com/ItsDardanRexhepi/0pnMatrx" target="_blank">0pnMatrx</a></div>
+<div class="footer">Powered by <a href="https://github.com/ItsDardanRexhepi/the-matrix" target="_blank">The Matrix</a></div>
 
 <script>
 (function(){
@@ -226,8 +226,8 @@ body{
     morpheus: {label:"M", name:"Morpheus"}
   };
 
-  let sessionId = localStorage.getItem("opnmatrx_session") || crypto.randomUUID();
-  localStorage.setItem("opnmatrx_session", sessionId);
+  let sessionId = localStorage.getItem("matrix_session") || crypto.randomUUID();
+  localStorage.setItem("matrix_session", sessionId);
 
   let currentAgent = "trinity";
   let isStreaming = false;
@@ -475,7 +475,7 @@ body{
 
   // ── Welcome message ──
   (function welcome(){
-    const welcomeText = `Welcome to **0pnMatrx**.
+    const welcomeText = `Welcome to **The Matrix**.
 
 I'm **Trinity** -- your blockchain operations agent. I can help you with:
 

@@ -280,7 +280,7 @@ class AdvancedGovernanceService:
             "proposal": proposal,
             "type": "quadratic",
             "choice": choice,
-            "app": "0pnmatrx",
+            "app": "the-matrix",
             "from": voter or "",
             "timestamp": int(time.time()),
         }

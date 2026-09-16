@@ -1,4 +1,4 @@
-"""In-process metrics collector for the 0pnMatrx gateway.
+"""In-process metrics collector for the Matrix gateway.
 
 A deliberately small, dependency-free counter / gauge / histogram store.
 The goal is operational visibility for the platform itself, not full
@@ -175,9 +175,9 @@ class MetricsCollector:
         # Uptime gauge (Prometheus convention: process_* not quite
         # right since we reset the clock on process start — we publish
         # our own name to avoid confusion.)
-        lines.append("# HELP opnmatrx_uptime_seconds Gateway uptime in seconds.")
-        lines.append("# TYPE opnmatrx_uptime_seconds gauge")
-        lines.append(f"opnmatrx_uptime_seconds {uptime}")
+        lines.append("# HELP matrix_uptime_seconds Gateway uptime in seconds.")
+        lines.append("# TYPE matrix_uptime_seconds gauge")
+        lines.append(f"matrix_uptime_seconds {uptime}")
 
         # Counters
         for name, value in sorted(counters.items()):

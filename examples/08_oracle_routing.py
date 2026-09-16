@@ -37,7 +37,7 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
         sys.exit(1)
@@ -48,7 +48,7 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 08: Oracle Gateway Routing
+  The Matrix Example 08: Oracle Gateway Routing
 {'=' * 60}{RESET}
 
   Unified oracle access: price feeds, weather data, VRF randomness.

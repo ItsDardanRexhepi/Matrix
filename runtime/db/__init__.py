@@ -1,4 +1,4 @@
-"""SQLite-backed persistence layer for 0pnMatrx."""
+"""SQLite-backed persistence layer for The Matrix."""
 
 from runtime.db.database import Database
 from runtime.db.backup import BackupManager, run_backup_loop

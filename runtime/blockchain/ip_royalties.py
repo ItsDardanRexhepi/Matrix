@@ -142,7 +142,7 @@ class IPRoyalties(BlockchainInterface):
                 "ip_id": params.get("ip_id", ""),
                 "total_amount": str(total_amount),
                 "distributions": results,
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Distribution failed: {e}"

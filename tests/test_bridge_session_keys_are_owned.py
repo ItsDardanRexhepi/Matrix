@@ -42,7 +42,7 @@ W = "0x" + "a" * 40
 
 
 def _server() -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-bridge-keys-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-bridge-keys-")
     config = {**SWEEP_CONFIG, "memory_dir": scratch,
               "database": {**SWEEP_CONFIG.get("database", {}), "path": f"{scratch}/b.db"},
               "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": KEY}}

@@ -1,4 +1,4 @@
-# 0pnMatrx — packaging and tooling config.
+# The Matrix — packaging and tooling config.
 #
 # We keep a minimal setup.py around so ``pip install -e .`` still works
 # on older toolchains, but the source of truth for metadata, tool
@@ -9,9 +9,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "opnmatrx"
+name = "the-matrix"
 dynamic = ["version"]
-description = "0pnMatrx — multi-agent crypto-native platform (Trinity, Neo, Morpheus)."
+description = "The Matrix — multi-agent crypto-native platform (Trinity, Neo, Morpheus)."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -78,14 +78,14 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ItsDardanRexhepi/0pnMatrx"
-Issues = "https://github.com/ItsDardanRexhepi/0pnMatrx/issues"
-Changelog = "https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ItsDardanRexhepi/the-matrix"
+Issues = "https://github.com/ItsDardanRexhepi/the-matrix/issues"
+Changelog = "https://github.com/ItsDardanRexhepi/the-matrix/blob/main/CHANGELOG.md"
 
 [project.scripts]
-openmatrix = "cli:main"
-opnmatrx-gateway = "gateway.server:main"
-opnmatrx-changelog = "scripts.generate_changelog:main"
+matrix = "cli:main"
+matrix-gateway = "gateway.server:main"
+matrix-changelog = "scripts.generate_changelog:main"
 
 [tool.setuptools.dynamic]
 # Derived, never restated — the number lives in runtime/__init__.py.

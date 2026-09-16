@@ -1,6 +1,6 @@
 """
 LiquidityPoolManager — constant product AMM (x*y=k) pool management
-for the 0pnMatrx native DEX.
+for the Matrix native DEX.
 
 Used as fallback when Uniswap pools are not available.
 """

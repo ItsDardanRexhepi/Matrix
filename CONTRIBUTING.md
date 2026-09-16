@@ -1,16 +1,16 @@
-# Contributing to 0pnMatrx
+# Contributing to The Matrix
 
-Welcome. 0pnMatrx is open source and welcomes contributions from developers everywhere. This document explains how contributions work, what gets reviewed, and how the process flows from start to finish.
+Welcome. The Matrix is open source and welcomes contributions from developers everywhere. This document explains how contributions work, what gets reviewed, and how the process flows from start to finish.
 
 ---
 
 ## The Continuous Contribution Model
 
-0pnMatrx uses a continuous contribution model. It works like this:
+The Matrix uses a continuous contribution model. It works like this:
 
-**Build freely.** Any developer can fork 0pnMatrx, build anything they want on top of it, and run it on their own infrastructure without asking permission. The MIT license guarantees this. You do not need approval to build, experiment, extend, or deploy.
+**Build freely.** Any developer can fork The Matrix, build anything they want on top of it, and run it on their own infrastructure without asking permission. The MIT license guarantees this. You do not need approval to build, experiment, extend, or deploy.
 
-**Submit formally.** If you want your work to be integrated into the official 0pnMatrx platform or into MTRX (the iOS app), you submit a formal contribution through the process described below. This triggers a three-layer review.
+**Submit formally.** If you want your work to be integrated into the official The Matrix platform or into MTRX (the iOS app), you submit a formal contribution through the process described below. This triggers a three-layer review.
 
 **Three layers, no shortcuts.** Every formal submission passes through three independent layers before it can be merged:
 
@@ -45,7 +45,7 @@ The following are closed source and are never exposed to contributors:
 - **The Unified Rexhepi Framework implementation** — The specific gate criteria, scoring logic, probability weights, thresholds, and outcome definitions that govern every agent decision
 - **Neo's private runtime** — The operational server configuration and deployment infrastructure
 
-These boundaries exist by design. You do not need access to any of them to build on 0pnMatrx. The open source runtime connects to the security layer through a documented interface at `runtime/security/SECURITY_INTERFACE.md`.
+These boundaries exist by design. You do not need access to any of them to build on The Matrix. The open source runtime connects to the security layer through a documented interface at `runtime/security/SECURITY_INTERFACE.md`.
 
 ---
 
@@ -77,7 +77,7 @@ Every pull request is evaluated on:
 
 ## Code of Conduct
 
-Be respectful. Build something meaningful. Help others do the same. 0pnMatrx exists to give everyone a balanced chance — contributions should reflect that spirit.
+Be respectful. Build something meaningful. Help others do the same. The Matrix exists to give everyone a balanced chance — contributions should reflect that spirit.
 
 ---
 

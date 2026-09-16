@@ -450,7 +450,7 @@ def test_the_config_keys_21B_reads_are_in_the_shipped_example():
     config never mentioned."""
     import json
     from pathlib import Path
-    cfg = json.loads(Path("openmatrix.config.json.example").read_text())
+    cfg = json.loads(Path("matrix.config.json.example").read_text())
     body = cfg["services"]["creator_platforms"]
     for key in ("sound_edition_address", "mirror_author",
                 "mirror_publication", "paragraph_publication"):
@@ -709,7 +709,7 @@ def test_the_mint_quantity_cap_is_in_the_shipped_example_config():
     chose."""
     import json
     from pathlib import Path
-    cfg = json.loads(Path("openmatrix.config.json.example").read_text())
+    cfg = json.loads(Path("matrix.config.json.example").read_text())
     body = cfg["services"]["creator_platforms"]
     assert "max_mint_quantity" in body
     assert "mirror_endpoint" in body

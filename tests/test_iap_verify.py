@@ -360,7 +360,7 @@ def _route_config(tmp_path, chain, **iap_over):
            "require_apple_oids": False}
     iap.update(iap_over)
     return {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "memory_dir": str(tmp_path / "memory"),
         "workspace": str(tmp_path),
         "timezone": "UTC",

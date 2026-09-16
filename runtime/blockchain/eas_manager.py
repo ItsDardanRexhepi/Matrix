@@ -1,5 +1,5 @@
 """
-EAS Manager — high-level attestation management for 0pnMatrx.
+EAS Manager — high-level attestation management for The Matrix.
 
 Wraps the EAS client to provide schema creation, attestation querying,
 batch attestations, and revocation. Gas covered by the platform.
@@ -66,7 +66,7 @@ class EASManager(BlockchainInterface):
                 return json.dumps({
                     "status": "error",
                     "error": "blockchain.eas_schema_registry address is not configured.",
-                    "hint": "Set eas_schema_registry in openmatrix.config.json (e.g., 0x4200000000000000000000000000000000000020 on Base).",
+                    "hint": "Set eas_schema_registry in matrix.config.json (e.g., 0x4200000000000000000000000000000000000020 on Base).",
                     "network": self.network,
                 }, indent=2)
 
@@ -111,7 +111,7 @@ class EASManager(BlockchainInterface):
                 "schema": schema_def,
                 "tx_hash": tx_hash.hex(),
                 "network": self.network,
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Schema creation failed: {e}"
@@ -203,7 +203,7 @@ class EASManager(BlockchainInterface):
                 "status": "revoked" if receipt["status"] == 1 else "failed",
                 "uid": uid,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Revocation failed: {e}"

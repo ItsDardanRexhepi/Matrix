@@ -2,7 +2,7 @@
 tests/load/locustfile.py
 ========================
 
-Locust load scenarios for the 0pnMatrx gateway. Targets the two
+Locust load scenarios for the Matrix gateway. Targets the two
 cross-cutting endpoints the MTRX iOS ``MTRXPackager`` hammers hardest
 in a real session:
 

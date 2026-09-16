@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 CERTIFICATION_TRACKS = {
     "developer": {
-        "name": "0pnMatrx Certified Developer",
+        "name": "The Matrix Certified Developer",
         "price_usd": 149.00,
         "description": "Proves ability to build plugins, integrate the SDK, and deploy contracts",
         "validity_years": 2,
@@ -30,7 +30,7 @@ CERTIFICATION_TRACKS = {
         "time_limit_minutes": 90,
     },
     "auditor": {
-        "name": "0pnMatrx Certified Security Auditor",
+        "name": "The Matrix Certified Security Auditor",
         "price_usd": 249.00,
         "description": "Proves expertise in Glasswing audit methodology and smart contract security",
         "validity_years": 1,
@@ -39,7 +39,7 @@ CERTIFICATION_TRACKS = {
         "time_limit_minutes": 120,
     },
     "enterprise": {
-        "name": "0pnMatrx Enterprise Architect",
+        "name": "The Matrix Enterprise Architect",
         "price_usd": 399.00,
         "description": "Proves ability to architect enterprise deployments, multi-chain infrastructure, and plugin ecosystems",
         "validity_years": 2,
@@ -260,7 +260,7 @@ SAMPLE_QUESTIONS: dict[str, list[dict]] = {
     ],
     "enterprise": [
         {
-            "question": "When deploying 0pnMatrx across Ethereum mainnet, Arbitrum, and Base simultaneously, which architectural pattern ensures consistent contract state across chains?",
+            "question": "When deploying The Matrix across Ethereum mainnet, Arbitrum, and Base simultaneously, which architectural pattern ensures consistent contract state across chains?",
             "options": [
                 "Deploying identical bytecode to all chains and relying on block timestamps for synchronization",
                 "Using a hub-and-spoke model with a primary chain as the source of truth and cross-chain message bridges for state sync",
@@ -270,7 +270,7 @@ SAMPLE_QUESTIONS: dict[str, list[dict]] = {
             "correct_index": 1,
         },
         {
-            "question": "In a Kubernetes deployment of the 0pnMatrx gateway, which resource type is most appropriate for the stateless API server pods?",
+            "question": "In a Kubernetes deployment of the Matrix gateway, which resource type is most appropriate for the stateless API server pods?",
             "options": [
                 "StatefulSet with persistent volume claims",
                 "DaemonSet with host networking",
@@ -340,7 +340,7 @@ SAMPLE_QUESTIONS: dict[str, list[dict]] = {
             "correct_index": 1,
         },
         {
-            "question": "For production observability, which combination of tools provides distributed tracing, metrics, and log correlation for the 0pnMatrx gateway?",
+            "question": "For production observability, which combination of tools provides distributed tracing, metrics, and log correlation for the Matrix gateway?",
             "options": [
                 "Print statements and manual log file grep",
                 "Sentry for errors only",

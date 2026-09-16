@@ -49,11 +49,11 @@ def main() -> int:
     print(f"# EntryPoint v0.6 (canonical, pre-deployed): {ep}")
     print(f"# Compile first: forge build  (resolves account-abstraction + OZ)\n")
 
-    print("[1] OpenMatrixAccountFactory")
+    print("[1] MatrixAccountFactory")
     print(f"    constructor(IEntryPoint _entryPoint = {ep})")
     print("    -> config: blockchain.paymaster.account_factory = <deployed address>\n")
 
-    print("[2] OpenMatrixVerifyingPaymaster")
+    print("[2] MatrixVerifyingPaymaster")
     print(f"    constructor(IEntryPoint _entryPoint = {ep},")
     print(f"                address _verifyingSigner = {args.verifying_signer},")
     print(f"                address _owner = {args.owner})")
@@ -61,7 +61,7 @@ def main() -> int:
     print("    POST-DEPLOY (human, funded): paymaster.deposit{value: ...} + optionally")
     print("    addStake(unstakeDelaySec) so the EntryPoint accepts sponsored ops.\n")
 
-    print("[3] OpenMatrixAccount is NOT deployed directly — the factory CREATE2-deploys")
+    print("[3] MatrixAccount is NOT deployed directly — the factory CREATE2-deploys")
     print("    one per user on the first UserOp (initCode). Nothing to deploy here.\n")
 
     print("# After deploy, also set: blockchain.paymaster.entry_point =", ep)

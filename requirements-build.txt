@@ -1,4 +1,4 @@
-# 0pnMatrx — the image builder's own tooling (the lock)
+# The Matrix — the image builder's own tooling (the lock)
 #
 # Installed into /opt/venv by the Dockerfile's builder stage, before
 # requirements.txt, with --require-hashes. It replaced an unpinned

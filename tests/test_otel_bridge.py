@@ -72,7 +72,7 @@ class TestOTelBridgeLifecycle:
 
     def test_env_var_endpoint_override(self, metrics, monkeypatch):
         monkeypatch.setenv(
-            "OPNMATRX_OTEL_ENDPOINT", "https://otel.example/v1/metrics"
+            "MATRIX_OTEL_ENDPOINT", "https://otel.example/v1/metrics"
         )
         # No opentelemetry packages installed by default → still returns False,
         # but reaches the import-guarded code path without raising.

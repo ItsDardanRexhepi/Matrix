@@ -4,11 +4,11 @@ set -euo pipefail
 # =============================================================================
 # deploy_and_configure.sh
 #
-# Full deployment pipeline for the 0pnMatrx platform:
+# Full deployment pipeline for the Matrix platform:
 #   1. Validate environment variables
 #   2. Deploy all smart contracts via deploy_all.py
 #   3. Read the deployment manifest and extract contract addresses
-#   4. Update openmatrix.config.json with every deployed address
+#   4. Update matrix.config.json with every deployed address
 #   5. Fund the paymaster contract with 0.1 ETH
 #   6. Restart the gateway via docker compose
 #   7. Health-check the platform with retry logic
@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 MANIFEST_PATH="$PROJECT_ROOT/deployment_manifest.json"
-CONFIG_PATH="$PROJECT_ROOT/openmatrix.config.json"
+CONFIG_PATH="$PROJECT_ROOT/matrix.config.json"
 
 # ---------------------------------------------------------------------------
 # 1. Validate required environment variables
@@ -62,9 +62,9 @@ fi
 
 echo "==> Running contract deployment (python scripts/deploy_all.py)..."
 
-export OPENMATRIX_RPC_URL="$BASE_RPC_URL"
-export OPENMATRIX_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY"
-export OPENMATRIX_NEOSAFE_ADDRESS="$NEOSAFE_ADDRESS"
+export MATRIX_RPC_URL="$BASE_RPC_URL"
+export MATRIX_PRIVATE_KEY="$DEPLOYER_PRIVATE_KEY"
+export MATRIX_NEOSAFE_ADDRESS="$NEOSAFE_ADDRESS"
 
 cd "$PROJECT_ROOT"
 python scripts/deploy_all.py
@@ -99,21 +99,21 @@ echo "  Total contracts deployed: ${#CONTRACT_ADDRESSES[@]}"
 echo ""
 
 # ---------------------------------------------------------------------------
-# 4. Update openmatrix.config.json with every deployed address
+# 4. Update matrix.config.json with every deployed address
 # ---------------------------------------------------------------------------
 
 echo "==> Updating $CONFIG_PATH with deployed addresses..."
 
 declare -A SERVICE_KEY_MAP=(
-    ["OpenMatrixMarketplace"]="marketplace"
-    ["OpenMatrixStaking"]="staking"
-    ["OpenMatrixDAO"]="dao_management"
-    ["OpenMatrixInsurance"]="insurance"
-    ["OpenMatrixDEX"]="dex"
-    ["OpenMatrixNFT"]="nft_services"
-    ["OpenMatrixPaymaster"]="paymaster"
-    ["OpenMatrixRewards"]="brand_rewards"
-    ["OpenMatrixDID"]="did_identity"
+    ["MatrixMarketplace"]="marketplace"
+    ["MatrixStaking"]="staking"
+    ["MatrixDAO"]="dao_management"
+    ["MatrixInsurance"]="insurance"
+    ["MatrixDEX"]="dex"
+    ["MatrixNFT"]="nft_services"
+    ["MatrixPaymaster"]="paymaster"
+    ["MatrixRewards"]="brand_rewards"
+    ["MatrixDID"]="did_identity"
 )
 
 TMP_CONFIG="$(mktemp)"
@@ -125,7 +125,7 @@ for contract_name in "${!CONTRACT_ADDRESSES[@]}"; do
     if [[ -n "${SERVICE_KEY_MAP[$contract_name]:-}" ]]; then
         svc_key="${SERVICE_KEY_MAP[$contract_name]}"
     else
-        svc_key="$(echo "$contract_name" | sed 's/^OpenMatrix//' | tr '[:upper:]' '[:lower:]')"
+        svc_key="$(echo "$contract_name" | sed 's/^Matrix//' | tr '[:upper:]' '[:lower:]')"
     fi
 
     jq --arg key "$svc_key" --arg addr "$address" \
@@ -149,7 +149,7 @@ echo ""
 # 5. Fund the paymaster with 0.1 ETH
 # ---------------------------------------------------------------------------
 
-PAYMASTER_ADDR="${CONTRACT_ADDRESSES[OpenMatrixPaymaster]:-}"
+PAYMASTER_ADDR="${CONTRACT_ADDRESSES[MatrixPaymaster]:-}"
 
 if [[ -n "$PAYMASTER_ADDR" ]]; then
     echo "==> Funding paymaster ($PAYMASTER_ADDR) with 0.1 ETH..."
@@ -173,7 +173,7 @@ print(f'  Funded paymaster: tx {receipt.transactionHash.hex()} (status={receipt.
 "
     echo ""
 else
-    echo "==> WARN: OpenMatrixPaymaster not found in manifest; skipping funding step."
+    echo "==> WARN: MatrixPaymaster not found in manifest; skipping funding step."
     echo ""
 fi
 

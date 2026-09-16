@@ -88,8 +88,8 @@ class TestPrometheusFormat:
     def test_uptime_always_present(self):
         m = MetricsCollector()
         out = m.format_prometheus()
-        assert "# TYPE opnmatrx_uptime_seconds gauge" in out
-        assert "opnmatrx_uptime_seconds " in out
+        assert "# TYPE matrix_uptime_seconds gauge" in out
+        assert "matrix_uptime_seconds " in out
 
     def test_empty_histogram_is_skipped(self):
         m = MetricsCollector()

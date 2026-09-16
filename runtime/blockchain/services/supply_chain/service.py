@@ -1,5 +1,5 @@
 """
-SupplyChainService -- end-to-end supply chain verification for 0pnMatrx.
+SupplyChainService -- end-to-end supply chain verification for The Matrix.
 
 Manages product registration, status tracking, provenance chains,
 authenticity verification, and custody transfers. Integrates with

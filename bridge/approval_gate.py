@@ -1,7 +1,7 @@
 """
 Approval Gate — blocks all component deployments until the OWNER approves.
 
-No component crosses the private->public bridge into the 0pnMatrx runtime without
+No component crosses the private->public bridge into the Matrix runtime without
 the OTP-verified owner's explicit approval. Telegram is gone; approval is now the
 same phone-OTP owner-verification used everywhere else (runtime/security/owner.py).
 
