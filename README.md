@@ -411,10 +411,14 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 The Matrix ships with the plumbing required for a hardened mainnet
 launch:
 
-- **Env-only secrets** — `runtime/config/validation.py` strips
-  placeholder values (`YOUR_`, `CHANGE_ME`, …) and, with
-  `MATRIX_ENV=production`, refuses to start if a required secret is
-  missing from the environment.
+- **Env-only secrets, and a census that finds the ones that escape** —
+  `runtime/config/validation.py` strips placeholder values (`YOUR_`,
+  `CHANGE-ME`, … in either spelling) and, with `MATRIX_ENV=production`,
+  refuses to start if a required secret is missing from the environment.
+  It also walks the loaded config for secret-shaped settings and reports
+  any that no env-only entry covers — in production that refusal stops
+  the boot, so a new third-party key cannot quietly live in the
+  committed file the way the Twitter and Apple ones did.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
