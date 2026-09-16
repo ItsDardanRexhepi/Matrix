@@ -113,6 +113,24 @@ class SponsorshipDecision:
         }
 
 
+class SPEND_STATES:
+    """What a sponsorship ledger row says has happened, and nothing more.
+
+    RESERVED  budget taken, nothing signed. Ages out after RESERVATION_TTL.
+    SIGNED    the platform issued a signature. NOT a spend: a signed
+              transaction that is never broadcast, or that the node rejects,
+              costs no gas at all. Still holds budget, because it may land.
+    SPENT     a receipt confirmed it. This is when gas was paid.
+    COMMITTED the pre-relabel name for SIGNED. Written by builds before this
+              fix and still present in live ledgers, so it is still counted.
+    """
+
+    RESERVED = "reserved"
+    SIGNED = "signed"
+    SPENT = "spent"
+    COMMITTED = "committed"
+
+
 class SponsorshipPolicy:
     """Action allowlist + per-identity rolling-24h USD cap over a durable ledger."""
 
@@ -190,11 +208,16 @@ class SponsorshipPolicy:
         return conn
 
     def _spent(self, conn: sqlite3.Connection, identity: str, now: float) -> float:
+        # `committed` is the pre-relabel name for `signed` and is still counted:
+        # rows written by an earlier build are in live ledgers, and dropping them
+        # from the sum would silently hand back budget that was already used.
         row = conn.execute(
             "SELECT COALESCE(SUM(usd), 0) FROM sponsorship_spend "
             "WHERE identity = ? AND created_at >= ? AND ("
-            "  state = 'committed' OR (state = 'reserved' AND created_at >= ?))",
-            (identity, now - WINDOW_SECONDS, now - RESERVATION_TTL_SECONDS),
+            "  state IN (?, ?, ?) OR (state = ? AND created_at >= ?))",
+            (identity, now - WINDOW_SECONDS,
+             SPEND_STATES.SPENT, SPEND_STATES.SIGNED, SPEND_STATES.COMMITTED,
+             SPEND_STATES.RESERVED, now - RESERVATION_TTL_SECONDS),
         ).fetchone()
         return float(row[0] or 0.0)
 
@@ -273,8 +296,9 @@ class SponsorshipPolicy:
                 conn.execute(
                     "INSERT INTO sponsorship_spend "
                     "(id, identity, action, usd, state, created_at) "
-                    "VALUES (?, ?, ?, ?, 'reserved', ?)",
-                    (res_id, identity, action, est_usd, now))
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (res_id, identity, action, est_usd,
+                     SPEND_STATES.RESERVED, now))
                 conn.execute("COMMIT")
             except sqlite3.Error:
                 conn.execute("ROLLBACK")
@@ -285,13 +309,61 @@ class SponsorshipPolicy:
             spent_usd=spent, cap_usd=cap, reservation_id=res_id)
 
     def commit(self, reservation_id: str) -> None:
-        """The signature was issued — the spend is real."""
+        """The signature was ISSUED. That is what this row now says.
+
+        It used to say `committed`, documented as "the spend is real". A
+        signature is not a spend. Gas is paid when a transaction is MINED, and
+        between the two sit every outcome that costs nothing: a signed
+        transaction that is never broadcast, one the node rejects, one that is
+        replaced. This is the platform's own record of money it spent, and it
+        was written on an event that does not spend money.
+
+        THE ACCOUNTING IS DELIBERATELY UNCHANGED. A signature the platform
+        issued may still land, so `signed` holds budget exactly as `committed`
+        did — `_spent` counts it. This is a relabel, not a release: the row now
+        says what is known, and :meth:`settle` and :meth:`abandon` say what
+        happened next, for the callers that get to find out.
+        """
         if not reservation_id or self._db_path is None:
             return
         with self._connect() as conn:
             conn.execute(
-                "UPDATE sponsorship_spend SET state = 'committed' "
-                "WHERE id = ? AND state = 'reserved'", (reservation_id,))
+                "UPDATE sponsorship_spend SET state = ? "
+                "WHERE id = ? AND state = ?",
+                (SPEND_STATES.SIGNED, reservation_id, SPEND_STATES.RESERVED))
+
+    def settle(self, reservation_id: str) -> None:
+        """The transaction was MINED — this is the point at which gas was paid."""
+        if not reservation_id or self._db_path is None:
+            return
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE sponsorship_spend SET state = ? WHERE id = ? AND state IN (?, ?, ?)",
+                (SPEND_STATES.SPENT, reservation_id, SPEND_STATES.RESERVED,
+                 SPEND_STATES.SIGNED, SPEND_STATES.COMMITTED))
+
+    def abandon(self, reservation_id: str) -> None:
+        """The signature was issued and never reached the chain — no gas was
+        paid, so the budget goes back. An identity charged for gas nobody paid
+        is capped out of sponsorship it is entitled to, which is the same defect
+        as the over-claim, facing the other way and visible to nobody."""
+        if not reservation_id or self._db_path is None:
+            return
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM sponsorship_spend WHERE id = ? AND state IN (?, ?, ?)",
+                (reservation_id, SPEND_STATES.RESERVED, SPEND_STATES.SIGNED,
+                 SPEND_STATES.COMMITTED))
+
+    def state_of(self, reservation_id: str) -> Optional[str]:
+        """What this row says happened, or None if there is no such row."""
+        if not reservation_id or self._db_path is None:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT state FROM sponsorship_spend WHERE id = ?",
+                (reservation_id,)).fetchone()
+        return None if row is None else str(row[0])
 
     def release(self, reservation_id: str) -> None:
         """The signature was NOT issued — give the budget back, so a failure
@@ -299,8 +371,9 @@ class SponsorshipPolicy:
         if not reservation_id or self._db_path is None:
             return
         with self._connect() as conn:
-            conn.execute("DELETE FROM sponsorship_spend WHERE id = ? AND state = 'reserved'",
-                         (reservation_id,))
+            conn.execute(
+                "DELETE FROM sponsorship_spend WHERE id = ? AND state = ?",
+                (reservation_id, SPEND_STATES.RESERVED))
 
     def spent_today(self, identity: str, *, now: Optional[float] = None) -> float:
         if self._db_path is None:
@@ -655,13 +728,26 @@ def resolve_caller_identity() -> str:
 # charge one user's budget for another's attestation and would stop the audit
 # trail at $50 a day. They are listed rather than simply absent so the set is
 # reviewable — an unlisted unmetered site fails the test.
+#
+# AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
+# was listed as "shared account handle; every USE of it is a call site metered on
+# its own". No use of it was. `Web3Manager.get_account()` returned the unmetered
+# signer, `Web3Manager.send_transaction` signed with it, and that method is the
+# ONLY signing path the 45 services in runtime/blockchain/services/** have — 35
+# call sites across 16 services, every one of them a platform signature the
+# D-045 cap never saw. The claim was the whole justification; nothing checked it.
+#
+# The exemption is gone. `Web3Manager.signer()` is metered like every other
+# capability's `_platform_signer`, and `get_account()` hands back an address, not
+# something that signs. A deployment that configures `allowed_actions` must list
+# `web3.send_transaction` (or whatever `action=` its call sites pass) — an
+# allowlist that silently excluded the platform's busiest signing path was
+# exactly the failure this list exists to prevent.
 UNMETERED_PLATFORM_OPERATIONS = {
     "eas.attest": "EAS attestation write — fixed schema, the platform's own record",
     "eas.attest_time_critical": "the same write on the time-critical path",
     "eas.revoke": "revoking an attestation the platform itself issued",
     "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
-    "web3.platform_account": "shared account handle; every USE of it is a call "
-                             "site metered on its own",
 }
 
 
@@ -683,6 +769,53 @@ def unmetered_platform_signer(key: str, action: str):
     return MeteredSigner(Account.from_key(key), None, action, "", None, metered=False)
 
 
+class PlatformAddress:
+    """The platform account as a HANDLE: its address, and nothing that signs.
+
+    35 call sites read `get_account().address` to fill a transaction's `from`.
+    One of them is not a read — it went on to sign, unmetered, with the account
+    the handle carries. Handing back something that cannot sign makes the
+    difference structural instead of a habit: a `from` address is free, and a
+    signature goes through `Web3Manager.signer()`, which is metered.
+
+    Only `sign_transaction` is refused — that is the gas-sponsored operation
+    D-045 governs. Message signing is not a transaction and is not in its scope;
+    it delegates like every other attribute.
+    """
+
+    def __init__(self, account) -> None:
+        self._account = account
+
+    @property
+    def address(self) -> str:
+        return self._account.address
+
+    def sign_transaction(self, tx):
+        raise SponsorshipDenied(SponsorshipDecision(
+            False, "unmetered_signature",
+            "the platform account handle does not sign: a transaction is signed "
+            "through Web3Manager.signer()/send_transaction, which meters it "
+            "against the D-045 sponsorship policy"))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._account, name)
+
+
+def platform_address(key: str) -> PlatformAddress:
+    """The platform account handle for *key* — built HERE, like every other
+    account in this system.
+
+    `test_f_no_blockchain_capability_constructs_a_platform_signer_directly`
+    sweeps runtime/blockchain/ for `Account.from_key(` outside this module, and
+    it is right to: a key loaded anywhere else is a signature the policy never
+    saw. A handle that cannot sign is still an account built from the paymaster
+    key, so it is built through this door and the sweep keeps its meaning.
+    """
+    from eth_account import Account
+
+    return PlatformAddress(Account.from_key(key))
+
+
 class MeteredSigner:
     """An eth_account signer that consults the sponsorship policy at the moment
     it signs — when the transaction's real gas numbers exist.
@@ -699,6 +832,18 @@ class MeteredSigner:
         self._identity = identity
         self._eth_usd = eth_usd
         self._metered = metered
+        self._last_reservation_id: Optional[str] = None
+
+    @property
+    def last_reservation_id(self) -> Optional[str]:
+        """The ledger row this signer last opened, or None.
+
+        A caller that goes on to broadcast is the only party that ever learns
+        whether the transaction landed, and it had no handle on the row — which
+        is why the row could only ever be written at signing time. It can now
+        call `policy.settle(...)` or `policy.abandon(...)` with this.
+        """
+        return self._last_reservation_id
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._account, name)
@@ -728,8 +873,10 @@ class MeteredSigner:
         except Exception:
             self._policy.release(decision.reservation_id)
             raise
-        # The signature now exists; only now is the budget actually spent.
+        # The signature now exists. It is recorded as a SIGNATURE — it holds the
+        # budget, because it may land, and it does not claim gas has been paid.
         self._policy.commit(decision.reservation_id)
+        self._last_reservation_id = decision.reservation_id
         return signed
 
 

@@ -211,22 +211,58 @@ class Web3Manager:
         base = self._EXPLORERS.get(int(getattr(self, "chain_id", 0) or 0))
         return f"{base}{h}" if base else None
 
+    #: The sponsorship action a transaction sent through this manager is metered
+    #: under when its caller names none. A deployment that configures
+    #: ``paymaster.policy.allowed_actions`` must list it.
+    DEFAULT_SIGNING_ACTION = "web3.send_transaction"
+
     def get_account(self):
-        """Return an ``eth_account.LocalAccount`` for the configured paymaster key."""
+        """The platform account as a HANDLE — its address, not a signer.
+
+        This returned ``unmetered_platform_signer(key, "web3.platform_account")``,
+        and that exemption's stated justification was that "every USE of it is a
+        call site metered on its own". None was. `send_transaction` below signed
+        with it, and `send_transaction` is the only signing path the 45 services
+        in `services/**` have, so every platform signature they produce was
+        exempt from the D-045 cap the repo documents as enforced. The
+        exemption's claim was the whole of its argument and nothing checked it.
+
+        35 call sites want `.address` for a transaction's `from`, and those are
+        unchanged. A signature now comes from `signer()`, which is metered.
+        """
         if self._account is not None:
             return self._account
         if is_placeholder_value(self.paymaster_key):
             raise RuntimeError("paymaster_private_key is not configured")
         try:
-            from eth_account import Account
-            from runtime.blockchain.sponsorship import unmetered_platform_signer
+            from runtime.blockchain.sponsorship import platform_address
         except ImportError as exc:
             raise RuntimeError("eth-account is not installed") from exc
         try:
-            self._account = unmetered_platform_signer(self.paymaster_key, "web3.platform_account")
+            self._account = platform_address(self.paymaster_key)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(f"Invalid paymaster private key: {exc}") from exc
         return self._account
+
+    async def signer(self, action: str | None = None):
+        """A METERED signer for one platform operation.
+
+        The same door `runtime/blockchain/*.py` already went through
+        (`_platform_signer`), now open to `services/**` as well. `action` is
+        `<capability>.<method>` and is what the allowlist and the per-identity
+        ledger record; the caller identity comes from the ContextVar the tool
+        dispatcher and the HTTP entry bind.
+
+        With no `daily_cap_usd` configured this behaves exactly as before —
+        `MeteredSigner` signs straight through. With one configured it prices
+        the transaction and refuses rather than sign what it cannot meter.
+        """
+        if is_placeholder_value(self.paymaster_key):
+            raise RuntimeError("paymaster_private_key is not configured")
+        from runtime.blockchain.sponsorship import platform_signer
+        return await platform_signer(
+            self.config, action or self.DEFAULT_SIGNING_ACTION,
+            key=self.paymaster_key)
 
     def load_contract(self, address: str, abi: list):
         """Return a web3 ``Contract`` instance for *address* with *abi*."""
@@ -240,17 +276,28 @@ class Web3Manager:
             raise ValueError(f"Invalid contract address {address!r}: {exc}") from exc
         return self.w3.eth.contract(address=checksum, abi=abi)
 
-    async def send_transaction(self, tx: dict) -> str:
+    async def send_transaction(self, tx: dict, *, action: str | None = None) -> str:
         """Sign *tx* with the paymaster key, broadcast, and return the tx hash hex.
 
         Handles nonce management automatically. Caller may pass any subset
         of standard transaction fields; missing ``nonce``, ``chainId``,
         ``from``, ``gas``, ``gasPrice`` will be filled in.
+
+        THE SIGNATURE IS METERED. This signed with `get_account()`, which was an
+        UNMETERED exemption, so the D-045 daily cap saw none of the 35 service
+        call sites that reach this method. `action` names the operation for the
+        allowlist and the ledger; it defaults to `DEFAULT_SIGNING_ACTION` so a
+        call site that has nothing more specific to say is still metered rather
+        than exempt. The signer is built BEFORE the nonce lock — its price quote
+        is a network round trip that has no business serialising every sender,
+        and a cap denial that happens out here never takes a nonce at all. The
+        reservation itself is taken at `sign_transaction`, inside the lock,
+        where the transaction's real gas numbers exist.
         """
         if not self.available or self.w3 is None:
             raise RuntimeError("Web3Manager not available — cannot send transaction")
 
-        account = self.get_account()
+        account = await self.signer(action)
         async with self._get_nonce_lock():
             try:
                 tx_to_sign = dict(tx)
@@ -410,3 +457,136 @@ def not_deployed_response(service_name: str, extra: dict | None = None) -> dict:
     if extra:
         response.update(extra)
     return response
+
+
+# ── what a record is allowed to claim ────────────────────────────────────
+#
+# CLUSTER attest-money. `not_deployed_response` above is the platform's answer
+# to "we cannot act at all". The two helpers here are its answers to the two
+# weaker cases that were being written as successes:
+#
+#   recorded_unsettled_response  the platform wrote a LOCAL record and touched
+#                                no contract, moved no token and took no
+#                                payment. The record is real; the action is not.
+#
+#   settle_transaction           a node ACCEPTED a raw transaction. That is a
+#                                broadcast, not a settlement, and the two are
+#                                only distinguishable by a receipt.
+#
+# Both emit the disclosure flags `settled` / `value_moved`, which are the
+# highest-priority clause in `_outcome_is_real` and in `report_of`. A service
+# that omits them gets graded on its status string alone, which is how a record
+# saying "purchased" over a transfer that never happened reached an EAS
+# attestation and the public feed (§AP: a control whose strongest clause never
+# fires because the field it reads is absent).
+
+def recorded_unsettled_response(
+    service_name: str,
+    operation: str,
+    extra: dict | None = None,
+    *,
+    disclosure: str = "",
+    value_moved: bool | None = False,
+) -> dict:
+    """A local record exists and nothing settled on-chain.
+
+    `recorded_unsettled` is already in the dispatcher's `_NON_OUTCOME_STATUSES`
+    and in `outcome_truth._INDETERMINATE`, so this is not a new vocabulary: it
+    is the word this codebase already uses for exactly this, used by the methods
+    that were claiming `purchased`, `claimed` and `attested` instead.
+
+    `value_moved` is None where the question does not arise (an attestation
+    moves no value and never claimed to), False where a caller could reasonably
+    have read the record as a payment.
+    """
+    response = {
+        "status": "recorded_unsettled",
+        "service": service_name,
+        "operation": operation,
+        "settled": False,
+        "value_moved": value_moved,
+        "disclosure": disclosure or (
+            f"'{operation}' wrote a record on this platform and performed no "
+            f"on-chain action: no contract was called, nothing was transferred "
+            f"and no payment was taken. The record is not evidence that the "
+            f"action occurred."
+        ),
+    }
+    if extra:
+        response.update(extra)
+    return response
+
+
+async def settle_transaction(
+    web3: Any,
+    tx_hash: str,
+    method: str,
+    service_name: str,
+    base: dict | None = None,
+    *,
+    settled_status: str = "submitted",
+    timeout: int = 120,
+) -> dict:
+    """Turn a broadcast into a settled, honest outcome.
+
+    19-C established this in `services/restaking/_guards.py` and 21-C wrote it
+    again inline in `services/creator_platforms/service.py`; this is the shared
+    form, next to the `wait_for_receipt` it depends on.
+
+        receipt.status == 1  -> *settled_status*  settled, value moved
+        receipt.status == 0  -> "failed"          mined and REVERTED; nothing
+                                                  moved, gas was still spent
+        no receipt in time   -> "pending"         NOT a refusal and NOT a
+                                                  failure. Carries the hash and
+                                                  `broadcast: True`, so it stays
+                                                  distinguishable from a call
+                                                  that never touched the chain.
+
+    The timeout branch is the under-claim half and it is the one that has to be
+    got right: an over-claim is visible to the claimant, an under-claim is
+    visible to nobody.
+    """
+    out = {**(base or {}), "tx_hash": tx_hash, "broadcast": True}
+    try:
+        receipt = await web3.wait_for_receipt(tx_hash, timeout=timeout)
+    except asyncio.CancelledError:
+        logger.warning(
+            "%s.%s: cancelled while waiting for the receipt of broadcast tx %s",
+            service_name, method, tx_hash,
+        )
+        raise
+    except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN, not failure
+        logger.warning("%s.%s: no receipt for %s: %s", service_name, method, tx_hash, exc)
+        return {
+            **out,
+            "status": "pending",
+            "settled": False,
+            "value_moved": None,
+            "disclosure": (
+                "The transaction was BROADCAST and no receipt was obtained "
+                "within the wait window. This is NOT a refusal and NOT a "
+                "failure — it may be mined. Check the hash before retrying."
+            ),
+        }
+
+    if int(getattr(receipt, "status", 0) or 0) != 1:
+        return {
+            **out,
+            "status": "failed",
+            "settled": True,
+            "value_moved": False,
+            "block_number": getattr(receipt, "blockNumber", None),
+            "disclosure": (
+                "The transaction was mined and REVERTED on-chain. Nothing "
+                "moved. Gas was still spent."
+            ),
+        }
+
+    return {
+        **out,
+        "status": settled_status,
+        "settled": True,
+        "value_moved": True,
+        "block_number": getattr(receipt, "blockNumber", None),
+        "gas_used": getattr(receipt, "gasUsed", None),
+    }

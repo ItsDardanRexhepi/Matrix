@@ -45,7 +45,12 @@ async def test_privacy_action_does_not_ripple(env):
         "/api/v1/compute/store",
         json={"owner": "0xabc", "data": "0xdead", "storage_type": "ipfs"},
     )
-    assert resp.status == 200, await resp.text()
+    # 503 under the shipped config: the storage contract is not deployed, and a
+    # `not_deployed` refusal is now the transport-level fact it always was
+    # rather than HTTP 200 (`error_contract.CAPABILITY_ABSENT_HTTP`). The status
+    # is incidental here — what this test pins is that a privacy action never
+    # ripples, whichever way the action itself came out.
+    assert resp.status in (200, 503), await resp.text()
     assert _published(routes) == before, "privacy actions must not ripple"
 
 
@@ -100,7 +105,10 @@ async def test_ripple_payload_shape(env):
         "/api/v1/licensing/ip",
         json={"owner": "0xowner", "type": "patent", "name": "Widget"},
     )
-    assert resp.status in (200, 400), await resp.text()
+    # 503 is the `not_deployed` refusal reaching the transport (see the note in
+    # test_privacy_action_does_not_ripple). The shape assertion below runs on
+    # the executed path, which is the one it is about.
+    assert resp.status in (200, 400, 503), await resp.text()
     if resp.status == 200:
         ripples = [p for t, p in events if t == "feed.ripple"]
         assert ripples, "an executed register_ip must emit feed.ripple"

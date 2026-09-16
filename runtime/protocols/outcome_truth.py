@@ -55,6 +55,7 @@ of the string is correct for both.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from typing import Any
 
 #: The tool stated a verdict and it was affirmative.
@@ -88,6 +89,36 @@ _SUCCEEDED_READ: frozenset[str] = frozenset({
     "checked", "found", "known", "metadata_only", "queried", "reviewed",
     "suspicious", "valid",
 })
+
+#: The failure-vocabulary statuses that a STORED RECORD is assigned in this tree,
+#: as opposed to being returned inline as a call's disposition. Measured, not
+#: chosen: an AST census of every ``<record>["status"] = <literal>`` assignment
+#: under ``runtime/`` returns 43 distinct lifecycle states, and exactly these
+#: four of them collide with the refusal vocabulary —
+#: ``fundraising._fail_campaign`` writes ``failed``, ``gaming.vetting`` writes
+#: ``rejected`` and ``needs_changes``, ``x402``/``pooled_purchase`` write
+#: ``expired``.
+#:
+#: WHY THE DISTINCTION HAS TO EXIST. ``get_campaign`` is a READ. It succeeds, and
+#: it returns a campaign whose own ``status`` is ``failed`` because the campaign
+#: missed its deadline. The CALL did exactly what was asked. Reading that record
+#: state as the call's verdict would teach the learner that reads fail — the same
+#: corruption as the defect this module was written for, facing the other way.
+#: ``tests/test_envelopes_do_not_hide_refusals.py`` re-derives the census and
+#: fails if a new record state collides with the refusal vocabulary.
+_SUBJECT_LIFECYCLE: frozenset[str] = frozenset({
+    "expired", "failed", "needs_changes", "rejected",
+})
+
+#: The field a wrapper uses to STATE what the thing it wraps reported.
+#:
+#: A wrapper may report on the wrapping and never on what it wraps — unless it
+#: says so outright, and that is what this field is for. ``report_of`` believes
+#: it over every other signal, including its own unwrapping, because the layer
+#: that wrote it is the layer that held the service's structured report AND knew
+#: which action produced it. ``ServiceDispatcher.execute`` knows whether the
+#: action changes state; nothing downstream of it does.
+OUTCOME_FIELD = "outcome"
 
 #: Not yet done, partially done, or documented as carrying opposite meanings in
 #: different services. Never learned from, in either direction.
@@ -159,14 +190,155 @@ def _status_of(value: Any) -> str:
     return str(getattr(value, "value", value)).strip().lower()
 
 
-def report_of(result: Any) -> str:
+# ── the envelope ─────────────────────────────────────────────────────────
+#
+# WHERE THE FIRST VERSION OF THIS MODULE LANDED SHORT. It reads the structure
+# the tool returned. In this platform the structure the tool returned is almost
+# never the structure the next layer hands on: three transport envelopes stand
+# between a service's refusal and every consumer of it, and each states a verdict
+# of its own over it.
+#
+#   ServiceDispatcher.execute  ->  {"status": "ok", "result": <the refusal>}
+#   ServiceRoutes._ok          ->  {"status": "ok", "data":   <the refusal>}
+#   MobileResponse.ok          ->  {"ok": true,     "data":   <the refusal>}
+#
+# `report_of` believed the outermost verdict — correctly, by its own rule, since
+# that IS a named field a layer set deliberately. So `platform_action`, the one
+# handler through which the agent reaches all 45 services, relayed every refusal
+# to the learner as a success. The fix was real and it reached nothing that went
+# through the mega-tool.
+#
+# The envelope is not lying about itself: `execute` really did complete, `_ok`
+# really did serve the request. That is the whole difficulty — the transport's
+# truthful claim about ITSELF is written into the same field name a service uses
+# to report ITS outcome. The rule below is that the reader does not have to tell
+# them apart: A WRAPPER MAY REPORT ON THE WRAPPING, AND NEVER ON WHAT IT WRAPS.
+#
+# NARROW ON PURPOSE. Unwrapping fires only when the outer object states an
+# AFFIRMATIVE verdict about itself and carries another structured report under
+# one of these keys. An object that says nothing, or that reports its own
+# failure, is read exactly as before — there is no envelope to see through. And
+# the combination only ever weakens: a wrapped FAILURE makes the whole FAILURE, a
+# wrapped UNKNOWN makes it UNKNOWN, and nothing here can turn a refusal into a
+# success. Downgrading everything would teach the learner that the platform
+# always fails, which is the same defect facing the other way.
+
+#: The keys the platform's own envelopes carry their payload under. Read off the
+#: three sites above, not invented: `result` is the dispatcher's and the
+#: capability registry's, `data` is both HTTP envelopes'.
+_WRAPPED_KEYS: tuple[str, ...] = ("result", "data")
+
+#: How deep to follow them. /bridge/v1/action nests two (MobileResponse.ok over
+#: ServiceDispatcher.execute); the limit is slack, not a budget.
+_MAX_UNWRAP = 4
+
+
+def _asserts_success(obj: dict) -> bool:
+    """True when *obj* states an affirmative verdict ABOUT ITSELF.
+
+    The signature of a transport envelope: a boolean verdict field set True, or
+    a status the vocabulary resolves to SUCCESS. `{"status": "ok"}` qualifies
+    because `ok` is one of the 101 measured real-outcome statuses.
+    """
+    for key in ("ok", "success", "succeeded"):
+        if obj.get(key) is True:
+            return True
+    if "status" in obj:
+        status = _status_of(obj.get("status"))
+        return status in _SUCCEEDED_READ or status in _real_outcome_statuses()
+    return False
+
+
+def _wrapped_report(obj: dict, depth: int) -> str | None:
+    """The report of the structure(s) *obj* carries, or None if it carries none.
+
+    Several keys are combined by taking the weakest, so a wrapper that carries
+    both a refusal and a success cannot be read as a clean success.
+    """
+    if depth >= _MAX_UNWRAP:
+        return None
+    reports = [
+        report_of(obj[key], _depth=depth + 1)
+        for key in _WRAPPED_KEYS
+        if key in obj and _as_object(obj[key]) is not None
+    ]
+    if not reports:
+        return None
+    if FAILURE in reports:
+        return FAILURE
+    if UNKNOWN in reports:
+        return UNKNOWN
+    return SUCCESS
+
+
+def report_of(result: Any, *, status_describes_the_call: bool = True,
+              _depth: int = 0) -> str:
     """What the tool said about its own outcome: SUCCESS, FAILURE or UNKNOWN.
+
+    A structure's own report, weakened by the report of anything it is carrying:
+    a wrapper may report on the wrapping and never on what it wraps.
+
+    ``status_describes_the_call`` is the one fact a caller may hold that this
+    module cannot read off the payload: whether the ``status`` field in front of
+    it is the SERVICE's disposition or a RECORD's lifecycle. Callers that know —
+    ``ServiceDispatcher.execute`` holds ``_STATE_MODIFYING_ACTIONS`` — pass it.
+    Callers that do not leave it True, which is the reading the vocabulary was
+    measured under.
+    """
+    obj = _as_object(result)
+
+    # 0. A wrapper that STATES what it wraps. This outranks the unwrapping
+    #    below, and outranks the wrapper's own verdict about itself, because it
+    #    is the one signal written by a layer that had both the payload and the
+    #    context to read it — the definition of "set by whoever knows".
+    if obj is not None:
+        stated = obj.get(OUTCOME_FIELD)
+        if isinstance(stated, str) and stated.strip().lower() in (
+                SUCCESS, FAILURE, UNKNOWN):
+            return stated.strip().lower()
+
+    own = _own_report(obj, status_describes_the_call=status_describes_the_call)
+    if obj is None or own != SUCCESS or not _asserts_success(obj):
+        # Nothing to see through. Either there is no structure, or it already
+        # reports something other than a clean success, or it makes no
+        # affirmative claim for a wrapped report to contradict.
+        return own
+    wrapped = _wrapped_report(obj, _depth)
+    return own if wrapped is None else wrapped
+
+
+def refusal(message: str, *, code: str | None = None) -> str:
+    """A structured refusal, for a tool whose only failure channel was prose.
+
+    THE HALF OF THE CONTRACT THAT HAD NO WRITER. This module reads a verdict out
+    of named fields, and a tool that answers ``"Error: command timed out"`` has
+    no named fields to read — so its every failure fell to the measured default
+    and was learned as a success. The four builtin tools and the 57 error paths
+    across the blockchain capabilities were all in that position.
+
+    The fix is not to read the prose (NEW-27 removed exactly that, and
+    ``"error" not in text.lower()[:100]`` is wrong in both directions). It is to
+    let those tools SAY it, in the same shape the rest of the platform already
+    refuses in: ``{"ok": false, "error": ...}``. The message is preserved
+    verbatim, so the agent reads what it always read.
+
+    Kept beside the reader deliberately: one module owns both halves of the
+    contract, so a change to what a refusal looks like cannot land on one side
+    only.
+    """
+    payload: dict[str, Any] = {"ok": False, "error": message}
+    if code:
+        payload["code"] = code
+    return json.dumps(payload)
+
+
+def _own_report(obj: dict | None, *, status_describes_the_call: bool = True) -> str:
+    """What this structure says about ITSELF, ignoring anything it carries.
 
     Order of precedence, most explicit first. A tool that states a boolean
     verdict about itself is believed over every weaker signal, because that field
     exists for no other purpose.
     """
-    obj = _as_object(result)
     if obj is None:
         # No structured report. The handler returned and did not raise, and
         # nothing it emitted speaks to the question. Measured default for this
@@ -182,8 +354,19 @@ def report_of(result: Any) -> str:
 
     # 2. A populated error field. `None`, `""`, `[]`, `{}` and `False` are a
     #    field that exists and is empty — that is not a report of an error.
+    #
+    #    SINGULAR ONLY, AND THAT IS MEASURED. `error` is this tree's refusal
+    #    idiom (245 `"error":` returns). `errors` is not: an AST census finds
+    #    four `errors` keys in the whole tree and every one is DATA — a
+    #    verifier's findings list (`credential_vault.verify_credential`,
+    #    `selective_disclosure`, `did_identity.service`) or a counter
+    #    (`agent_identity.reputation`, which returns `"errors": 0`). Not one of
+    #    them reports that the CALL failed. Reading the plural as a verdict
+    #    labelled a credential check that ran perfectly — and answered "this
+    #    credential has expired", which is a real answer — as a failed call, and
+    #    labelled an agent with three logged errors as a failed lookup.
     error = obj.get("error")
-    if error not in (None, "", [], {}, False) or obj.get("errors") not in (None, "", [], {}, False):
+    if error not in (None, "", [], {}, False):
         return FAILURE
 
     # 3. Positive evidence that the service acted outranks a lifecycle status:
@@ -202,6 +385,16 @@ def report_of(result: Any) -> str:
     if "status" in obj:
         status = _status_of(obj.get("status"))
         if status in _FAILED:
+            if not status_describes_the_call and status in _SUBJECT_LIFECYCLE:
+                # The caller told us this action does not change state, and this
+                # is one of the four statuses a stored record is assigned. So the
+                # field may be the SUBJECT's lifecycle (`get_campaign` on a
+                # campaign that missed its deadline) or the call's refusal, and
+                # from the payload the two are identical. The third answer: do
+                # not learn from it. A status no record is ever assigned —
+                # `error`, `not_found`, `not_deployed` — is unaffected and is
+                # still a refusal on a read.
+                return UNKNOWN
             return FAILURE
         if status in _SUCCEEDED_READ:
             return SUCCESS
@@ -226,3 +419,33 @@ def learnable_success(report: str) -> bool | None:
     if report == FAILURE:
         return False
     return None
+
+
+def combine(reports: Iterable[str]) -> str:
+    """One verdict over several sub-reports of the SAME operation.
+
+    For the fan-outs: a post sent to two platforms, a job whose agent made five
+    tool calls, a batch submitted attestation by attestation. Each part reports
+    for itself and the caller has to write ONE record.
+
+        every part SUCCESS (or no parts) -> SUCCESS
+        every part FAILURE               -> FAILURE
+        anything else                    -> UNKNOWN
+
+    THE MIXED CASE IS THE WHOLE POINT, and it is why this is not `all()` or
+    `any()`. One platform took the post and one refused it; the record is
+    neither "published" nor "failed", and writing either loses the fact the
+    record is the only evidence of. UNKNOWN is not a hedge here — it is the
+    accurate answer, and it keeps the caller from billing, learning from or
+    announcing something nobody established.
+
+    No parts is SUCCESS, not UNKNOWN: an operation that fanned out to nothing
+    had nothing go wrong. The caller that needs "did anything happen at all"
+    is asking a different question and should count the parts.
+    """
+    seen = set(reports)
+    if not seen or seen == {SUCCESS}:
+        return SUCCESS
+    if seen == {FAILURE}:
+        return FAILURE
+    return UNKNOWN

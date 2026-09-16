@@ -110,7 +110,35 @@ class AnthropicClient(ModelInterface):
         )
 
     async def health_check(self) -> bool:
-        return bool(self.api_key)
+        """Is this provider REACHABLE — asked, not assumed.
+
+        This returned ``bool(self.api_key)``, which is whether somebody typed a
+        key into the config. ``ModelInterface.health_check`` documents the
+        contract as "reachable and ready", and ``/ready`` (RUN-7) takes an
+        instance out of rotation when NO provider is reachable — so a configured
+        but dead provider held a dead instance in rotation, which is the exact
+        condition that endpoint exists to express. Gemini and NVIDIA said the
+        same thing; OpenAI and Ollama already asked.
+
+        ``GET /v1/models`` is the cheap reachability probe on this API: it
+        returns the model list, spends no inference tokens, and a 200 means the
+        host answered AND the key authenticated. Anything else — an error
+        status, a timeout, no route to the host — is False, which is the honest
+        answer to "should traffic go here".
+        """
+        if not self.api_key:
+            return False
+        try:
+            headers = {"x-api-key": self.api_key, "anthropic-version": "2023-06-01"}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/v1/models",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    return resp.status == 200
+        except Exception:
+            return False
 
     @property
     def provider_name(self) -> str:

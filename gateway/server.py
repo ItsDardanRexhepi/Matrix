@@ -1078,7 +1078,10 @@ class GatewayServer:
         fails, the deletion answers 503 ``storage failure``, erases nothing at
         all (erase_owner is one transaction) and removes nothing further: the
         session stays valid, so the same client can retry and the retry does
-        the whole job. Apple token revocation runs only when
+        the whole job. If the push-token or session removal fails the answer is
+        503 too — a deletion that left the account's session token valid is not
+        a deletion, and the client is told so rather than shown
+        ``{"success": true}``. Apple token revocation runs only when
         auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
         deletion still succeeds and revocation is skipped with a WARNING."""
         from gateway.apple_auth import apple_revocation_configured
@@ -1150,6 +1153,21 @@ class GatewayServer:
         # user:<subject>) — and only when no other owner is recorded on it.
         # The ids come from the pre-erasure read too, so a retry after a
         # failure still knows which conversations were the account's.
+        #
+        # BOTH REMOVALS BELOW WERE SWALLOWED AT DEBUG AND THE HANDLER ANSWERED
+        # {"success": true}. The erasure's own failure was already answered
+        # honestly (503, above); these two were not, so a deletion that left
+        # the account's devices registered and ITS SESSION TOKEN STILL VALID
+        # told the caller their account was gone — while the token in their
+        # hand still opened it. That is the same shape the erasure path was
+        # fixed for, one step further down the handler, and it is the shape
+        # this whole cluster is about: a consequential answer derived from
+        # "nothing propagated" rather than from what happened.
+        #
+        # Ordered so a retry can finish the job: the push tokens go first and
+        # a failure there returns BEFORE the session is removed, so the client
+        # still holds a credential to retry with. Re-running the deletion is
+        # safe — the erasure is idempotent and both removals are by-id.
         try:
             from runtime.notifications.token_store import PushTokenStore
             store = PushTokenStore(self.react_loop.memory.db)
@@ -1157,15 +1175,31 @@ class GatewayServer:
             filed_under.add(f"user:{subject}"[:100])
             await store.remove_for_account(subject, filed_under)
         except Exception:
-            logger.debug("account delete: push-token cleanup skipped")
+            logger.exception(
+                "account delete: push-token removal failed for %s; the account's "
+                "devices are still registered and the deletion is not complete",
+                subject)
+            return web.json_response(
+                {"success": False, "error": "storage failure"}, status=503)
 
         # The wallet session itself.
         if token:
             try:
                 await self.wallet_sessions.remove(token)
             except Exception:
-                logger.debug("account delete: session removal skipped")
+                logger.exception(
+                    "account delete: session removal failed for %s; the session "
+                    "token is still valid and the deletion is not complete",
+                    subject)
+                return web.json_response(
+                    {"success": False, "error": "storage failure"}, status=503)
 
+        # Apple revocation stays a WARNING rather than a failure: it is a
+        # documented credential gate, the local deletion genuinely did complete,
+        # and saying so in the response would tell any caller how this
+        # deployment is configured — the targeting signal RUN-7 took out of
+        # /ready. The operator is told; the caller is told the truth about what
+        # this server holds, which is nothing.
         if not apple_revocation_configured(self.config):
             logger.warning(
                 "Account deleted locally; Apple token revocation SKIPPED "

@@ -89,7 +89,24 @@ class GeminiClient(ModelInterface):
         )
 
     async def health_check(self) -> bool:
-        return bool(self.api_key)
+        """Reachability, asked rather than assumed — see AnthropicClient's note.
+
+        ``GET {base_url}/models`` is Gemini's model list. The key travels in the
+        ``x-goog-api-key`` header, the same way ``complete`` sends it and never
+        in the query string, so it stays out of proxy and access logs.
+        """
+        if not self.api_key:
+            return False
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/models",
+                    headers={"x-goog-api-key": self.api_key},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                ) as resp:
+                    return resp.status == 200
+        except Exception:
+            return False
 
     @property
     def provider_name(self) -> str:

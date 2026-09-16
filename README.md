@@ -186,12 +186,21 @@ run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
 
-- **Trinity / Morpheus / Neo agents** — full ReAct loop, tool use, session memory
+- **Trinity / Morpheus / Neo agents** — full ReAct loop, tool use, session
+  memory. Trinity never holds Neo's execution tools; anything that moves
+  value goes through the gated hand-off, and that channel says what
+  happened to it. A denial by the security gate, a gate that could not be
+  reached, an executor that was not wired and an execution that threw are
+  each reported as the refusal they are, and when Neo does run, the
+  hand-off relays Neo's own verdict rather than its own opinion of it
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 50+ blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
-  fabricated transaction hashes
+  fabricated transaction hashes. That refusal survives the trip out: the
+  HTTP answer is a 503, not a 200, and every envelope the gateway builds
+  states the outcome of the action in its own field rather than letting
+  its own `ok` stand in for it
 - **Gateway** — REST + WebSocket, rate limiting, background cleanup,
   graceful shutdown, full middleware chain
 - **EAS attestation client** — skips gracefully when offline
@@ -276,7 +285,13 @@ operator configures** — an allowlist of actions and a per-identity daily
 cap, decided from the call data being signed. Inside that policy a user
 pays no gas; past the cap, or for an action the allowlist does not cover,
 sponsorship is refused rather than silently granted, and an operator who
-configures no policy sponsors everything. Capabilities return
+configures no policy sponsors everything. Every transaction the platform
+signs goes through that policy, including the ones the services send
+through the shared web3 manager — if you configure an allowlist, list
+`web3.send_transaction` or those will be refused. The only operations
+exempt are the platform's own record-keeping writes, and they are listed
+by name in `runtime/blockchain/sponsorship.py` so the exemptions can be
+read rather than guessed at. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 
@@ -364,7 +379,7 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 
 **Trajectory** — Outcome prediction and path optimization. Predicts likely results of actions and suggests the optimal sequence to reach a goal.
 
-**Outcome Learning** — Feedback loop. Captures the real result of each tool call and uses it to improve future reasoning. It learns from the outcome the tool actually reported, not from the absence of a crash: most things here refuse by returning a structure (`{"status": "not_deployed"}`, `{"ok": false}`), and a refusal is recorded as a refusal. Where a tool reports something that does not decide whether it worked — `pending` means "not paid" in one service and "record written" in another — the sample is left unlabelled and is not learned from at all. An unlabelled sample costs one data point; a mislabelled one corrupts the success rate and every confidence estimate built on it.
+**Outcome Learning** — Feedback loop. Captures the real result of each tool call and uses it to improve future reasoning. It learns from the outcome the tool actually reported, not from the absence of a crash: most things here refuse by returning a structure (`{"status": "not_deployed"}`, `{"ok": false}`), and a refusal is recorded as a refusal. Where a tool reports something that does not decide whether it worked — `pending` means "not paid" in one service and "record written" in another — the sample is left unlabelled and is not learned from at all. An unlabelled sample costs one data point; a mislabelled one corrupts the success rate and every confidence estimate built on it. It also reads through the platform's own envelopes: a layer that wraps a service's answer may report on the wrapping and never on what it wrapped, so a refusal relayed through the gateway, the bridge or the service dispatcher is still a refusal when it arrives. Where the wrapper knows something the reader cannot see, it says so in the envelope instead of leaving it to be inferred — the service dispatcher knows whether an action changes state, which is what separates a call that failed from a successful read of a campaign whose own status is `failed`, and where those two cannot be told apart the answer is again "unknown" rather than a guess. Tools that used to answer a failure in prose now refuse in a structure: `bash`, the file and web tools and every blockchain capability say when they did not do the thing, instead of handing back a sentence with no verdict in it. The same verdict is what a client is told about each tool call — and when nobody established one, the field goes out empty rather than as a tick.
 
 **Morpheus Triggers** — Determines when Morpheus appears. Activates before irreversible actions, significant events, and high-stakes moments.
 

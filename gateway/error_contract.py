@@ -113,6 +113,52 @@ DISPATCHER_CATEGORY_HTTP: dict[str, int] = {
 DISPATCHER_CALLER_MESSAGES = frozenset({"not_found", "not_implemented", "forbidden"})
 
 
+# ── refusals that are not domain answers ──────────────────────────────────
+#
+# RUN-4 drew a line the HTTP surfaces still need: a `rejected` claim or a
+# `failed` transaction is a REAL ANSWER the caller asked for, and turning it
+# into a transport failure would break flows that work. That line is kept.
+#
+# But `_FAILURE_STATUSES` was two strings wide — `error` and `unavailable` — and
+# the canonical refusal this platform emits most often is none of them. A
+# service with no deployed contract returns `not_deployed_response()`, 42 modules
+# use it, and it went out as HTTP 200 `{"status": "ok"}`. `sdk/client.py` raises
+# only on `resp.status != 200`, so the caller proceeded as though it had worked.
+#
+# These are the refusals that are NOT an answer about the caller's domain: the
+# platform saying it cannot act at all. Each maps to the status that says so.
+# Everything else in the refusal vocabulary keeps 200 and is distinguished by the
+# envelope's own status instead (ServiceRoutes._ok), which is what a client
+# actually branches on.
+CAPABILITY_ABSENT_HTTP: dict[str, int] = {
+    # No contract deployed; `validation.py` already describes this as the
+    # short-circuit for an unconfigured chain.
+    "not_deployed": 503,
+    "not_configured": 503,
+    "not_available": 503,
+    "unavailable": 503,
+    # The capability does not exist in this build. Same status the dispatcher's
+    # `not_implemented` category and the `NotImplementedError` clause in
+    # ServiceRoutes._call already return, so the three surfaces agree.
+    "not_implemented": 501,
+    "unsupported": 501,
+    "provider_unsupported": 501,
+}
+
+
+def refusal_http_status(payload: Any) -> int | None:
+    """The HTTP status for a payload that reports a refusal, or None for 200.
+
+    None is not "this succeeded" — it is "this refusal is a domain answer, and
+    the transport did deliver it". The refusal is still visible, in the
+    envelope's own status and in the payload.
+    """
+    status = payload.get("status") if isinstance(payload, dict) else None
+    if not isinstance(status, str):
+        return None
+    return CAPABILITY_ABSENT_HTTP.get(status.strip().lower())
+
+
 def classify(exc: BaseException) -> str:
     """Return the stable machine code for *exc*. Never raises."""
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
