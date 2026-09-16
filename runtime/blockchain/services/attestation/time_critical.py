@@ -13,6 +13,13 @@ import logging
 import time
 from typing import Any
 
+# Bound at module scope, not inside the try below: the `except SponsorshipDenied`
+# clause is evaluated before `except ImportError`, so a function-local import of
+# it would leave the clause itself raising UnboundLocalError whenever one of the
+# chain libraries is missing — the branch that reports the missing dependency
+# would never be reached. This module imports only the standard library.
+from runtime.blockchain.sponsorship import SponsorshipDenied
+
 logger = logging.getLogger(__name__)
 
 # Categories that require immediate attestation — never batched
@@ -107,7 +114,7 @@ class TimeCriticalHandler:
             from web3 import Web3
             from eth_account import Account
             from runtime.blockchain.sponsorship import (
-                SponsorshipDenied, platform_signer, unmetered_platform_signer,
+                platform_signer, unmetered_platform_signer,
             )
             from eth_abi import encode
 

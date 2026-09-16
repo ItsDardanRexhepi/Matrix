@@ -22,6 +22,12 @@ from runtime.blockchain.services.attestation.time_critical import (
     TIME_CRITICAL_CATEGORIES,
     TimeCriticalHandler,
 )
+# Bound at module scope for the same reason as in time_critical.py: `except
+# SponsorshipDenied` is evaluated before `except ImportError`, so a
+# function-local import of it would make the clause itself raise
+# UnboundLocalError whenever a chain library is missing, and the
+# missing-dependency answer below could never be returned.
+from runtime.blockchain.sponsorship import SponsorshipDenied
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +169,7 @@ class AttestationService:
         refused now rather than logged later. Reads configuration only unless
         a cap is set."""
         from runtime.blockchain.sponsorship import (
-            SponsorshipDenied, SponsorshipPolicy, policy_settings,
+            SponsorshipPolicy, policy_settings,
         )
         _allowed, cap = policy_settings(self.config)
         if cap is None:
@@ -412,7 +418,7 @@ class AttestationService:
         try:
             from web3 import Web3
             from eth_account import Account
-            from runtime.blockchain.sponsorship import SponsorshipDenied, platform_signer
+            from runtime.blockchain.sponsorship import platform_signer
 
             bc = self.config.get("blockchain", {})
             rpc_url = bc.get("rpc_url", "")
