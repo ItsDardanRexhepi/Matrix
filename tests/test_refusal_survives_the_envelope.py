@@ -236,6 +236,37 @@ def test_bridge_action_does_not_answer_ok_true_over_a_relayed_refusal():
     )
 
 
+async def test_the_bridge_does_not_announce_a_refusal_for_an_action_it_performed():
+    """THE OTHER DIRECTION, ON THE SURFACE A USER READS. `gaming.resolve_market`
+    writes the CALLER's market outcome into the record it returns, and
+    "failure" is a legitimate answer to a market question. The bridge read that
+    domain word as its own verdict and showed the user
+    ``{"ok": false, "refused": true, "error": "The platform did not perform
+    this action."}`` — with the resolution record, status "resolved" and a real
+    id, sitting inside `data` as proof that it had. Caller-controlled, so any
+    client could make the platform announce a refusal for an action it took.
+
+    The dispatcher-level reading is pinned in
+    tests/test_envelopes_do_not_hide_refusals.py; this pins the sentence the
+    client is shown, which is where the fabrication was visible.
+    """
+    from gateway.bridge import BridgeRoutes
+    from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+
+    env = await ServiceDispatcher({}).execute("market_resolve", params={
+        "market_id": "mkt-1", "outcome": "failure", "resolver": "0xabc",
+    })
+    relayed = json.loads(env)
+    assert relayed["result"]["status"] == "resolved", f"premise changed: {relayed}"
+    assert relayed["result"]["outcome"] == "failure", f"premise changed: {relayed}"
+
+    resp = BridgeRoutes._action_response("market_resolve", env)
+    body = json.loads(resp.body.decode())
+    assert body.get("refused") is not True and body.get("ok") is True, (
+        f"the bridge told the client the platform did not act: {body}")
+    assert body.get(OUTCOME_FIELD) == SUCCESS, body
+
+
 def test_bridge_action_still_relays_a_real_result():
     from gateway.bridge import BridgeRoutes
 
