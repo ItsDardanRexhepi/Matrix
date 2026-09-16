@@ -121,13 +121,22 @@ def test_the_bridge_envelope_the_bridge_ACTUALLY_EMITS_sees_through_too():
 
 
 def test_the_bridge_envelope_does_not_bury_a_verdict_the_dispatcher_STATED():
-    """THE WORST CASE, AND THE REASON THIS IS NOT A LATENT DEFECT.
+    """THE WORST CASE THE DEFAULT ALLOWED — LATENT, NOT LIVE.
 
     ``ServiceDispatcher.execute`` reads its payload with the one fact no reader
     downstream holds — whether the action modifies state — and STATES the
     answer. When that answer is FAILURE and the bridge wraps it with a
     defaulted SUCCESS, the outer default outranks the inner statement: the
     layer that knew was overruled by the layer that did not look.
+
+    This docstring first called that live. It was not. When the default was
+    removed, the one bridge route that relays a dispatcher payload,
+    /bridge/v1/action, already passed ``outcome=``; the other thirteen routes
+    that build this envelope carry payloads with no verdict field in them —
+    chat replies, sessions, catalogs, the dashboard — which read as success
+    with the default or without it. No response the bridge sent changed. The
+    control stays because the next route that relays a stated verdict without
+    ``outcome=`` would bury it, and nothing else would notice.
     """
     relayed = json.dumps({"status": "ok", "action": "create_loan",
                           "service": "defi", OUTCOME_FIELD: FAILURE,

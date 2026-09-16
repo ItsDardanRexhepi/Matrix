@@ -153,6 +153,23 @@ async def test_a_batch_item_that_really_ran_is_still_a_success():
     assert routes._registry.called == ["create_loan", "repay_loan"]
 
 
+async def test_abort_on_failure_also_stops_at_a_2xx_item_nobody_established():
+    """THE WIDENING, PINNED WHERE IT IS DISCLOSED. Before items stated their
+    call's verdict, a 200 carrying `recorded_unsettled` let the items behind it
+    run. It stops them now, on purpose: a repayment must not be built on a loan
+    nobody established. The comment at the abort once said this was not a
+    widening; this test is what makes the sentence that replaced it checkable."""
+    routes, body, payload = await _batch(
+        {"create_loan": {"status": "recorded_unsettled", "settled": False},
+         "repay_loan": {"repaid": True}},
+        [_CREATE, _REPAY], sequential=True, abort_on_failure=True)
+    first = body["results"][0]
+    assert first["status"] == 200 and first.get(OUTCOME_FIELD) == UNKNOWN, (
+        f"premise changed — this is a 2xx item with no established outcome: {first}")
+    assert routes._registry.called == ["create_loan"], routes._registry.called
+    assert body["results"][1]["error"] == "aborted", body["results"]
+
+
 # ── the third answer, which is where most of the care goes ────────────────
 
 async def test_an_item_that_timed_out_is_neither_counted_nor_called_a_refusal(

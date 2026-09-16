@@ -3386,10 +3386,13 @@ class ServiceRoutes:
             # `abort_on_failure` because the later items DEPEND on the earlier
             # ones; the loan was refused and the repayment ran anyway.
             #
-            # An UNKNOWN outcome stops it too, and that is not a widening: a
-            # timeout and a route miss were already non-2xx here. An item whose
-            # outcome nobody established is exactly the item a dependent call
-            # must not be built on.
+            # An UNKNOWN outcome stops it too, and for an item that answered
+            # 2xx THAT IS A WIDENING. A timeout and a route miss were already
+            # non-2xx and already stopped the batch; an item that answered 200
+            # with `pending`, `queued`, `recorded_unsettled` or `settled: false`
+            # used to let everything behind it run, and now stops it. Chosen,
+            # not incidental: an item whose outcome nobody established is
+            # exactly the item a dependent call must not be built on.
             if abort_on_failure and result.get(OUTCOME_FIELD) != SUCCESS:
                 # Pad remaining items so the response shape stays aligned
                 # with the request order.

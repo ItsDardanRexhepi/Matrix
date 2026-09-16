@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,105 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,106 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -270,11 +270,15 @@ check behind it:
   everyone reading it. Each item now states the call's own verdict beside
   the status, and everything downstream reads that instead: the counts
   the platform publishes to its live feed are counts of calls that did
-  the thing, `abort_on_failure` stops at a refusal the transport
-  delivered perfectly well, and the app decodes a batched result only
-  when the call behind it reported acting. An item that timed out is
-  neither counted nor refused — it was cancelled mid-flight, and it may
-  have acted
+  the thing, and `abort_on_failure` stops at a refusal the transport
+  delivered perfectly well. It also stops at an item whose outcome nobody
+  established, even one that answered `200` — `pending`, `queued`, a
+  record that says nothing settled — because the later items in a
+  sequential batch are built on the earlier ones. The verdict is in each
+  item for a client to read before it decodes the result; a client that
+  decodes on the HTTP status alone still reads a refusal as a result. An
+  item that timed out is neither counted nor refused — it was cancelled
+  mid-flight, and it may have acted
 - **Security posture is stated, not assumed.** With no enforcement core
   installed the platform runs in OBSERVE mode and says so at boot
 
