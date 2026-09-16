@@ -127,15 +127,53 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 
 ## Model Support
 
-0pnMatrx works with any model provider:
+Use whichever model you want, from whoever you want. Pick a provider during
+setup and 0pnMatrx asks it which models your key can use, newest first — so a
+version released after this README was written is on the list. You can also
+type any model id by hand, including one newer than the list.
 
-| Provider | Config Value | Notes |
-|---|---|---|
-| Ollama (local) | `ollama` | Default — free, runs locally, no API key required |
-| OpenAI | `openai` | Requires OPENAI_API_KEY |
-| Anthropic | `anthropic` | Requires ANTHROPIC_API_KEY |
-| NVIDIA | `nvidia` | Requires NVIDIA_API_KEY |
-| Gemini | `gemini` | Requires GOOGLE_API_KEY |
+| Provider | Config value | Notes | API key |
+|---|---|---|---|
+| Ollama | `ollama` | free, local, private — no API key, runs on your machine | — |
+| Anthropic | `anthropic` | Claude models | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | GPT models | `OPENAI_API_KEY` |
+| xAI | `xai` | Grok models | `XAI_API_KEY` |
+| Nous Research | `nous` | Hermes models | `NOUS_API_KEY` |
+| Google | `gemini` | Gemini models | `GOOGLE_API_KEY` |
+| DeepSeek | `deepseek` | DeepSeek chat and reasoning models | `DEEPSEEK_API_KEY` |
+| Mistral | `mistral` | Mistral and Magistral models | `MISTRAL_API_KEY` |
+| Groq | `groq` | open models on Groq's fast inference | `GROQ_API_KEY` |
+| Together AI | `together` | hundreds of open models, Hermes among them | `TOGETHER_API_KEY` |
+| OpenRouter | `openrouter` | one key, most models on the market | `OPENROUTER_API_KEY` |
+| Perplexity | `perplexity` | Sonar models with live web grounding | `PERPLEXITY_API_KEY` |
+| Fireworks AI | `fireworks` | open models, fast serving | `FIREWORKS_API_KEY` |
+| Cerebras | `cerebras` | open models on Cerebras inference | `CEREBRAS_API_KEY` |
+| NVIDIA | `nvidia` | NVIDIA NIM endpoints (Hermes and many open models) | `NVIDIA_API_KEY` |
+| Mythos | `mythos` | the platform's own Claude-backed profile | `ANTHROPIC_API_KEY` |
+| Custom endpoint | `custom` | any OpenAI-compatible API — you give the base URL and model | `OPENMATRIX_MODEL_API_KEY` |
+
+Every provider talks to **its own endpoint with your own key** — nothing is
+proxied through another company. The ones marked OpenAI-compatible in
+`runtime/models/providers.py` share the request format the industry settled on
+(`/chat/completions`), which is why they need no bespoke client; Anthropic,
+Gemini, NVIDIA and Ollama each keep their own, because their format differs.
+`custom` reaches any endpoint that speaks that format, so a provider missing
+from this table is still usable today.
+
+Keeping your model current, after setup:
+
+```bash
+openmatrix models            # what your provider serves right now, newest first
+openmatrix models --check    # is the model you configured still served? (exit 1 if not)
+openmatrix models --latest   # switch to the newest the provider reports
+openmatrix models --set <id> # switch to any version you name
+```
+
+The provider list, the setup menu, the environment-variable bridge and the
+example config all derive from one declaration in
+`runtime/models/providers.py`, so they cannot drift apart — which is how ten
+providers came to be missing from a list that claimed to work with "any
+provider".
 
 ---
 
@@ -145,7 +183,7 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 3,681 tests,
+`ServiceDispatcher` and exercised by an automated suite of 3,756 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -235,9 +273,14 @@ curl http://localhost:18790/api/v1/capabilities            # list all
 curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 ```
 
-All transactions are sponsored by the platform paymaster — users never
-pay gas. Capabilities return `{"status": "not_deployed", ...}` until
-contracts are deployed, keeping every flow safe to exercise offline.
+Gas is sponsored by the platform paymaster **within the policy the
+operator configures** — an allowlist of actions and a per-identity daily
+cap, decided from the call data being signed. Inside that policy a user
+pays no gas; past the cap, or for an action the allowlist does not cover,
+sponsorship is refused rather than silently granted, and an operator who
+configures no policy sponsors everything. Capabilities return
+`{"status": "not_deployed", ...}` until contracts are deployed, keeping
+every flow safe to exercise offline.
 
 ---
 
@@ -297,7 +340,7 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 
 | Script | Description |
 |---|---|
-| `01_contract_conversion.py` | End-to-end contract conversion from plain English to deployed smart contract |
+| `01_contract_conversion.py` | Plain English to audited Solidity, ready for you to deploy with your own wallet |
 | `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
 | `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
@@ -412,7 +455,19 @@ See `SPONSORS.md` for the full sponsor list.
 
 ---
 
-## Subscription Tiers
+## What is free, and what is paid
+
+The software in this repository is free, open source, and unlimited: clone
+it, run it, change it, and nothing in it meters you. Everything below is the
+hosted offering and the services built around it — a separate thing you may
+ignore entirely. "All free" in my letter above means this platform; it does
+not mean I run infrastructure for everyone at my own cost, and the two should
+not be confused.
+
+## Subscription Tiers (the hosted app)
+
+These are the plan limits of the MTRX app's hosted service, not of this
+repository. Self-hosting has none of them.
 
 | Feature | Free | Pro | Enterprise |
 |---------|------|-----|------------|
@@ -434,7 +489,6 @@ The gateway serves a built-in web interface:
 
 - `http://localhost:18790` — Landing page
 - `http://localhost:18790/chat` — Web chat with Trinity
-- `http://localhost:18790/pricing` — Pricing and plans
 - `http://localhost:18790/audit` — Glasswing security audit service
 - `http://localhost:18790/marketplace` — Plugin marketplace
 - `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
@@ -444,8 +498,15 @@ The gateway serves a built-in web interface:
 
 ## Professional Services
 
-- **Glasswing Security Audit** ($299+) — Automated smart contract security scanning at `/audit`
-- **Contract Conversion** ($499+) — Professional plain-English to Solidity at `/services/conversion`
+- **Glasswing Security Audit** — the automated scan itself is in this
+  repository and runs locally as part of the conversion pipeline, free. The
+  paid hosted service at `/audit` is **not live**: no audit backend is wired
+  into the gateway, so `POST /audit/request` answers `503 not_available`
+  rather than taking an order it cannot fill. The prices on that page
+  describe the intended service, not one you can buy today.
+- **Contract Conversion** — likewise: the pipeline is here and free to run;
+  the hosted service page describes an offering that is not yet accepting
+  work.
 
 ## Glasswing Security Badges
 
@@ -459,7 +520,7 @@ See `/glasswing` for the badge registry.
 
 Three comprehensive courses for developers at every level:
 
-- **Introduction to 0pnMatrx** ($49) — Build plugins, deploy contracts, use the SDK
+- **Introduction to 0pnMatrx** ($49) — Build plugins, deploy contracts with your own wallet, use the SDK
 - **Smart Contract Security** ($79) — Reentrancy, access control, Glasswing methodology
 - **DeFi from Scratch** ($49) — Loans, NFTs, DAOs, staking, explained simply
 
@@ -469,7 +530,7 @@ See `/learn` for details or browse the open source content in `education/`.
 
 Professional certifications backed by on-chain attestations:
 
-- **Certified Developer** ($149) — Plugins, SDK, contract deployment
+- **Certified Developer** ($149) — Plugins, SDK, deploying what the pipeline generates
 - **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis
 - **Enterprise Architect** ($399) — Multi-chain deployment, infrastructure at scale
 

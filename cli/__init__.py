@@ -5,6 +5,7 @@ import sys
 
 from cli.gateway import register_gateway_commands
 from cli.info import register_info_commands
+from cli.models import register_models_commands
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +31,7 @@ examples:
 
     register_gateway_commands(sub)
     register_info_commands(sub)
+    register_models_commands(sub)
 
     return parser
 

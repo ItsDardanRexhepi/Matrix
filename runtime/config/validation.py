@@ -53,17 +53,21 @@ class ConfigValidationError(RuntimeError):
 # mode; the downstream code short-circuits to ``not_deployed`` or its
 # equivalent.
 
+def _provider_secret_fields() -> tuple[tuple[str, str, bool], ...]:
+    from runtime.models.providers import secret_fields
+    return secret_fields()
+
+
 SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # Blockchain signer keys
     ("blockchain.paymaster_private_key", "OPENMATRIX_PAYMASTER_KEY", True),
     ("blockchain.demo_wallet_private_key", "OPENMATRIX_DEMO_WALLET_KEY", False),
     # Model provider API keys (fallback to the per-provider env vars
     # that ``_apply_env_overrides`` in gateway/server.py already reads)
-    ("model.providers.openai.api_key", "OPENAI_API_KEY", False),
-    ("model.providers.anthropic.api_key", "ANTHROPIC_API_KEY", False),
-    ("model.providers.nvidia.api_key", "NVIDIA_API_KEY", False),
-    ("model.providers.gemini.api_key", "GOOGLE_API_KEY", False),
-    ("model.providers.mythos.api_key", "ANTHROPIC_API_KEY", False),
+    # Every provider declared in runtime/models/providers.py that takes a key,
+    # so a provider added there is reachable by env var the same day. Listing
+    # them by hand is how Grok, Hermes and eight others ended up unreachable.
+    *_provider_secret_fields(),
     # Notifications (unified notifications tree — see runtime/notifications/)
     ("notifications.telegram.bot_token",    "TELEGRAM_BOT_TOKEN",    False),
     ("notifications.discord.webhook_url",   "DISCORD_WEBHOOK_URL",   False),
