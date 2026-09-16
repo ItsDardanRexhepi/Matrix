@@ -816,8 +816,16 @@ class ServiceRoutes:
             )
 
         # Step 13 of the loop — ripple out. A successfully executed action
-        # publishes to the live feed. Reached ONLY after a real result, so an
-        # honest failure (which raised above) never ripples.
+        # publishes to the live feed; a refusal is recorded as a decline and
+        # announced to nobody.
+        #
+        # THIS SAID "Reached ONLY after a real result, so an honest failure
+        # (which raised above) never ripples" — and the clauses above catch a
+        # RAISED failure, which is not the kind this codebase returns. Every
+        # `not_deployed`, every `{"ok": false}`, every declined action arrives
+        # here with a result in hand. `_maybe_ripple` reads that structure, so
+        # what decides is what the service reported and not how it chose to
+        # report it.
         self._maybe_ripple(service_name, method_name, kwargs, result)
         return result
 
@@ -829,6 +837,28 @@ class ServiceRoutes:
     _READ_PREFIXES: Tuple[str, ...] = (
         "get_", "list_", "fetch_", "iter_", "is_", "has_", "read_", "query_", "query",
     )
+
+    @staticmethod
+    def _record_decline(service_name: str, method_name: str, result: Any,
+                        *, actor: str) -> None:
+        """Record that the platform DECLINED to act — as a decline.
+
+        Deliberately the same sentence, level and fields as
+        ``ServiceDispatcher._attest_refusal``, which never runs on this path:
+        one grep finds a decline whichever surface refused it. A log record and
+        not an attestation, for the reason given there — an operational event
+        is not a counterparty-facing claim.
+
+        The status is read from the structure the service returned, and no
+        negative fact is asserted beyond it: if the payload states none, the
+        record says so rather than inventing one.
+        """
+        status = result.get("status") if isinstance(result, dict) else None
+        logger.info(
+            "ACTION DECLINED (not attested, not published): action=%s service=%s "
+            "actor=%s status=%s — no outcome evidence in the service result",
+            method_name, service_name, actor or "<unnamed>", status,
+        )
 
     def _maybe_ripple(self, service_name: str, method_name: str, kwargs: dict, result: Any) -> None:
         """Publish a ``feed.ripple`` event for an executed consequential action.
@@ -848,16 +878,31 @@ class ServiceRoutes:
         one, read through `report_of` so both surfaces answer from the
         structure the service returned.
 
-        A refusal is still RECORDED — the dispatcher attests it as a decline.
+        A REFUSAL IS STILL RECORDED, AND ON THIS PATH THAT MEANS HERE. The line
+        above read "the dispatcher attests it as a decline", which is true of
+        /bridge/v1/action and of the chat mega-tool and false of the surface it
+        is written on: `_call` resolves the service registry and calls the
+        method itself, so `ServiceDispatcher.execute` — the only caller of
+        `_attest_refusal` — is never entered, and a refused /api/v1 action left
+        nothing behind but a `logger.debug`. Suppressing the announcement while
+        writing no record trades a false entry for no entry, which is the same
+        defect facing the other way: a trail has to show that the platform
+        DECLINED, not that nothing was ever asked. So the same record is written
+        here, in the dispatcher's own words and at its level, for the calls that
+        would otherwise have rippled.
+
+        A privacy action's decline is recorded WITHOUT its actor. Naming who was
+        refused is exactly what the privacy exclusion exists to prevent, and the
+        record is still the record that the platform declined.
+
         What stops is announcing it as something that happened. An outcome
         nobody established (UNKNOWN — `pending`, `queued`) still ripples and
         still carries its status: those calls did begin.
         """
+        refused = report_of(result) == FAILURE
         if service_name == "privacy":
-            return
-        if report_of(result) == FAILURE:
-            logger.debug("ripple suppressed: %s.%s reported a refusal",
-                         service_name, method_name)
+            if refused:
+                self._record_decline(service_name, method_name, result, actor="")
             return
         # A collection result is a read/lookup, never a single consequential action.
         if isinstance(result, list):
@@ -876,6 +921,13 @@ class ServiceRoutes:
             if isinstance(v, str) and v:
                 actor = v
                 break
+        if refused:
+            # The read and collection clauses run first deliberately: the
+            # dispatcher records a decline for the actions it would have
+            # attested (`_STATE_MODIFYING_ACTIONS`), and these are the calls
+            # this surface would have rippled. Same scope, same record.
+            self._record_decline(service_name, method_name, result, actor=actor)
+            return
         from gateway.security_gate import action_type_for
         payload: Dict[str, Any] = {
             "action": action_type_for(service_name, method_name),
