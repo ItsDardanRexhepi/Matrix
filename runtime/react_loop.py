@@ -38,6 +38,7 @@ from runtime.models.router import ModelRouter
 from runtime.tools.dispatcher import ToolDispatcher
 from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
+from runtime.protocols import outcome_truth as _truth
 
 
 def _caller_kind_of(user_context: Any) -> str:
@@ -365,6 +366,7 @@ class ReActLoop:
                         "arguments": arguments,
                         "result_preview": f"[SKIPPED] {emergency_stop_reason}",
                         "success": False,
+                        "reported": _truth.FAILURE,
                     })
                     continue
 
@@ -415,6 +417,7 @@ class ReActLoop:
                         "arguments": arguments,
                         "result_preview": f"[DENIED] {denial}",
                         "success": False,
+                        "reported": _truth.FAILURE,
                     })
                     confidence_scores.append(0.2)
                     continue  # skip execution, let the model see the denial
@@ -458,13 +461,37 @@ class ReActLoop:
                     if morpheus_prefix else outcome.client_preview
                 )
 
+                # ── what the CLIENT is told ────────────────────────
+                # `outcome.ok` means "the dispatcher completed the call", and
+                # that is the fact the NEW-27 redaction contract is keyed on.
+                # It is not the fact a client's ToolCallResult.success claims.
+                # In this codebase a tool usually refuses by RETURNING a
+                # structure, so a refused call arrives here with ok=True and
+                # was shipped to /chat, /chat/stream, /ws and the bridge as a
+                # step that succeeded — the same wrong label the learner was
+                # getting, three lines away from the corrected verdict.
+                #
+                # THE THIRD ANSWER TRAVELS. `learnable_success` is True, False
+                # or None, and the iOS client declares the field `Bool?`
+                # (MTRX Core/Networking/MTRXAPIClient.swift), so an outcome the
+                # tool did not label goes out as JSON `null` rather than as a
+                # guess in either direction. A client showing a tick for
+                # "unknown" is the defect this cluster is about; a cross would
+                # be the same defect facing the other way.
+                verdict = outcome.learnable_success
                 all_tool_calls.append({
                     "tool": tool_name,
                     "arguments": arguments,
                     "result_preview": client_preview[:200],
                     # Fills a field the iOS client has always declared
                     # (ToolCallResult.success) and the server never sent.
-                    "success": outcome.ok,
+                    "success": verdict,
+                    # THE THIRD ANSWER, CARRIED RATHER THAN COLLAPSED. `success`
+                    # is a two-valued field and `verdict` is three-valued, so
+                    # "the tool said nothing that decides it" arrives at a
+                    # consumer looking exactly like "the tool failed". The A2A
+                    # coordinator bills on this list; it needs the difference.
+                    "reported": outcome.reported,
                 })
 
                 messages.append(Message(
@@ -489,8 +516,8 @@ class ReActLoop:
                 # {"ok": False, ...}, {"status": "not_deployed"}), which arrives
                 # here with ok=True. `learnable_success` is the tool's own
                 # verdict, read from that structure, and is None when the tool
-                # said nothing that decides it.
-                verdict = outcome.learnable_success
+                # said nothing that decides it — the same value the client was
+                # told above, read once.
                 tool_succeeded = verdict is True
                 # An unlabelled outcome is not evidence of trouble: scoring it
                 # 0.3 would trip the low-confidence pause on tools that merely

@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,9 @@ class Tokenization(BlockchainInterface):
         }
         handler = handlers.get(action)
         if not handler:
-            return f"Unknown tokenization action: {action}"
+            return refusal(
+                f"Unknown tokenization action: {action}",
+                code="unknown_action")
         return await handler(kwargs)
 
     async def _deploy(self, params: dict) -> str:
@@ -141,7 +144,9 @@ contract {symbol}Token is ERC20, Ownable {{
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Transfer failed: {e}"
+            return refusal(
+                f"Transfer failed: {e}",
+                code="capability_error")
 
     async def _approve(self, params: dict) -> str:
         try:
@@ -178,7 +183,9 @@ contract {symbol}Token is ERC20, Ownable {{
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Approve failed: {e}"
+            return refusal(
+                f"Approve failed: {e}",
+                code="capability_error")
 
     async def _balance(self, params: dict) -> str:
         try:
@@ -191,7 +198,9 @@ contract {symbol}Token is ERC20, Ownable {{
             balance = contract.functions.balanceOf(Web3.to_checksum_address(addr)).call()
             return json.dumps({"balance_raw": str(balance), "balance": str(balance / 10**18)})
         except Exception as e:
-            return f"Balance check failed: {e}"
+            return refusal(
+                f"Balance check failed: {e}",
+                code="capability_error")
 
     async def _info(self, params: dict) -> str:
         try:
@@ -205,7 +214,9 @@ contract {symbol}Token is ERC20, Ownable {{
             supply = contract.functions.totalSupply().call()
             return json.dumps({"name": name, "symbol": symbol, "total_supply": str(supply / 10**18)})
         except Exception as e:
-            return f"Info failed: {e}"
+            return refusal(
+                f"Info failed: {e}",
+                code="capability_error")
 
     async def _mint(self, params: dict) -> str:
         try:
@@ -244,4 +255,6 @@ contract {symbol}Token is ERC20, Ownable {{
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Mint failed: {e}"
+            return refusal(
+                f"Mint failed: {e}",
+                code="capability_error")

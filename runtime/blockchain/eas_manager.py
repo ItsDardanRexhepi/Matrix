@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,9 @@ class EASManager(BlockchainInterface):
             return await self._revoke(kwargs)
         elif action == "batch_attest":
             return await self._batch_attest(kwargs)
-        return f"Unknown EAS action: {action}"
+        return refusal(
+            f"Unknown EAS action: {action}",
+            code="unknown_action")
 
     async def _create_schema(self, params: dict) -> str:
         """Create a new EAS schema on-chain via the SchemaRegistry. Gas covered by platform."""
@@ -114,7 +117,9 @@ class EASManager(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Schema creation failed: {e}"
+            return refusal(
+                f"Schema creation failed: {e}",
+                code="capability_error")
 
     async def _attest(self, params: dict) -> str:
         """Create an attestation. Gas covered by platform."""
@@ -206,7 +211,9 @@ class EASManager(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Revocation failed: {e}"
+            return refusal(
+                f"Revocation failed: {e}",
+                code="capability_error")
 
     async def _batch_attest(self, params: dict) -> str:
         """Create multiple attestations. Gas covered by platform."""

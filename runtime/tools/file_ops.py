@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+from runtime.protocols.outcome_truth import refusal
 
 MAX_READ_SIZE = 500_000
 
@@ -66,7 +67,7 @@ class FileOpsTool:
     ) -> str:
         target = self._safe_resolve(path)
         if target is None:
-            return "Error: path is outside the workspace"
+            return refusal("Error: path is outside the workspace", code="outside_workspace")
 
         ops = {
             "read": lambda: self._read(target),
@@ -80,17 +81,18 @@ class FileOpsTool:
 
         handler = ops.get(operation)
         if not handler:
-            return f"Error: unknown operation '{operation}'"
+            return refusal(f"Error: unknown operation '{operation}'", code="unknown_operation")
         return handler()
 
     def _read(self, path: Path) -> str:
         if not path.exists():
-            return f"Error: file not found: {path.name}"
+            return refusal(f"Error: file not found: {path.name}", code="not_found")
         if not path.is_file():
-            return f"Error: not a file: {path.name}"
+            return refusal(f"Error: not a file: {path.name}", code="not_a_file")
         size = path.stat().st_size
         if size > MAX_READ_SIZE:
-            return f"Error: file too large ({size} bytes, max {MAX_READ_SIZE})"
+            return refusal(f"Error: file too large ({size} bytes, max {MAX_READ_SIZE})",
+                           code="too_large")
         return path.read_text(encoding="utf-8", errors="replace")
 
     def _write(self, path: Path, content: str) -> str:
@@ -106,9 +108,9 @@ class FileOpsTool:
 
     def _list(self, path: Path) -> str:
         if not path.exists():
-            return f"Error: directory not found: {path.name}"
+            return refusal(f"Error: directory not found: {path.name}", code="not_found")
         if not path.is_dir():
-            return f"Error: not a directory: {path.name}"
+            return refusal(f"Error: not a directory: {path.name}", code="not_a_directory")
 
         entries = sorted(path.iterdir())
         lines = []
@@ -133,15 +135,16 @@ class FileOpsTool:
 
     def _delete(self, path: Path) -> str:
         if not path.exists():
-            return f"Error: not found: {path.name}"
+            return refusal(f"Error: not found: {path.name}", code="not_found")
         if path.is_dir():
-            return "Error: cannot delete directories (safety restriction)"
+            return refusal("Error: cannot delete directories (safety restriction)",
+                           code="refused_directory_delete")
         path.unlink()
         return f"Deleted: {path.name}"
 
     def _search(self, path: Path, pattern: str) -> str:
         if not pattern:
-            return "Error: search pattern is required"
+            return refusal("Error: search pattern is required", code="missing_pattern")
         results = []
         search_dir = path if path.is_dir() else path.parent
         for filepath in search_dir.rglob("*"):

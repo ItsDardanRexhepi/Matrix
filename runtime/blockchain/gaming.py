@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,9 @@ class Gaming(BlockchainInterface):
             return await self._get_inventory(kwargs)
         elif action == "record_achievement":
             return await self._record_achievement(kwargs)
-        return f"Unknown gaming action: {action}"
+        return refusal(
+            f"Unknown gaming action: {action}",
+            code="unknown_action")
 
     async def _mint_item(self, params: dict) -> str:
         try:
@@ -97,7 +100,9 @@ class Gaming(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Mint failed: {e}"
+            return refusal(
+                f"Mint failed: {e}",
+                code="capability_error")
 
     async def _transfer_item(self, params: dict) -> str:
         try:
@@ -136,7 +141,9 @@ class Gaming(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Transfer failed: {e}"
+            return refusal(
+                f"Transfer failed: {e}",
+                code="capability_error")
 
     async def _get_inventory(self, params: dict) -> str:
         try:
@@ -150,7 +157,9 @@ class Gaming(BlockchainInterface):
             balance = contract.functions.balanceOf(Web3.to_checksum_address(player), item_id).call()
             return json.dumps({"player": player, "item_id": item_id, "balance": balance})
         except Exception as e:
-            return f"Inventory check failed: {e}"
+            return refusal(
+                f"Inventory check failed: {e}",
+                code="capability_error")
 
     async def _record_achievement(self, params: dict) -> str:
         from runtime.blockchain.eas_client import EASClient

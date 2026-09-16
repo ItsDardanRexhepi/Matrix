@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,9 @@ class Insurance(BlockchainInterface):
             return await self._get_policy(kwargs)
         elif action == "process_payout":
             return await self._process_payout(kwargs)
-        return f"Unknown insurance action: {action}"
+        return refusal(
+            f"Unknown insurance action: {action}",
+            code="unknown_action")
 
     async def _create_policy(self, params: dict) -> str:
         """Create an insurance policy attested on-chain."""

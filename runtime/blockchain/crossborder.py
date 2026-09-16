@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +52,31 @@ class CrossBorderPayments(BlockchainInterface):
             return await self._track(kwargs)
         elif action == "compliance_check":
             return await self._compliance_check(kwargs)
-        return f"Unknown crossborder action: {action}"
+        return refusal(
+            f"Unknown crossborder action: {action}",
+            code="unknown_action")
 
     async def _send(self, params: dict) -> str:
-        """Send a cross-border stablecoin payment with compliance attestation."""
+        """Prepare a cross-border stablecoin payment and attest it for compliance.
+
+        TWO CLAIMS WERE BEING MADE THAT THIS METHOD CANNOT SUPPORT, and it had
+        the evidence against both in hand.
+
+        The status was the fixed string `"payment_attested"`. The attestation is
+        RIGHT THERE in `attestation`, and `EASClient.attest` reports a refusal by
+        RETURNING one — `{"status": "skipped", "reason": "blockchain not
+        configured"}` on the shipped config, `{"status": "failed", "error": ...}`
+        on a revert. Neither raises, so an unconfigured deployment answered every
+        cross-border payment with "attested" and had attested nothing.
+
+        And no transfer happens here on ANY path — the method's own `next_step`
+        says the transfer is a different capability. `value_moved: False` is
+        emitted unconditionally, so the dispatcher cannot EAS-attest this as a
+        completed payment or announce it on the public feed as one, whatever the
+        compliance attestation did.
+        """
         from runtime.blockchain.eas_client import EASClient
+        from runtime.protocols.outcome_truth import SUCCESS, report_of
 
         # First, attest the payment for compliance
         client = EASClient(self.config)
@@ -74,12 +95,44 @@ class CrossBorderPayments(BlockchainInterface):
             recipient=params.get("to", "0x0000000000000000000000000000000000000000"),
         )
 
-        return json.dumps({
-            "status": "payment_attested",
+        attested = report_of(attestation) is SUCCESS
+        common = {
+            "attested": attested,
             "attestation": attestation,
+            # Emitted on BOTH paths: no transfer is made by this call under any
+            # circumstances, whatever the attestation did.
+            "settled": False,
+            "value_moved": False,
             "next_step": "Execute stablecoin transfer via stablecoin capability",
             "gas_paid_by": "platform (The Matrix)",
-        }, indent=2, default=str)
+        }
+        # `prepared` and `not_ready` are both already in the dispatcher's
+        # `_NON_OUTCOME_STATUSES`: neither is a payment, and this method makes
+        # no payment. Written as two literal branches rather than one
+        # conditional so that the status-vocabulary walker in
+        # tests/test_refusals_are_not_attested.py can still SEE them — a status
+        # a census cannot read is a status nobody classifies.
+        if attested:
+            body = {
+                "status": "prepared",
+                **common,
+                "disclosure": (
+                    "No transfer was made by this call. The compliance "
+                    "attestation was written on-chain; the stablecoin transfer "
+                    "is a separate action."
+                ),
+            }
+        else:
+            body = {
+                "status": "not_ready",
+                **common,
+                "disclosure": (
+                    "No transfer was made by this call, and the compliance "
+                    "attestation DID NOT complete — the payment is not cleared "
+                    "to send."
+                ),
+            }
+        return json.dumps(body, indent=2, default=str)
 
     async def _estimate(self, params: dict) -> str:
         """Estimate cross-border payment cost."""

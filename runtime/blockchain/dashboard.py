@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,9 @@ class Dashboard(BlockchainInterface):
             return await self._block_info(kwargs)
         elif action == "platform_stats":
             return await self._platform_stats(kwargs)
-        return f"Unknown dashboard action: {action}"
+        return refusal(
+            f"Unknown dashboard action: {action}",
+            code="unknown_action")
 
     async def _wallet_overview(self, params: dict) -> str:
         """Get a complete wallet overview."""
@@ -70,7 +73,9 @@ class Dashboard(BlockchainInterface):
                 "chain_id": self.chain_id,
             }, indent=2)
         except Exception as e:
-            return f"Wallet overview failed: {e}"
+            return refusal(
+                f"Wallet overview failed: {e}",
+                code="capability_error")
 
     async def _tx_history(self, params: dict) -> str:
         """Get transaction details."""
@@ -90,7 +95,9 @@ class Dashboard(BlockchainInterface):
                 }, indent=2)
             return json.dumps({"note": "Provide tx_hash to look up specific transaction"})
         except Exception as e:
-            return f"TX lookup failed: {e}"
+            return refusal(
+                f"TX lookup failed: {e}",
+                code="capability_error")
 
     async def _gas_price(self, params: dict) -> str:
         """Get current gas price."""
@@ -104,7 +111,9 @@ class Dashboard(BlockchainInterface):
                 "network": self.network,
             }, indent=2)
         except Exception as e:
-            return f"Gas price check failed: {e}"
+            return refusal(
+                f"Gas price check failed: {e}",
+                code="capability_error")
 
     async def _block_info(self, params: dict) -> str:
         """Get block information."""
@@ -125,7 +134,9 @@ class Dashboard(BlockchainInterface):
                 "network": self.network,
             }, indent=2)
         except Exception as e:
-            return f"Block info failed: {e}"
+            return refusal(
+                f"Block info failed: {e}",
+                code="capability_error")
 
     async def _platform_stats(self, params: dict) -> str:
         """Get platform blockchain statistics."""
@@ -145,4 +156,6 @@ class Dashboard(BlockchainInterface):
                 "gas_policy": "All gas fees covered by platform — users never pay",
             }, indent=2)
         except Exception as e:
-            return f"Platform stats failed: {e}"
+            return refusal(
+                f"Platform stats failed: {e}",
+                code="capability_error")

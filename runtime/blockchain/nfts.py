@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,9 @@ class NFTs(BlockchainInterface):
         }
         handler = handlers.get(action)
         if not handler:
-            return f"Unknown NFT action: {action}"
+            return refusal(
+                f"Unknown NFT action: {action}",
+                code="unknown_action")
         return await handler(kwargs)
 
     async def _mint(self, params: dict) -> str:
@@ -122,7 +125,9 @@ class NFTs(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Mint failed: {e}"
+            return refusal(
+                f"Mint failed: {e}",
+                code="capability_error")
 
     async def _transfer(self, params: dict) -> str:
         """Transfer an NFT. Gas covered by platform."""
@@ -168,7 +173,9 @@ class NFTs(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Transfer failed: {e}"
+            return refusal(
+                f"Transfer failed: {e}",
+                code="capability_error")
 
     async def _get_owner(self, params: dict) -> str:
         try:
@@ -180,7 +187,9 @@ class NFTs(BlockchainInterface):
             owner = contract.functions.ownerOf(params.get("token_id", 0)).call()
             return json.dumps({"owner": owner, "token_id": params.get("token_id", 0)})
         except Exception as e:
-            return f"Owner lookup failed: {e}"
+            return refusal(
+                f"Owner lookup failed: {e}",
+                code="capability_error")
 
     async def _get_uri(self, params: dict) -> str:
         try:
@@ -192,7 +201,9 @@ class NFTs(BlockchainInterface):
             uri = contract.functions.tokenURI(params.get("token_id", 0)).call()
             return json.dumps({"token_uri": uri, "token_id": params.get("token_id", 0)})
         except Exception as e:
-            return f"URI lookup failed: {e}"
+            return refusal(
+                f"URI lookup failed: {e}",
+                code="capability_error")
 
     async def _balance(self, params: dict) -> str:
         try:
@@ -206,7 +217,9 @@ class NFTs(BlockchainInterface):
             ).call()
             return json.dumps({"balance": balance})
         except Exception as e:
-            return f"Balance check failed: {e}"
+            return refusal(
+                f"Balance check failed: {e}",
+                code="capability_error")
 
     async def _deploy_collection(self, params: dict) -> str:
         """Deploy a new ERC-721 collection. Gas covered by platform."""

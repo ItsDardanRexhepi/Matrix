@@ -8,6 +8,7 @@ Returns top results with title, URL, and snippet.
 import logging
 
 logger = logging.getLogger(__name__)
+from runtime.protocols.outcome_truth import refusal
 
 
 class WebSearchTool:
@@ -63,7 +64,7 @@ class WebSearchTool:
             return await self._fallback_search(query, num_results)
         except Exception as e:
             logger.error(f"Web search failed: {e}")
-            return f"Search failed: {e}"
+            return refusal(f"Search failed: {e}", code="search_error")
 
     async def _fallback_search(self, query: str, num_results: int) -> str:
         """Fallback to HTML scraping if duckduckgo_search is not installed."""
@@ -74,7 +75,8 @@ class WebSearchTool:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data={"q": query}, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
-                    return f"Search returned HTTP {resp.status}"
+                    return refusal(f"Search returned HTTP {resp.status}",
+                                   code="search_http_error")
                 html = await resp.text()
 
         results = []

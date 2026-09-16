@@ -12,6 +12,7 @@ from typing import Any
 
 from runtime.blockchain.interface import BlockchainInterface
 from runtime.security.audit import ContractAuditor
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +64,16 @@ class SmartContracts(BlockchainInterface):
             return await self._send(kwargs)
         elif action == "verify":
             return await self._verify(kwargs)
-        return f"Unknown action: {action}"
+        return refusal(
+            f"Unknown action: {action}",
+            code="unknown_action")
 
     async def _compile(self, source: str) -> str:
         """Compile Solidity source code."""
         if not source:
-            return "Error: source_code is required for compilation"
+            return refusal(
+                "Error: source_code is required for compilation",
+                code="invalid_request")
         try:
             from solcx import compile_source, install_solc
             install_solc("0.8.24", show_progress=False)
@@ -82,9 +87,13 @@ class SmartContracts(BlockchainInterface):
                 })
             return json.dumps({"status": "compiled", "contracts": results}, indent=2)
         except ImportError:
-            return "Error: py-solc-x not installed. Run: pip install py-solc-x"
+            return refusal(
+                "Error: py-solc-x not installed. Run: pip install py-solc-x",
+                code="invalid_request")
         except Exception as e:
-            return f"Compilation error: {e}"
+            return refusal(
+                f"Compilation error: {e}",
+                code="capability_error")
 
     async def _deploy(self, params: dict) -> str:
         """Deployment is not offered here. RUN-2 closed the HTTP direction of
@@ -131,7 +140,9 @@ class SmartContracts(BlockchainInterface):
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             source = params.get("source_code", "")
             if not source:
-                return "Error: source_code required for deployment"
+                return refusal(
+                    "Error: source_code required for deployment",
+                    code="invalid_request")
 
             install_solc("0.8.24", show_progress=False)
             compiled = compile_source(source, output_values=["abi", "bin"], solc_version="0.8.24")
@@ -179,7 +190,9 @@ class SmartContracts(BlockchainInterface):
                 "block_number": receipt["blockNumber"],
             }, indent=2)
         except Exception as e:
-            return f"Deployment failed: {e}"
+            return refusal(
+                f"Deployment failed: {e}",
+                code="capability_error")
 
     async def _call(self, params: dict) -> str:
         """Read from a contract (no gas required)."""
@@ -196,7 +209,9 @@ class SmartContracts(BlockchainInterface):
             result = contract.functions[fn](*args).call()
             return json.dumps({"result": str(result), "function": fn}, indent=2)
         except Exception as e:
-            return f"Call failed: {e}"
+            return refusal(
+                f"Call failed: {e}",
+                code="capability_error")
 
     async def _send(self, params: dict) -> str:
         """Write to a contract. Gas covered by platform."""
@@ -237,7 +252,9 @@ class SmartContracts(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Send failed: {e}"
+            return refusal(
+                f"Send failed: {e}",
+                code="capability_error")
 
     async def _verify(self, params: dict) -> str:
         """Verify a contract's source code on the block explorer."""

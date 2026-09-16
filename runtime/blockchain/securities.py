@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,9 @@ class Securities(BlockchainInterface):
             return await self._get_info(kwargs)
         elif action == "freeze":
             return await self._freeze(kwargs)
-        return f"Unknown securities action: {action}"
+        return refusal(
+            f"Unknown securities action: {action}",
+            code="unknown_action")
 
     async def _create_token(self, params: dict) -> str:
         """Generate security token source code."""
@@ -171,7 +174,9 @@ contract {symbol}Security is ERC20, Ownable {{
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Security token transfer failed: {e}"
+            return refusal(
+                f"Security token transfer failed: {e}",
+                code="capability_error")
 
     async def _get_info(self, params: dict) -> str:
         """Query security token contract for name, symbol, totalSupply, and whitelist status."""
@@ -238,7 +243,9 @@ contract {symbol}Security is ERC20, Ownable {{
 
             return json.dumps(result, indent=2)
         except Exception as e:
-            return f"Token info query failed: {e}"
+            return refusal(
+                f"Token info query failed: {e}",
+                code="capability_error")
 
     async def _freeze(self, params: dict) -> str:
         """Freeze an account on a security token contract. Gas covered by platform."""
@@ -286,4 +293,6 @@ contract {symbol}Security is ERC20, Ownable {{
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
-            return f"Freeze failed: {e}"
+            return refusal(
+                f"Freeze failed: {e}",
+                code="capability_error")

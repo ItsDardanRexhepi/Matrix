@@ -16,6 +16,12 @@ import logging
 import time
 from typing import Any
 
+# The outcome contract, read and written in one place. `outcome_truth` pulls
+# `_REAL_OUTCOME_STATUSES` from this module LAZILY, inside a function, so
+# importing it here at module level closes no cycle — verified by importing this
+# module first in a bare interpreter.
+from runtime.protocols.outcome_truth import FAILURE, report_of
+
 logger = logging.getLogger(__name__)
 
 # 17-D. The parameter name a service method declares to receive, from the
@@ -577,6 +583,11 @@ _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
 #: The other half of the same census: statuses that report a real state change or
 #: a broadcast transaction, where "this action happened" is a true claim.
 _REAL_OUTCOME_STATUSES: frozenset[str] = frozenset({
+    # `paid` — SubscriptionService._attempt_payment's normalised report for a
+    # charge the gateway confirmed. It is the one branch of that method where
+    # money genuinely moved; `declined`, `not_configured` and `unresolved` are
+    # all already non-outcomes.
+    "paid",
     "submitted", "claim_submitted", "confirmed", "deployed", "executed",
     "active", "open", "created", "registered", "proposed", "requested",
     "reserved", "filed", "appealed", "responded", "escalated", "countered",
@@ -716,6 +727,46 @@ def _outcome_is_real(result: Any) -> bool:
     # `compliance_hold` be attested and published to the public feed as a
     # completed $5,000 payment that compliance had in fact refused.
     return False
+
+
+#: Keys a service uses to report the figure its action actually moved, most
+#: specific first. `value_usd` is the settled figure where a service states one.
+_FEED_VALUE_KEYS: tuple[str, ...] = ("value_usd", "amount", "value", "total", "price")
+
+
+def _feed_value_of(result: Any) -> float | None:
+    """The figure the PUBLIC FEED may announce for an action, or None.
+
+    IT TOOK ITS PARAMETER. The ingest block read an amount-like key out of
+    `params` — the request body — so the feed announced the number the caller
+    ASKED for. That is not the number the service acted on whenever the two can
+    differ, and they differ on exactly the paths that matter: a partial fill, a
+    capped amount, a fee-adjusted total, a price that moved between quote and
+    execution. `_outcome_is_real` was already reading the RESULT to decide
+    whether to publish at all; the value published alongside it came from the
+    other side of the call.
+
+    THE THIRD ANSWER, ON A PUBLIC SURFACE. A result that names no figure
+    publishes none. Falling back to the request is the move that made the number
+    untrue, and an event with no value is honest while an event with someone
+    else's number is not.
+
+    Booleans are excluded before `float()` sees them: `float(True)` is 1.0, so a
+    flag named `total` would have been published as one dollar. Sanitisation
+    (non-finite, negative, absurd) stays in `sanitize_value_usd` at both ends of
+    the feed, where 19-D put it.
+    """
+    if not isinstance(result, dict):
+        return None
+    for key in _FEED_VALUE_KEYS:
+        raw = result.get(key)
+        if raw is None or isinstance(raw, bool):
+            continue
+        try:
+            return float(raw)
+        except (ValueError, TypeError):
+            return None
+    return None
 
 
 _STATE_MODIFYING_ACTIONS: frozenset[str] = frozenset({
@@ -1239,6 +1290,7 @@ class ServiceDispatcher:
         if action not in ACTION_MAP:
             return json.dumps({
                 "status": "error",
+                "outcome": FAILURE,
                 "error_category": "not_found",
                 "degraded": False,
                 "error": f"Unknown action '{action}'",
@@ -1269,6 +1321,7 @@ class ServiceDispatcher:
                 )
                 return json.dumps({
                     "status": "error",
+                    "outcome": FAILURE,
                     "error_category": "service_unavailable",
                     "degraded": True,
                     "service": target_service,
@@ -1286,6 +1339,7 @@ class ServiceDispatcher:
                              action, target_service, method_name)
                 return json.dumps({
                     "status": "error",
+                    "outcome": FAILURE,
                     "error_category": "service_error",
                     "degraded": False,
                     "error": (
@@ -1346,6 +1400,7 @@ class ServiceDispatcher:
                 logger.error("Bad params for %s.%s: %s", target_service, method_name, exc)
                 return json.dumps({
                     "status": "error",
+                    "outcome": FAILURE,
                     "error_category": "validation",
                     "degraded": False,
                     "error": f"Invalid parameters for {action}: {exc}",
@@ -1442,15 +1497,7 @@ class ServiceDispatcher:
                     _tx = None
                     if isinstance(result, dict):
                         _tx = result.get("tx_hash") or result.get("transaction_hash")
-                    _value = None
-                    for _vk in ("amount", "value", "total", "price"):
-                        _v = params.get(_vk)
-                        if _v is not None:
-                            try:
-                                _value = float(_v)
-                            except (ValueError, TypeError):
-                                pass
-                            break
+                    _value = _feed_value_of(result)
                     asyncio.create_task(
                         self._feed_engine.ingest(
                             action=action,
@@ -1468,9 +1515,33 @@ class ServiceDispatcher:
                         )
                     )
 
+            # THE ENVELOPE SAYS WHAT IT IS CARRYING.
+            #
+            # `"status": "ok"` is true and it is about the DISPATCH: the action
+            # resolved, the service was reachable, the method returned. It says
+            # exactly that when the service returned `{"status": "not_deployed"}`
+            # — so the outcome classifier, reading the outermost verdict as the
+            # tool's own, relayed every refusal this platform makes to outcome
+            # learning as a success. This is the mega-tool: 219 actions, 45
+            # services, one envelope, and it was opaque to the fix written for
+            # it.
+            #
+            # STATED HERE BECAUSE ONLY HERE KNOWS. A reader downstream can see
+            # the payload, but it cannot see WHICH ACTION produced it, and that
+            # fact decides how to read a `status` field: for a state-modifying
+            # action the service is reporting its own disposition, while for a
+            # read the field is usually the RECORD's lifecycle — `get_campaign`
+            # succeeds and answers `{"status": "failed"}` about a campaign that
+            # missed its deadline. `_STATE_MODIFYING_ACTIONS` is the measured set
+            # that separates them, it lives here, and it is passed rather than
+            # re-derived.
             elapsed = round(time.time() - start, 3)
             return json.dumps({
                 "status": "ok",
+                "outcome": report_of(
+                    result,
+                    status_describes_the_call=action in _STATE_MODIFYING_ACTIONS,
+                ),
                 "action": action,
                 "service": target_service,
                 "result": self._serialise(result),
@@ -1481,6 +1552,7 @@ class ServiceDispatcher:
             logger.warning("Action %s not implemented: %s", action, exc)
             return json.dumps({
                 "status": "error",
+                "outcome": FAILURE,
                 "error_category": "not_implemented",
                 "degraded": True,
                 "error": f"Action '{action}' is not implemented in this build: {exc}",
@@ -1489,6 +1561,7 @@ class ServiceDispatcher:
             logger.exception("Action %s failed", action)
             return json.dumps({
                 "status": "error",
+                "outcome": FAILURE,
                 "error_category": "service_error",
                 "degraded": True,
                 "service": target_service,
