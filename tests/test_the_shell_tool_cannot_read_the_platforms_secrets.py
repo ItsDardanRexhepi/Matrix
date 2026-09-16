@@ -23,14 +23,18 @@ Scrubbing the child's environment is not isolation. A process running as the
 same user can still read its parent's environment through the operating system
 (`/proc/<ppid>/environ` on Linux, `ps eww` on macOS), and it still has the
 network. Nothing in this tool can close those without a real sandbox — a
-separate user or namespace. So the tool REFUSES TO RUN IN PRODUCTION unless an
-operator explicitly opts in, and the tests below measure the residual rather
-than assume it away.
+separate user or namespace. So the tool REFUSES TO RUN unless the environment
+has declared itself development (MATRIX_ENV in bash.DEVELOPMENT_ENVIRONMENTS) or
+an operator explicitly opts in — an unset MATRIX_ENV refuses, because no shipped
+launcher sets one — and the tests below measure the residual rather than assume
+it away.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import pathlib as _pathlib
+import re as _re
 
 import pytest
 
@@ -177,15 +181,70 @@ def test_a_declared_development_environment_runs_the_shell(monkeypatch, value):
     assert "ran" in _run(BashTool({}), "echo ran")
 
 
+_REPO = _pathlib.Path(__file__).resolve().parent.parent
+
+#: Every syntax this tree's launch descriptors use to set a variable. A launcher
+#: that sets MATRIX_ENV in a form the reader cannot see would pass the check
+#: below while running the shell, so the reader is itself tested against each
+#: form before it is trusted over the tree.
+_MATRIX_ENV_FORMS = (
+    # shell, Procfile, Dockerfile `ENV K=v`, TOML/YAML `K = v` / `K: v`, and the
+    # compose default `${MATRIX_ENV:-v}`
+    _re.compile(r"""MATRIX_ENV\s*[:=]\s*["']?(?:\$\{MATRIX_ENV:-)?([A-Za-z_-]*)"""),
+    # Dockerfile `ENV K v`
+    _re.compile(r"""^\s*ENV\s+MATRIX_ENV\s+["']?([A-Za-z_-]+)""", _re.MULTILINE),
+    # Kubernetes `- name: K` followed by `value: v`
+    _re.compile(r"""name:\s*["']?MATRIX_ENV["']?\s*\n\s*value:\s*["']?([A-Za-z_-]*)"""),
+)
+
+
+def _declared_matrix_envs(text: str) -> list[str]:
+    return [m.group(1).strip().lower() for form in _MATRIX_ENV_FORMS
+            for m in form.finditer(text)]
+
+
+def _launch_descriptors() -> list[_pathlib.Path]:
+    names = ["Dockerfile", "Procfile", "railway.toml", "start.sh"]
+    found = [_REPO / n for n in names if (_REPO / n).exists()]
+    found += sorted(_REPO.glob("docker-compose*.yml"))
+    found += sorted((_REPO / "k8s").glob("*.yaml"))
+    return found
+
+
+@pytest.mark.parametrize("text", [
+    "ENV MATRIX_ENV=development",
+    "ENV MATRIX_ENV development",
+    'MATRIX_ENV = "dev"',
+    "      MATRIX_ENV: local",
+    'MATRIX_ENV: "${MATRIX_ENV:-test}"',
+    "web: MATRIX_ENV=development python -m gateway.server",
+    "export MATRIX_ENV=local",
+    '- name: MATRIX_ENV\n  value: "development"',
+])
+def test_the_launcher_reader_sees_every_form_a_development_declaration_takes(text):
+    """THE CHECK'S OWN CONTROL. The first version looked for the substring
+    `matrix_env=development` in four files, so `ENV MATRIX_ENV development`,
+    a TOML `MATRIX_ENV = "dev"`, a compose file and a Kubernetes manifest all
+    passed it whatever they declared."""
+    assert set(_declared_matrix_envs(text)) & bash_module.DEVELOPMENT_ENVIRONMENTS, text
+
+
 def test_every_shipped_launcher_gets_the_refusal():
     """Derived from the launch descriptors in the tree: none of them may declare
-    a development environment, because each is how the platform is deployed."""
-    import pathlib
-    repo = pathlib.Path(__file__).resolve().parent.parent
-    for name in ("railway.toml", "Dockerfile", "Procfile", "start.sh"):
-        path = repo / name
-        if not path.exists():
-            continue
-        text = path.read_text().lower()
-        for dev in ("matrix_env=development", "matrix_env=dev", "matrix_env=local", "matrix_env=test"):
-            assert dev not in text, f"{name} declares a development environment, which would run the shell"
+    a development environment, because each is how the platform is deployed.
+
+    The reader has to FIND the declarations that do exist before its silence
+    means anything: the two compose files and the Kubernetes deployment all set
+    MATRIX_ENV, and a reader that returned nothing for them would pass here
+    while seeing nothing at all."""
+    declared = {}
+    for path in _launch_descriptors():
+        values = _declared_matrix_envs(path.read_text())
+        if values:
+            declared[str(path.relative_to(_REPO))] = values
+    assert {"docker-compose.yml", "docker-compose.prod.yml", "k8s/deployment.yaml"} <= set(declared), (
+        f"the launcher reader no longer finds the declarations that exist: {declared}")
+    runs_the_shell = {name: values for name, values in declared.items()
+                      if set(values) & bash_module.DEVELOPMENT_ENVIRONMENTS}
+    assert runs_the_shell == {}, (
+        f"a shipped launcher declares a development environment, which runs the shell: {runs_the_shell}")

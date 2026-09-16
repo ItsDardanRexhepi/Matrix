@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,106 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,114 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -280,6 +280,15 @@ check behind it:
   decodes on the HTTP status alone still reads a refusal as a result. An
   item that timed out is neither counted nor refused — it was cancelled
   mid-flight, and it may have acted
+- **The agent's shell runs only where someone said it may.** It has no
+  sandbox: a command runs as the platform's own user, can read the
+  platform process's environment and can reach the network. So it refuses
+  unless `MATRIX_ENV` declares a development environment or an operator
+  opts in, an unset `MATRIX_ENV` refuses too, and a test reads every
+  launcher shipped in this tree to hold that none of them declares one.
+  A command it does run gets an allowlisted environment with none of the
+  platform's keys in it, which is not isolation, and is why it refuses by
+  default
 - **Security posture is stated, not assumed.** With no enforcement core
   installed the platform runs in OBSERVE mode and says so at boot
 
