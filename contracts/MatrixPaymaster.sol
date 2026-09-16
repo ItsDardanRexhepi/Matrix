@@ -94,6 +94,11 @@ contract MatrixPaymaster is ReentrancyGuard {
             if (targetAllowlistEnabled) {
                 require(allowedTargets[target], "Target not allowlisted");
             }
+            // Not a random draw. This is the start of the current UTC day, used
+            // to bucket a DAILY SPEND CAP. Nothing is selected by it and nothing
+            // is won; a miner nudging the timestamp would only shift the cap
+            // window slightly, which a daily cap already tolerates.
+            // slither-disable-next-line weak-prng
             uint256 dayStart = block.timestamp - (block.timestamp % 1 days);
             if (agentDayStart[msg.sender] != dayStart) {
                 agentDayStart[msg.sender] = dayStart;

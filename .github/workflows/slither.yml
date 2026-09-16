@@ -3,19 +3,40 @@ name: Slither
 # Static analysis for the Solidity contracts under contracts/.
 #
 # Runs on every push and PR that touches a .sol file. Findings of severity
-# "high" fail the build; lower severities are uploaded as a SARIF report
-# so they show up in the repository's Security tab.
+# "high" fail the build; everything is uploaded as a SARIF report so it shows up
+# in the repository's Security tab.
+#
+# WHY THIS DOES NOT USE crytic/slither-action. That action runs inside a Docker
+# container, and this is a Foundry project: crytic-compile shells out to `forge`
+# both to build and to read `forge config`. The container has no Foundry, so
+#   * before Foundry was installed on the runner it died on
+#     FileNotFoundError: 'forge';
+#   * installing Foundry on the RUNNER did not help, because the container
+#     cannot see it;
+#   * and with --ignore-compile it still could not read `out = "contracts/out"`
+#     from foundry.toml — crytic-compile only reads the foundry config INSIDE
+#     its compile branch, so ignoring the compile also skips learning where the
+#     artifacts are — and it looked for `out/build-info` at the repo root,
+#     failing with "out/build-info is not a directory".
+# So Slither compiles the project itself, which is what it does correctly when
+# `forge` is actually on PATH. `--fail-high` is the real flag; `--fail-on` is an
+# input of the action, not of Slither, and passing it to the CLI is an error.
+# Slither is installed with pip and run directly on the runner instead, where
+# Foundry is on PATH and foundry.toml means what it says. This workflow had
+# never once succeeded before that change.
 
 on:
   push:
     branches: [main]
     paths:
       - 'contracts/**/*.sol'
+      - 'foundry.toml'
       - '.github/workflows/slither.yml'
   pull_request:
     branches: [main]
     paths:
       - 'contracts/**/*.sol'
+      - 'foundry.toml'
       - '.github/workflows/slither.yml'
   workflow_dispatch:
 
@@ -31,46 +52,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Slither compiles the contracts, and they import forge-std,
-          # openzeppelin-contracts and account-abstraction from contracts/lib/,
-          # which are submodules. Without them the compile finds no imports.
+          # The contracts import forge-std, openzeppelin-contracts and
+          # account-abstraction from contracts/lib/, which are submodules.
           submodules: recursive
 
-      # contracts/ is a Foundry project (contracts/foundry.toml), so Slither
-      # shells out to `forge` to build it. `forge` is not on the runner by
-      # default, and without it Slither dies on
-      #   FileNotFoundError: [Errno 2] No such file or directory: 'forge'
-      # produces no SARIF, and the upload step then fails on the missing file.
-      # That is why this workflow had never once gone green.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
 
-      # Built HERE, on the runner, and not by Slither. crytic-compile's Foundry
-      # platform shells out to `forge`, and slither-action is a DOCKER action —
-      # the container has no Foundry, so installing it on the host above is not
-      # enough on its own and the compile died on
-      #   FileNotFoundError: [Errno 2] No such file or directory: 'forge'
-      # even after Foundry was installed. So the host builds, and Slither reads
-      # the artifacts with ignore-compile.
-      - name: Build contracts
-        run: forge build
-        working-directory: contracts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Slither
+        run: pip install slither-analyzer==0.10.4
 
       - name: Run Slither
-        id: slither
-        uses: crytic/slither-action@v0.4.0
-        with:
-          target: 'contracts/'
-          slither-version: '0.10.4'
-          fail-on: 'high'
-          sarif: results.sarif
-          ignore-compile: true
+        run: |
+          slither . \
+            --sarif results.sarif \
+            --fail-high \
+            --exclude-dependencies
 
-      # Guarded on the FILE, not on the output variable. The variable simply
-      # echoes the requested filename, so it is non-empty even when Slither
-      # produced nothing, and the upload then failed on a path that does not
-      # exist — reporting an upload problem for what was really a build problem.
       - name: Upload SARIF report
+        # Guarded on the FILE. An output variable that merely echoes the
+        # requested filename is non-empty even when nothing was produced, which
+        # reported an upload problem for what was really a build problem.
         if: always() && hashFiles('results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
