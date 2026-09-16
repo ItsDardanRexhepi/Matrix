@@ -50,7 +50,7 @@ OPERATOR_ROUTE = "/api/v1/contracts/deploy"  # exists, never called by the app
 def _server() -> GatewayServer:
     # A fresh SQLite per server: the sweep config's store persists across runs,
     # and "first sign-in" is only true once per database.
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-t2-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-t2-")
     config = {**AUTH_CONFIG, "memory_dir": scratch,
               "database": {**AUTH_CONFIG.get("database", {}), "path": f"{scratch}/t2.db"}}
     server = GatewayServer(config)

@@ -2,7 +2,7 @@
 
 THE DEFECT THIS EXISTS FOR. The provider list was written out five times — the
 setup wizard's menu, the router's factory, the env bridge in
-`runtime/config/validation.py`, `openmatrix.config.json.example` and the README.
+`runtime/config/validation.py`, `matrix.config.json.example` and the README.
 They drifted:
 
   * Grok (xAI), Hermes (Nous Research), DeepSeek, Mistral, Groq, Together,
@@ -111,7 +111,7 @@ def test_the_env_bridge_covers_every_provider_that_takes_a_key():
 
 
 def test_the_example_config_shows_every_provider():
-    cfg = json.loads((REPO / "openmatrix.config.json.example").read_text())
+    cfg = json.loads((REPO / "matrix.config.json.example").read_text())
     shown = set(cfg["model"]["providers"]) - {"//"}
     missing = [p.key for p in PROVIDERS if p.key not in shown]
     assert not missing, f"the example config does not show: {missing}"

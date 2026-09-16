@@ -1,7 +1,7 @@
 """Plugin loader for discovering and loading plugins from disk.
 
 Scans configured plugin directories for Python modules that contain
-``OpenMatrixPlugin`` subclasses. Handles loading, validation, and
+``MatrixPlugin`` subclasses. Handles loading, validation, and
 lifecycle management.
 """
 
@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from runtime.plugins.base import OpenMatrixPlugin
+from runtime.plugins.base import MatrixPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class PluginLoader:
     """Discovers and loads plugins from the filesystem.
 
     Plugins are Python packages or modules that contain a class
-    extending ``OpenMatrixPlugin``. The loader scans configured
+    extending ``MatrixPlugin``. The loader scans configured
     directories and imports valid plugins.
     """
 
@@ -38,7 +38,7 @@ class PluginLoader:
             ``['plugins/installed']``.
         """
         self.plugin_dirs = plugin_dirs or ["plugins/installed"]
-        self.loaded: dict[str, OpenMatrixPlugin] = {}
+        self.loaded: dict[str, MatrixPlugin] = {}
 
     async def discover(self) -> list[str]:
         """Discover plugin modules in configured directories.
@@ -63,7 +63,7 @@ class PluginLoader:
         logger.info("Discovered %d plugin candidates", len(discovered))
         return discovered
 
-    async def load(self, module_path: str, config: dict | None = None) -> OpenMatrixPlugin | None:
+    async def load(self, module_path: str, config: dict | None = None) -> MatrixPlugin | None:
         """Load a single plugin from a module path.
 
         Parameters
@@ -75,7 +75,7 @@ class PluginLoader:
 
         Returns
         -------
-        OpenMatrixPlugin | None
+        MatrixPlugin | None
             The loaded plugin instance, or None on failure.
         """
         try:
@@ -98,20 +98,20 @@ class PluginLoader:
             sys.modules[f"plugins.{module_name}"] = module
             spec.loader.exec_module(module)
 
-            # Find OpenMatrixPlugin subclasses
+            # Find MatrixPlugin subclasses
             plugin_class = None
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
                 if (
                     isinstance(attr, type)
-                    and issubclass(attr, OpenMatrixPlugin)
-                    and attr is not OpenMatrixPlugin
+                    and issubclass(attr, MatrixPlugin)
+                    and attr is not MatrixPlugin
                 ):
                     plugin_class = attr
                     break
 
             if not plugin_class:
-                logger.debug("No OpenMatrixPlugin subclass found in %s", module_path)
+                logger.debug("No MatrixPlugin subclass found in %s", module_path)
                 return None
 
             plugin = plugin_class()
@@ -124,7 +124,7 @@ class PluginLoader:
             logger.error("Failed to load plugin %s: %s", module_path, exc)
             return None
 
-    async def load_all(self, config: dict | None = None) -> list[OpenMatrixPlugin]:
+    async def load_all(self, config: dict | None = None) -> list[MatrixPlugin]:
         """Discover and load all plugins.
 
         Parameters
@@ -134,7 +134,7 @@ class PluginLoader:
 
         Returns
         -------
-        list[OpenMatrixPlugin]
+        list[MatrixPlugin]
             List of successfully loaded plugins.
         """
         modules = await self.discover()

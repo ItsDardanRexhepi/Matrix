@@ -1,5 +1,5 @@
 """
-IPRoyaltyService — intellectual property and royalty management for 0pnMatrx.
+IPRoyaltyService — intellectual property and royalty management for The Matrix.
 
 Handles registration, transfer, licensing, and royalty enforcement for
 music, art, patents, trademarks, software, and literary works.

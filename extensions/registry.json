@@ -1,6 +1,6 @@
 {
   "version": "2.0.0",
-  "platform": "0pnMatrx",
+  "platform": "The Matrix",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
   "total_capabilities": 195,

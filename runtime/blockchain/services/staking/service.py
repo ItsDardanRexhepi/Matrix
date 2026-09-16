@@ -1,5 +1,5 @@
 """
-StakingService — staking infrastructure for the 0pnMatrx platform.
+StakingService — staking infrastructure for the Matrix platform.
 
 5 % FLAT commission on all staking rewards (platform takes 5 %, staker
 gets 95 %).  1 ETH MINIMUM stake requirement.  Commission goes to

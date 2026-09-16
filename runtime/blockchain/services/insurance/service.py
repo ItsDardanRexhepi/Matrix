@@ -1,5 +1,5 @@
 """
-InsuranceService — Parametric insurance for the 0pnMatrx platform.
+InsuranceService — Parametric insurance for the Matrix platform.
 
 Supports weather, flight delay, crop, earthquake, and smart-contract-hack
 policies.  Claims are automatically triggered when oracle data confirms

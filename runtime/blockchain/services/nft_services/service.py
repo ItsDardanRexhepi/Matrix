@@ -1,5 +1,5 @@
 """
-NFTService — orchestrate all NFT creation and artist services on 0pnMatrx.
+NFTService — orchestrate all NFT creation and artist services on The Matrix.
 
 This is the single entry point for collection deployment, minting,
 transfers, sales, valuation, rights management, and royalty enforcement.
@@ -60,7 +60,7 @@ ERC721_OWNER_ABI = [{
 #   * this platform holds NO ownership record. `NFTFactory._collections` is
 #     declared "cache for in-process queries" and is NEVER WRITTEN — three
 #     occurrences package-wide, one declaration and two reads. Ownership lives
-#     on-chain in OpenMatrixNFT.sol, which is not deployed.
+#     on-chain in MatrixNFT.sol, which is not deployed.
 #   * so when `fractionalize` reports a token split into 10 shares, there is no
 #     store on EITHER side that can say the caller never owned it.
 #   * and `buy_nft` — already live, already ungated on
@@ -100,7 +100,7 @@ ERC721_OWNER_ABI = [{
 
 
 class NFTService:
-    """Orchestrate all NFT operations on the 0pnMatrx platform.
+    """Orchestrate all NFT operations on the Matrix platform.
 
     Config keys used:
         - ``blockchain.*`` — chain and wallet configuration
@@ -637,7 +637,7 @@ class NFTService:
         #
         # The factory is CORRECT. `_collections` is declared in its own comment
         # as a "cache for in-process queries"; ownership lives on-chain in
-        # OpenMatrixNFT.sol (a real ERC721), and refusing while that contract is
+        # MatrixNFT.sol (a real ERC721), and refusing while that contract is
         # undeployed is the right behaviour. The defect was never a missing
         # implementation — it was an implemented refusal being overwritten,
         # which is worse than a stub because someone did the work correctly and

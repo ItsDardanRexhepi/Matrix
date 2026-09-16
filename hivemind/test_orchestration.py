@@ -45,9 +45,9 @@ class MockReActLoop:
 
     def get_agent_prompt(self, agent: str) -> str:
         prompts = {
-            "neo": "You are Neo, the execution agent of 0pnMatrx.",
-            "trinity": "You are Trinity, the conversation agent of 0pnMatrx.",
-            "morpheus": "You are Morpheus, the guidance agent of 0pnMatrx.",
+            "neo": "You are Neo, the execution agent of The Matrix.",
+            "trinity": "You are Trinity, the conversation agent of The Matrix.",
+            "morpheus": "You are Morpheus, the guidance agent of The Matrix.",
         }
         return prompts.get(agent, "")
 
@@ -267,7 +267,7 @@ async def test_agent_capabilities():
 
 async def main():
     print("=" * 60)
-    print("  0pnMatrx Hivemind Orchestration Test")
+    print("  The Matrix Hivemind Orchestration Test")
     print("=" * 60)
 
     await test_message_bus()

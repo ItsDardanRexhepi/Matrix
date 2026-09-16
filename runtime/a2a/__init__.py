@@ -1,4 +1,4 @@
-"""Agent-to-agent commerce protocol for 0pnMatrx.
+"""Agent-to-agent commerce protocol for The Matrix.
 
 Enables agents to discover, negotiate, and transact services with
 each other. Implements a marketplace where agents can list capabilities

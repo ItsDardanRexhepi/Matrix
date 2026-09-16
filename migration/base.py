@@ -2,7 +2,7 @@
 Base Importer — abstract base class for all framework importers.
 
 Each importer converts a source framework's agent definition into
-0pnMatrx's agent format: identity.md, tools, skills, and config.
+The Matrix's agent format: identity.md, tools, skills, and config.
 """
 
 import json
@@ -51,7 +51,7 @@ class BaseImporter(ABC):
         ...
 
     def write_agent(self, agent: ImportedAgent) -> Path:
-        """Write an imported agent to the 0pnMatrx agents directory."""
+        """Write an imported agent to the Matrix agents directory."""
         agent_dir = self.workspace / "agents" / agent.name
         agent_dir.mkdir(parents=True, exist_ok=True)
 

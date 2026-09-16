@@ -1,1 +1,1 @@
-"""0pnMatrx Gateway — HTTP server for agent interaction."""
+"""The Matrix Gateway — HTTP server for agent interaction."""

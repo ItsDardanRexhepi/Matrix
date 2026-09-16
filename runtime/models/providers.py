@@ -1,8 +1,8 @@
-"""The model providers 0pnMatrx can talk to — declared ONCE, here.
+"""The model providers The Matrix can talk to — declared ONCE, here.
 
 Why this file exists: the provider list used to be written out five times — the
 setup wizard's menu, the router's factory, the env-var bridge in
-`runtime/config/validation.py`, `openmatrix.config.json.example`, and the README
+`runtime/config/validation.py`, `matrix.config.json.example`, and the README
 table. They drifted, and a provider that reached one list but not another either
 could not be chosen during setup or was chosen and then never loaded. Grok,
 Hermes, DeepSeek, Mistral, Groq, Together, OpenRouter, Perplexity, Fireworks and
@@ -80,7 +80,7 @@ PROVIDERS: tuple[Provider, ...] = (
     # true rather than a list somebody has to keep extending.
     Provider("custom", "Custom endpoint",
              "any OpenAI-compatible API — you give the base URL and model",
-             "OPENMATRIX_MODEL_API_KEY", "", base_url=""),
+             "MATRIX_MODEL_API_KEY", "", base_url=""),
 )
 
 BY_KEY: dict[str, Provider] = {p.key: p for p in PROVIDERS}

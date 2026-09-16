@@ -28,36 +28,36 @@ logger = logging.getLogger(__name__)
 
 CONTRACTS: list[dict[str, Any]] = [
     {
-        "name": "OpenMatrixMarketplace",
-        "source": "contracts/OpenMatrixMarketplace.sol",
+        "name": "MatrixMarketplace",
+        "source": "contracts/MatrixMarketplace.sol",
         "constructor_args": lambda cfg: [cfg["neosafe_address"]],
     },
     {
-        "name": "OpenMatrixStaking",
-        "source": "contracts/OpenMatrixStaking.sol",
+        "name": "MatrixStaking",
+        "source": "contracts/MatrixStaking.sol",
         "constructor_args": lambda cfg: [cfg["neosafe_address"]],
     },
     {
-        "name": "OpenMatrixDAO",
-        "source": "contracts/OpenMatrixDAO.sol",
+        "name": "MatrixDAO",
+        "source": "contracts/MatrixDAO.sol",
         "constructor_args": lambda cfg: [cfg["neosafe_address"]],
     },
     {
-        "name": "OpenMatrixInsurance",
-        "source": "contracts/OpenMatrixInsurance.sol",
+        "name": "MatrixInsurance",
+        "source": "contracts/MatrixInsurance.sol",
         "constructor_args": lambda cfg: [
             cfg["neosafe_address"],
             cfg.get("oracle_address", cfg["neosafe_address"]),
         ],
     },
     {
-        "name": "OpenMatrixDEX",
-        "source": "contracts/OpenMatrixDEX.sol",
+        "name": "MatrixDEX",
+        "source": "contracts/MatrixDEX.sol",
         "constructor_args": lambda cfg: [cfg["neosafe_address"]],
     },
     {
-        "name": "OpenMatrixNFT",
-        "source": "contracts/OpenMatrixNFT.sol",
+        "name": "MatrixNFT",
+        "source": "contracts/MatrixNFT.sol",
         "constructor_args": lambda cfg: [
             cfg["neosafe_address"],
             int(cfg.get("default_royalty_bps", 500)),  # 5%
@@ -65,8 +65,8 @@ CONTRACTS: list[dict[str, Any]] = [
         ],
     },
     {
-        "name": "OpenMatrixDID",
-        "source": "contracts/OpenMatrixDID.sol",
+        "name": "MatrixDID",
+        "source": "contracts/MatrixDID.sol",
         "constructor_args": lambda cfg: [cfg["neosafe_address"]],
     },
     # Real-Estate Escrow Engine (Component 46). Deed first — the escrow is
@@ -219,8 +219,8 @@ def load_config(config_path: str | None = None) -> dict:
     Load deployment config from JSON file or environment variables.
 
     Environment variable overrides:
-        OPENMATRIX_RPC_URL, OPENMATRIX_CHAIN_ID, OPENMATRIX_PRIVATE_KEY,
-        OPENMATRIX_NEOSAFE_ADDRESS, OPENMATRIX_ORACLE_ADDRESS
+        MATRIX_RPC_URL, MATRIX_CHAIN_ID, MATRIX_PRIVATE_KEY,
+        MATRIX_NEOSAFE_ADDRESS, MATRIX_ORACLE_ADDRESS
     """
     config: dict[str, Any] = {}
 
@@ -230,12 +230,12 @@ def load_config(config_path: str | None = None) -> dict:
 
     # Environment overrides
     env_map = {
-        "OPENMATRIX_RPC_URL": "rpc_url",
-        "OPENMATRIX_CHAIN_ID": "chain_id",
-        "OPENMATRIX_PRIVATE_KEY": "private_key",
-        "OPENMATRIX_NEOSAFE_ADDRESS": "neosafe_address",
-        "OPENMATRIX_ORACLE_ADDRESS": "oracle_address",
-        "OPENMATRIX_EAS_SCHEMA_UID": "eas_schema_uid",
+        "MATRIX_RPC_URL": "rpc_url",
+        "MATRIX_CHAIN_ID": "chain_id",
+        "MATRIX_PRIVATE_KEY": "private_key",
+        "MATRIX_NEOSAFE_ADDRESS": "neosafe_address",
+        "MATRIX_ORACLE_ADDRESS": "oracle_address",
+        "MATRIX_EAS_SCHEMA_UID": "eas_schema_uid",
     }
     for env_key, cfg_key in env_map.items():
         val = os.environ.get(env_key)
@@ -252,7 +252,7 @@ def load_config(config_path: str | None = None) -> dict:
     if missing:
         raise ValueError(
             f"Missing required config keys: {missing}. "
-            "Set them in config JSON or via OPENMATRIX_* env vars."
+            "Set them in config JSON or via MATRIX_* env vars."
         )
 
     return config

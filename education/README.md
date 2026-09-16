@@ -1,12 +1,12 @@
-# 0pnMatrx Education Program
+# The Matrix Education Program
 
-Welcome to the official education program for **0pnMatrx** (OpenMatrix) — the free AI agent platform that makes blockchain accessible to everyone.
+Welcome to the official education program for **The Matrix** (Matrix) — the free AI agent platform that makes blockchain accessible to everyone.
 
 ## Available Courses
 
 | Course | Title | Level |
 |--------|-------|-------|
-| [Course 01](./course-01-intro-to-0pnmatrx/) | Introduction to 0pnMatrx | Beginner |
+| [Course 01](./course-01-intro-to-the-matrix/) | Introduction to The Matrix | Beginner |
 | [Course 02](./course-02-smart-contract-security/) | Smart Contract Security with Glasswing | Intermediate |
 | [Course 03](./course-03-defi-from-scratch/) | DeFi from Scratch | Beginner |
 
@@ -23,7 +23,7 @@ All course content is open source. Every tutorial, code example, and explanation
 ## Course Progression
 
 ```
-Course 01: Introduction to 0pnMatrx
+Course 01: Introduction to The Matrix
     |
     +---> Course 02: Smart Contract Security
     |

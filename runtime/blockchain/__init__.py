@@ -1,5 +1,5 @@
 """
-Blockchain Module — on-chain capabilities for 0pnMatrx.
+Blockchain Module — on-chain capabilities for The Matrix.
 
 All gas fees are covered by the platform via ERC-4337 paymaster.
 Users never pay gas. Every state-changing action is attested via EAS.

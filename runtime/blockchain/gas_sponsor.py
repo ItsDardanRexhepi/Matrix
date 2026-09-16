@@ -115,7 +115,7 @@ class GasSponsor:
                 "tx_hash": tx_hash.hex(),
                 "status": "success" if receipt["status"] == 1 else "failed",
                 "gas_used": receipt["gasUsed"],
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
                 "block_number": receipt["blockNumber"],
             }
 

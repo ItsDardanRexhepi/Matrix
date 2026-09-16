@@ -1,4 +1,4 @@
-# Foundry configuration for the 0pnMatrx Solidity contracts.
+# Foundry configuration for the Matrix Solidity contracts.
 #
 # Usage:
 #   forge build
@@ -44,15 +44,15 @@ evm_version = "shanghai"
 # Verbose-enough gas reports during `forge test` without swamping the
 # output.
 gas_reports = [
-  "OpenMatrixPaymaster",
-  "OpenMatrixAttestation",
-  "OpenMatrixNFT",
-  "OpenMatrixDEX",
-  "OpenMatrixStaking",
-  "OpenMatrixDAO",
-  "OpenMatrixDID",
-  "OpenMatrixMarketplace",
-  "OpenMatrixInsurance",
+  "MatrixPaymaster",
+  "MatrixAttestation",
+  "MatrixNFT",
+  "MatrixDEX",
+  "MatrixStaking",
+  "MatrixDAO",
+  "MatrixDID",
+  "MatrixMarketplace",
+  "MatrixInsurance",
 ]
 
 # Strict warnings — treat anything Solc flags as a hard error in CI.

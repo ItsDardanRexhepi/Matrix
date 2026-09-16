@@ -1,1 +1,1 @@
-# OpenMatrix On-Chain Contracts and Deployment Infrastructure
+# Matrix On-Chain Contracts and Deployment Infrastructure

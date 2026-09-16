@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 """
-Config Encryption — protects sensitive values in openmatrix.config.json.
+Config Encryption — protects sensitive values in matrix.config.json.
 
 Uses Fernet symmetric encryption (from cryptography package) when available,
 falls back to base64 obfuscation with a warning. Encryption key is derived
-from OPENMATRIX_SECRET_KEY environment variable or generated on first use.
+from MATRIX_SECRET_KEY environment variable or generated on first use.
 
 Usage:
     from runtime.config.encryption import ConfigEncryption
@@ -34,7 +34,7 @@ class ConfigEncryption:
     """Encrypts and decrypts sensitive config values."""
 
     def __init__(self, key: str | None = None):
-        self._key = key or os.environ.get("OPENMATRIX_SECRET_KEY", "")
+        self._key = key or os.environ.get("MATRIX_SECRET_KEY", "")
         self._fernet = None
 
         if self._key:
@@ -79,7 +79,7 @@ class ConfigEncryption:
                 logger.error(f"Decryption failed: {e}")
                 return value
 
-        logger.warning("Cannot decrypt Fernet value without OPENMATRIX_SECRET_KEY")
+        logger.warning("Cannot decrypt Fernet value without MATRIX_SECRET_KEY")
         return value
 
     def is_encrypted(self, value: str) -> bool:
@@ -94,7 +94,7 @@ SENSITIVE_KEYS = {
 }
 
 
-def load_config_secure(path: str = "openmatrix.config.json") -> dict:
+def load_config_secure(path: str = "matrix.config.json") -> dict:
     """
     Load config and automatically decrypt any encrypted values.
     Sensitive keys are identified by name pattern matching.
@@ -118,7 +118,7 @@ def load_config_secure(path: str = "openmatrix.config.json") -> dict:
     return _decrypt_recursive(config)
 
 
-def encrypt_config_secrets(path: str = "openmatrix.config.json"):
+def encrypt_config_secrets(path: str = "matrix.config.json"):
     """
     Encrypt sensitive values in a config file in-place.
     Only encrypts values for keys matching SENSITIVE_KEYS patterns.
@@ -132,7 +132,7 @@ def encrypt_config_secrets(path: str = "openmatrix.config.json"):
 
     if not enc._key:
         logger.error(
-            "Set OPENMATRIX_SECRET_KEY environment variable before encrypting. "
+            "Set MATRIX_SECRET_KEY environment variable before encrypting. "
             "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
         )
         return

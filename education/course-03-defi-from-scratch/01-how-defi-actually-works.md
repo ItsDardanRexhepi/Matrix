@@ -46,7 +46,7 @@ Stablecoins are the bridge between volatile crypto prices and predictable dollar
 
 ## The Services
 
-0pnMatrx provides 221 capabilities across 21 categories. The DeFi and DeFi-advanced categories alone cover perps, options, synthetics, lending, swaps, liquid staking, restaking (EigenLayer), orderbook DEX, and more. Here are the main categories:
+The Matrix provides 221 capabilities across 21 categories. The DeFi and DeFi-advanced categories alone cover perps, options, synthetics, lending, swaps, liquid staking, restaking (EigenLayer), orderbook DEX, and more. Here are the main categories:
 
 **Lending and Borrowing**: Deposit collateral, borrow stablecoins, earn interest on deposits.
 
@@ -64,7 +64,7 @@ Three billion people worldwide do not have access to basic financial services. T
 
 That is both its strength and its limitation. DeFi is not a replacement for all banking -- it is an alternative for people who either cannot access or choose not to use traditional finance. It is also a laboratory for new financial tools that may eventually be adopted by mainstream institutions.
 
-0pnMatrx makes DeFi accessible by removing the technical barrier. Instead of connecting wallets, approving transactions, and navigating complex interfaces, you have a conversation with Trinity. The technical complexity is handled; the financial decisions are still yours.
+The Matrix makes DeFi accessible by removing the technical barrier. Instead of connecting wallets, approving transactions, and navigating complex interfaces, you have a conversation with Trinity. The technical complexity is handled; the financial decisions are still yours.
 
 ## Key Takeaways
 
@@ -72,7 +72,7 @@ That is both its strength and its limitation. DeFi is not a replacement for all 
 - Collateral is the foundation: you deposit assets to borrow against
 - Liquidation is the main risk: if collateral drops too much, you lose it
 - Interest rates are set by supply and demand, updating in real time
-- 0pnMatrx provides access to DeFi through natural conversation
+- The Matrix provides access to DeFi through natural conversation
 
 ---
 

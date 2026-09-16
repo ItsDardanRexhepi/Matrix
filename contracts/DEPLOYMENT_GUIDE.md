@@ -1,8 +1,8 @@
-# 0pnMatrx Contract Deployment Guide
+# The Matrix Contract Deployment Guide
 
-This guide walks you through deploying the 0pnMatrx smart-contract suite to
+This guide walks you through deploying the Matrix smart-contract suite to
 Base Sepolia (testnet) or Base Mainnet, then plugging the resulting addresses
-into `openmatrix.config.json`.
+into `matrix.config.json`.
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ Copy `.env.example` to `.env` and fill in:
 BASE_RPC_URL=https://sepolia.base.org
 ```
 
-Set the deployer key in `openmatrix.config.json`:
+Set the deployer key in `matrix.config.json`:
 
 ```json
 "blockchain": {
@@ -52,7 +52,7 @@ writes the resulting addresses to `contracts/deployed_addresses.json`.
 ## 3. Wire addresses into config
 
 After deployment, copy each address from `deployed_addresses.json` into the
-matching `services.*` block in `openmatrix.config.json`. For example:
+matching `services.*` block in `matrix.config.json`. For example:
 
 ```json
 "services": {
@@ -75,7 +75,7 @@ You should see `{"configured": true}`.
 
 ## Reference: Pre-deployed addresses
 
-The 0pnMatrx team maintains a public deployment on Base Sepolia for testing.
+The Matrix team maintains a public deployment on Base Sepolia for testing.
 These addresses are stable and can be used directly in your config:
 
 | Service              | Base Sepolia                                       |

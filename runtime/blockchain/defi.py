@@ -162,7 +162,7 @@ class DeFi(BlockchainInterface):
                 "token": token,
                 "amount": params.get("amount", "0"),
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Supply failed: {e}"
@@ -213,7 +213,7 @@ class DeFi(BlockchainInterface):
                 "amount": params.get("amount", "0"),
                 "rate_mode": "variable",
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Borrow failed: {e}"
@@ -259,7 +259,7 @@ class DeFi(BlockchainInterface):
                 "status": "withdrawn" if receipt["status"] == 1 else "failed",
                 "token": token,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Withdraw failed: {e}"
@@ -306,7 +306,7 @@ class DeFi(BlockchainInterface):
                 "status": "repaid" if receipt["status"] == 1 else "failed",
                 "token": token,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Repay failed: {e}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-09 — Full User Journey: The Entire 0pnMatrx Platform in One Script
+09 — Full User Journey: The Entire The Matrix Platform in One Script
 
 Demonstrates every major platform capability in a single coherent user flow:
 
@@ -50,7 +50,7 @@ def fail(text):     print(f"   {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
         sys.exit(1)
@@ -82,7 +82,7 @@ async def dispatch(dispatcher, action, params, label=""):
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 09: Full User Journey
+  The Matrix Example 09: Full User Journey
 {'=' * 60}{RESET}
 
   A complete user journey through the platform:
@@ -142,7 +142,7 @@ async def main():
         "governance_model": "token_weighted",
         "quorum_threshold": 0.04,
         "voting_period_blocks": 50400,
-        "description": "A DAO for builders on 0pnMatrx",
+        "description": "A DAO for builders on The Matrix",
     })
     if result:
         dao_id = result.get("dao_id", result.get("id", "N/A"))
@@ -264,7 +264,7 @@ async def main():
         "title": "Allocate 10 ETH to Developer Grants Program",
         "description": (
             "Proposal to allocate 10 ETH from the DAO treasury to fund "
-            "developer grants for building on 0pnMatrx. Grants will be "
+            "developer grants for building on The Matrix. Grants will be "
             "distributed in 1 ETH increments to approved projects."
         ),
         "proposal_type": "standard",
@@ -309,8 +309,8 @@ async def main():
 
     result = await dispatch(dispatcher, "create_campaign", {
         "creator": user,
-        "title": "0pnMatrx Mobile App Development",
-        "description": "Funding the development of a mobile app for 0pnMatrx platform access.",
+        "title": "The Matrix Mobile App Development",
+        "description": "Funding the development of a mobile app for The Matrix platform access.",
         "goal_eth": 50.0,
         "duration_days": 60,
         "milestones": [
@@ -424,7 +424,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="0pnMatrx full user journey example")
+    parser = argparse.ArgumentParser(description="The Matrix full user journey example")
     parser.add_argument(
         "--dry-run",
         action="store_true",

@@ -1,5 +1,5 @@
 """
-AttestationService — Universal EAS attestation layer for 0pnMatrx.
+AttestationService — Universal EAS attestation layer for The Matrix.
 
 This is the single entry point for ALL attestations across the platform.
 It routes time-critical attestations (disputes, bans, rights reversions,
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 class AttestationService:
     """
-    Universal EAS attestation service for the 0pnMatrx platform.
+    Universal EAS attestation service for the Matrix platform.
 
     All components route their attestations through this service. It handles:
     - Immediate submission for time-critical categories
@@ -346,7 +346,7 @@ class AttestationService:
                 "schema_uid": resolved_schema,
                 "revocation_tx": tx_hash.hex(),
                 "block_number": receipt["blockNumber"],
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }
 
         except ImportError as exc:

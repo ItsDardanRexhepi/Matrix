@@ -35,7 +35,7 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
         sys.exit(1)
@@ -46,7 +46,7 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 03: NFT with Automatic Royalties
+  The Matrix Example 03: NFT with Automatic Royalties
 {'=' * 60}{RESET}
 
   Creates an NFT with EIP-2981 royalty enforcement.

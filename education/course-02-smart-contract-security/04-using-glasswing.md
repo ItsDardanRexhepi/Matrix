@@ -2,7 +2,7 @@
 
 ## What Glasswing Is
 
-Glasswing is the automated security auditing engine built into 0pnMatrx. Every contract deployed through the platform passes through Glasswing automatically, but you can also submit existing contracts for standalone audits. Glasswing performs a 12-point vulnerability scan that covers the most critical and commonly exploited vulnerability categories in smart contracts.
+Glasswing is the automated security auditing engine built into The Matrix. Every contract deployed through the platform passes through Glasswing automatically, but you can also submit existing contracts for standalone audits. Glasswing performs a 12-point vulnerability scan that covers the most critical and commonly exploited vulnerability categories in smart contracts.
 
 ## The 12-Point Vulnerability Scan
 
@@ -111,7 +111,7 @@ Contracts that pass all 12 checks with zero Critical or High findings receive a 
 - Recorded as an EAS attestation on-chain
 - Verifiable by anyone using the attestation UID
 - Linked to the specific version of the code that was audited
-- Displayed alongside the contract on the 0pnMatrx dashboard
+- Displayed alongside the contract on the Matrix dashboard
 
 The badge does not guarantee the contract is bug-free -- no audit can promise that. It certifies that the contract passed automated screening for the most common vulnerability patterns.
 

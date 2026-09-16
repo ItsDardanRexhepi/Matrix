@@ -1,4 +1,4 @@
-"""Developer plugin marketplace for 0pnMatrx.
+"""Developer plugin marketplace for The Matrix.
 
 Enables third-party developers to list, sell, and distribute plugins
 that extend the platform's capabilities. The platform takes a 30%

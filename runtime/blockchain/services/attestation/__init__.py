@@ -1,5 +1,5 @@
 """
-Universal EAS Attestation Layer for 0pnMatrx.
+Universal EAS Attestation Layer for The Matrix.
 
 Handles ALL attestations across the platform using Ethereum Attestation
 Service (EAS) on Base. Time-critical attestations (disputes, bans, etc.)

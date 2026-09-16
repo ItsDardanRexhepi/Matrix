@@ -103,15 +103,15 @@ def test_added_directory_cannot_shadow_existing_tools(home, tmp_path):
 def test_added_directory_is_still_reachable(home, tmp_path):
     """Appending must still make the CLI resolvable — the reason the line exists."""
     added = tmp_path / "local-bin"
-    _exe(added / "openmatrix", "#!/bin/sh\necho ok\n")
+    _exe(added / "matrix", "#!/bin/sh\necho ok\n")
     assert _add_path_to_rc(home, added).returncode == 0
     rc = _changed_rc(home)[0]
     out = subprocess.run(
-        ["bash", "-c", f'. "{rc}"; command -v openmatrix'],
+        ["bash", "-c", f'. "{rc}"; command -v matrix'],
         env={"HOME": str(home), "PATH": "/usr/bin:/bin"},
         capture_output=True, text=True, timeout=30,
     )
-    assert out.stdout.strip() == str(added / "openmatrix")
+    assert out.stdout.strip() == str(added / "matrix")
 
 
 def test_rerunning_does_not_duplicate_and_says_how_to_undo(home, tmp_path):
@@ -132,7 +132,7 @@ def _install_cli(home: Path, tmp_path: Path, *, option: int, path: str) -> subpr
     machine's /usr/local/bin. PATH is the caller's, because what PATH already
     holds is the gate under test.
     """
-    install_dir = tmp_path / "opnmatrx"
+    install_dir = tmp_path / "the-matrix"
     (install_dir / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
     system_bin = tmp_path / "usr-local-bin"
     if option == 1:
@@ -170,8 +170,8 @@ def test_a_legacy_prepend_is_reported_on_the_real_rerun_path(home, tmp_path, opt
     earlier version wrote, and both link options.
     """
     local_bin = home / ".local" / "bin"
-    venv_bin = tmp_path / "opnmatrx" / ".venv" / "bin"
-    directory, comment = (local_bin, "# 0pnMatrx CLI") if legacy == "local-bin" else (venv_bin, "# 0pnMatrx")
+    venv_bin = tmp_path / "the-matrix" / ".venv" / "bin"
+    directory, comment = (local_bin, "# The Matrix CLI") if legacy == "local-bin" else (venv_bin, "# The Matrix")
     rc = home / rc_name
     rc.write_text(f'# pre-existing\n\n{comment}\nexport PATH="{directory}:$PATH"\n')
     before = rc.read_bytes()
@@ -198,7 +198,7 @@ def test_a_legacy_line_without_its_comment_is_still_reported(home, tmp_path):
 
 @pytest.mark.parametrize("rc_text", [
     'export PATH="$HOME/bin:$PATH"\n',                       # the operator's own prepend
-    '\n# 0pnMatrx CLI (delete this line and the next to undo)\nexport PATH="$PATH:{local_bin}"\n',
+    '\n# The Matrix CLI (delete this line and the next to undo)\nexport PATH="$PATH:{local_bin}"\n',
 ])
 def test_what_is_not_an_earlier_installers_prepend_is_not_reported(home, tmp_path, rc_text):
     local_bin = home / ".local" / "bin"
@@ -216,9 +216,9 @@ def test_the_printed_undo_matches_the_line_written(home, tmp_path):
     added.mkdir()
     result = _add_path_to_rc(home, added)
     rc = _changed_rc(home)[0]
-    assert "delete the '# 0pnMatrx CLI' comment line and the line after it" in result.stdout
+    assert "delete the '# The Matrix CLI' comment line and the line after it" in result.stdout
     lines = rc.read_text().splitlines()
-    at = next(i for i, ln in enumerate(lines) if ln.startswith("# 0pnMatrx CLI"))
+    at = next(i for i, ln in enumerate(lines) if ln.startswith("# The Matrix CLI"))
     assert "delete this line and the next" in lines[at]
     kept = lines[:at] + lines[at + 2:]
     assert [ln for ln in kept if ln.strip()] == ["# pre-existing"]
@@ -235,7 +235,7 @@ def test_wrapper_resolves_a_link_chain_the_kernel_resolves(tmp_path):
     """
     project = tmp_path / "project"
     venv_bin = project / ".venv" / "bin"
-    wrapper = _exe(venv_bin / "openmatrix", _wrapper())
+    wrapper = _exe(venv_bin / "matrix", _wrapper())
     (venv_bin / "activate").write_text('export PATH="$(dirname "${BASH_SOURCE[0]}"):$PATH"\n')
     _exe(venv_bin / "python3", '#!/bin/sh\npwd -P\necho "$@"\n')
 

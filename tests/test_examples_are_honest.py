@@ -66,7 +66,7 @@ class _RecordingDispatcher:
 
 
 def _run_example(path: Path, monkeypatch, *, dispatcher_configs: list | None = None):
-    example = json.loads((ROOT / "openmatrix.config.json.example").read_text())
+    example = json.loads((ROOT / "matrix.config.json.example").read_text())
     bc = example.setdefault("blockchain", {})
     bc["rpc_url"] = "http://127.0.0.1:9"      # configured, and goes nowhere
     bc["demo_wallet_private_key"] = "0x" + "11" * 32

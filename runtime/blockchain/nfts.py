@@ -119,7 +119,7 @@ class NFTs(BlockchainInterface):
                 "to": to,
                 "contract": contract_address,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Mint failed: {e}"
@@ -165,7 +165,7 @@ class NFTs(BlockchainInterface):
                 "to": to,
                 "token_id": token_id,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Transfer failed: {e}"
@@ -210,7 +210,7 @@ class NFTs(BlockchainInterface):
 
     async def _deploy_collection(self, params: dict) -> str:
         """Deploy a new ERC-721 collection. Gas covered by platform."""
-        name = params.get("name", "0pnMatrx Collection")
+        name = params.get("name", "The Matrix Collection")
         symbol = params.get("symbol", "MTRX")
         source = f'''// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;

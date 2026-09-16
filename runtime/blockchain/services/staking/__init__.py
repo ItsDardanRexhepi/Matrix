@@ -1,4 +1,4 @@
-"""Staking Infrastructure — Component 16 of the 0pnMatrx platform."""
+"""Staking Infrastructure — Component 16 of the Matrix platform."""
 
 from runtime.blockchain.services.staking.service import StakingService
 

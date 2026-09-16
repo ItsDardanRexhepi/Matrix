@@ -29,7 +29,7 @@ from typing import Any
 
 
 _REQUEST_ID: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "opnmatrx_request_id", default=""
+    "matrix_request_id", default=""
 )
 
 
@@ -108,7 +108,7 @@ class RequestIdFilter(logging.Filter):
 class JsonFormatter(logging.Formatter):
     """Emit each log record as a newline-delimited JSON object."""
 
-    def __init__(self, *, service: str = "opnmatrx-gateway") -> None:
+    def __init__(self, *, service: str = "matrix-gateway") -> None:
         super().__init__()
         self.service = service
 
@@ -146,7 +146,7 @@ def configure_logging(
     *,
     level: int | str = logging.INFO,
     json_format: bool = True,
-    service: str = "opnmatrx-gateway",
+    service: str = "matrix-gateway",
 ) -> None:
     """Configure the root logger for structured or text output.
 

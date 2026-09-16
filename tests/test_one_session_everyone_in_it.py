@@ -41,7 +41,7 @@ A_SECRET = "my wallet is 0xTEST_A and my goal is to buy a house in Lisbon"
 
 
 def _server(api_key: str = "") -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-t3-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-t3-")
     config = {**SWEEP_CONFIG, "memory_dir": scratch,
               "database": {**SWEEP_CONFIG.get("database", {}), "path": f"{scratch}/t3.db"},
               "gateway": {**SWEEP_CONFIG.get("gateway", {}), "api_key": api_key}}

@@ -1,5 +1,5 @@
 /**
- * Type definitions for the 0pnMatrx SDK.
+ * Type definitions for the Matrix SDK.
  */
 
 /** Available AI agents */

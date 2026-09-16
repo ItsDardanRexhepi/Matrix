@@ -28,7 +28,7 @@ class DiscordChannel(Channel):
         color = {"error": 0xE53935, "warn": 0xFB8C00, "info": 0x1E88E5, "success": 0x43A047}.get(level, 0x607D8B)
         payload = {
             "embeds": [{"description": message, "color": color}],
-            "username": self._channel_config.get("username", "0pnMatrx"),
+            "username": self._channel_config.get("username", "The Matrix"),
         }
         try:
             async with aiohttp.ClientSession() as session:

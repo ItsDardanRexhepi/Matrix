@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Template snippets injected into contracts
 _FEE_STATE_VARS = """\
-    // 0pnMatrx platform fee configuration
+    // The Matrix platform fee configuration
     address public platformFeeRecipient;
     uint256 public platformFeeBps;
 """
@@ -49,11 +49,11 @@ _FEE_MODIFIER = """\
 # (same signature, same `returns (bool)`), so the external call, its selector,
 # and how its return data is decoded are unchanged. The fee arithmetic, the
 # recipient and the bps are untouched.
-_FEE_TOKEN_INTERFACE_NAME = "IOpenMatrixFeeToken"
+_FEE_TOKEN_INTERFACE_NAME = "IMatrixFeeToken"
 
 _FEE_TOKEN_INTERFACE = """\
 /// Minimal ERC-20 surface used by the injected platform-fee helper.
-interface IOpenMatrixFeeToken {
+interface IMatrixFeeToken {
     function transfer(address to, uint256 value) external returns (bool);
 }
 
@@ -63,7 +63,7 @@ _ERC20_FEE_FUNCTION = """\
     function _collectERC20Fee(address token, uint256 amount) internal returns (uint256) {{
         uint256 fee = (amount * platformFeeBps) / 10000;
         if (fee > 0) {{
-            IOpenMatrixFeeToken(token).transfer(platformFeeRecipient, fee);
+            IMatrixFeeToken(token).transfer(platformFeeRecipient, fee);
         }}
         return amount - fee;
     }}
@@ -127,7 +127,7 @@ class RevenueEnforcer:
         1. Adds ``platformFeeRecipient`` and ``platformFeeBps`` state vars.
         2. Adds the ``collectPlatformFee`` modifier.
         3. Adds ``_collectERC20Fee`` internal helper, and declares the one
-           ERC-20 function it calls (``IOpenMatrixFeeToken.transfer``) at file
+           ERC-20 function it calls (``IMatrixFeeToken.transfer``) at file
            level, so the helper compiles whether or not IERC20 is in scope.
         4. Adds owner-only setters for recipient and bps.
         5. Initialises fee recipient in the constructor.
@@ -202,7 +202,7 @@ class RevenueEnforcer:
 
     @staticmethod
     def _declare_fee_token_interface(source: str) -> str:
-        """Declare IOpenMatrixFeeToken at file level, on its own line just
+        """Declare IMatrixFeeToken at file level, on its own line just
         before the first contract declaration (after the pragma and imports).
         Once only."""
         if re.search(rf"\binterface\s+{_FEE_TOKEN_INTERFACE_NAME}\b", source):

@@ -1,5 +1,5 @@
 """
-Agent Identity — on-chain identity for AI agents in 0pnMatrx.
+Agent Identity — on-chain identity for AI agents in The Matrix.
 
 Each agent (Neo, Trinity, Morpheus) can have an on-chain identity
 attested via EAS, enabling verifiable agent actions.
@@ -66,7 +66,7 @@ class AgentIdentity(BlockchainInterface):
             action="agent_registration",
             agent=agent_name,
             details={
-                "platform": "0pnMatrx",
+                "platform": "The Matrix",
                 "agent": agent_name,
                 "registered_at": int(time.time()),
                 "capabilities": self._get_capabilities(agent_name),
@@ -95,7 +95,7 @@ class AgentIdentity(BlockchainInterface):
         agent_name = params.get("agent_name", "neo")
         uid = params.get("attestation_uid") or self._registrations.get(agent_name)
 
-        base = {"agent": agent_name, "platform": "0pnMatrx", "network": self.network,
+        base = {"agent": agent_name, "platform": "The Matrix", "network": self.network,
                 "capabilities": self._get_capabilities(agent_name)}
 
         if not (uid and str(uid).startswith("0x")):
@@ -142,7 +142,7 @@ class AgentIdentity(BlockchainInterface):
             "agent": agent_name,
             "role": self._get_role(agent_name),
             "capabilities": self._get_capabilities(agent_name),
-            "platform": "0pnMatrx",
+            "platform": "The Matrix",
             "network": self.network,
         }, indent=2)
 

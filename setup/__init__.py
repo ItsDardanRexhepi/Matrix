@@ -1,5 +1,5 @@
 """
-0pnMatrx setup package — modular, re-runnable channel configurators.
+The Matrix setup package — modular, re-runnable channel configurators.
 
 Each module in this package configures one notification channel
 (telegram, discord, slack, email, sms, whatsapp, web_chat, ios_push,

@@ -1,6 +1,6 @@
 # Migration
 
-Import your existing data from other platforms into 0pnMatrx.
+Import your existing data from other platforms into The Matrix.
 
 ## Supported Platforms
 
@@ -14,7 +14,7 @@ Import your existing data from other platforms into 0pnMatrx.
 
 ## How It Works
 
-Each importer reads exported data from the source platform and creates corresponding records in 0pnMatrx. No private keys are ever imported — only public data.
+Each importer reads exported data from the source platform and creates corresponding records in The Matrix. No private keys are ever imported — only public data.
 
 ## Usage
 

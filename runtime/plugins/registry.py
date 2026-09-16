@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from runtime.plugins.base import OpenMatrixPlugin
+from runtime.plugins.base import MatrixPlugin
 from runtime.plugins.loader import PluginLoader
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class PluginRegistry:
             The plugin loader. If not provided, creates a default one.
         """
         self.loader = loader or PluginLoader()
-        self._plugins: dict[str, OpenMatrixPlugin] = {}
+        self._plugins: dict[str, MatrixPlugin] = {}
 
     async def initialize(self, config: dict | None = None) -> None:
         """Load all plugins and build the registry."""
@@ -44,7 +44,7 @@ class PluginRegistry:
         )
 
     @property
-    def plugins(self) -> dict[str, OpenMatrixPlugin]:
+    def plugins(self) -> dict[str, MatrixPlugin]:
         """All loaded plugins keyed by name."""
         return dict(self._plugins)
 

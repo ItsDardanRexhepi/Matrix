@@ -2,7 +2,7 @@
 Coinbase Importer — imports transaction history from Coinbase CSV exports.
 
 Reads Coinbase's standard CSV export format and creates transaction
-records in 0pnMatrx.
+records in The Matrix.
 """
 
 import argparse
@@ -71,7 +71,7 @@ def parse_coinbase_csv(filepath: Path) -> list[Transaction]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import Coinbase transaction history into 0pnMatrx")
+    parser = argparse.ArgumentParser(description="Import Coinbase transaction history into The Matrix")
     parser.add_argument("--input", required=True, help="Path to Coinbase CSV export")
     parser.add_argument("--output", default="imported/coinbase", help="Output directory")
     args = parser.parse_args()

@@ -40,7 +40,7 @@ class BlockchainInterface(ABC):
             if not self.rpc_url or str(self.rpc_url).startswith("YOUR_"):
                 raise ConnectionError(
                     "blockchain.rpc_url is not configured. "
-                    "Set a valid RPC URL in openmatrix.config.json "
+                    "Set a valid RPC URL in matrix.config.json "
                     "(e.g., https://sepolia.base.org for Base Sepolia)."
                 )
 
@@ -118,5 +118,5 @@ class BlockchainInterface(ABC):
         if missing:
             raise ValueError(
                 f"Missing blockchain config: {', '.join(missing)}. "
-                f"Set these in openmatrix.config.json"
+                f"Set these in matrix.config.json"
             )

@@ -33,7 +33,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title {{NAME}}
  * @notice ERC-20 token with burn, permit, and owner-only minting.
- *         Optimised for Base L2 deployment via 0pnMatrx.
+ *         Optimised for Base L2 deployment via The Matrix.
  */
 contract {{NAME}} is ERC20, ERC20Burnable, ERC20Permit, Ownable {
     uint256 public constant MAX_SUPPLY = {{MAX_SUPPLY}};
@@ -72,7 +72,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title {{NAME}}
  * @notice ERC-721 NFT with enumeration, URI storage, and ERC-2981 royalties.
- *         Optimised for Base L2 deployment via 0pnMatrx.
+ *         Optimised for Base L2 deployment via The Matrix.
  */
 contract {{NAME}} is ERC721, ERC721Enumerable, ERC721URIStorage, ERC2981, Ownable {
     // OpenZeppelin 5 removed utils/Counters.sol, which this template imported,
@@ -154,7 +154,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title {{NAME}}
  * @notice ERC-1155 multi-token with supply tracking and ERC-2981 royalties.
- *         Optimised for Base L2 deployment via 0pnMatrx.
+ *         Optimised for Base L2 deployment via The Matrix.
  */
 contract {{NAME}} is ERC1155, ERC1155Supply, ERC2981, Ownable {
     string public name;
@@ -345,7 +345,7 @@ import "@openzeppelin/contracts/governance/TimelockController.sol";
 /**
  * @title {{NAME}}
  * @notice Timelock controller for DAO governance execution delays.
- *         Optimised for Base L2 deployment via 0pnMatrx.
+ *         Optimised for Base L2 deployment via The Matrix.
  */
 contract {{NAME}} is TimelockController {
     constructor(
@@ -373,7 +373,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 /**
  * @title {{NAME}}
  * @notice Linear token vesting with cliff period and revocability.
- *         Optimised for Base L2 deployment via 0pnMatrx.
+ *         Optimised for Base L2 deployment via The Matrix.
  */
 contract {{NAME}} is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -495,7 +495,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 /**
  * @title {{NAME}}
  * @notice Staking contract with configurable reward rate, lock periods,
- *         and compound rewards.  Optimised for Base L2 via 0pnMatrx.
+ *         and compound rewards.  Optimised for Base L2 via The Matrix.
  */
 contract {{NAME}} is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -619,7 +619,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 /**
  * @title {{NAME}}
  * @notice NFT marketplace with ERC-2981 royalty enforcement, platform fees,
- *         and listing management.  Optimised for Base L2 via 0pnMatrx.
+ *         and listing management.  Optimised for Base L2 via The Matrix.
  */
 contract {{NAME}} is Ownable, ReentrancyGuard {
     struct Listing {

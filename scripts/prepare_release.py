@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-0pnMatrx Release Preparation — standalone wrapper around the OpenMatrix
+The Matrix Release Preparation — standalone wrapper around the Matrix
 release CLI that defaults the workspace to *this* repository.
 
-The canonical release scanner lives in the OpenMatrix iOS repo under
+The canonical release scanner lives in the Matrix iOS repo under
 ``matrix/cli/prepare_release.py``; this script vendors just enough of it
 to be self-contained here, so operators don't need the iOS checkout on
 the same machine.
@@ -14,9 +14,9 @@ Usage::
     python3 scripts/prepare_release.py export
     python3 scripts/prepare_release.py full
 
-All commands implicitly target the 0pnMatrx workspace (the parent
+All commands implicitly target the Matrix workspace (the parent
 directory of this file). Pass ``--workspace /path/to/repo`` to target a
-different checkout — the same semantics as the OpenMatrix version.
+different checkout — the same semantics as the Matrix version.
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ WORKSPACE = Path(__file__).resolve().parents[1]
 
 # ── Sensitive data patterns ────────────────────────────────────────────
 #
-# Kept in sync with the OpenMatrix CLI. When new patterns are added on
+# Kept in sync with the Matrix CLI. When new patterns are added on
 # one side they should be mirrored on the other; see the CONTRIBUTING
 # note in that file.
 
@@ -76,7 +76,7 @@ PRIVATE_FILES = {
     "gateway/gateway.log",
     "gateway/gateway.err.log",
     "gateway/status.json",
-    "openmatrix.config.json",
+    "matrix.config.json",
 }
 
 SKIP_EXTENSIONS = {
@@ -254,7 +254,7 @@ def _resolve_workspace(raw: str | None) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="prepare_release",
-        description="0pnMatrx release preparation (scan / export / manifest).",
+        description="The Matrix release preparation (scan / export / manifest).",
     )
     parser.add_argument(
         "command",

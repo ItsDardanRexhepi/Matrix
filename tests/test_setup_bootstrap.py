@@ -2,8 +2,8 @@
 
 Reproduction (a clean clone, macOS, the Terminal's own interpreter):
 
-    git clone https://github.com/ItsDardanRexhepi/0pnMatrx.git
-    cd 0pnMatrx
+    git clone https://github.com/ItsDardanRexhepi/the-matrix.git
+    cd the-matrix
     python setup.py            # zsh: command not found: python   (macOS ships no `python`)
     python3 setup.py           # step 2 fails: "externally-managed-environment" —
                                # Homebrew's python3 refuses `pip install` (PEP 668)
@@ -11,10 +11,10 @@ Reproduction (a clean clone, macOS, the Terminal's own interpreter):
                                # because setuptools runs setup.py as __main__
 
 And after a setup that did get through, the closing banner said
-`openmatrix gateway start` — a command setup never installed.
+`matrix gateway start` — a command setup never installed.
 
 The fix: setup.py creates its own .venv and re-launches inside it, hands
-setuptools invocations to setuptools, installs the package (so `openmatrix`
+setuptools invocations to setuptools, installs the package (so `matrix`
 exists), and the docs name `python3`. These tests pin each of those. The
 bootstrap is exercised through its seams (`_exec`, `_run`, `_env`) so the
 suite never creates a venv or replaces its own process.
@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def load_wizard():
     # `import setup` would find the setup/ PACKAGE; the wizard is the file.
-    spec = importlib.util.spec_from_file_location("opnmatrx_setup_wizard", ROOT / "setup.py")
+    spec = importlib.util.spec_from_file_location("matrix_setup_wizard", ROOT / "setup.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -94,7 +94,7 @@ def test_bootstrap_is_a_noop_inside_a_venv(wizard, monkeypatch):
 
 def test_bootstrap_opt_out_for_containers(wizard, outside_venv):
     calls: list = []
-    assert wizard.bootstrap_venv(_exec=_exec_double(calls), _env={"OPNMATRX_SETUP_NO_VENV": "1"}) is True
+    assert wizard.bootstrap_venv(_exec=_exec_double(calls), _env={"MATRIX_SETUP_NO_VENV": "1"}) is True
     assert calls == []
 
 
@@ -109,7 +109,7 @@ def test_bootstrap_relaunches_under_an_existing_venv(wizard, outside_venv, tmp_p
     (path, argv), = calls
     assert path == str(py)
     assert argv[0] == str(py) and argv[1].endswith("setup.py")
-    assert env["OPNMATRX_SETUP_BOOTSTRAPPED"] == "1", "the loop guard must be set before the re-launch"
+    assert env["MATRIX_SETUP_BOOTSTRAPPED"] == "1", "the loop guard must be set before the re-launch"
 
 
 def test_bootstrap_creates_the_venv_when_missing(wizard, outside_venv, tmp_path):
@@ -133,7 +133,7 @@ def test_bootstrap_creates_the_venv_when_missing(wizard, outside_venv, tmp_path)
 def test_bootstrap_does_not_loop_when_the_relaunch_did_not_land_in_a_venv(wizard, outside_venv, tmp_path):
     calls: list = []
     with pytest.raises(SystemExit) as exc:
-        wizard.bootstrap_venv(tmp_path, _exec=_exec_double(calls), _env={"OPNMATRX_SETUP_BOOTSTRAPPED": "1"})
+        wizard.bootstrap_venv(tmp_path, _exec=_exec_double(calls), _env={"MATRIX_SETUP_BOOTSTRAPPED": "1"})
     assert exc.value.code == 1
     assert calls == []
 
@@ -172,13 +172,13 @@ def test_a_setuptools_style_run_does_not_launch_the_wizard():
     )
     assert "Welcome to the Matrix" not in result.stdout
     assert result.returncode == 0, result.stderr[-800:]
-    assert result.stdout.strip().splitlines()[-1] == "opnmatrx"
+    assert result.stdout.strip().splitlines()[-1] == "the-matrix"
 
 
 def test_install_step_installs_the_package_the_banner_advertises(wizard):
-    """`openmatrix gateway start` is printed at the end; it exists only if the package is installed."""
+    """`matrix gateway start` is printed at the end; it exists only if the package is installed."""
     import inspect
     src = inspect.getsource(wizard.install_dependencies)
-    assert '"-e", "."' in src, "setup must `pip install -e .` so the `openmatrix` entry point exists"
+    assert '"-e", "."' in src, "setup must `pip install -e .` so the `matrix` entry point exists"
     banner_src = inspect.getsource(wizard.main)
     assert "activate" in banner_src, "the closing banner must tell the operator to activate .venv"

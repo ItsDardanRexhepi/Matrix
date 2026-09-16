@@ -2,7 +2,7 @@ from __future__ import annotations
 
 #!/usr/bin/env python3
 """
-Migration CLI — import agents from other frameworks into 0pnMatrx.
+Migration CLI — import agents from other frameworks into The Matrix.
 
 Usage:
     python -m migration.migrate --source /path/to/project [--framework langchain|autogpt|openai|crewai|auto]
@@ -55,7 +55,7 @@ def run_import(source_path: str, framework: str = "auto", workspace: str = ".") 
     Args:
         source_path: Path to the source project
         framework: Framework name or "auto" for auto-detection
-        workspace: 0pnMatrx workspace directory
+        workspace: The Matrix workspace directory
 
     Returns:
         dict with import results
@@ -101,7 +101,7 @@ def run_import(source_path: str, framework: str = "auto", workspace: str = ".") 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import agents from other frameworks into 0pnMatrx"
+        description="Import agents from other frameworks into The Matrix"
     )
     parser.add_argument("--source", required=True, help="Path to the source project")
     parser.add_argument(
@@ -110,7 +110,7 @@ def main():
         choices=list(IMPORTERS.keys()) + ["auto"],
         help="Source framework (default: auto-detect)",
     )
-    parser.add_argument("--workspace", default=".", help="0pnMatrx workspace directory")
+    parser.add_argument("--workspace", default=".", help="The Matrix workspace directory")
     parser.add_argument("--detect", action="store_true", help="Only detect framework, don't import")
 
     args = parser.parse_args()

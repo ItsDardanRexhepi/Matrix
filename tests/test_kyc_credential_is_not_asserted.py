@@ -36,7 +36,7 @@ def _svc():
     everything — a disabled service adjudicates nothing (§AS's bound on SR-2).
     These tests are about the VERIFICATION gate downstream of it, so they opt
     in explicitly rather than testing the enablement refusal by accident."""
-    cfg = json.loads(Path("openmatrix.config.json.example").read_text())
+    cfg = json.loads(Path("matrix.config.json.example").read_text())
     cfg.setdefault("services", {}).setdefault("kyc", {})["enabled"] = True
     return ServiceRegistry(cfg).get("kyc")
 

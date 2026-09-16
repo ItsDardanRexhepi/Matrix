@@ -183,7 +183,7 @@ async def test_get_track_info(manager):
     await manager.initialize()
     info = await manager.get_track_info("developer")
     assert info is not None
-    assert info["name"] == "0pnMatrx Certified Developer"
+    assert info["name"] == "The Matrix Certified Developer"
 
 
 @pytest.mark.asyncio

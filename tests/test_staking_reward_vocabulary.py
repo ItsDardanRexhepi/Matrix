@@ -35,7 +35,7 @@ neither is visible from the method's own return value.
 `total_commission_paid` -> `total_commission_recorded` is NEW-91's
 `total_royalties_paid` shape in a SECOND domain, recorded as a repeat instance.
 Consumer check across both repos: written in exactly two places, read by no
-non-test code in 0pnMatrx and none in the MTRX client — so, like `staker_count`
+non-test code in The Matrix and none in the MTRX client — so, like `staker_count`
 in NEW-95, this is a correctness fix to a PUBLISHED FIELD (it ships inside every
 `get_position` response via `_sanitize_position`) and not to a live calculation.
 """

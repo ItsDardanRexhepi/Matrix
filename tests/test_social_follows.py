@@ -33,7 +33,7 @@ async def test_self_follow_ignored(db):
 async def test_routes(aiohttp_client, tmp_path):
     from tests.test_gateway import _build_mock_server
     config = {
-        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "platform": "The Matrix", "memory_dir": str(tmp_path / "m"),
         "workspace": str(tmp_path), "timezone": "UTC",
         "model": {"provider": "ollama", "providers": {}},
         "agents": {"neo": {"enabled": True}},

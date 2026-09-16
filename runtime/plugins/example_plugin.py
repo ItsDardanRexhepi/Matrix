@@ -1,13 +1,13 @@
-"""Example plugin demonstrating the 0pnMatrx plugin API.
+"""Example plugin demonstrating the Matrix plugin API.
 
 This plugin adds a simple /hello command and a greeting tool.
 Use it as a template for building your own plugins.
 """
 
-from runtime.plugins.base import OpenMatrixPlugin
+from runtime.plugins.base import MatrixPlugin
 
 
-class HelloWorldPlugin(OpenMatrixPlugin):
+class HelloWorldPlugin(MatrixPlugin):
     """Example plugin that adds a greeting command."""
 
     @property
@@ -24,7 +24,7 @@ class HelloWorldPlugin(OpenMatrixPlugin):
 
     @property
     def author(self) -> str:
-        return "0pnMatrx Team"
+        return "The Matrix Team"
 
     async def on_load(self, config: dict) -> None:
         """Called when the plugin loads."""
@@ -66,8 +66,8 @@ class HelloWorldPlugin(OpenMatrixPlugin):
 
     async def _handle_hello(self, **kwargs) -> str:
         """Handle the /hello command."""
-        return "Hello from the example plugin! 0pnMatrx plugin system is working."
+        return "Hello from the example plugin! The Matrix plugin system is working."
 
     async def _handle_greet(self, name: str = "friend", **kwargs) -> str:
         """Handle the greet_user tool call."""
-        return f"Hello, {name}! Welcome to 0pnMatrx."
+        return f"Hello, {name}! Welcome to The Matrix."

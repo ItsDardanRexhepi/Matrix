@@ -21,7 +21,7 @@ What should have happened.
 - OS:
 - Python version:
 - Model provider:
-- 0pnMatrx version:
+- The Matrix version:
 
 **Logs**
 Paste any relevant logs here.

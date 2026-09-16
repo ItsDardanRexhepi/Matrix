@@ -1,5 +1,5 @@
 """
-APYCalculator — CANONICAL APY calculator for the 0pnMatrx platform.
+APYCalculator — CANONICAL APY calculator for the Matrix platform.
 
 Component 20 (dashboard) uses this exclusively. Factors in total staked,
 reward rate, and validator performance to compute APY.

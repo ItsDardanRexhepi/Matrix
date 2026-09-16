@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-0pnMatrx End-to-End Integration Test
+The Matrix End-to-End Integration Test
 
 Tests every major subsystem without requiring a live model or blockchain.
 Uses mocks for external dependencies while verifying real code paths.
@@ -37,14 +37,14 @@ def report(name: str, ok: bool, detail: str = ""):
 
 def test_config():
     print("\n── 1. Config Loading ──")
-    example = Path("openmatrix.config.json.example")
+    example = Path("matrix.config.json.example")
     if not example.exists():
-        report("config example exists", False, "openmatrix.config.json.example not found")
+        report("config example exists", False, "matrix.config.json.example not found")
         return
     report("config example exists", True)
 
     config = json.loads(example.read_text())
-    report("config has platform key", config.get("platform") == "0pnMatrx")
+    report("config has platform key", config.get("platform") == "The Matrix")
     report("config has model section", "model" in config)
     report("config has agents section", "agents" in config)
     report("config has blockchain section", "blockchain" in config)
@@ -340,13 +340,13 @@ def test_migration():
 
 def test_sdk():
     print("\n── 12. SDK Client ──")
-    from sdk.client import OpenMatrixClient, ChatResponse, HealthStatus, PlatformStatus
+    from sdk.client import MatrixClient, ChatResponse, HealthStatus, PlatformStatus
 
-    client = OpenMatrixClient("http://localhost:18790")
+    client = MatrixClient("http://localhost:18790")
     report("client creates with URL", client.base_url == "http://localhost:18790")
     report("client has session_id", len(client.session_id) == 12)
     report("new_session changes ID", client.new_session() != client.session_id or True)  # new_session sets new ID
-    report("repr works", "OpenMatrixClient" in repr(client))
+    report("repr works", "MatrixClient" in repr(client))
 
     # Verify dataclass creation
     resp = ChatResponse(text="hello", agent="trinity", session_id="test")
@@ -381,12 +381,12 @@ def test_gateway():
 
 def test_contracts():
     print("\n── 14. Solidity Contracts ──")
-    paymaster = Path("contracts/OpenMatrixPaymaster.sol")
-    attestation = Path("contracts/OpenMatrixAttestation.sol")
+    paymaster = Path("contracts/MatrixPaymaster.sol")
+    attestation = Path("contracts/MatrixAttestation.sol")
     deploy = Path("contracts/deploy.py")
 
-    report("OpenMatrixPaymaster.sol exists", paymaster.exists())
-    report("OpenMatrixAttestation.sol exists", attestation.exists())
+    report("MatrixPaymaster.sol exists", paymaster.exists())
+    report("MatrixAttestation.sol exists", attestation.exists())
     report("deploy.py exists", deploy.exists())
 
     if paymaster.exists():
@@ -432,7 +432,7 @@ def test_no_secrets():
     report("no hardcoded API keys in Python files", len(violations) == 0, f"Found: {violations[:5]}" if violations else "")
 
     # Check config example
-    config_example = Path("openmatrix.config.json.example")
+    config_example = Path("matrix.config.json.example")
     if config_example.exists():
         content = config_example.read_text()
         all_placeholders = all(
@@ -461,7 +461,7 @@ def test_file_structure():
 
 async def main():
     print("=" * 60)
-    print("  0pnMatrx End-to-End Integration Test")
+    print("  The Matrix End-to-End Integration Test")
     print("=" * 60)
 
     test_config()

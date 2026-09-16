@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Matrix-to-0pnMatrx Bridge — connects the MTRX iOS app to the 0pnMatrx backend.
+Matrix-to-The Matrix Bridge — connects the MTRX iOS app to the Matrix backend.
 
 Exposes mobile-optimized endpoints under /bridge/v1/ that the MTRX iOS app
 calls. Handles:
@@ -659,7 +659,7 @@ class BridgeRoutes:
             "session_id": session_id,
             "greeting": (
                 "Hi, my name is Trinity\n\n"
-                "Welcome to the world of 0pnMatrx, "
+                "Welcome to the world of The Matrix, "
                 "I'll be by your side the entire time if you need me"
             ),
             "agents": {
@@ -1155,7 +1155,7 @@ class BridgeRoutes:
     async def get_config(self, request: web.Request) -> web.Response:
         """Return app configuration for the iOS client."""
         return MobileResponse.ok({
-            "platform": "0pnMatrx",
+            "platform": "The Matrix",
             "version": "1.0.0",
             "network": self._config.get("blockchain", {}).get("network", "base-sepolia"),
             "chain_id": self._config.get("blockchain", {}).get("chain_id", 84532),

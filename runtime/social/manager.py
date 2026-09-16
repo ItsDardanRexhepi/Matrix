@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class SocialManager:
-    """Unified social media management for 0pnMatrx agents.
+    """Unified social media management for The Matrix agents.
 
     Provides a single ``post()`` method that routes to Twitter,
     Discord, or both. All operations are fault-tolerant.

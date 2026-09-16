@@ -31,7 +31,7 @@ from runtime.config.validation import (
 def minimal_config():
     """A config that passes validation in lenient (dev) mode."""
     return {
-        "platform": "0pnMatrx",
+        "platform": "The Matrix",
         "gateway": {
             "host": "127.0.0.1",
             "port": 18790,
@@ -43,7 +43,7 @@ def minimal_config():
                 "ollama": {"base_url": "http://localhost:11434"},
             },
         },
-        "database": {"path": "data/openmatrix.db"},
+        "database": {"path": "data/matrix.db"},
         "blockchain": {
             "rpc_url": "YOUR_BASE_RPC_URL",
             "paymaster_private_key": "YOUR_KEY",
@@ -53,18 +53,18 @@ def minimal_config():
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    """Every test runs with a clean slate for OPNMATRX_ENV and secret env vars."""
+    """Every test runs with a clean slate for MATRIX_ENV and secret env vars."""
     for var in (
-        "OPNMATRX_ENV",
-        "OPENMATRIX_PAYMASTER_KEY",
-        "OPENMATRIX_DEMO_WALLET_KEY",
+        "MATRIX_ENV",
+        "MATRIX_PAYMASTER_KEY",
+        "MATRIX_DEMO_WALLET_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "NVIDIA_API_KEY",
         "GOOGLE_API_KEY",
         "TELEGRAM_BOT_TOKEN",
         "SENTRY_DSN",
-        "OPENMATRIX_API_KEY",
+        "MATRIX_API_KEY",
     ):
         monkeypatch.delenv(var, raising=False)
     yield
@@ -75,19 +75,19 @@ class TestIsProductionMode:
         assert is_production_mode() is False
 
     def test_development_is_not_production(self, monkeypatch):
-        monkeypatch.setenv("OPNMATRX_ENV", "development")
+        monkeypatch.setenv("MATRIX_ENV", "development")
         assert is_production_mode() is False
 
     def test_production_lowercase(self, monkeypatch):
-        monkeypatch.setenv("OPNMATRX_ENV", "production")
+        monkeypatch.setenv("MATRIX_ENV", "production")
         assert is_production_mode() is True
 
     def test_production_uppercase(self, monkeypatch):
-        monkeypatch.setenv("OPNMATRX_ENV", "PRODUCTION")
+        monkeypatch.setenv("MATRIX_ENV", "PRODUCTION")
         assert is_production_mode() is True
 
     def test_production_with_whitespace(self, monkeypatch):
-        monkeypatch.setenv("OPNMATRX_ENV", "  production  ")
+        monkeypatch.setenv("MATRIX_ENV", "  production  ")
         assert is_production_mode() is True
 
 
@@ -120,7 +120,7 @@ class TestPlaceholderDetection:
 class TestEnforceEnvOnlySecrets:
     def test_env_var_wins_over_config_value(self, monkeypatch, minimal_config):
         minimal_config["blockchain"]["paymaster_private_key"] = "from-config"
-        monkeypatch.setenv("OPENMATRIX_PAYMASTER_KEY", "from-env")
+        monkeypatch.setenv("MATRIX_PAYMASTER_KEY", "from-env")
         result = enforce_env_only_secrets(minimal_config, strict=False)
         assert result["blockchain"]["paymaster_private_key"] == "from-env"
 
@@ -137,21 +137,21 @@ class TestEnforceEnvOnlySecrets:
     def test_strict_mode_strips_plaintext_secret(self, minimal_config):
         minimal_config["blockchain"]["demo_wallet_private_key"] = "0xleaked"
         # Required paymaster key provided via env so strict mode doesn't abort.
-        os.environ["OPENMATRIX_PAYMASTER_KEY"] = "0xreal"
+        os.environ["MATRIX_PAYMASTER_KEY"] = "0xreal"
         try:
             result = enforce_env_only_secrets(minimal_config, strict=True)
             # Plaintext demo wallet stripped because env var wasn't set.
             assert "demo_wallet_private_key" not in result["blockchain"]
         finally:
-            del os.environ["OPENMATRIX_PAYMASTER_KEY"]
+            del os.environ["MATRIX_PAYMASTER_KEY"]
 
     def test_strict_mode_raises_when_required_secret_missing(self, minimal_config):
         with pytest.raises(ConfigValidationError) as exc_info:
             enforce_env_only_secrets(minimal_config, strict=True)
-        assert "OPENMATRIX_PAYMASTER_KEY" in str(exc_info.value)
+        assert "MATRIX_PAYMASTER_KEY" in str(exc_info.value)
 
     def test_strict_mode_accepts_required_from_env(self, monkeypatch, minimal_config):
-        monkeypatch.setenv("OPENMATRIX_PAYMASTER_KEY", "0xrealkey")
+        monkeypatch.setenv("MATRIX_PAYMASTER_KEY", "0xrealkey")
         result = enforce_env_only_secrets(minimal_config, strict=True)
         assert result["blockchain"]["paymaster_private_key"] == "0xrealkey"
 

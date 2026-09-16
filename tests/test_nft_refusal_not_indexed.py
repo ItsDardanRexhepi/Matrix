@@ -29,7 +29,7 @@ from runtime.blockchain.services.service_dispatcher import _outcome_is_real
 
 
 def _shipped():
-    return json.loads(Path("openmatrix.config.json.example").read_text())
+    return json.loads(Path("matrix.config.json.example").read_text())
 
 
 @pytest.mark.asyncio

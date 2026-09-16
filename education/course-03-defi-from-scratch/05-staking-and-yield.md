@@ -57,9 +57,9 @@ Your staked tokens are held in a smart contract. If that contract has a bug, you
 
 Mitigation: stake in audited protocols, prefer protocols with track records, and never stake more than you can afford to lose.
 
-## Using 0pnMatrx Staking Service
+## Using The Matrix Staking Service
 
-0pnMatrx provides a staking service accessible through Trinity:
+The Matrix provides a staking service accessible through Trinity:
 
 ```
 You: What staking options are available right now?
@@ -116,7 +116,7 @@ If an APY looks too good to be true, it probably is. Sustainable yields in DeFi 
 - Staking locks tokens in exchange for rewards, measured as APY
 - APY changes constantly based on total staked, reward rates, and prices
 - Three main risks: slashing, impermanent loss, and smart contract bugs
-- 0pnMatrx provides access to staking through Trinity
+- The Matrix provides access to staking through Trinity
 - Compare yields using sustainability, lock periods, audit status, and track record
 - If the APY looks too good to be true, it almost certainly is
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Google Gemini model provider for 0pnMatrx.
+Google Gemini model provider for The Matrix.
 
 Uses the Gemini REST API. API key loaded from config — never hardcoded.
 """

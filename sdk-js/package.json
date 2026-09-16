@@ -1,19 +1,19 @@
 {
-  "name": "@opnmatrx/sdk",
+  "name": "@the-matrix/sdk",
   "version": "1.0.0",
-  "description": "JavaScript/TypeScript SDK for the 0pnMatrx AI agent platform",
+  "description": "JavaScript/TypeScript SDK for the Matrix AI agent platform",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "jest"
   },
-  "keywords": ["0pnmatrx", "ai", "blockchain", "agents", "web3"],
+  "keywords": ["the-matrix", "ai", "blockchain", "agents", "web3"],
   "author": "Dardan Rexhepi",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ItsDardanRexhepi/0pnMatrx"
+    "url": "https://github.com/ItsDardanRexhepi/the-matrix"
   },
   "dependencies": {},
   "devDependencies": {

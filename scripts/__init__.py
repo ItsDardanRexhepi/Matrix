@@ -1,1 +1,1 @@
-# OpenMatrix deployment and verification scripts
+# Matrix deployment and verification scripts

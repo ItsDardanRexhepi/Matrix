@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-AutoGPT Importer — converts AutoGPT agent configurations to 0pnMatrx format.
+AutoGPT Importer — converts AutoGPT agent configurations to The Matrix format.
 
 Parses AutoGPT's ai_settings.yaml, .env, and plugin configurations.
 """

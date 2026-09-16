@@ -1,14 +1,14 @@
-# 0pnMatrx Caddy configuration.
+# The Matrix Caddy configuration.
 #
 # Caddy auto-provisions Let's Encrypt certificates for the site block
 # below (HTTP-01 challenge on port 80). The upstream is the gateway
 # container on the internal compose network.
 #
-# Override ``OPNMATRX_DOMAIN`` / ``OPNMATRX_ADMIN_EMAIL`` via environment
+# Override ``MATRIX_DOMAIN`` / ``MATRIX_ADMIN_EMAIL`` via environment
 # variables when launching compose.
 
 {
-	email {$OPNMATRX_ADMIN_EMAIL}
+	email {$MATRIX_ADMIN_EMAIL}
 	# Opt out of Caddy's telemetry.
 	admin off
 	# Compress responses globally.
@@ -17,7 +17,7 @@
 	}
 }
 
-{$OPNMATRX_DOMAIN} {
+{$MATRIX_DOMAIN} {
 	encode zstd gzip
 
 	# Health endpoint: bypass auth, no rate limiting.

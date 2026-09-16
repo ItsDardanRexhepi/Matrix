@@ -78,9 +78,9 @@ The process works like this:
 
 **Why single-key ownership is dangerous**: If one person controls a contract holding millions of dollars, their private key becomes the single point of failure. Phishing attacks, compromised hardware, lost seed phrases, or even coercion can lead to total loss. A 3-of-5 multisig means an attacker would need to compromise three separate individuals using three separate key storage methods.
 
-### The 0pnMatrx NeoSafe Multisig
+### The Matrix NeoSafe Multisig
 
-0pnMatrx uses a multisig called **NeoSafe** for its own protocol contracts. NeoSafe is a purpose-built multisig that integrates with the agent system:
+The Matrix uses a multisig called **NeoSafe** for its own protocol contracts. NeoSafe is a purpose-built multisig that integrates with the agent system:
 
 - **Proposal via Trinity**: Authorized members propose transactions through the chat interface
 - **Morpheus confirmation**: Each signer sees the exact transaction details through Morpheus before approving
@@ -125,8 +125,8 @@ Timelocks are standard practice for DeFi protocols. If a protocol's admin can ch
 - Role-based access control separates concerns and follows the principle of least privilege
 - Multisigs eliminate single points of failure for high-value contracts
 - Timelocks give stakeholders time to review and exit before changes take effect
-- The NeoSafe multisig in 0pnMatrx integrates access control with the agent workflow
+- The NeoSafe multisig in The Matrix integrates access control with the agent workflow
 
 ---
 
-**Next:** [Using Glasswing](./04-using-glasswing.md) -- automate vulnerability detection with the 0pnMatrx auditing engine.
+**Next:** [Using Glasswing](./04-using-glasswing.md) -- automate vulnerability detection with the Matrix auditing engine.

@@ -23,7 +23,7 @@ While off, every route returns an honest 403 and every service method refuses.
 | Escrow contract | `contracts/PropertyEscrow.sol` (+ `contracts/test/PropertyEscrow.t.sol`) |
 | Deed token (ERC-721) | `contracts/PropertyDeed.sol` (+ `contracts/test/PropertyDeed.t.sol`) |
 | EAS schema (20th, `document_verification`) | `runtime/blockchain/services/attestation/schemas.py` |
-| Config block | `openmatrix.config.json` → `services.real_estate` |
+| Config block | `matrix.config.json` → `services.real_estate` |
 
 ## Document types + freshness windows (config-driven defaults)
 

@@ -1,4 +1,4 @@
-"""Multi-chain abstraction layer for 0pnMatrx.
+"""Multi-chain abstraction layer for The Matrix.
 
 Provides a unified interface for interacting with multiple EVM-compatible
 blockchains. The platform defaults to Base but can route transactions to

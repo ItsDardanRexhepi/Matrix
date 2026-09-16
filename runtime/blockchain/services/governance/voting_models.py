@@ -1,5 +1,5 @@
 """
-Voting models for the 0pnMatrx governance system.
+Voting models for the Matrix governance system.
 
 Three models:
 - TokenWeightedVoting: vote weight equals token balance.

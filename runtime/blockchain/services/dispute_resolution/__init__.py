@@ -1,5 +1,5 @@
 """
-Component 30 — Decentralized Dispute Resolution for 0pnMatrx.
+Component 30 — Decentralized Dispute Resolution for The Matrix.
 
 Handles all bilateral (user-to-user) disputes across the platform.
 Platform governance lives in Component 19; this component covers

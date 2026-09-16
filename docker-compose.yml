@@ -1,18 +1,18 @@
-# 0pnMatrx — local development / single-host production compose file.
+# The Matrix — local development / single-host production compose file.
 #
 # Usage:
-#   cp openmatrix.config.json.example openmatrix.config.json
-#   # edit openmatrix.config.json with real keys
+#   cp matrix.config.json.example matrix.config.json
+#   # edit matrix.config.json with real keys
 #   docker compose up -d
 #
 # The container reads the mounted config as uid 1000 (Dockerfile `USER
-# opnmatrx`). A copy of the .example, or a config `python3 setup.py` created,
+# the-matrix`). A copy of the .example, or a config `python3 setup.py` created,
 # is readable by it under the usual 022 umask. On a Linux host, if the file is
 # 600 (a chmod, or a 077 umask), it must be owned by uid 1000
-# (`sudo chown 1000 openmatrix.config.json`), or the gateway exits with
+# (`sudo chown 1000 matrix.config.json`), or the gateway exits with
 # "could not be read".
 #
-# Persistent state lives in the ``opnmatrx_data`` named volume so the
+# Persistent state lives in the ``matrix_data`` named volume so the
 # SQLite database, daily backups, and any tool workspace files survive
 # container rebuilds.
 
@@ -21,24 +21,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: opnmatrx/gateway:latest
-    container_name: opnmatrx-gateway
+    image: the-matrix/gateway:latest
+    container_name: matrix-gateway
     restart: unless-stopped
     ports:
       - "18790:18790"
     environment:
       # Sentry / monitoring overrides (optional)
       SENTRY_DSN: "${SENTRY_DSN:-}"
-      OPNMATRX_ENV: "${OPNMATRX_ENV:-production}"
+      MATRIX_ENV: "${MATRIX_ENV:-production}"
       # Provider keys can be passed through the environment instead of
-      # baking them into openmatrix.config.json.
+      # baking them into matrix.config.json.
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     volumes:
       # Mount config read-only so the container can't accidentally rewrite it.
-      - ./openmatrix.config.json:/app/openmatrix.config.json:ro
+      - ./matrix.config.json:/app/matrix.config.json:ro
       # Persistent SQLite + backups + tool workspace
-      - opnmatrx_data:/app/data
+      - matrix_data:/app/data
     healthcheck:
       # RUN-7: /ready, not /health. This healthcheck gates Caddy's
       # `depends_on: condition: service_healthy`, which is a ROUTING decision —
@@ -57,5 +57,5 @@ services:
         max-file: "5"
 
 volumes:
-  opnmatrx_data:
+  matrix_data:
     driver: local

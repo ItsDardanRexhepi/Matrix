@@ -56,7 +56,7 @@ jobs:
             --output-directory site \
             --docformat google \
             --logo "https://raw.githubusercontent.com/${{ github.repository }}/main/docs/logo.png" \
-            --footer-text "0pnMatrx — built by Neo" \
+            --footer-text "The Matrix — built by Neo" \
             runtime gateway hivemind
 
       - name: Upload Pages artifact

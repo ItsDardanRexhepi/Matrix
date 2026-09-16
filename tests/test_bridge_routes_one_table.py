@@ -27,7 +27,7 @@ from test_route_sweep import SWEEP_CONFIG  # noqa: E402
 
 
 def _server() -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-bridge-table-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-bridge-table-")
     return GatewayServer({**SWEEP_CONFIG, "memory_dir": scratch, "database": {"path": f"{scratch}/b.db"}})
 
 

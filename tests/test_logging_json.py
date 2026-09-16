@@ -135,7 +135,7 @@ class TestJsonFormatter:
         assert parsed["message"] == "hello world"
         assert parsed["level"] == "INFO"
         assert parsed["logger"] == "test"
-        assert parsed["service"] == "opnmatrx-gateway"
+        assert parsed["service"] == "matrix-gateway"
         assert "timestamp" in parsed
 
     def test_custom_service_name(self):

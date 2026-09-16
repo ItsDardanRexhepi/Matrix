@@ -1,5 +1,5 @@
 """
-Hivemind — multi-agent orchestration for 0pnMatrx.
+Hivemind — multi-agent orchestration for The Matrix.
 
 Architecture:
 - orchestrator: central coordinator, task routing, Morpheus triggers

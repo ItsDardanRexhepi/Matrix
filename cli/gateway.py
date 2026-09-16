@@ -1,4 +1,4 @@
-"""openmatrix gateway — start, stop, status, restart, logs."""
+"""matrix gateway — start, stop, status, restart, logs."""
 
 import json
 import os
@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PID_FILE = PROJECT_ROOT / "data" / "gateway.pid"
 LOG_FILE = PROJECT_ROOT / "data" / "gateway.log"
-CONFIG_FILE = PROJECT_ROOT / "openmatrix.config.json"
+CONFIG_FILE = PROJECT_ROOT / "matrix.config.json"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -27,15 +27,15 @@ NC = "\033[0m"
 
 
 def _info(msg: str) -> None:
-    print(f"{GREEN}[openmatrix]{NC} {msg}")
+    print(f"{GREEN}[matrix]{NC} {msg}")
 
 
 def _warn(msg: str) -> None:
-    print(f"{YELLOW}[openmatrix]{NC} {msg}")
+    print(f"{YELLOW}[matrix]{NC} {msg}")
 
 
 def _error(msg: str) -> None:
-    print(f"{RED}[openmatrix]{NC} {msg}", file=sys.stderr)
+    print(f"{RED}[matrix]{NC} {msg}", file=sys.stderr)
 
 
 # ── PID management ───────────────────────────────────────────────────────────
@@ -83,12 +83,12 @@ def cmd_start(args) -> None:
     existing = _read_pid()
     if existing:
         _error(f"Gateway is already running (PID {existing}).")
-        _info(f"Use {CYAN}openmatrix gateway restart{NC} to restart it.")
+        _info(f"Use {CYAN}matrix gateway restart{NC} to restart it.")
         sys.exit(1)
 
     if not CONFIG_FILE.exists():
         _warn("No configuration found.")
-        _info(f"Run {CYAN}openmatrix setup{NC} first, or create openmatrix.config.json")
+        _info(f"Run {CYAN}matrix setup{NC} first, or create matrix.config.json")
         sys.exit(1)
 
     host, port = _get_host_port()
@@ -115,20 +115,20 @@ def cmd_start(args) -> None:
         time.sleep(1.5)
         if proc.poll() is not None:
             _error("Gateway failed to start. Check logs:")
-            _info(f"  {CYAN}openmatrix gateway logs{NC}")
+            _info(f"  {CYAN}matrix gateway logs{NC}")
             _remove_pid()
             sys.exit(1)
 
         print()
-        print(f"  {CYAN}{BOLD}0pnMatrx Gateway{NC}")
+        print(f"  {CYAN}{BOLD}The Matrix Gateway{NC}")
         print(f"  {DIM}{'─' * 40}{NC}")
         _info(f"Running in background (PID {proc.pid})")
         _info(f"Listening on {BOLD}http://{host}:{port}{NC}")
         _info(f"Logs: {LOG_FILE}")
         print()
-        _info(f"Stop with:    {CYAN}openmatrix gateway stop{NC}")
-        _info(f"View logs:    {CYAN}openmatrix gateway logs{NC}")
-        _info(f"Check status: {CYAN}openmatrix gateway status{NC}")
+        _info(f"Stop with:    {CYAN}matrix gateway stop{NC}")
+        _info(f"View logs:    {CYAN}matrix gateway logs{NC}")
+        _info(f"Check status: {CYAN}matrix gateway status{NC}")
         print()
     else:
         # Foreground mode — clean output, logs go to file
@@ -137,7 +137,7 @@ def cmd_start(args) -> None:
 
         env = os.environ.copy()
         if not args.verbose:
-            env["OPNMATRX_LOG_LEVEL"] = "WARNING"
+            env["MATRIX_LOG_LEVEL"] = "WARNING"
 
         proc = subprocess.Popen(
             [python, "-m", "gateway.server"],
@@ -156,13 +156,13 @@ def cmd_start(args) -> None:
             _error("Gateway failed to start.")
             if stderr_out.strip():
                 print(stderr_out.strip(), file=sys.stderr)
-            _info(f"Check logs: {CYAN}openmatrix gateway logs{NC}")
+            _info(f"Check logs: {CYAN}matrix gateway logs{NC}")
             _remove_pid()
             sys.exit(1)
 
         print()
         print(f"  {CYAN}{BOLD}┌──────────────────────────────────┐{NC}")
-        print(f"  {CYAN}{BOLD}│     0pnMatrx Gateway — Live      │{NC}")
+        print(f"  {CYAN}{BOLD}│     The Matrix Gateway — Live      │{NC}")
         print(f"  {CYAN}{BOLD}└──────────────────────────────────┘{NC}")
         print()
         _info(f"Listening on {BOLD}http://{host}:{port}{NC}")
@@ -245,7 +245,7 @@ def cmd_status(args) -> None:
     if not pid:
         print(f"  {RED}●{NC} Gateway is {RED}not running{NC}")
         print()
-        _info(f"Start with: {CYAN}openmatrix gateway start{NC}")
+        _info(f"Start with: {CYAN}matrix gateway start{NC}")
         return
 
     print(f"  {GREEN}●{NC} Gateway is {GREEN}running{NC}")
@@ -319,7 +319,7 @@ def register_gateway_commands(subparsers) -> None:
     gw = subparsers.add_parser(
         "gateway",
         help="Manage the gateway server",
-        description="Start, stop, and manage the 0pnMatrx gateway server.",
+        description="Start, stop, and manage the Matrix gateway server.",
     )
     gw_sub = gw.add_subparsers(dest="gateway_command", metavar="<action>")
 

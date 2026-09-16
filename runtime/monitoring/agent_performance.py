@@ -1,4 +1,4 @@
-"""Agent performance monitoring for 0pnMatrx.
+"""Agent performance monitoring for The Matrix.
 
 Tracks per-agent, per-turn metrics: response latency, tool call
 success rate, model provider, task complexity, Morpheus triggers,

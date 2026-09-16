@@ -18,7 +18,7 @@ from pathlib import Path
 # Files the wizards write credentials into. BOTH branches of setup_gitignore()
 # protect every one of them — they used to disagree, and the amend branch (the
 # common one) never covered .env.
-SECRET_FILES = ("openmatrix.config.json", ".env")
+SECRET_FILES = ("matrix.config.json", ".env")
 
 # Git skips a pattern file of this size or larger with "ignoring excessively
 # large pattern file" and applies none of its lines (dir.c; checked against git

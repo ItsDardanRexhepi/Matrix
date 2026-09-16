@@ -54,7 +54,7 @@ class iOSPushChannel(Channel):
         )
         payload = {
             "aps": {
-                "alert": {"title": "0pnMatrx", "body": message},
+                "alert": {"title": "The Matrix", "body": message},
                 "sound": "default",
             },
             "level": level,

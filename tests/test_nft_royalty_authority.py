@@ -38,7 +38,7 @@ _B = "0x2222222222222222222222222222222222222222"
 
 def _shipped():
     """The config we actually ship — not a fixture invented for the test."""
-    return json.loads(Path("openmatrix.config.json.example").read_text())
+    return json.loads(Path("matrix.config.json.example").read_text())
 
 
 @pytest.mark.asyncio

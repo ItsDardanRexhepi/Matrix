@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-0pnMatrx Live Demo — Smart Contract Conversion & Deployment
+The Matrix Live Demo — Smart Contract Conversion & Deployment
 
 Demonstrates the full pipeline:
   1. User describes a contract in plain English (pseudocode)
-  2. 0pnMatrx parses it into an intermediate representation
+  2. The Matrix parses it into an intermediate representation
   3. Generates gas-optimised Solidity for Base L2
   4. Compiles with solc 0.8.24
   5. Deploys to Base Sepolia testnet
@@ -30,13 +30,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # ── Load config ──────────────────────────────────────────────────────
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openmatrix.config.json")
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "matrix.config.json")
 
 
 def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
         print(f"ERROR: Config file not found at {CONFIG_PATH}")
-        print("Copy openmatrix.config.json.example to openmatrix.config.json and fill in your credentials.")
+        print("Copy matrix.config.json.example to matrix.config.json and fill in your credentials.")
         sys.exit(1)
     with open(CONFIG_PATH) as f:
         return json.load(f)
@@ -165,7 +165,7 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
     w3 = Web3(Web3.HTTPProvider(rpc_url))
     if not w3.is_connected():
         fail(f"Cannot connect to RPC: {rpc_url}")
-        fail("Check your rpc_url in openmatrix.config.json")
+        fail("Check your rpc_url in matrix.config.json")
         sys.exit(1)
 
     ok(f"Connected to {network} (chain ID {chain_id})")
@@ -356,7 +356,7 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
   {BOLD}Explorer:{RESET}    {explorer_base}/address/{contract_address}
   {BOLD}Tx link:{RESET}     {explorer_base}/tx/{tx_hash.hex()}
 
-{DIM}  Powered by 0pnMatrx — Smart Contract Conversion Engine{RESET}
+{DIM}  Powered by The Matrix — Smart Contract Conversion Engine{RESET}
 {GREEN}{'=' * 60}{RESET}
 """)
 
@@ -408,7 +408,7 @@ pragma solidity ^0.8.24;
 
 /**
  * @title {name}
- * @notice ETH vault deployed via 0pnMatrx on Base Sepolia.
+ * @notice ETH vault deployed via The Matrix on Base Sepolia.
  *         Users can deposit and withdraw ETH. Fully self-contained.
  */
 contract {name} {{
@@ -471,7 +471,7 @@ pragma solidity ^0.8.24;
 
 /**
  * @title {name}
- * @notice Standalone ERC-20 token deployed via 0pnMatrx on Base Sepolia.
+ * @notice Standalone ERC-20 token deployed via The Matrix on Base Sepolia.
  *         No external dependencies — fully self-contained.
  */
 contract {name} {{
@@ -553,7 +553,7 @@ contract {name} {{
 
 def main():
     parser = argparse.ArgumentParser(
-        description="0pnMatrx Live Demo — Smart Contract Conversion & Deployment",
+        description="The Matrix Live Demo — Smart Contract Conversion & Deployment",
     )
     parser.add_argument(
         "--example", action="store_true",
@@ -577,11 +577,11 @@ def main():
     if not args.dry_run:
         missing = validate_config(config)
         if missing:
-            fail("Missing config values in openmatrix.config.json:")
+            fail("Missing config values in matrix.config.json:")
             for key in missing:
                 fail(f"  blockchain.{key}")
             print(f"""
-{YELLOW}To fix this, edit openmatrix.config.json and fill in:{RESET}
+{YELLOW}To fix this, edit matrix.config.json and fill in:{RESET}
 
   "blockchain": {{
     "rpc_url": "https://base-sepolia.g.alchemy.com/v2/YOUR_KEY",

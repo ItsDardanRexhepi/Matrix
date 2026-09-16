@@ -69,7 +69,7 @@ class WebTool:
         if method not in ("GET", "POST", "PUT", "DELETE"):
             return f"Error: unsupported method '{method}'"
 
-        req_headers = {"User-Agent": "Mozilla/5.0 (compatible; 0pnMatrx/1.0)"}
+        req_headers = {"User-Agent": "Mozilla/5.0 (compatible; The Matrix/1.0)"}
         if headers:
             req_headers.update(headers)
 

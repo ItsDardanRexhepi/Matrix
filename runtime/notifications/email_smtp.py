@@ -28,7 +28,7 @@ class EmailChannel(Channel):
         def _send_sync() -> dict:
             import smtplib
             subject_prefix = {"error": "[ALERT] ", "warn": "[WARN] ", "info": "[INFO] ", "success": "[OK] "}.get(level, "")
-            subject = cfg.get("subject", f"{subject_prefix}0pnMatrx Notification")
+            subject = cfg.get("subject", f"{subject_prefix}The Matrix Notification")
             msg = MIMEMultipart()
             msg["From"] = cfg.get("from", cfg["smtp_user"])
             msg["To"] = cfg["to"] if isinstance(cfg["to"], str) else ", ".join(cfg["to"])

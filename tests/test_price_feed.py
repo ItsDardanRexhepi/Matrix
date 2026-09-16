@@ -68,7 +68,7 @@ async def test_cache_within_ttl():
 async def test_route_503_under_no_source(aiohttp_client, tmp_path):
     from tests.test_gateway import _build_mock_server
     cfg = {
-        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "platform": "The Matrix", "memory_dir": str(tmp_path / "m"),
         "workspace": str(tmp_path), "timezone": "UTC",
         "model": {"provider": "ollama", "providers": {}},
         "agents": {"neo": {"enabled": True}},
@@ -114,7 +114,7 @@ async def test_route_answers_the_documented_503_when_no_source_is_reachable(aioh
     monkeypatch.setattr(_pf.PriceFeed, "_default_coinbase", _coinbase_down)
 
     cfg = {
-        "platform": "0pnMatrx", "memory_dir": str(tmp_path / "m"),
+        "platform": "The Matrix", "memory_dir": str(tmp_path / "m"),
         "workspace": str(tmp_path), "timezone": "UTC",
         "model": {"provider": "ollama", "providers": {}},
         "agents": {"neo": {"enabled": True}},

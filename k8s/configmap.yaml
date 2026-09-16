@@ -1,29 +1,29 @@
-# 0pnMatrx non-secret configuration.
+# The Matrix non-secret configuration.
 #
-# This holds ``openmatrix.config.json`` with all public settings and
+# This holds ``matrix.config.json`` with all public settings and
 # placeholder strings. Real secrets are injected via the separate
-# ``opnmatrx-secrets`` Secret and the strict-mode validator in
+# ``matrix-secrets`` Secret and the strict-mode validator in
 # ``runtime.config.validation`` will refuse to start the gateway unless
 # all required secrets are present in the environment.
 #
 # To update the config in-cluster:
-#   kubectl -n opnmatrx create configmap opnmatrx-config \
-#       --from-file=openmatrix.config.json=./openmatrix.config.json \
+#   kubectl -n the-matrix create configmap matrix-config \
+#       --from-file=matrix.config.json=./matrix.config.json \
 #       --dry-run=client -o yaml | kubectl apply -f -
 
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: opnmatrx-config
-  namespace: opnmatrx
+  name: matrix-config
+  namespace: the-matrix
   labels:
-    app.kubernetes.io/name: opnmatrx-gateway
+    app.kubernetes.io/name: matrix-gateway
 data:
   # Minimal inline config — replace with the real one via kubectl create
-  # configmap --from-file=openmatrix.config.json.
-  openmatrix.config.json: |
+  # configmap --from-file=matrix.config.json.
+  matrix.config.json: |
     {
-      "platform": "0pnMatrx",
+      "platform": "The Matrix",
       "gateway": {
         "host": "0.0.0.0",
         "port": 18790,
@@ -45,7 +45,7 @@ data:
           "openai": {}
         }
       },
-      "database": {"path": "/app/data/openmatrix.db"},
+      "database": {"path": "/app/data/matrix.db"},
       "backup": {
         "enabled": true,
         "directory": "/app/data/backups",

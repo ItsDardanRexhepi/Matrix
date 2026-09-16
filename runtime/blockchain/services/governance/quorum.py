@@ -1,5 +1,5 @@
 """
-QuorumLogic — configurable quorum thresholds for the 0pnMatrx governance system.
+QuorumLogic — configurable quorum thresholds for the Matrix governance system.
 
 Default thresholds:
 - standard: 10%

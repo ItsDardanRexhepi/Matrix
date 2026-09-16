@@ -140,7 +140,7 @@ def test_production_refuses_to_start_with_a_noop_security_backend(monkeypatch):
 
     from gateway.server import GatewayServer
 
-    monkeypatch.setenv("OPNMATRX_ENV", "production")
+    monkeypatch.setenv("MATRIX_ENV", "production")
     monkeypatch.setattr("runtime.security.SECURITY_BACKEND", "noop", raising=False)
 
     with pytest.raises(RuntimeError, match="Refusing to start"):
@@ -168,7 +168,7 @@ def test_non_production_still_starts_with_the_noop_backend(monkeypatch):
 
     from gateway.server import GatewayServer
 
-    monkeypatch.delenv("OPNMATRX_ENV", raising=False)
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
     monkeypatch.setattr("runtime.security.SECURITY_BACKEND", "noop", raising=False)
     server = GatewayServer(SWEEP_CONFIG)
     assert server is not None

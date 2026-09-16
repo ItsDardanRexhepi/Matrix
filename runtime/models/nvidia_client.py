@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-NVIDIA model provider for 0pnMatrx.
+NVIDIA model provider for The Matrix.
 
 Uses NVIDIA's OpenAI-compatible API endpoint.
 API key loaded from config — never hardcoded.

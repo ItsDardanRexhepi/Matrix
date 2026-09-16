@@ -38,7 +38,7 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
         sys.exit(1)
@@ -49,7 +49,7 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 04: Parametric Crop Insurance
+  The Matrix Example 04: Parametric Crop Insurance
 {'=' * 60}{RESET}
 
   Weather-based insurance that pays out automatically

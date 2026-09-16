@@ -230,7 +230,7 @@ def test_the_treasury_follow_up_does_not_deny_an_executor_that_exists():
     """FINDING 3, CAUGHT A SECOND TIME BY THE PRE-REPOINT READ.
 
     The first version of this string said "there's no execution path to move
-    treasury funds". FALSE: contracts/OpenMatrixDAO.sol declares
+    treasury funds". FALSE: contracts/MatrixDAO.sol declares
     `treasuryWithdraw(address,uint256)`. The narrow claim — the PLATFORM has no
     wired path to it — is true and grepped: no Python caller exists.
 
@@ -243,7 +243,7 @@ def test_the_treasury_follow_up_does_not_deny_an_executor_that_exists():
     assert "no execution path" not in text
 
     root = pathlib.Path(__file__).resolve().parent.parent
-    solidity = (root / "contracts" / "OpenMatrixDAO.sol").read_text()
+    solidity = (root / "contracts" / "MatrixDAO.sol").read_text()
     assert "function treasuryWithdraw(" in solidity, (
         "the contract function this string is careful about no longer exists — "
         "the wording should be revisited rather than left"

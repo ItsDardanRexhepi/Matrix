@@ -2,7 +2,7 @@
 ENS Importer — imports Ethereum Name Service records.
 
 Resolves ENS names associated with an address and creates
-local records of domain ownership in 0pnMatrx.
+local records of domain ownership in The Matrix.
 """
 
 import argparse
@@ -71,7 +71,7 @@ async def fetch_ens_names(address: str) -> list[dict]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import ENS names into 0pnMatrx")
+    parser = argparse.ArgumentParser(description="Import ENS names into The Matrix")
     parser.add_argument("--address", required=True, help="Ethereum address to look up ENS names for")
     parser.add_argument("--output", default="imported/ens", help="Output directory")
     args = parser.parse_args()

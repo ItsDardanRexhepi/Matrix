@@ -24,7 +24,7 @@ EAS_CONTRACT_ADDRESSES: dict[int, str] = {
     8453:  "0x4200000000000000000000000000000000000021",   # Base Mainnet
 }
 
-# Schema 348 UID — the OpenMatrix deployment attestation schema
+# Schema 348 UID — the Matrix deployment attestation schema
 DEFAULT_SCHEMA_UID = (
     "0x"
     "a1bf4c0d5e4e4e0e5e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d"

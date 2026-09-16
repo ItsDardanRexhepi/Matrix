@@ -7,7 +7,7 @@ dist/
 .venv/
 
 # Config (real config has secrets)
-openmatrix.config.json
+matrix.config.json
 .env
 .env.stripe
 .env.rotated

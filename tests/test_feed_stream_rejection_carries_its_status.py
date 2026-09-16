@@ -28,7 +28,7 @@ ROUTES = ("/social/feed/stream", "/api/v1/events/stream")
 
 
 def _server() -> GatewayServer:
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-feedstream-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-feedstream-")
     return GatewayServer({**SWEEP_CONFIG, "memory_dir": scratch, "database": {"path": f"{scratch}/f.db"}})
 
 

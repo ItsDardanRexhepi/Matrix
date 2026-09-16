@@ -4,7 +4,7 @@ from __future__ import annotations
 OpenSea Importer — imports NFT collection data from OpenSea.
 
 Fetches NFT ownership records for a given address using the
-OpenSea API and creates local records in 0pnMatrx.
+OpenSea API and creates local records in The Matrix.
 """
 
 import argparse
@@ -74,7 +74,7 @@ async def fetch_nfts(address: str, api_key: str | None = None) -> list[dict]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import NFT data from OpenSea into 0pnMatrx")
+    parser = argparse.ArgumentParser(description="Import NFT data from OpenSea into The Matrix")
     parser.add_argument("--address", required=True, help="Ethereum address to import NFTs for")
     parser.add_argument("--api-key", default=None, help="OpenSea API key (optional)")
     parser.add_argument("--output", default="imported/opensea", help="Output directory")

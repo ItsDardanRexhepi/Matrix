@@ -117,7 +117,7 @@ def _bridge_notifier_users_imported() -> list[str]:
 
 
 def test_the_startup_report_says_whether_anything_sends_to_the_configured_channels(caplog):
-    scratch = tempfile.mkdtemp(prefix="opnmatrx-notify-")
+    scratch = tempfile.mkdtemp(prefix="the-matrix-notify-")
     config = {**SWEEP_CONFIG, "memory_dir": scratch, "database": {"path": f"{scratch}/n.db"},
               "notifications": {"webhook": {"url": "https://ops.example.invalid/hook"}}}
     with caplog.at_level(logging.INFO, logger="gateway.server"):

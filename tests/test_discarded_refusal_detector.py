@@ -13,7 +13,7 @@ cannot do this" was called, ignored, and contradicted by its own caller.
 
 WHY THIS IS WORSE THAN A STUB. The factory is CORRECT. `_collections` is
 declared in its own comment as a "cache for in-process queries"; ownership
-lives on-chain in OpenMatrixNFT.sol, a real ERC721, and refusing while that
+lives on-chain in MatrixNFT.sol, a real ERC721, and refusing while that
 contract is undeployed is the right behaviour. The defect was never a missing
 implementation — it was an IMPLEMENTED REFUSAL BEING OVERWRITTEN. Someone did
 the work correctly and the caller unmade it, which is exactly the shape that

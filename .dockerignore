@@ -45,7 +45,7 @@ backups
 # Secrets
 .env
 .env.*
-openmatrix.config.json
+matrix.config.json
 
 # Docs and CI artefacts
 docs/_build

@@ -334,7 +334,7 @@ async def test_the_fee_injected_contract_convert_returns_compiles(forge_build, p
 # every token is unique ...") names the contract `is`. convert() reported
 # status "success", audit_passed True, and forge rejected the source: Error 2314
 # for `is`, `2026Drop` and `Gällery`; Error 2333 (identifier already declared)
-# for `ERC721`, `Strings`, `Context`, `IERC165`, and for `IOpenMatrixFeeToken`
+# for `ERC721`, `Strings`, `Context`, `IERC165`, and for `IMatrixFeeToken`
 # once fees are injected; Error 5796 for `mint`, a function the template
 # declares. The controls above compiled only ArtDrop and AlbumDrop.
 
@@ -358,7 +358,7 @@ UNUSABLE_NAMES = {
     "re-exported library": (_art("Strings"), "Strings"),
     "re-exported base": (_art("Context"), "Context"),
     "re-exported interface": (_art("IERC165"), "IERC165"),
-    "injected fee interface": (_art("IOpenMatrixFeeToken"), "IOpenMatrixFeeToken"),
+    "injected fee interface": (_art("IMatrixFeeToken"), "IMatrixFeeToken"),
     "function the template declares": (_art("mint"), "mint"),
     "keyword": (_art("function"), "function"),
 }

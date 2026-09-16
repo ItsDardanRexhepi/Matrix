@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 06 — EAS Attestation Chain: Every Action Creates a Verifiable Record
 
-Demonstrates how 0pnMatrx uses Ethereum Attestation Service (EAS) to
+Demonstrates how The Matrix uses Ethereum Attestation Service (EAS) to
 create permanent, verifiable on-chain records for every platform action:
 
   1. Deploy a contract -> attestation
@@ -11,7 +11,7 @@ create permanent, verifiable on-chain records for every platform action:
   3. Create an insurance policy -> attestation
   4. Verify a specific attestation on-chain
 
-This is the trust layer of 0pnMatrx: every state-modifying capability is attested on-chain automatically.
+This is the trust layer of The Matrix: every state-modifying capability is attested on-chain automatically.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -37,7 +37,7 @@ def fail(text):     print(f"  {RED}x{RESET} {text}")
 
 
 def load_config() -> dict:
-    config_path = os.path.join(ROOT, "openmatrix.config.json")
+    config_path = os.path.join(ROOT, "matrix.config.json")
     if not os.path.exists(config_path):
         fail(f"Config not found: {config_path}")
         sys.exit(1)
@@ -48,10 +48,10 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  0pnMatrx Example 06: EAS Attestation Chain
+  The Matrix Example 06: EAS Attestation Chain
 {'=' * 60}{RESET}
 
-  Every action on 0pnMatrx creates an on-chain attestation
+  Every action on The Matrix creates an on-chain attestation
   via Ethereum Attestation Service (EAS) on Base Sepolia.
   This provides a permanent, verifiable audit trail.
 """)

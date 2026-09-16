@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to 0pnMatrx are documented here.
+All notable changes to The Matrix are documented here.
 
 ---
 
@@ -36,7 +36,7 @@ All notable changes to 0pnMatrx are documented here.
   every secret listed in `SECRET_PATHS`. Placeholder values
   (`YOUR_…`, `CHANGE_ME`, `REPLACE_…`, `xxx-…`) are treated as
   unset.
-- Strict mode (`OPNMATRX_ENV=production`) refuses to start the
+- Strict mode (`MATRIX_ENV=production`) refuses to start the
   gateway if a required secret is missing from the environment —
   no more silent fallback to committed placeholders.
 - `ValidationReport` returns structured missing/warnings lists so CI
@@ -95,19 +95,19 @@ All notable changes to 0pnMatrx are documented here.
   test suite. `--no-test` and `--clean` flags supported.
 - New `contracts/test/` directory with nine Foundry test files
   covering every production contract:
-  - `OpenMatrixPaymaster.t.sol` (14 tests — agent auth, sponsorGas,
+  - `MatrixPaymaster.t.sol` (14 tests — agent auth, sponsorGas,
     withdraw, ownership)
-  - `OpenMatrixAttestation.t.sol` (10 tests including a fuzz run)
-  - `OpenMatrixStaking.t.sol` (9 tests — stake / unstake / claim /
+  - `MatrixAttestation.t.sol` (10 tests including a fuzz run)
+  - `MatrixStaking.t.sol` (9 tests — stake / unstake / claim /
     fees)
-  - `OpenMatrixDAO.t.sol` (6 tests — deposit, propose, voting power)
-  - `OpenMatrixDID.t.sol` (8 tests — create, resolve, update,
+  - `MatrixDAO.t.sol` (6 tests — deposit, propose, voting power)
+  - `MatrixDID.t.sol` (8 tests — create, resolve, update,
     addService)
-  - `OpenMatrixInsurance.t.sol` (7 tests — premium tiers, purchase,
+  - `MatrixInsurance.t.sol` (7 tests — premium tiers, purchase,
     expire)
-  - `OpenMatrixNFT.t.sol` (9 tests — constructor, mint, royalty)
-  - `OpenMatrixDEX.t.sol` (5 tests — createPool, swap)
-  - `OpenMatrixMarketplace.t.sol` (5 tests — listItem, approval,
+  - `MatrixNFT.t.sol` (9 tests — constructor, mint, royalty)
+  - `MatrixDEX.t.sol` (5 tests — createPool, swap)
+  - `MatrixMarketplace.t.sol` (5 tests — listItem, approval,
     ownership)
   - `mocks/MockERC20.sol` helper
 
@@ -180,7 +180,7 @@ All notable changes to 0pnMatrx are documented here.
 - `requirements.txt` is now runtime-only with `~=` ("compatible
   release") pins. Development tooling moved to `requirements-dev.txt`,
   optional Sentry monitoring extras to `requirements-monitoring.txt`
-  and the `[opnmatrx[monitoring]]` extra.
+  and the `[the-matrix[monitoring]]` extra.
 
 #### CI / repo hygiene
 
@@ -244,7 +244,7 @@ All notable changes to 0pnMatrx are documented here.
 - Audit report included in every contract conversion response
 - Morpheus enforces audit findings — no unsafe contracts reach the chain
 - Mythos Preview added as model provider (Glasswing frontier model)
-- Security configuration in openmatrix.config.json
+- Security configuration in matrix.config.json
 - HiveMind security instance type for collective vulnerability reasoning
 - Ultron deploy planning now includes mandatory security audit step
 - Friday monitors security vulnerability events

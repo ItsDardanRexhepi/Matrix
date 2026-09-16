@@ -1,4 +1,4 @@
-# 0pnMatrx — Complete Capability Map
+# The Matrix — Complete Capability Map
 
 Every Web3 capability accessible through the gateway, organized by category.
 
@@ -145,10 +145,10 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Create DID | Create a decentralised identity | Free | POST /api/v1/identity/create | DID:openmatrix |
-| Create DID (expanded) | Create a DID with extended method support | Free | POST /api/v1/identity/did/create | DID:openmatrix, DID:ethr |
-| Update DID | Update a DID document | Free | via capability registry | DID:openmatrix |
-| Deactivate DID | Deactivate a DID | Free | via capability registry | DID:openmatrix |
+| Create DID | Create a decentralised identity | Free | POST /api/v1/identity/create | DID:matrix |
+| Create DID (expanded) | Create a DID with extended method support | Free | POST /api/v1/identity/did/create | DID:matrix, DID:ethr |
+| Update DID | Update a DID document | Free | via capability registry | DID:matrix |
+| Deactivate DID | Deactivate a DID | Free | via capability registry | DID:matrix |
 | Issue Credential | Issue a verifiable credential to a subject | Free | POST /api/v1/identity/credential/issue | W3C VC, EAS |
 | Verify Credential | Verify the validity of a credential | Free | POST /api/v1/identity/credential/verify | W3C VC, EAS |
 | Reputation Query | Query aggregated on-chain reputation for an agent | Free | via capability registry | custom |

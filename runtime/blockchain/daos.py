@@ -99,7 +99,7 @@ class DAOs(BlockchainInterface):
             return json.dumps({
                 "status": "proposed" if receipt["status"] == 1 else "failed",
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Proposal creation failed: {e}"
@@ -137,7 +137,7 @@ class DAOs(BlockchainInterface):
                 "vote": vote_label,
                 "proposal_id": proposal_id,
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Vote failed: {e}"
@@ -182,7 +182,7 @@ class DAOs(BlockchainInterface):
             return json.dumps({
                 "status": "executed" if receipt["status"] == 1 else "failed",
                 "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Proposal execution failed: {e}"
@@ -204,7 +204,7 @@ class DAOs(BlockchainInterface):
             return f"State check failed: {e}"
 
     async def _deploy_dao(self, params: dict) -> str:
-        dao_name = params.get("dao_name", "OpenMatrixDAO")
+        dao_name = params.get("dao_name", "MatrixDAO")
         return json.dumps({
             "status": "source_generated",
             "dao_name": dao_name,

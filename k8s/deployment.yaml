@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: opnmatrx-gateway
-  namespace: opnmatrx
+  name: matrix-gateway
+  namespace: the-matrix
   labels:
-    app.kubernetes.io/name: opnmatrx-gateway
+    app.kubernetes.io/name: matrix-gateway
     app.kubernetes.io/component: gateway
-    app.kubernetes.io/part-of: opnmatrx-platform
+    app.kubernetes.io/part-of: the-matrix-platform
 spec:
   # SQLite only supports a single writer, so replicas MUST stay at 1
   # unless you switch to a shared database backend.
@@ -15,11 +15,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: opnmatrx-gateway
+      app.kubernetes.io/name: matrix-gateway
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: opnmatrx-gateway
+        app.kubernetes.io/name: matrix-gateway
         app.kubernetes.io/component: gateway
     spec:
       securityContext:
@@ -31,47 +31,47 @@ spec:
           type: RuntimeDefault
       containers:
         - name: gateway
-          image: opnmatrx/gateway:latest
+          image: the-matrix/gateway:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 18790
               protocol: TCP
           env:
-            - name: OPNMATRX_ENV
+            - name: MATRIX_ENV
               value: "production"
-            - name: OPNMATRX_LOG_FORMAT
+            - name: MATRIX_LOG_FORMAT
               value: "json"
-            - name: OPNMATRX_LOG_LEVEL
+            - name: MATRIX_LOG_LEVEL
               value: "INFO"
-            # Secrets pulled from the ``opnmatrx-secrets`` Secret.
-            - name: OPENMATRIX_PAYMASTER_KEY
+            # Secrets pulled from the ``matrix-secrets`` Secret.
+            - name: MATRIX_PAYMASTER_KEY
               valueFrom:
                 secretKeyRef:
-                  name: opnmatrx-secrets
-                  key: OPENMATRIX_PAYMASTER_KEY
-            - name: OPENMATRIX_API_KEY
+                  name: matrix-secrets
+                  key: MATRIX_PAYMASTER_KEY
+            - name: MATRIX_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: opnmatrx-secrets
-                  key: OPENMATRIX_API_KEY
+                  name: matrix-secrets
+                  key: MATRIX_API_KEY
                   optional: true
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: opnmatrx-secrets
+                  name: matrix-secrets
                   key: ANTHROPIC_API_KEY
                   optional: true
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: opnmatrx-secrets
+                  name: matrix-secrets
                   key: OPENAI_API_KEY
                   optional: true
             - name: SENTRY_DSN
               valueFrom:
                 secretKeyRef:
-                  name: opnmatrx-secrets
+                  name: matrix-secrets
                   key: SENTRY_DSN
                   optional: true
           resources:
@@ -112,8 +112,8 @@ spec:
                 - ALL
           volumeMounts:
             - name: config
-              mountPath: /app/openmatrix.config.json
-              subPath: openmatrix.config.json
+              mountPath: /app/matrix.config.json
+              subPath: matrix.config.json
               readOnly: true
             - name: data
               mountPath: /app/data
@@ -122,10 +122,10 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: opnmatrx-config
+            name: matrix-config
         - name: data
           persistentVolumeClaim:
-            claimName: opnmatrx-data
+            claimName: the-matrix-data
         - name: tmp
           emptyDir:
             sizeLimit: 100Mi

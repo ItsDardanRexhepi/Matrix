@@ -1,6 +1,6 @@
 # Security Layer
 
-0pnMatrx includes a closed-source security layer that is not part of this repository.
+The Matrix includes a closed-source security layer that is not part of this repository.
 
 The security layer handles:
 - Agent boundary enforcement
@@ -12,4 +12,4 @@ The security layer handles:
 
 This layer is closed source by design. It cannot be bypassed, forked, or replicated from this repository. It connects to the open source runtime through the interface documented in `runtime/security/SECURITY_INTERFACE.md`.
 
-If you are building on 0pnMatrx, you do not need the security layer to run the platform locally. It is required only for production deployments serving public users.
+If you are building on The Matrix, you do not need the security layer to run the platform locally. It is required only for production deployments serving public users.

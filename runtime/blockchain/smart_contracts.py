@@ -174,7 +174,7 @@ class SmartContracts(BlockchainInterface):
                 "contract_address": receipt["contractAddress"],
                 "tx_hash": tx_hash.hex(),
                 "gas_used": receipt["gasUsed"],
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
                 "network": self.network,
                 "block_number": receipt["blockNumber"],
             }, indent=2)
@@ -234,7 +234,7 @@ class SmartContracts(BlockchainInterface):
                 "status": "success" if receipt["status"] == 1 else "failed",
                 "tx_hash": tx_hash.hex(),
                 "gas_used": receipt["gasUsed"],
-                "gas_paid_by": "platform (0pnMatrx)",
+                "gas_paid_by": "platform (The Matrix)",
             }, indent=2)
         except Exception as e:
             return f"Send failed: {e}"

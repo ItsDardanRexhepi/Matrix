@@ -1,5 +1,5 @@
 """
-Plain English formatters for the 0pnMatrx unified dashboard.
+Plain English formatters for the Matrix unified dashboard.
 
 All output is human-readable. No hex addresses shown to users
 (truncated to 0x...1234 format). No jargon.

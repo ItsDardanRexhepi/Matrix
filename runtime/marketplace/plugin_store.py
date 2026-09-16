@@ -69,19 +69,19 @@ class PluginListing:
 EXAMPLE_PLUGINS: list[dict] = [
     {
         "name": "Hello World Plugin",
-        "description": "Example plugin demonstrating the 0pnMatrx plugin API. Adds a /hello command that greets the user.",
-        "author": "0pnMatrx Team",
+        "description": "Example plugin demonstrating the Matrix plugin API. Adds a /hello command that greets the user.",
+        "author": "The Matrix Team",
         "version": "1.0.0",
         "price_usd": 0.0,
         "category": "example",
         "min_tier_required": "free",
         "capabilities": ["custom_command"],
-        "repository_url": "https://github.com/ItsDardanRexhepi/0pnMatrx",
+        "repository_url": "https://github.com/ItsDardanRexhepi/the-matrix",
     },
     {
         "name": "Portfolio Tracker",
         "description": "Track your DeFi portfolio across multiple chains. Automatic balance updates and PnL calculations.",
-        "author": "0pnMatrx Team",
+        "author": "The Matrix Team",
         "version": "1.0.0",
         "price_usd": 0.0,
         "category": "finance",
@@ -91,7 +91,7 @@ EXAMPLE_PLUGINS: list[dict] = [
     {
         "name": "Gas Price Alerts",
         "description": "Get notified when gas prices drop below your threshold. Supports Base, Ethereum, and Polygon.",
-        "author": "0pnMatrx Team",
+        "author": "The Matrix Team",
         "version": "1.0.0",
         "price_usd": 0.0,
         "category": "utility",

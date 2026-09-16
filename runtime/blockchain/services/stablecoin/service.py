@@ -1,5 +1,5 @@
 """
-StablecoinService -- core stablecoin operations for 0pnMatrx.
+StablecoinService -- core stablecoin operations for The Matrix.
 
 Handles transfers with tiered fees, balance queries, and integrates
 with the BalanceTracker and TransferRateLimiter for lifetime tracking
@@ -37,7 +37,7 @@ SUPPORTED_TOKENS: set[str] = {"USDC", "USDT", "DAI", "FRAX", "PYUSD"}
 
 class StablecoinService:
     """
-    Main stablecoin service for the 0pnMatrx platform.
+    Main stablecoin service for the Matrix platform.
 
     Config keys used (under config["stablecoin"] or config["blockchain"]):
         platform_wallet     -- address that collects fees
@@ -356,7 +356,7 @@ class StablecoinService:
         if not (
             "PYTEST_CURRENT_TEST" in os.environ
             or "pytest" in sys.modules
-            or os.environ.get("OPENMATRIX_ALLOW_TEST_MINT") == "1"
+            or os.environ.get("MATRIX_ALLOW_TEST_MINT") == "1"
         ):
             raise RuntimeError(
                 "set_balance is a test-only funding helper and is an arbitrary "
