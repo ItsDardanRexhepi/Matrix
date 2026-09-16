@@ -26,7 +26,7 @@ def configure(config: dict, persist: bool = True) -> dict:
     channel_cfg = {"webhook_url": url}
     update_channel(config, "slack", channel_cfg)
     save_config(config, persist=persist)
-    update_env({"SLACK_WEBHOOK_URL": url})
+    update_env({"SLACK_WEBHOOK_URL": url}, persist=persist)
     result = test_channel_via_dispatcher(config, "slack")
     if result.get("status") == "ok":
         success("Slack saved and test message delivered.")

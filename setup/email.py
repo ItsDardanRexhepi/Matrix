@@ -34,7 +34,7 @@ def configure(config: dict, persist: bool = True) -> dict:
         "SMTP_HOST": host, "SMTP_PORT": str(port),
         "SMTP_USER": user, "SMTP_PASS": password,
         "SMTP_FROM": from_addr, "SMTP_TO": to_addr,
-    })
+    }, persist=persist)
     result = test_channel_via_dispatcher(config, "email")
     if result.get("status") == "ok":
         success("Email saved and test message sent.")

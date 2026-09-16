@@ -36,7 +36,7 @@ def configure(config: dict, persist: bool = True) -> dict:
         "TWILIO_AUTH_TOKEN": token,
         "TWILIO_FROM_NUMBER": from_num,
         "TWILIO_TO_NUMBER": to_num,
-    })
+    }, persist=persist)
     result = test_channel_via_dispatcher(config, "sms")
     if result.get("status") == "ok":
         success("SMS saved and test message sent.")
