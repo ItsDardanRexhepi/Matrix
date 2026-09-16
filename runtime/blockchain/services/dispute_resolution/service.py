@@ -253,7 +253,9 @@ class DisputeResolution:
         return await self.schelling.submit_vote(dispute_id, juror, vote, justification)
 
     # ------------------------------------------------------------------
-    # Reward claims (post-resolution, idempotent, no funds held here)
+    # Reward claims (post-resolution, idempotent, no funds held here).
+    # Idempotent by answering a repeat with the record it already holds — see
+    # claim(); it used to raise, and a raise is not an idempotent endpoint.
     # ------------------------------------------------------------------
 
     async def claim(self, dispute_id: str, claimant: str) -> dict:
@@ -261,13 +263,22 @@ class DisputeResolution:
 
         The platform never holds funds — this records entitlement against the
         resolved outcome (stake return for the winning party, reward share for
-        majority jurors); settlement is executed on-chain separately. A second
-        claim by the same address raises instead of double-recording.
+        majority jurors); settlement is executed on-chain separately.
+
+        IDEMPOTENT, WHICH IS WHAT THE SECTION HEADER ABOVE AND THE GATEWAY
+        ROUTE BOTH SAY IT IS. A second claim by the same address used to raise
+        ValueError, which `ServiceRoutes._call` maps to HTTP 400 — so a client
+        whose first POST timed out AFTER the claim was recorded was refused its
+        own recorded entitlement on the retry, which is the exact failure
+        idempotency exists for. The retry is answered with what was recorded,
+        marked ``replay: True``. The no-double-record guarantee is unchanged:
+        the stored claim is never overwritten and `claimed_at` still says when
+        the first one landed.
 
         Raises:
             KeyError: If the dispute does not exist.
-            ValueError: If the dispute is unresolved, the address has no
-                entitlement, or it has already claimed.
+            ValueError: If the dispute is unresolved or the address has no
+                entitlement.
         """
         dispute = self._get_dispute_or_raise(dispute_id)
 
@@ -297,7 +308,13 @@ class DisputeResolution:
 
         claims: dict[str, Any] = dispute.setdefault("claims", {})
         if claimant in claims:
-            raise ValueError(f"Address {claimant} already claimed for dispute {dispute_id}")
+            # The retry, answered with the record rather than a 400. Nothing is
+            # written here — the entitlement below is computed fresh from the
+            # outcome each time and deliberately NOT used to overwrite.
+            logger.info(
+                "Dispute claim replayed — id=%s claimant=%s", dispute_id, claimant)
+            return {"dispute_id": dispute_id, "claimant": claimant,
+                    "replay": True, **claims[claimant]}
 
         claims[claimant] = {
             **entitlement,

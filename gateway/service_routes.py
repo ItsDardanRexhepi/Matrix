@@ -390,8 +390,19 @@ class ServiceRoutes:
         # Its handler called insurance.settle_claim — a method that has never
         # existed (the real one is auto_settle_claim) — so the route returned
         # 404 on every request since it was written. Its params were wrong
-        # twice over (claim_id/settlement_amount vs policy_id), and settlement
-        # now requires an owner and oracle verification it never supplied.
+        # twice over (claim_id/settlement_amount vs policy_id).
+        #
+        # This line used to end "and settlement now requires an owner and
+        # oracle verification it never supplied". The oracle half is real —
+        # auto_settle_claim verifies through _verify_via_oracle and fails
+        # closed. The owner half does not exist: auto_settle_claim(policy_id,
+        # oracle_data) takes no caller and never reaches assert_owner, so any
+        # caller who can reach the service can settle a policy they do not
+        # hold. That is the NEW-82 / 18-C deferral in insurance/service.py,
+        # which argues that a per-method guard in ONE service would make the
+        # dispatcher seam look audited while every other service's caller
+        # argument stayed unbound. The deferral stands on its own terms; what
+        # is corrected here is the sentence that contradicted it.
 
         # ── Privacy ──────────────────────────────────────────────────
 
@@ -2205,10 +2216,13 @@ class ServiceRoutes:
         bodies at both routes, which is what keeps the two field lists equal.
         """
         # NEW-89 DROPPED-INTENT: `rules` was REQUIRED here and the service has
-        # no rules concept at all — create_community stores creator/name/
+        # no rules concept at all — create_community keeps creator/name/
         # description/token_gate and nothing enforces anything. Mapping rules ->
         # description would return 200 with the caller's rules sitting in a
         # descriptive field that governs nothing. Refuse instead of pretending.
+        # ("stores", this said, while create_community stored nothing at all
+        # and the 200 named a community that existed nowhere; it keeps the
+        # record now, process-locally, and the read legs are still 501.)
         self._require(body, "creator", "name")
         if body.get("rules"):
             return web.json_response(status=501, data={
