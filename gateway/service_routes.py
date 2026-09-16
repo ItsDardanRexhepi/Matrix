@@ -29,7 +29,7 @@ from multidict import MultiDict, MultiDictProxy
 from gateway.error_contract import (
     DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure, refusal_http_status,
 )
-from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, UNKNOWN, report_of
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -3314,12 +3314,33 @@ class ServiceRoutes:
         total_ms = int((time.monotonic() - start_wall) * 1000)
         self._metric_observe("batch.duration_ms", float(total_ms))
 
-        success_count = sum(1 for r in results if 200 <= r["status"] < 300)
-        failure_count = len(results) - success_count
+        # COUNTED FROM WHAT EACH ITEM REPORTED, NOT FROM ITS HTTP STATUS.
+        #
+        # This was `200 <= r["status"] < 300`, and a DOMAIN refusal keeps its
+        # 200 deliberately — `_ok` is right that a rejected claim is a real
+        # answer the caller asked for, and promoting one would break a working
+        # flow. So the transport's truthful statement about ITSELF was counted
+        # as the action's verdict: a batch of refusals was counted as a batch of
+        # successes, the count was PUBLISHED to every SSE subscriber below, and
+        # the same number went into the metric an operator reads to decide
+        # whether the platform is working.
+        #
+        # THREE ANSWERS, BECAUSE THERE ARE THREE. `failure_count` used to be
+        # `len - success`, which files an item nobody established a verdict for
+        # — a timed-out item above all, which may well have acted — under
+        # failure. It gets its own count instead; a number that lumps the
+        # unknown in with the refused is a number that asserts a negative fact
+        # nothing established.
+        outcomes = [r.get(OUTCOME_FIELD) for r in results]
+        success_count = sum(1 for o in outcomes if o == SUCCESS)
+        refused_count = sum(1 for o in outcomes if o == FAILURE)
+        unknown_count = len(results) - success_count - refused_count
         if success_count:
             self._metric_incr("batch.item.success", success_count)
-        if failure_count:
-            self._metric_incr("batch.item.failure", failure_count)
+        if refused_count:
+            self._metric_incr("batch.item.failure", refused_count)
+        if unknown_count:
+            self._metric_incr("batch.item.unknown", unknown_count)
         timeout_count = sum(1 for r in results if r.get("status") == 504)
         if timeout_count:
             self._metric_incr("batch.items.timeout", timeout_count)
@@ -3332,6 +3353,11 @@ class ServiceRoutes:
                 {
                     "item_count": len(items),
                     "success_count": success_count,
+                    # Stated rather than left to be inferred from the other two:
+                    # a subscriber that subtracts reads every unestablished
+                    # outcome as a refusal, which is the defect facing the other
+                    # way. `item_count - success - refused` is the unknown.
+                    "refused_count": refused_count,
                     "total_duration_ms": total_ms,
                 },
             )
@@ -3353,7 +3379,18 @@ class ServiceRoutes:
         for item in items:
             result = await self._dispatch_batch_item(item, auth=auth)
             results.append(result)
-            if abort_on_failure and not (200 <= result["status"] < 300):
+            # ABORTS ON WHAT THE ITEM REPORTED, NOT ON ITS HTTP STATUS. This
+            # read `200 <= status < 300`, so a refusal that keeps its 200 — the
+            # domain refusals `_ok` deliberately does not promote — did not stop
+            # the items queued behind it. A caller sends a sequential batch with
+            # `abort_on_failure` because the later items DEPEND on the earlier
+            # ones; the loan was refused and the repayment ran anyway.
+            #
+            # An UNKNOWN outcome stops it too, and that is not a widening: a
+            # timeout and a route miss were already non-2xx here. An item whose
+            # outcome nobody established is exactly the item a dependent call
+            # must not be built on.
+            if abort_on_failure and result.get(OUTCOME_FIELD) != SUCCESS:
                 # Pad remaining items so the response shape stays aligned
                 # with the request order.
                 for remaining in items[len(results):]:
@@ -3363,6 +3400,9 @@ class ServiceRoutes:
                         "status": 0,
                         "body": None,
                         "error": "aborted",
+                        # Not UNKNOWN: this one is established. The item was
+                        # never dispatched, so the call did not happen.
+                        OUTCOME_FIELD: FAILURE,
                     })
                 break
         return results
@@ -3382,8 +3422,45 @@ class ServiceRoutes:
             pass
         return results
 
+    @staticmethod
+    def _item_outcome(status: int, body: Any) -> str:
+        """What the SUB-CALL reported, for the batch item to state.
+
+        The batch envelope is the third HTTP envelope in this file, and it hid
+        what the other two stopped hiding. `_ok` states `call_outcome` in the
+        body it answers with; this method used to put that body under ``body``,
+        write the sub-route's HTTP status beside it, set ``error`` to None and
+        pass on nothing else — so a refusal that correctly keeps its 200 reached
+        every consumer of the batch as an item indistinguishable from an
+        executed action. MTRXPackager.unpackBatchItem decodes on
+        ``status >= 200 && < 300``; the batch's own `success_count` counted the
+        same way; `abort_on_failure` tested the same thing.
+
+        READ, NOT RE-DERIVED. `report_of` believes a `call_outcome` the
+        sub-route already stated over anything it would infer, so the item
+        cannot disagree with the body it carries. Routes that state none — the
+        ones answering raw payloads rather than `_ok` — are read from their
+        structure, by the same reader, at the same strength.
+
+        A NON-2XX IS ITSELF A REPORT. The sub-route said the call did not
+        succeed; when its body states an outcome that is the outcome, and when
+        the body says nothing (an `HTTPException`'s bare `{"error": ...}`, or no
+        body at all) the status is the only report there is and it is a refusal.
+        The measured default that reads a silent payload as success is a fact
+        about payloads this tree RETURNS, not about a status it raised.
+        """
+        if 200 <= status < 300:
+            return report_of(body)
+        reported = report_of(body) if body is not None else FAILURE
+        return reported if reported != SUCCESS else FAILURE
+
     async def _dispatch_batch_item(self, item: Any, auth: Optional[dict] = None) -> dict:
-        """Run one batch item and return a ``BatchItemResult`` dict."""
+        """Run one batch item and return a ``BatchItemResult`` dict.
+
+        Every branch states ``call_outcome``. A field that appears only on
+        failure is read as silence on every other path — the shape this whole
+        cluster is about.
+        """
 
         if not isinstance(item, dict):
             return {
@@ -3391,6 +3468,7 @@ class ServiceRoutes:
                 "status": 400,
                 "body": None,
                 "error": "Batch item must be an object",
+                OUTCOME_FIELD: FAILURE,
             }
 
         item_id = item.get("id") or ""
@@ -3404,6 +3482,7 @@ class ServiceRoutes:
                 "status": 400,
                 "body": None,
                 "error": "Batch item missing 'path'",
+                OUTCOME_FIELD: FAILURE,
             }
 
         # "/path?x=1": route on the path, hand the handler the query — as the
@@ -3417,6 +3496,7 @@ class ServiceRoutes:
                 "status": 404,
                 "body": None,
                 "error": f"No route for {method} {path}",
+                OUTCOME_FIELD: FAILURE,
             }
 
         handler, match_info, literal_path = resolved
@@ -3442,6 +3522,11 @@ class ServiceRoutes:
                 "error": (
                     f"Batch item exceeded {BATCH_ITEM_TIMEOUT_SECONDS:.0f}s timeout"
                 ),
+                # THE THIRD ANSWER, AND THIS IS WHERE IT BELONGS. The handler
+                # was cancelled mid-flight; it may already have signed, spent or
+                # written. A refusal is a claim that nothing happened, and
+                # nothing establishes that here.
+                OUTCOME_FIELD: UNKNOWN,
             }
         except web.HTTPException as exc:
             return {
@@ -3449,6 +3534,12 @@ class ServiceRoutes:
                 "status": exc.status,
                 "body": None,
                 "error": self._extract_http_error(exc),
+                # `_call` raises these for a capability that does not exist, a
+                # bad parameter, a validation refusal — the route decided, and
+                # it decided no. Except at 504, where it decided nothing:
+                # `client_error` maps an upstream timeout to that status, and a
+                # request that timed out upstream may have been acted on.
+                OUTCOME_FIELD: self._outcome_for_error_status(exc.status),
             }
         except Exception as exc:  # pragma: no cover — defence in depth
             # RUN-5: this shipped str(exc) — the raw exception — as the item's
@@ -3460,14 +3551,30 @@ class ServiceRoutes:
                 "status": status,
                 "body": None,
                 "error": err["error"],
+                OUTCOME_FIELD: self._outcome_for_error_status(status),
             }
 
+        body_json = self._extract_response_body(response)
         return {
             "id": item_id,
             "status": response.status,
-            "body": self._extract_response_body(response),
+            "body": body_json,
             "error": None,
+            OUTCOME_FIELD: self._item_outcome(response.status, body_json),
         }
+
+    @staticmethod
+    def _outcome_for_error_status(status: int) -> str:
+        """The outcome of an item that never produced a response body.
+
+        FAILURE for every status the gateway decides on its own — a missing
+        parameter, an absent capability, an unreachable dependency: the call did
+        not happen. UNKNOWN at 504 only, where `client_error` is saying the
+        upstream stopped answering, which is not the same as saying it did
+        nothing. A timeout is the one error this surface cannot turn into a
+        negative fact.
+        """
+        return UNKNOWN if status == 504 else FAILURE
 
     @staticmethod
     def _extract_http_error(exc: web.HTTPException) -> str:

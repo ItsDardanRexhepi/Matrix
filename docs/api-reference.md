@@ -338,8 +338,13 @@ answers with its own status rather than dressing a refusal as a success:
   `GET /api/v1/price/eth-usd` (the price, `503` when no source is reachable),
   `POST /api/v1/paymaster/sign` (`{paymasterAndData}`),
   `POST /api/v1/security/preflight` (`{allow, mode}`, or `403` for a denial),
-  `POST /api/v1/batch` (each item carries the sub-response's own status and
-  body, so an item inherits the `503` its route would have answered) and
+  `POST /api/v1/batch` (each item carries the sub-response's own status, body
+  and `call_outcome`, so an item inherits the `503` its route would have
+  answered *and* the verdict a domain refusal's deliberate `200` would
+  otherwise have hidden — `unknown` for an item that timed out, which was
+  cancelled mid-flight and may have acted. The completion event counts
+  `success_count` and `refused_count` from those verdicts, and
+  `abort_on_failure` stops on anything that is not a success) and
   `GET /api/v1/events/stream` (SSE).
 * **`POST /api/v1/capabilities/{id}/invoke`**, which relays the dispatcher
   under `{status, call_outcome, capability_id, action, result}`. The

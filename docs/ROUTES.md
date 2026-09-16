@@ -134,19 +134,19 @@
 | GET | `/badge/{badge_id}/embed` | `handle_badge_embed` | server.py:2565 |  |
 | GET | `/badge/{badge_id}/status` | `handle_badge_status` | server.py:2564 |  |
 | GET | `/badges` | `handle_badges_list` | server.py:2566 | ✅ |
-| POST | `/bridge/v1/action` | `execute_action` | bridge.py:637 |  |
-| POST | `/bridge/v1/chat` | `chat` | bridge.py:635 | ✅ |
-| GET | `/bridge/v1/components` | `get_components` | bridge.py:649 |  |
-| GET | `/bridge/v1/components/manifest` | `get_components_manifest` | bridge.py:650 |  |
-| GET | `/bridge/v1/components/{component_id}` | `get_component` | bridge.py:651 |  |
-| GET | `/bridge/v1/config` | `get_config` | bridge.py:644 |  |
-| GET | `/bridge/v1/dashboard` | `get_dashboard` | bridge.py:647 |  |
-| POST | `/bridge/v1/push/register` | `register_push` | bridge.py:642 |  |
-| GET | `/bridge/v1/services` | `get_services` | bridge.py:645 |  |
-| POST | `/bridge/v1/session/create` | `create_session` | bridge.py:632 |  |
-| POST | `/bridge/v1/session/resume` | `resume_session` | bridge.py:633 |  |
-| POST | `/bridge/v1/wallet/link` | `link_wallet` | bridge.py:639 |  |
-| GET | `/bridge/v1/wallet/status` | `wallet_status` | bridge.py:640 |  |
+| POST | `/bridge/v1/action` | `execute_action` | bridge.py:664 |  |
+| POST | `/bridge/v1/chat` | `chat` | bridge.py:662 | ✅ |
+| GET | `/bridge/v1/components` | `get_components` | bridge.py:676 |  |
+| GET | `/bridge/v1/components/manifest` | `get_components_manifest` | bridge.py:677 |  |
+| GET | `/bridge/v1/components/{component_id}` | `get_component` | bridge.py:678 |  |
+| GET | `/bridge/v1/config` | `get_config` | bridge.py:671 |  |
+| GET | `/bridge/v1/dashboard` | `get_dashboard` | bridge.py:674 |  |
+| POST | `/bridge/v1/push/register` | `register_push` | bridge.py:669 |  |
+| GET | `/bridge/v1/services` | `get_services` | bridge.py:672 |  |
+| POST | `/bridge/v1/session/create` | `create_session` | bridge.py:659 |  |
+| POST | `/bridge/v1/session/resume` | `resume_session` | bridge.py:660 |  |
+| POST | `/bridge/v1/wallet/link` | `link_wallet` | bridge.py:666 |  |
+| GET | `/bridge/v1/wallet/status` | `wallet_status` | bridge.py:667 |  |
 | POST | `/certification/start` | `handle_cert_start` | server.py:2572 |  |
 | POST | `/certification/submit` | `handle_cert_submit` | server.py:2573 |  |
 | GET | `/certification/tracks` | `handle_cert_tracks` | server.py:2571 |  |

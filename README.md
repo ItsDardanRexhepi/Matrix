@@ -258,6 +258,18 @@ check behind it:
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it
   brought
+- **A batch item says what its call did, not that it came back.** The
+  item used to carry the sub-route's HTTP status and nothing else about
+  the outcome, and a refusal that is a domain answer keeps its `200` on
+  purpose — so a refused loan and a granted one were the same item to
+  everyone reading it. Each item now states the call's own verdict beside
+  the status, and everything downstream reads that instead: the counts
+  the platform publishes to its live feed are counts of calls that did
+  the thing, `abort_on_failure` stops at a refusal the transport
+  delivered perfectly well, and the app decodes a batched result only
+  when the call behind it reported acting. An item that timed out is
+  neither counted nor refused — it was cancelled mid-flight, and it may
+  have acted
 - **Security posture is stated, not assumed.** With no enforcement core
   installed the platform runs in OBSERVE mode and says so at boot
 
