@@ -19,7 +19,8 @@ YELLOW = "\033[33m"
 DIM = "\033[2m"
 NC = "\033[0m"
 
-VERSION = "0.5.0"
+# One source of truth (see runtime/__init__.py); never restate the number.
+from runtime import __version__ as VERSION
 
 
 def _info(msg: str) -> None:

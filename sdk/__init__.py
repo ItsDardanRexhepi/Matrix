@@ -12,4 +12,5 @@ Usage:
 from sdk.client import OpenMatrixClient
 
 __all__ = ["OpenMatrixClient"]
-__version__ = "1.0.0"
+# One source of truth (see runtime/__init__.py); never restate the number.
+from runtime import __version__  # noqa: E402,F401

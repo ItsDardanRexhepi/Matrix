@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opnmatrx"
-version = "0.5.0"
+dynamic = ["version"]
 description = "0pnMatrx — multi-agent crypto-native platform (Trinity, Neo, Morpheus)."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -86,6 +86,10 @@ Changelog = "https://github.com/ItsDardanRexhepi/0pnMatrx/blob/main/CHANGELOG.md
 openmatrix = "cli:main"
 opnmatrx-gateway = "gateway.server:main"
 opnmatrx-changelog = "scripts.generate_changelog:main"
+
+[tool.setuptools.dynamic]
+# Derived, never restated — the number lives in runtime/__init__.py.
+version = { attr = "runtime.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
