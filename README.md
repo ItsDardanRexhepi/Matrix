@@ -232,6 +232,13 @@ check behind it:
   rather than adopted. Which agent answers is settled by one resolver, so
   a different spelling of a privileged agent's name is not a way past the
   operator check
+- **A record names who the platform resolved, not who the request said.**
+  The attestation, the decline record and the public live feed are all
+  attributed to the identity the entry point bound for that request. An
+  address written into the request body no longer outranks it, and where
+  nothing was bound it is written down as a claim rather than promoted to
+  the actor — so a caller who names somebody else shows up in the trail as
+  exactly that, instead of the platform quietly agreeing
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and

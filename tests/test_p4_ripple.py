@@ -92,6 +92,14 @@ async def test_write_with_readish_prefix_still_ripples(env):
 
 async def test_ripple_payload_shape(env):
     # The ripple event carries the actor + action so the feed can render it.
+    #
+    # This asserted `actor == "0xowner"` — the body's own `owner` field — which
+    # is the behaviour tests/test_the_actor_is_the_resolved_identity.py removed:
+    # the actor is the identity the entry point resolved, and a body-supplied
+    # address rides as `actor_claimed`. Nothing binds an identity for a bare
+    # ServiceRoutes app, so the actor here is "" and the claim is "0xowner".
+    # Corrected rather than deleted: the payload SHAPE is still what this test
+    # is for, and the shape now has two fields.
     routes, client = env
     events = []
     orig = routes.broadcaster.publish_dict
@@ -112,5 +120,6 @@ async def test_ripple_payload_shape(env):
     if resp.status == 200:
         ripples = [p for t, p in events if t == "feed.ripple"]
         assert ripples, "an executed register_ip must emit feed.ripple"
-        assert ripples[0]["actor"] == "0xowner"
+        assert ripples[0]["actor"] == ""
+        assert ripples[0]["actor_claimed"] == "0xowner"
         assert ripples[0]["service"] == "ip_royalties"

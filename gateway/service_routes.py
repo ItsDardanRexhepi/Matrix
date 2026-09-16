@@ -868,14 +868,42 @@ class ServiceRoutes:
         # create_post already emits a richer ``social.post`` event — don't double.
         if service_name == "social" and method_name == "create_post":
             return
-        actor = ""
+        # WHO THE LIVE FEED SAYS ACTED.
+        #
+        # This scan — fifteen body keys, first hit wins — WAS the actor. Every
+        # one of them is written by the request, so the public broadcast for
+        # every executed /api/v1 action announced an address the platform had
+        # not resolved, while the identity the security middleware bound for
+        # that same request (`current_request_security()["wallet"]`, set for
+        # every POST /api/v1/*) went unread one frame away. Measured before this
+        # change: POST /api/v1/groups {"creator": "0xCLAIMED"} published
+        # feed.ripple {"actor": "0xCLAIMED", …} with nothing bound at all.
+        #
+        # The actor is now the resolved identity and only that. The scanned
+        # value survives as `actor_claimed` when it disagrees — a claim about
+        # who acted, labelled as one. Same rule, same two fields, as the
+        # dispatcher's attestation and feed path
+        # (runtime/blockchain/services/service_dispatcher.py); a fix on one
+        # attribution surface and not the other is the half-fix this codebase
+        # keeps catching.
+        #
+        # RESOLVED, NOT AUTHENTICATED: the middleware binds a session's subject
+        # when there is one and, for an operator request, the X-Wallet-Address
+        # header or a body field as written. That is pinned and disclosed in
+        # tests/test_bound_identity_is_not_called_authenticated.py and is not
+        # narrowed here.
+        from gateway.security_gate import current_request_security
+        actor = str((current_request_security() or {}).get("wallet") or "")
+        claimed = ""
         for k in ("owner", "creator", "author", "sender", "from_", "from",
                   "uploader", "requester", "employer", "holder", "minter",
                   "user", "voter", "address", "delegator"):
             v = kwargs.get(k)
             if isinstance(v, str) and v:
-                actor = v
+                claimed = v
                 break
+        if claimed == actor:
+            claimed = ""
         from gateway.security_gate import action_type_for
         payload: Dict[str, Any] = {
             "action": action_type_for(service_name, method_name),
@@ -883,6 +911,10 @@ class ServiceRoutes:
             "method": method_name,
             "actor": actor,
         }
+        # Conditional, like `ref` and `status` below: this is a broadcast to
+        # live subscribers, and the key is here to carry a disagreement.
+        if claimed:
+            payload["actor_claimed"] = claimed
         if isinstance(result, dict):
             ref = result.get("id") or result.get("tx_hash") or result.get("hash")
             if ref:
