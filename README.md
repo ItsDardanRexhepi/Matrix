@@ -204,12 +204,13 @@ What works today, no chain required:
   rather than letting its own `ok` stand in for it — on both `/api/v1`
   doors, the dedicated route and the capability-invoke one, which used to
   give opposite answers for the same refusal, and on the mobile bridge,
-  where a wrapper that was not told the verdict now reads it off the
-  payload instead of defaulting to success. That default was the whole
-  hole: a stated verdict is believed over everything else, so an envelope
-  claiming a success nobody established outranked the refusal sitting
-  inside it — including one the dispatcher had already read correctly and
-  written down. And a refusal the live feed
+  where a wrapper that was not told the verdict reads it off the payload
+  instead of defaulting to success. A stated verdict is believed over
+  everything else, so a defaulted one would outrank the refusal sitting
+  inside it, even one the dispatcher had already read and written down.
+  No bridge route relayed a payload like that without stating its
+  verdict, so the default never did it to a live response; it is gone so
+  that the next route cannot. And a refusal the live feed
   does not announce is still written down as a decline, on whichever
   surface refused it: a trail has to show that the platform said no, not
   that nothing was ever asked. The field is spelled that way on purpose: the services here already use the word `outcome`
