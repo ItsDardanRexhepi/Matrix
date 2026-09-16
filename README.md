@@ -217,11 +217,15 @@ check behind it:
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it
-- **Gas sponsorship is metered.** The per-identity daily cap the
-  configuration documents is enforced before signing, over a durable
-  ledger, and the sponsored action is decoded from the call data being
-  signed rather than read from a label the caller supplies. An operator
-  who configures no cap keeps the previous behaviour
+- **Gas sponsorship is metered against what the EntryPoint can charge.**
+  The per-identity daily cap the configuration documents is enforced
+  before signing, over a durable ledger, and each request is priced at
+  the EntryPoint v0.6 prefund for a sponsored operation — which counts
+  the verification gas limit three times, not once, because that limit
+  also bounds the paymaster's postOp — so the cap cannot authorise more
+  real spend than it names. The sponsored action is decoded from the call
+  data being signed rather than read from a label the caller supplies. An
+  operator who configures no cap keeps the previous behaviour
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused

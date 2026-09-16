@@ -947,22 +947,37 @@ class ServiceRoutes:
     async def _estimate_sponsorship_usd(self, cfg: dict, body: dict) -> float:
         """Worst-case USD cost of the gas this userOp asks the platform to cover.
 
-        max_fee_per_gas x (callGasLimit + verificationGasLimit +
-        preVerificationGas) is the ceiling the EntryPoint can charge the
-        paymaster for this operation, so metering the ceiling is the reading
-        that cannot under-count. Priced with the same PriceFeed the /price route
-        uses; it raises rather than return a stale number, and this method lets
-        that raise through to the caller's 503.
+        The EntryPoint reserves ``_getRequiredPrefund`` from the paymaster's
+        deposit before it executes, so that prefund — not the bare sum of the
+        gas limits — is the ceiling one signature can commit. This used to sum
+        callGasLimit + verificationGasLimit + preVerificationGas and call that
+        the ceiling; EntryPoint v0.6 counts the verification limit THREE times
+        when a paymaster is present (it also bounds postOp, which may run
+        twice), so the cap was metering as little as 45% of the reservable
+        spend and authorised more than the operator configured.
+        ``gateway.paymaster.required_prefund_wei`` is the pinned formula.
+
+        Priced with the same PriceFeed the /price route uses; it raises rather
+        than return a stale number, and this method lets that raise through to
+        the caller's 503.
         """
+        from gateway.paymaster import required_prefund_wei
+
         def _int(key: str) -> int:
             try:
                 return int(body.get(key, 0) or 0)
             except (TypeError, ValueError):
                 return 0
 
-        total_gas = (_int("call_gas_limit") + _int("verification_gas_limit")
-                     + _int("pre_verification_gas"))
-        wei = total_gas * _int("max_fee_per_gas")
+        # has_paymaster is the default: this handler has already refused with
+        # 503 unless a paymaster address is configured, and every operation it
+        # signs carries that paymaster in its paymasterAndData.
+        wei = required_prefund_wei(
+            call_gas_limit=_int("call_gas_limit"),
+            verification_gas_limit=_int("verification_gas_limit"),
+            pre_verification_gas=_int("pre_verification_gas"),
+            max_fee_per_gas=_int("max_fee_per_gas"),
+        )
         if wei <= 0:
             return 0.0
         quote = await self._price_feed().eth_usd()
