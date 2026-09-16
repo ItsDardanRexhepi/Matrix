@@ -229,6 +229,66 @@ async def test_a_clean_deletion_is_still_a_success():
         assert resp.status == 200 and body["success"] is True, body
 
 
+async def test_a_retry_after_a_failed_push_removal_still_finishes_the_job():
+    """THE PROMISE THE ORDERING MAKES. The handler returns 503 before the
+    session is removed so the client still holds a credential to retry with,
+    and says re-running the deletion is safe because "both removals are by-id".
+
+    It is not safe for the device the mechanism exists to catch. A token
+    registered before `push_tokens` carried an owner is findable ONLY through
+    the account's conversation ids, and those are read BEFORE the erasure. If
+    the erasure has already committed when the push removal fails, the retry's
+    pre-erasure read comes back empty, the ownerless device is unreachable for
+    ever, and the retry answers {"success": true} with it still registered:
+    the false success moved from the first response to the second.
+    """
+    from runtime.notifications.token_store import PushTokenStore
+
+    server = _delete_server()
+    subject = "apple:envelope-del-retry"
+    conversation = "conv:legacy-device-owner"
+    attempts = {"n": 0}
+    unpatched = PushTokenStore.remove_for_account
+
+    async def fails_the_first_time(self, owner, session_ids=()):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise RuntimeError("push token store unavailable")
+        return await unpatched(self, owner, session_ids)
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        memory = server.react_loop.memory
+        # The documented legacy shape: a device filed under one of the
+        # account's own conversations, with NO owner recorded on it.
+        memory.claim_conversation(conversation, subject)
+        store = PushTokenStore(memory.db)
+        await store.register("legacy-device", session_id=conversation)
+        assert await store.tokens_for(session_id=conversation) == ["legacy-device"]
+
+        token = f"tok-{subject}"
+        now = time.time()
+        await server.wallet_sessions.add(token=token, address=subject,
+                                         issued_at=now, expires_at=now + 3600)
+        headers = {"Authorization": f"Bearer {token}"}
+
+        PushTokenStore.remove_for_account = fails_the_first_time
+        try:
+            first = await client.delete("/api/v1/auth/account", headers=headers)
+            assert first.status == 503, await first.json()
+            assert server.wallet_sessions.get(token), (
+                "the retry the ordering promises needs the session to survive")
+            retry = await client.delete("/api/v1/auth/account", headers=headers)
+        finally:
+            PushTokenStore.remove_for_account = unpatched
+
+        body = await retry.json()
+        still_registered = await store.tokens_for(session_id=conversation)
+        assert not still_registered, (
+            f"the retry answered {body} with the account's device still "
+            f"registered: {still_registered}")
+        assert retry.status == 200 and body["success"] is True, body
+
+
 # ── 6. a provider is reachable when it ANSWERS, not when a key is set ──────
 
 @pytest.mark.parametrize("module_name,class_name", [

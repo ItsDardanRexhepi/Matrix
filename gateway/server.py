@@ -1063,6 +1063,30 @@ class GatewayServer:
             "isNewUser": is_new_user,
         })
 
+    @staticmethod
+    def _devices_filed_under(subject: str, holding, token: str) -> set[str]:
+        """The session ids a device of this account may be filed under: the
+        account's own conversations, its reserved ``user:<subject>``, and the
+        bearer token a client once used as a conversation id.
+
+        One place builds it, so the adoption before the erasure and the removal
+        after it cannot come to name different sets."""
+        filed_under = {*holding, token, f"user:{subject}"[:100]}
+        return {sid for sid in filed_under if sid}
+
+    async def _adopt_ownerless_devices(self, subject: str, holding, token: str) -> None:
+        """Record the account on its OWNERLESS devices, before the erasure
+        removes the conversation ids that are the only way to find them."""
+        from runtime.notifications.token_store import PushTokenStore
+        store = PushTokenStore(self.react_loop.memory.db)
+        adopted = await store.adopt_ownerless(
+            subject, self._devices_filed_under(subject, holding, token))
+        if adopted:
+            logger.info(
+                "account delete: %d device(s) with no recorded owner filed under "
+                "this account's conversations were recorded to it before the erasure",
+                len(adopted))
+
     async def handle_account_delete(self, request: web.Request) -> web.Response:
         """DELETE /api/v1/auth/account — delete the caller's server-side data and
         (credential-gated) revoke the Apple token.
@@ -1078,7 +1102,9 @@ class GatewayServer:
         fails, the deletion answers 503 ``storage failure``, erases nothing at
         all (erase_owner is one transaction) and removes nothing further: the
         session stays valid, so the same client can retry and the retry does
-        the whole job. If the push-token or session removal fails the answer is
+        the whole job — including for a device with no recorded owner, whose
+        owner is written onto it before the erasure takes away the conversation
+        id that was the only handle on it. If the push-token or session removal fails the answer is
         503 too — a deletion that left the account's session token valid is not
         a deletion, and the client is told so rather than shown
         ``{"success": true}``. Apple token revocation runs only when
@@ -1115,6 +1141,32 @@ class GatewayServer:
             # handed that history. A store that cannot answer this cannot
             # erase either, and is answered as the failure it is.
             holding = memory.owner_conversation_ids(subject)
+            # AND THE DEVICES THE ERASURE IS ABOUT TO TAKE THE ONLY HANDLE ON.
+            # A device registered before `push_tokens` carried an owner is this
+            # account's only through the conversation it was filed under, and
+            # `erase_owner` deletes exactly those rows — `conversation_erasures`
+            # logs the ids without the owner they belonged to, so nothing
+            # downstream can say whose they were. The handle therefore survived
+            # exactly ONE attempt: the ordering below returns 503 before the
+            # session is removed so the client can retry, and the retry's
+            # pre-erasure read came back empty, the device stayed registered,
+            # and the retry answered {"success": true} over it. The false
+            # success had moved from the first response to the second, and the
+            # device was then unreachable for every deletion that would ever
+            # run again.
+            #
+            # Writing the owner down is the same inference the removal below
+            # already acts on, made durable BEFORE the evidence for it is
+            # erased. It removes nothing, so a deletion that fails after it
+            # still leaves every device registered.
+            await self._adopt_ownerless_devices(subject, holding, token)
+        except Exception:
+            logger.exception(
+                "account delete: naming the account's conversations and devices "
+                "failed; nothing was erased or removed")
+            return web.json_response({"success": False, "error": "storage failure"}, status=503)
+
+        try:
             erased = await memory.erase_owner(subject)
         except Exception:
             # This was caught at debug level and the handler went on: it
@@ -1167,13 +1219,16 @@ class GatewayServer:
         # Ordered so a retry can finish the job: the push tokens go first and
         # a failure there returns BEFORE the session is removed, so the client
         # still holds a credential to retry with. Re-running the deletion is
-        # safe — the erasure is idempotent and both removals are by-id.
+        # safe AND a retry can finish it — the erasure is idempotent, both
+        # removals are by-id, and the one id a retry cannot re-derive (a
+        # conversation of the account, erased by the attempt that failed) is no
+        # longer the only handle on the device it named: that device carries the
+        # account as its owner from the step above, which ran before the erasure.
         try:
             from runtime.notifications.token_store import PushTokenStore
             store = PushTokenStore(self.react_loop.memory.db)
-            filed_under = {*holding, token}
-            filed_under.add(f"user:{subject}"[:100])
-            await store.remove_for_account(subject, filed_under)
+            await store.remove_for_account(
+                subject, self._devices_filed_under(subject, holding, token))
         except Exception:
             logger.exception(
                 "account delete: push-token removal failed for %s; the account's "
