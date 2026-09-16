@@ -10,9 +10,29 @@ paymasterAndData layout the client expects:
     [20:84]  abi.encode(uint48 validUntil, uint48 validAfter)
     [84:]    65-byte signature over eth_sign(digest)
 
-Non-custodial: the signer key is a PLATFORM key that only authorizes gas
-sponsorship — it never signs anything the user's account does, never moves user
-funds. Sponsorship policy (action allowlist + per-identity daily USD cap) is
+NON-CUSTODIAL, AND THE SIGNER KEY IS NOT NECESSARILY GAS-ONLY. These are two
+different claims and this paragraph used to make them as one: "the signer key
+is a PLATFORM key that only authorizes gas sponsorship — it never signs
+anything the user's account does, never moves user funds."
+
+Non-custodial holds, and it is a statement about the CONTRACT's role for this
+signer: MatrixVerifyingPaymaster recovers it only over the sponsorship digest,
+so nothing it signs here is the account's own signature and nothing it signs
+here moves a user's funds.
+
+"Only authorizes gas sponsorship" is a statement about the KEY, and about the
+key it is false on the shipped configuration. ``paymaster_config`` falls back
+to ``blockchain.paymaster_private_key`` when no dedicated
+``paymaster.signer_key`` is set, and that value is the platform's general
+signing key: some twenty modules under ``runtime/blockchain/`` use it to sign
+and BROADCAST arbitrary value-moving transactions (defi supply/borrow, DAO
+treasury calls, ERC-20 approvals to a caller-named spender, contract
+deployment). Sponsorship is then one of the things that key authorizes, not
+the only one, and a leak of it costs far more than sponsored gas. The fallback
+warns when it is taken; set ``paymaster.signer_key`` to a key that does
+nothing else and the sentence becomes true of the key as well.
+
+Sponsorship policy (action allowlist + per-identity daily USD cap) is
 enforced before signing; unconfigured signer -> the route returns 503. The
 allowlist is checked against the actions decoded from the userOp's own
 callData/initCode (runtime.blockchain.sponsorship.classify_user_operation), never
@@ -120,6 +140,14 @@ def paymaster_config(config: dict) -> dict:
         flat = blockchain.get("paymaster_private_key")
         if flat:
             resolved["signer_key"] = flat
+            # This fallback is where "the signer key only authorizes gas
+            # sponsorship" stops being true of the key, and it used to be
+            # silent. The value never appears in the message.
+            logger.warning(
+                "paymaster signer resolved from blockchain.paymaster_private_key "
+                "— the platform's general signing key, which runtime/blockchain/* "
+                "also uses to sign and broadcast value-moving transactions. Set "
+                "paymaster.signer_key to a key dedicated to gas sponsorship.")
     return resolved
 
 
