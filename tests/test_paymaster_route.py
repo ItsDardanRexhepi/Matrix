@@ -130,11 +130,22 @@ async def test_blockchain_location_policy_still_enforced(aiohttp_client, tmp_pat
 
 
 def test_doctor_agrees_across_all_locations():
-    from gateway.doctor import check_paymaster, READY, UNCONFIGURED
+    """Every documented home resolves; none of them is READY.
+
+    This asserted READY for all three filled shapes. Doctor checks that the
+    slot is filled and nothing else — it does not dial the chain and does not
+    sign — so CONFIGURED is what it is entitled to say, the same RUN-11
+    distinction `check_chain` already makes. The fourth shape, the flat
+    `blockchain.paymaster_private_key` fallback, is the platform's general
+    signing key, and doctor now says which slot the key came from.
+    """
+    from gateway.doctor import check_paymaster, CONFIGURED, READY, UNCONFIGURED
     assert check_paymaster({})[1] == UNCONFIGURED
-    assert check_paymaster({"paymaster": {"signer_key": SIGNER_KEY}})[1] == READY
-    assert check_paymaster({"blockchain": {"paymaster": {"signer_key": SIGNER_KEY}}})[1] == READY
-    assert check_paymaster({"blockchain": {"paymaster_private_key": SIGNER_KEY}})[1] == READY
+    for cfg in ({"paymaster": {"signer_key": SIGNER_KEY}},
+                {"blockchain": {"paymaster": {"signer_key": SIGNER_KEY}}},
+                {"blockchain": {"paymaster_private_key": SIGNER_KEY}}):
+        status = check_paymaster(cfg)[1]
+        assert status == CONFIGURED and status != READY, cfg
 
 
 def test_resolver_hardening_and_no_mutation():
