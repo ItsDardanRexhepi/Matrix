@@ -129,3 +129,49 @@ async def test_route_answers_the_documented_503_when_no_source_is_reachable(aioh
     body = await r.json()
     assert r.status == 503, f"documented outcome is 503; got {r.status} {body}"
     assert body.get("code") == "upstream_unavailable"
+
+
+# ── one instance, concurrent callers: one read, one outcome ──────────────
+
+@pytest.mark.asyncio
+async def test_concurrent_callers_share_one_read():
+    import asyncio
+
+    calls = {"n": 0}
+
+    async def chainlink():
+        calls["n"] += 1
+        await asyncio.sleep(0.05)
+        return {"price": 2500.0, "source": "chainlink"}
+
+    async def coinbase():
+        raise AssertionError("fallback must not be called when Chainlink works")
+
+    pf = PriceFeed(_cfg(), chainlink_reader=chainlink, coinbase_fetcher=coinbase)
+    quotes = await asyncio.gather(*(pf.eth_usd() for _ in range(5)))
+    assert calls["n"] == 1, f"5 concurrent callers made {calls['n']} reads"
+    assert {q["price"] for q in quotes} == {2500.0}
+
+
+@pytest.mark.asyncio
+async def test_callers_waiting_on_a_failed_read_share_its_failure():
+    """During an outage, callers queued behind a read that failed are told so;
+    they do not each run the whole Chainlink-then-Coinbase sequence in turn."""
+    import asyncio
+
+    calls = {"n": 0}
+
+    async def down():
+        calls["n"] += 1
+        await asyncio.sleep(0.05)
+        return None
+
+    pf = PriceFeed(_cfg(), chainlink_reader=down, coinbase_fetcher=down)
+    outcomes = await asyncio.gather(*(pf.eth_usd() for _ in range(4)),
+                                    return_exceptions=True)
+    assert all(isinstance(o, PriceUnavailable) for o in outcomes), outcomes
+    assert calls["n"] == 2, f"4 queued callers made {calls['n']} source calls; one read is 2"
+    # The failure is not cached: the next caller tries again.
+    with pytest.raises(PriceUnavailable):
+        await pf.eth_usd()
+    assert calls["n"] == 4

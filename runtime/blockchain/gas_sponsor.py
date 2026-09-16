@@ -83,10 +83,11 @@ class GasSponsor:
         try:
             from web3 import Web3
             from eth_account import Account
+            from runtime.blockchain.sponsorship import unmetered_platform_signer
 
             self._validate_config()
 
-            account = Account.from_key(self.paymaster_key)
+            account = unmetered_platform_signer(self.paymaster_key, "gas_sponsor.sponsor")
 
             # Build the transaction with platform as gas payer
             tx_params = {

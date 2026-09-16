@@ -6,7 +6,10 @@ import logging
 import uuid
 from typing import Any
 
-from runtime.blockchain.protocol_abstraction.cross_chain_router import CrossChainRouter
+from runtime.blockchain.protocol_abstraction.cross_chain_router import (
+    SUPPORTED_CHAINS,
+    CrossChainRouter,
+)
 from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
 from runtime.blockchain.protocol_abstraction.defi_router import DeFiRouter
 
@@ -52,6 +55,49 @@ _TIME_ESTIMATES: dict[str, int] = {
 # Threshold (USD) above which user confirmation is required.
 _CONFIRMATION_THRESHOLD_USD = 100.0
 
+# DataAggregator.get_asset_price sources that are NOT a price anyone observed:
+# "fallback" is a static table in the source file, "unavailable" is 0.0 for an
+# asset with no entry (or a lookup that raised). Neither can say whether a plan
+# is over the confirmation threshold.
+_UNPRICED_SOURCES = frozenset({"fallback", "unavailable"})
+
+# What each action needs from the routers, named for the client-visible message.
+_DEPENDENCY_NAMES = {
+    "swap": "a DEX route",
+    "yield_deposit": "a lending protocol",
+    "borrow": "a lending protocol",
+    "bridge": "a bridge route",
+}
+
+
+def _dependency_unavailable(action: str, result: Any) -> dict:
+    """A router that did not answer `ok` is not a plan with defaults filled in.
+
+    The routers catch their own exceptions and return {"status": "error"} or
+    {"status": "not_configured"}. resolve() used to read that result with
+    `.get("gas_estimate_usd", 3.0)` / `.get("dex", "uniswap")` and return a
+    status-ok plan built on the defaults — HTTP 200 for a failure. The router's
+    own message is logged by the router and not repeated to the client.
+    """
+    status = result.get("status") if isinstance(result, dict) else None
+    needed = _DEPENDENCY_NAMES.get(action, "a dependency")
+    if status == "not_configured":
+        reason = "not_configured"
+        message = f"Cannot plan this {action.replace('_', ' ')}: {needed} is not configured on this server."
+    else:
+        reason = "dependency_failed"
+        message = f"Cannot plan this {action.replace('_', ' ')} right now: {needed} could not be obtained."
+    logger.warning("resolve(%s): router answered status %r, not a plan", action, status)
+    return {"status": "unavailable", "reason": reason, "action": action, "message": message}
+
+
+def _ok_result(result: Any, key: str) -> dict | None:
+    """The router's recommended entry when it answered `ok`, else None."""
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return None
+    entry = result.get(key)
+    return entry if isinstance(entry, dict) and entry else None
+
 
 class IntentResolver:
     """Convert plain-English intents into executable on-chain plans."""
@@ -72,7 +118,19 @@ class IntentResolver:
         wallet: str,
         tier: str = "free",
     ) -> dict:
-        """Resolve *intent* into a structured execution plan."""
+        """Resolve *intent* into a structured execution plan.
+
+        Returns `ok` with a plan, `unresolved` when no action matches, `error`
+        with `error_category: validation` for input the routers reject as the
+        caller's (an unsupported or identical bridge chain), and `unavailable`
+        when a router needed for the plan is not configured or failed — never a
+        plan with the router's missing numbers filled in. Anything that raises
+        is logged and re-raised for the caller to redact.
+
+        `requires_confirmation` is True whenever the plan's USD value cannot be
+        known: no live price exists for the asset (DataAggregator has only a
+        static table), so `value_usd` is None and the gate fails closed.
+        """
         try:
             intent_lower = intent.lower().strip()
 
@@ -111,22 +169,40 @@ class IntentResolver:
             estimated_cost_usd = 0.0
             protocols_used: list[str] = []
 
+            if action == "bridge" and (
+                    from_chain not in SUPPORTED_CHAINS or to_chain not in SUPPORTED_CHAINS
+                    or from_chain == to_chain):
+                # CrossChainRouter reports these as status "error" too; they are
+                # the caller's input, not our outage, so they are answered here.
+                return {
+                    "status": "error",
+                    "error_category": "validation",
+                    "message": (
+                        "from_chain and to_chain must be two different supported "
+                        f"chains: {', '.join(SUPPORTED_CHAINS)}."
+                    ),
+                }
+
             if action == "swap":
                 route_result = await self._defi_router.get_best_swap_route(asset, token_out, amount)
-                best = route_result.get("best_route", {})
-                gas_usd = best.get("gas_estimate_usd", 3.0)
+                best = _ok_result(route_result, "best_route")
+                if best is None:
+                    return _dependency_unavailable(action, route_result)
+                gas_usd = best["gas_estimate_usd"]
                 steps.append({
                     "action": "swap",
                     "params": {"token_in": asset, "token_out": token_out, "amount": amount},
                     "estimated_gas_usd": gas_usd,
                 })
                 estimated_cost_usd = gas_usd
-                protocols_used.append(best.get("dex", "uniswap"))
+                protocols_used.append(best["dex"])
 
             elif action == "yield_deposit":
                 yield_result = await self._defi_router.get_best_yield(asset, amount)
-                recommended = yield_result.get("recommended", {})
-                protocol_name = recommended.get("protocol", "aave")
+                recommended = _ok_result(yield_result, "recommended")
+                if recommended is None:
+                    return _dependency_unavailable(action, yield_result)
+                protocol_name = recommended["protocol"]
                 gas_usd = 2.50
                 steps.append({
                     "action": "approve",
@@ -143,8 +219,10 @@ class IntentResolver:
 
             elif action == "borrow":
                 borrow_result = await self._defi_router.get_best_borrow_rate(asset, collateral)
-                recommended = borrow_result.get("recommended", {})
-                protocol_name = recommended.get("protocol", "aave")
+                recommended = _ok_result(borrow_result, "recommended")
+                if recommended is None:
+                    return _dependency_unavailable(action, borrow_result)
+                protocol_name = recommended["protocol"]
                 gas_usd = 3.00
                 steps.append({
                     "action": "supply_collateral",
@@ -163,8 +241,10 @@ class IntentResolver:
                 bridge_result = await self._cross_chain_router.get_best_bridge(
                     asset, from_chain, to_chain, amount,
                 )
-                recommended = bridge_result.get("recommended", {})
-                total_cost = recommended.get("total_cost_usd", 1.0)
+                recommended = _ok_result(bridge_result, "recommended")
+                if recommended is None:
+                    return _dependency_unavailable(action, bridge_result)
+                total_cost = recommended["total_cost_usd"]
                 steps.append({
                     "action": "bridge",
                     "params": {
@@ -172,12 +252,12 @@ class IntentResolver:
                         "amount": amount,
                         "from_chain": from_chain,
                         "to_chain": to_chain,
-                        "bridge": recommended.get("bridge", "hop"),
+                        "bridge": recommended["bridge"],
                     },
                     "estimated_gas_usd": total_cost,
                 })
                 estimated_cost_usd = total_cost
-                protocols_used.append(recommended.get("bridge_key", "hop"))
+                protocols_used.append(recommended["bridge_key"])
 
             elif action == "storage":
                 gas_usd = 0.50
@@ -193,10 +273,23 @@ class IntentResolver:
             risk = _RISK_PROFILES.get(action, {"level": "medium", "description": "Unknown action risk"})
             time_estimate = _TIME_ESTIMATES.get(action, 30)
 
-            # High-value transactions require confirmation.
-            price_data = await self._data_aggregator.get_asset_price(asset)
-            value_usd = amount * price_data.get("price_usd", 0.0)
-            requires_confirmation = value_usd > _CONFIRMATION_THRESHOLD_USD
+            # High-value transactions require confirmation. A value nobody can
+            # state is not below the threshold: it used to be amount * 0.0 for an
+            # unknown asset (so any size skipped confirmation) and amount * a
+            # static table entry otherwise.
+            value_usd: float | None
+            if amount <= 0:
+                value_usd = 0.0
+            else:
+                price_data = await self._data_aggregator.get_asset_price(asset)
+                price = price_data.get("price_usd") if isinstance(price_data, dict) else None
+                source = price_data.get("source") if isinstance(price_data, dict) else None
+                if (source in _UNPRICED_SOURCES or not isinstance(price, (int, float))
+                        or price <= 0):
+                    value_usd = None
+                else:
+                    value_usd = round(amount * float(price), 2)
+            requires_confirmation = value_usd is None or value_usd > _CONFIRMATION_THRESHOLD_USD
 
             estimated_cost_usd = round(estimated_cost_usd, 4)
 
@@ -219,12 +312,17 @@ class IntentResolver:
                 "risk_level": risk["level"],
                 "risk_description": risk["description"],
                 "steps": steps,
+                "value_usd": value_usd,
                 "requires_confirmation": requires_confirmation,
                 "summary": summary,
             }
         except Exception as exc:
+            # This used to return {"status": "error", "message": str(exc)}, so
+            # the exception text became the HTTP body and the route could not
+            # tell a dependency outage from a bug. Log and re-raise: the caller
+            # (gateway/service_routes.py) owns what the client is allowed to see.
             self._logger.error("resolve failed: %s", exc, exc_info=True)
-            return {"status": "error", "message": str(exc)}
+            raise
 
     # ── Plan execution ───────────────────────────────────────────────
 
@@ -291,8 +389,10 @@ class IntentResolver:
                 "total_steps": len(steps),
             }
         except Exception as exc:
+            # Same as resolve(): the exception is the caller's to redact, not a
+            # result to hand back verbatim.
             self._logger.error("execute_plan failed: %s", exc, exc_info=True)
-            return {"status": "error", "message": str(exc)}
+            raise
 
     # ── Human-readable summary ───────────────────────────────────────
 

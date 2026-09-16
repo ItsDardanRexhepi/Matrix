@@ -52,28 +52,67 @@ def badge_manager(fake_db):
     return mgr
 
 
-def _passing_report(**overrides):
-    """Return a minimal passing audit report dict."""
-    report = {
-        "status": "passed",
-        "findings_count": 0,
-        "severity_summary": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-        "contract_name": "TestVault",
+# D-045 / §CD: the manager no longer accepts a verdict. These fixtures are
+# SOURCE, and the audit that decides whether a badge is issued is the one the
+# platform runs over them here.
+
+CLEAN_SOURCE = """
+pragma solidity 0.8.20;
+
+contract TestVault {
+    mapping(address => uint256) private balances;
+    address private immutable owner;
+
+    constructor() { owner = msg.sender; }
+
+    function deposit() external payable {
+        balances[msg.sender] += msg.value;
     }
-    report.update(overrides)
-    return report
+
+    function balanceOf(address who) external view returns (uint256) {
+        return balances[who];
+    }
+
+    function withdraw(uint256 amount) external {
+        require(msg.sender == owner, "not owner");
+        require(balances[msg.sender] >= amount, "insufficient");
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+    }
+}
+"""
+
+CRITICAL_SOURCE = """
+pragma solidity 0.8.20;
+
+contract BrokenVault {
+    mapping(address => uint256) public balances;
+
+    function withdraw() external {
+        (bool ok, ) = msg.sender.call{value: balances[msg.sender]}("");
+        require(ok, "send failed");
+        balances[msg.sender] = 0;
+    }
+
+    function kill() external {
+        selfdestruct(payable(msg.sender));
+    }
+}
+"""
+
+# No executable body at all — the §CT case: zero findings because there was
+# nothing to examine, which must never read as a pass.
+UNAUDITABLE_SOURCE = """
+pragma solidity 0.8.20;
+interface ITestVault {
+    function deposit() external payable;
+}
+"""
 
 
-def _failing_report(**overrides):
-    """Return a minimal failing audit report dict."""
-    report = {
-        "status": "failed",
-        "findings_count": 3,
-        "severity_summary": {"critical": 1, "high": 2, "medium": 0, "low": 0},
-        "contract_name": "BrokenVault",
-    }
-    report.update(overrides)
-    return report
+def _platform_report(mgr, source=CLEAN_SOURCE, name="TestVault"):
+    """The report the manager itself will produce and hash for this source."""
+    return mgr._platform_audit(source, name)
 
 
 # ── Badge Issuance Tests ────────────────────────────────────────────
@@ -84,7 +123,7 @@ class TestBadgeIssuance:
 
     @pytest.mark.asyncio
     async def test_issue_badge_returns_correct_id_format(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         result = await badge_manager.issue_badge(
             "0xAbC123", "TestVault", report, "dev@example.com"
         )
@@ -93,7 +132,7 @@ class TestBadgeIssuance:
 
     @pytest.mark.asyncio
     async def test_issue_badge_sequential_ids(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         r1 = await badge_manager.issue_badge(
             "0xABC1", "Vault1", report, "a@x.com"
         )
@@ -110,7 +149,7 @@ class TestBadgeIssuance:
 
     @pytest.mark.asyncio
     async def test_issue_badge_stores_all_fields(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         result = await badge_manager.issue_badge(
             "0xDeAdBeEf",
             "SecureToken",
@@ -127,18 +166,22 @@ class TestBadgeIssuance:
 
     @pytest.mark.asyncio
     async def test_issue_badge_computes_report_hash(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         result = await badge_manager.issue_badge(
             "0x111", "HashTest", report, "h@x.com"
         )
+        # The hash is over the report the PLATFORM produced — the thing that is
+        # supposed to be the record of what was audited. Before D-045 it was a
+        # hash of whatever dict the caller sent.
         expected_hash = hashlib.sha256(
-            json.dumps(report, sort_keys=True).encode()
+            json.dumps(result["audit_report"], sort_keys=True).encode()
         ).hexdigest()
         assert result["audit_report_hash"] == expected_hash
+        assert result["audit_report"]["audited_by"] == "openmatrix-glasswing"
 
     @pytest.mark.asyncio
     async def test_issue_badge_one_year_expiry(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         result = await badge_manager.issue_badge(
             "0x222", "ExpiryTest", report, "e@x.com"
         )
@@ -147,7 +190,7 @@ class TestBadgeIssuance:
 
     @pytest.mark.asyncio
     async def test_issue_badge_returns_verification_url(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         result = await badge_manager.issue_badge(
             "0x333", "UrlTest", report, "u@x.com"
         )
@@ -156,7 +199,7 @@ class TestBadgeIssuance:
 
     @pytest.mark.asyncio
     async def test_issue_badge_returns_embed_code(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         result = await badge_manager.issue_badge(
             "0x444", "EmbedTest", report, "e@x.com"
         )
@@ -165,20 +208,25 @@ class TestBadgeIssuance:
         assert "widget.js" in result["embed_code"]
 
     @pytest.mark.asyncio
-    async def test_issue_badge_accepts_pass_status(self, badge_manager):
-        report = _passing_report(status="pass")
-        result = await badge_manager.issue_badge(
-            "0x555", "PassTest", report, "p@x.com"
-        )
-        assert result["status"] == "valid"
+    async def test_a_caller_cannot_supply_the_verdict(self, badge_manager):
+        """The defect, stated as a property: there is no parameter through
+        which a conclusion can be passed in.
+
+        Before D-045 the only check was that the caller had written
+        status:"passed" in their own request body, and that same dict was then
+        hashed as the record of what had been audited.
+        """
+        import inspect
+        for name in ("issue_badge", "renew_badge"):
+            params = inspect.signature(getattr(badge_manager, name)).parameters
+            assert "audit_report" not in params and "new_audit_report" not in params, (
+                f"{name} takes a caller-supplied verdict again")
+            assert "source_code" in params, f"{name} does not audit its own source"
 
     @pytest.mark.asyncio
-    async def test_issue_badge_accepts_clean_status(self, badge_manager):
-        report = _passing_report(status="clean")
-        result = await badge_manager.issue_badge(
-            "0x666", "CleanTest", report, "c@x.com"
-        )
-        assert result["status"] == "valid"
+    async def test_no_source_is_refused(self, badge_manager):
+        with pytest.raises(ValueError, match="source is required"):
+            await badge_manager.issue_badge("0x555", "NoSource", "", "p@x.com")
 
 
 # ── Failing Audit Rejection Tests ───────────────────────────────────
@@ -188,28 +236,30 @@ class TestFailingAuditRejection:
     """Tests that non-passing audits cannot receive badges."""
 
     @pytest.mark.asyncio
-    async def test_failed_audit_raises(self, badge_manager):
-        report = _failing_report()
-        with pytest.raises(ValueError, match="not passing"):
+    async def test_a_critical_finding_refuses_the_badge(self, badge_manager):
+        with pytest.raises(ValueError, match="did not pass"):
             await badge_manager.issue_badge(
-                "0xBAD", "BadContract", report, "bad@x.com"
+                "0xBAD", "BadContract", CRITICAL_SOURCE, "bad@x.com"
             )
 
     @pytest.mark.asyncio
-    async def test_missing_status_raises(self, badge_manager):
-        report = {"findings_count": 0}
-        with pytest.raises(ValueError, match="not passing"):
+    async def test_source_with_no_executable_body_refuses_the_badge(self, badge_manager):
+        """§CT — zero findings because there was nothing to examine must never
+        be issued as a badge. This is the state the auditor used to summarise
+        as "No vulnerabilities detected. Contract passed all security checks."
+        """
+        with pytest.raises(ValueError, match="no executable function body"):
             await badge_manager.issue_badge(
-                "0xBAD2", "NoStatus", report, "n@x.com"
+                "0xBAD2", "JustAnInterface", UNAUDITABLE_SOURCE, "n@x.com"
             )
 
     @pytest.mark.asyncio
-    async def test_unknown_status_raises(self, badge_manager):
-        report = _passing_report(status="needs_review")
-        with pytest.raises(ValueError, match="not passing"):
-            await badge_manager.issue_badge(
-                "0xBAD3", "WeirdStatus", report, "w@x.com"
-            )
+    async def test_renewal_refuses_a_source_that_now_fails(self, badge_manager):
+        """Renewal is where a stale badge is supposed to be caught."""
+        issued = await badge_manager.issue_badge(
+            "0xREN2", "WasClean", CLEAN_SOURCE, "r@x.com")
+        with pytest.raises(ValueError, match="did not pass"):
+            await badge_manager.renew_badge(issued["badge_id"], CRITICAL_SOURCE)
 
 
 # ── Badge Verification Tests ────────────────────────────────────────
@@ -220,7 +270,7 @@ class TestBadgeVerification:
 
     @pytest.mark.asyncio
     async def test_verify_valid_badge(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xAAA", "VerifyMe", report, "v@x.com"
         )
@@ -233,7 +283,7 @@ class TestBadgeVerification:
 
     @pytest.mark.asyncio
     async def test_verify_returns_all_fields(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xBBB", "FieldCheck", report, "f@x.com", "https://fc.io"
         )
@@ -258,7 +308,7 @@ class TestBadgeExpiry:
 
     @pytest.mark.asyncio
     async def test_expired_badge_detected(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xEXP", "ExpiredBadge", report, "exp@x.com"
         )
@@ -282,7 +332,7 @@ class TestBadgeRevocation:
 
     @pytest.mark.asyncio
     async def test_revoke_badge(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xREV", "RevokeMe", report, "r@x.com"
         )
@@ -294,7 +344,7 @@ class TestBadgeRevocation:
 
     @pytest.mark.asyncio
     async def test_revoked_badge_shows_revoked_on_verify(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xREV2", "RevVerify", report, "rv@x.com"
         )
@@ -305,7 +355,7 @@ class TestBadgeRevocation:
 
     @pytest.mark.asyncio
     async def test_revoke_preserves_record(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xREV3", "PreserveMe", report, "pm@x.com"
         )
@@ -329,13 +379,12 @@ class TestBadgeRenewal:
 
     @pytest.mark.asyncio
     async def test_renew_badge_extends_expiry(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xREN", "RenewMe", report, "ren@x.com"
         )
-        new_report = _passing_report(status="clean")
         renewed = await badge_manager.renew_badge(
-            issued["badge_id"], new_report
+            issued["badge_id"], CLEAN_SOURCE
         )
         assert renewed["expires_at"] > issued["expires_at"]
         expected_expiry = renewed["expires_at"]
@@ -344,41 +393,39 @@ class TestBadgeRenewal:
 
     @pytest.mark.asyncio
     async def test_renew_increments_renewal_count(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xCNT", "CountTest", report, "cnt@x.com"
         )
         assert issued["renewal_count"] == 0
 
         r1 = await badge_manager.renew_badge(
-            issued["badge_id"], _passing_report()
+            issued["badge_id"], CLEAN_SOURCE
         )
         assert r1["renewal_count"] == 1
 
         r2 = await badge_manager.renew_badge(
-            issued["badge_id"], _passing_report(status="pass")
+            issued["badge_id"], CLEAN_SOURCE
         )
         assert r2["renewal_count"] == 2
 
     @pytest.mark.asyncio
     async def test_renew_updates_audit_hash(self, badge_manager):
-        original_report = _passing_report(findings_count=0)
         issued = await badge_manager.issue_badge(
-            "0xHSH", "HashUpdate", original_report, "hu@x.com"
+            "0xHSH", "HashUpdate", CLEAN_SOURCE, "hu@x.com"
         )
-        new_report = _passing_report(findings_count=0, extra_field="new")
-        renewed = await badge_manager.renew_badge(
-            issued["badge_id"], new_report
-        )
+        renewed = await badge_manager.renew_badge(issued["badge_id"], CLEAN_SOURCE)
         expected_hash = hashlib.sha256(
-            json.dumps(new_report, sort_keys=True).encode()
+            json.dumps(renewed["audit_report"], sort_keys=True).encode()
         ).hexdigest()
         assert renewed["audit_report_hash"] == expected_hash
+        # Same source, different audit: the timestamp of WHEN it was audited is
+        # part of the record, which is what makes a renewal a fresh claim.
         assert renewed["audit_report_hash"] != issued["audit_report_hash"]
 
     @pytest.mark.asyncio
     async def test_renew_sets_status_to_valid(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xSTAT", "StatusReset", report, "sr@x.com"
         )
@@ -390,26 +437,26 @@ class TestBadgeRenewal:
         )
         # Renew should set it back to valid
         renewed = await badge_manager.renew_badge(
-            issued["badge_id"], _passing_report()
+            issued["badge_id"], CLEAN_SOURCE
         )
         assert renewed["status"] == "valid"
 
     @pytest.mark.asyncio
     async def test_renew_with_failing_audit_raises(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xFAIL", "FailRenew", report, "fr@x.com"
         )
-        with pytest.raises(ValueError, match="not passing"):
+        with pytest.raises(ValueError, match="did not pass"):
             await badge_manager.renew_badge(
-                issued["badge_id"], _failing_report()
+                issued["badge_id"], CRITICAL_SOURCE
             )
 
     @pytest.mark.asyncio
     async def test_renew_nonexistent_raises(self, badge_manager):
         with pytest.raises(ValueError, match="not found"):
             await badge_manager.renew_badge(
-                "GLASSWING-0000-9999", _passing_report()
+                "GLASSWING-0000-9999", CLEAN_SOURCE
             )
 
 
@@ -421,7 +468,7 @@ class TestBadgeListing:
 
     @pytest.mark.asyncio
     async def test_list_valid_badges(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         await badge_manager.issue_badge("0xL1", "Listed1", report, "l1@x.com")
         await badge_manager.issue_badge("0xL2", "Listed2", report, "l2@x.com")
         badges = await badge_manager.list_badges(status="valid")
@@ -436,7 +483,7 @@ class TestBadgeListing:
 
     @pytest.mark.asyncio
     async def test_list_revoked_badges(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xLR", "RevokedOne", report, "lr@x.com"
         )
@@ -449,7 +496,7 @@ class TestBadgeListing:
 
     @pytest.mark.asyncio
     async def test_list_badges_includes_verification_url(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         await badge_manager.issue_badge("0xLU", "UrlBadge", report, "lu@x.com")
         badges = await badge_manager.list_badges()
         assert len(badges) == 1
@@ -465,7 +512,7 @@ class TestEmbedCode:
 
     @pytest.mark.asyncio
     async def test_get_embed_code(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xEMB", "EmbedBadge", report, "emb@x.com"
         )
@@ -477,7 +524,7 @@ class TestEmbedCode:
 
     @pytest.mark.asyncio
     async def test_embed_code_matches_issue_response(self, badge_manager):
-        report = _passing_report()
+        report = CLEAN_SOURCE
         issued = await badge_manager.issue_badge(
             "0xMATCH", "MatchEmbed", report, "m@x.com"
         )

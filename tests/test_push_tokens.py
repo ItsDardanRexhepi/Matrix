@@ -72,3 +72,17 @@ async def test_bridge_route_registers_token(aiohttp_client, tmp_path):
 
     store = PushTokenStore(server.react_loop.memory.db)
     assert "device-token-xyz" in await store.all_tokens()
+
+
+@pytest.mark.asyncio
+async def test_a_table_created_before_owner_existed_gains_the_column(db):
+    """Deployed databases hold push_tokens without `owner`; the store must add
+    it rather than fail every registration, and old rows stay ownerless."""
+    await db.execute(
+        "CREATE TABLE push_tokens (device_token TEXT PRIMARY KEY, session_id TEXT, "
+        "wallet TEXT, platform TEXT, bundle_id TEXT, updated_at REAL)")
+    await db.execute("INSERT INTO push_tokens VALUES ('old', 's0', '', 'ios', '', 0)")
+    store = PushTokenStore(db)
+    await store.register("new", session_id="s1", owner="apple:X")
+    assert await store.tokens_for(owner="apple:X") == ["new"]
+    assert set(await store.all_tokens()) == {"old", "new"}

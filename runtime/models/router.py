@@ -202,8 +202,13 @@ class ModelRouter:
         Send a completion request. Try primary with retries, then fall through
         the provider chain until one succeeds.
         """
-        # Intelligent routing: classify and inject model override
-        routing_kwargs = self._classify_and_get_kwargs(messages, tools)
+        # Intelligent routing: classify and inject model override. A caller
+        # that adds text to the turn the user did not write (the ReAct loop's
+        # client context) passes the turn as written in *routing_messages*;
+        # it is never forwarded to a provider.
+        routing_messages = kwargs.pop("routing_messages", None)
+        routing_kwargs = self._classify_and_get_kwargs(
+            messages if routing_messages is None else routing_messages, tools)
         kwargs.update(routing_kwargs)
 
         errors = []

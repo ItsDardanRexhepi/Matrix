@@ -230,8 +230,20 @@ class ToolDispatcher:
     def get_tool_schemas(self) -> list[dict]:
         return self._schemas.copy()
 
+    #: Parameters a HANDLER may accept but a MODEL may never supply. The tool
+    #: arguments are authored by the model from its context, and its context
+    #: includes tool output and user text — so anything the model can write is
+    #: caller-controlled. `ServiceDispatcher.execute` takes a keyword-only
+    #: `caller_identity`, the identity the HTTP and bridge entry points bind
+    #: from the request (a session, a header, a body field) and never from
+    #: tool arguments; registering that method
+    #: as the `platform_action` tool and invoking it as `handler(**arguments)`
+    #: let a model-authored key bind it. Found by the §CD sibling-axes pass.
+    RESERVED_ARGUMENTS = frozenset({"caller_identity", "caller_source"})
+
     async def dispatch(
-        self, tool_name: str, arguments: dict, agent_name: str | None = None
+        self, tool_name: str, arguments: dict, agent_name: str | None = None,
+        caller_identity: str = "", caller_source: str = "",
     ) -> ToolOutcome:
         """Run one tool. Returns a typed outcome — see ToolOutcome for why.
 
@@ -269,7 +281,38 @@ class ToolDispatcher:
                 f"[DENIED] {reason}", code="denied", ref=ref
             )
 
+        # Strip anything the model may not assert, then inject the value the
+        # entry point bound — the same treatment agent_name already gets. It
+        # outranks the model's arguments; it is not thereby authenticated. On
+        # /chat it is the request body's `wallet` field (runtime/react_loop.py).
+        supplied = set(arguments) & self.RESERVED_ARGUMENTS
+        if supplied:
+            logger.warning("Tool '%s' call carried reserved argument(s) %s — stripped; "
+                           "the model may not assert an identity, only the value the "
+                           "entry point bound is used", tool_name, sorted(supplied))
+            arguments = {k: v for k, v in arguments.items() if k not in self.RESERVED_ARGUMENTS}
+        if caller_identity or caller_source:
+            import inspect
+            try:
+                accepted = inspect.signature(handler).parameters
+            except (TypeError, ValueError):
+                accepted = {}
+            if "caller_identity" in accepted and caller_identity:
+                arguments["caller_identity"] = caller_identity
+            if "caller_source" in accepted and caller_source:
+                arguments["caller_source"] = caller_source
+
         logger.info(f"Tool call: {tool_name}({list(arguments.keys())})")
+
+        # D-045: bind the caller for anything this dispatch signs. The blockchain
+        # capabilities take `**kwargs`, so the keyword injection above cannot
+        # reach them; a ContextVar reaches every frame they await without
+        # touching 17 files' signatures, and an unbound dispatch stays unbound
+        # (which a configured sponsorship cap treats as a denial, not a pass).
+        from runtime.blockchain.sponsorship import (
+            SponsorshipDenied, set_caller_identity, reset_caller_identity,
+        )
+        _identity_token = set_caller_identity(caller_identity)
 
         try:
             result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
@@ -286,9 +329,21 @@ class ToolDispatcher:
             msg = f"Error: invalid arguments for '{tool_name}': {e}"
             logger.error("%s [ref=%s]", msg, ref)
             return ToolOutcome.failure(msg, code="invalid_arguments", ref=ref)
+        except SponsorshipDenied as denial:
+            # A policy decision, not a fault: the agent should be told what the
+            # cap is so it can say so, and the refusal must not read as a
+            # transient error it should retry.
+            logger.warning("Tool call denied by sponsorship policy: %s -> %s",
+                           tool_name, denial.decision.code)
+            return ToolOutcome.failure(
+                f"Refused: {denial.decision.reason}",
+                code=f"sponsorship_{denial.decision.code}", ref=ref,
+            )
         except Exception as e:
             msg = f"Error executing '{tool_name}': {e}"
             logger.error("%s [ref=%s]", msg, ref, exc_info=True)
             return ToolOutcome.failure(
                 msg, code=_classify_exception(e), ref=ref
             )
+        finally:
+            reset_caller_identity(_identity_token)

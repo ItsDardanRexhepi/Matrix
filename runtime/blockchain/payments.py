@@ -74,7 +74,6 @@ class Payments(BlockchainInterface):
             }))
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -83,7 +82,7 @@ class Payments(BlockchainInterface):
             amount_eth = float(params.get("amount", "0"))
             amount_wei = self.web3.to_wei(amount_eth, "ether")
 
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("payments.send_eth")
             tx = {
                 "from": bc["platform_wallet"],
                 "to": Web3.to_checksum_address(to),
@@ -128,7 +127,6 @@ class Payments(BlockchainInterface):
             }))
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -141,7 +139,7 @@ class Payments(BlockchainInterface):
                 address=Web3.to_checksum_address(token_addr),
                 abi=ERC20_TRANSFER_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("payments.send_token")
 
             tx = contract.functions.transfer(
                 Web3.to_checksum_address(to), amount

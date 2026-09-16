@@ -45,6 +45,11 @@ class ProtocolStack:
         self._omega = None
         self._auditor = None
         self._morpheus_security = None
+        # Distinguishes "the seam returned no gate" from "constructing the gate
+        # RAISED". The second is a fault, and a fault must not read as an absence
+        # (§CD sibling axis: the evaluate-time fault fails closed, the init-time
+        # one silently skipped the whole block).
+        self._morpheus_init_failed = False
 
         self._init_protocols()
 
@@ -123,6 +128,7 @@ class ProtocolStack:
             self._morpheus_security = get_morpheus_security(self.config)
         except Exception:
             logger.exception("Failed to initialise MorpheusSecurity")
+            self._morpheus_init_failed = True
 
         logger.info(
             "ProtocolStack initialised for agent=%s (protocols loaded: %d/11)",
@@ -409,6 +415,22 @@ class ProtocolStack:
         # passes him. Authoritative server-side allow/deny (binding only in
         # ENFORCE mode; OBSERVE logs without blocking while the layer is
         # unverified). App-side Morpheus is UX only; THIS is the boundary.
+        if self._morpheus_security is None and self._morpheus_init_failed:
+            # The gate could not be CONSTRUCTED. That is a fault, not a posture,
+            # and it gets the same fail-direction the evaluate-time fault gets:
+            # a value-moving or unrecognised action must not proceed ungated.
+            from runtime.access_policy import could_move_value
+            if could_move_value(action_type):
+                logger.error("Morpheus gate unavailable (init failed); FAIL-CLOSED deny "
+                             "(action=%s)", action_type)
+                result["approved"] = False
+                result["denial_reason"] = (
+                    "This action couldn't be authorized right now. Please try again."
+                )
+                return result
+            logger.warning("Morpheus gate unavailable (init failed); benign read allowed "
+                           "(action=%s)", action_type)
+
         if self._morpheus_security is not None:
             try:
                 decision = await self._morpheus_security.evaluate(action, context)

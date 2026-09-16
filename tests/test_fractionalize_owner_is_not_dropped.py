@@ -31,7 +31,7 @@ def test_the_route_forwards_the_owner():
     text = src.read_text(encoding="utf-8")
     handler = text.split("async def _handle_nft_fractionalize", 1)[1].split("async def ", 1)[0]
     assert "owner=" in handler, "the handler must forward the owner it requires"
-    assert "current_request_security" in handler, "the authenticated wallet must win over the body"
+    assert "current_request_security" in handler, "the bound wallet must win over the body owner"
 
 
 async def test_an_unconfigured_chain_reports_the_owner_it_was_given():

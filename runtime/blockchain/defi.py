@@ -121,7 +121,6 @@ class DeFi(BlockchainInterface):
         """Supply tokens to Aave lending pool. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -139,7 +138,7 @@ class DeFi(BlockchainInterface):
                 address=Web3.to_checksum_address(pool_address),
                 abi=AAVE_POOL_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("defi.supply")
 
             tx = pool.functions.supply(
                 Web3.to_checksum_address(token_address),
@@ -172,7 +171,6 @@ class DeFi(BlockchainInterface):
         """Borrow tokens from Aave. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -189,7 +187,7 @@ class DeFi(BlockchainInterface):
                 address=Web3.to_checksum_address(pool_address),
                 abi=AAVE_POOL_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("defi.borrow")
 
             tx = pool.functions.borrow(
                 Web3.to_checksum_address(token_address),
@@ -224,7 +222,6 @@ class DeFi(BlockchainInterface):
         """Withdraw supplied tokens from Aave. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -240,7 +237,7 @@ class DeFi(BlockchainInterface):
                 address=Web3.to_checksum_address(pool_address),
                 abi=AAVE_POOL_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("defi.withdraw")
 
             tx = pool.functions.withdraw(
                 Web3.to_checksum_address(token_address),
@@ -271,7 +268,6 @@ class DeFi(BlockchainInterface):
         """Repay borrowed tokens to Aave. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -287,7 +283,7 @@ class DeFi(BlockchainInterface):
                 address=Web3.to_checksum_address(pool_address),
                 abi=AAVE_POOL_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("defi.repay")
 
             tx = pool.functions.repay(
                 Web3.to_checksum_address(token_address),

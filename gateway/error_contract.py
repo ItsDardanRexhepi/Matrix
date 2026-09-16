@@ -21,8 +21,9 @@ freely:
      "ref":   "<req_id>"}
 
 `error` must be a top-level STRING because the Swift client's
-`extractErrorMessage` reads `obj["error"] as? String` and nothing else; anything
-richer would arrive as nil and the user would see an empty message. The
+`extractErrorMessage` reads `obj["error"] as? String`, falling back only to a
+top-level `obj["message"] as? String`; anything richer in `error` would arrive
+as nil and the user would see an empty message. The
 correlation id is repeated INSIDE that sentence so it survives even where a
 client keeps only the message — which is what makes a redacted error still
 actionable. This is also what lets a RUN-5 body pass cleanly through RUN-4's
@@ -90,6 +91,28 @@ _CONTRACT: dict[str, tuple[int, str]] = {
 }
 
 
+# The ServiceDispatcher reports its own failures as a payload with an
+# ``error_category``; this is the HTTP status each category means, shared by
+# every route that relays a dispatcher or service payload (ServiceRoutes._ok,
+# the bridge's /bridge/v1/action). Unknown categories are 422: the request was
+# well-formed but the operation could not be completed.
+DISPATCHER_CATEGORY_HTTP: dict[str, int] = {
+    "validation": 400,
+    "bad_request": 400,
+    "not_found": 404,
+    "forbidden": 403,
+    "not_implemented": 501,
+    "service_unavailable": 503,
+    "service_error": 502,
+    "timeout": 504,
+}
+
+#: Categories whose dispatcher message is a sentence written for the caller.
+#: Every other category's message carries raw exception text (a Python binding
+#: message, a service's own exception), which stays server-side against a ref.
+DISPATCHER_CALLER_MESSAGES = frozenset({"not_found", "not_implemented", "forbidden"})
+
+
 def classify(exc: BaseException) -> str:
     """Return the stable machine code for *exc*. Never raises."""
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
@@ -150,6 +173,39 @@ def client_error(
         "code": resolved,
         "ref": ref,
     }
+
+
+def dispatcher_failure(result: Any, *, what: str) -> tuple[int, dict[str, Any]] | None:
+    """``(status, body)`` when *result* is a ServiceDispatcher failure payload
+    (its JSON string or the decoded dict), else None.
+
+    The status is DISPATCHER_CATEGORY_HTTP's. The body is this module's shape:
+    the dispatcher's own sentence where it wrote one for the caller
+    (DISPATCHER_CALLER_MESSAGES), otherwise the contract sentence with a ref,
+    the dispatcher's text logged server-side against it — a binding message
+    names internal signatures, and a service's exception text is RUN-5's leak.
+    ``code`` is the dispatcher's category, so a client can still branch on it.
+    """
+    import json
+
+    try:
+        payload = json.loads(result) if isinstance(result, (str, bytes)) else result
+    except ValueError:
+        return None
+    if not (isinstance(payload, dict) and payload.get("status") == "error"):
+        return None
+    category = str(payload.get("error_category") or "")
+    status = DISPATCHER_CATEGORY_HTTP.get(category, 422)
+    if category in DISPATCHER_CALLER_MESSAGES:
+        return status, {"error": str(payload.get("error") or "the action failed"), "code": category}
+    contract_code = {"validation": "invalid_request",
+                     "bad_request": "invalid_request",
+                     "service_unavailable": "upstream_unavailable",
+                     "timeout": "upstream_timeout"}.get(category, "internal_error")
+    _st, body = client_error(RuntimeError(str(payload.get("error") or category)), None,
+                             what=what, code=contract_code)
+    body["code"] = category or contract_code
+    return status, body
 
 
 def sse_error_frame(exc: BaseException, req_id: str | None, *, what: str) -> bytes:

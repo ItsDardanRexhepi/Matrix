@@ -187,7 +187,7 @@ class TestIntentResolver:
 
     @pytest.mark.asyncio
     async def test_resolve_swap_intent(self):
-        resolver = IntentResolver(config={})
+        resolver = IntentResolver(config={"dexes": {"uniswap_v3": {}}})
         result = await resolver.resolve(
             intent="swap 1 ETH for USDC",
             entities={"asset": "ETH", "amount": 1.0, "token_out": "USDC"},
@@ -197,6 +197,20 @@ class TestIntentResolver:
         assert result["status"] == "ok"
         assert "steps" in result
         assert len(result["steps"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_resolve_swap_with_no_dex_is_not_a_plan(self):
+        """With no DEX configured the router answers not_configured; the
+        resolver used to fill in $3.00 / "uniswap" and call that a plan."""
+        resolver = IntentResolver(config={})
+        result = await resolver.resolve(
+            intent="swap 1 ETH for USDC",
+            entities={"asset": "ETH", "amount": 1.0, "token_out": "USDC"},
+            wallet="0x" + "a" * 40,
+        )
+        assert result["status"] == "unavailable"
+        assert result["reason"] == "not_configured"
+        assert "plan_id" not in result and "steps" not in result
 
     @pytest.mark.asyncio
     async def test_resolve_unknown_intent(self):
@@ -240,7 +254,7 @@ class TestIntentResolver:
 
     @pytest.mark.asyncio
     async def test_resolve_bridge_intent(self):
-        resolver = IntentResolver(config={})
+        resolver = IntentResolver(config={"bridges": {"hop": {}}})
         result = await resolver.resolve(
             intent="bridge 10 ETH from base to ethereum",
             entities={
@@ -302,14 +316,18 @@ class TestDataAggregator:
             assert expected_chain in chains
 
     @pytest.mark.asyncio
-    async def test_get_user_portfolio_empty(self):
+    async def test_get_user_portfolio_offline_is_not_an_empty_wallet(self):
+        """Offline, nothing is read. This used to return an all-zero portfolio
+        indistinguishable from a real empty wallet (and cache it)."""
+        from runtime.blockchain.protocol_abstraction.data_aggregator import (
+            PortfolioUnavailable,
+        )
+
         agg = DataAggregator(config={})
-        result = await agg.get_user_portfolio("0x" + "f" * 40)
-        assert isinstance(result, dict)
-        assert result["wallet"] == "0x" + "f" * 40
-        assert "total_value_usd" in result
-        assert "tokens" in result
-        assert isinstance(result["tokens"], list)
+        with pytest.raises(PortfolioUnavailable) as info:
+            await agg.get_user_portfolio("0x" + "f" * 40)
+        assert info.value.reason == "no_data_source"
+        assert not any(k.startswith("portfolio:") for k in agg._cache)
 
     @pytest.mark.asyncio
     async def test_get_market_conditions(self):

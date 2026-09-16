@@ -61,7 +61,6 @@ class Staking(BlockchainInterface):
     async def _stake(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -71,7 +70,7 @@ class Staking(BlockchainInterface):
                 abi=STAKING_ABI,
             )
             amount = int(float(params.get("amount", "0")) * 10**18)
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("staking.stake")
 
             tx = contract.functions.stake(amount).build_transaction({
                 "from": bc["platform_wallet"],
@@ -97,7 +96,6 @@ class Staking(BlockchainInterface):
     async def _unstake(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -107,7 +105,7 @@ class Staking(BlockchainInterface):
                 abi=STAKING_ABI,
             )
             amount = int(float(params.get("amount", "0")) * 10**18)
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("staking.unstake")
 
             tx = contract.functions.unstake(amount).build_transaction({
                 "from": bc["platform_wallet"],
@@ -133,7 +131,6 @@ class Staking(BlockchainInterface):
     async def _claim_rewards(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -142,7 +139,7 @@ class Staking(BlockchainInterface):
                 address=Web3.to_checksum_address(params["staking_contract"]),
                 abi=STAKING_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("staking.claim_rewards")
 
             tx = contract.functions.claimRewards().build_transaction({
                 "from": bc["platform_wallet"],

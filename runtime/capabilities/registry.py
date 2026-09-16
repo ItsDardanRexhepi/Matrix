@@ -83,8 +83,11 @@ class CapabilityRegistry:
         Parameters
         ----------
         caller_identity:
-            The AUTHENTICATED wallet address of whoever is invoking, or "" when
-            the caller has none. See DOMAIN 17-D below. Keyword-only and
+            The identity the gateway bound for this request, or "" when there is
+            none: a session's identity when a session is presented, otherwise
+            the caller-written X-Wallet-Address header, else a body ``wallet``,
+            ``from``, ``sender`` or ``account`` field or ``params.from``, so it is
+            authenticated only in the first case. See DOMAIN 17-D below. Keyword-only and
             defaulting to "" so the existing two-argument call sites keep
             working unchanged.
         """
@@ -106,11 +109,11 @@ class CapabilityRegistry:
         #
         # It is READ IN THE HANDLER, not here. `runtime/` does not import
         # `gateway.security_gate` — and the repo already has the idiom for it
-        # (`_handle_governance_vote`, `_handle_insurance_claim`:
-        # "an authenticated identity always wins, a body-supplied field is a
-        # dev fallback only"). Taking it as a parameter keeps that direction of
-        # dependency and keeps the three non-HTTP callers, which have no
-        # authenticated caller, working with the honest "" default.
+        # (`_handle_governance_vote`, `_handle_insurance_claim`: "a bound
+        # identity always wins, a body-supplied field is a dev fallback only").
+        # Taking it as a parameter keeps that direction of dependency and keeps
+        # the three non-HTTP callers, which bind no caller identity, working
+        # with the honest "" default.
 
         cap = catalog.get_by_id(capability_id)
         if cap is None:
@@ -154,10 +157,15 @@ class CapabilityRegistry:
         # TypeError), and a silent fallback around a broken call is exactly the
         # shape that let this survive unnoticed. If execute() ever disappears,
         # an AttributeError should be loud.
-        # 17-D: `caller_identity` is threaded, not derived from `params`.
-        # `params` is the request body on this route — a body-supplied value
-        # would be a self-asserted address, which is the spoofing primitive the
-        # dispatcher-side injection exists to refuse.
+        # 17-D: `caller_identity` is threaded as its own argument; this method
+        # does not read it out of `params`. That keeps `params["caller_identity"]`
+        # from naming the caller: the dispatcher overwrites that one key with
+        # the threaded value. It does NOT keep a body-written address out.
+        # `params` is the request body on this route, and when the request
+        # carries no session and no X-Wallet-Address header, the security
+        # middleware has already bound a body `wallet`, `from`, `sender` or
+        # `account` field, or `params.from`, and the handler passes that here
+        # as `caller_identity`. It is then recorded as the caller.
         result = await dispatcher.execute(
             action=action, params=params or {}, caller_identity=caller_identity,
         )

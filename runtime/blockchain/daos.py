@@ -68,7 +68,6 @@ class DAOs(BlockchainInterface):
     async def _create_proposal(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -77,7 +76,7 @@ class DAOs(BlockchainInterface):
                 address=Web3.to_checksum_address(params["governor_address"]),
                 abi=GOVERNOR_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("daos.create_proposal")
 
             targets = [Web3.to_checksum_address(t) for t in params.get("targets", [])]
             values = [int(v) for v in params.get("values", ["0"])]
@@ -108,7 +107,6 @@ class DAOs(BlockchainInterface):
     async def _vote(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -117,7 +115,7 @@ class DAOs(BlockchainInterface):
                 address=Web3.to_checksum_address(params["governor_address"]),
                 abi=GOVERNOR_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("daos.vote")
             proposal_id = int(params.get("proposal_id", "0"))
             support = params.get("support", 1)
 
@@ -148,7 +146,6 @@ class DAOs(BlockchainInterface):
         """Execute a succeeded proposal. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -160,7 +157,7 @@ class DAOs(BlockchainInterface):
                 address=Web3.to_checksum_address(params["governor_address"]),
                 abi=GOVERNOR_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("daos.execute_proposal")
 
             targets = [Web3.to_checksum_address(t) for t in params.get("targets", [])]
             values = [int(v) for v in params.get("values", ["0"])]

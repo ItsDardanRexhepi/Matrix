@@ -56,11 +56,37 @@ class AuditReport:
     findings: list[Finding] = field(default_factory=list)
     passed: bool = True
     summary: str = ""
+    #: Was there anything here this auditor could actually judge?
+    #:
+    #: §CT — a zero has more than one cause. "No findings" conflated two very
+    #: different states: the contract was examined and is clean, and there was
+    #: no executable logic to examine. Every check in this class is about
+    #: RUNTIME BEHAVIOUR (reentrancy, unchecked calls, delegatecall, ether
+    #: handling), so a source with no function bodies produces zero findings
+    #: for the second reason and used to come back
+    #: `passed: true, "No vulnerabilities detected. Contract passed all
+    #: security checks."` — an all-clear on an artifact nobody could judge.
+    #:
+    #: RUN-3 fixed this in the conversion service. It stayed true on the
+    #: model-callable `security_audit` tool, on the Glasswing pre-action gate,
+    #: and on the deploy gate, because each read the raw report. Putting the
+    #: distinction in the report itself is what reaches all of them: `passed`
+    #: is False when nothing was auditable, so `should_block` — which every one
+    #: of those consumers already calls — blocks instead of certifying.
+    auditable: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "contract_name": self.contract_name,
             "passed": self.passed,
+            "auditable": self.auditable,
+            # An explicit three-state verdict, so a consumer that renders a
+            # string cannot turn "could not judge" into "passed" by reading a
+            # bool. §DL.4: never classify on a field the dangerous value is not
+            # in — `passed: false` alone does not say WHY.
+            "verdict": ("passed" if (self.auditable and self.passed)
+                        else "not_auditable" if not self.auditable
+                        else "failed"),
             "finding_count": len(self.findings),
             "critical_count": sum(1 for f in self.findings if f.severity == Severity.CRITICAL),
             "high_count": sum(1 for f in self.findings if f.severity == Severity.HIGH),
@@ -86,6 +112,7 @@ class ContractAuditor:
     def audit(self, source: str, contract_name: str = "") -> AuditReport:
         report = AuditReport(contract_name=contract_name or "unknown")
         lines = source.splitlines()
+
 
         checks = [
             self._check_reentrancy,
@@ -114,7 +141,33 @@ class ContractAuditor:
         if self._block_high and high > 0:
             report.passed = False
 
-        if not report.findings:
+        # §CT — qualify the zero, do not skip the work.
+        #
+        # A first draft of this returned early when there was no executable
+        # logic, on the reasoning that every check examines runtime behaviour.
+        # That was wrong for three of the eleven: floating pragma reads the
+        # pragma line, locked ether reads payable/withdraw declarations, and
+        # missing access control reads a function SIGNATURE. All three fire on
+        # sources with no function body at all, and the early return threw
+        # their findings away — tests/test_audit.py caught it on three fixtures
+        # that are exactly those shapes.
+        #
+        # So the checks always run, and what changes is the meaning of an empty
+        # result: on a source with no executable body, zero findings is "there
+        # was nothing to examine", never an all-clear.
+        report.auditable = self.has_executable_logic(source)
+        if not report.auditable:
+            report.passed = False
+
+        if not report.auditable:
+            found = (f" {len(report.findings)} structural issue(s) were still found."
+                     if report.findings else "")
+            report.summary = (
+                "Not auditable: this source declares no executable function "
+                "body, so the behavioural checks had nothing to examine. This "
+                "is NOT an all-clear." + found
+            )
+        elif not report.findings:
             report.summary = "No vulnerabilities detected. Contract passed all security checks."
         else:
             report.summary = (
@@ -129,7 +182,87 @@ class ContractAuditor:
         return report
 
     def should_block(self, report: AuditReport) -> bool:
+        """Block on a failed audit AND on one that could not be performed.
+
+        `passed` is already False in the unauditable case, so this reads the
+        same as before — deliberately, because every existing consumer calls
+        this and none of them had to change.
+        """
         return not report.passed
+
+    # ── is there anything here to judge? ─────────────────────────────
+
+    _DECL = re.compile(r"\b(?:function|constructor|fallback|receive)\b")
+
+    @classmethod
+    def has_executable_logic(cls, source: str) -> bool:
+        """Does this source declare at least one function with a real body?
+
+        Deliberately source-level: the conversion service answers the same
+        question from a parsed IR, but the tool, the gate and the deploy path
+        all hold raw text and have no IR to consult.
+
+        An interface, a bare struct, a constants-only library or an empty
+        string all answer False — correctly. They are not "safe"; they are
+        artifacts the BEHAVIOURAL checks say nothing about. The structural
+        checks still run over them and their findings are still reported.
+        """
+        stripped = cls._strip_comments(source or "")
+        pos = 0
+        while True:
+            m = cls._DECL.search(stripped, pos)
+            if m is None:
+                return False
+            body = cls._body_after(stripped, m.end())
+            pos = m.end()
+            if body is None:          # `function f() external;` — a declaration
+                continue
+            if body.strip():          # a body with anything in it at all
+                return True
+
+    _FUNCTION_NAME = re.compile(r"\bfunction\s+(\w+)\s*\(")
+
+    @classmethod
+    def implemented_functions(cls, source: str) -> set[str]:
+        """Names of the `function`s this source declares WITH a real body.
+
+        The same brace rule as has_executable_logic, per function, so "this
+        function is implemented" and "this source is auditable" can never be
+        answered by two different readings of the same text. An overloaded name
+        counts as implemented if any of its overloads has a body.
+        """
+        stripped = cls._strip_comments(source or "")
+        found: set[str] = set()
+        for m in cls._FUNCTION_NAME.finditer(stripped):
+            body = cls._body_after(stripped, m.end())
+            if body is not None and body.strip():
+                found.add(m.group(1))
+        return found
+
+    @staticmethod
+    def _strip_comments(source: str) -> str:
+        source = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
+        return re.sub(r"//[^\n]*", " ", source)
+
+    @staticmethod
+    def _body_after(source: str, start: int) -> str | None:
+        """The brace-matched body following a declaration, or None when the
+        declaration ends in `;` before any `{` (an interface method)."""
+        i = start
+        while i < len(source) and source[i] not in "{;":
+            i += 1
+        if i >= len(source) or source[i] == ";":
+            return None
+        depth, j = 0, i
+        while j < len(source):
+            if source[j] == "{":
+                depth += 1
+            elif source[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[i + 1:j]
+            j += 1
+        return None                    # unbalanced source: no judgeable body
 
     # ── Vulnerability checks ─────────────────────────────────────────
 

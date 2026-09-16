@@ -90,6 +90,23 @@ class BlockchainInterface(ABC):
         """Execute the capability. Returns a human-readable result string."""
         ...
 
+    async def _platform_signer(self, action: str):
+        """The platform signer for one operation, metered by the sponsorship
+        policy (D-045).
+
+        Replaces `Account.from_key(bc["paymaster_private_key"])`, which every
+        capability used to call directly: 32 sites across 13 files, none of
+        which saw an allowlist, a cap or a caller. The signature is authorised
+        at `sign_transaction` time, when the transaction's real gas numbers
+        exist, and raises SponsorshipDenied instead of signing when the
+        configured daily cap would be crossed.
+
+        `action` is `<capability>.<method>` — what the allowlist is checked
+        against and what a denial names.
+        """
+        from runtime.blockchain.sponsorship import platform_signer
+        return await platform_signer(self.config, action)
+
     def _require_config(self, *keys: str):
         """Validate that required config keys are present and not placeholder."""
         bc = self.config.get("blockchain", {})

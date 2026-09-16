@@ -1,7 +1,11 @@
-"""P5-1 regression tests: governance vote binds to the authenticated wallet.
+"""P5-1 regression tests: governance vote binds to the wallet the request is bound to.
 
-A vote must be attributed to the wallet the security middleware authenticated
-for the request — not a spoofable ``voter`` body field. When an identity is
+A vote must be attributed to the wallet the security middleware bound for the
+request — not a spoofable ``voter`` body field. That binding is a session's
+identity when a session is presented; without one it is the X-Wallet-Address
+header or a body wallet/from/sender/account field, which the caller writes, so
+the vote is authenticated only in the session case. The fixture here binds the
+identity directly. When an identity is
 bound, it wins over the body; with no identity the body voter is a testnet/dev
 fallback; with neither, the request is an honest 400.
 """
@@ -50,7 +54,7 @@ async def test_authenticated_wallet_wins_over_body_voter(env):
         json={"proposal_id": "p1", "voter": "0xSPOOF", "support": "yes"},
     )
     assert resp.status == 200, await resp.text()
-    assert captured.get("voter") == "0xAUTH", "the authenticated wallet must win, not the body voter"
+    assert captured.get("voter") == "0xAUTH", "the bound wallet must win, not the body voter"
 
 
 async def test_body_voter_used_when_unauthenticated(env):

@@ -2,9 +2,13 @@
 iOS push notification channel via Apple Push Notification service (APNs).
 
 Requires an APNs auth key (.p8), key_id, team_id, and bundle_id. Device
-tokens are registered by the MTRX iOS app at runtime (stored per-session
-in the bridge; not on this channel). The platform operator provides the
-APNs key; device tokens come from the app.
+tokens are registered by the MTRX iOS app at runtime (POST
+/bridge/v1/push/register, kept in runtime.notifications.token_store). The
+platform operator provides the APNs key; device tokens come from the app.
+
+Nothing in the gateway sends a push yet — no event is wired to the
+NotificationDispatcher (see GatewayServer.__init__). Credentials alone do not
+change that.
 
 This adapter is intentionally kept offline-safe: if ``aioapns`` (or
 ``httpx``) isn't installed or the key isn't configured, ``available``

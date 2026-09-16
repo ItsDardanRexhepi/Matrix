@@ -244,12 +244,62 @@ async def test_security_context_takes_the_session_subject_over_a_forged_header_a
         assert seen.get("apple_id") == "sub-9"
 
 
-async def test_without_a_session_the_header_still_names_the_caller():
-    """Anonymous and development flows are unchanged: no session, the header speaks."""
+async def test_without_a_session_the_operators_header_names_the_user_it_acts_for():
+    """An operator integration names the user it acts for: no session, the key,
+    and the header speaks. (Development — auth off — is the operator.)"""
     server = _server()
     async with TestClient(TestServer(server.create_app())):
-        seen = await _bound_context(server, {"X-Wallet-Address": "0xSELF"}, {})
+        seen = await _bound_context(server, {"Authorization": f"Bearer {KEY}", "X-Wallet-Address": "0xSELF"}, {})
         assert seen.get("wallet") == "0xSELF"
+        seen = await _bound_context(server, {"Authorization": f"Bearer {KEY}"}, {"wallet": "0xBODY"})
+        assert seen.get("wallet") == "0xBODY"
+
+
+# The docs say an X-Wallet-Address header or a wallet body field is consulted
+# only when no session is presented AND the request carries the operator key.
+# Two readers consulted it for anyone: this middleware (every POST /api/v1/*,
+# including the public /api/v1/auth/apple and /api/v1/iap/*), and
+# _caller_identity, which the public POST /security/appattest/attest used as
+# the identity its attestation is verified for.
+
+@pytest.mark.parametrize("path", ["/api/v1/nft/mint", "/api/v1/auth/apple", "/api/v1/iap/verify"])
+async def test_an_anonymous_header_or_body_names_nobody(path):
+    server = _server()
+    async with TestClient(TestServer(server.create_app())):
+        from gateway.security_gate import current_request_security
+        seen: dict = {}
+
+        async def handler(_request):
+            seen.update(current_request_security() or {})
+            return "handled"
+
+        request = _FakeRequest({"X-Wallet-Address": "0xVICTIM", "X-Apple-Id": "victim-sub"},
+                               {"wallet": "0xVICTIM", "from": "0xVICTIM", "apple_id": "victim-sub"}, path=path)
+        assert await server._security_context_middleware(request, handler) == "handled"
+        assert not seen.get("wallet"), seen
+        assert not seen.get("apple_id"), seen
+
+
+async def test_the_public_attest_route_takes_no_identity_from_the_wallet_header():
+    server = _server()
+    calls: list[dict] = []
+
+    class _Verifier:
+        async def verify_attestation(self, **kwargs):
+            calls.append(kwargs)
+            return {"verified": False, "reason": "stub"}
+
+    server._app_attest = _Verifier()
+    server._security_backend = "stub"
+    async with TestClient(TestServer(server.create_app())) as client:
+        body = {"key_id": "k", "attestation_obj_b64": "b", "challenge": "c"}
+        r = await client.post("/security/appattest/attest", json=body, headers={"X-Wallet-Address": "0xVICTIM"})
+        assert r.status == 200, await r.text()
+        token = await _apple_session(server, sub="sub-attest")
+        r = await client.post("/security/appattest/attest", json=body,
+                              headers={**_bearer(token), "X-Wallet-Address": "0xVICTIM"})
+        assert r.status == 200, await r.text()
+    assert [c["identity"] for c in calls] == ["", "apple:sub-attest"], calls
 
 
 async def test_a_linked_wallet_becomes_the_identity_of_the_apple_session():

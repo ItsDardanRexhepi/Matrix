@@ -7,8 +7,9 @@ care that we now write to SQLite. Specifically:
 - :meth:`read`, :meth:`get` are sync (with an in-process cache)
 - :meth:`write`, :meth:`save_turn`, :meth:`save_conversation`,
   :meth:`mark_first_boot_sent` are async
-- :meth:`get_context`, :meth:`load_conversation`,
-  :meth:`is_first_boot_sent` are sync reads served from cache
+- :meth:`get_context`, :meth:`load_conversation` are sync reads served from
+  a bounded cache (least recently used keys are dropped and reload from disk);
+  :meth:`is_first_boot_sent` is a sync primary-key lookup
 
 Concurrency is handled by SQLite WAL mode, so we no longer keep per-agent
 asyncio locks. The in-process cache is best-effort: if two coroutines
@@ -24,7 +25,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import secrets
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from runtime.db.database import Database
@@ -33,6 +37,64 @@ logger = logging.getLogger(__name__)
 
 MAX_CONTEXT_TURNS = 20
 MAX_AGENT_TURNS = 200
+
+
+#: How long an erased conversation id stays in the erasure log
+#: (``conversation_erasures``) before it is pruned. A turn admitted to an
+#: unclaimed conversation that runs longer than this across ANY erasure whose
+#: log entry has since been pruned is refused, since the log can no longer say
+#: whether its conversation was among those erased.
+ERASURE_LOG_SECONDS = 3600.0
+
+#: The prefix of the conversation the gateway derives for a signed-in caller
+#: who sent no id: ``user:<subject>``. The id names its account, so it is
+#: never written to the erasure log; nothing needs it there, because an
+#: unclaimed turn on such an id never stands (``MemoryManager._stands_in``),
+#: and the gateway refuses the id to every caller but that account.
+ACCOUNT_CONVERSATION_PREFIX = "user:"
+
+
+def erasure_log_seconds(config: dict) -> float:
+    """``conversation_erasure_log_seconds`` as a finite, non-negative number
+    of seconds; anything else ("1h", null, NaN, infinity, a negative number, a
+    boolean) is ignored with a WARNING and the default is used.
+
+    Read once, when the manager is made. It used to be parsed inside the
+    transaction that erases an account, so a value float() rejected rolled the
+    whole erasure back."""
+    raw = config.get("conversation_erasure_log_seconds", ERASURE_LOG_SECONDS) if isinstance(config, dict) else None
+    try:
+        if isinstance(raw, bool):
+            raise ValueError("a boolean is not a number of seconds")
+        value = float(raw)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("not a finite, non-negative number")
+        return value
+    except (TypeError, ValueError) as exc:
+        logger.warning("conversation_erasure_log_seconds=%r is unusable (%s); using the default %.0f seconds",
+                       raw, exc, ERASURE_LOG_SECONDS)
+        return ERASURE_LOG_SECONDS
+
+
+@dataclass(frozen=True)
+class ConversationClaim:
+    """The claim a chat turn was admitted under: *session_id* held by *owner*
+    ("" when unclaimed) through the claim *claim_id* ("" when unclaimed, or a
+    claim stored before claims had ids), with *erasure_seq*, the store's
+    erasure sequence number at admission.
+
+    Writes a turn makes — the conversation and the scoped agent memory — land
+    only while this claim still stands (``MemoryManager.claim_stands``).
+    Comparing the owner alone is not enough: account deletion erases the
+    claim, and the same subject signing in again makes a new claim with the
+    same owner string. Comparing ``(owner, claim_id)`` alone is not enough for
+    an UNCLAIMED conversation: a claim made and erased while the turn ran
+    leaves ``("", "")`` again, so an unclaimed claim also requires that no
+    erasure since *erasure_seq* erased the conversation."""
+    session_id: str
+    owner: str
+    claim_id: str
+    erasure_seq: int = 0
 
 
 class MemoryManager:
@@ -55,19 +117,40 @@ class MemoryManager:
 
         self.db = Database(db_config)
 
-        # Caches — populated lazily on first read.
+        # Caches — populated lazily on first read, write-through to SQLite, and
+        # BOUNDED in the number of keys. Every key here is caller-named: a
+        # conversation id, or ``agent@scope`` where an anonymous caller's scope
+        # IS its conversation id. Unbounded, each id any caller ever named held
+        # an entry for the life of the process. Dict order is recency (an
+        # access re-inserts the key); past the cap the least recently used key
+        # is dropped, which loses nothing: the rows are on disk and the next
+        # access reloads them — including the owner, which lives in its own
+        # table (conversation_owners) from the moment it is claimed, whether or
+        # not the conversation has any stored turns yet. The cached owner is a
+        # copy of that row, never the only record of it.
         self._kv_cache: dict[str, dict] = {}        # agent -> {key: value}
-        self._turn_cache: dict[str, list[dict]] = {}  # agent -> [{user, agent, ts}, ...]
-        self._conv_cache: dict[str, list[dict]] = {}  # session -> [{role, content}, ...]
+        self._turn_cache: dict[str, list[dict]] = {}  # agent -> [{user, agent, ts}, ...]  (recency order)
+        self._conv_cache: dict[str, list[dict]] = {}  # session -> [{role, content}, ...]  (recency order)
         self._conv_owner: dict[str, str] = {}         # session -> owner subject ("" = nobody yet)
-        self._first_boot_cache: set[str] | None = None
         self._loaded_agents: set[str] = set()
         self._loaded_conversations: set[str] = set()
+        self._conversation_cap = max(1, int(config.get("conversation_cache", 1024)))
+        self._agent_cap = max(1, int(config.get("agent_memory_cache", 1024)))
+        self._erasure_log_seconds = erasure_log_seconds(config)
+        # The highest erasure sequence number this manager has handed to a
+        # turn or written, so an erasure that finds the state row missing
+        # restores it past every turn already admitted (_restore_erasure_state_in).
+        self._erasure_seq_seen = 0
 
         # Back-compat: some legacy code paths still reference memory_dir.
         # Keep it pointed at the directory containing the SQLite file so
         # health checks (which probe writability) still work.
         self.memory_dir = Path(self.db.db_path).parent
+
+        # A new manager has admitted no turn, so a missing erasure state row
+        # (the migration inserts it; only a hand edit removes it) is restored
+        # here without reviving any claim.
+        self._restore_erasure_state_in(self.db._require_conn(), 0)  # one statement: atomic
 
     # ── Lifecycle ──────────────────────────────────────────────────
 
@@ -125,6 +208,21 @@ class MemoryManager:
 
     # ── Conversation Turns (per-agent log) ─────────────────────────
 
+    #: The scope of an anonymous conversation's agent memory and protocol
+    #: state: ``conv:<session_id>``. An account's scope is its subject — a SIWE
+    #: address (``0x…``, the address a signature recovered to) or
+    #: ``apple:<sub>`` — and neither begins with this prefix, so no session id
+    #: a caller chooses can name an account's scope. They were one namespace:
+    #: an anonymous caller who sent an account's subject as its session id was
+    #: shown that account's memory and wrote into it.
+    CONVERSATION_SCOPE_PREFIX = "conv:"
+
+    @classmethod
+    def conversation_scope(cls, session_id: str) -> str:
+        """The memory scope of the conversation *session_id* for a caller who
+        has no account."""
+        return f"{cls.CONVERSATION_SCOPE_PREFIX}{session_id}"
+
     @staticmethod
     def memory_key(agent: str, scope: str = "") -> str:
         """Agent memory is namespaced by the caller: ``agent@scope``.
@@ -137,20 +235,31 @@ class MemoryManager:
         return f"{agent}@{scope}" if scope else agent
 
     async def save_turn(self, agent: str, user_message: str, agent_response: str,
-                        scope: str = "") -> None:
+                        scope: str = "", *, claim: ConversationClaim | None = None) -> bool:
         """Append a user/agent exchange to the conversation log of *agent*
-        within *scope* (the caller's account or conversation)."""
+        within *scope* (the caller's account or conversation).
+
+        With *claim* — the claim the turn was admitted under — the exchange is
+        written only if that claim still stands, checked in the same
+        transaction as the write. A turn whose account was deleted while it
+        ran is not written back into the account's scope, whether or not the
+        subject has signed in again since. Returns whether it was written."""
         agent = self.memory_key(agent, scope)
         await self._ensure_agent_loaded(agent)
+        ts = time.time()
+        entry = {"user": user_message, "agent": agent_response, "ts": ts}
+        if claim is not None:
+            return await self._save_turn_under_claim(agent, entry, claim)
         turns = self._turn_cache.setdefault(agent, [])
         seq = len(turns)
-        ts = time.time()
-        turns.append({"user": user_message, "agent": agent_response, "ts": ts})
+        turns.append(entry)
 
         # Trim cache to last MAX_AGENT_TURNS
         if len(turns) > MAX_AGENT_TURNS:
-            self._turn_cache[agent] = turns[-MAX_AGENT_TURNS:]
-            # Re-number on disk too — easier than partial deletes.
+            kept = turns[-MAX_AGENT_TURNS:]
+            self._turn_cache[agent] = kept
+            # Re-number on disk too — easier than partial deletes. `kept`, not
+            # the cache entry: the entry may be evicted while this awaits.
             await self.db.execute("DELETE FROM agent_turns WHERE agent = ?", (agent,))
             await self.db.executemany(
                 """
@@ -159,7 +268,7 @@ class MemoryManager:
                 """,
                 [
                     (agent, i, t["user"], t["agent"], t["ts"])
-                    for i, t in enumerate(self._turn_cache[agent])
+                    for i, t in enumerate(kept)
                 ],
             )
         else:
@@ -170,6 +279,40 @@ class MemoryManager:
                 """,
                 (agent, seq, user_message, agent_response, ts),
             )
+        return True
+
+    async def _save_turn_under_claim(self, key: str, entry: dict, claim: ConversationClaim) -> bool:
+        """The *claim* check and the write as ONE transaction, the log read
+        from the store inside it (the cache may have been evicted while the
+        write waited on the lock)."""
+
+        def work(conn):
+            if not self._stands_in(conn, claim):
+                return None
+            rows = conn.execute(
+                "SELECT user_msg, agent_msg, ts FROM agent_turns WHERE agent = ? ORDER BY seq ASC",
+                (key,)).fetchall()
+            turns = [{"user": r[0], "agent": r[1], "ts": r[2]} for r in rows] + [entry]
+            if len(turns) > MAX_AGENT_TURNS:
+                turns = turns[-MAX_AGENT_TURNS:]
+                conn.execute("DELETE FROM agent_turns WHERE agent = ?", (key,))
+                conn.executemany(
+                    "INSERT INTO agent_turns (agent, seq, user_msg, agent_msg, ts) VALUES (?, ?, ?, ?, ?)",
+                    [(key, i, t["user"], t["agent"], t["ts"]) for i, t in enumerate(turns)])
+            else:
+                conn.execute(
+                    "INSERT INTO agent_turns (agent, seq, user_msg, agent_msg, ts) VALUES (?, ?, ?, ?, ?)",
+                    (key, len(rows), entry["user"], entry["agent"], entry["ts"]))
+            return turns
+
+        turns = await self.db.run_in_transaction(work)
+        if turns is None:
+            logger.info("a turn's conversation claim no longer stands; its memory was not written")
+            return False
+        # No await since the commit: an erasure cannot have run in between.
+        if key in self._loaded_agents:
+            self._turn_cache[key] = turns
+        return True
 
     def get_context(self, agent: str, scope: str = "") -> str:
         """Return conversation context with smart summarisation, for *agent*
@@ -304,37 +447,67 @@ class MemoryManager:
     # ── Per-session conversation persistence ───────────────────────
 
     async def save_conversation(self, session_id: str, messages: list[dict],
-                                owner: str | None = None) -> None:
+                                owner: str | None = None, *,
+                                expect_claim: ConversationClaim | None = None) -> bool:
         """Replace the stored conversation for *session_id* with *messages*.
 
-        *owner* is the account the conversation belongs to (C2b); None keeps
-        the owner already known for the session ("" when nobody has claimed it).
+        The owner is the durable claim (``conversation_owners``), read inside
+        the same transaction as the write. *owner* claims an unclaimed
+        conversation; it never replaces another account's claim. With
+        *expect_claim*, the write happens only if the claim the turn was
+        admitted under still stands (``claim_stands``). A turn whose
+        conversation was erased (account deletion) or claimed by someone else
+        while it ran is refused rather than written back into it; so is one
+        whose conversation was erased and claimed again by the same subject,
+        and one admitted while the conversation was unclaimed whose
+        conversation was claimed and erased meanwhile, which leaves it
+        unclaimed again. (An ``expect_owner`` that compared the owner string
+        alone had no caller, and was that very comparison; it is gone.)
+
+        Returns whether anything was written. Replace is DELETE + INSERT in
+        ONE transaction: done in two lock acquisitions, a request queued on
+        the lock read the conversation with no rows and no owner in between.
         """
-        if owner is None:
-            owner = self._conv_owner.get(session_id, "")
-        self._conv_owner[session_id] = owner
+        rows = [(m.get("role", ""), m.get("content", "")) for m in messages]
+
+        def work(conn):
+            current = self._owner_in(conn, session_id)
+            if expect_claim is not None and (
+                    expect_claim.session_id != session_id or not self._stands_in(conn, expect_claim)):
+                return None
+            if owner and current and owner != current:
+                return None
+            effective = current or (owner or "")
+            if effective and not current:
+                conn.execute(
+                    "INSERT INTO conversation_owners (session_id, owner, claimed_at, claim_id) VALUES (?, ?, ?, ?)",
+                    (session_id, effective, time.time(), secrets.token_hex(16)))
+            conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (session_id,))
+            if rows:
+                now = time.time()
+                conn.executemany(
+                    """
+                    INSERT INTO conversation_turns (session_id, seq, role, content, ts, owner)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [(session_id, i, role, content, now, effective)
+                     for i, (role, content) in enumerate(rows)],
+                )
+            return effective
+
+        effective = await self.db.run_in_transaction(work)
+        if effective is None:
+            # What the cache showed is no longer what the store holds.
+            self._forget_conversation(session_id)
+            logger.info("conversation %s changed owner while a turn ran; the turn was not stored",
+                        session_id)
+            return False
+        self._conv_owner[session_id] = effective
+        self._conv_cache.pop(session_id, None)
         self._conv_cache[session_id] = list(messages)
         self._loaded_conversations.add(session_id)
-        # Replace strategy: delete then bulk insert. Simple and correct.
-        await self.db.execute(
-            "DELETE FROM conversation_turns WHERE session_id = ?",
-            (session_id,),
-            commit=False,
-        )
-        if messages:
-            await self.db.executemany(
-                """
-                INSERT INTO conversation_turns (session_id, seq, role, content, ts, owner)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (session_id, i, m.get("role", ""), m.get("content", ""), time.time(), owner)
-                    for i, m in enumerate(messages)
-                ],
-            )
-        else:
-            # No rows to insert, but we still need to commit the DELETE.
-            await self.db.execute("SELECT 1", commit=True)
+        self._evict_conversations(keep=session_id)
+        return True
 
     def load_conversation(self, session_id: str) -> list[dict]:
         """Return cached conversation messages, lazy-loading from SQLite if needed."""
@@ -346,59 +519,242 @@ class MemoryManager:
         self._load_conversation_sync(session_id)
         return self._conv_owner.get(session_id, "")
 
-    def claim_conversation(self, session_id: str, owner: str) -> None:
-        """Bind an ownerless conversation to *owner* (persisted at the next
-        save; the in-memory claim already gates every continuation)."""
-        self._load_conversation_sync(session_id)
-        if owner and not self._conv_owner.get(session_id):
-            self._conv_owner[session_id] = owner
+    def conversation_claim(self, session_id: str) -> ConversationClaim:
+        """The claim *session_id* has now, read from the store (not the
+        cache): what a turn is admitted under and must still find when it
+        writes. The claim row and the erasure sequence number are read with
+        nothing in between (sync, no await)."""
+        conn = self.db._require_conn()
+        owner, claim_id = self._claim_in(conn, session_id)
+        state = self._erasure_state_in(conn)
+        # No state row: the sequence number -1 is below every real one, so the
+        # claim never stands unclaimed (_stands_in), not even once it returns.
+        seq = state[0] if state is not None else -1
+        self._erasure_seq_seen = max(self._erasure_seq_seen, seq)
+        return ConversationClaim(session_id=session_id, owner=owner, claim_id=claim_id, erasure_seq=seq)
 
-    async def erase_owner(self, owner: str) -> None:
+    def claim_stands(self, claim: ConversationClaim) -> bool:
+        """Whether *claim* still stands (store) — the one test every write of
+        a turn and the loop's start make."""
+        return self._stands_in(self.db._require_conn(), claim)
+
+    def claim_conversation(self, session_id: str, owner: str) -> str:
+        """Bind an unclaimed conversation to *owner*; return the owner it has.
+
+        The claim is written to ``conversation_owners`` NOW, rows or not. It
+        used to reach disk only through existing turn rows, so a conversation
+        with none — a signed-in caller's first turn, model call in flight —
+        was owned by an evictable cache entry alone: evicted, the turn was
+        saved ownerless and the next anonymous caller naming the id was handed
+        it. The primary key makes the first claim win in the store."""
+        self._load_conversation_sync(session_id)
+        if not owner or self._conv_owner.get(session_id):
+            return self._conv_owner.get(session_id, "")
+        self.db.execute_sync(
+            "INSERT OR IGNORE INTO conversation_owners (session_id, owner, claimed_at, claim_id) "
+            "VALUES (?, ?, ?, ?)",
+            (session_id, owner, time.time(), secrets.token_hex(16)),
+        )
+        held = self._owner_in(self.db._require_conn(), session_id)
+        self._conv_owner[session_id] = held
+        self.db.execute_sync(
+            "UPDATE conversation_turns SET owner = ? "
+            "WHERE session_id = ? AND (owner IS NULL OR owner = '')",
+            (held, session_id),
+        )
+        return held
+
+    async def erase_owner(self, owner: str) -> list[str]:
         """Delete every conversation owned by *owner* and every scoped agent
-        memory written for it — what account deletion must be able to do."""
+        memory written for it — what account deletion must be able to do.
+
+        Returns the conversation ids erased, so a caller holding its own copy
+        of those conversations (the gateway's working set) can drop it too.
+        The conversations and their claims go in one transaction; a turn of
+        the account still running no longer finds the claim it was admitted
+        under — not even if the subject has signed in again and claimed the
+        conversation anew — so neither its conversation nor its scoped memory
+        is written (save_conversation's *expect_claim*, save_turn's *claim*).
+        Nor is an anonymous turn admitted before the account claimed the
+        conversation: the same transaction logs the erased ids under a new
+        erasure sequence number (``conversation_erasures``, pruned after
+        ``conversation_erasure_log_seconds``), so the unclaimed state the
+        erasure leaves is not the one that turn was admitted under."""
         if not owner:
+            return []
+        now = time.time()
+
+        def work(conn):
+            ids = {r[0] for r in conn.execute(
+                "SELECT session_id FROM conversation_owners WHERE owner = ?", (owner,))}
+            ids |= {r[0] for r in conn.execute(
+                "SELECT DISTINCT session_id FROM conversation_turns WHERE owner = ?", (owner,))}
+            conn.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
+            for sid in ids:
+                conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (sid,))
+            conn.execute("DELETE FROM conversation_owners WHERE owner = ?", (owner,))
+            # Deleting the claim leaves the conversation unclaimed: the state a
+            # turn admitted before the claim was admitted under. The erasure
+            # takes the next sequence number and logs what it erased, so that
+            # turn no longer stands (_stands_in). The account's own
+            # user:<subject> id is not logged: it names the account, and no
+            # unclaimed turn stands on it anyway.
+            if ids:
+                self._restore_erasure_state_in(conn, self._erasure_seq_seen)
+                seq = self._erasure_state_in(conn)[0] + 1
+                conn.execute("UPDATE conversation_erasure_state SET seq = ? WHERE id = 1", (seq,))
+                self._erasure_seq_seen = max(self._erasure_seq_seen, seq)
+                conn.executemany(
+                    "INSERT OR IGNORE INTO conversation_erasures (seq, session_id, erased_at) VALUES (?, ?, ?)",
+                    [(seq, sid, now) for sid in ids if not self.is_account_conversation(sid)])
+            return ids
+
+        erased = await self.db.run_in_transaction(work)
+        erased |= {s for s, o in self._conv_owner.items() if o == owner}
+        for sid in erased:
+            self._forget_conversation(sid)
+        await self.erase_scoped_memory(owner)
+        # The memory the account's conversations wrote before it claimed them
+        # (anonymous turns, scoped to the conversation) goes with them.
+        for sid in erased:
+            await self.erase_scoped_memory(self.conversation_scope(sid))
+        # Every deletion prunes the log, whether or not it erased anything. In
+        # its own transaction, after the erasure: pruning is housekeeping, and
+        # it once ran inside the erasure's transaction, where its failure
+        # rolled the account's erasure back.
+        try:
+            await self.db.run_in_transaction(lambda conn: self._prune_erasure_log_in(conn, now))
+        except Exception as exc:
+            logger.warning("Conversation erasure log prune after an account erasure failed: %s", exc)
+        return sorted(erased)
+
+    async def erase_scoped_memory(self, scope: str) -> None:
+        """Delete every agent memory scoped to exactly *scope*
+        (``agent@scope``, for every agent).
+
+        Matched on the whole scope, not on the key's ending: "ends with
+        ``@apple:x``" also named ``trinity@conv:notes@apple:x`` — an anonymous
+        conversation whose id happens to end in the account's subject."""
+        if not scope:
             return
-        await self.db.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
-        for sid in [s for s, o in self._conv_owner.items() if o == owner]:
-            self._conv_cache.pop(sid, None)
-            self._conv_owner.pop(sid, None)
-            self._loaded_conversations.discard(sid)
-        suffix = f"@{owner}"
-        keys = {k for k in list(self._turn_cache) + list(self._kv_cache) if k.endswith(suffix)}
-        keys |= {self.memory_key(a, owner) for a in ("neo", "trinity", "morpheus")}
+        where = "instr(agent, '@') > 0 AND substr(agent, instr(agent, '@') + 1) = ?"
+        await self.db.execute(f"DELETE FROM agent_turns WHERE {where}", (scope,))
+        await self.db.execute(f"DELETE FROM agent_memory WHERE {where}", (scope,))
+        keys = {k for k in list(self._turn_cache) + list(self._kv_cache)
+                if "@" in k and k.split("@", 1)[1] == scope}
         for key in keys:
-            await self.db.execute("DELETE FROM agent_turns WHERE agent = ?", (key,))
-            await self.db.execute("DELETE FROM agent_memory WHERE agent = ?", (key,))
             self._turn_cache.pop(key, None)
             self._kv_cache.pop(key, None)
             self._loaded_agents.discard(key)
 
     async def load_conversation_async(self, session_id: str) -> list[dict]:
         """Async load — fetches from SQLite if not cached."""
-        if session_id in self._loaded_conversations:
-            return list(self._conv_cache.get(session_id, []))
-        rows = await self.db.fetchall(
-            """
-            SELECT role, content, owner FROM conversation_turns
-            WHERE session_id = ?
-            ORDER BY seq ASC
-            """,
-            (session_id,),
-        )
-        msgs = [{"role": r["role"], "content": r["content"]} for r in rows]
-        self._conv_cache[session_id] = msgs
-        if rows:
-            self._conv_owner[session_id] = str(rows[0]["owner"] or "")
-        self._loaded_conversations.add(session_id)
-        return list(msgs)
+        self._load_conversation_sync(session_id)
+        return list(self._conv_cache.get(session_id, []))
+
+    @staticmethod
+    def _owner_in(conn, session_id: str) -> str:
+        """The durable owner of *session_id* ("" when unclaimed)."""
+        row = conn.execute(
+            "SELECT owner FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
+        return str(row[0] or "") if row else ""
+
+    @staticmethod
+    def _claim_in(conn, session_id: str) -> tuple[str, str]:
+        """The durable ``(owner, claim_id)`` of *session_id* (``("", "")``
+        when unclaimed)."""
+        row = conn.execute(
+            "SELECT owner, claim_id FROM conversation_owners WHERE session_id = ?", (session_id,)).fetchone()
+        return (str(row[0] or ""), str(row[1] or "")) if row else ("", "")
+
+    @classmethod
+    def is_account_conversation(cls, session_id: str) -> bool:
+        """Whether *session_id* is an account's own ``user:<subject>`` id."""
+        return str(session_id).startswith(ACCOUNT_CONVERSATION_PREFIX)
+
+    @staticmethod
+    def _erasure_state_in(conn) -> tuple[int, int] | None:
+        """``(seq, pruned_through)``: the last erasure's sequence number, and
+        the highest sequence number whose log entries have been pruned. None
+        when the state row is missing — which refuses, never reads as "no
+        erasure yet"."""
+        row = conn.execute(
+            "SELECT seq, pruned_through FROM conversation_erasure_state WHERE id = 1").fetchone()
+        return (int(row[0]), int(row[1])) if row else None
+
+    @staticmethod
+    def _restore_erasure_state_in(conn, seen: int) -> None:
+        """Put the erasure state row back if it is missing, past *seen* (the
+        highest sequence number any live turn could have been admitted under)
+        and past every logged erasure, with everything before it counted as
+        pruned: every turn admitted before the restore is refused, none is
+        revived. A row that exists is left alone."""
+        conn.execute(
+            "INSERT OR IGNORE INTO conversation_erasure_state (id, seq, pruned_through) "
+            "SELECT 1, floor, floor FROM "
+            "(SELECT MAX(?, COALESCE(MAX(seq), 0)) + 1 AS floor FROM conversation_erasures)",
+            (int(seen),))
+
+    @classmethod
+    def _stands_in(cls, conn, claim: ConversationClaim) -> bool:
+        """Whether *claim* still stands in the store *conn* reads.
+
+        The claim row must be the one the turn was admitted under: same owner
+        and same claim id (every claim gets a fresh random id, so erasing a
+        claim and claiming again does not restore it). A claim with an owner
+        needs nothing more. An UNCLAIMED claim ("", "") cannot be told from
+        the state a claim's erasure leaves, so it also needs that no erasure
+        since the turn's admission erased this conversation — and when the log
+        that would say so has been pruned past the admission, it is refused.
+        An unclaimed claim on an account's own ``user:<subject>`` id never
+        stands (such an id is not logged), nor does one when the erasure state
+        row is missing."""
+        if cls._claim_in(conn, claim.session_id) != (claim.owner, claim.claim_id):
+            return False
+        if claim.owner:
+            return True
+        state = cls._erasure_state_in(conn)
+        if state is None or cls.is_account_conversation(claim.session_id):
+            return False
+        seq, pruned_through = state
+        if seq == claim.erasure_seq:
+            return True
+        if seq < claim.erasure_seq or pruned_through > claim.erasure_seq:
+            return False
+        return conn.execute(
+            "SELECT 1 FROM conversation_erasures WHERE session_id = ? AND seq > ? LIMIT 1",
+            (claim.session_id, claim.erasure_seq)).fetchone() is None
+
+    def _prune_erasure_log_in(self, conn, now: float) -> int:
+        """Drop erasure log entries older than the retention window; a claim
+        admitted before the newest dropped entry no longer stands."""
+        row = conn.execute(
+            "SELECT MAX(seq) FROM conversation_erasures WHERE erased_at < ?",
+            (now - self._erasure_log_seconds,)).fetchone()
+        through = int(row[0]) if row and row[0] is not None else 0
+        if not through:
+            return 0
+        dropped = conn.execute("DELETE FROM conversation_erasures WHERE seq <= ?", (through,)).rowcount
+        conn.execute(
+            "UPDATE conversation_erasure_state SET pruned_through = MAX(pruned_through, ?) WHERE id = 1",
+            (through,))
+        return dropped
+
+    async def prune_erasure_log(self) -> int:
+        """Prune the erasure log (see ``_stands_in``): erased conversation ids
+        are kept for ``conversation_erasure_log_seconds`` (default one hour),
+        then dropped. Run after every account erasure (also one that erased no
+        conversation) and by the gateway's periodic sweep. Returns the number
+        of entries dropped."""
+        return await self.db.run_in_transaction(lambda conn: self._prune_erasure_log_in(conn, time.time()))
 
     # ── First-boot tracking ────────────────────────────────────────
 
+    # Looked up per session against the primary key rather than held as a set
+    # of every session ever greeted (which grew by one caller-named id per
+    # conversation for the life of the process).
+
     async def mark_first_boot_sent(self, session_id: str) -> None:
-        await self._ensure_first_boot_loaded()
-        if self._first_boot_cache is None:
-            self._first_boot_cache = set()
-        self._first_boot_cache.add(session_id)
         await self.db.execute(
             """
             INSERT INTO first_boot (session_id, sent_at)
@@ -409,8 +765,8 @@ class MemoryManager:
         )
 
     def is_first_boot_sent(self, session_id: str) -> bool:
-        self._load_first_boot_sync()
-        return session_id in (self._first_boot_cache or set())
+        return bool(self.db.fetchall_sync(
+            "SELECT 1 FROM first_boot WHERE session_id = ? LIMIT 1", (session_id,)))
 
     # ── Internal loaders ───────────────────────────────────────────
 
@@ -421,6 +777,7 @@ class MemoryManager:
         Safe to call from both sync and async code paths.
         """
         if agent in self._loaded_agents:
+            self._touch_agent(agent)
             return
         kv_rows = self.db.fetchall_sync(
             "SELECT key, value FROM agent_memory WHERE agent = ?",
@@ -447,15 +804,45 @@ class MemoryManager:
             for r in turn_rows
         ]
         self._loaded_agents.add(agent)
+        self._evict_agents(keep=agent)
 
-    def _load_first_boot_sync(self) -> None:
-        if self._first_boot_cache is not None:
-            return
-        rows = self.db.fetchall_sync("SELECT session_id FROM first_boot")
-        self._first_boot_cache = {r["session_id"] for r in rows}
+
+    # ── Bounded caches: recency and eviction ──────────────────────
+
+    def _touch_conversation(self, session_id: str) -> None:
+        if session_id in self._conv_cache:
+            self._conv_cache[session_id] = self._conv_cache.pop(session_id)
+
+    def _forget_conversation(self, session_id: str) -> None:
+        self._conv_cache.pop(session_id, None)
+        self._conv_owner.pop(session_id, None)
+        self._loaded_conversations.discard(session_id)
+
+    def _evict_conversations(self, keep: str) -> None:
+        """Drop least-recently-used conversations past the cap (never *keep*)."""
+        while len(self._conv_cache) > self._conversation_cap:
+            oldest = next(iter(self._conv_cache))
+            if oldest == keep:
+                break
+            self._forget_conversation(oldest)
+
+    def _touch_agent(self, agent: str) -> None:
+        if agent in self._turn_cache:
+            self._turn_cache[agent] = self._turn_cache.pop(agent)
+
+    def _evict_agents(self, keep: str) -> None:
+        """Drop least-recently-used ``agent@scope`` memories past the cap."""
+        while len(self._turn_cache) > self._agent_cap:
+            oldest = next(iter(self._turn_cache))
+            if oldest == keep:
+                break
+            self._turn_cache.pop(oldest, None)
+            self._kv_cache.pop(oldest, None)
+            self._loaded_agents.discard(oldest)
 
     def _load_conversation_sync(self, session_id: str) -> None:
         if session_id in self._loaded_conversations:
+            self._touch_conversation(session_id)
             return
         rows = self.db.fetchall_sync(
             """
@@ -468,12 +855,14 @@ class MemoryManager:
         self._conv_cache[session_id] = [
             {"role": r["role"], "content": r["content"]} for r in rows
         ]
-        if rows:
-            self._conv_owner[session_id] = str(rows[0]["owner"] or "")
+        # The owner from its own table: it exists before the first stored turn.
+        self._conv_owner[session_id] = self._owner_in(self.db._require_conn(), session_id)
         self._loaded_conversations.add(session_id)
+        self._evict_conversations(keep=session_id)
 
     async def _ensure_agent_loaded(self, agent: str) -> None:
         if agent in self._loaded_agents:
+            self._touch_agent(agent)
             return
         kv_rows = await self.db.fetchall(
             "SELECT key, value FROM agent_memory WHERE agent = ?",
@@ -500,9 +889,5 @@ class MemoryManager:
             for r in turn_rows
         ]
         self._loaded_agents.add(agent)
+        self._evict_agents(keep=agent)
 
-    async def _ensure_first_boot_loaded(self) -> None:
-        if self._first_boot_cache is not None:
-            return
-        rows = await self.db.fetchall("SELECT session_id FROM first_boot")
-        self._first_boot_cache = {r["session_id"] for r in rows}

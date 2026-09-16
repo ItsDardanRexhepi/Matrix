@@ -60,7 +60,6 @@ class Gaming(BlockchainInterface):
     async def _mint_item(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -69,7 +68,7 @@ class Gaming(BlockchainInterface):
                 address=Web3.to_checksum_address(params["contract_address"]),
                 abi=ERC1155_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("gaming.mint_item")
             player = params.get("player_address", bc["platform_wallet"])
 
             tx = contract.functions.mint(
@@ -103,7 +102,6 @@ class Gaming(BlockchainInterface):
     async def _transfer_item(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -112,7 +110,7 @@ class Gaming(BlockchainInterface):
                 address=Web3.to_checksum_address(params["contract_address"]),
                 abi=ERC1155_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("gaming.transfer_item")
 
             tx = contract.functions.safeTransferFrom(
                 Web3.to_checksum_address(params.get("player_address", bc["platform_wallet"])),

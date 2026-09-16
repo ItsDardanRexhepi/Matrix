@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Any
 
-from runtime.blockchain.web3_manager import Web3Manager
+from runtime.blockchain.web3_manager import Web3Manager, require_hex_address
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +46,36 @@ _FALLBACK_TVL: dict[str, float] = {
 }
 
 
+class PortfolioUnavailable(RuntimeError):
+    """No portfolio could be read. The message is a fixed reason code
+    (no_data_source, balance_read_failed, price_unavailable); the underlying
+    exception is chained, never embedded."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class DataAggregator:
     """Provide cached market data, gas prices, portfolio views, and protocol metrics."""
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self, config: dict, price_feed: Any = None) -> None:
+        """`price_feed`: a PriceFeed to value balances with. Pass the caller's
+        long-lived one (ServiceRoutes does) so its 30 s cache and single
+        in-flight read apply across requests; without one, this aggregator
+        makes and keeps its own, which only helps if the aggregator is kept."""
         self._config = config
         self._web3 = Web3Manager.get_shared(config)
         self._cache: dict[str, tuple[float, Any]] = {}
         self._ttl = _CACHE_TTL_SECONDS
         self._logger = logging.getLogger(__name__)
+        self._price_feed = price_feed
+
+    def _eth_usd_feed(self):
+        if self._price_feed is None:
+            from runtime.blockchain.price_feed import PriceFeed
+            self._price_feed = PriceFeed(self._config)
+        return self._price_feed
 
     # ── Cache helpers ────────────────────────────────────────────────
 
@@ -243,72 +264,89 @@ class DataAggregator:
 
     # ── Portfolio ─────────────────────────────────────────────────────
 
+    # What get_user_portfolio actually reads, and what it returns as empty lists
+    # without reading. Stated in every result so an empty list is not mistaken
+    # for "none held".
+    PORTFOLIO_COVERED = ("native_balance",)
+    PORTFOLIO_NOT_COVERED = ("erc20_tokens", "nfts", "defi_positions",
+                             "staking_positions", "streams", "rwa_positions")
+
     async def get_user_portfolio(self, wallet: str) -> dict:
-        """Return a portfolio summary for *wallet*."""
+        """Return a portfolio summary for *wallet*, or raise PortfolioUnavailable.
+
+        This used to catch every exception — and a failed balance read — and
+        return, and cache, an all-zero portfolio byte-identical to an empty
+        wallet; with no RPC configured it returned the same zeros. The gateway
+        answered 200 ok either way, so a client could not tell a portfolio from
+        a failure. It also valued a real balance at a hardcoded ETH price.
+
+        Now a portfolio is returned only when the native balance was actually
+        read, and valued only at a live ETH/USD quote (runtime.blockchain.
+        price_feed, which raises rather than invent a number). A zero balance
+        needs no price. Failures raise, are never cached, and carry a fixed
+        reason code rather than the underlying text. `total_value_usd` is the
+        native balance only; see `covered` / `not_covered`.
+
+        A *wallet* that is not a 20-byte hex address raises InvalidAddress
+        (a ValueError) first, before the cache, the data-source check or any
+        read: it is the caller's input, not an outage.
+        """
+        require_hex_address(wallet)
+        cache_key = f"portfolio:{wallet}"
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return {**cached, "cached": True}
+
+        if not (self._web3.available and self._web3.w3 is not None):
+            raise PortfolioUnavailable("no_data_source")
+
         try:
-            cache_key = f"portfolio:{wallet}"
-            cached = self._get_cached(cache_key)
-            if cached is not None:
-                cached["cached"] = True
-                return cached
+            balance = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._web3.get_balance_eth(wallet),
+                ),
+                timeout=2.0,
+            )
+        except (asyncio.TimeoutError, Exception) as exc:
+            self._logger.warning("Portfolio balance fetch failed: %s", exc)
+            raise PortfolioUnavailable("balance_read_failed") from exc
 
-            tokens: list[dict] = []
-            nfts: list[dict] = []
-            defi_positions: list[dict] = []
-            staking_positions: list[dict] = []
-            streams: list[dict] = []
-            rwa_positions: list[dict] = []
-            total_value = 0.0
+        tokens: list[dict] = []
+        total_value = 0.0
+        if balance > 0:
+            try:
+                quote = await self._eth_usd_feed().eth_usd()
+                eth_price = float(quote["price"])
+            except Exception as exc:
+                self._logger.warning("Portfolio ETH/USD price unavailable: %s", exc)
+                raise PortfolioUnavailable("price_unavailable") from exc
+            value_usd = round(balance * eth_price, 2)
+            tokens.append({
+                "symbol": "ETH",
+                "balance": balance,
+                "value_usd": value_usd,
+                "price_usd": eth_price,
+                "price_source": quote.get("source"),
+                "chain": "base",
+            })
+            total_value += value_usd
 
-            # If Web3 is available, try to fetch the native balance.
-            if self._web3.available and self._web3.w3 is not None:
-                try:
-                    balance = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            None,
-                            lambda: self._web3.get_balance_eth(wallet),
-                        ),
-                        timeout=2.0,
-                    )
-                    if balance > 0:
-                        eth_price = _FALLBACK_PRICES.get("ETH", {}).get("price_usd", 3200.0)
-                        value_usd = round(balance * eth_price, 2)
-                        tokens.append({
-                            "symbol": "ETH",
-                            "balance": balance,
-                            "value_usd": value_usd,
-                            "chain": "base",
-                        })
-                        total_value += value_usd
-                except (asyncio.TimeoutError, Exception) as exc:
-                    self._logger.warning("Portfolio balance fetch failed: %s", exc)
-
-            result = {
-                "wallet": wallet,
-                "total_value_usd": round(total_value, 2),
-                "tokens": tokens,
-                "nfts": nfts,
-                "defi_positions": defi_positions,
-                "staking_positions": staking_positions,
-                "streams": streams,
-                "rwa_positions": rwa_positions,
-                "cached": False,
-            }
-            self._set_cache(cache_key, result)
-            return result
-        except Exception as exc:
-            self._logger.error("get_user_portfolio failed: %s", exc, exc_info=True)
-            return {
-                "wallet": wallet,
-                "total_value_usd": 0.0,
-                "tokens": [],
-                "nfts": [],
-                "defi_positions": [],
-                "staking_positions": [],
-                "streams": [],
-                "rwa_positions": [],
-                "cached": False,
-            }
+        result = {
+            "wallet": wallet,
+            "total_value_usd": round(total_value, 2),
+            "tokens": tokens,
+            "nfts": [],
+            "defi_positions": [],
+            "staking_positions": [],
+            "streams": [],
+            "rwa_positions": [],
+            "covered": list(self.PORTFOLIO_COVERED),
+            "not_covered": list(self.PORTFOLIO_NOT_COVERED),
+            "cached": False,
+        }
+        self._set_cache(cache_key, result)
+        return result
 
     # ── NFT floor price ──────────────────────────────────────────────
 

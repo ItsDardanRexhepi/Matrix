@@ -57,7 +57,6 @@ class EASManager(BlockchainInterface):
         """Create a new EAS schema on-chain via the SchemaRegistry. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -89,7 +88,7 @@ class EASManager(BlockchainInterface):
                 address=Web3.to_checksum_address(schema_registry_addr),
                 abi=schema_registry_abi,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("eas_manager.create_schema")
 
             tx = registry.functions.register(
                 schema_def,
@@ -143,7 +142,6 @@ class EASManager(BlockchainInterface):
         """Revoke an attestation on-chain via EAS. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -182,7 +180,7 @@ class EASManager(BlockchainInterface):
                 address=Web3.to_checksum_address(eas_contract),
                 abi=eas_revoke_abi,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("eas_manager.revoke")
 
             schema_bytes = bytes.fromhex(eas_schema.replace("0x", ""))
             uid_bytes = bytes.fromhex(uid.replace("0x", ""))

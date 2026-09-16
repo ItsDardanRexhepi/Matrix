@@ -17,13 +17,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl
 
 from aiohttp import web
+from multidict import MultiDict, MultiDictProxy
 
-from gateway.error_contract import client_error
+from gateway.error_contract import DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -55,7 +58,7 @@ class _BatchSubRequest:
     invoke them directly without spinning up an actual HTTP round trip.
     """
 
-    __slots__ = ("_body", "match_info", "headers", "method", "path")
+    __slots__ = ("_body", "match_info", "headers", "method", "path", "query")
 
     def __init__(
         self,
@@ -65,15 +68,27 @@ class _BatchSubRequest:
         method: str,
         path: str,
         headers: Optional[dict] = None,
+        query: Optional[Any] = None,
     ) -> None:
         self._body = body if body is not None else {}
         self.match_info = match_info
         self.headers = headers or {}
         self.method = method
         self.path = path
+        # The item path's query string, as aiohttp exposes it. Without it a
+        # GET handler reading request.query (bridge wallet/status, dashboard)
+        # raised AttributeError through batch while answering direct.
+        self.query = query if query is not None else MultiDictProxy(MultiDict())
 
     async def json(self) -> Any:
         return self._body
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """aiohttp's Request is a mapping of per-request values set by
+        middleware; a batch item carries none. Handlers read it
+        (``request.get("request_id")``), and without this the read raised
+        AttributeError through batch while answering direct."""
+        return default
 
 
 class ServiceRoutes:
@@ -538,22 +553,9 @@ class ServiceRoutes:
         # Without the bridge available we simply skip them so a bare
         # ``ServiceRoutes`` (as used in unit tests) still builds cleanly.
         if self._bridge_routes is not None:
-            br = self._bridge_routes
-            bridge_specs: List[Tuple[str, str, Callable[..., Awaitable[web.Response]]]] = [
-                ("POST", "/bridge/v1/session/create", br.create_session),
-                ("POST", "/bridge/v1/session/resume", br.resume_session),
-                ("POST", "/bridge/v1/chat", br.chat),
-                ("POST", "/bridge/v1/action", br.execute_action),
-                ("POST", "/bridge/v1/wallet/link", br.link_wallet),
-                ("GET",  "/bridge/v1/wallet/status", br.wallet_status),
-                ("GET",  "/bridge/v1/config", br.get_config),
-                ("GET",  "/bridge/v1/services", br.get_services),
-                ("GET",  "/bridge/v1/dashboard", br.get_dashboard),
-                ("GET",  "/bridge/v1/components", br.get_components),
-                ("GET",  "/bridge/v1/components/manifest", br.get_components_manifest),
-                ("GET",  "/bridge/v1/components/{component_id}", br.get_component),
-            ]
-            specs.extend(bridge_specs)
+            # The bridge's own table — the one its HTTP registration reads —
+            # never a copy kept here (see BridgeRoutes.route_specs).
+            specs.extend(self._bridge_routes.route_specs())
 
         # P2 completion routes participate in batch dispatch too, so
         # /api/v1/batch sub-calls resolve them identically to the live router.
@@ -619,15 +621,15 @@ class ServiceRoutes:
 
     # When the service says WHY, honour it; otherwise 422 — the request was
     # well-formed but the operation could not be completed.
-    _ERROR_CATEGORY_HTTP = {
-        "validation": 400,
-        "bad_request": 400,
-        "not_found": 404,
-        "forbidden": 403,
-        "not_implemented": 501,
-        "service_unavailable": 503,
-        "service_error": 502,
-        "timeout": 504,
+    _ERROR_CATEGORY_HTTP = DISPATCHER_CATEGORY_HTTP
+
+    # client_error's statuses, as the aiohttp exceptions `_call` raises.
+    _HTTP_ERROR_FOR_STATUS = {
+        400: web.HTTPBadRequest,
+        404: web.HTTPNotFound,
+        500: web.HTTPInternalServerError,
+        503: web.HTTPServiceUnavailable,
+        504: web.HTTPGatewayTimeout,
     }
 
     def _ok(self, data: Any) -> web.Response:
@@ -749,9 +751,20 @@ class ServiceRoutes:
                 content_type="application/json",
             )
         except Exception as exc:
-            logger.exception("Error in %s.%s", service_name, method_name)
-            raise web.HTTPInternalServerError(
-                text=json.dumps({"error": str(exc)}),
+            # This was `HTTPInternalServerError({"error": str(exc)})`: whatever a
+            # service raised — an RPC URL with credentials in it, a provider's
+            # quota text — became the body of every direct route and batch
+            # sub-call that funnels through here. RUN-5 built client_error for
+            # exactly this and applied it to 13 sites; the funnel they all share
+            # was not one of them. It also said 500 for a dependency that was
+            # merely unreachable. client_error logs the full exception against
+            # a ref and decides both the status (500/503/504) and what the
+            # client may see.
+            _st, _err = client_error(
+                exc, None, what=f"{service_name}.{method_name}")
+            raise self._HTTP_ERROR_FOR_STATUS.get(
+                _st, web.HTTPInternalServerError)(
+                text=json.dumps(_err),
                 content_type="application/json",
             )
 
@@ -850,20 +863,97 @@ class ServiceRoutes:
 
     # -- Verifying paymaster sign (P4) --
 
+    @staticmethod
+    def _sponsorship_identity(request: "web.Request") -> str:
+        """The wallet the security middleware bound for this request.
+
+        Bound, not authenticated: it is the session's identity when a session is
+        presented, and otherwise the caller-written X-Wallet-Address header or a
+        body wallet/from/sender/account field (gateway/server.py
+        _security_context_middleware). Empty when none of those is present; the
+        handler then meters the body `sender`, and the policy denies only when
+        that is empty too and a cap is configured.
+        """
+        from gateway.security_gate import current_request_security
+        from runtime.blockchain.sponsorship import canonical_identity
+        return canonical_identity((current_request_security() or {}).get("wallet"))
+
+    async def _estimate_sponsorship_usd(self, cfg: dict, body: dict) -> float:
+        """Worst-case USD cost of the gas this userOp asks the platform to cover.
+
+        max_fee_per_gas x (callGasLimit + verificationGasLimit +
+        preVerificationGas) is the ceiling the EntryPoint can charge the
+        paymaster for this operation, so metering the ceiling is the reading
+        that cannot under-count. Priced with the same PriceFeed the /price route
+        uses; it raises rather than return a stale number, and this method lets
+        that raise through to the caller's 503.
+        """
+        def _int(key: str) -> int:
+            try:
+                return int(body.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        total_gas = (_int("call_gas_limit") + _int("verification_gas_limit")
+                     + _int("pre_verification_gas"))
+        wei = total_gas * _int("max_fee_per_gas")
+        if wei <= 0:
+            return 0.0
+        quote = await self._price_feed().eth_usd()
+        return (wei / 1e18) * float(quote["price"])
+
+
     async def _handle_paymaster_sign(self, request: web.Request) -> web.Response:
         """POST /api/v1/paymaster/sign — sign a gas-sponsorship approval for a
         UserOperation. Returns {"paymasterAndData": "0x..."} the client splices
         into the userOp. Non-custodial: signs ONLY a gas-sponsorship digest with a
         platform key; never the account's own signature, never moves user funds.
 
-        Sponsorship policy (allowlisted action types + per-identity daily USD cap)
+        Sponsorship policy (allowlisted actions + per-identity daily USD cap)
         is checked before signing; unconfigured signer/paymaster -> 503; a denied
-        policy -> 403 with an honest reason.
+        policy -> 403 with an honest reason; call_data/init_code that is not hex
+        -> 400.
+
+        §EE: the allowlist is checked against what the userOp's own call_data
+        and init_code DO (runtime.blockchain.sponsorship.classify_user_operation)
+        — the bytes the digest commits to. It used to be checked against the
+        body's `action_type`, defaulting to "transfer", so any request satisfied
+        it by saying so; the MTRX client hardcodes "transfer" for every send, so
+        the label was never information even from an honest caller. The field is
+        still accepted and a disagreement is logged, but it decides nothing.
+        The labels name ABI functions, not behaviour: the target, a value
+        recipient and the sender account are not verified (sponsorship.py, WHAT
+        IT CANNOT KNOW). With no allowlist configured the call data is not
+        decoded at all.
+
+        D-045: the cap in that sentence had no reader anywhere in the tree — the
+        handler checked `allowed_actions` and nothing else, so one holder of the
+        single static API key could request unlimited sponsorship, for any
+        account, until the EntryPoint deposit was empty. Three things changed:
+
+          * the sponsored account is bound to the identity the security
+            middleware bound for THIS request. A body `sender` that disagrees is
+            refused rather than honoured. That identity is a session's when one
+            is presented; without a session it is the X-Wallet-Address header or
+            body field the caller writes;
+          * the request is priced from its own gas fields against a live ETH/USD
+            quote and metered against the configured per-identity daily cap.
+            Per identity means per address: a caller who writes a new address
+            gets a fresh cap, so the cap bounds spend per address, not per
+            caller;
+          * the budget is reserved before signing and committed only once a
+            signature actually exists, so a signing failure does not charge
+            anyone for gas that was never sponsored.
+
+        An operator with no `daily_cap_usd` configured sees the previous
+        behaviour exactly.
         """
         from gateway.paymaster import (
             compute_paymaster_digest, sign_digest, build_paymaster_and_data,
             paymaster_config, signer_configured,
         )
+        from runtime.blockchain import sponsorship
+        from runtime.blockchain.sponsorship import SponsorshipPolicy, summarize_labels
         body = await self._parse_body(request)
         cfg = getattr(self, "_config", {}) or {}
         pcfg = paymaster_config(cfg)
@@ -872,12 +962,84 @@ class ServiceRoutes:
             return web.json_response(
                 {"error": "paymaster not configured"}, status=503)
 
-        # Sponsorship policy (honest deny, never a silent allow).
-        action_type = str(body.get("action_type", "transfer"))
-        allow = pcfg.get("policy", {}).get("allowed_actions")
-        if allow is not None and action_type not in allow:
+        policy = SponsorshipPolicy.from_config(cfg)
+
+        # Bind the sponsored account to the identity bound for this request
+        # (a session's, else the caller-written header or body field). Same
+        # idiom as _handle_governance_vote: a bound identity always wins, and a
+        # body value that contradicts it is refused, not preferred.
+        identity = self._sponsorship_identity(request)
+        body_sender = str(body.get("sender", "") or "").strip()
+        if identity and body_sender and body_sender.lower() != identity.lower():
+            logger.warning(
+                "paymaster sign refused: body sender does not match the "
+                "identity bound to this request")
             return web.json_response(
-                {"error": f"gas sponsorship not available for action '{action_type}'"},
+                {"error": "sender does not match the wallet this request is bound to"},
+                status=403)
+        sender = identity or body_sender
+
+        def _bytes(key):
+            v = str(body.get(key, "") or "")
+            return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
+
+        # The bytes are parsed once, here, and the SAME bytes are both classified
+        # for the allowlist and hashed into the digest below — so what the
+        # policy judged is what gets signed. Not-hex is the caller's malformed
+        # input (400), with or without a policy, exactly as it was when the
+        # digest step was the first thing to read these fields.
+        try:
+            call_data = _bytes("call_data")
+            init_code = _bytes("init_code")
+        except (TypeError, ValueError) as exc:
+            logger.info("paymaster sign: call_data/init_code is not hex")
+            _st, _err = client_error(
+                exc, None, what="Paymaster sign", code="invalid_request")
+            return web.json_response(_err, status=_st)
+
+        # §EE: derive the action from what is being sponsored. The body's
+        # `action_type` is logged when it disagrees and is otherwise ignored.
+        #
+        # Only an allowlist reads the labels, so with none configured the
+        # caller's bytes are not decoded at all — hex-decoded and hashed, as
+        # before this policy read them. The classifier is linear in its input
+        # either way (sponsorship.py, HOW IT DECODES); not running it where
+        # nothing depends on it keeps an unconfigured deployment's sign path
+        # exactly what it was.
+        if policy.allowed_actions is None:
+            actions = ["unclassified"]
+        else:
+            actions = sponsorship.classify_user_operation(
+                call_data, init_code, account_factory=pcfg.get("account_factory"))
+            declared = body.get("action_type")
+            if declared is not None and [str(declared)] != actions:
+                logger.info(
+                    "paymaster sign: declared action_type %r; the call data "
+                    "performs %s, and the call data decides",
+                    str(declared)[:64], summarize_labels(actions))
+
+        # Price this request before metering it. A cap denominated in dollars
+        # cannot be enforced against an unknown dollar amount, so an unavailable
+        # quote is a 503 — never an unmetered signature.
+        est_usd = 0.0
+        if policy.enforces_a_cap:
+            try:
+                est_usd = await self._estimate_sponsorship_usd(cfg, body)
+            except Exception:
+                logger.exception("sponsorship pricing unavailable — refusing to "
+                                 "sign an unmeterable request")
+                return web.json_response(
+                    {"error": "gas price unavailable; sponsorship cannot be "
+                              "metered against the configured daily cap"},
+                    status=503)
+
+        decision = policy.authorize_and_reserve(
+            actions, identity=sender, est_usd=est_usd)
+        if not decision.allowed:
+            logger.info("paymaster sponsorship denied: %s", decision.code)
+            return web.json_response(
+                {"error": decision.reason, "code": decision.code,
+                 "policy": decision.to_dict()},
                 status=403)
 
         def _int(key, default=0):
@@ -885,10 +1047,6 @@ class ServiceRoutes:
                 return int(body.get(key, default) or default)
             except (TypeError, ValueError):
                 return default
-
-        def _bytes(key):
-            v = str(body.get(key, "") or "")
-            return bytes.fromhex(v[2:] if v.startswith("0x") else v) if v else b""
 
         # RUN-5b: this was ONE `try` around both halves, ending in
         # `{"error": f"sign failed: {exc}"}` at 400. Two separate defects.
@@ -906,10 +1064,10 @@ class ServiceRoutes:
         # neither returns the exception.
         try:
             digest = compute_paymaster_digest(
-                sender=str(body.get("sender", "")),
+                sender=sender,
                 nonce=_int("nonce"),
-                init_code=_bytes("init_code"),
-                call_data=_bytes("call_data"),
+                init_code=init_code,
+                call_data=call_data,
                 call_gas_limit=_int("call_gas_limit"),
                 verification_gas_limit=_int("verification_gas_limit"),
                 pre_verification_gas=_int("pre_verification_gas"),
@@ -921,6 +1079,7 @@ class ServiceRoutes:
                 valid_after=_int("valid_after"),
             )
         except Exception as exc:
+            policy.release(decision.reservation_id)
             logger.exception("paymaster digest rejected caller input")
             _st, _err = client_error(
                 exc, None, what="Paymaster sign", code="invalid_request")
@@ -931,11 +1090,14 @@ class ServiceRoutes:
             pnd = build_paymaster_and_data(
                 str(pcfg.get("address")), _int("valid_until"), _int("valid_after"), sig)
         except Exception as exc:
+            policy.release(decision.reservation_id)
             logger.exception("paymaster signing failed — check the configured signer key")
             _st, _err = client_error(
                 exc, None, what="Paymaster sign", code="internal_error")
             return web.json_response(_err, status=_st)
 
+        # The signature exists — only now is the budget actually spent.
+        policy.commit(decision.reservation_id)
         return web.json_response({"paymasterAndData": pnd})
 
     # -- Security preflight (P1-5) --
@@ -1198,10 +1360,12 @@ class ServiceRoutes:
         # NEW-78: `trigger_data` is gone — it was the claimant's own "proof"
         # of the covered event, and the claim decision now comes from oracle
         # data instead. The caller is bound to the wallet the security
-        # middleware authenticated for THIS request, following the same idiom
-        # as _handle_governance_vote: an authenticated identity always wins,
-        # a body-supplied holder is a dev fallback only, and an absent caller
-        # is refused by assert_owner rather than silently skipped.
+        # middleware bound for THIS request (a session's identity when one is
+        # presented, otherwise the caller-written X-Wallet-Address header or a
+        # body field), following the same idiom as _handle_governance_vote:
+        # a bound identity always wins, a body-supplied holder is a dev
+        # fallback only, and an absent caller is refused by assert_owner rather
+        # than silently skipped.
         body = await self._parse_body(request)
         self._require(body, "policy_id")
         from gateway.security_gate import current_request_security
@@ -1255,11 +1419,14 @@ class ServiceRoutes:
     async def _handle_governance_vote(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
         self._require(body, "proposal_id", "support")
-        # P5-1: bind the vote to the wallet the security middleware authenticated
-        # for THIS request — not a spoofable body field. An authenticated identity
-        # always wins, so a mismatched body ``voter`` is simply ignored (the vote
-        # is recorded under the real wallet). The body voter is a testnet/dev
-        # fallback only, used when no identity was bound. The 400 for a
+        # P5-1: bind the vote to the wallet the security middleware bound for
+        # THIS request. That is a session's identity when a session is
+        # presented; without one it is the caller-written X-Wallet-Address
+        # header (or a body wallet/from field), so the binding is only as strong
+        # as the session. A bound identity always wins, so a mismatched body
+        # ``voter`` is ignored (the vote is recorded under the bound wallet). The
+        # body voter is a testnet/dev fallback only, used when no identity was
+        # bound. The 400 for a
         # fully-absent voter just mirrors the prior _require("voter") — no gate
         # stricter than before, and the Morpheus OBSERVE gate itself is untouched.
         from gateway.security_gate import current_request_security
@@ -1595,8 +1762,13 @@ class ServiceRoutes:
             try:
                 return web.json_response(await self._price_feed().eth_usd())
             except PriceUnavailable as exc:
+                # No source reachable is the documented 503 (upstream), as on
+                # /api/v1/price/eth-usd. Without the code, client_error()
+                # classified it internal_error: the same outage was 503 on
+                # one route and 500 on this one.
                 _st, _err = client_error(
-                    exc, request.get("request_id"), what="PriceFeed"
+                    exc, request.get("request_id"), what="PriceFeed",
+                    code="upstream_unavailable",
                 )
                 return web.json_response(_err, status=_st)
             except Exception as exc:
@@ -1707,7 +1879,11 @@ class ServiceRoutes:
         # §CD sibling pass: `owner` was required and then never forwarded — the
         # route advertised an authorization input that governed nothing. It is
         # bound the way every other identity on this funnel is: the wallet the
-        # middleware authenticated wins, the body field is the dev fallback.
+        # security middleware bound for this request wins (a session's identity,
+        # else the caller-written X-Wallet-Address header or a body wallet/from/
+        # sender/account field), and the body `owner` is the fallback when none
+        # of those is present. Bound, not authenticated: without a session it is
+        # what the request wrote.
         from gateway.security_gate import current_request_security
         authed = str((current_request_security() or {}).get("wallet") or "")
         result = await self._call(
@@ -1900,6 +2076,40 @@ class ServiceRoutes:
 
     async def _handle_community_create(self, request: web.Request) -> web.Response:
         body = await self._parse_body(request)
+        refusal = self._community_create_refusal(body)
+        if refusal is not None:
+            return refusal
+        result = await self._call(
+            "social", "create_community",
+            creator=body["creator"],
+            name=body["name"],
+            description=body.get("description", ""),
+            token_gate=self._first(body, "token_gate", "tokenGate"),
+        )
+        return self._ok(result)
+
+    def _community_create_refusal(self, body: dict) -> Optional[web.Response]:
+        """The ONE body contract for social.create_community — refusal half.
+
+        Two routes create a community — POST /api/v1/social/community/create
+        and POST /api/v1/groups ("group" and "community" are one entity under
+        two product names). NEW-89's refusal below was written into only one of
+        the two handlers: /groups kept answering 200 with a caller's `rules`
+        silently dropped, and so did /batch reaching it. Both handlers now ask
+        this, so a guard cannot exist on one twin and not the other. Both read
+        the token gate in either spelling; the community route used to read only
+        `token_gate` and dropped a camelCase `tokenGate`.
+
+        Each handler still writes out `self._call("social", "create_community",
+        creator=..., ...)` itself, deliberately, for two readers of that call:
+        scripts/generate_session_routes.py finds the service method a route
+        reaches by reading the call in the handler body (moving it into a shared
+        helper made community_create silently drop out of
+        CAPABILITIES_OFF_ALLOWLIST), and tests/test_route_binding_detector.py
+        can only check keyword names it can see (a **kwargs splat is its blind
+        spot). tests/test_community_twins_share_one_contract.py drives the same
+        bodies at both routes, which is what keeps the two field lists equal.
+        """
         # NEW-89 DROPPED-INTENT: `rules` was REQUIRED here and the service has
         # no rules concept at all — create_community stores creator/name/
         # description/token_gate and nothing enforces anything. Mapping rules ->
@@ -1916,14 +2126,7 @@ class ServiceRoutes:
                     "community, or the rules would be silently unenforced."
                 ),
             })
-        result = await self._call(
-            "social", "create_community",
-            creator=body["creator"],
-            name=body["name"],
-            description=body.get("description", ""),
-            token_gate=body.get("token_gate"),
-        )
-        return self._ok(result)
+        return None
 
     async def _handle_social_feed(self, request: web.Request) -> web.Response:
         # NOTE: SocialService.get_feed takes `address` (this route historically
@@ -2226,14 +2429,18 @@ class ServiceRoutes:
         return self._ok(result)
 
     async def _handle_groups_create(self, request: web.Request) -> web.Response:
+        # Same entity, same service call, same contract — see
+        # _community_create_refusal for why the call stays written out here.
         body = await self._parse_body(request)
-        self._require(body, "creator", "name")
+        refusal = self._community_create_refusal(body)
+        if refusal is not None:
+            return refusal
         result = await self._call(
             "social", "create_community",
             creator=body["creator"],
             name=body["name"],
             description=body.get("description", ""),
-            token_gate=body.get("tokenGate") or body.get("token_gate"),
+            token_gate=self._first(body, "token_gate", "tokenGate"),
         )
         return self._ok(result)
 
@@ -2436,14 +2643,48 @@ class ServiceRoutes:
     # -- Portfolio --
 
     async def _handle_portfolio_complete(self, request: web.Request) -> web.Response:
+        """The last copy of the RUN-6 shape on the portfolio pair.
+
+        This returned `{"wallet", "status": "unavailable", "message": str(e)}`
+        — the exact body RUN-6 removed from /portfolio/positions two handlers
+        below. RUN-4's `_ok` already turned that inner `unavailable` into a 503,
+        so the status was honest; the body was not: the exception text (an RPC
+        URL, a provider error) went to the caller. Same answer as positions now:
+        the reason is logged server-side, the client gets a fixed sentence.
+
+        That `except` was not where the real failures went, though.
+        DataAggregator.get_user_portfolio caught everything itself — and
+        Web3Manager.get_balance_eth turned a failed RPC read into 0.0 below it —
+        so an RPC outage, a timeout, or no RPC configured at all came back as a
+        200 all-zero portfolio identical to an empty wallet, and was cached.
+        Both now raise (PortfolioUnavailable / BalanceUnavailable), nothing
+        failed is cached, and a balance is valued only at a live ETH/USD quote,
+        so every one of those reaches this 503. A 200 now means the native
+        balance was actually read; `covered` / `not_covered` say that it is the
+        only thing read.
+
+        A `{wallet}` that is not a 20-byte hex address is the caller's input: 400,
+        before any read. The ETH/USD quote comes from this ServiceRoutes' one
+        PriceFeed, so its 30 s cache and single in-flight read are shared with
+        /price and the paymaster route.
+        """
+        from runtime.blockchain.web3_manager import InvalidAddress
         wallet = request.match_info["wallet"]
         try:
             from runtime.blockchain.protocol_abstraction.data_aggregator import DataAggregator
-            aggregator = DataAggregator(self._config)
+            aggregator = DataAggregator(self._config, price_feed=self._price_feed())
             result = await aggregator.get_user_portfolio(wallet)
+        except InvalidAddress:
+            return self._bad_request("wallet must be a 20-byte hex address")
         except Exception as e:
-            logger.warning("Portfolio aggregation failed: %s", e)
-            result = {"wallet": wallet, "status": "unavailable", "message": str(e)}
+            logger.warning("Portfolio aggregation failed for %s: %s", wallet, e)
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({
+                    "status": "unavailable",
+                    "error": "The portfolio is unavailable right now.",
+                }),
+                content_type="application/json",
+            )
         return self._ok(result)
 
     async def _handle_portfolio_positions(self, request: web.Request) -> web.Response:
@@ -2456,13 +2697,16 @@ class ServiceRoutes:
         real method plus a projection of the position-bearing fields, not a
         fabricated answer.
         """
+        from runtime.blockchain.web3_manager import InvalidAddress
         wallet = request.match_info["wallet"]
         try:
             from runtime.blockchain.protocol_abstraction.data_aggregator import (
                 DataAggregator,
             )
-            aggregator = DataAggregator(self._config)
+            aggregator = DataAggregator(self._config, price_feed=self._price_feed())
             portfolio = await aggregator.get_user_portfolio(wallet)
+        except InvalidAddress:
+            return self._bad_request("wallet must be a 20-byte hex address")
         except Exception as e:
             # RUN-5 shape: the reason is logged server-side, never returned.
             logger.warning("Portfolio positions failed for %s: %s", wallet, e)
@@ -2485,6 +2729,8 @@ class ServiceRoutes:
                 "streams": portfolio.get("streams", []),
                 "rwa": portfolio.get("rwa_positions", []),
             },
+            "covered": portfolio.get("covered", []),
+            "not_covered": portfolio.get("not_covered", []),
             "cached": portfolio.get("cached", False),
         })
 
@@ -2516,37 +2762,126 @@ class ServiceRoutes:
 
     # -- Intent Resolution --
 
+    # Entity fields IntentResolver.resolve reads as text. Anything else in
+    # `entities` is passed through untouched.
+    _INTENT_TEXT_ENTITIES = ("asset", "from_chain", "to_chain", "token_out",
+                             "collateral", "data_ref")
+
+    @staticmethod
+    def _bad_request(message: str) -> web.Response:
+        return web.json_response(
+            {"error": message, "code": "invalid_request"}, status=400)
+
     async def _handle_intent_resolve(self, request: web.Request) -> web.Response:
+        """POST /api/v1/intent/resolve — an exception is not a plan.
+
+        Both this handler and IntentResolver.resolve itself caught every
+        exception and returned `{"status": "error", "message": str(exc)}`.
+        RUN-4's `_ok` made that a 422 rather than a 200, but the body still
+        carried the exception text, and 422 said "your request was
+        unprocessable" for what was usually our own fault. It also said the same
+        422 — with Python's own wording — for input that genuinely WAS the
+        caller's fault (`entities.amount: "abc"`, `entities: [...]`).
+
+        Now:
+          * the caller's malformed input is a 400 checked here, before the
+            resolver runs, and so is a bridge between unsupported or identical
+            chains, which the resolver reports as `error_category: validation`;
+          * a router the plan needs that is not configured, or that failed
+            (the routers catch their own exceptions and answer
+            `status: error`), is a 503 `{"status": "unavailable", "reason",
+            "error"}` with a fixed sentence. resolve() used to fill the
+            router's missing numbers with defaults ($3.00, "uniswap", "aave",
+            "hop") and this route answered 200 ok with that plan;
+          * an exception that escapes the resolver goes through client_error —
+            logged in full against a ref, redacted to the client, 503/504 when
+            its type or text says a dependency was unreachable or timed out,
+            500 otherwise.
+        `unresolved` stays a 200: it is an answer to the question asked.
+        A 200 plan's figures are the routers' own `ok` answers, which are
+        static per-protocol tables in defi_router.py / cross_chain_router.py,
+        not live quotes; `value_usd` is None and `requires_confirmation` True
+        whenever no live price exists for the asset.
+        """
         body = await self._parse_body(request)
         self._require(body, "intent")
+        intent = body.get("intent")
+        if not isinstance(intent, str) or not intent.strip():
+            return self._bad_request("intent must be a non-empty string")
+        entities = body.get("entities")
+        if entities is None:
+            entities = {}
+        if not isinstance(entities, dict):
+            return self._bad_request("entities must be an object")
+        if "amount" in entities:
+            try:
+                amount = float(entities["amount"])
+            except (TypeError, ValueError):
+                return self._bad_request("entities.amount must be a number")
+            if not math.isfinite(amount) or amount < 0:
+                return self._bad_request(
+                    "entities.amount must be a finite, non-negative number")
+        for key in self._INTENT_TEXT_ENTITIES:
+            if key in entities and not isinstance(entities[key], str):
+                return self._bad_request(f"entities.{key} must be a string")
         try:
             from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
             resolver = IntentResolver(self._config)
             result = await resolver.resolve(
-                intent=body["intent"],
-                entities=body.get("entities", {}),
-                wallet=body.get("wallet", ""),
-                tier=body.get("tier", "free"),
+                intent=intent,
+                entities=entities,
+                wallet=str(body.get("wallet", "") or ""),
+                tier=str(body.get("tier", "free") or "free"),
             )
-        except Exception as e:
-            logger.warning("Intent resolution failed: %s", e)
-            result = {"status": "error", "message": str(e)}
+        except Exception as exc:
+            _st, _err = client_error(exc, None, what="Intent resolution")
+            return web.json_response(_err, status=_st)
+        status = result.get("status") if isinstance(result, dict) else None
+        if status == "unavailable":
+            # A top-level string `error`: the Swift client's extractErrorMessage
+            # reads obj["error"] as a String and falls back to obj["message"];
+            # it reads nothing nested. The resolver's message is a fixed sentence.
+            return web.json_response({
+                "status": "unavailable",
+                "reason": result.get("reason", "dependency_failed"),
+                "action": result.get("action"),
+                "error": result.get("message", "Intent resolution is unavailable right now."),
+            }, status=503)
+        if status == "error" and result.get("error_category") == "validation":
+            return self._bad_request(str(result.get("message", "invalid intent")))
         return self._ok(result)
 
     async def _handle_intent_execute(self, request: web.Request) -> web.Response:
-        body = await self._parse_body(request)
-        self._require(body, "plan_id", "wallet")
-        try:
-            from runtime.blockchain.protocol_abstraction.intent_resolver import IntentResolver
-            resolver = IntentResolver(self._config)
-            result = await resolver.execute(
-                plan_id=body["plan_id"],
-                wallet=body["wallet"],
-            )
-        except Exception as e:
-            logger.warning("Intent execution failed: %s", e)
-            result = {"status": "error", "message": str(e)}
-        return self._ok(result)
+        """POST /api/v1/intent/execute — executing a plan by id is not built.
+
+        This called IntentResolver.execute(plan_id=..., wallet=...), which does
+        not exist, so every well-formed request raised AttributeError and the
+        handler returned it as the body (422 after RUN-4, 200 before). It
+        survived the route sweep because the sweep's generic body carries no
+        `plan_id`, so the sweep only ever saw the 400 for a missing field.
+
+        Same reason as /intent/summary, and the same answer: plans are not
+        persisted — resolve() mints a uuid4 plan_id and keeps nothing — so
+        there is no plan to look up by id. The real method,
+        execute_plan(plan: dict, wallet), takes the plan OBJECT. Repointing to it
+        would mean executing a plan the caller wrote into its own request body,
+        on a fund-moving path, which is not a repair. 501 until a plan store and
+        a gated execution path exist.
+        """
+        return web.json_response(
+            {
+                "status": "not_implemented",
+                "error": "Executing an intent plan by id is not implemented.",
+                "detail": (
+                    "Plans are not persisted: /api/v1/intent/resolve returns the "
+                    "full plan and the resolver keeps no store, so a plan_id "
+                    "cannot be looked up, and nothing executes a resolved plan "
+                    "from this endpoint."
+                ),
+                "see": "/api/v1/intent/resolve",
+            },
+            status=501,
+        )
 
     async def _handle_intent_summary(self, request: web.Request) -> web.Response:
         """RUN-6: summary-by-plan-id cannot be served, and never could.
@@ -2694,18 +3029,27 @@ class ServiceRoutes:
             body = await request.json()
         except Exception:
             body = {}
-        params = body.get("params", {}) if isinstance(body, dict) else {}
+        params = body.get("params") if isinstance(body, dict) else None
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            # Reached the dispatcher as-is and raised AttributeError there (500).
+            return web.json_response({"error": "params must be an object"}, status=400)
         reg = self._capability_registry()
         # 17-D. This route reaches the SAME ServiceDispatcher as gateway/bridge.py
         # — `set_nft_rights` is a catalog capability id — and it dropped the
         # caller for exactly the same reason: nobody asked for it. The identity
         # is already bound for every POST /api/v1/* by
         # `GatewayServer._security_context_middleware`, so it is read here from
-        # the request-scoped context rather than from the body, following the
+        # the request-scoped context rather than from `params`, following the
         # idiom `_handle_governance_vote` and `_handle_insurance_claim` already
-        # use: an authenticated identity always wins, and a body-supplied
-        # address is never promoted to fact. Absent identity degrades to ""
-        # ("unknown"), never to a self-asserted address, and never to a refusal.
+        # use, and passed to the registry as `caller_identity` rather than read
+        # from `params`. Bound, not authenticated. The middleware binds a session's identity
+        # when one is presented; without one, the X-Wallet-Address header; and
+        # without that, a body `wallet`, `from`, `sender` or `account` field or
+        # `params.from` — so a self-asserted address DOES become the identity
+        # when the request carries no session and no header. With none of
+        # those, the identity is "" ("unknown"), never a refusal.
         from gateway.security_gate import (
             current_request_security, gate_action, generic_denial, is_blocked,
         )
@@ -2734,12 +3078,21 @@ class ServiceRoutes:
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
-        decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security)
+        decision = await gate_action(action_label, params, security)
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
         result = await reg.invoke(capability_id, params, caller_identity=authed)
-        status = 200 if result.get("status") == "ok" else 400
-        return web.json_response(result, status=status)
+        if result.get("status") != "ok":
+            return web.json_response(result, status=400)
+        # The registry wraps the dispatcher's payload as {"status": "ok",
+        # "result": <payload>} whatever the payload says, so a crashed service
+        # answered 200 with its exception text inside (RUN-4 and RUN-5 at once,
+        # on the other route that relays the dispatcher; see bridge.py).
+        failure = dispatcher_failure(result.get("result"), what=f"Capability {capability_id}")
+        if failure is not None:
+            status, err = failure
+            return web.json_response({**err, "capability_id": capability_id}, status=status)
+        return web.json_response(result, status=200)
 
     # ------------------------------------------------------------------
     # Batch dispatch
@@ -2906,6 +3259,10 @@ class ServiceRoutes:
                 "error": "Batch item missing 'path'",
             }
 
+        # "/path?x=1": route on the path, hand the handler the query — as the
+        # HTTP router does. The whole string used to be matched as the path, so
+        # any item carrying a query answered 404 "No route".
+        path, _, query_string = path.partition("?")
         resolved = self._resolve_batch_route(method, path)
         if resolved is None:
             return {
@@ -2921,6 +3278,7 @@ class ServiceRoutes:
             match_info=match_info,
             method=method,
             path=path,
+            query=MultiDictProxy(MultiDict(parse_qsl(query_string, keep_blank_values=True))),
         )
 
         try:
@@ -2945,12 +3303,15 @@ class ServiceRoutes:
                 "error": self._extract_http_error(exc),
             }
         except Exception as exc:  # pragma: no cover — defence in depth
+            # RUN-5: this shipped str(exc) — the raw exception — as the item's
+            # error. Same contract as `_call`: logged with a ref, never returned.
             logger.exception("Batch item %s crashed (%s %s)", item_id, method, literal_path)
+            status, err = client_error(exc, None, what=f"Batch item {item_id} ({method} {literal_path})")
             return {
                 "id": item_id,
-                "status": 500,
+                "status": status,
                 "body": None,
-                "error": str(exc),
+                "error": err["error"],
             }
 
         return {
@@ -3049,7 +3410,13 @@ class ServiceRoutes:
                 "X-Accel-Buffering": "no",  # disable nginx/Caddy buffering
             },
         )
-        await response.prepare(request)
+        # The subscriber is registered: a client gone before the headers must
+        # not keep its slot (the caps count slots per peer address).
+        try:
+            await response.prepare(request)
+        except BaseException:
+            await self._broadcaster.unregister(sub)
+            raise
 
         # Replay any events the client missed during the reconnect window.
         if last_event_id:

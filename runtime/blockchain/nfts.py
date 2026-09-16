@@ -73,7 +73,6 @@ class NFTs(BlockchainInterface):
         """Mint an NFT. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -86,7 +85,7 @@ class NFTs(BlockchainInterface):
                 address=Web3.to_checksum_address(contract_address),
                 abi=ERC721_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("nfts.mint")
 
             # Try safeMint with URI first, fall back to mint with tokenId
             try:
@@ -129,7 +128,6 @@ class NFTs(BlockchainInterface):
         """Transfer an NFT. Gas covered by platform."""
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -143,7 +141,7 @@ class NFTs(BlockchainInterface):
                 address=Web3.to_checksum_address(contract_address),
                 abi=ERC721_ABI,
             )
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("nfts.transfer")
 
             tx = contract.functions.transferFrom(
                 Web3.to_checksum_address(from_addr),

@@ -11,7 +11,7 @@ So `assert_owner` was handed a string the CALLER supplied and compared it to
 `policy["holder"]`. Anyone who knew a policy id could claim to be its holder.
 
 MEASURED before the fix, reproducing the dispatcher's binding step exactly: a
-caller authenticated as "mallory", sending
+caller whose threaded identity was "mallory", sending
 `{"policy_id": <alice's>, "caller": "alice"}`, cancelled Alice's policy —
 result "cancelled", stored status "cancelled".
 
@@ -116,10 +116,13 @@ async def test_a_stranger_cannot_assert_the_holders_identity():
     )
 
 
-async def test_an_unauthenticated_caller_cannot_assert_an_identity():
-    """DEFECT-PROVER. The threaded value wins even when EMPTY — an
-    unauthenticated call is a refusal, never a fallback to the self-asserted
-    value. That distinction is the whole of 17-D's reasoning."""
+async def test_a_call_with_nothing_threaded_is_refused_not_given_the_body_caller():
+    """DEFECT-PROVER. The threaded value wins even when EMPTY — a call whose
+    entry point bound no identity is a refusal, never a fallback to the body
+    `caller`. That distinction is the whole of 17-D's reasoning. It is the
+    dispatcher's guard only: on the gateway route with no session, a body
+    `wallet` is what gets bound and threaded, so the body can still name the
+    caller there (tests/test_bound_identity_is_not_called_authenticated.py)."""
     svc, pid = await _issue("alice")
     with pytest.raises(Exception) as exc:
         await _dispatch(svc, "cancel_policy",

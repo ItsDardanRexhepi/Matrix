@@ -23,7 +23,9 @@ from aiohttp import web
 
 from gateway.error_contract import client_error, sse_error_frame
 
-from runtime.react_loop import ReActLoop, ReActContext, Message
+from runtime.react_loop import (  # noqa: F401 — CLIENT_CONTEXT_FENCE re-exported
+    CLIENT_CONTEXT_FENCE, CLIENT_CONTEXT_MAX_CHARS, ReActLoop, ReActContext, Message,
+)
 from runtime.time.temporal_context import TemporalContext
 from runtime.auth.session_store import (
     WalletSessionStore,
@@ -54,6 +56,19 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "openmatrix.config.json"
 START_TIME = time.time()
+
+#: The four entrances to the one chat flow. They share ONE auth posture (all
+#: public — see ``_public_paths``) and ONE per-turn context
+#: (``GatewayServer._chat_user_context``). Written once so an entrance cannot
+#: be left behind again: /chat/stream was, and the gateway's own public web
+#: chat page (GET /chat → web/index.html) calls it, so that page answered 401
+#: on every gateway with a key configured.
+CHAT_ENTRANCES: tuple[str, ...] = ("/chat", "/chat/stream", "/ws", "/bridge/v1/chat")
+
+#: The bounds of one chat turn's input, the same on every entrance (see
+#: GatewayServer._chat_turn_input). The message cap is characters after strip.
+CHAT_MESSAGE_MAX_CHARS = 100_000
+CHAT_AGENTS: tuple[str, ...] = ("neo", "trinity", "morpheus")
 
 # ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -173,13 +188,15 @@ def _apply_env_overrides(config: dict) -> dict:
 
     # APNs push (Matrix deploy): the .p8 is MOUNTED as a file (never an env
     # value) at APNS_AUTH_KEY_P8_PATH; read its contents into the ios_push
-    # channel config so the mounted secret is actually consumed. Absent path /
-    # unreadable file leaves the channel unconfigured (push stays a no-op) —
-    # fail-safe, never a crash.
+    # channel config — config["notifications"]["ios_push"], the subtree the
+    # channel reads (runtime/notifications/base.py). This used to write
+    # notifications.channels.ios_push, which nothing reads, so the mount
+    # configured nothing. Absent path / unreadable file leaves the channel
+    # unconfigured (push stays a no-op) — fail-safe, never a crash. An explicit
+    # `enabled: false` in the config still wins, as for every channel.
     apns_path = os.environ.get("APNS_AUTH_KEY_P8_PATH")
     if apns_path:
-        ios = (config.setdefault("notifications", {})
-               .setdefault("channels", {}).setdefault("ios_push", {}))
+        ios = config.setdefault("notifications", {}).setdefault("ios_push", {})
         try:
             with open(apns_path, "r", encoding="utf-8") as fh:
                 ios["auth_key_p8"] = fh.read()
@@ -288,11 +305,12 @@ class GatewayServer:
         self.config = config
         self.react_loop = ReActLoop(config)
         self.temporal = TemporalContext(config.get("timezone", "America/Los_Angeles"))
+        # The working set of conversation histories: completed turns only,
+        # hydrated from the store on first touch, bounded in the number of
+        # conversations (see _conversation_history).
         self.conversations: dict[str, list[Message]] = {}
+        self._conversation_cap = max(1, int(config.get("conversation_cache", 1024)))
         self.request_count = 0
-
-        # Hydrate conversations cache from disk
-        self._conv_loaded: set[str] = set()
 
         # Auth: API key from config or environment
         gw = config.get("gateway", {})
@@ -314,17 +332,18 @@ class GatewayServer:
             # IAP routes authenticate via the signed JWS chain itself (Apple's
             # webhook cannot send our API key; the app sends a session token).
             "/api/v1/iap/verify", "/api/v1/iap/asn",
-            # Realtime (Phase 6): /ws serves the SAME public chat as POST /chat
-            # (already public below); the SSE event stream carries feed/price
-            # broadcasts and enforces its own per-IP capacity caps.
-            "/ws", "/api/v1/events/stream",
-            # The iOS app's REST chat fallback — the SAME public chat as /chat
-            # and /ws, so it must match their auth posture. Without this, a
-            # hosted gateway with OPENMATRIX_API_KEY set 401s the app whenever
-            # the WebSocket path degrades to REST (the app doesn't carry the
-            # operator key — clients are anonymous; rate limiting caps abuse).
-            "/bridge/v1/chat",
-            "/", "/chat", "/audit", "/marketplace",
+            # The chat: POST /chat, POST /chat/stream, GET /ws, POST
+            # /bridge/v1/chat — one flow, one posture (CHAT_ENTRANCES). Clients
+            # are anonymous (the iOS app and the web chat page carry no
+            # operator key; rate limiting caps abuse). Public admits the turn;
+            # it grants no identity — that comes only from a presented session
+            # (_chat_user_context), and naming Neo or Morpheus still takes the
+            # operator key. GET /chat is also the web chat page.
+            *CHAT_ENTRANCES,
+            # The SSE event stream carries feed/price broadcasts and enforces
+            # its own per-IP capacity caps.
+            "/api/v1/events/stream",
+            "/", "/audit", "/marketplace",
             "/services/conversion",
             "/extensions/registry",
             "/a2a/services",
@@ -477,17 +496,32 @@ class GatewayServer:
         self.certification_manager = None
 
         # ── Notifications (unified 9-channel dispatcher) ────────────
-        # Available channels: telegram, discord, slack, email, sms,
-        # whatsapp, web_chat, ios_push, webhook. Configure with
-        # `python setup_communications.py`. Every channel is optional;
-        # the dispatcher is always instantiated so callers can rely on
-        # it without guarding imports.
+        # Channels: telegram, discord, slack, email, sms, whatsapp, web_chat,
+        # ios_push, webhook. Configure with `python setup_communications.py`
+        # (which can send each one a test message).
+        #
+        # NOT BUILT: nothing in the gateway sends to the dispatcher. It is
+        # constructed, its channels are listed, it is given the push-token
+        # store — and no event calls broadcast(). bridge.ApprovalGate and
+        # bridge.Deployer take a notifier, but the gateway constructs neither;
+        # the Ollama client's model-failure alert posts to Telegram on its own.
+        # Deciding which event reaches which audience comes first:
+        # broadcast() with no `channels` reaches ios_push — EVERY registered
+        # device — and web_chat — the shared /api/v1/events/stream — so an
+        # operator alert wired naively goes to every user.
+        # tests/test_notifications_report_what_is_delivered.py ties the
+        # startup line below to that fact.
         try:
             from runtime.notifications import NotificationDispatcher
             self.notifier = NotificationDispatcher(config)
             enabled = self.notifier.list_enabled_channels()
             if enabled:
-                logger.info("Notifications ready: %s", ", ".join(enabled))
+                logger.warning(
+                    "Notification channels configured (%s), but nothing in the gateway "
+                    "sends to them yet: no event is wired to the dispatcher. "
+                    "`python setup_communications.py` can send a test message.",
+                    ", ".join(enabled),
+                )
             else:
                 logger.info(
                     "Notifications: no channels configured. "
@@ -532,41 +566,19 @@ class GatewayServer:
             self.metrics.incr("chat.errors.invalid_json")
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        message = body.get("message", "")
-        if not isinstance(message, str):
-            return web.json_response({"error": "message must be a string"}, status=400)
-        message = message.strip()
-        if not message:
-            return web.json_response({"error": "message is required"}, status=400)
-        if len(message) > 100000:
-            return web.json_response({"error": "message too long"}, status=400)
+        message, agent, invalid = self._chat_turn_input(body)
+        if invalid:
+            return web.json_response({"error": invalid}, status=400)
+        forbidden = self._agent_forbidden_for_caller(request, agent)
+        if forbidden:
+            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
             return web.json_response({"error": "session_required", "message": session_error}, status=400)
-        denied = self._conversation_denied(request, session_id)
+        turn_claim, denied = self._open_turn(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
-        agent = str(body.get("agent", "trinity"))[:50]
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
-        valid_agents = {"neo", "trinity", "morpheus"}
-        if agent not in valid_agents:
-            return web.json_response({"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"}, status=400)
-
-        # Load conversation from disk on first access (write-through cache)
-        if session_id not in self._conv_loaded:
-            stored = self.react_loop.memory.load_conversation(session_id)
-            if stored:
-                self.conversations[session_id] = [
-                    Message(role=m["role"], content=m["content"]) for m in stored
-                ]
-            else:
-                self.conversations[session_id] = []
-            self._conv_loaded.add(session_id)
-        elif session_id not in self.conversations:
-            self.conversations[session_id] = []
 
         # Trinity first-boot message — once per session
         first_boot = None
@@ -574,36 +586,24 @@ class GatewayServer:
             await self.react_loop.memory.mark_first_boot_sent(session_id)
             first_boot = "Hi, my name is Trinity\n\nWelcome to the world of 0pnMatrx, I'll be by your side the entire time if you need me"
 
-        self.conversations[session_id].append(Message(role="user", content=message))
-
         system_prompt = self.react_loop.get_agent_prompt(agent)
         time_context = self.temporal.get_context_string()
         full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
 
         context = ReActContext(
             agent_name=agent,
-            conversation=self.conversations[session_id].copy(),
+            conversation=self._turn_conversation(session_id, message),
             system_prompt=full_prompt,
         )
 
         logger.info(f"[{agent}] session={session_id} message={message[:100]}")
 
-        # Inject user context metadata so protocols can access it. The identity and
-        # client App Attest assertion are threaded so the Morpheus gate consulted in
-        # ProtocolStack.pre_action can attribute and verify each tool call.
-        context.metadata["user_context"] = {
-            "session_id": session_id,
-            "memory_scope": self._memory_scope(request, session_id),
-            "agent": agent,
-            "wallet_connected": body.get("wallet_connected", True),
-            "network": body.get("network"),
-            "balance": body.get("balance"),
-            "jurisdiction": body.get("jurisdiction", ""),
-            "total_transactions": body.get("total_transactions"),
-            "wallet_address": body.get("wallet") or body.get("wallet_address") or "",
-            "apple_id": body.get("apple_id", ""),
-            "app_attest": body.get("app_attest"),
-        }
+        # What the gate, the dispatcher and the protocols decide with — one
+        # builder for all four chat entrances (see _chat_user_context).
+        context.metadata["user_context"] = self._chat_user_context(
+            request, session_id=session_id, agent=agent, body=body)
+        context.metadata["client_context"] = self._client_turn_context(body)
+        context.metadata["turn_claim"] = turn_claim
 
         try:
             with self.metrics.timer("chat.latency"):
@@ -630,21 +630,7 @@ class GatewayServer:
         if first_boot:
             response_text = f"{first_boot}\n\n{response_text}"
 
-        self.conversations[session_id].append(Message(role="assistant", content=result.response))
-
-        # Trim conversation history
-        if len(self.conversations[session_id]) > 100:
-            self.conversations[session_id] = self.conversations[session_id][-50:]
-
-        # Persist updated conversation to disk
-        try:
-            await self.react_loop.memory.save_conversation(
-                    session_id,
-                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-                    owner=self.react_loop.memory.conversation_owner(session_id),
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to persist conversation {session_id}: {exc}")
+        await self._record_turn(session_id, message, result.response, claim=turn_claim)
 
         return web.json_response({
             "response": response_text,
@@ -973,7 +959,9 @@ class GatewayServer:
         return FollowStore(self.react_loop.memory.db)
 
     async def handle_social_follow(self, request: web.Request) -> web.Response:
-        """POST /social/follow — {address}. Follower = X-Wallet-Address."""
+        """POST /social/follow — {address}. Follower = the caller identity:
+        the session's wallet when a session is presented, else the
+        X-Wallet-Address header as the caller wrote it."""
         follower = self._caller_identity(request)
         try:
             body = await request.json()
@@ -1073,8 +1061,14 @@ class GatewayServer:
         """DELETE /api/v1/auth/account — delete the caller's server-side data and
         (credential-gated) revoke the Apple token.
 
-        Deleted here: the caller's wallet session (X-Wallet-Session) and every push
-        token registered under that session. Apple token revocation runs only when
+        Deleted here: the presented wallet session, the account's conversations
+        and scoped agent memory, and its push tokens — those registered under a
+        session of this account, and ones with no recorded owner filed under one
+        of its conversations. A device registered with no session to a
+        conversation the account never owned is not the account's to find.
+        If the erasure fails, the deletion answers 503 ``storage failure`` and
+        removes nothing further: the session stays valid, so the client can
+        retry. Apple token revocation runs only when
         auth.apple.{team_id,key_id,private_key_p8} are configured; otherwise local
         deletion still succeeds and revocation is skipped with a WARNING."""
         from gateway.apple_auth import apple_revocation_configured
@@ -1085,24 +1079,52 @@ class GatewayServer:
         # App Store 5.1.1(v) path was a no-op. Both headers are honoured now.
         token, session = self._wallet_session_token(request)
 
-        # Push tokens registered under this session.
+        # The account's conversations and scoped agent memory (T3 / C2b: erasure
+        # can identify a user's rows now that conversations carry an owner).
+        subject = str(session.get("address", "")) if session is not None else ""
+        erased: list[str] = []
+        if subject:
+            try:
+                erased = await self.react_loop.memory.erase_owner(subject)
+                # The store and the memory manager's cache were cleared; the
+                # gateway's own working-set copy was not, so the next caller to
+                # name the id — ownerless now — was handed the history.
+                self._forget_conversations(erased)
+                # Nor were the protocol stacks: Jarvis renders a scope's "User
+                # said: …" patterns into its next prompt, and the same subject
+                # signing in again was shown what the deleted account said.
+                memory = self.react_loop.memory
+                self.react_loop.forget_scopes(
+                    [subject, *(memory.conversation_scope(sid) for sid in erased)])
+            except Exception:
+                # This was caught at debug level and the handler went on: it
+                # removed the push tokens and the session and answered 200
+                # {"success": true} with the account's conversations, scoped
+                # memory and claim all still stored — and the session gone, so
+                # the client could not retry. A deletion that erased nothing
+                # is a failure: nothing after the erasure is removed, and the
+                # session stays valid so the same client can retry.
+                logger.exception("account delete: conversation erasure failed; the deletion was not completed")
+                return web.json_response({"success": False, "error": "storage failure"}, status=503)
+
+        # Push tokens the account registered. This looked them up by the bearer
+        # TOKEN string as a session id; /bridge/v1/push/register files a device
+        # under the conversation id (user:<subject>, or the client's own), so it
+        # matched nothing and every device stayed registered while the docs
+        # said deletion removed them. Tokens carry their owner now; a token
+        # stored before they did is found by the conversation it was filed
+        # under — one of the account's own (erased above, or its reserved
+        # user:<subject>) — and only when no other owner is recorded on it.
         try:
             from runtime.notifications.token_store import PushTokenStore
             store = PushTokenStore(self.react_loop.memory.db)
             if session is not None:
-                for dev in await store.tokens_for(session_id=token):
-                    await store.remove(dev)
+                filed_under = {*erased, token}
+                if subject:
+                    filed_under.add(f"user:{subject}"[:100])
+                await store.remove_for_account(subject, filed_under)
         except Exception:
             logger.debug("account delete: push-token cleanup skipped")
-
-        # The account's conversations and scoped agent memory (T3 / C2b: erasure
-        # can identify a user's rows now that conversations carry an owner).
-        if session is not None:
-            try:
-                subject = str(session.get("address", ""))
-                await self.react_loop.memory.erase_owner(subject)
-            except Exception:
-                logger.debug("account delete: conversation erasure skipped")
 
         # The wallet session itself.
         if token:
@@ -1319,28 +1341,19 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
-        message = str(body.get("message", "")).strip()
-        if not message:
-            return web.json_response({"error": "message is required"}, status=400)
-        if len(message) > 100000:
-            return web.json_response({"error": "message too long"}, status=400)
+        message, agent, invalid = self._chat_turn_input(body)
+        if invalid:
+            return web.json_response({"error": invalid}, status=400)
+        forbidden = self._agent_forbidden_for_caller(request, agent)
+        if forbidden:
+            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
 
         session_id, session_error = self._resolve_session_id(request, body.get("session_id"))
         if session_error:
             return web.json_response({"error": "session_required", "message": session_error}, status=400)
-        denied = self._conversation_denied(request, session_id)
+        turn_claim, denied = self._open_turn(request, session_id)
         if denied:
             return web.json_response({"error": "forbidden", "message": denied}, status=403)
-        agent = str(body.get("agent", "trinity"))[:50]
-        forbidden = self._agent_forbidden_for_caller(request, agent)
-        if forbidden:
-            return web.json_response({"error": "forbidden", "message": forbidden}, status=403)
-        valid_agents = {"neo", "trinity", "morpheus"}
-        if agent not in valid_agents:
-            return web.json_response(
-                {"error": f"invalid agent, must be one of: {', '.join(valid_agents)}"},
-                status=400,
-            )
 
         response = web.StreamResponse(
             status=200,
@@ -1357,21 +1370,6 @@ class GatewayServer:
             payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
             await response.write(payload.encode("utf-8"))
 
-        # Hydrate conversation
-        if session_id not in self._conv_loaded:
-            stored = self.react_loop.memory.load_conversation(session_id)
-            if stored:
-                self.conversations[session_id] = [
-                    Message(role=m["role"], content=m["content"]) for m in stored
-                ]
-            else:
-                self.conversations[session_id] = []
-            self._conv_loaded.add(session_id)
-        elif session_id not in self.conversations:
-            self.conversations[session_id] = []
-
-        self.conversations[session_id].append(Message(role="user", content=message))
-
         await emit("start", {"session_id": session_id, "agent": agent})
 
         system_prompt = self.react_loop.get_agent_prompt(agent)
@@ -1380,16 +1378,13 @@ class GatewayServer:
 
         context = ReActContext(
             agent_name=agent,
-            conversation=self.conversations[session_id].copy(),
+            conversation=self._turn_conversation(session_id, message),
             system_prompt=full_prompt,
         )
-        context.metadata["user_context"] = {
-            "session_id": session_id,
-            "memory_scope": self._memory_scope(request, session_id),
-            "agent": agent,
-            "wallet_connected": body.get("wallet_connected", True),
-            "network": body.get("network"),
-        }
+        context.metadata["user_context"] = self._chat_user_context(
+            request, session_id=session_id, agent=agent, body=body)
+        context.metadata["client_context"] = self._client_turn_context(body)
+        context.metadata["turn_claim"] = turn_claim
 
         try:
             result = await self.react_loop.run(context)
@@ -1419,17 +1414,7 @@ class GatewayServer:
         for i in range(0, len(text), chunk_size):
             await emit("token", {"text": text[i:i + chunk_size]})
 
-        self.conversations[session_id].append(Message(role="assistant", content=text))
-        if len(self.conversations[session_id]) > 100:
-            self.conversations[session_id] = self.conversations[session_id][-50:]
-        try:
-            await self.react_loop.memory.save_conversation(
-                    session_id,
-                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-                    owner=self.react_loop.memory.conversation_owner(session_id),
-                )
-        except Exception as exc:
-            logger.warning(f"Failed to persist streamed conversation {session_id}: {exc}")
+        await self._record_turn(session_id, message, text, claim=turn_claim)
 
         await emit("done", {
             "session_id": session_id,
@@ -1464,66 +1449,43 @@ class GatewayServer:
                 await ws.send_json({"type": "error", "error": "invalid JSON"})
                 continue
 
-            if payload.get("type") != "chat":
+            if not isinstance(payload, dict) or payload.get("type") != "chat":
                 await ws.send_json({"type": "error", "error": "unsupported message type"})
                 continue
 
-            message = str(payload.get("message", "")).strip()
-            if not message:
-                await ws.send_json({"type": "error", "error": "message required"})
-                continue
-            if len(message) > 100000:
-                await ws.send_json({"type": "error", "error": "message too long"})
-                continue
-
-            session_id, session_error = self._resolve_session_id(request, payload.get("session_id"))
-            if session_error:
-                await ws.send_json({"type": "error", "error": "session_required", "message": session_error})
-                continue
-            denied = self._conversation_denied(request, session_id)
-            if denied:
-                await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
-                continue
-            agent = str(payload.get("agent", "trinity"))[:50]
-            if agent not in {"neo", "trinity", "morpheus"}:
-                await ws.send_json({"type": "error", "error": "invalid agent"})
+            message, agent, invalid = self._chat_turn_input(payload)
+            if invalid:
+                await ws.send_json({"type": "error", "error": invalid})
                 continue
             forbidden = self._agent_forbidden_for_caller(request, agent)
             if forbidden:
                 await ws.send_json({"type": "error", "error": "forbidden", "message": forbidden})
                 continue
 
-            if session_id not in self._conv_loaded:
-                stored = self.react_loop.memory.load_conversation(session_id)
-                self.conversations[session_id] = [
-                    Message(role=m["role"], content=m["content"]) for m in stored
-                ] if stored else []
-                self._conv_loaded.add(session_id)
-            elif session_id not in self.conversations:
-                self.conversations[session_id] = []
-
-            self.conversations[session_id].append(Message(role="user", content=message))
+            session_id, session_error = self._resolve_session_id(request, payload.get("session_id"))
+            if session_error:
+                await ws.send_json({"type": "error", "error": "session_required", "message": session_error})
+                continue
+            turn_claim, denied = self._open_turn(request, session_id)
+            if denied:
+                await ws.send_json({"type": "error", "error": "forbidden", "message": denied})
+                continue
 
             system_prompt = self.react_loop.get_agent_prompt(agent)
             time_context = self.temporal.get_context_string()
             full_prompt = f"{system_prompt}\n\n{time_context}" if system_prompt else time_context
-            # Optional client context (Phase 6 realtime client): the iOS app
-            # sends the same temporal/language-mirroring context its REST path
-            # sends, so a streamed reply is never lower-fidelity than /chat.
-            client_context = str(payload.get("context", ""))[:8000].strip()
-            if client_context:
-                full_prompt = f"{full_prompt}\n\n{client_context}"
 
             context = ReActContext(
                 agent_name=agent,
-                conversation=self.conversations[session_id].copy(),
+                conversation=self._turn_conversation(session_id, message),
                 system_prompt=full_prompt,
             )
-            context.metadata["user_context"] = {
-                "session_id": session_id,
-                "memory_scope": self._memory_scope(request, session_id),
-                "agent": agent,
-            }
+            # The handshake request carries the session (Authorization /
+            # X-Wallet-Session); the frame carries the turn.
+            context.metadata["user_context"] = self._chat_user_context(
+                request, session_id=session_id, agent=agent, body=payload)
+            context.metadata["client_context"] = self._client_turn_context(payload)
+            context.metadata["turn_claim"] = turn_claim
 
             try:
                 result = await self.react_loop.run(context)
@@ -1541,17 +1503,7 @@ class GatewayServer:
             for i in range(0, len(text), 80):
                 await ws.send_json({"type": "token", "text": text[i:i + 80]})
 
-            self.conversations[session_id].append(Message(role="assistant", content=text))
-            if len(self.conversations[session_id]) > 100:
-                self.conversations[session_id] = self.conversations[session_id][-50:]
-            try:
-                await self.react_loop.memory.save_conversation(
-                    session_id,
-                    [{"role": m.role, "content": m.content} for m in self.conversations[session_id]],
-                    owner=self.react_loop.memory.conversation_owner(session_id),
-                )
-            except Exception as exc:
-                logger.warning(f"Failed to persist ws conversation {session_id}: {exc}")
+            await self._record_turn(session_id, message, text, claim=turn_claim)
 
             await ws.send_json({
                 "type": "done",
@@ -1710,6 +1662,42 @@ class GatewayServer:
         Uses the :class:`EventBroadcaster` to push new
         ``feed.new_event`` broadcasts to connected clients.
         """
+        # Refuse BEFORE preparing the response, as /api/v1/events/stream does:
+        # once a 200 text/event-stream is out, a rejection can only travel as a
+        # field inside an error event on a successful response. This prepared
+        # first, so the broadcaster's mandated 429/503 — and a missing
+        # broadcaster — reached every client and proxy as 200.
+        broadcaster = getattr(self, "event_broadcaster", None)
+        if broadcaster is None:
+            raise web.HTTPServiceUnavailable(
+                text=json.dumps({"error": "Feed stream is unavailable."}),
+                content_type="application/json",
+                headers={"Retry-After": "30"},
+            )
+
+        # NEW-6: this called broadcaster.register(ip=...) synchronously. Three
+        # faults in one line: the parameter is `remote_ip`, not `ip`; register
+        # is `async` and was never awaited; and BroadcasterCapacityError — which
+        # the method's own docstring tells callers to translate — was unhandled.
+        from gateway.event_broadcaster import BroadcasterCapacityError
+
+        peer = request.remote or "unknown"
+        try:
+            sub = await broadcaster.register(
+                remote_ip=peer,
+                types={"feed.new_event"},
+            )
+        except BroadcasterCapacityError as exc:
+            # Per the broadcaster's contract: global cap -> 503, per-IP -> 429
+            # (Retry-After as the sibling route sets it).
+            error = web.HTTPTooManyRequests if exc.scope == "per_ip" else web.HTTPServiceUnavailable
+            raise error(
+                text=json.dumps({"error": "Feed stream is at capacity. Try again shortly.",
+                                 "scope": exc.scope}),
+                content_type="application/json",
+                headers={"Retry-After": "30" if exc.scope == "per_ip" else "5"},
+            )
+
         response = web.StreamResponse(
             status=200,
             reason="OK",
@@ -1720,51 +1708,31 @@ class GatewayServer:
                 "X-Accel-Buffering": "no",
             },
         )
-        await response.prepare(request)
-
-        broadcaster = getattr(self, "event_broadcaster", None)
-        if broadcaster is None:
-            await response.write(b"event: error\ndata: {\"error\":\"broadcaster not available\"}\n\n")
-            return response
-
-        # NEW-6: this called broadcaster.register(ip=...) synchronously. Three
-        # faults in one line: the parameter is `remote_ip`, not `ip`; register
-        # is `async` and was never awaited; and BroadcasterCapacityError — which
-        # the method's own docstring tells callers to translate — was unhandled.
-        # The TypeError fired after response.prepare(), so the client saw a
-        # truncated SSE stream rather than an error. A real bug, not a missing
-        # feature: the broadcaster works, the call site had drifted.
-        from gateway.event_broadcaster import BroadcasterCapacityError
-
-        peer = request.remote or "unknown"
         try:
-            sub = await broadcaster.register(
-                remote_ip=peer,
-                types={"feed.new_event"},
-            )
-        except BroadcasterCapacityError as exc:
-            # Per the broadcaster's contract: global cap -> 503, per-IP -> 429.
-            code = 429 if exc.scope == "per_ip" else 503
-            await response.write(
-                b'event: error\ndata: '
-                + json.dumps({
-                    "error": "Feed stream is at capacity. Try again shortly.",
-                    "retry_after_s": 30,
-                    "code": code,
-                }).encode()
-                + b"\n\n"
-            )
-            return response
+            await response.prepare(request)
+        except BaseException:
+            await broadcaster.unregister(sub)
+            raise
 
+        # The slot this stream holds is given back however it ends. Two faults
+        # kept it: the broadcaster's unregister is async and was called without
+        # await (the coroutine never ran, so the subscriber was never removed),
+        # and iter_events yields None as a keep-alive every quiet interval,
+        # which this loop dereferenced — so every feed stream died after 15
+        # quiet seconds, leaking its slot on the way out. The broadcaster is
+        # shared with /api/v1/events/stream and caps slots per peer address.
         try:
             async for event in broadcaster.iter_events(sub):
-                payload = json.dumps(event.to_dict())
-                chunk = f"id: {event.event_id}\nevent: feed\ndata: {payload}\n\n"
+                if event is None:
+                    chunk = ": keepalive\n\n"
+                else:
+                    payload = json.dumps(event.to_dict())
+                    chunk = f"id: {event.event_id}\nevent: feed\ndata: {payload}\n\n"
                 await response.write(chunk.encode())
         except (asyncio.CancelledError, ConnectionResetError):
             pass
         finally:
-            broadcaster.unregister(sub)
+            await broadcaster.unregister(sub)
 
         return response
 
@@ -1976,7 +1944,11 @@ class GatewayServer:
         return web.json_response({"badges": badges})
 
     async def handle_badge_issue(self, request: web.Request) -> web.Response:
-        """POST /badge/issue — issue a badge after audit payment."""
+        """POST /badge/issue — issue a badge after audit payment.
+
+        Takes `source_code`, not an `audit_report`: the platform runs the audit
+        and issues on its own verdict. See BadgeManager.issue_badge.
+        """
         if not self.badge_manager:
             return web.json_response({"status": "not_available"}, status=503)
         try:
@@ -1988,10 +1960,17 @@ class GatewayServer:
         # qualify). Uncaught, that surfaced as HTTP 500 — the server blaming
         # itself for the caller's bad input. 400 is the honest code.
         try:
+            if "audit_report" in body:
+                # Not honoured, and not silently dropped either: a caller that
+                # sends one is trying to supply the conclusion the badge is
+                # supposed to attest.
+                logger.warning(
+                    "badge issue: ignoring a caller-supplied audit_report — the "
+                    "platform audits the source itself")
             result = await self.badge_manager.issue_badge(
                 contract_address=str(body.get("contract_address", "")),
                 contract_name=str(body.get("contract_name", "")),
-                audit_report=body.get("audit_report", {}),
+                source_code=str(body.get("source_code", "")),
                 contact_email=str(body.get("contact_email", "")),
                 project_url=str(body.get("project_url", "")),
             )
@@ -2189,13 +2168,21 @@ class GatewayServer:
         except Exception as exc:
             logger.warning("Push token store init skipped: %s", exc)
 
+    def _rate_limiters(self) -> list:
+        """Every RateLimiter the server keys buckets in."""
+        return [v for v in vars(self).values() if isinstance(v, RateLimiter)]
+
     async def _cleanup_loop(self) -> None:
         """Periodically prune stale rate-limiter buckets and service caches."""
         while True:
             try:
                 await asyncio.sleep(300)
-                self.rate_limiter_auth.cleanup()
-                self.rate_limiter_anon.cleanup()
+                # Every limiter this server holds, derived rather than listed:
+                # the list named auth and anon and forgot rate_limiter_wallet,
+                # whose buckets — one per SIWE address, and addresses are free
+                # to mint — were never pruned.
+                for limiter in self._rate_limiters():
+                    limiter.cleanup()
                 # Sweep stale oracle/service caches so expired entries
                 # left behind for ``get_stale`` don't accumulate.
                 dispatcher = getattr(self.react_loop, "dispatcher", None)
@@ -2207,6 +2194,14 @@ class GatewayServer:
                             self.metrics.incr("caches.evicted", evicted)
                     except Exception as exc:
                         logger.warning("Service cache prune failed: %s", exc)
+                # Erased conversation ids, kept only as long as a turn admitted
+                # before the erasure could still be running (MemoryManager).
+                prune_erasures = getattr(getattr(self.react_loop, "memory", None), "prune_erasure_log", None)
+                if prune_erasures is not None:
+                    try:
+                        await prune_erasures()
+                    except Exception as exc:
+                        logger.warning("Conversation erasure log prune failed: %s", exc)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
@@ -2298,7 +2293,8 @@ class GatewayServer:
         if self._app_attest is None or self._security_backend == "noop":
             return web.json_response(
                 {"verified": False, "reason": "security backend not installed"})
-        # Identity that the challenge was bound to — the authenticated wallet
+        # Identity that the challenge was bound to: the session's identity when
+        # a session is presented, else the caller-written X-Wallet-Address
         # header (mirrors the challenge request's identity), else a body field.
         identity = (self._caller_identity(request) or str(body.get("identity", ""))).strip()
         try:
@@ -2529,7 +2525,9 @@ class GatewayServer:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             return auth_header[7:]
-        return request.query.get("api_key", "") or ""
+        # getattr: a request object without `query` presents no key. (A
+        # /api/v1/batch item is header-less; its `query` is the item path's.)
+        return getattr(request, "query", {}).get("api_key", "") or ""
 
     def _is_operator(self, request: web.Request) -> bool:
         """The operator key was presented — or auth is off (development), where
@@ -2584,8 +2582,17 @@ class GatewayServer:
 
     def _caller_identity(self, request: web.Request) -> str:
         """Session-derived identity when a session is presented; otherwise the
-        self-asserted ``X-Wallet-Address`` header (anonymous and dev flows)."""
-        return self._session_identity(request) or request.headers.get("X-Wallet-Address", "").strip()
+        ``X-Wallet-Address`` header, and only on the operator's request (an
+        integration naming the user it acts for; development, where auth is
+        off, is the operator). An anonymous caller's header names nobody: the
+        public POST /security/appattest/attest verified attestations for
+        whatever identity that header asserted."""
+        identity = self._session_identity(request)
+        if identity:
+            return identity
+        if self._is_operator(request):
+            return request.headers.get("X-Wallet-Address", "").strip()
+        return ""
 
     def _agent_forbidden_for_caller(self, request: web.Request, agent: str):
         """On a user-facing chat surface the agent is Trinity. Naming Neo or
@@ -2605,6 +2612,14 @@ class GatewayServer:
         session = self._wallet_session_from_request(request)
         return str(session.get("address", "")) if session else ""
 
+    @staticmethod
+    def _session_key(raw) -> str:
+        """The one spelling of a caller-named session id: stripped, at most 100
+        characters. Every leg that checks, stores, or looks up by a session id
+        uses this — a check on one spelling and a lookup on another is a check
+        on nothing ("conv-A " passed resume's ownership check for "conv-A")."""
+        return str(raw or "").strip()[:100]
+
     def _resolve_session_id(self, request: web.Request, requested):
         """``(session_id, error)`` for a chat, push or action request.
 
@@ -2615,7 +2630,7 @@ class GatewayServer:
         (``user:<subject>``). With neither, production refuses (400) and
         development keeps ``"default"`` for local runs and the suite.
         """
-        session_id = str(requested or "").strip()[:100]
+        session_id = self._session_key(requested)
         if session_id and session_id != "default":
             return session_id, None
         subject = self._session_subject(request)
@@ -2628,21 +2643,258 @@ class GatewayServer:
 
     def _memory_scope(self, request: web.Request, session_id: str) -> str:
         """What the agent's memory and protocol state are keyed by for this
-        caller: the account subject when signed in, else the conversation."""
-        return self._session_subject(request) or session_id
+        caller: the account subject when signed in, else the conversation —
+        as ``conv:<session_id>`` (MemoryManager.conversation_scope), never the
+        bare id. The bare id shared one namespace with subjects: an anonymous
+        caller naming an account's subject (a SIWE address is public) as its
+        session id was shown the account's memory and wrote into it."""
+        subject = self._session_subject(request)
+        if subject:
+            return subject
+        return self.react_loop.memory.conversation_scope(session_id)
 
     def _conversation_denied(self, request: web.Request, session_id: str):
         """Ownership (C2b): a conversation with an owner is continued only by
         that identity; an ownerless one is claimed by the first signed-in
         caller. Returns the refusal message, or None."""
+        return self._open_turn(request, session_id)[1]
+
+    def _open_turn(self, request: web.Request, session_id: str):
+        """``(claim, refusal)`` for a chat turn on *session_id*: the check and
+        claim of ``_conversation_denied``, plus the claim the turn was admitted
+        under (a ConversationClaim, read from the store).
+
+        The turn's writes — ``_record_turn``'s conversation save and the
+        loop's scoped memory (``metadata["turn_claim"]``) — land only while
+        that exact claim stands. Checked against the owner string, a turn
+        from before its account's deletion matched the claim the same subject
+        made on signing in again and was written back; refused, it re-erased
+        the new account's memory."""
         memory = self.react_loop.memory
-        owner = memory.conversation_owner(session_id)
         identity = self._session_subject(request)
+        if self._names_another_account(session_id, identity):
+            return None, "this conversation belongs to another account"
+        claim = memory.conversation_claim(session_id)
+        if not claim.owner and identity:
+            memory.claim_conversation(session_id, identity)
+            claim = memory.conversation_claim(session_id)
+        if claim.owner and claim.owner != identity:  # another account's, or its claim landed first
+            return claim, "this conversation belongs to another account"
+        return claim, None
+
+    def _conversation_held_elsewhere(self, request: web.Request, session_id: str):
+        """The read-only half of ``_conversation_denied``: the refusal message
+        when *session_id* names a conversation another account owns, else None.
+        Claims nothing — for the legs of the flow that describe a conversation
+        or attach something to it without continuing it."""
+        session_id = self._session_key(session_id)
+        if not session_id:
+            return None
+        identity = self._session_subject(request)
+        if self._names_another_account(session_id, identity):
+            return "this conversation belongs to another account"
+        owner = self.react_loop.memory.conversation_owner(session_id)
         if owner and owner != identity:
             return "this conversation belongs to another account"
-        if not owner and identity:
-            memory.claim_conversation(session_id, identity)
         return None
+
+    @staticmethod
+    def _names_another_account(session_id: str, identity: str) -> bool:
+        """``user:<subject>`` is the conversation the gateway derives for a
+        signed-in caller who sent no id. The name says whose it is, and for a
+        SIWE subject it is computable from a public address — so, unclaimed,
+        anyone could take it first: squat it (the account's own default
+        conversation then answers 403 to the account) or, anonymously, write
+        turns the account inherits when it signs in and claims it. Only the
+        subject it names may use one."""
+        return session_id.startswith("user:") and session_id != f"user:{identity}"[:100]
+
+    # ─── One chat turn, four entrances ───────────────────────────────────
+
+    #: Body fields that DESCRIBE the caller to the gates: ``wallet_connected``,
+    #: ``network`` and ``balance`` feed the Rexhepi safety verdict,
+    #: ``jurisdiction`` its compliance verdict, ``total_transactions`` when
+    #: Morpheus steps in. Only the operator's body may state them.
+    _OPERATOR_STATED_CONTEXT = ("wallet_connected", "network", "balance",
+                                "jurisdiction", "total_transactions")
+
+    #: Default when a server is built without __init__ (unit-test fakes).
+    _conversation_cap = 1024
+
+    def _conversation_history(self, session_id: str) -> list:
+        """The completed turns of *session_id*: the working-set entry,
+        hydrated from the store on a miss — one path for all four entrances.
+
+        Bounded in the number of conversations. Each entrance takes the id from
+        the caller and created the entry on first touch; the history of one
+        conversation was trimmed, the number held never was, so every id any
+        caller named stayed in memory for the life of the process. Dict order
+        is recency (a touch re-inserts the key) and the least recently used
+        entry past ``conversation_cache`` is dropped. That loses nothing: an
+        entry only ever holds turns _record_turn has persisted, and a miss
+        reloads them (the owner is its own durable row — see claim_conversation).
+        """
+        conversations = self.conversations
+        history = conversations.pop(session_id, None)
+        if history is None:
+            stored = self.react_loop.memory.load_conversation(session_id)
+            history = [Message(role=m["role"], content=m["content"]) for m in stored or []]
+        conversations[session_id] = history
+        cap = max(1, int(getattr(self, "_conversation_cap", 1024)))
+        while len(conversations) > cap:
+            oldest = next(iter(conversations))
+            if oldest == session_id:
+                break
+            del conversations[oldest]
+        return history
+
+    def _turn_conversation(self, session_id: str, message: str) -> list:
+        """What the model sees for this turn: the history plus the new message.
+        The message joins the stored history only when the turn completes, so
+        a failed turn leaves nothing behind that the store does not also hold."""
+        return [*self._conversation_history(session_id), Message(role="user", content=message)]
+
+    async def _record_turn(self, session_id: str, message: str, reply: str, *, claim) -> None:
+        """Append a completed turn, trim, and write the conversation through to
+        the store — only while *claim*, the claim the turn was admitted under
+        (``_open_turn``), still stands.
+
+        This used to save with the owner re-read here, after the model call.
+        That read came from an evictable cache (a first turn's claim could be
+        gone, so the turn was stored ownerless) and, even when durable, from
+        after whatever happened during the call. Then it compared the owner
+        string, which a deleted account's subject signing in again re-creates.
+        A turn the store refuses is dropped from the working set as well, which
+        holds only stored turns. Its scoped memory needs no clean-up here: the
+        loop wrote it under the same claim (ReActLoop._remember_turn), so a
+        turn that outlived its account's deletion wrote none — and nothing
+        here erases memory, so a re-created account's is never touched.
+        """
+        history = self._conversation_history(session_id)
+        history.append(Message(role="user", content=message))
+        history.append(Message(role="assistant", content=reply))
+        if len(history) > 100:
+            del history[:-50]
+        memory = self.react_loop.memory
+        try:
+            stored = await memory.save_conversation(
+                session_id,
+                [{"role": m.role, "content": m.content} for m in history],
+                expect_claim=claim,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to persist conversation {session_id}: {exc}")
+            self.conversations.pop(session_id, None)
+            return
+        if stored is False:
+            self.conversations.pop(session_id, None)
+
+    def _forget_conversations(self, session_ids) -> None:
+        """Drop the working-set copies of *session_ids* (account erasure)."""
+        for sid in session_ids or ():
+            self.conversations.pop(sid, None)
+
+    @staticmethod
+    def _chat_turn_input(body):
+        """``(message, agent, error)`` — the bounds of one chat turn's input,
+        checked HERE, once, for /chat, /chat/stream, /ws and /bridge/v1/chat,
+        before anything is resolved, claimed or stored.
+
+        Three entrances checked these by hand and the fourth not at all:
+        /bridge/v1/chat — public and anonymous — took a message of any length
+        up to the 1 MiB body cap into the shared conversation store (and into
+        every later turn's model context), raised AttributeError (500) on a
+        non-string message, and ran whatever agent name it was sent. /chat
+        refused a non-string message while /chat/stream and /ws coerced it
+        with ``str()``. One set of answers now: the body is an object, the
+        message a non-empty string of at most CHAT_MESSAGE_MAX_CHARS, the agent
+        one of CHAT_AGENTS (default ``trinity``).
+        """
+        if not isinstance(body, dict):
+            return "", "", "request body must be a JSON object"
+        message = body.get("message", "")
+        if not isinstance(message, str):
+            return "", "", "message must be a string"
+        message = message.strip()
+        if not message:
+            return "", "", "message is required"
+        if len(message) > CHAT_MESSAGE_MAX_CHARS:
+            return "", "", f"message too long (at most {CHAT_MESSAGE_MAX_CHARS} characters)"
+        agent = body.get("agent", "trinity")
+        if not isinstance(agent, str) or agent not in CHAT_AGENTS:
+            return "", "", f"invalid agent, must be one of: {', '.join(CHAT_AGENTS)}"
+        return message, agent, None
+
+    def _chat_user_context(self, request: web.Request, *, session_id: str,
+                           agent: str, body) -> dict:
+        """The ``user_context`` a chat turn hands the ReAct loop — built HERE,
+        once, for /chat, /chat/stream, /ws and /bridge/v1/chat.
+
+        It is what the loop decides with: ``wallet_address`` becomes the
+        dispatcher's ``caller_identity`` (and so the identity the sponsorship
+        cap meters and a service decides ownership on) and the identity the
+        seam's beneficiary check compares a platform-signed action against;
+        ``apple_id`` and ``app_attest`` are what the Morpheus gate attributes
+        and verifies; the fields in ``_OPERATOR_STATED_CONTEXT`` feed gate
+        verdicts. Four hand-built copies of this dict disagreed: /chat took
+        every one of them from the body of a PUBLIC route, /ws bound no
+        identity at all.
+
+        Identity is derived from the presented session, never from the body
+        (§EE — a verdict may not rest on what the caller writes about itself).
+        The body speaks for the user only when the operator key is presented
+        (development, where auth is off, counts as operator): an operator
+        integration names the user it acts for. ``app_attest`` is taken from
+        the body for everyone because it is not a claim — it is a signed
+        assertion the gate verifies.
+
+        What is NOT known is left out rather than invented: an anonymous caller
+        has no wallet, and no balance or jurisdiction is looked up here. The
+        Rexhepi safety and compliance checks therefore do not fire on those
+        inputs for a non-operator chat — which is exactly as much protection as
+        they gave before, when any caller could omit or rewrite them.
+        """
+        body = body if isinstance(body, dict) else {}
+        operator = self._is_operator(request)
+        identity = self._session_identity(request)
+        apple_id = self._session_apple_id(request)
+        if not identity and operator:
+            identity = str(body.get("wallet") or body.get("wallet_address") or "").strip()
+            apple_id = apple_id or str(body.get("apple_id") or "").strip()
+        context: dict = {
+            "session_id": session_id,
+            "memory_scope": self._memory_scope(request, session_id),
+            "agent": agent,
+            "wallet_address": identity,
+            "apple_id": apple_id,
+            "app_attest": body.get("app_attest"),
+        }
+        # A wallet is connected when the platform knows one is behind the
+        # caller: a SIWE subject, or the wallet linked to the Apple user.
+        if identity and not identity.startswith("apple:"):
+            context["wallet_connected"] = True
+        if operator:
+            for key in self._OPERATOR_STATED_CONTEXT:
+                if key in body:
+                    context[key] = body[key]
+        return context
+
+    @staticmethod
+    def _client_turn_context(body) -> str:
+        """The client's per-turn ``context`` (language directive, recap,
+        portfolio line), honoured identically on all four chat entrances.
+
+        /ws and the bridge appended it to the system prompt; /chat and
+        /chat/stream dropped it, so the same body produced a different prompt
+        depending on the transport. Decided once: it reaches the model on every
+        entrance, prefixed to that turn's user message between the platform's
+        CLIENT_CONTEXT_FENCE and CLIENT_CONTEXT_END (runtime/react_loop.py) —
+        at the user role, the trust level of the rest of what the caller
+        writes, and never as system text on any provider.
+        """
+        if not isinstance(body, dict):
+            return ""
+        return str(body.get("context") or "")[:CLIENT_CONTEXT_MAX_CHARS].strip()
 
     @web.middleware
     async def _security_context_middleware(self, request: web.Request, handler):
@@ -2651,16 +2903,29 @@ class GatewayServer:
         service funnel can attribute and verify the request. Pass-through otherwise.
 
         This middleware makes NO security decision — it only carries context. It
-        reads the JSON body once (aiohttp caches it for the handler). Identity comes
-        from the ``X-Wallet-Address`` header or the body; the App Attest assertion
-        rides in the request body (``app_attest``) per the client contract.
+        reads the JSON body once (aiohttp caches it for the handler). Identity is
+        the session's subject when a session is presented; otherwise the
+        ``X-Wallet-Address`` header or a body field, as the caller wrote it. The
+        App Attest assertion rides in the request body (``app_attest``) per the
+        client contract.
         """
         if request.method == "POST" and request.path.startswith("/api/v1/"):
-            # T2: an authenticated session's subject is the identity — a header
-            # or body field the caller wrote is consulted only when there is no
-            # session (anonymous and dev flows). Derived, not asserted.
-            identity = self._session_identity(request) or request.headers.get("X-Wallet-Address", "") or ""
-            apple_id = self._session_apple_id(request) or request.headers.get("X-Apple-Id", "") or ""
+            # T2: a session's subject is the identity, and nothing in the
+            # request overrides it. With NO session the fallback is consulted
+            # only for an operator request (development, where auth is off,
+            # counts) — not for anyone who reached a public /api/v1 route
+            # (/api/v1/auth/apple, /api/v1/iap/*).
+            #
+            # On that operator path the value is ASSERTED, not authenticated:
+            # it is the header as the caller wrote it, and the routes that
+            # record or compare "the caller" receive it (see
+            # docs/api-reference.md, "Identity"). Derived where a session
+            # exists; asserted, and named as such, where one does not.
+            stated = self._is_operator(request)
+            identity = self._session_identity(request) or (
+                request.headers.get("X-Wallet-Address", "") if stated else "") or ""
+            apple_id = self._session_apple_id(request) or (
+                request.headers.get("X-Apple-Id", "") if stated else "") or ""
             app_attest = None
             try:
                 body = await request.json()
@@ -2668,14 +2933,14 @@ class GatewayServer:
                 body = None
             if isinstance(body, dict):
                 params = body.get("params") if isinstance(body.get("params"), dict) else body
-                if not identity:
+                if not identity and stated:
                     identity = (
                         body.get("wallet") or body.get("from") or body.get("sender")
                         or body.get("account")
                         or (params.get("from") if isinstance(params, dict) else "")
                         or ""
                     )
-                if not apple_id:
+                if not apple_id and stated:
                     apple_id = body.get("apple_id", "") or ""
                 app_attest = body.get("app_attest")
                 if app_attest is None and isinstance(params, dict):

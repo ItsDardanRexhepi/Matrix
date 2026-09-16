@@ -29,7 +29,12 @@ _TX = "send_transaction"
 # read maps to READ and keeps the declared verb as its action type.
 READ = "read"
 SIGNING_ACTIONS: dict[str, dict[str, str]] = {
-    "smart_contract": {"deploy": _TX, "send": _TX, "call": READ, "verify": READ, "compile": READ},
+    # D-045: "deploy" is gone from the tool's action enum — the platform does
+    # not deploy contracts (NEW-4 / NEW-12 / RUN-2), and the tool axis was the
+    # last place that still offered it. Left out rather than kept as a dead _TX
+    # entry, because tests/test_twins_seam.py treats a classification for an
+    # action nobody declares as staleness to be removed, not as harmless.
+    "smart_contract": {"send": _TX, "call": READ, "verify": READ, "compile": READ},
     "defi": {"supply": "deposit", "borrow": "borrow", "withdraw": "withdraw", "repay": "repay",
              "get_rates": READ, "get_positions": READ},
     "nft": {"mint": "mint", "transfer": "transfer", "deploy_collection": _TX,

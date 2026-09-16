@@ -51,7 +51,7 @@ def effective_caller(
     (service_dispatcher.py says so in terms). So `assert_owner` was handed a
     string the CALLER wrote, and compared it to `policy["holder"]`.
 
-    MEASURED: a caller authenticated as "mallory", sending
+    MEASURED: a caller whose threaded identity was "mallory", sending
     `{"policy_id": <alice's>, "caller": "alice"}`, cancelled Alice's policy —
     result "cancelled", stored status "cancelled".
 
@@ -62,9 +62,11 @@ def effective_caller(
     the party acting is the absence of a platform concept of one).
 
     THE RULE. When a call arrives through the dispatcher, `caller_source` is
-    present, and ONLY the threaded `caller_identity` may be trusted — including
-    when it is empty, which is a refusal and never a fallback to the
-    self-asserted value. When `caller_source` is absent the call is internal
+    present, and ONLY the threaded `caller_identity` is used — including when it
+    is empty, which is a refusal and never a fallback to the `caller` param.
+    The threaded value is whatever the entry point bound: authenticated when it
+    came from a session, and written by the caller when the security middleware
+    bound an X-Wallet-Address header or a body field instead. When `caller_source` is absent the call is internal
     (e.g. `check_triggers` filing on the holder's behalf) and `caller` stands.
     """
     if caller_source is not None:

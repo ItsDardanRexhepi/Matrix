@@ -31,7 +31,12 @@ class Tokenization(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Create and manage ERC-20 tokens on Base L2. Deploy, transfer, approve, mint. All gas fees covered by the platform."
+        return (
+            "Create and manage ERC-20 tokens on Base L2: generate token source, and "
+            "transfer, approve and mint on an already-deployed token. The 'deploy' action "
+            "GENERATES Solidity — it does not deploy. Gas for writes is covered by the "
+            "platform, within the configured sponsorship policy."
+        )
 
     @property
     def parameters(self) -> dict:
@@ -95,13 +100,14 @@ contract {symbol}Token is ERC20, Ownable {{
             "symbol": symbol,
             "initial_supply": supply,
             "source": source,
-            "note": "Use smart_contract deploy action to deploy this contract. Gas covered by platform.",
+            "note": ("Source only — nothing was deployed. Compile it with the "
+                     "smart_contract tool's 'compile' action for ABI and bytecode, then "
+                     "deploy it with your own signer. The platform does not deploy contracts."),
         }, indent=2)
 
     async def _transfer(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -111,7 +117,7 @@ contract {symbol}Token is ERC20, Ownable {{
                 abi=ERC20_ABI,
             )
             amount = int(float(params.get("amount", "0")) * 10**18)
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("tokenization.transfer")
 
             tx = contract.functions.transfer(
                 Web3.to_checksum_address(params["to"]), amount
@@ -140,7 +146,6 @@ contract {symbol}Token is ERC20, Ownable {{
     async def _approve(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -150,7 +155,7 @@ contract {symbol}Token is ERC20, Ownable {{
                 abi=ERC20_ABI,
             )
             amount = int(float(params.get("amount", "0")) * 10**18)
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("tokenization.approve")
 
             tx = contract.functions.approve(
                 Web3.to_checksum_address(params["spender"]), amount
@@ -205,7 +210,6 @@ contract {symbol}Token is ERC20, Ownable {{
     async def _mint(self, params: dict) -> str:
         try:
             from web3 import Web3
-            from eth_account import Account
 
             self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
             bc = self.config["blockchain"]
@@ -216,7 +220,7 @@ contract {symbol}Token is ERC20, Ownable {{
             )
             amount = int(float(params.get("amount", "0")) * 10**18)
             to = params.get("to", bc["platform_wallet"])
-            account = Account.from_key(bc["paymaster_private_key"])
+            account = await self._platform_signer("tokenization.mint")
 
             tx = contract.functions.mint(
                 Web3.to_checksum_address(to), amount
