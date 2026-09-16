@@ -44,20 +44,26 @@ def _spy_vote(routes, captured):
     routes._call = spy  # type: ignore[assignment]
 
 
-async def test_authenticated_wallet_wins_over_body_voter(env):
+async def test_bound_wallet_wins_over_body_voter(env):
+    """The fixture binds an identity with no session, the way the real
+    middleware binds a caller-written X-Wallet-Address header or a body field.
+    What wins over the body `voter` is the BOUND value; it is authenticated
+    only when a session put it there."""
     routes, client = env
     captured: dict = {}
     _spy_vote(routes, captured)
     resp = await client.post(
         "/api/v1/governance/vote",
-        headers={"X-Test-Wallet": "0xAUTH"},
+        headers={"X-Test-Wallet": "0xBOUND"},
         json={"proposal_id": "p1", "voter": "0xSPOOF", "support": "yes"},
     )
     assert resp.status == 200, await resp.text()
-    assert captured.get("voter") == "0xAUTH", "the bound wallet must win, not the body voter"
+    assert captured.get("voter") == "0xBOUND", "the bound wallet must win, not the body voter"
 
 
-async def test_body_voter_used_when_unauthenticated(env):
+async def test_body_voter_used_when_nothing_is_bound(env):
+    """Not "when unauthenticated": the request above is unauthenticated too.
+    The body voter is reached only when NO identity was bound at all."""
     routes, client = env
     captured: dict = {}
     _spy_vote(routes, captured)

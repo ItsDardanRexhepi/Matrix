@@ -46,12 +46,28 @@ platform_action tool and read the grantor. Two sites in files the earlier
 passes edited also still carried the claim: a test name in
 tests/test_insurance_claim_route.py and "whoever was authenticated" in
 tests/test_sponsorship_policy_is_enforced.py.
+
+A fifth pass asked why four passes kept finding copies, and the answer was this
+file: the check below is PER FILE, so it asks each file only about the phrases
+found in IT. The sentence corrected in tests/test_nft_royalty_authority.py
+("nobody was authenticated" vs "we did not look") sat unchanged in
+runtime/blockchain/services/nft_services/royalty_enforcement.py, which is
+listed here with a different phrase, so the check passed while the source still
+said it. Two test names in tests/test_p5_identity.py — a file this branch had
+already edited — said "authenticated" of an identity its fixture binds with no
+session. Both are corrected, and every listed phrase is now asked of every
+tracked text file (test_every_listed_phrase_is_checked_against_every_tracked_file),
+with the sites where a phrase is true about something else pinned by sentence
+in TRUE_IN_CONTEXT. The same pass also states the /chat exception in
+docs/api-reference.md, which said a session's identity is what the request
+cannot override.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -349,6 +365,7 @@ FALSE_PHRASES = {
     ],
     "runtime/blockchain/services/nft_services/royalty_enforcement.py": [
         "now requires an authenticated caller",
+        'distinguish "nobody was authenticated" from "we did not look"',
     ],
     "runtime/blockchain/services/service_dispatcher.py": [
         "The AUTHENTICATED wallet address",
@@ -427,8 +444,70 @@ FALSE_PHRASES = {
         "binds to the authenticated wallet",
         "the security middleware authenticated",
         "the authenticated wallet must win, not the body voter",
+        "async def test_authenticated_wallet_wins_over_body_voter",
+        "async def test_body_voter_used_when_unauthenticated",
     ],
 }
+
+# The same phrase is true in some other files, about something that is not this
+# identity. Each entry is the SENTENCE that makes it true, folded the same way;
+# the class sweep below deletes those sentences and then holds the file to every
+# phrase. A new occurrence outside the quoted sentence still fails, so an
+# exemption covers the site that was read, not the file.
+TRUE_IN_CONTEXT = {
+    "runtime/blockchain/services/creator_platforms/service.py": [
+        ("an unauthenticated caller learns only that theirs was rejected",
+         "about what a refusal discloses, not about who the caller is"),
+    ],
+    "runtime/blockchain/services/governance/service.py": [
+        ("bind `signer` to an authenticated caller (deferred register item 0",
+         "a requirement on unwritten multisig approval, which raises today"),
+    ],
+    "runtime/blockchain/services/staking/arming.py": [
+        ("it must require: an authenticated caller identity bound to ``staker``",
+         "a precondition on an arming condition that is not yet written"),
+    ],
+    "runtime/blockchain/services/kyc/service.py": [
+        ("Derived, not asserted. `_passed` is reachable only through the "
+         "screened-verification gate above",
+         "about the `passed` flag, not about an identity"),
+    ],
+    "tests/test_creator_platforms_guards.py": [
+        ("what makes running authorization before the credential gates safe "
+         "for an unauthenticated caller",
+         "about what a refusal discloses, not about who the caller is"),
+        ("would tell an unauthenticated caller that it exists and is configured",
+         "about what a disabled service discloses, not about who the caller is"),
+    ],
+    "tests/test_feed_value_cannot_poison_the_public_feed.py": [
+        ("an unauthenticated caller could render /social/feed permanently invalid",
+         "names the absence of a credential, asserts nothing about a bound value"),
+    ],
+    "tests/test_staking_arming_condition.py": [
+        ('if `staker` is now " "bound to an authenticated caller, clause 2 is '
+         'satisfied',
+         "a conditional about a future binding, not a claim about today's"),
+    ],
+}
+
+_ALL_PHRASES = sorted({p for ps in FALSE_PHRASES.values() for p in ps})
+_SELF = str(Path(__file__).resolve().relative_to(REPO))
+_TEXT_SUFFIXES = {".py", ".md", ".txt", ".json", ".yml", ".yaml", ".toml",
+                  ".sol", ".swift", ".html", ".sh", ".cfg", ".ini", ".rst"}
+
+
+def _tracked_files() -> list[str]:
+    try:
+        out = subprocess.run(["git", "-C", str(REPO), "ls-files", "-z"],
+                             capture_output=True, text=True, timeout=60, check=True)
+        files = [f for f in out.stdout.split("\0") if f]
+    except (OSError, subprocess.SubprocessError):
+        files = [str(p.relative_to(REPO)) for p in REPO.rglob("*")
+                 if p.is_file() and not any(
+                     part.startswith(".") or part in {"node_modules", "venv", "__pycache__"}
+                     for part in p.relative_to(REPO).parts)]
+    return sorted(f for f in files
+                  if f != _SELF and Path(f).suffix in _TEXT_SUFFIXES)
 
 
 def _folded(text: str) -> str:
@@ -441,3 +520,58 @@ def test_the_bound_identity_is_not_described_as_authenticated(path):
     text = _folded((REPO / path).read_text())
     found = [p for p in FALSE_PHRASES[path] if p in text]
     assert not found, f"{path} still says: {found}"
+
+
+def test_every_listed_phrase_is_checked_against_every_tracked_file():
+    """THE CLASS CONTROL. The per-file check above only asks each file about
+    the phrases that were found in IT, so a copy of the same sentence in
+    another file passes. That is how the sentence corrected in
+    tests/test_nft_royalty_authority.py survived in
+    runtime/blockchain/services/nft_services/royalty_enforcement.py through two
+    rounds: the file was listed, with a different phrase. Every phrase is asked
+    of every tracked text file here, minus the sentences pinned as true above.
+
+    Still a text check, and still the same limit: it catches these phrases
+    coming back anywhere, not a new wording of the same claim."""
+    survivors: list[str] = []
+    for rel in _tracked_files():
+        try:
+            text = _folded((REPO / rel).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        for sentence, _why in TRUE_IN_CONTEXT.get(rel, ()):
+            text = text.replace(_folded(sentence), " ")
+        for phrase in _ALL_PHRASES:
+            if phrase in text:
+                survivors.append(f"{rel}: {phrase!r}")
+    assert not survivors, (
+        "the same claim, in a file the per-file check does not ask about it:\n"
+        + "\n".join(survivors))
+
+
+def test_the_exemptions_still_quote_something_that_is_there():
+    """An exemption that no longer matches deletes nothing and hides nothing,
+    but it also means the site it was written for moved or was reworded — and
+    a stale one would quietly widen the sweep's blind spot if the phrase came
+    back near it. Fail while the pair can still be re-read."""
+    stale = [f"{rel}: {sentence!r}"
+             for rel, entries in TRUE_IN_CONTEXT.items()
+             for sentence, _why in entries
+             if _folded(sentence) not in _folded((REPO / rel).read_text())]
+    assert not stale, f"TRUE_IN_CONTEXT no longer matches: {stale}"
+
+
+def test_the_docs_name_the_chat_exception_to_session_identity():
+    """docs/api-reference.md says that with a wallet session the caller's
+    identity is the session's subject and nothing in the request overrides it.
+    That holds for the /api/v1/* routes the middleware binds. It does not hold
+    on /chat: gateway/server.py builds user_context["wallet_address"] from the
+    request body alone, session or not, and that is the value threaded to the
+    tools and recorded as the actor (the two chat-path tests above). The
+    paragraph has to say so."""
+    doc = _folded((REPO / "docs/api-reference.md").read_text())
+    assert "nothing in the request overrides it" in doc, (
+        "the identity paragraph moved; re-check that its exception is still stated")
+    assert "/chat" in doc.split("nothing in the request overrides it")[1][:900], (
+        "the identity paragraph does not name the /chat exception: with a session, "
+        "the identity /chat threads to the tools is still the body's `wallet` field")

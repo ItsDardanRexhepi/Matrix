@@ -228,7 +228,10 @@ class RoyaltyEnforcement:
             "configured_at": now,
             # 22-A. Written at both levels for the same reason 17-J gives:
             # WHO, and separately HOW WE KNOW. `set_by: ""` alone cannot
-            # distinguish "nobody was authenticated" from "we did not look".
+            # distinguish "nothing was threaded" from "we did not look". The
+            # label "authenticated" says only that a value was threaded
+            # (ServiceDispatcher, 17-J); on the capability route with no
+            # session that value is one the caller wrote.
             "set_by": _set_by,
             "set_by_source": _set_by_source,
         }

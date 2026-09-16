@@ -821,9 +821,9 @@ async def test_capability_registry_overwrites_a_params_caller_identity():
 
 
 async def test_capability_invoke_identity_stays_optional():
-    """SCOPE-PIN. The three non-HTTP callers of `invoke` have no authenticated
-    caller. Making the parameter required would turn a gap in the record into
-    an outage."""
+    """SCOPE-PIN. The three non-HTTP callers of `invoke` thread no identity at
+    all — not an unauthenticated one, none. Making the parameter required would
+    turn a gap in the record into an outage."""
     from runtime.capabilities import CapabilityRegistry
 
     param = inspect.signature(CapabilityRegistry.invoke).parameters["caller_identity"]
