@@ -410,6 +410,106 @@ async def test_a_renewal_that_cannot_be_charged_is_not_reported_as_a_failure():
     )
 
 
+#: The shapes a FOREIGN gateway can deliver a decline in that carry no field
+#: this tree's measured default reads as a refusal. Not invented — these are the
+#: four `foreign_report_of` names in its own docstring.
+_FOREIGN_DECLINES = [
+    pytest.param(None, id="none"),
+    pytest.param("DECLINED", id="plain-string"),
+    pytest.param(object(), id="http-response-object"),
+    pytest.param({"result": "declined", "reason": "insufficient funds"},
+                 id="foreign-dict-no-known-field"),
+]
+
+
+class _DecliningGateway:
+    """A gateway that refuses, in a shape this tree never measured."""
+
+    def __init__(self, answer):
+        self._answer = answer
+        self.charges = 0
+
+    async def charge(self, **_kwargs):
+        self.charges += 1
+        return self._answer
+
+
+@pytest.mark.parametrize("answer", _FOREIGN_DECLINES)
+async def test_a_foreign_gateway_that_did_not_say_yes_is_not_a_settled_charge(answer):
+    """DEFECT-PROVER, AND THE FIX INSIDE THE FIX.
+
+    ``report_of``'s default — no report means success — is MEASURED, and it is
+    measured over 182 attested actions OF THIS TREE, where every refusal idiom
+    is explicit. It is a fact about code we wrote. A payment gateway is not code
+    we wrote, and a party whose failure idiom we have never measured is exactly
+    the party whose silence must not be read as a yes.
+
+    ``outcome_truth.foreign_report_of`` exists for this and names this caller in
+    its own docstring. ``_attempt_payment`` called ``report_of``, so a decline
+    delivered in any of these shapes became ``{"status": "paid", "settled":
+    True, "value_moved": True}`` — and ``process_renewals`` then advanced
+    ``total_paid``, set ``charges_settled`` and rolled the billing period
+    forward for money nobody took.
+
+    UNKNOWN costs a retry or a human. SUCCESS costs a customer a charge that
+    was refused.
+    """
+    svc = _subscribed()
+    gateway = _DecliningGateway(answer)
+    svc.config["payment_gateway"] = gateway
+    _plan, sub = await _plan_and_sub(svc)
+    sub["next_renewal_at"] = time.time() - 1
+    before = dict(sub)
+
+    results = await svc.process_renewals()
+
+    assert gateway.charges == 1, "premise changed — the gateway was not called"
+    assert all(r.get("action") == "not_charged" for r in results), (
+        "an outcome nobody established was filed as settled or as refused; it "
+        f"is neither, and the renewal is still due: {results}")
+    assert sub["charges_settled"] is False, (
+        f"the platform recorded a settled charge the gateway never confirmed: {sub}")
+    assert sub["total_paid"] == before["total_paid"], (
+        f"a billing counter advanced on an outcome nobody established: {sub}")
+    assert sub["current_period_end"] == before["current_period_end"], (
+        f"the billing period rolled forward for money nobody took: {sub}")
+
+
+async def test_a_foreign_gateway_that_SAYS_yes_is_still_a_settled_charge():
+    """The scope pin. Refusing to read silence as a yes must not turn an
+    explicit yes into a maybe — a platform that never books a payment is the
+    same defect facing the other way."""
+    svc = _subscribed()
+    gateway = _DecliningGateway({"ok": True, "captured": "38.00"})
+    svc.config["payment_gateway"] = gateway
+    plan, sub = await _plan_and_sub(svc)
+    sub["next_renewal_at"] = time.time() - 1
+
+    await svc.process_renewals()
+
+    assert sub["charges_settled"] is True, sub
+    assert sub["total_paid"] == plan["price"], sub
+
+
+async def test_a_foreign_gateway_that_SAYS_no_is_a_decline_not_an_unknown():
+    """The other pin: an explicit refusal must stay a refusal, because a
+    decline and an unestablished outcome lead to different places — one to a
+    grace period, the other to a human."""
+    svc = _subscribed()
+    gateway = _DecliningGateway({"ok": False, "error": "card declined"})
+    svc.config["payment_gateway"] = gateway
+    _plan, sub = await _plan_and_sub(svc)
+    sub["next_renewal_at"] = time.time() - 1
+
+    results = await svc.process_renewals()
+
+    assert sub["charges_settled"] is False, sub
+    assert any(r.get("action") == "grace_period"
+               and r.get("reason") == "payment_failed" for r in results), (
+        "an explicit decline must enter the grace period that ends in "
+        f"cancellation — the path an unestablished outcome must never take: {results}")
+
+
 # ── 7. the public feed's value_usd came from the request ──────────────────
 
 

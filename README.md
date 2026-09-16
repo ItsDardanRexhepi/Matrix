@@ -203,7 +203,13 @@ What works today, no chain required:
   states the verdict of the action in a `call_outcome` field of its own
   rather than letting its own `ok` stand in for it — on both `/api/v1`
   doors, the dedicated route and the capability-invoke one, which used to
-  give opposite answers for the same refusal. And a refusal the live feed
+  give opposite answers for the same refusal, and on the mobile bridge,
+  where a wrapper that was not told the verdict now reads it off the
+  payload instead of defaulting to success. That default was the whole
+  hole: a stated verdict is believed over everything else, so an envelope
+  claiming a success nobody established outranked the refusal sitting
+  inside it — including one the dispatcher had already read correctly and
+  written down. And a refusal the live feed
   does not announce is still written down as a decline, on whichever
   surface refused it: a trail has to show that the platform said no, not
   that nothing was ever asked. The field is spelled that way on purpose: the services here already use the word `outcome`
@@ -240,6 +246,14 @@ check behind it:
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
   removes nothing, rather than reporting success over data it left behind
+- **A payment nobody confirmed is not a payment.** A subscription
+  renewal is booked from what the payment gateway actually reported, and
+  a gateway is not this platform: the rule that silence means success is
+  measured over code written here, so it is not applied to a party whose
+  way of saying no we have never seen. An answer we cannot read leaves
+  the counters where they are and the renewal still due — it neither
+  bills the customer nor pushes the subscription toward cancellation for
+  a charge that may never have been refused
 - **A batch request carries the credential it was sent with.** Each item
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it

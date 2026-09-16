@@ -101,6 +101,65 @@ def test_an_envelope_over_an_unlabelled_payload_is_unknown_not_success():
     assert report_of({"status": "ok", "data": {"status": "pending"}}) == UNKNOWN
 
 
+def test_the_bridge_envelope_the_bridge_ACTUALLY_EMITS_sees_through_too():
+    """THE SHAPE, NOT AN APPROXIMATION OF IT.
+
+    Every bridge case above is a dict typed out in this file. The real
+    ``MobileResponse.ok`` writes one more field than any of them —
+    ``call_outcome``, defaulted to SUCCESS when the caller did not state one —
+    and that field is the one ``report_of`` believes over everything else,
+    including its own unwrapping. So the control passed on a shape the bridge
+    does not emit, while the shape it does emit hid the refusal exactly as
+    before the fix.
+
+    Built by calling the emitter, so this cannot drift from it again.
+    """
+    body = json.loads(MobileResponse.ok(_refusal()).body.decode())
+    assert report_of(body) == FAILURE, (
+        "the bridge envelope stated a verdict nobody established, and that "
+        f"stated SUCCESS outranks the unwrapping that would have found it: {body}")
+
+
+def test_the_bridge_envelope_does_not_bury_a_verdict_the_dispatcher_STATED():
+    """THE WORST CASE, AND THE REASON THIS IS NOT A LATENT DEFECT.
+
+    ``ServiceDispatcher.execute`` reads its payload with the one fact no reader
+    downstream holds — whether the action modifies state — and STATES the
+    answer. When that answer is FAILURE and the bridge wraps it with a
+    defaulted SUCCESS, the outer default outranks the inner statement: the
+    layer that knew was overruled by the layer that did not look.
+    """
+    relayed = json.dumps({"status": "ok", "action": "create_loan",
+                          "service": "defi", OUTCOME_FIELD: FAILURE,
+                          "result": _refusal()})
+    body = json.loads(MobileResponse.ok(relayed).body.decode())
+    assert report_of(body) == FAILURE, (
+        "the dispatcher stated FAILURE and the bridge's defaulted SUCCESS "
+        f"buried it: {body}")
+
+
+def test_the_bridge_envelope_still_states_success_for_a_payload_that_succeeded():
+    """The scope pin. A wrapper that downgraded everything would teach the
+    learner that the whole platform fails — the same defect facing the other
+    way. A payload that reports success, and one that reports nothing at all,
+    both stay SUCCESS."""
+    for data in ({"status": "deployed", "tx_hash": "0x1"},
+                 {"registered": True},
+                 {"components": [1, 2, 3]}):
+        body = json.loads(MobileResponse.ok(data).body.decode())
+        assert body[OUTCOME_FIELD] == SUCCESS, body
+        assert report_of(body) == SUCCESS, body
+
+
+def test_a_caller_that_KNOWS_still_outranks_what_the_payload_looks_like():
+    """``outcome=`` is why the field exists: /bridge/v1/action holds the action
+    name and the dispatcher's reading of it, and that statement must survive
+    a payload the generic reader would grade differently."""
+    body = json.loads(
+        MobileResponse.ok({"status": "failed"}, outcome=SUCCESS).body.decode())
+    assert body[OUTCOME_FIELD] == SUCCESS and report_of(body) == SUCCESS, body
+
+
 def test_an_envelope_over_a_real_success_is_still_a_success():
     """The dangerous half. A wrapper that downgraded everything would teach the
     learner that the whole platform fails."""
@@ -550,3 +609,4 @@ async def test_a_provider_that_raises_is_not_ready_rather_than_an_exception():
     router = ModelRouter.__new__(ModelRouter)
     router.providers = {"broken": _Broken(), "fine": _Fine()}
     assert await router.health_check() == {"broken": False, "fine": True}
+

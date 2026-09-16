@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 
 from .rewards import RecurringRewards
-from runtime.protocols.outcome_truth import FAILURE, SUCCESS, report_of
+from runtime.protocols.outcome_truth import FAILURE, SUCCESS, foreign_report_of
 
 from .grace_period import GracePeriodManager
 
@@ -376,7 +376,29 @@ class SubscriptionService:
         # The gateway is a foreign structure, so its verdict is read with the
         # platform's own predicate rather than guessed from its wording, and
         # normalised into the three answers this service acts on.
-        verdict = report_of(raw)
+        #
+        # AND "THE PLATFORM'S OWN PREDICATE" WAS THE WRONG ONE. `report_of`
+        # answers SUCCESS when a result carries no report at all, and that is
+        # not a guess — it is measured over 182 attested actions OF THIS TREE,
+        # where 17 genuine successes return no status and every refusal idiom
+        # is explicit. It is a fact about code we wrote. It says nothing about
+        # a payment gateway, and a party whose failure idiom we have never
+        # measured is exactly the party whose silence must not be read as a yes.
+        #
+        # Pointed here, the measured default turned a decline delivered as an
+        # HTTP response object, a plain string or `None` into a settled charge:
+        # `process_renewals` advanced `total_paid`, set `charges_settled` and
+        # rolled the billing period forward for money nobody took.
+        #
+        # `foreign_report_of` is the reader written for exactly this caller —
+        # it names this service in its own docstring — and this call site was
+        # the only one it was ever meant to have. It believes an EXPLICIT
+        # verdict and answers UNKNOWN to everything else, which lands in the
+        # `unresolved` branch below: the counters do not move, the period does
+        # not roll, and the subscription is NOT pushed toward cancellation.
+        # UNKNOWN costs a retry or a human; SUCCESS costs a customer a charge
+        # that was refused.
+        verdict = foreign_report_of(raw)
         if verdict is SUCCESS:
             return {"status": "paid", "settled": True, "value_moved": True,
                     "gateway_response": raw}

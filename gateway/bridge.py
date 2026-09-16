@@ -45,8 +45,35 @@ class MobileResponse:
         every refusal the bridge relayed arrived as a success. It is stated
         always, never only on failure, because a field that appears only when
         something went wrong is read as silence when it is absent.
+
+        AND STATING IT ALWAYS IS THE HALF THAT WENT WRONG. The default was
+        `outcome or SUCCESS` — so thirteen of the fourteen routes that build
+        this envelope stated that the action succeeded, having established
+        nothing about it. `report_of` believes a stated verdict over every
+        other signal INCLUDING its own unwrapping, and it is right to: the
+        field exists for a layer that holds a fact no reader can see. A layer
+        that merely defaulted holds nothing, so the default turned the one
+        envelope the fix was written to see through into the only one it
+        cannot. `{"ok": true, "data": <a refusal>}` read as FAILURE; the same
+        thing with a defaulted `call_outcome` read as SUCCESS.
+
+        Worse where it matters most: `ServiceDispatcher.execute` reads its
+        payload holding the one fact nothing downstream holds — whether the
+        action modifies state — and STATES the answer. A defaulted SUCCESS out
+        here outranked that, so the layer that knew was overruled by the layer
+        that did not look.
+
+        So the default is no longer a claim, it is a READING — the same one the
+        platform's other three envelope writers already make of their own
+        payload (`ServiceDispatcher.execute`, `ServiceRoutes._ok`,
+        `capabilities.registry`). Relaying the verdict the payload states about
+        itself is not a new assertion about the action; asserting SUCCESS over
+        an unread payload was. `outcome=` stays for the caller that genuinely
+        knows — /bridge/v1/action holds the action name and the dispatcher's
+        reading of it — and it still outranks what the payload looks like.
         """
-        body = {"ok": True, OUTCOME_FIELD: outcome or SUCCESS,
+        body = {"ok": True,
+                OUTCOME_FIELD: outcome if outcome else report_of(data),
                 "data": data or {}, "timestamp": time.time()}
         return web.json_response(body)
 
