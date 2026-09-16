@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import warnings
 from pathlib import Path
 
@@ -173,10 +174,15 @@ def sweep_results():
         server = GatewayServer(SWEEP_CONFIG)
         app = server.create_app()
         async with TestClient(TestServer(app)) as c:
+            # A live wallet session for the session-gated methods (see _call).
+            now = time.time()
+            session_token = "sweep-wallet-session"
+            await server.wallet_sessions.add(
+                token=session_token, address="apple:sweep", issued_at=now, expires_at=now + 3600)
             for method, path, _ in SWEEPABLE:
                 try:
                     resp = await asyncio.wait_for(
-                        _call(c, method, path), timeout=_CONNECT_TIMEOUT_S
+                        _call(c, method, path, session_token), timeout=_CONNECT_TIMEOUT_S
                     )
                     # STREAMING ENDPOINTS NEVER CLOSE — that is their contract.
                     # `await resp.text()` reads to EOF, so on an SSE route it
@@ -239,12 +245,19 @@ def _is_streaming(resp, path: str) -> bool:
     return any(s in path for s in _STREAMING_PATHS)
 
 
-async def _call(client: TestClient, method: str, path: str):
+async def _call(client: TestClient, method: str, path: str, session_token: str = ""):
     url = _fill(path)
     headers = {"Authorization": "Bearer sweep-test-key"}
     if method == "GET":
         return await client.get(url, headers=headers)
     if method == "DELETE":
+        # The one DELETE route is account deletion, which answers 401 to a
+        # request presenting no live wallet session — so a sweep carrying only
+        # the generic bearer never reached the handler, and the coverage census
+        # below would (rightly) call the DELETE column vacuous. Present a real
+        # session so the handler runs.
+        if session_token:
+            headers = {"Authorization": f"Bearer {session_token}"}
         return await client.delete(url, headers=headers)
     return await client.request(method, url, json=dict(GENERIC_BODY), headers=headers)
 
