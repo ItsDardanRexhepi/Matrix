@@ -68,9 +68,9 @@ FAILURE = "failure"
 UNKNOWN = "unknown"
 
 # ── The vocabulary, split for THIS question ──────────────────────────────
-# Source: service_dispatcher._NON_OUTCOME_STATUSES (62 strings) and
-# _REAL_OUTCOME_STATUSES (101). Every one of the 163 is classified below; the
-# test re-derives that and fails on an unclassified addition.
+# Source: service_dispatcher._NON_OUTCOME_STATUSES and _REAL_OUTCOME_STATUSES.
+# Every word in both is classified below; the test re-derives that and fails on
+# an unclassified addition, which is also why no count is written here to go stale.
 
 #: Refusals and failures. The call did not do what was asked.
 _FAILED: frozenset[str] = frozenset({
@@ -155,7 +155,7 @@ _INDETERMINATE: frozenset[str] = frozenset({
 
 
 def _real_outcome_statuses() -> frozenset[str]:
-    """The 101 statuses that report a real state change, read from the ONE place
+    """The statuses that report a real state change, read from the ONE place
     they are measured rather than copied here.
 
     Imported lazily and defensively: ``service_dispatcher`` pulls in the whole
@@ -261,7 +261,7 @@ def _asserts_success(obj: dict) -> bool:
 
     The signature of a transport envelope: a boolean verdict field set True, or
     a status the vocabulary resolves to SUCCESS. `{"status": "ok"}` qualifies
-    because `ok` is one of the 101 measured real-outcome statuses.
+    because `ok` is one of the measured real-outcome statuses.
     """
     for key in ("ok", "success", "succeeded"):
         if obj.get(key) is True:
@@ -439,7 +439,7 @@ def foreign_report_of(result: Any) -> str:
     WHAT COUNTS AS EXPLICIT, and the first version of this function got it
     wrong. It still handed any reply carrying a boolean verdict or a `status` to
     `report_of`, and `report_of` reads more than the verdict: `created: True` as
-    success before it looks at the status, and any of the 101 real-outcome
+    success before it looks at the status, and any of the real-outcome
     words — measured over THIS tree — as success. So a gateway replying
     `cancelled`, `processing`, `refunded` or `requested`, or `declined` beside
     `created: True`, was booked as a settled renewal. The measured vocabulary

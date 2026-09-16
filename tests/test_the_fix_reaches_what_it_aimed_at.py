@@ -289,7 +289,7 @@ def test_a_foreign_party_is_believed_only_where_everything_it_said_agrees(reply)
     """A FOREIGN STATUS WORD IS NEVER A YES, and a reply that speaks in more than
     one field is believed only where every field says the same thing. The first
     version of `foreign_report_of` handed any reply with a `status` to
-    `report_of`, which reads the platform's own 101 real-outcome words as success
+    `report_of`, which reads the platform's own real-outcome words as success
     and `created: True` as success before the status — a vocabulary measured over
     this tree, applied to a party it was never measured on. A refusal word still
     counts as a refusal: it costs a grace period, never a charge."""

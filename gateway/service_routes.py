@@ -663,7 +663,7 @@ class ServiceRoutes:
 
         AND `status` NEVER ANSWERED FOR THE PAYLOAD. `_FAILURE_STATUSES` is two
         strings wide, so every other refusal idiom in the platform's own
-        163-word vocabulary went out as `{"status": "ok"}` — including
+        refusal vocabulary went out as `{"status": "ok"}` — including
         `not_deployed`, which 42 modules return and which means the platform
         could not act at all.
 
@@ -3218,7 +3218,7 @@ class ServiceRoutes:
             status, err = failure
             return web.json_response({**err, "capability_id": capability_id}, status=status)
         # AND `dispatcher_failure` FIRES ONLY ON status == "error". Every other
-        # refusal idiom in the platform's 163-word vocabulary went out of here
+        # refusal idiom in the platform's measured vocabulary went out of here
         # as HTTP 200 {"status": "ok"} — `not_deployed` above all, which means
         # the platform could not act at all. The registry states the action's
         # own verdict now (`CapabilityRegistry.invoke`), and this relays it

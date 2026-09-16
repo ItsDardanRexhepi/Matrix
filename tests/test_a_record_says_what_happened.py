@@ -517,7 +517,7 @@ async def test_a_foreign_gateway_that_SAYS_no_is_a_decline_not_an_unknown():
 #: `process_renewals` after the fix above and every one was booked as a settled
 #: renewal: `foreign_report_of` still handed any object with a `status` to
 #: `report_of`, which reads `created: True` as success before it reads the
-#: status, and reads any of the platform's 101 real-outcome words — measured
+#: status, and reads any of the platform's real-outcome words — measured
 #: over THIS tree — as success. "cancelled", "processing", "refunded" and
 #: "requested" are words a payment gateway uses for a charge that did not settle.
 _FOREIGN_WORDS_THAT_ARE_NOT_A_SETTLED_CHARGE = [
