@@ -13,7 +13,7 @@ class WebhookChannel(Channel):
     @property
     def available(self) -> bool:
         url = str(self._channel_config.get("url", "") or "")
-        return bool(url) and url.startswith(("http://", "https://"))
+        return (self._filled("url") and url.startswith(("http://", "https://")))
 
     async def send(self, message: str, *, level: str = "info", metadata: dict | None = None) -> dict:
         if not self.available:

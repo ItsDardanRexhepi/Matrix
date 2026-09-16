@@ -2518,23 +2518,27 @@ class GatewayServer:
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
 
+        # The broadcaster is the GATEWAY's, not the service table's. It used to
+        # be read off ServiceRoutes after registration succeeded, inside the
+        # try below — so a failure anywhere in that 44-service registration
+        # left `self.event_broadcaster` unset, /social/feed/stream answering
+        # 503, and WebChatChannel — the one notification channel that needs no
+        # external credentials because it IS the gateway — permanently
+        # unavailable. Owning it here and handing it down means the two
+        # in-gateway surfaces that depend on it do not depend on the service
+        # table registering.
+        from gateway.event_broadcaster import EventBroadcaster
+        self.event_broadcaster = EventBroadcaster()
+        from runtime.notifications.web_chat import WebChatChannel
+        WebChatChannel.set_broadcaster(self.event_broadcaster)
+
         # Register all blockchain service REST endpoints (44 services, 221 capabilities)
         service_routes = None
         try:
             from gateway.service_routes import ServiceRoutes
-            service_routes = ServiceRoutes(self.config, metrics=self.metrics)
+            service_routes = ServiceRoutes(
+                self.config, broadcaster=self.event_broadcaster, metrics=self.metrics)
             service_routes.register_routes(app)
-            # Expose the broadcaster so other subsystems (bridge,
-            # service dispatchers, metrics) can push live events into
-            # /api/v1/events/stream.
-            self.event_broadcaster = service_routes.broadcaster
-            # Connect the WebChatChannel so /api/v1/events/stream
-            # receives notifications broadcast by the NotificationDispatcher.
-            try:
-                from runtime.notifications.web_chat import WebChatChannel
-                WebChatChannel.set_broadcaster(self.event_broadcaster)
-            except Exception as _exc:
-                logger.debug("Web chat broadcaster not wired: %s", _exc)
             logger.info("Service routes registered successfully.")
         except Exception as e:
             logger.warning("Service routes registration skipped: %s", e)

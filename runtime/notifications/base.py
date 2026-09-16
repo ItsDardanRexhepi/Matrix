@@ -17,6 +17,37 @@ from __future__ import annotations
 
 from typing import Any
 
+#: Prefixes and exact values the shipped example config and the setup wizard
+#: write into a credential slot that has not been filled in yet.
+_PLACEHOLDER_PREFIXES = ("YOUR_", "CHANGE_", "REPLACE_", "<")
+_PLACEHOLDER_EXACT = {"...", "changeme", "todo", "xxx", "placeholder"}
+
+
+def is_placeholder(value: Any) -> bool:
+    """True when *value* is empty or is a slot nobody has filled in.
+
+    The design rule at the top of this module has always said `available` is
+    True "iff credentials are present AND non-placeholder". Only the Telegram
+    adapter implemented the second half; the rest asked `all(cfg.get(k) ...)`,
+    which is a truthiness test, so a config still carrying
+    ``"auth_key_p8": "YOUR_APNS_KEY_P8"`` reported the channel as ready. That
+    answer is what the dispatcher and `gateway.doctor` both read, so a
+    half-filled config looked configured right up until the first real send.
+    """
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text:
+        return True
+    if text.lower() in _PLACEHOLDER_EXACT:
+        return True
+    upper = text.upper()
+    if any(upper.startswith(p) for p in _PLACEHOLDER_PREFIXES):
+        return True
+    # A URL whose host is still a placeholder: https://YOUR_WEBHOOK_URL
+    return any(f"/{p}" in upper or f"//{p}" in upper
+               for p in ("YOUR_", "CHANGE_", "REPLACE_"))
+
 
 # Status strings that every adapter uses consistently.
 STATUS_OK = "ok"
@@ -33,9 +64,27 @@ class Channel:
 
     def __init__(self, config: dict) -> None:
         self._config = config
-        self._channel_config: dict[str, Any] = (
-            config.get("notifications", {}).get(self.name, {})
-        )
+        # `.get("notifications", {})` applies its default only to a MISSING
+        # key, so `"notifications": null` used to make the next `.get` an
+        # AttributeError — out of a constructor every channel inherits, before
+        # any adapter code runs.
+        self._channel_config: dict[str, Any] = self._subtree(config)
+
+    @classmethod
+    def _subtree(cls, config: Any) -> dict[str, Any]:
+        block = config.get("notifications") if isinstance(config, dict) else None
+        block = block if isinstance(block, dict) else {}
+        channel = block.get(cls.name)
+        return channel if isinstance(channel, dict) else {}
+
+    def _filled(self, *keys: str) -> bool:
+        """True when every named credential is present and is not a placeholder.
+
+        The check the design rule at the top of this module describes, in one
+        place, so an adapter cannot implement half of it by accident.
+        """
+        cfg = self._channel_config
+        return all(not is_placeholder(cfg.get(k)) for k in keys)
 
     @property
     def enabled(self) -> bool:

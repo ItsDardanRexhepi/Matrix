@@ -13,7 +13,15 @@ from runtime.notifications.base import Channel
 
 
 class WebChatChannel(Channel):
-    """Always-available: the web UI is part of the gateway itself."""
+    """The one channel that needs no external credentials: it IS the gateway.
+
+    Not "always available", which is what this line used to say. The channel
+    publishes into the gateway's live ``EventBroadcaster``, and it can only do
+    that once the gateway has handed it one — so ``available`` is False in any
+    process that has not built a gateway (a CLI run of the dispatcher, a test,
+    a worker). What is true is the part that matters to an operator filling in
+    a config: there is nothing here for them to fill in.
+    """
 
     name = "web_chat"
 
@@ -29,8 +37,9 @@ class WebChatChannel(Channel):
 
     @property
     def available(self) -> bool:
-        # If the broadcaster was attached and the channel isn't explicitly
-        # disabled, it is available.
+        """True once the gateway has attached its broadcaster and nobody has
+        switched the channel off. No credential is consulted, because there is
+        none: the subscriber on the other end is the gateway's own SSE feed."""
         return WebChatChannel._broadcaster is not None and (
             self._channel_config.get("enabled", True) is not False
         )

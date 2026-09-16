@@ -108,7 +108,11 @@ curl http://localhost:18790/health        # {"status": "ok", ...}
 Need to add a notification channel later (Telegram, Discord, Slack, SMS,
 Email, WhatsApp, iOS push, webhook)? The setup can send each channel a test
 message; nothing in the gateway sends to them yet (no event is wired to the
-dispatcher).
+dispatcher). A channel calls itself configured only when every credential it
+needs is filled in with something that is not still the placeholder the
+example config ships — a config left holding `YOUR_APNS_KEY_P8` reports the
+channel as unconfigured, not as ready. The one exception is the in-gateway web
+chat channel, which has no credential to fill in at all.
 
 ```bash
 python3 setup_communications.py           # interactive menu

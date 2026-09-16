@@ -17,8 +17,7 @@ class EmailChannel(Channel):
 
     @property
     def available(self) -> bool:
-        cfg = self._channel_config
-        return all(cfg.get(k) for k in ("smtp_host", "smtp_user", "smtp_pass", "to"))
+        return self._filled("smtp_host", "smtp_user", "smtp_pass", "to")
 
     async def send(self, message: str, *, level: str = "info", metadata: dict | None = None) -> dict:
         if not self.available:
