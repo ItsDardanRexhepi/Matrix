@@ -5,14 +5,31 @@ Requires requests-oauthlib (added to requirements.txt).
 
 All methods are fault-tolerant — they never crash the platform
 even if credentials are missing or API calls fail.
+
+"Never crash the platform" covers two things that catching an exception does
+not. The constructor used to read ``config["social"]["twitter"]`` through bare
+``.get`` chaining, so ``"social": null`` raised an AttributeError out of
+``__init__`` — before any of the try blocks the promise rests on. And the API
+calls are synchronous ``requests`` calls made from inside ``async def``: an
+unresponsive api.twitter.com did not fail the tweet, it froze every coroutine
+in the process for as long as the socket stayed open, and there is no
+exception to catch in a wait. Both are closed below: the config read is
+defensive, and every request is bounded by a timeout and dispatched to a
+worker thread so the event loop keeps running.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
 from typing import Any
+
+# Connect and read budget for every Twitter call. The number matters less than
+# its existence: `requests` with no timeout waits forever by default, and
+# forever is the one duration a platform cannot absorb.
+_REQUEST_TIMEOUT_SECONDS = (5, 15)
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +52,11 @@ class TwitterClient:
             TWITTER_ACCESS_TOKEN
             TWITTER_ACCESS_SECRET
         """
-        config = config or {}
-        social_cfg = config.get("social", {}).get("twitter", {})
+        config = config if isinstance(config, dict) else {}
+        social = config.get("social")
+        social = social if isinstance(social, dict) else {}
+        social_cfg = social.get("twitter")
+        social_cfg = social_cfg if isinstance(social_cfg, dict) else {}
 
         self.api_key = social_cfg.get("api_key") or os.environ.get("TWITTER_API_KEY", "")
         self.api_secret = social_cfg.get("api_secret") or os.environ.get("TWITTER_API_SECRET", "")
@@ -50,6 +70,19 @@ class TwitterClient:
         )
 
         self._session = None
+
+    @staticmethod
+    async def _request(method, *args, **kwargs):
+        """Run one blocking `requests` call off the event loop, with a timeout.
+
+        `requests` has no async mode and no default timeout. Called directly
+        from a coroutine it holds the loop for the whole round trip, so a
+        provider that stops answering stops the platform — the failure mode the
+        module docstring says cannot happen. A worker thread keeps the loop
+        free; the timeout keeps the thread from being held forever.
+        """
+        kwargs.setdefault("timeout", _REQUEST_TIMEOUT_SECONDS)
+        return await asyncio.to_thread(method, *args, **kwargs)
 
     def _get_session(self):
         """Create an OAuth1 session lazily."""
@@ -103,7 +136,8 @@ class TwitterClient:
             if reply_to:
                 payload["reply"] = {"in_reply_to_tweet_id": reply_to}
 
-            resp = session.post(f"{self.API_BASE}/tweets", json=payload)
+            resp = await self._request(
+                session.post, f"{self.API_BASE}/tweets", json=payload)
 
             if resp.status_code in (200, 201):
                 data = resp.json().get("data", {})
@@ -133,7 +167,8 @@ class TwitterClient:
             return {"status": "error", "message": "No OAuth session."}
 
         try:
-            resp = session.delete(f"{self.API_BASE}/tweets/{tweet_id}")
+            resp = await self._request(
+                session.delete, f"{self.API_BASE}/tweets/{tweet_id}")
             if resp.status_code == 200:
                 return {"status": "ok", "deleted": tweet_id}
             return {"status": "error", "message": resp.text}
@@ -150,7 +185,7 @@ class TwitterClient:
             return {"status": "error"}
 
         try:
-            resp = session.get(f"{self.API_BASE}/users/me")
+            resp = await self._request(session.get, f"{self.API_BASE}/users/me")
             if resp.status_code == 200:
                 return {"status": "ok", "user": resp.json().get("data", {})}
             return {"status": "error", "message": resp.text}
