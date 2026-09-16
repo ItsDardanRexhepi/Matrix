@@ -19,22 +19,24 @@ On 0pnMatrx, if you can think it, you can achieve it.
 
 What you can do on 0pnMatrx:
 
-- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic and deploy
-- Access DeFi loans starting at $10,000 with no bank, no credit check, and no gatekeeping
-- Create NFTs and register your creative work with automatic royalty enforcement on every future sale, forever
-- Co-own property, vehicles, and real-world assets with anyone in the world through legally enforceable smart contracts
+- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
+- Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
+- Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
+- Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world instantly with zero fees
-- Register and protect your intellectual property with an immutable on-chain timestamp that proves ownership forever
-- Build and deploy blockchain applications and games, no Solidity required
-- Trade tokenized securities 24 hours a day, 7 days a week, globally, with instant settlement
-- Access parametric insurance that pays automatically when conditions are met, no claims, no adjusters, no waiting
-- Stake your assets and earn yield at better rates than any major platform
+- Send money anywhere in the world in seconds, with no platform fee taken from the transfer, and network gas sponsored within the policy the operator configures
+- Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
+- Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
+- Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
+- Access parametric insurance that pays automatically when the data it watches meets the condition, no claims, no adjusters, no waiting
+- Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
 - Verify the complete history of any product, property, or asset before you buy it
 - Participate in governance and voting that is tamper-proof, transparent, and permanently recorded on-chain
 - Watch the platform come alive through the real-time social feed — every deployment, swap, mint, and vote, ranked and streamed live
-- And much more, all free, all yours, all open
+- And much more — open source, yours to run, yours to change
+
+Every one of those runs against a blockchain you configure. Until you configure one, each service says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't.
 
 Your companions Trinity, Morpheus, and Neo are with you every step of the way.
 
@@ -52,11 +54,27 @@ Allow your imagination to meet your creativity.
 
 ## What is 0pnMatrx
 
-Matrix is the private runtime Neo runs on — owner only, never public.
+0pnMatrx is a free, open source AI agent platform. It combines a personal AI agent with a complete blockchain financial infrastructure, developer ecosystem, identity system, and governance architecture — all in one release, all free.
 
-0pnMatrx is a free, open source AI agent platform. It combines a personal AI agent with a complete blockchain financial infrastructure, developer ecosystem, legal infrastructure, identity system, and governance architecture — all in one release, all free.
+**This repository is the platform itself**: the gateway, the three agents, the Web3 service surface, the contract-conversion pipeline, the SDKs, and the example scripts. It is the part you can read, run, fork and change, and it is the whole of what the project asks you to trust — everything a request touches on its way in is in this tree.
 
-**0pnMatrx** is the open source platform you are looking at now. **MTRX** is the iOS app that brings it all to your phone.
+**MTRX** is the iOS app that brings it to your phone. The enforcing security core is closed source and optional: its seam lives here, and with no core installed the platform runs in OBSERVE mode, where the gates report what they would have done instead of blocking. The deployment runtime the maintainer runs is private, and nothing in this repository depends on it.
+
+---
+
+## The goal, and what each commit does about it
+
+The goal is the one I opened with. Everyone deserves a balanced chance at life, and the tools that decide who gets one — credit, ownership, settlement, insurance, a vote that counts — should not sit behind a gate that opens only for people who are already comfortable. I want those tools reachable by anyone with a phone and a connection, and I want the software that reaches them to be readable by the people it serves. That is why the whole platform is here in the open and not a product you are asked to take on faith.
+
+Getting there is not one commit, it is a long line of them, so I hold every one to the same standard:
+
+- **Nothing here claims to do something it does not do.** When a claim in the code, the docs, or this README turns out to be untrue, the rule is to build it true where that is possible, and to correct it plainly where it is not. Both happen, and the correction is written down either way.
+- **A fix arrives with the check that catches it.** Every change ships with a test that fails against the old behaviour and passes against the new one, and I run it against the old behaviour first — a test that was never seen failing has not proven anything.
+- **A refusal is a feature.** When a service has no chain, it says `not_deployed`. When the platform cannot do a thing, it says so instead of returning something that looks like success. When a number is not known, you get a dash and not a plausible figure. Money is the place where a comforting lie costs the most, so that is the place it is least welcome.
+- **The security layer is described as it is.** With no enforcement core installed the platform runs in OBSERVE mode and announces it at boot, because "secured" is a claim like any other and has to be earned.
+- **This README is part of the software.** Each commit that changes what the platform can do updates this file in the same breath, so what you read here keeps matching what you would find if you went looking in the code.
+
+If you ever catch this repository claiming something it cannot do, that is a bug and I want it reported like one.
 
 ---
 
@@ -127,8 +145,7 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by automated tests in
-`tests/test_e2e_flows.py` and `tests/test_dispatch_integration.py`.
+`ServiceDispatcher` and exercised by an automated suite of 3,456 tests.
 
 What works today, no chain required:
 
@@ -138,16 +155,37 @@ What works today, no chain required:
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
   fabricated transaction hashes
-- **NeoSafe revenue routing** — queues fees in-memory until live
 - **Gateway** — REST + WebSocket, rate limiting, background cleanup,
   graceful shutdown, full middleware chain
 - **EAS attestation client** — skips gracefully when offline
 
-What activates the moment a chain is configured: actual contract
-deployment, on-chain attestations, paymaster gas sponsorship, and the
-NeoSafe ETH transfer. Populate `blockchain.*` in `openmatrix.config.json`
-and run `python -m contracts.deploy` to flip any "not_deployed" response
-into live on-chain behavior.
+How the platform holds itself to that, because a claim is only worth the
+check behind it:
+
+- **It does not deploy contracts for you.** The conversion pipeline
+  generates and audits Solidity; deploying it is your step, with your
+  wallet. Every surface that once offered to do it for you — the HTTP
+  route, the agent tool, the skill — answers plainly that it does not,
+  and a test walks those surfaces so the offer cannot return quietly
+- **An audit that could not run is not a pass.** Source with no
+  executable function body comes back `not_auditable`, never "no
+  vulnerabilities detected", and no security badge is issued on it
+- **Gas sponsorship is metered.** The per-identity daily cap the
+  configuration documents is enforced before signing, over a durable
+  ledger, and the sponsored action is decoded from the call data being
+  signed rather than read from a label the caller supplies. An operator
+  who configures no cap keeps the previous behaviour
+- **Identity is derived from your session**, not from a field in the
+  request body, on all four chat entrances; a conversation belongs to
+  whoever started it, and an id shaped like someone's account is refused
+  rather than adopted
+- **Security posture is stated, not assumed.** With no enforcement core
+  installed the platform runs in OBSERVE mode and says so at boot
+
+What activates the moment a chain is configured: on-chain attestations,
+paymaster gas sponsorship within the configured policy, and live service
+responses in place of every `not_deployed`. Populate `blockchain.*` in
+`openmatrix.config.json` to flip them.
 
 ---
 
