@@ -78,10 +78,12 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
 
         StakePosition storage pos = positions[msg.sender];
 
-        // If existing position, settle accrued rewards first (reserve-bounded,
-        // never reverting on an empty reserve).
+        // Accrue on the OLD amount — the new stake has not been earning yet —
+        // and hold the payout until every write below is done.
+        uint256 netReward;
+        uint256 commission;
         if (pos.amount > 0) {
-            _settleRewards(msg.sender);
+            (netReward, commission) = _accrueRewards(msg.sender);
         }
 
         pos.amount += msg.value;
@@ -93,6 +95,9 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
         totalStaked += msg.value;
 
         emit Staked(msg.sender, msg.value, block.timestamp);
+
+        // Interactions last.
+        _payRewards(msg.sender, netReward, commission);
     }
 
     /**
@@ -103,9 +108,9 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
         require(pos.amount > 0, "No active position");
 
         uint256 stakedAmount = pos.amount;
-        // Rewards first, from the reserve only; whatever the reserve cannot pay
-        // is recorded as owed, not erased.
-        (uint256 netReward, uint256 commission) = _settleRewards(msg.sender);
+        // Accrue from the reserve only; whatever it cannot pay is recorded as
+        // owed, not erased. Nothing leaves the contract yet.
+        (uint256 netReward, uint256 commission) = _accrueRewards(msg.sender);
 
         // Reset position
         pos.amount = 0;
@@ -113,6 +118,9 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
         pos.lastClaimTime = 0;
 
         totalStaked -= stakedAmount;
+
+        // Interactions last, with every write above already committed.
+        _payRewards(msg.sender, netReward, commission);
 
         // Principal is always there: nothing but principal is ever paid from it.
         require(address(this).balance >= stakedAmount, "Insufficient pool");
@@ -176,7 +184,8 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
     function _claimRewards(address user) internal {
         (, , uint256 accrued) = _calculateRewards(user);
         require(accrued > 0, "No rewards to claim");
-        _settleRewards(user);
+        (uint256 netReward, uint256 commission) = _accrueRewards(user);
+        _payRewards(user, netReward, commission);
     }
 
     /// @dev Pay what the reserve can cover of the accrued gross reward (plus
@@ -184,7 +193,18 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
     ///      taken from the paid part and pushed to the fee recipient, falling
     ///      back to `pendingFees` if that call fails. Never reverts on an empty
     ///      reserve, never touches principal.
-    function _settleRewards(address user) internal returns (uint256 netReward, uint256 commission) {
+    /// @dev ACCRUE ONLY — every state write, no transfer. Splitting this out is
+    ///      the point: `_settleRewards` used to write the position and then send
+    ///      ETH from inside itself, which meant `stake()` and `unstake()` made an
+    ///      external call BEFORE they had finished updating their own state.
+    ///      Exploiting that needed an unguarded way back in, and there was none —
+    ///      every state-changing entry point carries `nonReentrant`, and
+    ///      MatrixStakingReentrancy.t.sol proves an attacker re-entering on every
+    ///      payout takes nothing. But that made one modifier the only thing
+    ///      between the pool and a drain, and the next function added without it
+    ///      would have been the hole. Now the ordering is safe on its own and the
+    ///      guard is the second line rather than the only one.
+    function _accrueRewards(address user) internal returns (uint256 netReward, uint256 commission) {
         (uint256 grossReward, , ) = _calculateRewards(user);
         StakePosition storage pos = positions[user];
         pos.lastClaimTime = block.timestamp;
@@ -200,20 +220,37 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
         commission = (payable_ * COMMISSION_BPS) / BPS_DENOMINATOR;
         netReward = payable_ - commission;
         pos.totalClaimed += netReward;
-
         if (commission > 0) {
             totalCommissionPaid += commission;
-            (bool feeSent, ) = platformFeeRecipient.call{value: commission}("");
+        }
+        if (netReward > 0) {
+            totalRewardsPaid += netReward;
+        }
+        emit RewardsClaimed(user, netReward, commission);
+    }
+
+    /// @dev PAY ONLY — no state write. Called last, after the caller has
+    ///      finished every update it intends to make.
+    // slither-disable-next-line arbitrary-send-eth
+    function _payRewards(address user, uint256 netReward, uint256 commission) internal {
+        if (commission > 0) {
+            // Not arbitrary: platformFeeRecipient is set by the owner alone
+            // (updateFeeRecipient is onlyOwner and rejects the zero address),
+            // and `user` is the staker being paid their own accrued reward.
+            // Neither address comes from a caller.
+                (bool feeSent, ) = platformFeeRecipient.call{value: commission}("");
             if (!feeSent) {
                 pendingFees += commission;   // pulled later; the staker is never blocked
             }
         }
         if (netReward > 0) {
-            totalRewardsPaid += netReward;
+            // slither-disable-next-line arbitrary-send-eth
+            // `user` is the staker whose own accrued reward this is — the
+            // address is read from the position being settled, never supplied
+            // by a caller.
             (bool sent, ) = user.call{value: netReward}("");
             require(sent, "Reward transfer failed");
         }
-        emit RewardsClaimed(user, netReward, commission);
     }
 
     /// @notice Send commission the fee recipient could not receive earlier.
@@ -221,6 +258,10 @@ contract MatrixStaking is ReentrancyGuard, Ownable {
         uint256 amount = pendingFees;
         require(amount > 0, "No pending fees");
         pendingFees = 0;
+        // slither-disable-next-line arbitrary-send-eth
+        // platformFeeRecipient is owner-set and non-zero; this pushes fees that
+        // an earlier call could not deliver, and the balance is zeroed first.
+        // slither-disable-next-line arbitrary-send-eth
         (bool sent, ) = platformFeeRecipient.call{value: amount}("");
         require(sent, "Fee transfer failed");
     }

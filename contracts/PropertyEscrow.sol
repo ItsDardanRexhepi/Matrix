@@ -291,6 +291,12 @@ contract PropertyEscrow is ReentrancyGuard {
         // Leg 1: deed seller -> buyer. Reverts (and rolls back EVERYTHING,
         // including the funds lock in the one-tap flow) if the seller no
         // longer holds the deed or never approved this contract.
+        // `from` is not arbitrary: e.seller is copied from a Listing that only
+        // the deed's OWNER can create, and that seller must have approved this
+        // contract on the token. A caller cannot name someone else's address
+        // here. The post-state ownership assertion immediately below closes the
+        // remaining case — a non-conforming ERC-721 whose transferFrom lies.
+        // slither-disable-next-line arbitrary-send-erc20
         IERC721(e.deedContract).transferFrom(e.seller, e.buyer, e.deedTokenId);
 
         // Leg 1b: PROVE the deed actually moved. A rogue/non-conforming ERC-721
