@@ -69,17 +69,45 @@ class ToolOutcome:
     model_text: str
     client_preview: str
     code: str | None = None
+    #: What the TOOL said about its own outcome, which is NOT the same fact as
+    #: `ok`. `ok` means the dispatcher completed the call — it governs the
+    #: NEW-27 redaction contract above and must keep meaning exactly that. But
+    #: in this codebase failure is usually RETURNED rather than raised
+    #: (`{"status": "error"}`, `{"ok": False, ...}`, `{"status": "not_deployed"}`),
+    #: so a refusal arrives here with ok=True and full content the client should
+    #: still see. `reported` carries the tool's own verdict for the one consumer
+    #: that needs ground truth: outcome learning, which was recording every
+    #: refusal in the system as a success. See runtime/protocols/outcome_truth.py.
+    reported: str = "success"
 
     def __repr__(self) -> str:  # never let detail reach a log or a repr by accident
-        return f"ToolOutcome(ok={self.ok}, code={self.code!r})"
+        return f"ToolOutcome(ok={self.ok}, code={self.code!r}, reported={self.reported!r})"
+
+    @property
+    def learnable_success(self) -> bool | None:
+        """True, False, or None meaning 'this sample carries no label'.
+
+        None is not a failure and not a success: it is the honest answer when
+        the tool said something that does not decide the question. Outcome
+        learning skips it rather than guessing, because an unlabelled sample
+        costs one data point and a mislabelled one corrupts the rate.
+        """
+        if not self.ok:
+            return False
+        from runtime.protocols.outcome_truth import learnable_success
+        return learnable_success(self.reported)
 
     @classmethod
-    def success(cls, text: str) -> "ToolOutcome":
+    def success(cls, text: str, reported: str = "success") -> "ToolOutcome":
         # A successful tool's output is what the caller asked for, so it is
         # previewed as before. Whether successful output (file contents, shell
         # stdout) should itself be truncated or gated is a SEPARATE question
         # from this leak class and is deliberately not decided here.
-        return cls(ok=True, model_text=text, client_preview=text[:200])
+        #
+        # "success" here means the DISPATCH succeeded. `reported` carries what
+        # the tool said about itself, which may well be a refusal.
+        return cls(ok=True, model_text=text, client_preview=text[:200],
+                   reported=reported)
 
     @classmethod
     def failure(cls, model_text: str, *, code: str, ref: str | None = None) -> "ToolOutcome":
@@ -88,6 +116,7 @@ class ToolOutcome:
             ok=False,
             model_text=model_text,
             client_preview=f"{_TOOL_FAILURE_SENTENCE}{suffix}",
+            reported="failure",
             code=code,
         )
 
@@ -379,7 +408,18 @@ class ToolDispatcher:
             result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
             result_str = str(result)
             logger.info(f"Tool result: {tool_name} -> {result_str[:200]}{'...' if len(result_str) > 200 else ''}")
-            return ToolOutcome.success(result_str)
+            # Read the tool's own verdict from the STRUCTURE it returned, while
+            # that structure still exists — one line later it is only `str()`.
+            # Not a string sniff: named fields of a dict or of a JSON object the
+            # tool serialised, never a substring of free text (the thing NEW-27
+            # removed). `ok` stays True so nothing about redaction changes.
+            from runtime.protocols.outcome_truth import report_of
+            try:
+                reported = report_of(result)
+            except Exception:           # classification must never fail a call
+                logger.exception("Outcome classification failed for tool=%s", tool_name)
+                reported = "unknown"
+            return ToolOutcome.success(result_str, reported=reported)
         except asyncio.TimeoutError:
             msg = f"Error: tool '{tool_name}' timed out after {TOOL_TIMEOUT}s"
             logger.warning("%s [ref=%s]", msg, ref)

@@ -483,8 +483,19 @@ class ReActLoop:
                 # while a laundered exception whose first 100 chars happened not
                 # to contain the word scored as SUCCESS. The dispatcher knows;
                 # ask it.
-                tool_succeeded = outcome.ok
-                confidence = 0.8 if tool_succeeded else 0.3
+                # ...and the dispatcher's `ok` is still not the whole answer.
+                # It means the CALL completed; in this codebase a tool usually
+                # reports failure by RETURNING a structure ({"status": "error"},
+                # {"ok": False, ...}, {"status": "not_deployed"}), which arrives
+                # here with ok=True. `learnable_success` is the tool's own
+                # verdict, read from that structure, and is None when the tool
+                # said nothing that decides it.
+                verdict = outcome.learnable_success
+                tool_succeeded = verdict is True
+                # An unlabelled outcome is not evidence of trouble: scoring it
+                # 0.3 would trip the low-confidence pause on tools that merely
+                # report state. It sits between the two.
+                confidence = 0.8 if verdict is True else (0.3 if verdict is False else 0.6)
                 confidence_scores.append(confidence)
 
                 # Check for sustained low confidence
@@ -510,6 +521,9 @@ class ReActLoop:
                         await protocol_stack.post_action(
                             tool_name, arguments, tool_result_str,
                             context.metadata.get("user_context", {}),
+                            succeeded=verdict,
+                            status=outcome.reported,
+                            code=outcome.code,
                         )
                     except Exception:
                         logger.exception("Protocol post-action failed for tool=%s", tool_name)
