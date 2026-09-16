@@ -564,31 +564,63 @@ class MemoryManager:
         )
         return held
 
+    def owner_conversation_ids(self, owner: str) -> list[str]:
+        """Every conversation id *owner* holds — what :meth:`erase_owner` will
+        erase, read before it runs.
+
+        A caller that keeps its own copy of a conversation (the gateway's
+        working set, a protocol stack) has to drop it whether or not the
+        erasure finishes: a retry of a deletion that failed finds no
+        conversation of the account left to name, and the copy in the process
+        is exactly what the deleted account's history was served from."""
+        if not owner:
+            return []
+        conn = self.db._require_conn()
+        ids = {r[0] for r in conn.execute(
+            "SELECT session_id FROM conversation_owners WHERE owner = ?", (owner,))}
+        ids |= {r[0] for r in conn.execute(
+            "SELECT DISTINCT session_id FROM conversation_turns WHERE owner = ?", (owner,))}
+        ids |= {s for s, o in self._conv_owner.items() if o == owner}
+        return sorted(ids)
+
     async def erase_owner(self, owner: str) -> list[str]:
         """Delete every conversation owned by *owner* and every scoped agent
         memory written for it — what account deletion must be able to do.
 
         Returns the conversation ids erased, so a caller holding its own copy
-        of those conversations (the gateway's working set) can drop it too.
-        The conversations and their claims go in one transaction; a turn of
-        the account still running no longer finds the claim it was admitted
-        under — not even if the subject has signed in again and claimed the
-        conversation anew — so neither its conversation nor its scoped memory
-        is written (save_conversation's *expect_claim*, save_turn's *claim*).
-        Nor is an anonymous turn admitted before the account claimed the
-        conversation: the same transaction logs the erased ids under a new
-        erasure sequence number (``conversation_erasures``, pruned after
-        ``conversation_erasure_log_seconds``), so the unclaimed state the
-        erasure leaves is not the one that turn was admitted under."""
+        of those conversations (the gateway's working set) can drop it too —
+        and see :meth:`owner_conversation_ids`, which says what they are
+        BEFORE the erasure runs, for a caller that must drop its copy whether
+        or not this finishes.
+
+        ALL of it is one transaction: the conversations, their claims, the
+        erasure log, the account's scoped agent memory and the memory of each
+        of its conversations. It ran as a transaction followed by separate
+        statements, so a store that raised part way through committed the
+        conversations and left the scoped memory — and the caller, answering
+        the failure, then retried a deletion that found no conversation of the
+        account left to name and erased none of what remained.
+
+        A turn of the account still running no longer finds the claim it was
+        admitted under — not even if the subject has signed in again and
+        claimed the conversation anew — so neither its conversation nor its
+        scoped memory is written (save_conversation's *expect_claim*,
+        save_turn's *claim*). Nor is an anonymous turn admitted before the
+        account claimed the conversation: the same transaction logs the erased
+        ids under a new erasure sequence number (``conversation_erasures``,
+        pruned after ``conversation_erasure_log_seconds``), so the unclaimed
+        state the erasure leaves is not the one that turn was admitted under."""
         if not owner:
             return []
         now = time.time()
+        cached = {s for s, o in self._conv_owner.items() if o == owner}
 
         def work(conn):
             ids = {r[0] for r in conn.execute(
                 "SELECT session_id FROM conversation_owners WHERE owner = ?", (owner,))}
             ids |= {r[0] for r in conn.execute(
                 "SELECT DISTINCT session_id FROM conversation_turns WHERE owner = ?", (owner,))}
+            ids |= cached
             conn.execute("DELETE FROM conversation_turns WHERE owner = ?", (owner,))
             for sid in ids:
                 conn.execute("DELETE FROM conversation_turns WHERE session_id = ?", (sid,))
@@ -607,17 +639,24 @@ class MemoryManager:
                 conn.executemany(
                     "INSERT OR IGNORE INTO conversation_erasures (seq, session_id, erased_at) VALUES (?, ?, ?)",
                     [(seq, sid, now) for sid in ids if not self.is_account_conversation(sid)])
+            # The account's scoped memory, and the memory each of its
+            # conversations gathered before it claimed them (anonymous turns,
+            # scoped to the conversation), in this same transaction: a
+            # deletion either erases all of it or none of it.
+            self._erase_scoped_memory_in(conn, owner)
+            for sid in ids:
+                self._erase_scoped_memory_in(conn, self.conversation_scope(sid))
             return ids
 
         erased = await self.db.run_in_transaction(work)
-        erased |= {s for s, o in self._conv_owner.items() if o == owner}
+        # Past the commit the store holds nothing of the account. What follows
+        # only drops in-process copies, and nothing here can leave a row
+        # behind if it raises (see the prune below, which is caught).
         for sid in erased:
             self._forget_conversation(sid)
-        await self.erase_scoped_memory(owner)
-        # The memory the account's conversations wrote before it claimed them
-        # (anonymous turns, scoped to the conversation) goes with them.
+        self._forget_scoped_memory_cache(owner)
         for sid in erased:
-            await self.erase_scoped_memory(self.conversation_scope(sid))
+            self._forget_scoped_memory_cache(self.conversation_scope(sid))
         # Every deletion prunes the log, whether or not it erased anything. In
         # its own transaction, after the erasure: pruning is housekeeping, and
         # it once ran inside the erasure's transaction, where its failure
@@ -628,24 +667,43 @@ class MemoryManager:
             logger.warning("Conversation erasure log prune after an account erasure failed: %s", exc)
         return sorted(erased)
 
-    async def erase_scoped_memory(self, scope: str) -> None:
-        """Delete every agent memory scoped to exactly *scope*
-        (``agent@scope``, for every agent).
+    #: A memory key belongs to exactly *scope*. Matched on the whole scope,
+    #: not on the key's ending: "ends with ``@apple:x``" also named
+    #: ``trinity@conv:notes@apple:x`` — an anonymous conversation whose id
+    #: happens to end in the account's subject.
+    _SCOPE_IS = "instr(agent, '@') > 0 AND substr(agent, instr(agent, '@') + 1) = ?"
 
-        Matched on the whole scope, not on the key's ending: "ends with
-        ``@apple:x``" also named ``trinity@conv:notes@apple:x`` — an anonymous
-        conversation whose id happens to end in the account's subject."""
+    @classmethod
+    def _erase_scoped_memory_in(cls, conn, scope: str) -> None:
+        """Delete every agent memory scoped to exactly *scope*, in the caller's
+        transaction — both tables, so neither outlives the other."""
         if not scope:
             return
-        where = "instr(agent, '@') > 0 AND substr(agent, instr(agent, '@') + 1) = ?"
-        await self.db.execute(f"DELETE FROM agent_turns WHERE {where}", (scope,))
-        await self.db.execute(f"DELETE FROM agent_memory WHERE {where}", (scope,))
+        conn.execute(f"DELETE FROM agent_turns WHERE {cls._SCOPE_IS}", (scope,))
+        conn.execute(f"DELETE FROM agent_memory WHERE {cls._SCOPE_IS}", (scope,))
+
+    def _forget_scoped_memory_cache(self, scope: str) -> None:
+        """Drop the in-process copies of *scope*'s memory (after its rows are
+        committed away). Cache surgery only: it writes nothing and, being dict
+        work, cannot fail part way and leave a row stored."""
         keys = {k for k in list(self._turn_cache) + list(self._kv_cache)
                 if "@" in k and k.split("@", 1)[1] == scope}
         for key in keys:
             self._turn_cache.pop(key, None)
             self._kv_cache.pop(key, None)
             self._loaded_agents.discard(key)
+
+    async def erase_scoped_memory(self, scope: str) -> None:
+        """Delete every agent memory scoped to exactly *scope*
+        (``agent@scope``, for every agent).
+
+        One transaction: the two tables were deleted as separate statements,
+        so a failure between them left a scope's ``agent_memory`` stored with
+        its ``agent_turns`` gone."""
+        if not scope:
+            return
+        await self.db.run_in_transaction(lambda conn: self._erase_scoped_memory_in(conn, scope))
+        self._forget_scoped_memory_cache(scope)
 
     async def load_conversation_async(self, session_id: str) -> list[dict]:
         """Async load — fetches from SQLite if not cached."""

@@ -714,3 +714,143 @@ async def test_a_deletion_whose_erasure_fails_is_answered_as_a_failure_and_can_b
         assert memory.conversation_claim("ef-conv").owner == ""
         assert not server.wallet_sessions.get(f"tok-{subject}")
         assert "DEV-EF" not in await store.all_tokens()
+
+
+# ── ...and a deletion the store fails PART WAY through is not a success either ─
+#
+# erase_owner erased the conversations and their claims in one transaction and
+# then erased the scoped agent memory — the owner's scope and each conv:<id> —
+# as separate statements after the commit. A statement that raised there was
+# answered 503, correctly, but the erasure had already committed: the retry
+# found no conversation of the account left (the claims were gone), returned
+# [], and the handler forgot nothing and answered 200 {"success": true} while
+# the gateway still held the account's conversation in ``conversations`` and
+# the conv:<id> memory was still stored. The next caller naming the id was
+# handed that history and wrote it back, ownerless — the resurrection this
+# file's earlier tests close, reachable again through the retry path. One
+# transaction now erases all of it, so a failure erases nothing and the retry
+# does the whole job; and the gateway drops its own copies of the account's
+# conversations whatever the erasure did, using ids read before it ran.
+
+class _TrippingConn:
+    """The real connection, with a trip wire on the statements it is given."""
+
+    def __init__(self, conn, trip):
+        self._conn = conn
+        self._trip = trip
+
+    def execute(self, sql, params=()):
+        self._trip(sql)
+        return self._conn.execute(sql, params)
+
+    def executemany(self, sql, seq_of_params):
+        self._trip(sql)
+        return self._conn.executemany(sql, seq_of_params)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def _store_fails_once_on(memory, needle: str, occurrence: int = 1) -> None:
+    """Make the *occurrence*-th store statement containing *needle* raise,
+    wherever the manager issues it: through ``Database.execute`` or inside a
+    transaction.
+
+    The injection does not care which of the two the erasure uses, so the same
+    control holds whether the statement runs after a commit or within it. The
+    erasure deletes the account's own scope before each conversation's, so
+    occurrence 1 trips on the account's memory and occurrence 2 on the memory
+    of a conversation it claimed."""
+    import sqlite3
+
+    db = memory.db
+    armed = {"left": occurrence}
+    real_execute, real_transaction = db.execute, db.run_in_transaction
+
+    def trip(sql):
+        if armed["left"] and needle in " ".join(str(sql).split()):
+            armed["left"] -= 1
+            if not armed["left"]:
+                raise sqlite3.OperationalError("database is locked")
+
+    async def execute(sql, params=None, *args, **kwargs):
+        trip(sql)
+        return await real_execute(sql, params, *args, **kwargs)
+
+    async def run_in_transaction(work):
+        return await real_transaction(lambda conn: work(_TrippingConn(conn, trip)))
+
+    db.execute, db.run_in_transaction = execute, run_in_transaction
+
+
+@pytest.mark.parametrize("occurrence", [1, 2])
+async def test_a_deletion_the_store_fails_part_way_erases_nothing_and_the_retry_finishes_it(occurrence):
+    server = _server()
+    router = _HeldRouter("never-held")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    subject = "apple:partial"
+    sid = "pt-conv"
+    async with TestClient(TestServer(server.create_app())) as client:
+        # Memory the conversation gathered before the account claimed it...
+        assert await _drive(client, "/chat", {"message": "ANON-PRECLAIM-55", "session_id": sid}) == 200
+        account = await _session(server, subject)
+        # ...and the account's own turn in it.
+        assert await _drive(client, "/chat", {"message": "ACCT-SECRET-66", "session_id": sid}, account) == 200
+        assert memory.conversation_owner(sid) == subject
+
+        _store_fails_once_on(memory, "DELETE FROM agent_turns", occurrence)
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 503, (resp.status, await resp.text())
+        # A deletion that failed erased NOTHING: the retry has it all to do.
+        for text in ("ACCT-SECRET-66", "ANON-PRECLAIM-55"):
+            conv, agent = _rows_with(memory, text)
+            assert conv and agent, f"a failed deletion half-erased {text!r}: conversation={conv} memory={agent}"
+        assert memory.conversation_claim(sid).owner == subject, "a failed deletion erased the claim"
+        assert server.wallet_sessions.get(f"tok-{subject}"), "a failed deletion removed the session"
+
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        for text in ("ACCT-SECRET-66", "ANON-PRECLAIM-55"):
+            assert _rows_with(memory, text) == ([], []), f"the retry left {text!r} stored"
+        assert memory.conversation_claim(sid).owner == ""
+        assert not server.wallet_sessions.get(f"tok-{subject}")
+        # Not in the gateway's working set either, and not in what the next
+        # caller naming the id is shown or writes back.
+        assert sid not in server.conversations, f"the retry left the gateway's copy: {server.conversations.get(sid)}"
+        router.shown.clear()
+        assert await _drive(client, "/chat", {"message": "anyone there?", "session_id": sid}) == 200
+        assert len(router.shown) == 1, router.shown
+        for text in ("ACCT-SECRET-66", "ANON-PRECLAIM-55"):
+            assert text not in router.shown[0], f"the next caller naming the id was shown {text!r}"
+            assert _rows_with(memory, text) == ([], []), f"{text!r} was written back by the next turn"
+
+
+# ── A deletion with no live session deleted nothing and said it had ──────────
+#
+# With an expired (or absent) session the handler had no subject, erased
+# nothing, removed no device — and answered 200 {"success": true}, which the
+# client shows the user as "your account was deleted". There is nothing here to
+# delete without a session: it answers 401, so the client re-authenticates and
+# sends the deletion again.
+
+async def test_a_deletion_with_no_live_session_is_not_answered_as_a_success():
+    server = _server()
+    server.react_loop.router.complete = _HeldRouter("never-held").complete
+    memory = server.react_loop.memory
+    subject = "apple:expired"
+    async with TestClient(TestServer(server.create_app())) as client:
+        account = await _session(server, subject)
+        assert await _drive(client, "/chat", {"message": "EXPIRED-SECRET", "session_id": "ex-conv"}, account) == 200
+        now = time.time()
+        await server.wallet_sessions.add(token="expired-tok", address=subject,
+                                         issued_at=now - 7200, expires_at=now - 1)
+
+        for headers in ({"Authorization": "Bearer expired-tok"},
+                        {"X-Wallet-Session": "never-issued"},
+                        {}):
+            resp = await client.delete("/api/v1/auth/account", headers=headers)
+            body = await resp.json()
+            assert resp.status == 401, (headers, resp.status, body)
+            assert body.get("success") is not True, (headers, body)
+        assert _rows_with(memory, "EXPIRED-SECRET") != ([], []), "nothing was deleted, as the 401 says"
