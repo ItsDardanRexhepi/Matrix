@@ -145,7 +145,8 @@ curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/0pnMatrx/main/inst
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 3,456 tests.
+`ServiceDispatcher` and exercised by an automated suite of 3,681 tests,
+run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
 

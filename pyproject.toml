@@ -59,7 +59,7 @@ dependencies = [
     "PyJWT[crypto]~=2.14",
     # Imported directly by gateway/service_routes.py for the batch sub-request's
     # query mapping; it arrives with aiohttp, but a direct import is declared.
-    "multidict>=6.0",
+    "multidict~=6.7",
 ]
 
 [project.optional-dependencies]
