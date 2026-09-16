@@ -451,7 +451,7 @@ async def test_a_foreign_gateway_that_did_not_say_yes_is_not_a_settled_charge(an
     ``total_paid``, set ``charges_settled`` and rolled the billing period
     forward for money nobody took.
 
-    UNKNOWN costs a retry or a human. SUCCESS costs a customer a charge that
+    UNKNOWN costs a human. SUCCESS costs a customer a charge that
     was refused.
     """
     svc = _subscribed()
@@ -464,9 +464,12 @@ async def test_a_foreign_gateway_that_did_not_say_yes_is_not_a_settled_charge(an
     results = await svc.process_renewals()
 
     assert gateway.charges == 1, "premise changed — the gateway was not called"
-    assert all(r.get("action") == "not_charged" for r in results), (
+    # "charge_unconfirmed", not "not_charged": this charge WAS presented, so the
+    # renewal is held for reconciliation rather than left due to be presented
+    # again (see test_a_charge_whose_outcome_nobody_established_is_not_attempted_again).
+    assert all(r.get("action") == "charge_unconfirmed" for r in results), (
         "an outcome nobody established was filed as settled or as refused; it "
-        f"is neither, and the renewal is still due: {results}")
+        f"is neither: {results}")
     assert sub["charges_settled"] is False, (
         f"the platform recorded a settled charge the gateway never confirmed: {sub}")
     assert sub["total_paid"] == before["total_paid"], (
@@ -508,6 +511,126 @@ async def test_a_foreign_gateway_that_SAYS_no_is_a_decline_not_an_unknown():
                and r.get("reason") == "payment_failed" for r in results), (
         "an explicit decline must enter the grace period that ends in "
         f"cancellation — the path an unestablished outcome must never take: {results}")
+
+
+#: A FOREIGN STATUS WORD IS NOT A YES. An independent review drove these through
+#: `process_renewals` after the fix above and every one was booked as a settled
+#: renewal: `foreign_report_of` still handed any object with a `status` to
+#: `report_of`, which reads `created: True` as success before it reads the
+#: status, and reads any of the platform's 101 real-outcome words — measured
+#: over THIS tree — as success. "cancelled", "processing", "refunded" and
+#: "requested" are words a payment gateway uses for a charge that did not settle.
+_FOREIGN_WORDS_THAT_ARE_NOT_A_SETTLED_CHARGE = [
+    pytest.param({"status": "cancelled"}, id="cancelled"),
+    pytest.param({"status": "processing"}, id="processing"),
+    pytest.param({"status": "refunded"}, id="refunded"),
+    pytest.param({"status": "requested"}, id="requested"),
+    pytest.param({"status": "declined", "created": True}, id="declined-but-created"),
+    pytest.param({"status": "paid"}, id="a-word-we-never-measured-for-this-party"),
+    pytest.param({"ok": True, "status": "refunded"}, id="ok-contradicted-by-its-status"),
+    pytest.param({"ok": True, "error": "card declined"}, id="ok-contradicted-by-its-error"),
+]
+
+
+@pytest.mark.parametrize("answer", _FOREIGN_WORDS_THAT_ARE_NOT_A_SETTLED_CHARGE)
+async def test_a_foreign_status_word_is_not_a_settled_charge(answer):
+    """DEFECT-PROVER. Only an explicit verdict the gateway adapter states is
+    believed, and when the reply speaks in more than one field every field has
+    to agree. A status word from a party whose vocabulary was never measured is
+    not agreement."""
+    svc = _subscribed()
+    gateway = _DecliningGateway(answer)
+    svc.config["payment_gateway"] = gateway
+    _plan, sub = await _plan_and_sub(svc)
+    sub["next_renewal_at"] = time.time() - 1
+    before = dict(sub)
+
+    results = await svc.process_renewals()
+
+    assert gateway.charges == 1, "premise changed — the gateway was not called"
+    assert all(r.get("action") != "renewed" for r in results), (
+        f"a gateway reply of {answer!r} was booked as a settled renewal: {results}")
+    assert sub["charges_settled"] is False, sub
+    assert sub["total_paid"] == before["total_paid"], sub
+    assert sub["current_period_end"] == before["current_period_end"], sub
+
+
+class _RaisingGateway:
+    def __init__(self):
+        self.charges = 0
+
+    async def charge(self, **_kwargs):
+        self.charges += 1
+        raise ConnectionError("reset by peer after the request was written")
+
+
+@pytest.mark.parametrize("gateway", [
+    pytest.param(lambda: _DecliningGateway(object()), id="an-answer-nobody-can-read"),
+    pytest.param(lambda: _DecliningGateway({"status": "processing"}), id="processing"),
+    pytest.param(_RaisingGateway, id="the-charge-raised-after-it-was-sent"),
+])
+async def test_a_charge_whose_outcome_nobody_established_is_not_attempted_again(gateway):
+    """DEFECT-PROVER. The unestablished outcome was described as costing "a
+    retry or a human", and the retry was a second charge: the renewal stayed
+    due, so every run of `process_renewals` presented the same card again while
+    `total_paid` stayed at zero. If the first charge went through, the customer
+    paid once per run. A charge that was ATTEMPTED and not confirmed is held
+    until someone has checked it; it is not presented again."""
+    svc = _subscribed()
+    gw = gateway()
+    svc.config["payment_gateway"] = gw
+    _plan, sub = await _plan_and_sub(svc)
+    sub["next_renewal_at"] = time.time() - 1
+    before = dict(sub)
+
+    first = await svc.process_renewals()
+    second = await svc.process_renewals()
+    third = await svc.process_renewals()
+
+    assert gw.charges == 1, (
+        f"a charge whose outcome nobody established was presented {gw.charges} "
+        f"times in three renewal runs")
+    for results in (second, third):
+        assert [r.get("action") for r in results] == ["charge_unconfirmed"], results
+        assert results[0]["value_moved"] is None and results[0]["settled"] is False
+    assert first[0]["action"] == "charge_unconfirmed", first
+    assert sub["status"] == "active", "an unestablished charge pushed toward cancellation"
+    assert sub["total_paid"] == before["total_paid"], sub
+    assert sub["charges_settled"] is False, sub
+
+
+async def test_a_renewal_nobody_tried_to_charge_is_still_retried_every_run():
+    """SCOPE PIN. No gateway means no charge was attempted, so trying again
+    costs nothing and must keep happening: the hold is for an ATTEMPT, not for
+    every renewal that did not settle."""
+    svc = _subscribed()
+    _plan, sub = await _plan_and_sub(svc)
+    sub["next_renewal_at"] = time.time() - 1
+
+    await svc.process_renewals()
+    assert "unconfirmed_charge" not in sub, sub
+
+    gateway = _DecliningGateway({"ok": True})
+    svc.config["payment_gateway"] = gateway
+    await svc.process_renewals()
+    assert gateway.charges == 1 and sub["charges_settled"] is True, sub
+
+
+async def test_a_settled_renewal_does_not_hold_the_next_one():
+    """SCOPE PIN. Each period is charged once; the hold must not become a
+    subscription that is only ever charged once."""
+    svc = _subscribed()
+    gateway = _DecliningGateway({"ok": True})
+    svc.config["payment_gateway"] = gateway
+    plan, sub = await _plan_and_sub(svc)
+
+    sub["next_renewal_at"] = time.time() - 1
+    await svc.process_renewals()
+    sub["next_renewal_at"] = time.time() - 1
+    await svc.process_renewals()
+
+    assert gateway.charges == 2, gateway.charges
+    assert sub["total_paid"] == 2 * plan["price"], sub
 
 
 # ── 7. the public feed's value_usd came from the request ──────────────────

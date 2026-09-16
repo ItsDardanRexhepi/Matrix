@@ -260,15 +260,79 @@ class SubscriptionService:
             sub["status"] = "cancelled"
             return {"subscription_id": sub_id, "action": "cancelled", "reason": "plan_not_found"}
 
+        held = sub.get("unconfirmed_charge")
+        if held:
+            # A CHARGE WAS ALREADY PRESENTED FOR THIS RENEWAL AND NOBODY KNOWS
+            # WHETHER IT WENT THROUGH. This used to fall straight into another
+            # `_attempt_payment`: the renewal stayed due, so every run of
+            # `process_renewals` presented the same card again while
+            # `total_paid` stayed at zero — and if the first charge had in fact
+            # settled, the customer paid once per run. "UNKNOWN costs a retry"
+            # was true only of a retry that costs nothing, and a charge is not
+            # one. The renewal is held until someone has checked the attempt
+            # against the gateway, using the reference recorded here.
+            return {
+                "subscription_id": sub_id,
+                "action": "charge_unconfirmed",
+                "status": "recorded_unsettled",
+                "settled": False,
+                "value_moved": None,
+                "reason": held.get("reason"),
+                "unconfirmed_charge": held,
+                "disclosure": (
+                    "An earlier charge for this renewal was presented to the "
+                    "gateway and its outcome was never established. It was NOT "
+                    "presented again: it may already have been taken. Reconcile "
+                    "it with the gateway using its reference; the renewal is "
+                    "held until `unconfirmed_charge` is cleared from the record."
+                ),
+            }
+
         payment = await self._attempt_payment(sub)
         outcome = payment.get("status")
 
         if outcome not in ("paid", "declined"):
             # THE THIRD ANSWER. The charge neither settled nor was refused, so
             # the counters do not move, the period does not roll forward and the
-            # subscription is NOT pushed toward cancellation. The renewal stays
-            # due, which is what it is: when a gateway appears, it is charged.
+            # subscription is NOT pushed toward cancellation.
+            #
+            # TWO DIFFERENT UNKNOWNS, AND ONLY ONE OF THEM MAY BE RETRIED. Where
+            # no charge was presented — no gateway is configured — the renewal
+            # stays due and the next run tries again, because trying costs
+            # nothing. Where a charge WAS presented and its outcome is unknown,
+            # the money may already have moved, so it is held rather than
+            # presented again.
             sub["renewal_blocked_since"] = sub.get("renewal_blocked_since") or now
+            if payment.get("charge_attempted") is True:
+                sub["unconfirmed_charge"] = {
+                    "attempted_at": now,
+                    "amount": plan["price"],
+                    "reference": sub_id,
+                    "reason": payment.get("reason"),
+                    "gateway_response": payment.get("gateway_response"),
+                }
+                logger.warning(
+                    "Subscription %s charge presented and unconfirmed; held, not "
+                    "presented again: %s", sub_id, payment.get("reason"),
+                )
+                return {
+                    "subscription_id": sub_id,
+                    "action": "charge_unconfirmed",
+                    "status": "recorded_unsettled",
+                    "settled": False,
+                    "value_moved": None,
+                    "reason": payment.get("reason"),
+                    "payment": payment,
+                    "unconfirmed_charge": sub["unconfirmed_charge"],
+                    "disclosure": (
+                        "A charge was presented to the gateway and its outcome "
+                        "was not established. The billing counters were NOT "
+                        "advanced and the subscription was NOT moved toward "
+                        "cancellation. The charge will NOT be presented again "
+                        "until it has been reconciled with the gateway — it may "
+                        "already have been taken."
+                    ),
+                }
             logger.warning(
                 "Subscription %s renewal not charged: %s",
                 sub_id, payment.get("reason") or payment.get("status"),
@@ -282,10 +346,10 @@ class SubscriptionService:
                 "reason": payment.get("reason") or payment.get("status"),
                 "payment": payment,
                 "disclosure": (
-                    "No charge was attempted or none could be confirmed. The "
-                    "billing counters were NOT advanced and the subscription "
-                    "was NOT moved toward cancellation — the renewal is still "
-                    "due."
+                    "No charge was presented. The billing counters were NOT "
+                    "advanced and the subscription was NOT moved toward "
+                    "cancellation — the renewal is still due, and trying again "
+                    "costs nothing because nothing was attempted."
                 ),
             }
 
@@ -345,6 +409,13 @@ class SubscriptionService:
             "paid"           the charge settled
             "declined"       the charge was attempted and refused
             "not_configured" no gateway — the outcome is not established
+            "unresolved"     a charge was presented and nobody established its
+                             outcome; carries `charge_attempted: True`
+
+        THE ADAPTER'S CONTRACT. `subscriptions.payment_gateway` is an object with
+        `async charge(token=, amount=, reference=)`. It states its verdict in
+        `ok` (or `success`), or refuses with `error`; a gateway's own `status`
+        word is never read as a settled charge. See `foreign_report_of`.
         """
         gateway = self.config.get("payment_gateway")
         if not gateway:
@@ -371,6 +442,7 @@ class SubscriptionService:
             logger.error("Subscription %s charge raised: %s",
                          sub["subscription_id"], exc)
             return {"status": "unresolved", "settled": False, "value_moved": None,
+                    "charge_attempted": True,
                     "reason": f"the charge raised before reporting: {exc}"}
 
         # The gateway is a foreign structure, so its verdict is read with the
@@ -393,11 +465,14 @@ class SubscriptionService:
         # `foreign_report_of` is the reader written for exactly this caller —
         # it names this service in its own docstring — and this call site was
         # the only one it was ever meant to have. It believes an EXPLICIT
-        # verdict and answers UNKNOWN to everything else, which lands in the
-        # `unresolved` branch below: the counters do not move, the period does
-        # not roll, and the subscription is NOT pushed toward cancellation.
-        # UNKNOWN costs a retry or a human; SUCCESS costs a customer a charge
-        # that was refused.
+        # verdict — the adapter's `ok` / `success`, a populated `error`, a
+        # refusal word — and answers UNKNOWN to everything else, including a
+        # gateway status word that sounds like a yes and a reply whose fields
+        # disagree. UNKNOWN lands in the `unresolved` branch below: the counters
+        # do not move, the period does not roll, the subscription is NOT pushed
+        # toward cancellation, and because this charge WAS presented, it is held
+        # rather than presented again. SUCCESS costs a customer a charge that
+        # was refused; UNKNOWN costs a human, and nothing else.
         verdict = foreign_report_of(raw)
         if verdict is SUCCESS:
             return {"status": "paid", "settled": True, "value_moved": True,
@@ -407,5 +482,6 @@ class SubscriptionService:
                     "reason": "the gateway refused the charge",
                     "gateway_response": raw}
         return {"status": "unresolved", "settled": False, "value_moved": None,
+                "charge_attempted": True,
                 "reason": "the gateway did not report an outcome",
                 "gateway_response": raw}

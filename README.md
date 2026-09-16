@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,082 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,105 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -247,13 +247,18 @@ check behind it:
   transaction; if any part of it fails the request answers 503 and
   removes nothing, rather than reporting success over data it left behind
 - **A payment nobody confirmed is not a payment.** A subscription
-  renewal is booked from what the payment gateway actually reported, and
-  a gateway is not this platform: the rule that silence means success is
-  measured over code written here, so it is not applied to a party whose
-  way of saying no we have never seen. An answer we cannot read leaves
-  the counters where they are and the renewal still due — it neither
-  bills the customer nor pushes the subscription toward cancellation for
-  a charge that may never have been refused
+  renewal is booked only when the payment gateway says plainly that the
+  charge went through, and a gateway is not this platform: the rule that
+  silence means success is measured over code written here, and so are
+  the platform's own words for success, so neither is applied to a party
+  whose way of saying yes or no we have never seen. A gateway answering
+  `processing`, `refunded` or `cancelled` has not been paid, and a reply
+  that says yes in one field and no in another is not a yes. A charge
+  whose answer we cannot read leaves the counters where they are, does
+  not push the subscription toward cancellation, and is not presented
+  again — it may already have been taken, so it waits for someone to
+  check it with the gateway. A renewal nobody tried to charge, because no
+  gateway is configured, simply stays due
 - **A batch request carries the credential it was sent with.** Each item
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it

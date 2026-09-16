@@ -273,3 +273,24 @@ def test_a_foreign_party_that_speaks_plainly_is_still_believed():
     assert foreign_report_of({"error": "card declined"}) is FAILURE
     assert foreign_report_of({"status": "not_deployed"}) is FAILURE
     assert foreign_report_of({OUTCOME_FIELD: "success"}) is SUCCESS
+    assert foreign_report_of({"ok": False, "error": "card declined"}) is FAILURE
+    assert foreign_report_of({"status": "declined"}) is FAILURE
+    assert foreign_report_of({"status": "declined", "created": True}) is FAILURE
+
+
+@pytest.mark.parametrize("reply", [
+    {"status": "paid"}, {"status": "cancelled"}, {"status": "processing"},
+    {"status": "refunded"}, {"status": "requested"},
+    {"status": "declined", "created": True},
+    {"ok": True, "status": "refunded"}, {"ok": True, "error": "card declined"},
+    {"ok": True, "settled": False}, {OUTCOME_FIELD: "success", "status": "declined"},
+])
+def test_a_foreign_party_is_believed_only_where_everything_it_said_agrees(reply):
+    """A FOREIGN STATUS WORD IS NEVER A YES, and a reply that speaks in more than
+    one field is believed only where every field says the same thing. The first
+    version of `foreign_report_of` handed any reply with a `status` to
+    `report_of`, which reads the platform's own 101 real-outcome words as success
+    and `created: True` as success before the status — a vocabulary measured over
+    this tree, applied to a party it was never measured on. A refusal word still
+    counts as a refusal: it costs a grace period, never a charge."""
+    assert foreign_report_of(reply) is not SUCCESS, f"{reply!r} was read as a settled yes"
