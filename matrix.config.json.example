@@ -474,7 +474,7 @@
     "block_on_critical": true,
     "block_on_high": false
   },
-  "_supply_chain_note": "qr_secret has a WORKING DEFAULT that is published in this public repo. Unset, the product-authenticity hash is forgeable by anyone who can read the source. Set it to a long random per-deployment value BEFORE issuing any QR code you intend to treat as authoritative.",
+  "_supply_chain_note": "qr_secret keys the product-authenticity hash. It used to have a working default published in this repo, which made the hash forgeable by anyone who could read the source; unset, the generator now uses a RANDOM per-process secret instead, so nothing is forgeable and nothing verifies across a restart or between workers. Set it to a long random per-deployment value, in the SUPPLY_CHAIN_QR_SECRET environment variable rather than here, before issuing any QR code you intend to treat as authoritative. In production mode a plaintext copy in this file is stripped.",
   "supply_chain": {
     "qr_secret": "CHANGE-ME-long-random-per-deployment-value"
   },

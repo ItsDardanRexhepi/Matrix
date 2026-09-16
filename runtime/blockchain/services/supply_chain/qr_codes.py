@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import logging
+import secrets
 import time
 from typing import Any
 
@@ -39,7 +40,26 @@ class QRCodeGenerator:
         self.config = config
         sc = config.get("supply_chain", {})
 
-        self.qr_secret: str = sc.get("qr_secret", "the-matrix-default-qr-secret")
+        # NOT a constant. This read `sc.get("qr_secret",
+        # "the-matrix-default-qr-secret")`, so an unconfigured deployment
+        # computed its verification hashes under a secret published in this
+        # repository — anyone could mint a hash that verifies. It became
+        # reachable more often once `supply_chain.qr_secret` joined
+        # SECRET_FIELDS, because strict mode now strips a plaintext copy.
+        #
+        # A random per-process secret instead: unknown to a forger, and the
+        # cost is stated rather than hidden — hashes do not verify across a
+        # restart or between workers, which is what "configure a secret" buys.
+        configured = str(sc.get("qr_secret", "") or "").strip()
+        if configured:
+            self.qr_secret: str = configured
+        else:
+            self.qr_secret = secrets.token_hex(32)
+            logger.warning(
+                "supply_chain.qr_secret is not configured — using a random "
+                "per-process secret. QR verification hashes will not validate "
+                "after a restart or on another worker. Set "
+                "SUPPLY_CHAIN_QR_SECRET to make them durable.")
         self.qr_box_size: int = sc.get("qr_box_size", 10)
         self.qr_border: int = sc.get("qr_border", 4)
 

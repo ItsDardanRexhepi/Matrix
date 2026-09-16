@@ -86,6 +86,34 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("monitoring.sentry_dsn", "SENTRY_DSN", False),
     # Gateway auth
     ("gateway.api_key", "MATRIX_API_KEY", False),
+    # ── The eleven this table did not hold ────────────────────────────
+    # `load_config` promises "any plaintext copies in the JSON file are
+    # stripped", and the stripping iterates THIS TUPLE, so "any" meant "the
+    # ones somebody remembered". A sweep of matrix.config.json.example found 38
+    # secret-shaped keys and eleven absent from here — among them the APNs
+    # signing key that gateway/server.py::_apply_env_overrides writes into the
+    # config itself, and the Sign in with Apple team key. A production config
+    # carrying either in plaintext was not stripped and startup did not refuse.
+    # tests/test_every_secret_the_config_holds_is_a_secret_field.py keeps the
+    # class closed rather than the eleven.
+    ("blockchain.paymaster.signer_key",     "MATRIX_PAYMASTER_SIGNER_KEY", False),
+    ("notifications.ios_push.auth_key_p8",  "APNS_AUTH_KEY_P8",            False),
+    ("notifications.whatsapp.account_sid",  "TWILIO_ACCOUNT_SID",          False),
+    ("auth.apple.private_key_p8",           "APPLE_AUTH_KEY_P8",           False),
+    ("services.oracle_gateway.weather_api_key", "WEATHER_API_KEY",         False),
+    ("social.twitter.api_key",              "TWITTER_API_KEY",             False),
+    ("social.twitter.api_secret",           "TWITTER_API_SECRET",          False),
+    ("social.twitter.access_token",         "TWITTER_ACCESS_TOKEN",        False),
+    ("social.twitter.access_secret",        "TWITTER_ACCESS_SECRET",       False),
+    ("social.discord.webhook_url",          "SOCIAL_DISCORD_WEBHOOK_URL",  False),
+    # An HMAC secret. Listing it means strict mode strips a plaintext copy, and
+    # QRCodeGenerator used to answer an absent secret with a constant compiled
+    # into this repository — so stripping alone would have traded a plaintext
+    # secret for a PUBLISHED one. Not made required_in_production, because
+    # supply-chain QR is an optional subsystem and a deployment that never
+    # touches it should not be unable to boot; the fallback is what changed
+    # instead (qr_codes.py: a random per-process secret, and it says so).
+    ("supply_chain.qr_secret",              "SUPPLY_CHAIN_QR_SECRET",      False),
 )
 
 # Fields that MUST exist and be non-placeholder in production.
@@ -200,6 +228,31 @@ def _is_placeholder(value: Any) -> bool:
     return False
 
 
+def _env_secret(env_var: str) -> str:
+    """The secret this env var supplies, as a value or as a file it names.
+
+    ``<ENV>`` is the value. ``<ENV>_PATH`` names a file whose contents are the
+    value — how a container mounts a key it must not put in an environment
+    variable. The value form wins. An unreadable path yields "", which the
+    caller reads as "no env source", so a bad mount degrades to unconfigured
+    rather than crashing config load.
+    """
+    value = os.environ.get(env_var, "").strip()
+    if value:
+        return value
+    path = os.environ.get(f"{env_var}_PATH", "").strip()
+    if not path:
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except (OSError, ValueError):
+        logger.warning(
+            "%s_PATH is set (%s) but is not a readable UTF-8 file — treating "
+            "the secret as unset.", env_var, path)
+        return ""
+
+
 def is_production_mode() -> bool:
     """Return ``True`` if the environment says we're running in production.
 
@@ -225,7 +278,14 @@ def enforce_env_only_secrets(
     For each entry in :data:`SECRET_FIELDS`:
 
     - If the environment variable is set, its value wins and is copied
-      into the config dict (overwriting whatever was there).
+      into the config dict (overwriting whatever was there). ``<ENV>_PATH``
+      is an equal source: some secrets are mounted as FILES rather than
+      passed as values — the APNs ``.p8`` is, and the deploy names it with
+      ``APNS_AUTH_KEY_P8_PATH`` — and a field listed here without that form
+      would have its mounted value stripped in strict mode, the documented
+      deploy breaking because its secret finally became a secret. A direct
+      value wins over a path; an unreadable path is treated as no source at
+      all and never raises.
     - If the environment variable is unset and the config already has a
       non-placeholder value, we leave it alone (lenient mode) or
       **delete it and raise** (strict mode, required fields).
@@ -240,7 +300,7 @@ def enforce_env_only_secrets(
     missing_required: list[str] = []
 
     for path, env_var, required_in_prod in SECRET_FIELDS:
-        env_value = os.environ.get(env_var, "").strip()
+        env_value = _env_secret(env_var)
         current = _get(config, path)
 
         if env_value:

@@ -219,8 +219,17 @@ def load_config() -> dict:
     """Load, env-override, enforce secret-env rules, and validate the config.
 
     In **production mode** (``MATRIX_ENV=production``):
-      - Secrets must come from environment variables. Any plaintext
-        copies in the JSON file are stripped.
+      - Secrets must come from environment variables. Plaintext copies in the
+        JSON file are stripped — every one named in
+        ``runtime.config.validation.SECRET_FIELDS``, which is what decides
+        the answer. This line used to say "any plaintext copies", and the
+        stripping has always been table-driven: eleven secret-shaped keys in
+        the shipped example config were absent from that table, including the
+        APNs signing key this module itself writes from a mounted file.
+        tests/test_every_secret_the_config_holds_is_a_secret_field.py now
+        fails if a secret-shaped key in the example is not an entry, so the
+        sentence stays true as the config grows. A secret may be supplied as
+        ``<ENV>`` or as a file named by ``<ENV>_PATH``.
       - Validation errors abort startup.
       - Missing required env secrets abort startup.
 
