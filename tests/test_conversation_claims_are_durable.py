@@ -826,6 +826,45 @@ async def test_a_deletion_the_store_fails_part_way_erases_nothing_and_the_retry_
             assert _rows_with(memory, text) == ([], []), f"{text!r} was written back by the next turn"
 
 
+async def test_a_deletion_that_raised_after_its_erasure_committed_leaves_the_gateway_no_copy():
+    """The other end of the same class: the erasure went through and something
+    after it raised. The client is told the deletion failed and retries, and
+    that retry finds no conversation of the account left to name — so the
+    gateway's own copies must already be gone. They are dropped from ids read
+    BEFORE the erasure, on the failure path too, not from what it returned."""
+    server = _server()
+    router = _HeldRouter("never-held")
+    server.react_loop.router.complete = router.complete
+    memory = server.react_loop.memory
+    subject = "apple:postcommit"
+    sid = "pc-conv"
+    real_erase_owner = memory.erase_owner
+
+    async def erase_then_raise(owner):
+        await real_erase_owner(owner)
+        raise RuntimeError("the store went away after the erasure committed")
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        assert await _drive(client, "/chat", {"message": "ANON-PRECLAIM-77", "session_id": sid}) == 200
+        account = await _session(server, subject)
+        assert await _drive(client, "/chat", {"message": "ACCT-SECRET-88", "session_id": sid}, account) == 200
+
+        memory.erase_owner = erase_then_raise
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 503, (resp.status, await resp.text())
+
+        memory.erase_owner = real_erase_owner
+        resp = await client.delete("/api/v1/auth/account", headers=account)
+        assert resp.status == 200, await resp.text()
+        assert sid not in server.conversations, f"the retry left the gateway's copy: {server.conversations.get(sid)}"
+        router.shown.clear()
+        assert await _drive(client, "/chat", {"message": "anyone there?", "session_id": sid}) == 200
+        assert len(router.shown) == 1, router.shown
+        for text in ("ACCT-SECRET-88", "ANON-PRECLAIM-77"):
+            assert text not in router.shown[0], f"the next caller naming the id was shown {text!r}"
+            assert _rows_with(memory, text) == ([], []), f"{text!r} was written back by the next turn"
+
+
 # ── A deletion with no live session deleted nothing and said it had ──────────
 #
 # With an expired (or absent) session the handler had no subject, erased
