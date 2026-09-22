@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,240 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,251 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -284,8 +284,11 @@ check behind it:
   sandbox: a command runs as the platform's own user, can read the
   platform process's environment and can reach the network. So it refuses
   unless `MATRIX_ENV` declares a development environment or an operator
-  opts in, an unset `MATRIX_ENV` refuses too, and a test reads every
-  launcher shipped in this tree to hold that none of them declares one.
+  opts in, an unset `MATRIX_ENV` refuses too, and a test finds every file
+  in this tree that starts the server — from the start command it names,
+  not from a list kept by hand — and reads each of them, with the compose
+  files and Kubernetes manifests that start it by image, to hold that none
+  of them declares one.
   A command it does run gets an allowlisted environment with none of the
   platform's keys in it, which is not isolation, and is why it refuses by
   default

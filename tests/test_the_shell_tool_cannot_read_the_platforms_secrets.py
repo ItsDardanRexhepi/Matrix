@@ -35,6 +35,7 @@ import asyncio
 import os
 import pathlib as _pathlib
 import re as _re
+import subprocess as _subprocess
 
 import pytest
 
@@ -195,6 +196,12 @@ _MATRIX_ENV_FORMS = (
     _re.compile(r"""^\s*ENV\s+MATRIX_ENV\s+["']?([A-Za-z_-]+)""", _re.MULTILINE),
     # Kubernetes `- name: K` followed by `value: v`
     _re.compile(r"""name:\s*["']?MATRIX_ENV["']?\s*\n\s*value:\s*["']?([A-Za-z_-]*)"""),
+    # The quoted name, in Python or JSON: `env["MATRIX_ENV"] = "v"`, a dict
+    # literal or a JSON object's `"MATRIX_ENV": "v"`, and
+    # `setdefault("MATRIX_ENV", "v")`. The CLI launcher builds the server's
+    # environment in Python and the editor's launcher is JSON, and the first
+    # reader saw neither form.
+    _re.compile(r"""["']MATRIX_ENV["']\s*(?:\]\s*=|[:,])\s*["']([A-Za-z_-]*)"""),
 )
 
 
@@ -203,12 +210,86 @@ def _declared_matrix_envs(text: str) -> list[str]:
             for m in form.finditer(text)]
 
 
+#: How a file in this tree starts the server: `python -m gateway.server` on a
+#: shell line, `["python", "-m", "gateway.server"]` in a Dockerfile CMD or a
+#: Popen argv, or the `gateway.server:main` console script.
+_STARTS_THE_SERVER = _re.compile(r"""-m["',\s]+gateway\.server|gateway\.server:main""")
+
+
+def _tracked_files() -> list[_pathlib.Path]:
+    """Every file in the tree, as git tracks it, or every file on disk outside
+    the directories that hold no source when there is no git to ask."""
+    try:
+        out = _subprocess.run(
+            ["git", "-C", str(_REPO), "ls-files", "-z"],
+            capture_output=True, check=True,
+        ).stdout
+        return [_REPO / p for p in out.decode().split("\0") if p]
+    except (OSError, _subprocess.CalledProcessError):
+        skip = {".git", ".venv", "venv", "node_modules", "__pycache__"}
+        return [p for p in _REPO.rglob("*")
+                if p.is_file() and not (set(p.relative_to(_REPO).parts) & skip)]
+
+
 def _launch_descriptors() -> list[_pathlib.Path]:
-    names = ["Dockerfile", "Procfile", "railway.toml", "start.sh"]
-    found = [_REPO / n for n in names if (_REPO / n).exists()]
-    found += sorted(_REPO.glob("docker-compose*.yml"))
-    found += sorted((_REPO / "k8s").glob("*.yaml"))
-    return found
+    """Every file in this tree that starts the server.
+
+    FOUND FROM THE START COMMAND, NOT FROM A LIST. The first version of this
+    named four files and two globs, and the README said a test read "every
+    launcher shipped in this tree". It did not: `cli/gateway.py` starts
+    `python -m gateway.server` for `matrix gateway start` with a copy of the
+    operator's environment, an editor workspace file starts it for the
+    editor, and `pyproject.toml` installs it as the `matrix-gateway` script,
+    and none of the three was read. A launcher added later on any of those
+    patterns would have escaped the check the same way. So the set is the
+    files that NAME the start command, plus the compose files and the
+    Kubernetes manifests, which start it by image and name no command.
+
+    Tests and Markdown are not launchers and are left out: this file names
+    the command in its own controls, and the documentation explains it.
+    """
+    found: set[_pathlib.Path] = set()
+    for path in _tracked_files():
+        rel = path.relative_to(_REPO)
+        if rel.parts[0] == "tests" or path.suffix == ".md" or not path.is_file():
+            continue
+        try:
+            text = path.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        if _STARTS_THE_SERVER.search(text):
+            found.add(path)
+    found.update(_REPO.glob("docker-compose*.yml"))
+    found.update((_REPO / "k8s").glob("*.yaml"))
+    return sorted(found)
+
+
+@pytest.mark.parametrize("text", [
+    "CMD [\"python\", \"-m\", \"gateway.server\"]",
+    "web: python -m gateway.server",
+    "exec python3 -m gateway.server",
+    "proc = subprocess.Popen(\n    [python, \"-m\", \"gateway.server\"],",
+    "\"command\": \"source .venv/bin/activate && python -m gateway.server\"",
+    "matrix-gateway = \"gateway.server:main\"",
+])
+def test_the_launcher_finder_sees_every_form_a_start_command_takes(text):
+    """THE FINDER'S OWN CONTROL, in the forms the tree uses: a Dockerfile
+    CMD, a Procfile line, a shell exec, a Popen argv, a JSON command string
+    and a console-script entry."""
+    assert _STARTS_THE_SERVER.search(text), text
+
+
+def test_the_launcher_finder_finds_the_launchers_that_exist():
+    """The finder has to FIND what is there before its silence means anything.
+    These are the files that start the server at the commit that wrote this,
+    including the three the hand-kept list missed."""
+    found = {str(p.relative_to(_REPO)) for p in _launch_descriptors()}
+    expected = {
+        "Dockerfile", "Procfile", "railway.toml", "start.sh",
+        "cli/gateway.py", "pyproject.toml",
+        "docker-compose.yml", "docker-compose.prod.yml", "k8s/deployment.yaml",
+    }
+    assert expected <= found, f"the launcher finder no longer finds: {sorted(expected - found)}"
 
 
 @pytest.mark.parametrize("text", [
@@ -220,12 +301,18 @@ def _launch_descriptors() -> list[_pathlib.Path]:
     "web: MATRIX_ENV=development python -m gateway.server",
     "export MATRIX_ENV=local",
     '- name: MATRIX_ENV\n  value: "development"',
+    # the forms a Python launcher and a JSON launcher take
+    'env["MATRIX_ENV"] = "development"',
+    "os.environ.setdefault('MATRIX_ENV', 'dev')",
+    '"env": {"MATRIX_ENV": "local"}',
+    '"command": "MATRIX_ENV=test python -m gateway.server"',
 ])
 def test_the_launcher_reader_sees_every_form_a_development_declaration_takes(text):
     """THE CHECK'S OWN CONTROL. The first version looked for the substring
     `matrix_env=development` in four files, so `ENV MATRIX_ENV development`,
     a TOML `MATRIX_ENV = "dev"`, a compose file and a Kubernetes manifest all
-    passed it whatever they declared."""
+    passed it whatever they declared. The second read no Python and no JSON,
+    which is what the CLI and the editor launchers are written in."""
     assert set(_declared_matrix_envs(text)) & bash_module.DEVELOPMENT_ENVIRONMENTS, text
 
 
