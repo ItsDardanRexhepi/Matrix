@@ -2618,9 +2618,20 @@ class GatewayServer:
         session — the token ``/api/v1/auth/apple`` or ``/auth/verify`` issued,
         presented as ``Authorization: Bearer`` or ``X-Wallet-Session`` — opens
         only the routes the app reaches (``gateway/session_routes.py``, derived
-        from the client's own calls; anything else answers 403). T2 / path A:
-        before this, the app's Apple Bearer was refused on every key-gated
-        route it calls.
+        from the client's own calls; any other matched route answers 403). T2 /
+        path A: before this, the app's Apple Bearer was refused on every
+        key-gated route it calls.
+
+        A 401 means the credential is bad — absent, expired, or never issued.
+        With a live session, a path that matches no route, or matches one with
+        another method, is answered by the router — 404, or 405 with ``Allow``
+        — exactly as it answers the operator. It used to fall through to the
+        401 written for a missing credential, and the MTRX client clears its
+        stored token on every 401, so a typo, a trailing slash or a route the
+        client shipped before the server did signed a valid user out. Nothing
+        is widened: the allowlist still decides every matched route, and an
+        anonymous caller still gets 401 on every non-public path whether or
+        not the path exists.
         """
         if not self.auth_enabled or request.path in self._public_paths:
             return await handler(request)
@@ -2635,15 +2646,18 @@ class GatewayServer:
         if session is not None:
             resource = getattr(request.match_info.route, "resource", None)
             canonical = getattr(resource, "canonical", "") if resource is not None else ""
-            if canonical and session_may_reach(canonical):
+            if not canonical:
+                # No matched route (aiohttp's SystemRoute has no resource): the
+                # handler IS the router's 404 / 405. The credential is good.
+                return await handler(request)
+            if session_may_reach(canonical):
                 request["auth"] = {"kind": "session", "subject": str(session.get("address", ""))}
                 return await handler(request)
-            if canonical:
-                return web.json_response(
-                    {"error": "forbidden",
-                     "message": "This route is not available to a user session; it requires the operator key."},
-                    status=403,
-                )
+            return web.json_response(
+                {"error": "forbidden",
+                 "message": "This route is not available to a user session; it requires the operator key."},
+                status=403,
+            )
 
         return web.json_response(
             {"error": "unauthorized", "message": "Valid API key required. Set Authorization: Bearer <key>"},
