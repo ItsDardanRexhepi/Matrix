@@ -3188,10 +3188,14 @@ class GatewayServer:
             if (
                 api_key
                 and self.auth_enabled
-                and digests_equal(api_key, self.api_key)  # never a TypeError on a public path
+                and digests_equal(api_key, self.api_key)  # a bad string is False here, not a 500
             ):
+                # surrogatepass, like digests_equal: a key that matched may hold
+                # a lone surrogate (os.environ and aiohttp both decode a byte
+                # that is not UTF-8 to one), and a bare encode() would 500 the
+                # operator on the request the wall just accepted.
                 rate_key = (
-                    f"key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
+                    f"key:{hashlib.sha256(api_key.encode('utf-8', 'surrogatepass')).hexdigest()[:16]}"
                 )
                 limiter = self.rate_limiter_auth
             else:

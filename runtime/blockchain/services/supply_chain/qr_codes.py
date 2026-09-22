@@ -232,6 +232,18 @@ class QRCodeGenerator:
                 "error": "verification_hash must be an ASCII string",
                 "product_id": product_id,
             }
+        # The id is text too. A JSON list or object here was hashed as its
+        # repr and then raised TypeError as a cache key (unhashable); a number
+        # was hashed as its digits and called `suspicious`. Not a string is
+        # malformed. A string holding a lone surrogate (a JSON "\udcff") is a
+        # string — it is hashed over its bytes (surrogatepass, below) and the
+        # compare answers, as it does for any id the operator did not issue.
+        if not isinstance(product_id, str):
+            return {
+                "verified": False,
+                "status": "invalid",
+                "error": "product_id must be a string",
+            }
 
         # Verify format version
         if fmt != QR_FORMAT_VERSION:
@@ -290,9 +302,12 @@ class QRCodeGenerator:
         callable with a configured secret; both entry points refuse before they
         reach it.
         """
+        # surrogatepass on both: the secret comes from os.environ and the id
+        # from a JSON payload, and either may hold a lone surrogate; a bare
+        # encode() raised UnicodeEncodeError out of verify_scan on the id.
         return hmac.new(
-            self.qr_secret.encode(),
-            f"{product_id}|{timestamp}".encode(),
+            self.qr_secret.encode("utf-8", "surrogatepass"),
+            f"{product_id}|{timestamp}".encode("utf-8", "surrogatepass"),
             hashlib.sha256,
         ).hexdigest()[:32]
 
