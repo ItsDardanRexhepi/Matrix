@@ -61,6 +61,13 @@ def _provider_secret_fields() -> tuple[tuple[str, str, bool], ...]:
 SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # Blockchain signer keys
     ("blockchain.paymaster_private_key", "MATRIX_PAYMASTER_KEY", True),
+    # The gas-sponsorship signer at the location matrix.config.json.example
+    # documents. gateway/paymaster.py reads THIS first and falls back to the
+    # flat key above only when it is absent — so a real key written here
+    # survived production loading unstripped, and no variable could set it.
+    # Not required: the flat key alone still configures the signer, and a
+    # deployment without sponsorship answers 503 on /paymaster/sign.
+    ("blockchain.paymaster.signer_key", "MATRIX_PAYMASTER_SIGNER_KEY", False),
     ("blockchain.demo_wallet_private_key", "MATRIX_DEMO_WALLET_KEY", False),
     # Model provider API keys (fallback to the per-provider env vars
     # that ``_apply_env_overrides`` in gateway/server.py already reads)
@@ -98,7 +105,14 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("social.discord.webhook_url",    "DISCORD_WEBHOOK_URL",    False),
     ("social.discord.announcements_webhook",
      "DISCORD_ANNOUNCEMENTS_WEBHOOK", False),
-    ("services.oracle_gateway.weather_api_key", "WEATHER_API_KEY", False),
+    # Oracle API keys, at the paths the oracle gateway READS
+    # (runtime/blockchain/services/oracle_gateway/: weather_oracle.py reads
+    # oracle.weather.api_key, gateway.py reads oracle.sports.api_key). The
+    # weather entry used to target services.oracle_gateway.weather_api_key, a
+    # leaf the example shipped and nothing read — WEATHER_API_KEY bridged a
+    # value to nowhere while the census called the key handled.
+    ("oracle.weather.api_key", "WEATHER_API_KEY", False),
+    ("oracle.sports.api_key",  "SPORTS_API_KEY",  False),
     # Supply-chain authenticity. There is no default: without this the QR
     # generator refuses to issue or verify codes
     # (runtime/blockchain/services/supply_chain/qr_codes.py).
@@ -125,9 +139,13 @@ FILE_MOUNTED_SECRETS: tuple[tuple[str, str], ...] = (
 #: Derived rather than listed: the census below walks whatever config it is
 #: handed, so a secret added to the shipped example — or to an operator's own
 #: file — is named without anyone remembering to add it anywhere.
+#:
+#: ``signer_key`` is the whole word on purpose. A bare ``key`` would name every
+#: leaf that ends in it — a public key, a cache key — as a secret, and a census
+#: that cries wolf is one that stops being read.
 SECRET_NAME_SUFFIXES: tuple[str, ...] = (
     "api_key", "apikey", "secret", "password", "passwd", "_pass",
-    "private_key", "auth_key", "signing_key", "_p8", "_token", "_sid",
+    "private_key", "auth_key", "signing_key", "signer_key", "_p8", "_token", "_sid",
     "_dsn", "webhook_url", "_webhook", "credential", "credentials",
     "passphrase", "mnemonic", "seed_phrase", "salt",
 )
