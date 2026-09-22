@@ -110,12 +110,21 @@ class DecentralizedComputeService:
         Returns a dict; on transport/parse failure returns an ``error`` dict so
         callers never raise from a network hiccup.
         """
+        # The fault's kind travels with the error, so the caller can tell a
+        # request that never left this process from one that was out when the
+        # fault came. The classifier is creator_platforms' — the one place
+        # that question is answered in this tree — rather than a second copy.
+        from runtime.blockchain.services.creator_platforms._guards import (
+            classify_transport_fault,
+        )
+
         try:
             import httpx  # lazy — heavy/optional dependency
         except ImportError:
             return {
                 "status": "error",
                 "error": "httpx not installed — cannot reach provider REST API",
+                "fault": "not_sent",
             }
 
         url = endpoint.rstrip("/") + path
@@ -140,7 +149,60 @@ class DecentralizedComputeService:
             }
         except Exception as exc:  # noqa: BLE001 — surface, never raise
             logger.warning("compute provider request failed: %s", exc)
-            return {"status": "error", "error": str(exc)}
+            return {"status": "error", "error": str(exc),
+                    "fault": classify_transport_fault(exc)}
+
+    def _provider_refused(
+        self, reply: Any, *, method: str, endpoint: str, provider: str,
+    ) -> dict | None:
+        """What the provider's reply establishes when it did NOT accept the
+        request, or None when it did.
+
+        THE REPLY WAS NOT READ. Each of the three provider calls below answered
+        with its word — "submitted", "reserved", "claim_submitted" — whatever
+        `_provider_request` came back with, so a connection refused, a 401 for
+        a bad key or a 503 was reported as a job submitted, with the provider's
+        own error tucked under `provider_result`, which no reader looks
+        through. The dispatcher recorded a broadcast for a request the provider
+        had refused.
+
+        Three answers, `classify_transport_fault`'s. The request never left
+        this process, or the provider answered 4xx: a refusal, in the
+        provider's words. The provider answered 5xx, or the fault came after
+        the request was out: unknown — not a refusal and not a submission —
+        and it is recorded the way the dispatcher records a transaction that
+        went out unconfirmed, `broadcast: True` with `settled: False`, because
+        that is the one record for "sent, and nobody knows"; there is no hash
+        here, and the record says so. Accepted: None, and the caller says its
+        word, which the gate reads as a broadcast, as it always did.
+        """
+        base = {
+            "service": self.service_name, "method": method,
+            "provider": provider, "endpoint": endpoint,
+        }
+        if not isinstance(reply, dict):
+            return {**base, "status": "error", "provider_result": reply,
+                    "error": f"provider reply was not an object: {reply!r}"[:300]}
+        if reply.get("ok") is True:
+            return None
+        http = reply.get("http_status")
+        if (isinstance(http, int) and http >= 500) or reply.get("fault") == "unknown":
+            answered = f"HTTP {http}" if isinstance(http, int) else "a fault after the request was out"
+            return {
+                **base, "status": "pending", "settled": False, "value_moved": None,
+                "broadcast": True, "tx_hash": None, "provider_result": reply,
+                "disclosure": (
+                    "The request reached the provider and its answer does not "
+                    f"say whether it was accepted ({answered}). This is NOT a "
+                    "refusal and NOT a submission; there is no transaction hash "
+                    "to check, so ask the provider before retrying."
+                ),
+            }
+        if isinstance(http, int):
+            detail = f"provider answered HTTP {http}: {reply.get('response')!r}"[:300]
+        else:
+            detail = str(reply.get("error") or "provider request failed")
+        return {**base, "status": "error", "error": detail, "provider_result": reply}
 
     # ── submit_compute_job ───────────────────────────────────────────
 
@@ -190,6 +252,12 @@ class DecentralizedComputeService:
             path="/v1/deployments",
             json_body=deployment_body,
         )
+        refused = self._provider_refused(
+            result, method="submit_compute_job", provider=provider,
+            endpoint=endpoint.rstrip("/") + "/v1/deployments",
+        )
+        if refused is not None:
+            return refused
         return {
             "status": "submitted",
             "service": self.service_name,
@@ -244,6 +312,12 @@ class DecentralizedComputeService:
             path="/v1/leases",
             json_body=lease_body,
         )
+        refused = self._provider_refused(
+            result, method="rent_device", provider=provider,
+            endpoint=endpoint.rstrip("/") + "/v1/leases",
+        )
+        if refused is not None:
+            return refused
         return {
             "status": "reserved",
             "service": self.service_name,
@@ -331,6 +405,12 @@ class DecentralizedComputeService:
                 path="/v1/rewards/claim",
                 json_body={"recipient": params.get("recipient")},
             )
+            refused = self._provider_refused(
+                result, method="claim_compute_reward", provider=provider,
+                endpoint=endpoint.rstrip("/") + "/v1/rewards/claim",
+            )
+            if refused is not None:
+                return refused
             return {
                 "status": "claim_submitted",
                 "service": self.service_name,
