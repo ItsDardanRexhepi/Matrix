@@ -9,7 +9,6 @@ Logs all requests with timestamps.
 
 import asyncio
 import hashlib
-import hmac
 import json
 import logging
 import os
@@ -27,6 +26,7 @@ from runtime.react_loop import (  # noqa: F401 — CLIENT_CONTEXT_FENCE re-expor
     CLIENT_CONTEXT_FENCE, CLIENT_CONTEXT_MAX_CHARS, ReActLoop, ReActContext, Message,
 )
 from runtime.time.temporal_context import TemporalContext
+from runtime.auth.constant_time import digests_equal
 from runtime.auth.session_store import (
     WalletSessionStore,
     NonceStore,
@@ -2666,7 +2666,11 @@ class GatewayServer:
         if not self.auth_enabled:
             return True
         key = self._presented_api_key(request)
-        return bool(key) and hmac.compare_digest(key, self.api_key)
+        # digests_equal, not hmac.compare_digest: the header is the caller's
+        # bytes, and compare_digest raises TypeError on a non-ASCII str — so
+        # `Authorization: Bearer éé` from an anonymous caller answered 500
+        # here, on every key-gated route, instead of 401.
+        return bool(key) and digests_equal(key, self.api_key)
 
     def _wallet_session_from_request(self, request: web.Request):
         """The live wallet session the request presents: ``X-Wallet-Session``,
@@ -3170,7 +3174,7 @@ class GatewayServer:
             if (
                 api_key
                 and self.auth_enabled
-                and hmac.compare_digest(api_key, self.api_key)
+                and digests_equal(api_key, self.api_key)  # never a TypeError on a public path
             ):
                 rate_key = (
                     f"key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"

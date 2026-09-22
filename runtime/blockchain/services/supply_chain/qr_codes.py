@@ -16,6 +16,7 @@ import logging
 import time
 from typing import Any
 
+from runtime.auth.constant_time import digests_equal
 from runtime.config.validation import is_placeholder
 
 logger = logging.getLogger(__name__)
@@ -217,6 +218,21 @@ class QRCodeGenerator:
                 "error": "QR code missing required fields (product_id, verification_hash)",
             }
 
+        # A hash is an ASCII hex string by construction. Anything else is a
+        # malformed payload — `invalid`, not `suspicious` (compared and wrong)
+        # — and is never handed to a constant-time compare, which raises
+        # TypeError on a non-ASCII str: a `verification_hash` of "é" * 32 used
+        # to come back as an exception where a wrong hash came back as
+        # `verified: False`. No route reaches this yet; the first one must not
+        # turn a bad scan into a 500.
+        if not isinstance(scanned_hash, str) or not scanned_hash.isascii():
+            return {
+                "verified": False,
+                "status": "invalid",
+                "error": "verification_hash must be an ASCII string",
+                "product_id": product_id,
+            }
+
         # Verify format version
         if fmt != QR_FORMAT_VERSION:
             return {
@@ -233,7 +249,7 @@ class QRCodeGenerator:
             expected_hash = None
 
         hash_valid = (
-            hmac.compare_digest(expected_hash, str(scanned_hash))
+            digests_equal(expected_hash, scanned_hash)
             if expected_hash else False
         )
 
@@ -241,8 +257,7 @@ class QRCodeGenerator:
         cached = self._qr_cache.get(product_id)
         cache_match = False
         if cached:
-            cache_match = hmac.compare_digest(
-                cached["verification_hash"], str(scanned_hash))
+            cache_match = digests_equal(cached["verification_hash"], scanned_hash)
 
         verified = hash_valid or cache_match
 
