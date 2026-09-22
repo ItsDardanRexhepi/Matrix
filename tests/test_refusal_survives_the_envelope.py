@@ -289,6 +289,85 @@ def test_the_ripple_still_publishes_a_real_action(routes):
     assert len(published) == 1 and published[0][0] == "feed.ripple"
 
 
+# ── 3b. nor a broadcast — the third answer, on the HTTP path ───────────────
+#
+# The dispatcher's feed path records a transaction that was sent and not
+# confirmed as a BROADCAST and announces nothing (`_record_verdict`, the third
+# answer). `_maybe_ripple` is the same feed on the /api/v1 path, and it read the
+# result through `report_of` alone, which answers SUCCESS for the bare
+# `{"status": "submitted", "tx_hash": ...}` that twenty-six methods return
+# straight off the send — so the live feed announced a bridge, a channel close
+# or a liquidation as an executed action on the evidence that a node had taken
+# the bytes. The README says a broadcast is not announced on the feed as done;
+# it was, on this surface.
+
+_HASH = "0x" + "ab" * 32
+
+
+def _feed(routes) -> list:
+    published: list = []
+    routes._broadcaster = type("B", (), {
+        "publish_dict": lambda _self, topic, payload: published.append((topic, payload))
+    })()
+    return published
+
+
+def test_the_ripple_does_not_announce_a_bare_broadcast_as_done(routes, caplog):
+    """DEFECT-PROVER. The shape is what `neosafe.route_revenue` and its
+    twenty-five siblings return with no receipt wait, and what the dispatcher
+    records as a broadcast."""
+    import logging
+
+    from runtime.blockchain.services.service_dispatcher import RECORD_BROADCAST, _record_verdict
+
+    published = _feed(routes)
+    sent = {"status": "submitted", "tx_hash": _HASH, "service": "bridge"}
+    assert _record_verdict(sent) == RECORD_BROADCAST, "premise changed — the dispatcher no longer calls this a broadcast"
+    with caplog.at_level(logging.INFO):
+        routes._maybe_ripple("bridge", "cross_chain_bridge", {"sender": "0xabc"}, sent)
+    assert published == [], (
+        f"the public feed announced a broadcast as an executed action: {published}")
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("ACTION BROADCAST" in m and _HASH in m for m in messages), (
+        f"a sent transaction left no record carrying its hash: {messages}")
+    assert not any("ACTION DECLINED" in m for m in messages), "a broadcast was recorded as a decline"
+
+
+async def test_the_ripple_does_not_announce_an_unconfirmed_wait_either(routes):
+    """The other broadcast shape, built by calling the emitter: what
+    `settle_transaction` returns when its wait runs out."""
+    from runtime.blockchain.web3_manager import settle_transaction
+
+    class _NoReceipt:
+        async def wait_for_receipt(self, _tx_hash, timeout=120):
+            raise TimeoutError("no receipt in time")
+
+    unconfirmed = await settle_transaction(_NoReceipt(), _HASH, "route_revenue", "neosafe")
+    assert unconfirmed.get("broadcast") is True and unconfirmed.get("settled") is False
+    published = _feed(routes)
+    routes._maybe_ripple("neosafe", "route_revenue", {"sender": "0xabc"}, unconfirmed)
+    assert published == [], (
+        f"the public feed announced an unconfirmed transaction as an executed action: {published}")
+
+
+async def test_the_ripple_still_announces_a_settled_transaction(routes):
+    """SCOPE PIN, and the ordering argument: `settle_transaction`'s confirmed
+    shape keeps the word "submitted" and carries `settled: True`, and a gate
+    keyed on the word would silence exactly the services that wait."""
+    from runtime.blockchain.web3_manager import settle_transaction
+
+    class _Confirmed:
+        async def wait_for_receipt(self, _tx_hash, timeout=120):
+            return {"status": 1, "blockNumber": 7, "gasUsed": 21000}
+
+    settled = await settle_transaction(_Confirmed(), _HASH, "route_revenue", "neosafe")
+    assert settled.get("settled") is True and settled.get("status") == "submitted"
+    published = _feed(routes)
+    routes._maybe_ripple("neosafe", "route_revenue", {"sender": "0xabc"}, settled)
+    assert len(published) == 1 and published[0][0] == "feed.ripple", published
+    assert published[0][1].get("ref") == _HASH and published[0][1].get("status") == "submitted"
+
+
 # ── 4. the bridge must not answer ok:true over the dispatcher's refusal ────
 
 def test_bridge_action_does_not_answer_ok_true_over_a_relayed_refusal():

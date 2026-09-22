@@ -860,6 +860,30 @@ class ServiceRoutes:
             method_name, service_name, actor or "<unnamed>", status,
         )
 
+    @staticmethod
+    def _record_broadcast(service_name: str, method_name: str, result: Any,
+                          *, actor: str) -> None:
+        """Record that a transaction went OUT and nobody has confirmed it landed.
+
+        The dispatcher's third record (`ServiceDispatcher._record_broadcast`),
+        in the same sentence, at the same level and with the same fields, for
+        the same reason `_record_decline` mirrors `_attest_refusal`: this
+        surface never enters `ServiceDispatcher.execute`, so a broadcast on the
+        /api/v1 path left no record at all once it stopped being announced.
+        The hash is the point — it is what lets anyone settle the question
+        later — and a service that had none is recorded as having none.
+        """
+        status = result.get("status") if isinstance(result, dict) else None
+        tx = None
+        if isinstance(result, dict):
+            tx = result.get("tx_hash") or result.get("transaction_hash")
+        logger.info(
+            "ACTION BROADCAST (not attested, not published): action=%s service=%s "
+            "actor=%s status=%s tx_hash=%s — the transaction was SENT and no "
+            "receipt confirms it; it may still be mined, and it may revert",
+            method_name, service_name, actor or "<unknown>", status, tx or "<none>",
+        )
+
     def _maybe_ripple(self, service_name: str, method_name: str, kwargs: dict, result: Any) -> None:
         """Publish a ``feed.ripple`` event for an executed consequential action.
 
@@ -898,6 +922,20 @@ class ServiceRoutes:
         What stops is announcing it as something that happened. An outcome
         nobody established (UNKNOWN — `pending`, `queued`) still ripples and
         still carries its status: those calls did begin.
+
+        EXCEPT A BROADCAST, WHICH IS THE THIRD ANSWER HERE TOO. `report_of`
+        asks whether the CALL succeeded, and for a transaction that was sent it
+        did — the bytes went out — so the bare `{"status": "submitted",
+        "tx_hash": ...}` that twenty-six methods return straight off the send
+        read as SUCCESS here and was published to the live feed as an executed
+        action, and `settle_transaction`'s unconfirmed shape rippled as
+        `pending`. The dispatcher's feed path had already stopped doing that
+        (`_record_verdict`: settled, broadcast, refused), so the two surfaces
+        disagreed about the same result. The same gate now decides here, read
+        before the publish: a broadcast is recorded under its hash and not
+        announced, because a feed entry for a bridge or a liquidation may be
+        restored only when it is derived from a settlement, never from the fact
+        that a node accepted the bytes.
         """
         refused = report_of(result) == FAILURE
         if service_name == "privacy":
@@ -927,6 +965,17 @@ class ServiceRoutes:
             # attested (`_STATE_MODIFYING_ACTIONS`), and these are the calls
             # this surface would have rippled. Same scope, same record.
             self._record_decline(service_name, method_name, result, actor=actor)
+            return
+        # THE THIRD ANSWER, from the gate that holds the argument. Imported
+        # here, as the dispatcher is everywhere on this file, because the
+        # verdict has to be the dispatcher's own: a broadcast on one surface
+        # must be a broadcast on the other.
+        from runtime.blockchain.services.service_dispatcher import (
+            RECORD_BROADCAST,
+            _record_verdict,
+        )
+        if _record_verdict(result) == RECORD_BROADCAST:
+            self._record_broadcast(service_name, method_name, result, actor=actor)
             return
         from gateway.security_gate import action_type_for
         payload: Dict[str, Any] = {
