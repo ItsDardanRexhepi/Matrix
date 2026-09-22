@@ -33,10 +33,55 @@ logger = logging.getLogger(__name__)
 
 _ZERO32 = b"\x00" * 32
 
+#: EntryPoint v0.6 charges the PAYMASTER for the verification gas limit three
+#: times, not once: the same limit also bounds the paymaster's postOp call, and
+#: the security model may run postOp twice. Straight from the revision this repo
+#: pins at ``contracts/lib/account-abstraction`` — ``EntryPoint.sol``::
+#:
+#:     uint256 mul = mUserOp.paymaster != address(0) ? 3 : 1;
+#:     uint256 requiredGas = mUserOp.callGasLimit
+#:                         + mUserOp.verificationGasLimit * mul
+#:                         + mUserOp.preVerificationGas;
+#:     requiredPrefund = requiredGas * mUserOp.maxFeePerGas;
+#:
+#: tests/test_paymaster_prefund_is_the_entrypoint_formula.py reads that literal
+#: back out of the pinned source, so a pin that moves to a different EntryPoint
+#: fails loudly instead of quietly letting the cap under-reserve.
+PAYMASTER_VERIFICATION_GAS_MULTIPLIER = 3
+
 
 def _keccak(data: bytes) -> bytes:
     from eth_utils import keccak
     return keccak(data)
+
+
+def required_prefund_wei(
+    *,
+    call_gas_limit: int,
+    verification_gas_limit: int,
+    pre_verification_gas: int,
+    max_fee_per_gas: int,
+    has_paymaster: bool = True,
+) -> int:
+    """Wei EntryPoint v0.6 reserves for one UserOperation — ``_getRequiredPrefund``.
+
+    This is what a sponsorship cap has to be measured against: the EntryPoint
+    takes this much from the paymaster's deposit before execution, so it is the
+    most real money one signature can commit. Summing the three gas limits once
+    each — which is what this route's cap used to meter — under-states it by
+    ``2 * verificationGasLimit * maxFeePerGas`` whenever a paymaster is present,
+    and a paymaster is present on every operation this module signs.
+
+    ``has_paymaster`` mirrors the upstream ``mul`` so the formula is the whole
+    line rather than one of its branches; the sign route always passes the
+    default, because it returns 503 before signing when no paymaster address is
+    configured.
+    """
+    mul = PAYMASTER_VERIFICATION_GAS_MULTIPLIER if has_paymaster else 1
+    gas = (int(call_gas_limit)
+           + int(verification_gas_limit) * mul
+           + int(pre_verification_gas))
+    return gas * int(max_fee_per_gas)
 
 
 def compute_paymaster_digest(

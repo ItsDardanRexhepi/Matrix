@@ -1533,21 +1533,50 @@ class ServiceDispatcher:
             # the FEED are attributed from one value: attributing the public
             # feed and leaving the audit record anonymous is the half-fix.
             #
-            # Order is deliberate and conservative: the existing params-derived
-            # actor keeps precedence so no currently-attributed action changes
-            # who it names, and the threaded `caller_identity` is the FALLBACK
-            # that fills the "" hole. Note the residual — a client-supplied
-            # `wallet` param still outranks the threaded identity on this
-            # surface, even when that identity came from a session.
-            # That is a pre-existing attribution weakness, wider than 17-D
-            # (it touches every state-modifying action), and is not narrowed
-            # here.
-            _actor = (
-                params.get("wallet")
-                or params.get("address")
-                or caller_identity
-                or ""
+            # THE RESIDUAL 17-D LEFT, CLOSED. That fix ordered the value
+            #     params.get("wallet") or params.get("address") or caller_identity
+            # and said so: "a client-supplied `wallet` param still outranks the
+            # threaded identity on this surface, even when that identity came
+            # from a session." It does not any more.
+            #
+            # WHAT THAT ORDER MEANT. `params` is the request body on the bridge
+            # path. A request presenting a session, whose wallet bridge.py reads
+            # and threads here, was attested AND published to the public social
+            # feed under whatever address the body wrote. Measured on the tree
+            # before this change:
+            #
+            #   execute("create_social_profile",
+            #           params={"address": "0xVICTIM", ...},
+            #           caller_identity="0xSESSION")
+            #     -> attestation actor "0xVICTIM"   feed actor "0xVICTIM"
+            #
+            # and the resolved identity appeared in neither record. Not one
+            # action's parameter spelling: `address` is declared by
+            # social.create_profile/update_profile, and `wallet` binds through
+            # the `**kwargs` signature of 55 state-modifying actions (auctions,
+            # restaking, ccip, mpc, storage, social_protocols …), every one of
+            # which reached this line.
+            #
+            # THE ACTOR IS WHAT THE ENTRY POINT RESOLVED. Only that. A body
+            # value is still RECORDED — dropping it would trade a false record
+            # for a thinner one — as `_claimed_actor`, a claim about who acted.
+            # When it agrees with the resolved identity nothing is claimed: a
+            # field that is always populated stops distinguishing anything, and
+            # the case worth seeing in a trail is the DISAGREEMENT, which is the
+            # shape of one caller naming another.
+            #
+            # "RESOLVED" IS NOT "AUTHENTICATED", and this does not pretend
+            # otherwise — see 17-J above and
+            # tests/test_bound_identity_is_not_called_authenticated.py. What
+            # changes here is narrower and complete: a value the request body
+            # wrote cannot outrank the bound one, and cannot be the actor when
+            # the entry point bound nothing at all.
+            _actor = caller_identity or ""
+            _claimed_actor = str(
+                params.get("wallet") or params.get("address") or ""
             )
+            if _claimed_actor == _actor:
+                _claimed_actor = ""
 
 
             # ── DOMAIN 16-K ────────────────────────────────────────────────
@@ -1596,17 +1625,17 @@ class ServiceDispatcher:
                 if _happened:
                     await self._attest_action(
                         action, target_service, params, result, actor=_actor,
-                        actor_source=_actor_source,
+                        actor_source=_actor_source, actor_claimed=_claimed_actor,
                     )
                 elif _verdict == RECORD_BROADCAST:
                     await self._record_broadcast(
                         action, target_service, params, result, actor=_actor,
-                        actor_source=_actor_source,
+                        actor_source=_actor_source, actor_claimed=_claimed_actor,
                     )
                 else:
                     await self._attest_refusal(
                         action, target_service, params, result, actor=_actor,
-                        actor_source=_actor_source,
+                        actor_source=_actor_source, actor_claimed=_claimed_actor,
                     )
 
                 # Fire-and-forget: publish to the social feed.
@@ -1637,17 +1666,27 @@ class ServiceDispatcher:
                     if isinstance(result, dict):
                         _tx = result.get("tx_hash") or result.get("transaction_hash")
                     _value = _feed_value_of(result)
+                    # The claim rides in `detail` rather than in `actor`. The
+                    # feed's `actor` column is what get_feed(actor=…) filters on
+                    # and what the summary line names, so putting an unresolved
+                    # address there is the publication this change stops. It is
+                    # added only when there IS a disagreement, because `detail`
+                    # is a rendered surface and an always-empty key reads as a
+                    # missing value rather than as "nobody claimed anything".
+                    _detail: dict[str, Any] = {
+                        "service": target_service,
+                        "params": {
+                            k: v for k, v in params.items()
+                            if k not in ("private_key", "seed_phrase", "mnemonic")
+                        },
+                    }
+                    if _claimed_actor:
+                        _detail["actor_claimed"] = _claimed_actor
                     asyncio.create_task(
                         self._feed_engine.ingest(
                             action=action,
                             actor=_actor,
-                            detail={
-                                "service": target_service,
-                                "params": {
-                                    k: v for k, v in params.items()
-                                    if k not in ("private_key", "seed_phrase", "mnemonic")
-                                },
-                            },
+                            detail=_detail,
                             component=_component_id,
                             tx_hash=_tx,
                             value_usd=_value,
@@ -1720,6 +1759,7 @@ class ServiceDispatcher:
         *,
         actor: str = "",
         actor_source: str = "",
+        actor_claimed: str = "",
     ) -> None:
         """Record that the platform DECLINED to act — as a decline.
 
@@ -1746,10 +1786,17 @@ class ServiceDispatcher:
         _status = result.get("status") if isinstance(result, dict) else None
         # 17-D. A refusal names WHO was refused. "The system declined" is only
         # half an audit record if it cannot say who it declined.
+        #
+        # And it names, separately, who the REQUEST said was acting when that
+        # disagrees with the identity the entry point resolved. Reading the
+        # claim as the actor is exactly the defect this line used to carry one
+        # frame up; dropping it would lose the most interesting line in the
+        # trail, which is a caller that named someone else.
         logger.info(
             "ACTION DECLINED (not attested, not published): action=%s service=%s "
-            "actor=%s status=%s — no outcome evidence in the service result",
-            action, service_name, actor or "<unknown>", _status,
+            "actor=%s%s status=%s — no outcome evidence in the service result",
+            action, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "", _status,
         )
 
     async def _record_broadcast(
@@ -1761,6 +1808,7 @@ class ServiceDispatcher:
         *,
         actor: str = "",
         actor_source: str = "",
+        actor_claimed: str = "",
     ) -> None:
         """Record that a transaction went OUT and nobody has confirmed it landed.
 
@@ -1800,11 +1848,16 @@ class ServiceDispatcher:
         _tx = None
         if isinstance(result, dict):
             _tx = result.get("tx_hash") or result.get("transaction_hash")
+        # The claim rides here as it does on the other two records: a broadcast
+        # under a caller that named someone else is exactly the line an auditor
+        # wants, and the hash beside it is what lets them settle who acted.
         logger.info(
             "ACTION BROADCAST (not attested, not published): action=%s service=%s "
-            "actor=%s status=%s tx_hash=%s — the transaction was SENT and no "
+            "actor=%s%s status=%s tx_hash=%s — the transaction was SENT and no "
             "receipt confirms it; it may still be mined, and it may revert",
-            action, service_name, actor or "<unknown>", _status, _tx or "<none>",
+            action, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "",
+            _status, _tx or "<none>",
         )
 
     async def _attest_action(
@@ -1816,6 +1869,7 @@ class ServiceDispatcher:
         *,
         actor: str = "",
         actor_source: str = "",
+        actor_claimed: str = "",
     ) -> None:
         """Record an EAS attestation for a state-modifying action."""
         try:
@@ -1852,6 +1906,11 @@ class ServiceDispatcher:
                     "service": service_name,
                     "actor": actor or "",
                     "actor_source": actor_source or "unauthenticated",
+                    # ALWAYS PRESENT, unlike the feed's copy. This is the audit
+                    # record: "" here is the positive fact that the request made
+                    # no claim the resolved identity contradicts, where an
+                    # omitted key would read as "this build did not look".
+                    "actor_claimed": actor_claimed or "",
                     "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
                     "timestamp": int(time.time()),
                 },

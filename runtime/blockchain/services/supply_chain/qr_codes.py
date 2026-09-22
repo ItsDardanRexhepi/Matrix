@@ -9,16 +9,58 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import io
 import json
 import logging
 import time
 from typing import Any
 
+from runtime.config.validation import is_placeholder
+
 logger = logging.getLogger(__name__)
 
 # QR code version/format identifier
 QR_FORMAT_VERSION = "the-matrix-sc-v1"
+
+#: Secrets that are published, and therefore are not secrets. The first was
+#: this module's own fallback: an operator who configured nothing got a working
+#: verification hash keyed on a string printed in this repository, so anybody
+#: holding the source could mint a code for a product that was never
+#: registered. A deployment that copied the constant into its config is in the
+#: same position, which is why the value is refused wherever it appears rather
+#: than merely removed from the default.
+_PUBLISHED_SECRETS: frozenset[str] = frozenset({
+    "the-matrix-default-qr-secret",
+})
+
+
+def resolve_qr_secret(supply_chain_config: dict[str, Any]) -> str:
+    """The configured QR secret, or "" when the operator has not chosen one.
+
+    Empty, whitespace, a placeholder (`CHANGE-ME-...`, `YOUR_...`) and any
+    published value all mean the same thing: nothing was chosen. They are
+    collapsed here, once, so no caller has to remember the list.
+    """
+    raw = supply_chain_config.get("qr_secret", "")
+    value = str(raw or "").strip()
+    if not value or is_placeholder(value) or value in _PUBLISHED_SECRETS:
+        return ""
+    return value
+
+
+#: The one refusal both halves return, so "not configured" reads identically
+#: whether it stopped a code being issued or a code being trusted.
+def _unconfigured(product_id: str = "") -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "status": "not_configured",
+        "error": ("supply_chain.qr_secret is not configured — this deployment "
+                  "cannot issue or verify authenticity codes. Set a long random "
+                  "per-deployment value (env: MATRIX_QR_SECRET)."),
+    }
+    if product_id:
+        out["product_id"] = product_id
+    return out
 
 
 class QRCodeGenerator:
@@ -29,24 +71,41 @@ class QRCodeGenerator:
     and optional product data. The verification hash allows offline
     authenticity checks.
 
+    THERE IS NO DEFAULT SECRET. `qr_secret` used to fall back to a constant
+    written in this file, so a deployment that configured nothing still issued
+    codes — signed with a value published to everyone. Without a configured
+    secret both `generate` and `verify_scan` now refuse: no code is issued, and
+    no scan is called valid. Authenticity that anybody can forge is worse than
+    an honest "not configured", because it is believed.
+
     Config keys (under config["supply_chain"]):
-        qr_secret       -- HMAC secret for verification hashes
+        qr_secret       -- HMAC secret for verification hashes. REQUIRED; no
+                           default. Placeholders count as unset.
         qr_box_size     -- QR code pixel box size (default 10)
         qr_border       -- QR code border size (default 4)
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
-        sc = config.get("supply_chain", {})
+        sc = config.get("supply_chain", {}) or {}
 
-        self.qr_secret: str = sc.get("qr_secret", "the-matrix-default-qr-secret")
+        self.qr_secret: str = resolve_qr_secret(sc)
         self.qr_box_size: int = sc.get("qr_box_size", 10)
         self.qr_border: int = sc.get("qr_border", 4)
 
         # Cache of generated QR codes: product_id -> qr_data
         self._qr_cache: dict[str, dict[str, Any]] = {}
 
+        if not self.qr_secret:
+            logger.warning(
+                "QRCodeGenerator: supply_chain.qr_secret is not configured — "
+                "authenticity codes will be refused, not issued.")
         logger.info("QRCodeGenerator initialised.")
+
+    @property
+    def secret_configured(self) -> bool:
+        """Did the operator choose a secret? The one question both halves ask."""
+        return bool(self.qr_secret)
 
     async def generate(
         self,
@@ -69,6 +128,9 @@ class QRCodeGenerator:
         """
         if not product_id:
             return {"status": "error", "error": "Product ID is required"}
+
+        if not self.secret_configured:
+            return _unconfigured(product_id)
 
         timestamp = int(time.time())
         verification_hash = self._compute_verification_hash(product_id, timestamp)
@@ -126,6 +188,12 @@ class QRCodeGenerator:
         if not qr_data:
             return {"status": "error", "error": "QR data is required"}
 
+        # Nothing issued under a secret this deployment does not have can be
+        # judged by it. `verified: False` alone would read as "we checked and
+        # it is a forgery"; the status says which of the two this is (§CT).
+        if not self.secret_configured:
+            return {"verified": False, **_unconfigured()}
+
         # Parse the QR payload
         try:
             payload = json.loads(qr_data)
@@ -164,13 +232,17 @@ class QRCodeGenerator:
         else:
             expected_hash = None
 
-        hash_valid = expected_hash == scanned_hash if expected_hash else False
+        hash_valid = (
+            hmac.compare_digest(expected_hash, str(scanned_hash))
+            if expected_hash else False
+        )
 
         # Cross-check with cache
         cached = self._qr_cache.get(product_id)
         cache_match = False
         if cached:
-            cache_match = cached["verification_hash"] == scanned_hash
+            cache_match = hmac.compare_digest(
+                cached["verification_hash"], str(scanned_hash))
 
         verified = hash_valid or cache_match
 
@@ -196,9 +268,18 @@ class QRCodeGenerator:
     # ------------------------------------------------------------------
 
     def _compute_verification_hash(self, product_id: str, timestamp: int) -> str:
-        """Compute HMAC-like verification hash for a product QR code."""
-        payload = f"{product_id}|{timestamp}|{self.qr_secret}"
-        return hashlib.sha256(payload.encode()).hexdigest()[:32]
+        """The verification hash: HMAC-SHA256(secret, "product_id|timestamp").
+
+        It was `sha256("product_id|timestamp|secret")` under a docstring that
+        called it HMAC — so the claim is now true rather than approximate. Only
+        callable with a configured secret; both entry points refuse before they
+        reach it.
+        """
+        return hmac.new(
+            self.qr_secret.encode(),
+            f"{product_id}|{timestamp}".encode(),
+            hashlib.sha256,
+        ).hexdigest()[:32]
 
     def _render_qr_code(self, data: str) -> str:
         """

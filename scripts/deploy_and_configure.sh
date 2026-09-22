@@ -7,9 +7,10 @@ set -euo pipefail
 # Full deployment pipeline for the Matrix platform:
 #   1. Validate environment variables
 #   2. Deploy all smart contracts via deploy_all.py
-#   3. Read the deployment manifest and extract contract addresses
+#   3. Read the deployment manifest, and refuse one that names a retired
+#      contract before anything is configured or funded
 #   4. Update matrix.config.json with every deployed address
-#   5. Fund the paymaster contract with 0.1 ETH
+#   5. Say where paymaster funding actually happens (not here)
 #   6. Restart the gateway via docker compose
 #   7. Health-check the platform with retry logic
 #   8. Print a summary of all configured addresses
@@ -99,6 +100,31 @@ echo "  Total contracts deployed: ${#CONTRACT_ADDRESSES[@]}"
 echo ""
 
 # ---------------------------------------------------------------------------
+# 3b. Refuse a manifest that names a retired contract
+#
+# DO NOT DEPLOY — this step exists because this script used to map
+# MatrixPaymaster into the config and send it 0.1 ETH the moment a manifest
+# named it. That contract's sponsoredCall(address,bytes) reaches any address
+# with any calldata from any authorized key, nothing in the runtime calls it,
+# and the platform's paymaster is the ERC-4337 MatrixVerifyingPaymaster. The
+# list and the reason live in scripts/refuse_legacy_contracts.py, which
+# contracts/deploy.py imports as well, so there is one table and not two.
+#
+# BEFORE the config is written and before anything is funded: a refusal that
+# fires after the address is already in matrix.config.json has not refused
+# anything.
+# ---------------------------------------------------------------------------
+
+echo "==> Checking the manifest for retired contracts..."
+if ! python3 "$PROJECT_ROOT/scripts/refuse_legacy_contracts.py" "$MANIFEST_PATH"; then
+    echo "ERROR: the deployment manifest names a contract this repository does not deploy."
+    echo "  Nothing was configured and nothing was funded."
+    exit 1
+fi
+echo "  None named."
+echo ""
+
+# ---------------------------------------------------------------------------
 # 4. Update matrix.config.json with every deployed address
 # ---------------------------------------------------------------------------
 
@@ -111,7 +137,6 @@ declare -A SERVICE_KEY_MAP=(
     ["MatrixInsurance"]="insurance"
     ["MatrixDEX"]="dex"
     ["MatrixNFT"]="nft_services"
-    ["MatrixPaymaster"]="paymaster"
     ["MatrixRewards"]="brand_rewards"
     ["MatrixDID"]="did_identity"
 )
@@ -146,36 +171,26 @@ echo "  Config updated successfully."
 echo ""
 
 # ---------------------------------------------------------------------------
-# 5. Fund the paymaster with 0.1 ETH
+# 5. Paymaster funding — not done here
+#
+# DO NOT DEPLOY — this step used to send 0.1 ETH to whatever address the
+# manifest carried under MatrixPaymaster. The refusal in step 3b means no
+# manifest reaching this line names that contract at all, so the step is gone
+# rather than left behind a condition that can never be true.
+#
+# The paymaster the platform actually uses is funded differently, and not by
+# this script: MatrixVerifyingPaymaster pays gas out of its own EntryPoint
+# DEPOSIT — `deposit()` forwards to `entryPoint.depositTo(address(this))` and
+# `addStake(unstakeDelaySec)` stakes it. A plain transfer to the contract would
+# sit in its balance and sponsor nothing. It is a deliberate, amount-bearing
+# step for an operator; scripts/prepare_aa_deploy.py prints it as a post-deploy
+# human step, which is where it belongs rather than inside a pipeline.
 # ---------------------------------------------------------------------------
 
-PAYMASTER_ADDR="${CONTRACT_ADDRESSES[MatrixPaymaster]:-}"
-
-if [[ -n "$PAYMASTER_ADDR" ]]; then
-    echo "==> Funding paymaster ($PAYMASTER_ADDR) with 0.1 ETH..."
-
-    python3 -c "
-from web3 import Web3
-w3 = Web3(Web3.HTTPProvider('$BASE_RPC_URL'))
-acct = w3.eth.account.from_key('$DEPLOYER_PRIVATE_KEY')
-tx = {
-    'to': Web3.to_checksum_address('$PAYMASTER_ADDR'),
-    'value': w3.to_wei(0.1, 'ether'),
-    'gas': 21000,
-    'gasPrice': w3.eth.gas_price,
-    'nonce': w3.eth.get_transaction_count(acct.address),
-    'chainId': w3.eth.chain_id,
-}
-signed = acct.sign_transaction(tx)
-tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-print(f'  Funded paymaster: tx {receipt.transactionHash.hex()} (status={receipt.status})')
-"
-    echo ""
-else
-    echo "==> WARN: MatrixPaymaster not found in manifest; skipping funding step."
-    echo ""
-fi
+echo "==> Paymaster funding is not performed by this script."
+echo "    MatrixVerifyingPaymaster is funded through its EntryPoint deposit"
+echo "    (deposit() / addStake) — see scripts/prepare_aa_deploy.py."
+echo ""
 
 # ---------------------------------------------------------------------------
 # 6. Restart the gateway

@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,274 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,384 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -232,17 +232,40 @@ check behind it:
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it
-- **Gas sponsorship is metered.** The per-identity daily cap the
-  configuration documents is enforced before signing, over a durable
-  ledger, and the sponsored action is decoded from the call data being
-  signed rather than read from a label the caller supplies. An operator
-  who configures no cap keeps the previous behaviour
+- **Gas sponsorship is metered against what the EntryPoint can charge.**
+  The per-identity daily cap the configuration documents is enforced
+  before signing, over a durable ledger, and each request is priced at
+  the EntryPoint v0.6 prefund for a sponsored operation — which counts
+  the verification gas limit three times, not once, because that limit
+  also bounds the paymaster's postOp — so the cap cannot authorise more
+  real spend than it names. The sponsored action is decoded from the call
+  data being signed rather than read from a label the caller supplies. An
+  operator who configures no cap keeps the previous behaviour
+- **The deployment tools will not put the old paymaster on a chain.** The
+  paymaster the platform uses is the ERC-4337 verifying one, which pays
+  gas out of its own EntryPoint deposit. Its predecessor can send any
+  calldata to any address from any authorized key, nothing in the runtime
+  calls it, and the tools used to deploy it as their first step and wire
+  0.1 ETH to it. They deploy what they declare, they say out loud what
+  they will not deploy and why, and a deployment manifest that names the
+  old one stops the pipeline before a single address is configured or a
+  single transfer is sent. Deploying it is now a deliberate act by hand,
+  which is the only kind of act it should ever have been
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
   rather than adopted. Which agent answers is settled by one resolver, so
   a different spelling of a privileged agent's name is not a way past the
   operator check
+- **A record names who the platform resolved, not who the request said.**
+  The attestation, the decline record, the broadcast record and the public
+  live feed are all attributed to the identity the entry point bound for
+  that request, on the dispatcher's path and on the `/api/v1` path alike.
+  An address written into the request body no longer outranks it, and
+  where nothing was bound it is written down as a claim rather than
+  promoted to the actor — so a caller who names somebody else shows up in
+  the trail as exactly that, whichever of the three answers the record
+  gives, instead of the platform quietly agreeing
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
@@ -463,10 +486,14 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 The Matrix ships with the plumbing required for a hardened mainnet
 launch:
 
-- **Env-only secrets** — `runtime/config/validation.py` strips
-  placeholder values (`YOUR_`, `CHANGE_ME`, …) and, with
-  `MATRIX_ENV=production`, refuses to start if a required secret is
-  missing from the environment.
+- **Env-only secrets, and a census that finds the ones that escape** —
+  `runtime/config/validation.py` strips placeholder values (`YOUR_`,
+  `CHANGE-ME`, … in either spelling) and, with `MATRIX_ENV=production`,
+  refuses to start if a required secret is missing from the environment.
+  It also walks the loaded config for secret-shaped settings and reports
+  any that no env-only entry covers — in production that refusal stops
+  the boot, so a new third-party key cannot quietly live in the
+  committed file the way the Twitter and Apple ones did.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.

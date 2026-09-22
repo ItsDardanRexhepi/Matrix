@@ -840,7 +840,7 @@ class ServiceRoutes:
 
     @staticmethod
     def _record_decline(service_name: str, method_name: str, result: Any,
-                        *, actor: str) -> None:
+                        *, actor: str, actor_claimed: str = "") -> None:
         """Record that the platform DECLINED to act — as a decline.
 
         Deliberately the same sentence, level and fields as
@@ -856,13 +856,14 @@ class ServiceRoutes:
         status = result.get("status") if isinstance(result, dict) else None
         logger.info(
             "ACTION DECLINED (not attested, not published): action=%s service=%s "
-            "actor=%s status=%s — no outcome evidence in the service result",
-            method_name, service_name, actor or "<unnamed>", status,
+            "actor=%s%s status=%s — no outcome evidence in the service result",
+            method_name, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "", status,
         )
 
     @staticmethod
     def _record_broadcast(service_name: str, method_name: str, result: Any,
-                          *, actor: str) -> None:
+                          *, actor: str, actor_claimed: str = "") -> None:
         """Record that a transaction went OUT and nobody has confirmed it landed.
 
         The dispatcher's third record (`ServiceDispatcher._record_broadcast`),
@@ -879,9 +880,11 @@ class ServiceRoutes:
             tx = result.get("tx_hash") or result.get("transaction_hash")
         logger.info(
             "ACTION BROADCAST (not attested, not published): action=%s service=%s "
-            "actor=%s status=%s tx_hash=%s — the transaction was SENT and no "
+            "actor=%s%s status=%s tx_hash=%s — the transaction was SENT and no "
             "receipt confirms it; it may still be mined, and it may revert",
-            method_name, service_name, actor or "<unknown>", status, tx or "<none>",
+            method_name, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "",
+            status, tx or "<none>",
         )
 
     def _maybe_ripple(self, service_name: str, method_name: str, kwargs: dict, result: Any) -> None:
@@ -951,20 +954,49 @@ class ServiceRoutes:
         # create_post already emits a richer ``social.post`` event — don't double.
         if service_name == "social" and method_name == "create_post":
             return
-        actor = ""
+        # WHO THE LIVE FEED SAYS ACTED.
+        #
+        # This scan — fifteen body keys, first hit wins — WAS the actor. Every
+        # one of them is written by the request, so the public broadcast for
+        # every executed /api/v1 action announced an address the platform had
+        # not resolved, while the identity the security middleware bound for
+        # that same request (`current_request_security()["wallet"]`, set for
+        # every POST /api/v1/*) went unread one frame away. Measured before this
+        # change: POST /api/v1/groups {"creator": "0xCLAIMED"} published
+        # feed.ripple {"actor": "0xCLAIMED", …} with nothing bound at all.
+        #
+        # The actor is now the resolved identity and only that. The scanned
+        # value survives as `actor_claimed` when it disagrees — a claim about
+        # who acted, labelled as one. Same rule, same two fields, as the
+        # dispatcher's attestation and feed path
+        # (runtime/blockchain/services/service_dispatcher.py); a fix on one
+        # attribution surface and not the other is the half-fix this codebase
+        # keeps catching.
+        #
+        # RESOLVED, NOT AUTHENTICATED: the middleware binds a session's subject
+        # when there is one and, for an operator request, the X-Wallet-Address
+        # header or a body field as written. That is pinned and disclosed in
+        # tests/test_bound_identity_is_not_called_authenticated.py and is not
+        # narrowed here.
+        from gateway.security_gate import current_request_security
+        actor = str((current_request_security() or {}).get("wallet") or "")
+        claimed = ""
         for k in ("owner", "creator", "author", "sender", "from_", "from",
                   "uploader", "requester", "employer", "holder", "minter",
                   "user", "voter", "address", "delegator"):
             v = kwargs.get(k)
             if isinstance(v, str) and v:
-                actor = v
+                claimed = v
                 break
+        if claimed == actor:
+            claimed = ""
         if refused:
             # The read and collection clauses run first deliberately: the
             # dispatcher records a decline for the actions it would have
             # attested (`_STATE_MODIFYING_ACTIONS`), and these are the calls
             # this surface would have rippled. Same scope, same record.
-            self._record_decline(service_name, method_name, result, actor=actor)
+            self._record_decline(service_name, method_name, result,
+                                 actor=actor, actor_claimed=claimed)
             return
         # THE THIRD ANSWER, from the gate that holds the argument. Imported
         # here, as the dispatcher is everywhere on this file, because the
@@ -975,7 +1007,8 @@ class ServiceRoutes:
             _record_verdict,
         )
         if _record_verdict(result) == RECORD_BROADCAST:
-            self._record_broadcast(service_name, method_name, result, actor=actor)
+            self._record_broadcast(service_name, method_name, result,
+                                   actor=actor, actor_claimed=claimed)
             return
         from gateway.security_gate import action_type_for
         payload: Dict[str, Any] = {
@@ -984,6 +1017,10 @@ class ServiceRoutes:
             "method": method_name,
             "actor": actor,
         }
+        # Conditional, like `ref` and `status` below: this is a broadcast to
+        # live subscribers, and the key is here to carry a disagreement.
+        if claimed:
+            payload["actor_claimed"] = claimed
         if isinstance(result, dict):
             ref = result.get("id") or result.get("tx_hash") or result.get("hash")
             if ref:
@@ -1048,22 +1085,37 @@ class ServiceRoutes:
     async def _estimate_sponsorship_usd(self, cfg: dict, body: dict) -> float:
         """Worst-case USD cost of the gas this userOp asks the platform to cover.
 
-        max_fee_per_gas x (callGasLimit + verificationGasLimit +
-        preVerificationGas) is the ceiling the EntryPoint can charge the
-        paymaster for this operation, so metering the ceiling is the reading
-        that cannot under-count. Priced with the same PriceFeed the /price route
-        uses; it raises rather than return a stale number, and this method lets
-        that raise through to the caller's 503.
+        The EntryPoint reserves ``_getRequiredPrefund`` from the paymaster's
+        deposit before it executes, so that prefund — not the bare sum of the
+        gas limits — is the ceiling one signature can commit. This used to sum
+        callGasLimit + verificationGasLimit + preVerificationGas and call that
+        the ceiling; EntryPoint v0.6 counts the verification limit THREE times
+        when a paymaster is present (it also bounds postOp, which may run
+        twice), so the cap was metering as little as 45% of the reservable
+        spend and authorised more than the operator configured.
+        ``gateway.paymaster.required_prefund_wei`` is the pinned formula.
+
+        Priced with the same PriceFeed the /price route uses; it raises rather
+        than return a stale number, and this method lets that raise through to
+        the caller's 503.
         """
+        from gateway.paymaster import required_prefund_wei
+
         def _int(key: str) -> int:
             try:
                 return int(body.get(key, 0) or 0)
             except (TypeError, ValueError):
                 return 0
 
-        total_gas = (_int("call_gas_limit") + _int("verification_gas_limit")
-                     + _int("pre_verification_gas"))
-        wei = total_gas * _int("max_fee_per_gas")
+        # has_paymaster is the default: this handler has already refused with
+        # 503 unless a paymaster address is configured, and every operation it
+        # signs carries that paymaster in its paymasterAndData.
+        wei = required_prefund_wei(
+            call_gas_limit=_int("call_gas_limit"),
+            verification_gas_limit=_int("verification_gas_limit"),
+            pre_verification_gas=_int("pre_verification_gas"),
+            max_fee_per_gas=_int("max_fee_per_gas"),
+        )
         if wei <= 0:
             return 0.0
         quote = await self._price_feed().eth_usd()

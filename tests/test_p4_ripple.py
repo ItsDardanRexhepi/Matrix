@@ -100,6 +100,14 @@ async def test_ripple_payload_shape(env):
     # went on passing having checked only that the status was one of three, and
     # the shape it exists for was pinned by nothing. A guard that can swallow
     # the test is not a guard; the fix is a route whose action really runs.
+    #
+    # AND THE ACTOR IS THE RESOLVED IDENTITY. This asserted `actor == "0xowner"`
+    # — the body's own field — which is the behaviour
+    # tests/test_the_actor_is_the_resolved_identity.py removed: the actor is
+    # the identity the entry point resolved, and a body-supplied address rides
+    # as `actor_claimed`. Nothing binds an identity for a bare ServiceRoutes
+    # app, so the actor here is "" and the claim is "0xowner". The payload
+    # SHAPE is still what this test is for, and the shape has two fields.
     routes, client = env
     events = []
     orig = routes.broadcaster.publish_dict
@@ -116,7 +124,8 @@ async def test_ripple_payload_shape(env):
     assert resp.status == 200, await resp.text()
     ripples = [p for t, p in events if t == "feed.ripple"]
     assert ripples, "an executed create_community must emit feed.ripple"
-    assert ripples[0]["actor"] == "0xowner"
+    assert ripples[0]["actor"] == ""
+    assert ripples[0]["actor_claimed"] == "0xowner"
     assert ripples[0]["service"] == "social"
     assert ripples[0]["method"] == "create_community"
 

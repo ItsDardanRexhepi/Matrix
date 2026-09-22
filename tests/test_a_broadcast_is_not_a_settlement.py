@@ -98,15 +98,15 @@ def dispatcher_with_spies():
     broadcast: list[str] = []
 
     async def _spy_attest(action, service_name, params, result, *, actor: str = "",
-                          actor_source: str = ""):
+                          actor_source: str = "", actor_claimed: str = ""):
         attested.append(action)
 
     async def _spy_refusal(action, service_name, params, result, *, actor: str = "",
-                           actor_source: str = ""):
+                           actor_source: str = "", actor_claimed: str = ""):
         declined.append(action)
 
     async def _spy_broadcast(action, service_name, params, result, *, actor: str = "",
-                             actor_source: str = ""):
+                             actor_source: str = "", actor_claimed: str = ""):
         broadcast.append(action)
 
     d._attest_action = _spy_attest

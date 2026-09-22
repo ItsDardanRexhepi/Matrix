@@ -5,6 +5,20 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title MatrixPaymaster
+ * @custom:status SUPERSEDED — this repository's tooling does not deploy it.
+ *         The platform's paymaster is MatrixVerifyingPaymaster (ERC-4337 v0.6),
+ *         which pays gas out of its own EntryPoint deposit and is the only
+ *         paymaster address the server reads (blockchain.paymaster.address).
+ *         `sponsoredCall(address,bytes)` here reaches ANY address with ANY
+ *         calldata from any authorized key, and `sponsoredCallWithValue` does it
+ *         carrying ETH; nothing in the runtime calls either. contracts/deploy.py
+ *         no longer deploys this, scripts/deploy_and_configure.sh no longer
+ *         funds it, and a deployment manifest that names it is refused by
+ *         scripts/refuse_legacy_contracts.py — see
+ *         tests/test_the_legacy_paymaster_is_not_deployed.py. The source and its
+ *         foundry test stay because an instance already on a chain still needs
+ *         to be readable; putting a NEW one there is now a deliberate manual
+ *         act, not a side effect of running the tools.
  * @notice Gas sponsorship contract for the Matrix platform.
  *         The platform covers all gas fees for users — users never pay gas.
  *         This contract holds ETH and sponsors transactions on behalf of users.

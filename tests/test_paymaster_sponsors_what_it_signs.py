@@ -403,8 +403,12 @@ async def test_the_daily_cap_is_per_address_and_without_a_session_the_caller_nam
         return {"price": 1000.0, "source": "test"}
 
     monkeypatch.setattr(price_feed.PriceFeed, "eth_usd", _eth_usd)
-    # 1 gwei x 321,000 gas at $1000/ETH is about $0.32 a request.
-    client = await _client(aiohttp_client, tmp_path, policy={"daily_cap_usd": 0.5})
+    # 1 gwei x 721,000 gas at $1000/ETH is about $0.72 a request: the
+    # EntryPoint v0.6 prefund for a sponsored op, which counts the 200,000
+    # verificationGasLimit three times (gateway/paymaster.py
+    # required_prefund_wei). These numbers used to read 321,000 gas / $0.32,
+    # the sum that counts it once — the undercount the cap was metering.
+    client = await _client(aiohttp_client, tmp_path, policy={"daily_cap_usd": 1.0})
 
     async def _sign(sender):
         r = await client.post("/api/v1/paymaster/sign",

@@ -887,8 +887,10 @@ def _rig():
     d._feed_engine = feed
     seen: list[dict] = []
 
-    async def _spy(action, service_name, params, result, *, actor="", actor_source=""):
-        seen.append({"actor": actor, "actor_source": actor_source})
+    async def _spy(action, service_name, params, result, *, actor="",
+                   actor_source="", actor_claimed=""):
+        seen.append({"actor": actor, "actor_source": actor_source,
+                     "actor_claimed": actor_claimed})
 
     d._attest_action = _spy
     d._attest_refusal = _spy
