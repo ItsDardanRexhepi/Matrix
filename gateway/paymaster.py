@@ -153,6 +153,13 @@ def paymaster_config(config: dict) -> dict:
     SECRET_FIELDS, fed by ``MATRIX_PAYMASTER_KEY``). ``address``/``policy``
     come from the resolved block. This is why an operator who fills the
     *documented* location no longer gets a permanent 503 on /paymaster/sign.
+
+    ``blockchain.paymaster.signer_key`` is itself env-only: SECRET_FIELDS
+    bridges ``MATRIX_PAYMASTER_SIGNER_KEY`` to it and strips a plaintext copy
+    from the file in production. The top-level ``paymaster`` shape is not
+    bridged (a block created for the variable would shadow the documented
+    block's address and policy); a real key written there is reported by the
+    secret census and stops a production boot.
     """
     cfg = config if isinstance(config, dict) else {}
     blockchain = cfg.get("blockchain")

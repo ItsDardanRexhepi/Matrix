@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,429 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,445 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -493,7 +493,12 @@ launch:
   It also walks the loaded config for secret-shaped settings and reports
   any that no env-only entry covers — in production that refusal stops
   the boot, so a new third-party key cannot quietly live in the
-  committed file the way the Twitter and Apple ones did.
+  committed file the way the Twitter and Apple ones did. Each entry
+  targets the path the code reads: the paymaster's gas-sponsorship
+  signer arrives as `MATRIX_PAYMASTER_SIGNER_KEY` at the location the
+  example documents, and the oracle keys at `oracle.weather.api_key` and
+  `oracle.sports.api_key` — an entry at a path nothing reads bridges a
+  value to nowhere while calling the key handled.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.

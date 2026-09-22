@@ -38,6 +38,14 @@ ImportError. The one that passed before is the scope pin that a placeholder is
 not reported as an escaped secret — before the fix nothing was reported at all,
 so it passed for the wrong reason, and it is kept because it is the line that
 keeps the new report readable.
+
+RETARGETED LATER. `services.oracle_gateway.weather_api_key` — one of the
+eleven — turned out to be a leaf nothing reads: the weather oracle reads
+`oracle.weather.api_key`. The entry, the example and NEWLY_COVERED below now
+name that path (tests/test_secret_fields_reach_the_paths_the_code_reads.py
+measures it). The same pass added `signer_key` to the suffix list — the
+paymaster's documented signer location, which the census did not see — so the
+independent walk below carries it too; the two walks agreeing is the point.
 """
 
 from __future__ import annotations
@@ -67,7 +75,7 @@ EXAMPLE = json.loads((ROOT / "matrix.config.json.example").read_text())
 NEWLY_COVERED = {
     "notifications.whatsapp.account_sid": "TWILIO_ACCOUNT_SID",
     "auth.apple.private_key_p8": "APPLE_PRIVATE_KEY_P8",
-    "services.oracle_gateway.weather_api_key": "WEATHER_API_KEY",
+    "oracle.weather.api_key": "WEATHER_API_KEY",
     "supply_chain.qr_secret": "MATRIX_QR_SECRET",
     "social.twitter.api_key": "TWITTER_API_KEY",
     "social.twitter.api_secret": "TWITTER_API_SECRET",
@@ -93,7 +101,7 @@ def _table_paths() -> set[str]:
 #: separately — one of them being wrong is then visible, rather than both being
 #: the same mistake agreeing with itself.
 _SUFFIXES = ("api_key", "apikey", "secret", "password", "passwd", "_pass",
-             "private_key", "auth_key", "signing_key", "_p8", "_token", "_sid",
+             "private_key", "auth_key", "signing_key", "signer_key", "_p8", "_token", "_sid",
              "_dsn", "webhook_url", "_webhook", "credential", "credentials",
              "passphrase", "mnemonic", "seed_phrase", "salt")
 
