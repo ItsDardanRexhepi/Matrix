@@ -265,7 +265,10 @@ check behind it:
   where nothing was bound it is written down as a claim rather than
   promoted to the actor — so a caller who names somebody else shows up in
   the trail as exactly that, whichever of the three answers the record
-  gives, instead of the platform quietly agreeing
+  gives, instead of the platform quietly agreeing. The one deliberate
+  exception is a privacy action refused on the `/api/v1` path: its decline
+  is recorded with no actor and no claim, because naming who was refused
+  is exactly what the privacy exclusion exists to prevent
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
