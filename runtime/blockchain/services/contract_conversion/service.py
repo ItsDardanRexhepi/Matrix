@@ -29,7 +29,7 @@ from runtime.blockchain.services.contract_conversion.templates import (
     list_templates,
 )
 from runtime.blockchain.services.contract_conversion.tier_manager import TierManager
-from runtime.blockchain.web3_manager import Web3Manager
+from runtime.blockchain.web3_manager import Web3Manager, settle_transaction
 from runtime.security.audit import ContractAuditor
 
 logger = logging.getLogger(__name__)
@@ -99,8 +99,10 @@ class ContractConversionService:
     ) -> dict[str, Any]:
         """Compile *solidity_source* via solcx and deploy via Web3Manager.
 
-        Returns a dict describing the on-chain deployment, or
-        ``{"status": "error", ...}`` on failure. Never raises.
+        Returns ``{"status": "error", ...}`` when nothing was deployed, and
+        otherwise what the receipt said: ``deployed`` with the contract address
+        when it confirmed, ``failed`` when it reverted, ``pending`` with the
+        hash when no receipt arrived in time. Raises only on cancellation.
         """
         if not self._web3.available:
             return {
@@ -160,17 +162,35 @@ class ContractConversionService:
             raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
             tx_hash = w3.eth.send_raw_transaction(raw)
             tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
-            return {
-                "status": "deployed",
-                "contract_address": getattr(receipt, "contractAddress", None),
-                "tx_hash": tx_hash_hex,
-                "block_number": getattr(receipt, "blockNumber", None),
-                "explorer": self._web3.explorer_url(tx_hash_hex),
-            }
         except Exception as exc:
             logger.error("On-chain deployment failed: %s", exc)
             return {"status": "error", "stage": "deploy", "error": str(exc)}
+
+        # A DEPLOYMENT IS DEPLOYED WHEN ITS RECEIPT SAYS SO. This returned
+        # "deployed" with the receipt's `contractAddress` and `blockNumber` and
+        # never read its `status`, so a deployment the chain reverted was
+        # "deployed", and `convert` EAS-attested `contract_deployed` for it —
+        # a public, permanent claim about a contract that does not exist. And
+        # the wait sat inside the `try`, so a wait that ran out came back
+        # {"status": "error"} with the hash of a deployment that may still
+        # land. Through the shared helper: confirmed -> "deployed" with the
+        # receipt's contract address, reverted -> "failed", no receipt in time
+        # -> "pending" with the hash and `broadcast: True`.
+        explorer = None
+        try:
+            explorer = self._web3.explorer_url(tx_hash_hex)
+        except Exception:  # noqa: BLE001 — a link is not the outcome
+            logger.debug("no explorer link for %s", tx_hash_hex)
+        outcome = await settle_transaction(
+            self._web3, tx_hash_hex, "deploy", "contract_conversion",
+            {"explorer": explorer},
+            settled_status="deployed",
+            timeout=180,
+        )
+        if outcome.get("value_moved") is True:
+            # The helper speaks for transfers. A deployment moves no value.
+            outcome["value_moved"] = None
+        return outcome
 
     async def convert(
         self,
@@ -429,8 +449,10 @@ class ContractConversionService:
                         generated, contract_name
                     )
                     result["deployment"] = deployment
-                    # Best-effort EAS attestation on success
-                    if deployment.get("status") == "deployed":
+                    # Best-effort EAS attestation, for a deployment whose
+                    # receipt confirmed it and for nothing else.
+                    if (deployment.get("status") == "deployed"
+                            and deployment.get("settled") is True):
                         try:
                             from runtime.blockchain.eas_client import EASClient
                             eas = EASClient(self._config)

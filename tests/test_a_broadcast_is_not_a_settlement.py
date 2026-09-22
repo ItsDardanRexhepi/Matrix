@@ -160,7 +160,8 @@ def test_the_bare_broadcast_surface_is_what_it_was_measured_to_be():
     grows, a new method joined the pattern and the gate must still cover it.
     Either way the number is not allowed to drift unnoticed — which is why it is
     pinned to the measured count. It was `>= 20` at first, against a measured
-    27, and a floor lets the surface move by seven without anyone looking."""
+    27: a floor that let the surface shrink by seven, or grow by any amount,
+    without anyone looking."""
     found = _bare_broadcast_methods()
     assert len(found) == _BARE_BROADCAST_METHODS_MEASURED, (
         f"the bare-broadcast surface is {len(found)} functions, measured at "
@@ -209,7 +210,8 @@ def test_a_bare_broadcast_is_its_own_answer(label, result):
         # THE ORDERING ARGUMENT, ASSERTED. `settle_transaction`'s settled status
         # DEFAULTS to the word "submitted", so a gate reading the word before
         # the flag would strip the attestation from every service that waits for
-        # its receipt — neosafe, restaking, creator_platforms.
+        # its receipt through `settle_transaction` — see the census of waits
+        # below for which those are.
         ("settle_transaction's confirmed shape",
          {"status": "submitted", "settled": True, "value_moved": True,
           "block_number": 1, "tx_hash": "0xabc"}),
@@ -391,7 +393,10 @@ async def test_a_refusal_is_still_a_refusal(dispatcher_with_spies, monkeypatch):
 # makes that False, and the result went to `_attest_refusal`: "ACTION DECLINED",
 # for a transaction the platform signed, paid gas for and sent. That is the
 # same defect this file exists for, facing the other way, and it sat in the
-# services that DO wait — neosafe, restaking, creator_platforms.
+# services that waited through a helper — neosafe, restaking, kyc — and in
+# creator_platforms' mint, which wrote the same shape out inline. The services
+# that waited inline and wrote a different shape are further down, under "the
+# services that waited inline".
 #
 # The controls build the shape by CALLING the emitters, not by typing a dict:
 # a hand-written dict is exactly how a control ends up missing the field that
@@ -747,3 +752,463 @@ async def test_a_kyc_credential_the_chain_reverted_is_not_issued(dispatcher_with
     await asyncio.sleep(0)
     assert attested == [] and feed.published == []
     assert declined == ["issue_kyc_credential"]
+
+
+# ── the services that waited inline ──────────────────────────────────────
+#
+# AN INDEPENDENT REVIEW FOUND THE SAME DEFECT WHERE THE CENSUS COULD NOT LOOK.
+# The census above skips every function that waits for a receipt, on the
+# reasoning that a service which waits knows its outcome. Two did not know what
+# to do when the wait ran out. `attestation.revoke` and the time-critical
+# `attest_now` behind `create_attestation` called `send_raw_transaction`, then
+# `w3.eth.wait_for_transaction_receipt` inside the same `try`, and a wait that
+# timed out fell into `except Exception` and came back as
+# `{"status": "failed", "error": ...}` with no hash. The dispatcher filed it
+# "ACTION DECLINED" for a revocation or an emergency freeze the platform had
+# signed, paid gas for and sent. `contract_conversion._compile_and_deploy` had
+# the same shape, and on a receipt that did arrive it said "deployed" without
+# reading the receipt's status, so a reverted deployment was EAS-attested.
+#
+# The node below accepts the bytes. What it does next is the parameter.
+
+
+class _EASNode:
+    """A raw web3 stand-in for the services that build their own `Web3`."""
+
+    def __init__(self) -> None:
+        self.sent: list[bytes] = []
+        node = self
+
+        class _Call:
+            def build_transaction(self, tx):
+                return dict(tx)
+
+        class _Functions:
+            def attest(self, *_a):
+                return _Call()
+
+            def revoke(self, *_a):
+                return _Call()
+
+        class _Contract:
+            functions = _Functions()
+
+        class _Eth:
+            gas_price = 1
+
+            def contract(self, **_kw):
+                return _Contract()
+
+            def get_transaction_count(self, _address):
+                return 0
+
+            def send_raw_transaction(self, raw):
+                node.sent.append(raw)
+                return bytes.fromhex("ab" * 32)
+
+            def wait_for_transaction_receipt(self, _tx_hash, timeout=120):
+                # What the code before this fix called directly. It is made to
+                # time out too, so a control run against that code fails for
+                # the reason the review found and not for a missing stub.
+                raise TimeoutError("no receipt in time")
+
+        self.eth = _Eth()
+
+
+class _SignedTx:
+    raw_transaction = b"\x01\x02"
+    rawTransaction = b"\x01\x02"
+
+
+class _PlatformAccount:
+    address = "0x" + "3" * 40
+
+    def sign_transaction(self, _tx):
+        return _SignedTx()
+
+
+def _web3_receipt(status: int):
+    """A receipt the way web3 returns one: readable by key and by attribute."""
+    from web3.datastructures import AttributeDict
+
+    return AttributeDict({"status": status, "blockNumber": 7, "gasUsed": 21000,
+                          "contractAddress": "0x" + "9" * 40})
+
+
+def _receipt_wait(monkeypatch, outcome, node):
+    """Decide what a receipt wait answers. `outcome` is a receipt status, or
+    None for a wait that runs out.
+
+    Both waits are set: the shared one the fix routes through, and the node's
+    own, which the code before the fix called directly. So a control run
+    against that code fails on what it did with the answer, not on a stub it
+    never reached."""
+    from runtime.blockchain import web3_manager
+
+    async def _wait(_w3, tx_hash, timeout=120):
+        if outcome is None:
+            raise TimeoutError(f"no receipt for {tx_hash} within {timeout}s")
+        return _web3_receipt(outcome)
+
+    def _node_wait(tx_hash, timeout=120):
+        if outcome is None:
+            raise TimeoutError(f"no receipt for {tx_hash} within {timeout}s")
+        return _web3_receipt(outcome)
+
+    monkeypatch.setattr(web3_manager, "wait_for_receipt_on", _wait, raising=False)
+    node.eth.wait_for_transaction_receipt = _node_wait
+
+
+_EAS_CONFIG = {"blockchain": {
+    "eas_contract": "0x" + "2" * 40, "eas_schema": "0x" + "cd" * 32,
+    "paymaster_private_key": "0x" + "1" * 64, "platform_wallet": "0x" + "3" * 40,
+    "rpc_url": "http://127.0.0.1:1",
+}}
+
+
+def _attestation_dispatcher(monkeypatch, spies):
+    import web3 as web3_module
+    from web3 import Web3 as _RealWeb3
+
+    import runtime.blockchain.sponsorship as sponsorship
+    from runtime.blockchain.services.attestation.service import AttestationService
+
+    node = _EASNode()
+
+    class _Web3:
+        HTTPProvider = staticmethod(lambda _url: None)
+        to_checksum_address = staticmethod(_RealWeb3.to_checksum_address)
+
+        def __new__(cls, *_a, **_k):
+            return node
+
+    monkeypatch.setattr(web3_module, "Web3", _Web3)
+    monkeypatch.setattr(sponsorship, "unmetered_platform_signer",
+                        lambda _key, _action: _PlatformAccount())
+    d = spies[0]
+    svc = AttestationService(_EAS_CONFIG)
+    svc._time_critical._web3 = node
+    d._get_registry()._instances["attestation"] = svc
+    return d, svc, node
+
+
+_REVOKE = {"attestation_uid": "0x" + "ef" * 32, "schema_uid": "0x" + "cd" * 32}
+_FREEZE = {"schema_uid": "0x" + "cd" * 32, "recipient": "0x" + "4" * 40,
+           "data": {"category": "emergency_freeze", "agent": "neo"}}
+
+
+async def test_a_revocation_that_was_sent_and_not_confirmed_is_a_broadcast(
+    dispatcher_with_spies, monkeypatch,
+):
+    """DEFECT-PROVER. Before: status "failed", no hash, ACTION DECLINED."""
+    d, svc, node = _attestation_dispatcher(monkeypatch, dispatcher_with_spies)
+    _, feed, attested, declined, broadcast = dispatcher_with_spies
+    _receipt_wait(monkeypatch, None, node)
+
+    raw = await svc.revoke(**_REVOKE)
+    assert len(node.sent) == 1, "premise changed — the revocation was never sent"
+    assert raw.get("broadcast") is True and raw.get("settled") is False, raw
+    assert raw.get("tx_hash") == "ab" * 32, f"the hash of a sent revocation was lost: {raw}"
+    assert _record_verdict(raw) == RECORD_BROADCAST, raw
+
+    await d.execute("revoke_attestation", params=dict(_REVOKE))
+    await asyncio.sleep(0)
+    assert declined == [], "a sent revocation was recorded as ACTION DECLINED"
+    assert broadcast == ["revoke_attestation"]
+    assert attested == [] and feed.published == []
+
+
+async def test_a_confirmed_revocation_is_still_settled(dispatcher_with_spies, monkeypatch):
+    """SCOPE PIN: waiting through the helper must not stop a confirmed
+    revocation being recorded as done."""
+    d, svc, node = _attestation_dispatcher(monkeypatch, dispatcher_with_spies)
+    _, feed, attested, declined, broadcast = dispatcher_with_spies
+    _receipt_wait(monkeypatch, 1, node)
+
+    raw = await svc.revoke(**_REVOKE)
+    assert raw["status"] == "revoked" and raw["settled"] is True, raw
+    await d.execute("revoke_attestation", params=dict(_REVOKE))
+    await asyncio.sleep(0)
+    assert attested == ["revoke_attestation"] and declined == [] and broadcast == []
+
+
+async def test_a_reverted_revocation_is_not_a_revocation(dispatcher_with_spies, monkeypatch):
+    d, svc, node = _attestation_dispatcher(monkeypatch, dispatcher_with_spies)
+    _, feed, attested, declined, broadcast = dispatcher_with_spies
+    _receipt_wait(monkeypatch, 0, node)
+
+    raw = await svc.revoke(**_REVOKE)
+    assert raw["status"] == "failed" and raw["settled"] is True, raw
+    await d.execute("revoke_attestation", params=dict(_REVOKE))
+    await asyncio.sleep(0)
+    assert declined == ["revoke_attestation"] and attested == [] and broadcast == []
+
+
+async def test_a_time_critical_attestation_that_was_sent_and_not_confirmed_is_a_broadcast(
+    dispatcher_with_spies, monkeypatch,
+):
+    """DEFECT-PROVER, the other one. `create_attestation` for an emergency
+    freeze, a ban record, a dispute filing or a rights reversion submits at
+    once, and a wait that ran out came back "failed" with no hash."""
+    d, svc, node = _attestation_dispatcher(monkeypatch, dispatcher_with_spies)
+    _, feed, attested, declined, broadcast = dispatcher_with_spies
+    _receipt_wait(monkeypatch, None, node)
+
+    raw = await svc.attest(**_FREEZE)
+    assert len(node.sent) == 1, "premise changed — the attestation was never sent"
+    assert raw.get("broadcast") is True and raw.get("settled") is False, raw
+    assert raw.get("tx_hash") == "ab" * 32, f"the hash of a sent attestation was lost: {raw}"
+    assert raw.get("attestation_tx") == "ab" * 32, raw
+    assert _record_verdict(raw) == RECORD_BROADCAST, raw
+
+    await d.execute("create_attestation", params=dict(_FREEZE))
+    await asyncio.sleep(0)
+    assert declined == [], "a sent emergency freeze was recorded as ACTION DECLINED"
+    assert broadcast == ["create_attestation"]
+    assert attested == [] and feed.published == []
+
+
+async def test_a_confirmed_time_critical_attestation_is_still_settled(
+    dispatcher_with_spies, monkeypatch,
+):
+    d, svc, node = _attestation_dispatcher(monkeypatch, dispatcher_with_spies)
+    _, feed, attested, declined, broadcast = dispatcher_with_spies
+    _receipt_wait(monkeypatch, 1, node)
+
+    raw = await svc.attest(**_FREEZE)
+    assert raw["status"] == "attested" and raw["settled"] is True, raw
+    assert raw["time_critical"] is True and raw["category"] == "emergency_freeze", raw
+    await d.execute("create_attestation", params=dict(_FREEZE))
+    await asyncio.sleep(0)
+    assert attested == ["create_attestation"] and declined == [] and broadcast == []
+
+
+async def test_a_reverted_time_critical_attestation_is_not_attested(
+    dispatcher_with_spies, monkeypatch,
+):
+    d, svc, node = _attestation_dispatcher(monkeypatch, dispatcher_with_spies)
+    _, feed, attested, declined, broadcast = dispatcher_with_spies
+    _receipt_wait(monkeypatch, 0, node)
+
+    raw = await svc.attest(**_FREEZE)
+    assert raw["status"] == "failed" and raw["settled"] is True, raw
+    await d.execute("create_attestation", params=dict(_FREEZE))
+    await asyncio.sleep(0)
+    assert declined == ["create_attestation"] and attested == [] and broadcast == []
+
+
+def _deploying_conversion(monkeypatch, receipt_status):
+    """A conversion service whose compiler and chain are stubbed and whose
+    decisions are not. `receipt_status` None is a wait that runs out."""
+    import sys
+    import types
+
+    from runtime.blockchain import web3_manager
+    from runtime.blockchain.services.contract_conversion.service import (
+        ContractConversionService,
+    )
+
+    fake_solcx = types.ModuleType("solcx")
+    fake_solcx.compile_source = lambda *_a, **_k: {
+        "<stdin>:Drop": {"abi": [], "bin": "6000"}}
+    monkeypatch.setitem(sys.modules, "solcx", fake_solcx)
+
+    svc = ContractConversionService({"conversion": {"auto_deploy": True}})
+    monkeypatch.setattr(svc, "_ensure_solc", lambda: True)
+    node = _EASNode()
+
+    class _Constructor:
+        def build_transaction(self, tx):
+            return dict(tx)
+
+    class _Deployable:
+        def constructor(self):
+            return _Constructor()
+
+    node.eth.contract = lambda **_kw: _Deployable()
+    node.eth.estimate_gas = lambda _tx: 100_000
+
+    class _Chain:
+        available = True
+        chain_id = 84532
+        w3 = node
+
+        async def signer(self, _action):
+            return _PlatformAccount()
+
+        def explorer_url(self, tx_hash):
+            return f"https://explorer/tx/{tx_hash}"
+
+        async def wait_for_receipt(self, tx_hash, timeout=120):
+            return await web3_manager.wait_for_receipt_on(self.w3, tx_hash, timeout)
+
+    svc._web3 = _Chain()
+    _receipt_wait(monkeypatch, receipt_status, node)
+    return svc, node
+
+
+async def test_a_reverted_deployment_is_not_deployed(monkeypatch):
+    """DEFECT-PROVER. The deploy read `contractAddress` and `blockNumber` off
+    the receipt and never its status, so a reverted deployment came back
+    "deployed" and `convert` EAS-attested `contract_deployed` for it."""
+    svc, node = _deploying_conversion(monkeypatch, 0)
+    out = await svc._compile_and_deploy("contract Drop {}", "Drop")
+    assert len(node.sent) == 1, "premise changed — the deployment was never sent"
+    assert out["status"] != "deployed", f"a reverted deployment was reported deployed: {out}"
+    assert out.get("settled") is True and out["status"] == "failed", out
+
+
+async def test_a_deployment_with_no_receipt_is_a_broadcast_with_its_hash(monkeypatch):
+    svc, node = _deploying_conversion(monkeypatch, None)
+    out = await svc._compile_and_deploy("contract Drop {}", "Drop")
+    assert len(node.sent) == 1
+    assert out.get("broadcast") is True and out.get("settled") is False, out
+    assert out.get("tx_hash") == "ab" * 32, f"the hash of a sent deployment was lost: {out}"
+
+
+async def test_a_confirmed_deployment_still_names_its_contract(monkeypatch):
+    svc, node = _deploying_conversion(monkeypatch, 1)
+    out = await svc._compile_and_deploy("contract Drop {}", "Drop")
+    assert out["status"] == "deployed" and out["settled"] is True, out
+    assert out["contract_address"] == "0x" + "9" * 40, out
+    assert out["tx_hash"] == "ab" * 32 and out["explorer"], out
+
+
+async def test_convert_attests_a_deployment_only_when_its_receipt_confirms_it(monkeypatch):
+    """The attestation follows the receipt: `convert` writes `contract_deployed`
+    on-chain for a deployment the chain confirmed, and for nothing else."""
+    import runtime.blockchain.eas_client as eas_client
+
+    attested: list[dict] = []
+
+    class _EAS:
+        def __init__(self, _config):
+            pass
+
+        async def attest(self, **kwargs):
+            attested.append(kwargs)
+            return {"status": "attested"}
+
+    monkeypatch.setattr(eas_client, "EASClient", _EAS)
+    source = "contract Drop { function mint() public { uint256 x = 1; x += 1; } }"
+    for status, expected in ((0, 0), (None, 0), (1, 1)):
+        attested.clear()
+        svc, _node = _deploying_conversion(monkeypatch, status)
+        monkeypatch.setattr(svc._auditor, "audit", lambda *_a, **_k: type(
+            "Report", (), {"auditable": True, "passed": True, "to_dict": lambda self: {}})())
+        out = await svc.convert(source, "solidity")
+        assert "deployment" in out, f"premise changed — nothing reached the deploy: {out}"
+        assert len(attested) == expected, (
+            f"receipt status {status!r}: {len(attested)} contract_deployed attestations "
+            f"for {out['deployment']}")
+
+
+# ── the census of waits ──────────────────────────────────────────────────
+#
+# THE CENSUS ABOVE COULD NOT SEE A WAIT THAT HANDLED ITS OWN TIMEOUT WRONGLY,
+# because it skipped every function that waited. This one looks at exactly
+# those. Under `services/`, a receipt wait is allowed in one kind of place: a
+# `settle_transaction`, whose three shapes are driven above. Any other function
+# that names a receipt wait decides for itself what a wait that ran out means,
+# and three of them decided "failed". A method added later that waits inline
+# fails here by name, whatever it does in its `except`.
+
+_RAW_RECEIPT_WAITS = frozenset({"wait_for_receipt", "wait_for_transaction_receipt"})
+
+#: Where a raw receipt wait may appear under `services/`: the settle helper.
+#: `web3_manager.settle_transaction`, the shared form, is outside `services/`.
+_SETTLE_HELPERS = frozenset({("restaking/_guards.py", "settle_transaction")})
+
+
+def _names_used(node: ast.AST) -> set[str]:
+    """Every attribute or name the function mentions — a wait passed by
+    reference to a thread counts as much as one that is called."""
+    names: set[str] = set()
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Attribute):
+            names.add(sub.attr)
+        elif isinstance(sub, ast.Name):
+            names.add(sub.id)
+    return names
+
+
+def _functions_under(root: pathlib.Path):
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield path, node
+
+
+def _inline_receipt_waiters(root: pathlib.Path = _SERVICES) -> set[tuple[str, str]]:
+    return {
+        (str(path.relative_to(root)), node.name)
+        for path, node in _functions_under(root)
+        if _names_used(node) & _RAW_RECEIPT_WAITS
+    }
+
+
+def test_a_receipt_wait_under_services_lives_only_in_settle_transaction():
+    """THE LOAD-BEARING CENSUS for the services that wait. Fails on the tree
+    before this fix, naming `attestation/service.py revoke`,
+    `attestation/time_critical.py attest_now`,
+    `contract_conversion/service.py _compile_and_deploy` and
+    `creator_platforms/service.py mint_sound`."""
+    inline = _inline_receipt_waiters() - _SETTLE_HELPERS
+    assert inline == set(), (
+        "a function under services/ waits for a receipt itself instead of through "
+        "settle_transaction, so what a wait that runs out is recorded as is up to "
+        f"its own except clause: {sorted(inline)}")
+
+
+def test_the_census_of_waits_sees_a_wait_by_reference():
+    """ITS OWN CONTROL: a planted inline wait, in the two forms the tree uses."""
+    for source in (
+        "async def f(self):\n"
+        "    h = self.w3.eth.send_raw_transaction(b'')\n"
+        "    r = self.w3.eth.wait_for_transaction_receipt(h, timeout=1)\n",
+        "async def f(self):\n"
+        "    h = self.w3.eth.send_raw_transaction(b'')\n"
+        "    r = await asyncio.to_thread(self.w3.eth.wait_for_transaction_receipt, h)\n",
+    ):
+        node = ast.parse(source).body[0]
+        assert _names_used(node) & _RAW_RECEIPT_WAITS, source
+
+
+#: Measured by `_senders_by_wait` at the commit that wrote this line.
+_SETTLE_SENDERS_MEASURED = 13
+
+
+def _senders_by_wait() -> tuple[set, set, set]:
+    """Every function under `services/` that sends a transaction, sorted by how
+    it learns what happened: through `settle_transaction`, not at all, or
+    inline. The three add up to every sender, so none can be outside all of
+    them."""
+    settle, no_wait, inline = set(), set(), set()
+    for path, node in _functions_under(_SERVICES):
+        if not (_called_names(node) & _SEND_PRIMITIVES):
+            continue
+        key = (str(path.relative_to(_SERVICES)), node.name)
+        used = _names_used(node)
+        if used & _RAW_RECEIPT_WAITS:
+            inline.add(key)
+        elif "settle_transaction" in used:
+            settle.add(key)
+        else:
+            no_wait.add(key)
+    return settle, no_wait, inline
+
+
+def test_every_sender_under_services_is_accounted_for():
+    settle, no_wait, inline = _senders_by_wait()
+    assert inline == set(), f"a sender waits inline: {sorted(inline)}"
+    assert len(no_wait) == _NO_WAIT_BROADCASTERS_MEASURED, sorted(no_wait)
+    assert set(_no_wait_broadcasters()) == no_wait, (
+        "the literal census and the sender census disagree about which senders wait")
+    assert len(settle) == _SETTLE_SENDERS_MEASURED, (
+        f"{len(settle)} senders wait through settle_transaction, measured at "
+        f"{_SETTLE_SENDERS_MEASURED} — re-read them before changing the number: "
+        f"{sorted(settle)}")

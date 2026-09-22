@@ -26,6 +26,7 @@ import asyncio
 import re
 import time
 import logging
+from collections.abc import Mapping
 from typing import Any, Optional
 
 #: 21-S. How long a single blocking receipt poll may occupy a worker thread.
@@ -348,49 +349,9 @@ class Web3Manager:
         """
         if not self.available or self.w3 is None:
             raise RuntimeError("Web3Manager not available")
-
-        # 21-S. THE WAIT IS SLICED BECAUSE `asyncio.to_thread` WORK IS NOT
-        # CANCELLABLE. Cancelling the awaiting task frees the caller and leaves
-        # the worker thread polling to completion — MEASURED: cancelled at
-        # 0.4s, the thread was still running afterwards and exited only on its
-        # own schedule.
-        #
-        # With the default 120s and the platform's own 20s batch-route ceiling,
-        # every cancelled batch mint orphaned a pool thread for up to 100s.
-        # Enough of them exhaust the default executor and stall every other
-        # `to_thread` caller in the process — a availability failure introduced
-        # by 21-I, which is itself the fix that stopped this call blocking the
-        # event loop. Both facts are true: the offload was right, and it moved
-        # the cost rather than removing it.
-        #
-        # Slicing bounds the orphan to one slice instead of the full timeout.
-        # It does NOT make the thread cancellable — nothing can — so the
-        # docstring says what it actually achieves.
-        deadline = time.monotonic() + max(0, int(timeout or 0))
-        slice_s = min(_RECEIPT_POLL_SLICE_S, max(1, int(timeout or 1)))
-        last_exc: Exception | None = None
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            try:
-                return await asyncio.to_thread(
-                    self.w3.eth.wait_for_transaction_receipt,
-                    tx_hash,
-                    timeout=min(slice_s, remaining),
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                # A slice expiring is expected; anything else is not, but we
-                # cannot reliably name web3's timeout type across versions, so
-                # the DEADLINE decides and the last error is re-raised at it.
-                last_exc = exc
-        if last_exc is not None:
-            raise last_exc
-        raise TimeoutError(
-            f"no receipt for {tx_hash} within {timeout}s"
-        )
+        # The loop itself is `wait_for_receipt_on`, below, so the services that
+        # build their own `Web3` wait the same way this does.
+        return await wait_for_receipt_on(self.w3, tx_hash, timeout)
 
     def get_balance_eth(self, address: str | None = None) -> float:
         """Return the ETH balance of *address* (paymaster by default).
@@ -420,6 +381,75 @@ class Web3Manager:
         except Exception as exc:
             logger.warning("get_balance_eth failed: %s", exc)
             raise BalanceUnavailable("balance read failed") from exc
+
+
+async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
+    """Wait for *tx_hash*'s receipt on a web3 instance, off the event loop.
+
+    `Web3Manager.wait_for_receipt` is this over its own `w3`. It is a module
+    function so that a service holding a bare `Web3` — the attestation service
+    and its time-critical handler build their own — waits the same way, instead
+    of calling `w3.eth.wait_for_transaction_receipt` inline, which blocks the
+    event loop for the whole timeout (21-I) and leaves the caller to decide what
+    a wait that ran out means. Raises when no receipt arrives by the deadline.
+    """
+    # 21-S. THE WAIT IS SLICED BECAUSE `asyncio.to_thread` WORK IS NOT
+    # CANCELLABLE. Cancelling the awaiting task frees the caller and leaves
+    # the worker thread polling to completion — MEASURED: cancelled at
+    # 0.4s, the thread was still running afterwards and exited only on its
+    # own schedule.
+    #
+    # With the default 120s and the platform's own 20s batch-route ceiling,
+    # every cancelled batch mint orphaned a pool thread for up to 100s.
+    # Enough of them exhaust the default executor and stall every other
+    # `to_thread` caller in the process — a availability failure introduced
+    # by 21-I, which is itself the fix that stopped this call blocking the
+    # event loop. Both facts are true: the offload was right, and it moved
+    # the cost rather than removing it.
+    #
+    # Slicing bounds the orphan to one slice instead of the full timeout.
+    # It does NOT make the thread cancellable — nothing can — so the
+    # docstring says what it actually achieves.
+    deadline = time.monotonic() + max(0, int(timeout or 0))
+    slice_s = min(_RECEIPT_POLL_SLICE_S, max(1, int(timeout or 1)))
+    last_exc: Exception | None = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            return await asyncio.to_thread(
+                w3.eth.wait_for_transaction_receipt,
+                tx_hash,
+                timeout=min(slice_s, remaining),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # A slice expiring is expected; anything else is not, but we
+            # cannot reliably name web3's timeout type across versions, so
+            # the DEADLINE decides and the last error is re-raised at it.
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+    raise TimeoutError(
+        f"no receipt for {tx_hash} within {timeout}s"
+    )
+
+
+class RawWeb3Receipts:
+    """What `settle_transaction` waits through, for a bare `Web3` instance.
+
+    `settle_transaction` asks its first argument for `wait_for_receipt`, which a
+    `Web3Manager` has and a `Web3` does not. This is the one method, over
+    `wait_for_receipt_on`.
+    """
+
+    def __init__(self, w3: Any) -> None:
+        self._w3 = w3
+
+    async def wait_for_receipt(self, tx_hash: Any, timeout: int = 120):
+        return await wait_for_receipt_on(self._w3, tx_hash, timeout)
 
 
 class BalanceUnavailable(RuntimeError):
@@ -517,6 +547,71 @@ def recorded_unsettled_response(
     return response
 
 
+def unconfirmed_broadcast(tx_hash: Any, base: dict | None = None, *, note: str = "") -> dict:
+    """A transaction that was SENT and that no receipt has answered for.
+
+    The one shape for it, wherever the platform signs: `settle_transaction`
+    returns it when its wait runs out, and so does every blockchain capability
+    and helper that waits for its receipt through `receipt_within`. It carries
+    the hash, which is what makes it checkable, and `broadcast: True` with
+    `settled: False`: the dispatcher records it as a broadcast, and
+    `outcome_truth.report_of` answers UNKNOWN, so outcome learning does not
+    learn it in either direction.
+
+    Before this existed a wait that ran out was an exception inside the same
+    `try` as the send, and every one of those `except` clauses said the call
+    failed — "Stake failed: no receipt", `{"status": "failed"}` — about a
+    transaction that may be mined, and dropped the hash a caller would need to
+    find out. A retry on the strength of that sends it again.
+    """
+    tx_hash_text = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+    return {
+        **(base or {}),
+        "tx_hash": tx_hash_text,
+        "broadcast": True,
+        "status": "pending",
+        "settled": False,
+        "value_moved": None,
+        "disclosure": (
+            "The transaction was BROADCAST and no receipt was obtained "
+            "within the wait window. This is NOT a refusal and NOT a "
+            "failure — it may be mined. Check the hash before retrying."
+            + (f" {note}" if note else "")
+        ),
+    }
+
+
+async def receipt_within(w3: Any, tx_hash: Any, timeout: int = 120, *, what: str = "") -> Any:
+    """The receipt of a transaction already sent, or None if none arrived.
+
+    For code that reads more of the receipt than `settle_transaction` returns
+    and answers in its own shape. Any fault in the wait is None — once the
+    transaction is out, a wait that fails establishes nothing about it — and a
+    caller answers None with `unconfirmed_broadcast`. Cancellation propagates.
+    """
+    try:
+        return await wait_for_receipt_on(w3, tx_hash, timeout)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN, not failure
+        tx_hash_text = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+        logger.warning("%s: no receipt for %s: %s", what or "transaction", tx_hash_text, exc)
+        return None
+
+
+def _receipt_field(receipt: Any, name: str) -> Any:
+    """A field of a receipt, however the receipt carries it.
+
+    web3 returns an `AttributeDict`, which answers both `receipt["status"]` and
+    `receipt.status`; a plain dict answers only the first, and reading it by
+    attribute gave `None` for every field — a confirmed transaction read as
+    reverted. A mapping is read by key, anything else by attribute.
+    """
+    if isinstance(receipt, Mapping):
+        return receipt.get(name)
+    return getattr(receipt, name, None)
+
+
 async def settle_transaction(
     web3: Any,
     tx_hash: str,
@@ -526,12 +621,15 @@ async def settle_transaction(
     *,
     settled_status: str = "submitted",
     timeout: int = 120,
+    note: str = "",
 ) -> dict:
     """Turn a broadcast into a settled, honest outcome.
 
     19-C established this in `services/restaking/_guards.py` and 21-C wrote it
     again inline in `services/creator_platforms/service.py`; this is the shared
-    form, next to the `wait_for_receipt` it depends on.
+    form, next to the `wait_for_receipt` it depends on. *web3* is anything with
+    an async `wait_for_receipt`: a `Web3Manager`, or `RawWeb3Receipts` over a
+    bare `Web3`.
 
         receipt.status == 1  -> *settled_status*  settled, value moved
         receipt.status == 0  -> "failed"          mined and REVERTED; nothing
@@ -545,6 +643,10 @@ async def settle_transaction(
     The timeout branch is the under-claim half and it is the one that has to be
     got right: an over-claim is visible to the claimant, an under-claim is
     visible to nobody.
+
+    A receipt that names a `contractAddress` — a deployment — adds it as
+    `contract_address`. *note* is appended to the unconfirmed disclosure, for
+    what a caller knows about retrying that this function does not.
     """
     out = {**(base or {}), "tx_hash": tx_hash, "broadcast": True}
     try:
@@ -557,25 +659,19 @@ async def settle_transaction(
         raise
     except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN, not failure
         logger.warning("%s.%s: no receipt for %s: %s", service_name, method, tx_hash, exc)
-        return {
-            **out,
-            "status": "pending",
-            "settled": False,
-            "value_moved": None,
-            "disclosure": (
-                "The transaction was BROADCAST and no receipt was obtained "
-                "within the wait window. This is NOT a refusal and NOT a "
-                "failure — it may be mined. Check the hash before retrying."
-            ),
-        }
+        return unconfirmed_broadcast(tx_hash, base, note=note)
 
-    if int(getattr(receipt, "status", 0) or 0) != 1:
+    contract_address = _receipt_field(receipt, "contractAddress")
+    if contract_address:
+        out["contract_address"] = contract_address
+
+    if int(_receipt_field(receipt, "status") or 0) != 1:
         return {
             **out,
             "status": "failed",
             "settled": True,
             "value_moved": False,
-            "block_number": getattr(receipt, "blockNumber", None),
+            "block_number": _receipt_field(receipt, "blockNumber"),
             "disclosure": (
                 "The transaction was mined and REVERTED on-chain. Nothing "
                 "moved. Gas was still spent."
@@ -587,6 +683,6 @@ async def settle_transaction(
         "status": settled_status,
         "settled": True,
         "value_moved": True,
-        "block_number": getattr(receipt, "blockNumber", None),
-        "gas_used": getattr(receipt, "gasUsed", None),
+        "block_number": _receipt_field(receipt, "blockNumber"),
+        "gas_used": _receipt_field(receipt, "gasUsed"),
     }

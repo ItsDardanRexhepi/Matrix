@@ -638,7 +638,12 @@ RECORD_REFUSED = "refused"
 #: proved it by missing `kyc.issue_kyc_credential`, which broadcast and said
 #: "issued". The same test file now also derives the surface from the SEND — every
 #: function that calls a send primitive and waits for no receipt — and fails if
-#: any literal such a function returns would be recorded as settled.
+#: any literal such a function returns would be recorded as settled. A second
+#: miss taught the other half: a function that waited INLINE was skipped as
+#: settled-by-construction, and `attestation.revoke` and the time-critical
+#: `attest_now` filed a wait that ran out as a refusal, with no hash. So every
+#: sender is now sorted by how it learns its outcome, and under `services/` a
+#: receipt wait is allowed only inside `settle_transaction`.
 #:
 #: THE WORD IS NOT THE EVIDENCE — the flag is. `settle_transaction` returns its
 #: settled status once the receipt is in, and that status DEFAULTS to the word
@@ -1778,8 +1783,12 @@ class ServiceDispatcher:
 
         THE STANDING WORK THIS LEAVES. The honest end state is for these methods
         to wait for their own receipts through `web3_manager.settle_transaction`,
-        which returns settled/failed/pending and is already used by `neosafe`,
-        `restaking`, `creator_platforms` and `kyc.issue_kyc_credential`. That is
+        which returns settled/failed/pending and is what every service under
+        `services/` that waits at all now waits through: `neosafe`,
+        `restaking`, `kyc.issue_kyc_credential`, `creator_platforms.mint_sound`,
+        the attestation service's revocation and time-critical attestation, and
+        the contract conversion deploy (the census in
+        tests/test_a_broadcast_is_not_a_settlement.py holds that). That is
         25 transaction-sending methods each taking a receipt wait (the 26th word
         match, the compute job, is a provider API call with no receipt to wait
         for), which changes their latency and is a behavioural decision per

@@ -281,7 +281,15 @@ def test_the_receipt_derived_twin_still_says_claimed():
     assert "'claimed' if receipt['status'] == 1 else 'failed'" in body, (
         "the receipt-derived twin no longer derives its status from a receipt"
     )
-    assert "wait_for_transaction_receipt" in body
+    # The receipt comes through the shared wait, `BlockchainInterface._receipt`,
+    # which answers None for a wait that runs out so the method can report an
+    # unconfirmed broadcast with its hash instead of "Claim failed". It used to
+    # call `wait_for_transaction_receipt` inline, and this line pinned that
+    # name; the census in tests/test_a_sent_transaction_is_not_a_refusal.py
+    # now holds that no capability names the raw wait at all.
+    assert "self._receipt(" in body, (
+        "the receipt-derived twin no longer waits for its receipt"
+    )
     assert "send_raw_transaction" in body
 
 

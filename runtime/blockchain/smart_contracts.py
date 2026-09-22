@@ -178,11 +178,15 @@ class SmartContracts(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "smart_contracts.deploy")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"network": self.network})
 
             return json.dumps({
-                "status": "deployed",
-                "contract_address": receipt["contractAddress"],
+                # The receipt's status, not its arrival: a reverted deployment
+                # has a receipt too, and no contract.
+                "status": "deployed" if receipt["status"] == 1 else "failed",
+                "contract_address": receipt["contractAddress"] if receipt["status"] == 1 else None,
                 "tx_hash": tx_hash.hex(),
                 "gas_used": receipt["gasUsed"],
                 "gas_paid_by": "platform (The Matrix)",
@@ -243,7 +247,9 @@ class SmartContracts(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "smart_contracts.send")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"contract_address": address, "function_name": fn})
 
             return json.dumps({
                 "status": "success" if receipt["status"] == 1 else "failed",

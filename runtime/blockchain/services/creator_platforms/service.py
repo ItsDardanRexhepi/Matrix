@@ -62,6 +62,7 @@ from runtime.blockchain.web3_manager import (
     Web3Manager,
     is_placeholder_value,
     not_deployed_response,
+    settle_transaction,
 )
 
 logger = logging.getLogger(__name__)
@@ -310,14 +311,26 @@ class CreatorPlatformsService:
                 "edition_address": edition_address,
                 "to": to,
                 "quantity": quantity,
-                "tx_hash": tx_hash,
                 "explorer_url": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform paymaster",
-                "broadcast": True,
             }
+            # The wait is the shared helper's, so its three answers are the
+            # same three every other service gives: confirmed -> "minted",
+            # reverted -> "failed", no receipt in time -> "pending" with the
+            # hash and `broadcast: True`. This method wrote those three out
+            # inline, correctly; a census now holds that a receipt wait under
+            # services/ lives in `settle_transaction` and nowhere else, because
+            # two services that wrote it inline got the third one wrong.
             try:
-                receipt = await self._web3.wait_for_receipt(
-                    tx_hash, timeout=RECEIPT_TIMEOUT_S)
+                return await settle_transaction(
+                    self._web3, tx_hash, "mint_sound", self.service_name, base,
+                    settled_status="minted",
+                    timeout=RECEIPT_TIMEOUT_S,
+                    note=(
+                        "Do not retry blindly: there is no idempotency key on "
+                        "this path and a retry mints again."
+                    ),
+                )
             except asyncio.CancelledError:
                 # 21-H, and the WORST of the five sites: cancellation here means the
                 # mint was ALREADY BROADCAST — tx_hash exists — and the wait for its
@@ -326,37 +339,6 @@ class CreatorPlatformsService:
                 log_cancelled_dispatch(
                     "mint_sound", f"broadcast tx {tx_hash}", self.service_name)
                 raise
-            except Exception as exc:  # noqa: BLE001 — a wait fault is UNKNOWN
-                logger.warning("mint_sound: no receipt for %s: %s", tx_hash, safe_text(exc))
-                return {
-                    **base, "status": "pending", "settled": False,
-                    "value_moved": None,
-                    "disclosure": (
-                        "The mint was BROADCAST and no receipt was obtained "
-                        "within the wait window. This is NOT a refusal and NOT "
-                        "a failure — the transaction may be mined. Check the "
-                        "hash. Do not retry blindly: there is no idempotency "
-                        "key on this path and a retry mints again."
-                    ),
-                }
-            if int(getattr(receipt, "status", 0) or 0) != 1:
-                return {
-                    **base, "status": "failed", "settled": True,
-                    "value_moved": False,
-                    "block_number": getattr(receipt, "blockNumber", None),
-                    "disclosure": (
-                        "The mint transaction was mined and REVERTED on-chain. "
-                        "No token was minted. Gas was still spent."
-                    ),
-                }
-            return {
-                **base,
-                "status": "minted",
-                "settled": True,
-                "value_moved": True,
-                "block_number": getattr(receipt, "blockNumber", None),
-                "gas_used": getattr(receipt, "gasUsed", None),
-            }
 
         # ── OFF-CHAIN path: Sound.xyz GraphQL API. ──
         api_key = cfg.get("sound_api_key") or ""

@@ -630,18 +630,28 @@ def test_every_transport_site_has_a_cancellation_handler():
     site cannot be added without one.
 
     Five sites, enumerated: the chain broadcast, the receipt wait, the Sound
-    GraphQL call, and the two publisher POSTs."""
+    GraphQL call, and the two publisher POSTs.
+
+    Every one of the five has a cancellation handler. Four have a broad handler
+    here as well; the receipt wait's is inside `web3_manager.settle_transaction`,
+    which the mint now waits through, and what it answers for a wait that runs
+    out is driven by `test_a_mint_with_no_receipt_is_pending_not_minted_and_not_refused`.
+    This counted the two equal while the receipt wait carried its own `except
+    Exception`; both numbers are pinned instead, so neither can move unseen."""
     from pathlib import Path
     src = Path(
         "runtime/blockchain/services/creator_platforms/service.py"
     ).read_text()
     broad = src.count("except Exception as exc")
     cancelled = src.count("except asyncio.CancelledError")
-    assert cancelled == broad, (
-        f"{broad} broad handlers but {cancelled} cancellation handlers — a "
+    assert cancelled == 5, (
+        f"{cancelled} cancellation handlers for five transport sites — a "
         f"transport site can be cancelled with no record written"
     )
-    assert broad == 5
+    assert broad == 4, (
+        f"{broad} broad handlers; four sites handle their own faults and the "
+        f"receipt wait's are settle_transaction's — re-read before changing"
+    )
 
 
 # ─────────────────────────────── 21-K ───────────────────────────────

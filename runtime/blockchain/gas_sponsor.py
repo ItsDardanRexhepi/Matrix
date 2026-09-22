@@ -14,7 +14,11 @@ import logging
 import time
 from typing import Any
 
-from runtime.blockchain.web3_manager import Web3Manager
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    receipt_within,
+    unconfirmed_broadcast,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +108,9 @@ class GasSponsor:
             # Sign with paymaster key
             signed = account.sign_transaction(tx_params)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await receipt_within(self.web3, tx_hash, 120, what="gas_sponsor.sponsor")
+            if receipt is None:
+                return unconfirmed_broadcast(tx_hash, {"gas_paid_by": "platform (The Matrix)"})
 
             logger.info(
                 f"Sponsored tx {tx_hash.hex()} — gas paid by platform, "

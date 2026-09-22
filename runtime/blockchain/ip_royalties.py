@@ -10,6 +10,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.web3_manager import unconfirmed_broadcast
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,16 @@ class IPRoyalties(BlockchainInterface):
                     }
                     signed = account.sign_transaction(tx)
                     tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-                    receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+                    receipt = await self._receipt(tx_hash, "ip_royalties.distribute")
+                    if receipt is None:
+                        # Sent and not confirmed: this share may be paid. Not
+                        # "failed", which invites paying it again.
+                        results.append(unconfirmed_broadcast(tx_hash, {
+                            "address": addr,
+                            "share_bps": share_bps,
+                            "amount_eth": str(share_amount),
+                        }))
+                        continue
 
                     results.append({
                         "address": addr,

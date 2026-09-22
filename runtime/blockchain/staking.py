@@ -85,7 +85,9 @@ class Staking(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "staking.stake")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"amount": params.get("amount")})
 
             return json.dumps({
                 "status": "staked" if receipt["status"] == 1 else "failed",
@@ -122,7 +124,9 @@ class Staking(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "staking.unstake")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"amount": params.get("amount")})
 
             return json.dumps({
                 "status": "unstaked" if receipt["status"] == 1 else "failed",
@@ -158,7 +162,9 @@ class Staking(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "staking.claim_rewards")
+            if receipt is None:
+                return self._unconfirmed(tx_hash)
 
             return json.dumps({
                 "status": "claimed" if receipt["status"] == 1 else "failed",

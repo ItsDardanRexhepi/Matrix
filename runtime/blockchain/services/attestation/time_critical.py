@@ -140,28 +140,6 @@ class TimeCriticalHandler:
             account = unmetered_platform_signer(self.paymaster_key, "eas.attest_time_critical")
             signed = account.sign_transaction(tx)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-
-            confirmed_at = time.time()
-            latency_ms = round((confirmed_at - submitted_at) * 1000, 2)
-
-            logger.info(
-                "Time-critical attestation confirmed: tx=%s category=%s latency=%sms",
-                tx_hash.hex(), category, latency_ms,
-            )
-
-            return {
-                "status": "attested" if receipt["status"] == 1 else "failed",
-                "attestation_tx": tx_hash.hex(),
-                "schema_uid": schema_uid,
-                "category": category,
-                "recipient": recipient,
-                "block_number": receipt["blockNumber"],
-                "latency_ms": latency_ms,
-                "time_critical": True,
-                "gas_paid_by": "platform (The Matrix)",
-                "data": data,
-            }
 
         except ImportError as exc:
             logger.warning("Time-critical attestation skipped — missing dependency: %s", exc)
@@ -186,3 +164,38 @@ class TimeCriticalHandler:
                 "time_critical": True,
                 "data": data,
             }
+
+        # A SENT ATTESTATION IS NOT DECIDED BY AN `except`. The receipt wait sat
+        # inside the `try` above, so a wait that ran out came back "failed" with
+        # no hash, and an emergency freeze, a ban record, a dispute filing or a
+        # rights reversion the platform had signed and sent was filed "ACTION
+        # DECLINED". Once the hash exists the transaction is out: confirmed ->
+        # "attested", reverted -> "failed", no receipt in time -> "pending" with
+        # the hash and `broadcast: True`. Off the event loop, too.
+        from runtime.blockchain.web3_manager import RawWeb3Receipts, settle_transaction
+
+        attestation_tx = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+        outcome = await settle_transaction(
+            RawWeb3Receipts(w3), attestation_tx, "attest_now", "attestation",
+            {
+                "attestation_tx": attestation_tx,
+                "schema_uid": schema_uid,
+                "category": category,
+                "recipient": recipient,
+                "time_critical": True,
+                "gas_paid_by": "platform (The Matrix)",
+                "data": data,
+            },
+            settled_status="attested",
+            timeout=60,
+        )
+        if outcome.get("value_moved") is True:
+            # The helper speaks for transfers. An attestation moves no value.
+            outcome["value_moved"] = None
+        if outcome.get("settled") is True:
+            outcome["latency_ms"] = round((time.time() - submitted_at) * 1000, 2)
+            logger.info(
+                "Time-critical attestation %s: tx=%s category=%s latency=%sms",
+                outcome["status"], attestation_tx, category, outcome["latency_ms"],
+            )
+        return outcome

@@ -160,7 +160,9 @@ class DeFi(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "defi.supply")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"token": token, "amount": params.get("amount", "0")})
 
             return json.dumps({
                 "status": "supplied" if receipt["status"] == 1 else "failed",
@@ -214,7 +216,9 @@ class DeFi(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "defi.borrow")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"token": token, "amount": params.get("amount", "0"), "rate_mode": "variable"})
 
             return json.dumps({
                 "status": "borrowed" if receipt["status"] == 1 else "failed",
@@ -266,7 +270,9 @@ class DeFi(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "defi.withdraw")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"token": token})
 
             return json.dumps({
                 "status": "withdrawn" if receipt["status"] == 1 else "failed",
@@ -317,7 +323,9 @@ class DeFi(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "defi.repay")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"token": token})
 
             return json.dumps({
                 "status": "repaid" if receipt["status"] == 1 else "failed",

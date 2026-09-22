@@ -18,7 +18,8 @@ said it had written them.
 Each result is now read with `report_of`, the same predicate outcome learning
 uses, so a refusal is a refusal here whatever idiom the client reports it in.
 Anything that did not land goes back on the queue rather than being reported
-as submitted; `_MAX_ATTEMPTS` bounds that so a permanently unconfigured
+as submitted — except an attestation that was sent and that no receipt has
+confirmed, which is logged under its hash and not sent a second time; `_MAX_ATTEMPTS` bounds that so a permanently unconfigured
 deployment cannot grow the queue without limit — and when it gives up it says
 which ids it abandoned, by id, at ERROR. A record that stops is not the same as
 a record that never existed.
@@ -215,6 +216,11 @@ class BatchProcessor:
         reached its last line. An UNKNOWN is treated like a failure HERE and
         only here: the queue's question is "may this attestation still be
         owed?", and the honest answer to an unestablished submission is yes.
+
+        Except one that was SENT. A result carrying `broadcast: True` without
+        `settled: True` went out under a hash and may be mined; sending it again
+        is how one attestation becomes two. It leaves the queue and its hash is
+        logged.
         """
         # `_submit_batch` is contracted to return one result per attestation, in
         # order, so the pairing is POSITIONAL — matching on `id` alone would
@@ -228,11 +234,23 @@ class BatchProcessor:
         landed: list[dict[str, Any]] = []
         requeue: list[dict[str, Any]] = []
         abandoned: list[str] = []
+        sent_unconfirmed: list[str] = []
 
         for att in batch:
             result = paired.get(att["id"])
             if result is not None and report_of(result) is SUCCESS:
                 landed.append(att)
+                continue
+            if (isinstance(result, dict) and result.get("broadcast") is True
+                    and result.get("settled") is not True):
+                # SENT, AND NOT CONFIRMED: NOT OWED AGAIN. The client signed and
+                # sent this attestation and no receipt answered in time. It may
+                # be mined. Re-queueing it — which is what an UNKNOWN gets —
+                # signs and sends it a second time, and if the first lands the
+                # chain holds two claims where one was made. So it leaves the
+                # queue, and the hash it went out under is recorded, which is
+                # what anyone checking it needs.
+                sent_unconfirmed.append(f"{att['id']} tx={result.get('tx_hash')}")
                 continue
             attempts = int(att.get("attempts", 0)) + 1
             att["attempts"] = attempts
@@ -252,9 +270,17 @@ class BatchProcessor:
                 len(abandoned), _MAX_ATTEMPTS, ", ".join(abandoned),
             )
 
+        if sent_unconfirmed:
+            logger.warning(
+                "%d attestation(s) were SENT and no receipt confirmed them; they "
+                "may still be mined, so they are not sent again: %s",
+                len(sent_unconfirmed), ", ".join(sent_unconfirmed),
+            )
+
         logger.info(
-            "Flush complete: %d of %d attestations landed, %d re-queued, %d abandoned.",
-            len(landed), len(batch), len(requeue), len(abandoned),
+            "Flush complete: %d of %d attestations landed, %d sent and unconfirmed, "
+            "%d re-queued, %d abandoned.",
+            len(landed), len(batch), len(sent_unconfirmed), len(requeue), len(abandoned),
         )
         return results
 
