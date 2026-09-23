@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,479 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,482 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -526,6 +526,9 @@ launch:
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.
+  Caddy's admin API is off; its container healthcheck asks a plain-HTTP
+  listener bound to the container's own loopback (port 2020, never
+  published) instead.
 - **Kubernetes manifests** — `k8s/` has a ready-to-`kubectl apply`
   stack: namespace, configmap, secret template, PVC, deployment with
   liveness / readiness / startup probes, service, and ingress.
