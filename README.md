@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,622 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,625 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -673,13 +673,14 @@ See `/glasswing` for the badge registry.
 
 ## Learn
 
-Three comprehensive courses for developers at every level:
+Three courses, free and open source in `education/`, exercises and
+solutions included; nothing sells them:
 
-- **Introduction to The Matrix** ($49) — Build plugins, deploy contracts with your own wallet, use the SDK
-- **Smart Contract Security** ($79) — Reentrancy, access control, Glasswing methodology
-- **DeFi from Scratch** ($49) — Loans, NFTs, DAOs, staking, explained simply
+- **Introduction to The Matrix** — Build plugins, deploy contracts with your own wallet, use the SDK
+- **Smart Contract Security** — Reentrancy, access control, Glasswing methodology
+- **DeFi from Scratch** — Loans, NFTs, DAOs, staking, explained simply
 
-See `/learn` for details or browse the open source content in `education/`.
+See `/learn` for details.
 
 ## Get Certified
 
