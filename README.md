@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,495 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,496 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -396,7 +396,9 @@ signs:
 - a few signing paths are exempt from the policy altogether. They are
   listed by name in `UNMETERED_PLATFORM_OPERATIONS`
   (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
-  rather than guessed at.
+  rather than guessed at. Three catalog capabilities reach them:
+  `create_attestation`, `batch_attest` and `revoke_attestation` are signed
+  with the platform key whatever the allowlist and the cap say.
 
 Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping

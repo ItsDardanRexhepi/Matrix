@@ -42,6 +42,6 @@ Gas is sponsored by the platform paymaster **within the policy the operator conf
 
 - A smart-account operation the paymaster signs (`POST /api/v1/paymaster/sign`) is checked against the allowlist, with its actions decoded from the call data being signed, and against the daily cap when one is set. Past either, sponsorship is refused rather than silently granted.
 - A transaction the platform signs itself for a capability is checked against the allowlist and the cap only when a daily cap is set. With no cap it is signed whatever the allowlist says.
-- A few signing paths are exempt from the policy altogether; they are listed by name in `UNMETERED_PLATFORM_OPERATIONS`.
+- A few signing paths are exempt from the policy altogether; they are listed by name in `UNMETERED_PLATFORM_OPERATIONS`. Three catalog capabilities reach them: `create_attestation`, `batch_attest` and `revoke_attestation` are signed with the platform key whatever the allowlist and the cap say.
 
 The README's section on the Web3 capability surface says the same.

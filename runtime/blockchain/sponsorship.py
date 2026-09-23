@@ -722,12 +722,22 @@ def resolve_caller_identity() -> str:
 # Every platform signature in runtime/blockchain/ is produced here, and
 # tests/test_sponsorship_policy_is_enforced.py fails if a new one is not.
 #
-# The exemptions below are platform-initiated record-keeping, not sponsorship of
-# a caller's operation: fixed call data the model never composes, written on the
-# platform's own behalf. Metering them against a per-CALLER daily cap would
-# charge one user's budget for another's attestation and would stop the audit
-# trail at $50 a day. They are listed rather than simply absent so the set is
-# reviewable — an unlisted unmetered site fails the test.
+# The exemptions below sign with no policy check: no allowlist and no daily
+# cap. They are listed rather than simply absent so the set is reviewable — an
+# unlisted unmetered site fails the test.
+#
+# Three are EAS writes signed with the platform key, and their call data is not
+# fixed. The catalog capabilities create_attestation and batch_attest reach
+# eas.attest (when the batch queue submits) and eas.attest_time_critical with a
+# recipient and payload fields the caller supplies, and revoke_attestation
+# reaches eas.revoke with the attestation uid and schema the caller names. The
+# service dispatcher's record of a completed action goes through the same
+# queue. They are exempt so that one caller's daily cap is not charged for
+# another's attestation and the audit trail does not stop at the cap; the cost
+# is that whoever can call those capabilities spends the platform's gas with
+# no cap. The fourth, gas_sponsor.sponsor, is GasSponsor.sponsor_transaction,
+# which signs and sends whatever transaction it is handed; nothing in this tree
+# calls it.
 #
 # AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
 # was listed as "shared account handle; every USE of it is a call site metered on
@@ -744,10 +754,11 @@ def resolve_caller_identity() -> str:
 # allowlist that silently excluded the platform's busiest signing path was
 # exactly the failure this list exists to prevent.
 UNMETERED_PLATFORM_OPERATIONS = {
-    "eas.attest": "EAS attestation write — fixed schema, the platform's own record",
-    "eas.attest_time_critical": "the same write on the time-critical path",
-    "eas.revoke": "revoking an attestation the platform itself issued",
-    "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
+    "eas.attest": "EAS attestation write (EASClient.attest), the batch queue's submissions included",
+    "eas.attest_time_critical": "the same write on the time-critical path (create_attestation)",
+    "eas.revoke": "revoking an attestation by the uid the caller names (revoke_attestation)",
+    "gas_sponsor.sponsor": "GasSponsor.sponsor_transaction: signs and sends the transaction it "
+                           "is handed; nothing in this tree calls it",
 }
 
 
