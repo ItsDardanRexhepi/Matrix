@@ -6,12 +6,21 @@ resolution across the Matrix platform.
 
 Coordinates:
   - EvidenceVault   (immutable evidence storage)
-  - JurorPool       (VRF-based juror selection via Component 11)
+  - JurorPool       (random juror selection — from a local seed, not VRF;
+                     see juror_pool.py)
   - SchellingPoint   (commit-reveal voting)
   - Appeals          (multi-tier appeal escalation)
 
-Dispute filing is a TIME-CRITICAL attestation — it is never batched.
-Both parties must stake to participate.
+Filing a dispute creates NO attestation — batched or otherwise. It stores
+the evidence and a record; nothing calls the attestation service. (This
+said filing is "a time-critical attestation — never batched", and the
+record's `time_critical: True` is read by nothing.)
+
+Stakes are NUMBERS, not deposits. The claimant declares a stake, checked
+against a floor; the respondent's is credited by the platform
+(`_base_stake`) when they first take part; no balance is read and no funds
+move, and a later stake_return claim is an entitlement to amounts that were
+never collected. This used to say both parties "must stake".
 """
 
 import logging
@@ -83,7 +92,8 @@ class DisputeResolution:
     ) -> dict:
         """File a new dispute.
 
-        This is a **time-critical** attestation and is NEVER batched.
+        No attestation is created here — see the module docstring. The
+        record's ``time_critical`` flag has no reader.
 
         Args:
             claimant: Address of the party filing the dispute.
@@ -370,6 +380,8 @@ class DisputeResolution:
                 exclude={dispute["claimant"], dispute["respondent"]},
             )
             dispute["jurors"] = [j["address"] for j in jurors]
+            # Where the panel's randomness came from, on the record itself.
+            dispute["juror_seed_source"] = self.juror_pool.last_seed_source
 
         # Step 2: tally outcome
         try:
@@ -438,10 +450,13 @@ class DisputeResolution:
             new_evidence=new_evidence,
         )
 
-        # Reset dispute for re-adjudication. Clearing claims is REQUIRED: any
-        # stake_return / juror_reward recorded against the now-overturned round
-        # must not survive into settlement, or both the round-1 and round-2
-        # "winners" would hold a valid entitlement against the same dispute.
+        # Reset dispute for re-adjudication. Claims recorded against the
+        # appealed round are cleared, so only the appeal's result can carry
+        # an entitlement. The conflict this used to cite — round-1 and
+        # round-2 "winners" both holding one — cannot arise today, for a
+        # reason that is its own defect: the vote state is not reset here,
+        # and a TALLIED Schelling round returns its stored outcome, so
+        # re-resolving an appealed dispute yields the round-1 outcome again.
         dispute["status"] = "appealed"
         dispute["appeal_count"] += 1
         dispute["jurors"] = []  # will be re-selected with larger panel

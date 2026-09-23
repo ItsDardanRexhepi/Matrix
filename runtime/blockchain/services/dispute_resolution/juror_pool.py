@@ -1,12 +1,25 @@
 from __future__ import annotations
 
 """
-JurorPool — verifiable random juror selection for dispute resolution.
+JurorPool — random juror selection for dispute resolution.
 
-Uses Chainlink VRF (via Component 11 Oracle Gateway) to ensure juror
-selection is provably fair and cannot be manipulated by either party.
-Jurors must stake tokens to participate and are weighted by expertise
-relevant to the dispute category.
+What this is, as the platform runs it: selection is random from a seed this
+process generates (sha256 of the dispute id and a fresh uuid4). It is NOT
+verifiable randomness. The VRF path exists only when an oracle gateway is
+passed in, the service registry never passes one, and the oracle's VRF
+provider does not send a request on-chain anyway — so nothing here is
+provable to a party, and the seed cannot be reproduced after the fact. Each
+selection records where its seed came from (``last_seed_source``) and the
+dispute carries it.
+
+Jurors register with a STAKE THEY DECLARE: the number is compared with the
+minimum and stored, and no tokens are checked, locked or moved. Nothing here
+stops one party registering many addresses, so this is not a pool either
+party is unable to fill. Jurors are weighted by expertise relevant to the
+dispute category.
+
+This used to promise Chainlink VRF, provable fairness, selection that cannot
+be manipulated by either party, and staked tokens.
 """
 
 import hashlib
@@ -27,6 +40,8 @@ class JurorPool:
     def __init__(self, config: dict | None = None, oracle_gateway: Any | None = None) -> None:
         self.config = config or {}
         self._oracle_gateway = oracle_gateway
+        #: Where the most recent selection's seed came from.
+        self.last_seed_source: str = ""
         self._min_stake = float(
             self.config.get("dispute_resolution", {}).get(
                 "min_juror_stake", DEFAULT_MIN_JUROR_STAKE
@@ -205,8 +220,10 @@ class JurorPool:
                     dispute_id=dispute_id,
                 )
                 if isinstance(result, dict) and "random_value" in result:
+                    self.last_seed_source = "oracle_gateway"
                     return str(result["random_value"])
                 if isinstance(result, str):
+                    self.last_seed_source = "oracle_gateway"
                     return result
             except Exception:
                 logger.warning(
@@ -215,7 +232,10 @@ class JurorPool:
                     exc_info=True,
                 )
 
-        # Fallback: deterministic but not verifiable
+        # Fallback: NEITHER deterministic NOR verifiable — a fresh uuid4 per
+        # call, so the same dispute gets a different seed each time and nobody
+        # can recompute it afterwards. (This said "deterministic".)
+        self.last_seed_source = "local_uuid4_not_verifiable"
         fallback = hashlib.sha256(
             f"{dispute_id}:{uuid.uuid4().hex}".encode()
         ).hexdigest()

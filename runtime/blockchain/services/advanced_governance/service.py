@@ -46,7 +46,10 @@ from runtime.blockchain.web3_manager import (
 logger = logging.getLogger(__name__)
 
 
-# ── Minimal, real ABIs (only the function we actually invoke) ──────────
+# ── Minimal, real ABIs ──────────────────────────────────────────────────
+# Each lists the functions this service invokes, plus — on the VotingEscrow
+# ABI — the two views `balanceOf` and `locked`, which nothing here calls yet.
+# (This said "only the function we actually invoke".)
 
 # Curve VotingEscrow (ve-token). Canonical signatures used by Curve & forks.
 _VOTING_ESCROW_ABI = [

@@ -27,7 +27,12 @@ unsigned operation returned to the user's own wallet — never executed here.
 Each method gates on its required config FIRST and returns the canonical
 CREDENTIAL-GATED ``not_deployed_response`` when a credential is missing or
 the chain is unreachable. The real protocol call is only attempted once the
-operator has populated the relevant ``services.restaking`` config keys.
+operator has populated the relevant ``services.restaking`` config keys — and
+a caller cannot stand in for one: ``withdraw_restake`` used to take its
+strategy from the request when one was given, so a caller could satisfy the
+strategy gate and aim the platform-signed withdrawal at a strategy the
+operator never configured. A request that names a strategy other than the
+configured one is refused.
 
 Config keys (read from ``services.restaking``):
     - ``strategy_manager_address``   — EigenLayer StrategyManager
@@ -538,7 +543,8 @@ class RestakingService:
         """Queue a withdrawal of restaked shares from EigenLayer.
 
         Params: ``shares`` (deposit-share amount, 18-dec) or ``shares_wei``,
-        optional ``strategy`` (defaults to configured ``strategy_address``).
+        optional ``strategy`` — which must BE the configured
+        ``strategy_address`` if given; any other value is refused.
 
         On-chain WRITE: ``DelegationManager.queueWithdrawals([...])`` signed
         by the platform paymaster. The withdrawer defaults to the platform
@@ -552,7 +558,20 @@ class RestakingService:
 
         cfg = self._cfg()
         delegation_addr = cfg.get("delegation_manager_address", "")
-        strategy_addr = params.get("strategy") or cfg.get("strategy_address", "")
+        strategy_addr = cfg.get("strategy_address", "")
+        requested = params.get("strategy")
+        if requested and str(requested).lower() != str(strategy_addr).lower():
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "withdraw_restake",
+                "refused": True,
+                "reason": (
+                    "The strategy is the operator's configuration "
+                    "(services.restaking.strategy_address), not a request "
+                    "parameter: this withdrawal is signed with the platform's "
+                    "key, from the platform's own position."),
+            }
 
         if not self._web3.available:
             return self._gate("withdraw_restake", "blockchain.rpc_url", _PROTOCOL_EIGENLAYER)

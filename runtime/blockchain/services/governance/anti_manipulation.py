@@ -16,7 +16,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Minimum seconds a voter must hold tokens before they can vote
+# Minimum seconds a voter must hold tokens before they can vote — for a voter
+# whose first acquisition was registered through `register_holding`. Nothing
+# in the platform calls it today (there is no balance source), so this period
+# gates no vote: a voter with no registered acquisition is not checked. It is
+# a control waiting for its input, not one in force.
 _DEFAULT_MIN_HOLDING_PERIOD = 7 * 86400  # 7 days
 
 # Keywords indicating a bilateral dispute (belongs in Component 30)
@@ -31,7 +35,10 @@ class AntiManipulation:
     """Anti-manipulation engine for platform governance.
 
     Config keys (under ``config["governance"]``):
-        min_holding_period (int): Seconds tokens must be held before vote eligibility.
+        min_holding_period (int): Seconds tokens must be held before vote
+            eligibility, for voters whose acquisition was registered via
+            ``register_holding`` — which nothing calls yet, so today it gates
+            no vote.
         max_weight_ratio (float): Max ratio a single vote can be of total weight.
         sybil_detection_enabled (bool): Enable sybil detection (default True).
     """
@@ -66,6 +73,10 @@ class AntiManipulation:
         """Snapshot token balances at proposal creation time.
 
         This prevents flash loan attacks: only balances at snapshot time count.
+        Including a balance of zero: a voter ABSENT from a snapshot held
+        nothing at snapshot time, and ``check_vote`` refuses them. It used to
+        skip the check for an absent voter and keep the weight they declared,
+        so a balance that did not exist at snapshot time counted.
         """
         self._snapshots[proposal_id] = dict(balances)
         logger.info(
@@ -118,7 +129,8 @@ class AntiManipulation:
 
         # 2. Flash loan detection: compare current weight to snapshot
         snapshot = self._snapshots.get(proposal_id, {})
-        snapshot_balance = snapshot.get(voter, None)
+        # Absent from a snapshot that exists means zero at snapshot time.
+        snapshot_balance = snapshot.get(voter, 0.0) if snapshot else None
 
         if snapshot and snapshot_balance is not None:
             # Snapshot exists and has data for this voter
@@ -158,8 +170,11 @@ class AntiManipulation:
                 flags.append("sybil_suspected")
                 logger.warning("Sybil suspected: voter=%s", voter)
 
-        # 5. Weight cap: single voter cannot exceed max_weight_ratio of total
-        # (only warn, don't block)
+        # 5. Weight cap: when a snapshot exists, a single voter cannot exceed
+        # max_weight_ratio of its total — the weight is CAPPED to that share
+        # (not only a warning: the capped weight is the one counted) and the
+        # vote is not blocked. With no snapshot there is no total to cap
+        # against and this step does nothing.
         total_snapshot = sum(self._snapshots.get(proposal_id, {}).values())
         if total_snapshot > 0 and adjusted_weight / total_snapshot > self._max_weight_ratio:
             flags.append("weight_cap_exceeded")
