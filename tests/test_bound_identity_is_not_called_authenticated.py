@@ -476,11 +476,6 @@ TRUE_IN_CONTEXT = {
         ("it must require: an authenticated caller identity bound to ``staker``",
          "a precondition on an arming condition that is not yet written"),
     ],
-    "runtime/blockchain/services/kyc/service.py": [
-        ("Derived, not asserted. `_passed` is reachable only through the "
-         "screened-verification gate above",
-         "about the `passed` flag, not about an identity"),
-    ],
     "tests/test_creator_platforms_guards.py": [
         ("what makes running authorization before the credential gates safe "
          "for an unauthenticated caller",

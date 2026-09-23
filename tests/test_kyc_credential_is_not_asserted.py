@@ -52,10 +52,9 @@ async def test_a_free_text_level_cannot_mint_a_credential():
 
 @pytest.mark.asyncio
 async def test_a_green_result_that_was_never_screened_is_refused():
-    """The case the fix exists for. `check_aml_risk` cannot yet distinguish
-    "screened and clear" from "never screened", so a GREEN answer alone is not
-    evidence of a screen — wiring it in without this would attest an unscreened
-    person as passed with one more step of indirection."""
+    """A GREEN answer alone is not evidence of a screen. Supplied in the
+    request it is not read at all (tests/test_a_kyc_verdict_is_the_providers.py);
+    this pins that it is refused either way."""
     out = await _svc().issue_kyc_credential(
         subject="0xS", kyc_level="verified",
         verification_result={"sanctions_screened": False, "review_answer": "GREEN"})
@@ -66,11 +65,22 @@ async def test_a_green_result_that_was_never_screened_is_refused():
 async def test_a_screened_green_result_passes_the_gate():
     """§AQ class 3 — the guard must still permit what it should. It then falls
     through to the chain-config refusal, which is correct under the shipped
-    config."""
-    out = await _svc().issue_kyc_credential(
-        subject="0xS", kyc_level="verified",
-        verification_result={"sanctions_screened": True, "review_answer": "GREEN"})
-    assert out["status"] != "not_verified"
+    config.
+
+    The screened GREEN result is the PROVIDER'S, fetched by the method for the
+    applicant named. This used to hand the gate a verification_result dict in
+    the request, and the gate passing on that dict was the defect: the caller
+    wrote the verdict."""
+    import httpx
+    from unittest.mock import patch
+    svc = _svc()
+    svc._config["services"]["kyc"].update(
+        api_key="k", secret_key="s", provider="sumsub")
+    with patch.object(httpx, "AsyncClient",
+                      _body_client({"reviewResult": {"reviewAnswer": "GREEN"}})):
+        out = await svc.issue_kyc_credential(
+            subject="0xS", kyc_level="verified", applicant_id="TEST_ENTITY_001")
+    assert out["status"] != "not_verified", out
 
 
 @pytest.mark.asyncio

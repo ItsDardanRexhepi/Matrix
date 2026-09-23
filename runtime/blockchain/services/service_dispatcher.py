@@ -545,7 +545,8 @@ _NON_OUTCOME_STATUSES: frozenset[str] = frozenset({
     # must never read as a completed screen.
     "provider_unsupported",
     # 23-A. `issue_kyc_credential` refuses to attest that a person passed KYC
-    # without a screened verification result. Classified explicitly — this test
+    # without a screened GREEN review it fetched from the provider itself.
+    # Classified explicitly — this test
     # exists precisely to stop a new string acquiring a meaning by accident,
     # and a credential refusal must never read as a credential.
     "not_verified",

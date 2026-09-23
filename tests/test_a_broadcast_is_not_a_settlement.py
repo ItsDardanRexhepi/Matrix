@@ -698,12 +698,21 @@ def _kyc_dispatcher(receipt_status, spies):
     svc = KYCService(config)
     chain = _Chain(receipt_status)
     svc._web3 = chain
+
+    async def _provider_review(**params):
+        # The verdict the gate reads is the provider's, fetched by the method
+        # for the applicant named; these tests are about what happens AFTER a
+        # screened pass, so the provider answers screened and GREEN.
+        return {"status": "checked", "sanctions_screened": True,
+                "review_answer": "GREEN", "applicant_id": str(params.get("applicant_id"))}
+
+    svc.check_aml_risk = _provider_review
     d._get_registry()._instances["kyc"] = svc
     return d, svc, chain
 
 
 _SCREENED = {"subject": "0x" + "4" * 40, "kyc_level": "verified",
-             "verification_result": {"sanctions_screened": True, "review_answer": "GREEN"}}
+             "applicant_id": "TEST_ENTITY_001"}
 
 
 async def test_a_kyc_credential_that_was_only_sent_is_not_attested_as_issued(
