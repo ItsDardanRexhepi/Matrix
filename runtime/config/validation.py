@@ -123,17 +123,45 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("gateway.api_key", "MATRIX_API_KEY", False),
 )
 
-#: Secrets whose material arrives as a MOUNTED FILE rather than an env value,
-#: read into the config by ``gateway/server.py`` before validation runs.
+#: Secrets whose material arrives as a MOUNTED FILE rather than an env value.
 #: ``(config path, the env var naming the file)``.
 #:
 #: They belong in the census — an operator asking "is this secret handled?" must
-#: get yes — but NOT in SECRET_FIELDS, because the stripper would delete the
-#: contents the mount just supplied and silently disable the channel in exactly
-#: the deployment that configured it properly.
+#: get yes — and they are NOT in SECRET_FIELDS, because that table's source is
+#: an env VALUE and the stripper would delete the contents the mount supplied.
+#:
+#: THE MOUNT IS THEIR ONLY SOURCE, AND A PLAINTEXT COPY IS STRIPPED. This table
+#: used to be counted as covered and never stripped, so a production config
+#: carrying the APNs signing key in plaintext kept it — while `load_config`
+#: promised that plaintext secrets are stripped. `enforce_env_only_secrets` now
+#: reads each mount itself: a readable file IS the value, and without one a
+#: plaintext copy in production is removed exactly as a SECRET_FIELDS entry's
+#: would be. The mount stays the documented way in; the file stops being one.
 FILE_MOUNTED_SECRETS: tuple[tuple[str, str], ...] = (
     ("notifications.ios_push.auth_key_p8", "APNS_AUTH_KEY_P8_PATH"),
 )
+
+
+def read_mounted_secret(path_env_var: str) -> str | None:
+    """The contents of the file *path_env_var* names, or None.
+
+    None when the variable is unset or empty, and when the file cannot be read
+    as UTF-8 text — a directory (the bind-mount footgun), a missing path, no
+    permission, a binary/DER key. Never raises: a bad mount leaves the secret
+    unconfigured rather than stopping config load. The contents are returned
+    as written; a PEM key's trailing newline is part of it.
+    """
+    location = os.environ.get(path_env_var, "").strip()
+    if not location:
+        return None
+    try:
+        with open(location, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except (OSError, ValueError):
+        logger.warning(
+            "%s is set (%s) but is not a readable UTF-8 file — the secret "
+            "it names stays unconfigured.", path_env_var, location)
+        return None
 
 #: How a secret-shaped setting is recognised, by the END of its leaf name.
 #: Derived rather than listed: the census below walks whatever config it is
@@ -358,6 +386,16 @@ def enforce_env_only_secrets(
 ) -> dict:
     """Load secrets from env vars, stripping any plaintext copies from config.
 
+    "Any" means every secret this module names: each entry in
+    :data:`SECRET_FIELDS` and each in :data:`FILE_MOUNTED_SECRETS`. A
+    secret-shaped key it does not name is not stripped here — it is reported
+    by :func:`validate_config`, which in production is an error that stops
+    startup.
+
+    For each entry in :data:`FILE_MOUNTED_SECRETS`, the mounted file named by
+    its ``*_PATH`` variable is the value when it can be read; otherwise a
+    plaintext copy is removed in strict mode, and left alone in lenient mode.
+
     For each entry in :data:`SECRET_FIELDS`:
 
     - If the environment variable is set, its value wins and is copied
@@ -408,6 +446,21 @@ def enforce_env_only_secrets(
             # "not configured". Real values pass through untouched.
             if _is_placeholder(current):
                 _delete(config, path)
+
+    # FILE-MOUNTED secrets: the mount is the source, and nothing else is.
+    for path, path_env_var in FILE_MOUNTED_SECRETS:
+        mounted = read_mounted_secret(path_env_var)
+        if mounted is not None and mounted.strip():
+            _set(config, path, mounted)
+            continue
+        current = _get(config, path)
+        if strict and current is not None:
+            if not _is_placeholder(current):
+                logger.warning(
+                    "Secret %s found in config file; removing in strict mode. "
+                    "Mount it and point %s at the file instead.",
+                    path, path_env_var)
+            _delete(config, path)
 
     if missing_required:
         raise ConfigValidationError(

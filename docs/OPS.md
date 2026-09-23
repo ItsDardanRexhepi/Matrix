@@ -69,8 +69,9 @@ without the core, start `docker-compose.yml` alone with a non-production
 the platform signer key `MATRIX_PAYMASTER_KEY`, `MATRIX_API_KEY`, `BASE_RPC_URL`,
 the model provider keys and the rest of the table in
 `runtime/config/validation.py` — from your shell or from a `.env` file beside it.
-In production the gateway strips secret-shaped values out of `matrix.config.json`,
-so the environment is the only route by which they reach it.
+In production the gateway strips every secret that table names out of
+`matrix.config.json`, so the environment is the only route by which they reach
+it; a secret-shaped value the table does not name stops startup instead.
 
 ```bash
 export MATRIX_DOMAIN=gateway.example.com
@@ -81,7 +82,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f gateway
 
 The APNs `.p8` arrives as a mounted file, never an env value: point
 `APNS_AUTH_KEY_P8_PATH` at it and the gateway reads its contents into the push
-channel at startup. Push stays an honest no-op if the file is absent or
+channel at startup. The mount is its only route in production — a copy of the
+key written into `matrix.config.json` is removed there like any other secret. Push stays an honest no-op if the file is absent or
 unreadable.
 
 Never commit the real `.env`, `secrets/`, or `matrix.config.json` — `.gitignore`

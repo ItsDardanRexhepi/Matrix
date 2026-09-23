@@ -196,16 +196,14 @@ def _apply_env_overrides(config: dict) -> dict:
     # `enabled: false` in the config still wins, as for every channel.
     apns_path = os.environ.get("APNS_AUTH_KEY_P8_PATH")
     if apns_path:
+        from runtime.config.validation import read_mounted_secret
         ios = config.setdefault("notifications", {}).setdefault("ios_push", {})
-        try:
-            with open(apns_path, "r", encoding="utf-8") as fh:
-                ios["auth_key_p8"] = fh.read()
-        except (OSError, ValueError):
-            # OSError: missing / a directory (bind-mount footgun) / no perm.
-            # ValueError (incl. UnicodeDecodeError): a binary/DER .p8 or garbage
-            # file. Either way push stays unconfigured — never crash config load.
-            logger.warning("APNS_AUTH_KEY_P8_PATH set (%s) but not a readable "
-                           "UTF-8 key — push stays unconfigured.", apns_path)
+        # One reader for the mount, shared with enforce_env_only_secrets.
+        # Missing / a directory (bind-mount footgun) / no permission / a
+        # binary or DER .p8: push stays unconfigured — never crash config load.
+        mounted = read_mounted_secret("APNS_AUTH_KEY_P8_PATH")
+        if mounted is not None:
+            ios["auth_key_p8"] = mounted
         for env_var, key in (("APNS_KEY_ID", "key_id"),
                              ("APNS_TEAM_ID", "team_id"),
                              ("APNS_BUNDLE_ID", "bundle_id")):
@@ -219,8 +217,16 @@ def load_config() -> dict:
     """Load, env-override, enforce secret-env rules, and validate the config.
 
     In **production mode** (``MATRIX_ENV=production``):
-      - Secrets must come from environment variables. Any plaintext
-        copies in the JSON file are stripped.
+      - Secrets must come from environment variables, or from a mounted
+        file where the secret is a file (the APNs ``.p8``, named by
+        ``APNS_AUTH_KEY_P8_PATH``). A plaintext copy in the JSON file of every
+        secret ``runtime.config.validation`` names — each ``SECRET_FIELDS``
+        entry and each ``FILE_MOUNTED_SECRETS`` entry — is stripped. A
+        secret-shaped key it does not name is not stripped; it is a
+        validation error, which aborts startup. This used to say "any
+        plaintext copies are stripped" while the one key this module itself
+        writes from a mount, the APNs signing key, was counted as covered and
+        never stripped.
       - Validation errors abort startup.
       - Missing required env secrets abort startup.
 

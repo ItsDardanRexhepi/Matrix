@@ -232,28 +232,32 @@ def test_each_newly_covered_secret_is_stripped_from_a_production_config(
         f"{path} survived strict config loading as plaintext")
 
 
-def test_a_mounted_key_is_covered_without_being_stripped():
+def test_a_mounted_key_is_covered_without_being_stripped(tmp_path, monkeypatch):
     """`notifications.ios_push.auth_key_p8` is not env-only and must not be
     treated as if it were: the deploy MOUNTS the .p8 and gateway/server.py reads
     its contents into the config before validation runs (tests/
-    test_apns_env_override.py pins that). Stripping it would silently disable
-    push in exactly the deployment that configured it correctly. It is covered
-    by FILE_MOUNTED_SECRETS, which the census counts and the stripper does not
-    touch."""
+    test_apns_env_override.py pins that). Stripping the MOUNTED value would
+    silently disable push in exactly the deployment that configured it
+    correctly, so it is covered by FILE_MOUNTED_SECRETS and not SECRET_FIELDS.
+
+    What this used to assert as well — that a plaintext copy with NO mount
+    also survives production loading — was the defect: `load_config` promises
+    plaintext secrets are stripped. The mount is the source; the file is not
+    one (tests/test_a_mounted_secret_has_one_source.py)."""
     from runtime.config.validation import FILE_MOUNTED_SECRETS
 
     assert ("notifications.ios_push.auth_key_p8", "APNS_AUTH_KEY_P8_PATH") in \
         FILE_MOUNTED_SECRETS
     assert "notifications.ios_push.auth_key_p8" not in _table_paths()
 
-    config = {"notifications": {"ios_push": {"auth_key_p8": "-----BEGIN PRIVATE KEY-----"}},
+    key = tmp_path / "AuthKey.p8"
+    key.write_text("-----BEGIN PRIVATE KEY-----\nMOUNTED\n-----END PRIVATE KEY-----\n")
+    monkeypatch.setenv("APNS_AUTH_KEY_P8_PATH", str(key))
+    monkeypatch.setenv("MATRIX_PAYMASTER_KEY", "0x" + "11" * 32)
+    config = {"notifications": {"ios_push": {"auth_key_p8": key.read_text()}},
               "blockchain": {}}
-    os.environ["MATRIX_PAYMASTER_KEY"] = "0x" + "11" * 32
-    try:
-        enforce_env_only_secrets(config, strict=True)
-    finally:
-        os.environ.pop("MATRIX_PAYMASTER_KEY", None)
-    assert config["notifications"]["ios_push"]["auth_key_p8"].startswith("-----BEGIN")
+    enforce_env_only_secrets(config, strict=True)
+    assert config["notifications"]["ios_push"]["auth_key_p8"] == key.read_text()
 
 
 # ── the startup report, which is what makes the census reachable ──────────
