@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,468 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,490 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -251,6 +251,25 @@ check behind it:
   old one stops the pipeline before a single address is configured or a
   single transfer is sent. Deploying it is now a deliberate act by hand,
   which is the only kind of act it should ever have been
+- **What a tool brings back is marked as data, not orders.** When an
+  agent reads a page, a file or another service, the text reaches the model
+  inside an envelope that names the tool, says the content is untrusted
+  and not an instruction, and closes on a random marker the content cannot
+  know, so nothing inside it can pass itself off as being outside it. That
+  is a label, not a lock: a model can still be talked into things by text
+  it was told not to trust, and what is enforced — the security gate,
+  which tools each agent may hold, the shell's refusal outside a declared
+  development environment — is enforced elsewhere
+- **The platform's key signs only what the platform can stand behind.**
+  An attestation that an agent did something is written when the platform
+  executes the action, never composed from a request, so the
+  agent-identity tool no longer signs one on demand; a registration names
+  one of the platform's own three agents. A platform-signed action meant
+  for you — an identity registration, a DeFi supply or borrow — can name
+  no address but the one your session is bound to: the check reads the
+  field each of those actions actually uses, where it used to read names
+  those two tools never looked at. The general attestation tool (`eas`)
+  still signs the recipient and data it is given; closing that is next
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused

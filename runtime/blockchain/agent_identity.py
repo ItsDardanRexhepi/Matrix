@@ -16,6 +16,12 @@ from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, ref
 logger = logging.getLogger(__name__)
 
 
+#: The agents this platform runs. A registration signed with the platform key
+#: says "this is one of ours"; it is not signed for a name the platform does
+#: not run (register entry::B3-ATTEST-SIBLING, the register half).
+PLATFORM_AGENTS = ("neo", "trinity", "morpheus")
+
+
 class AgentIdentity(BlockchainInterface):
 
     def __init__(self, config: dict):
@@ -31,7 +37,10 @@ class AgentIdentity(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Manage on-chain agent identities: register, verify, attest agent actions. Gas covered by platform."
+        return ("Manage on-chain agent identities: register one of the platform's agents "
+                "(neo, trinity, morpheus), verify a registration, read an identity. "
+                "attest_action is refused: the platform attests an action when it executes "
+                "it, never from a description. Gas covered by platform.")
 
     @property
     def parameters(self) -> dict:
@@ -59,8 +68,17 @@ class AgentIdentity(BlockchainInterface):
         return refusal(f"Unknown agent identity action: {action}", code="unknown_action")
 
     async def _register(self, params: dict) -> str:
-        """Register an agent's on-chain identity via EAS attestation."""
-        agent_name = params.get("agent_name", "neo")
+        """Register one of the platform's agents on-chain via EAS attestation.
+
+        The name is the only thing the caller chooses in this attestation, and
+        the platform key signs it: so it must be an agent the platform runs."""
+        agent_name = str(params.get("agent_name", "neo") or "").strip().lower()
+        if agent_name not in PLATFORM_AGENTS:
+            return refusal(
+                f"'{params.get('agent_name')}' is not one of this platform's agents "
+                f"({', '.join(PLATFORM_AGENTS)}); the platform key signs a registration "
+                "only for an agent the platform runs.",
+                code="denied")
         from runtime.blockchain.eas_client import EASClient
         client = EASClient(self.config)
         result = await client.attest(
@@ -147,15 +165,18 @@ class AgentIdentity(BlockchainInterface):
                            "attestation_uid": uid, "reason": reason}, indent=2)
 
     async def _attest_action(self, params: dict) -> str:
-        """Attest an action performed by an agent."""
-        from runtime.blockchain.eas_client import EASClient
-        client = EASClient(self.config)
-        result = await client.attest(
-            action=params.get("agent_action", "unknown"),
-            agent=params.get("agent_name", "neo"),
-            details=params.get("details", {}),
-        )
-        return json.dumps(result, indent=2, default=str)
+        """REFUSED. This signed a public, platform-keyed statement that agent
+        ``agent_name`` performed ``agent_action`` — both strings as the request
+        wrote them (register entry::B3-ATTEST-SIBLING). The platform attests an
+        action when it EXECUTES it (ServiceDispatcher._attest_action, from the
+        executed call's own record); a statement composed by the caller is not
+        one the platform key can stand behind, so there is nothing here to sign.
+        """
+        return refusal(
+            "The platform attests an action when it executes it. It does not sign an "
+            "attestation whose action and agent are whatever the request says; "
+            "nothing was attested.",
+            code="denied")
 
     async def _get_identity(self, params: dict) -> str:
         agent_name = params.get("agent_name", "neo")

@@ -70,6 +70,20 @@ TWIN_TOOLS = frozenset(SIGNING_ACTIONS)
 # somebody else's address (register entry::B3-TWIN-SUPPLY-ONBEHALF).
 BENEFICIARY_FIELDS = ("onBehalfOf", "on_behalf_of", "beneficiary")
 
+# ...and the field a particular signing action actually reads as the account it
+# acts FOR, where that is not one of the generic names. The insurance twin reads
+# `beneficiary`; the DeFi twin hands Aave its `user_address` as onBehalfOf, and
+# the identity twin makes the request's `address` the recipient of a platform-
+# signed attestation — so for those two the check above looked at names the tool
+# never reads, and refused nothing (a review of the T4 seam; register
+# entry::U-ATTEST-AXIS). An ABSENT field is not a violation: each of these tools
+# then acts for the platform's own account.
+ACTION_BENEFICIARY_FIELDS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("defi", "supply"): ("user_address",),
+    ("defi", "borrow"): ("user_address",),
+    ("identity", "register"): ("address",),
+}
+
 # Twin actions that grant a spender rights over the platform's own tokens
 # (register entry::B3-TWIN-APPROVE): refused unless the operator has set a cap.
 ALLOWANCE_ACTIONS = frozenset({("stablecoin", "approve"), ("tokenize", "approve")})
@@ -104,7 +118,8 @@ def beneficiary_violation(tool_name: str, arguments: Any, identity: str) -> str 
     _, signs = canonical_action(tool_name, arguments)
     if not signs or not isinstance(arguments, dict):
         return None
-    for field in BENEFICIARY_FIELDS:
+    verb = str(arguments.get("action") or "").strip().lower()
+    for field in BENEFICIARY_FIELDS + ACTION_BENEFICIARY_FIELDS.get((tool_name, verb), ()):
         value = str(arguments.get(field) or "").strip()
         if not value:
             continue
