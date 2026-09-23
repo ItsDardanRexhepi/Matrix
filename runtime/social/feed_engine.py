@@ -53,8 +53,25 @@ RECENCY_HALF_LIFE = 3600.0
 
 # ── Human-readable action labels ─────────────────────────────────────
 ACTION_LABELS: Dict[str, str] = {
-    # NEW-12: no "deployed a smart contract" label — the platform cannot
-    # deploy, so no feed row may ever narrate one.
+    # NEW-12: no label here narrates a deployment, and a test walks this table
+    # to keep it that way (tests/test_feed_labels_and_value_ceiling_hold.py).
+    #
+    # The original reason given was "the platform cannot deploy". That is no
+    # longer the reason, because it is no longer true: with
+    # `conversion.auto_deploy` on, ContractConversionService compiles the
+    # generated Solidity and broadcasts a constructor transaction with the
+    # platform's own key. It is off by default and no shipped config turns it
+    # on, and `smart_contracts.deploy` — the surface an agent could reach —
+    # answers `not_implemented`. So the accurate statement is narrower and
+    # still enough: the feed has no row for the one path that can deploy, and
+    # `convert_contract` reads "converted a contract to blockchain", which
+    # does not claim a deployment happened.
+    #
+    # `create_game` used to sit in this table as "deployed a blockchain game",
+    # with an icon and a category behind it. No action by that name exists
+    # anywhere in the platform, so it never rendered — a label one dispatcher
+    # entry away from narrating a deployment is not an invariant, it is a
+    # coincidence, and it has been removed from all three places.
     "swap_tokens": "swapped tokens",
     "add_liquidity": "added liquidity",
     "remove_liquidity": "removed liquidity",
@@ -95,7 +112,6 @@ ACTION_LABELS: Dict[str, str] = {
     "create_insurance_policy": "created an insurance policy",
     "file_insurance_claim": "filed an insurance claim",
     "convert_contract": "converted a contract to blockchain",
-    "create_game": "deployed a blockchain game",
     "register_supply_item": "registered a supply chain item",
     "verify_product": "verified a product's origin",
     "create_attestation": "created an on-chain attestation",
@@ -161,6 +177,13 @@ class FeedEvent:
 #: flagged, never silently truncated to look ordinary.
 _MAX_EVENT_VALUE_USD = 1_000_000_000.0
 
+#: Where a clamped value announces itself. `sanitize_value_usd` ends in
+#: `min(v, ceiling)`, which is a silent truncation — the exact thing the line
+#: above says does not happen. `sanitize_value_usd_report` returns the value
+#: AND whether it was clamped, so a caller that stores or renders the number
+#: can say the reported figure was larger than the feed is willing to hold.
+VALUE_CLAMPED_KEY = "value_usd_clamped"
+
 
 def sanitize_value_usd(raw: Any) -> Optional[float]:
     """Coerce a reported event value into something a public feed can hold.
@@ -196,6 +219,25 @@ def sanitize_value_usd(raw: Any) -> Optional[float]:
     if v < 0:
         return None
     return min(v, _MAX_EVENT_VALUE_USD)
+
+
+def sanitize_value_usd_report(raw: Any) -> tuple[Optional[float], bool]:
+    """:func:`sanitize_value_usd`, plus whether the ceiling actually bit.
+
+    The comment above the ceiling says values over it are "flagged, never
+    silently truncated", and `min()` truncates silently. A caller that wants to
+    honour that sentence needs to know the difference between a row worth
+    exactly a billion dollars and a row that claimed ten and was cut down to
+    one, and the single return value could not tell it.
+    """
+    value = sanitize_value_usd(raw)
+    if value is None:
+        return None, False
+    try:
+        clamped = float(raw) > _MAX_EVENT_VALUE_USD
+    except (TypeError, ValueError):
+        clamped = False
+    return value, clamped
 
 
 class FeedRankingEngine:
@@ -357,14 +399,28 @@ class SocialFeedEngine:
                 short_addr = f"{actor[:6]}…{actor[-4:]}" if len(actor) > 10 else actor
                 summary = f"{short_addr} {summary}"
 
+            # "Recorded AT the ceiling and FLAGGED, never silently truncated"
+            # is what the ceiling's own comment promises. The flag rides in
+            # `detail`, which is persisted with the row and travels with it to
+            # every reader, so a number that was cut down says so instead of
+            # looking like an ordinary billion. The caller's dict is copied —
+            # ingest is fire-and-forget and must not mutate what it was handed.
+            clean_value, clamped = sanitize_value_usd_report(value_usd)
+            event_detail = dict(detail or {})
+            if clamped:
+                event_detail[VALUE_CLAMPED_KEY] = True
+                logger.info(
+                    "feed value for %s exceeded the ceiling and was recorded "
+                    "at it", action)
+
             event = FeedEvent(
                 event_type=action,
                 actor=actor,
                 summary=summary,
-                detail=detail or {},
+                detail=event_detail,
                 component=component,
                 tx_hash=tx_hash,
-                value_usd=sanitize_value_usd(value_usd),
+                value_usd=clean_value,
             )
 
             # Score before persisting
@@ -461,7 +517,16 @@ class SocialFeedEngine:
         return [FeedEvent.from_row(dict(r)) for r in rows]
 
     async def get_trending(self, window_hours: int = 24) -> List[Dict[str, Any]]:
-        """Aggregate trending actions over the given time window."""
+        """Aggregate trending actions over the given time window.
+
+        `MAX(value_usd)` reads the stored column in SQL, so it passed through
+        neither the ingest sanitiser nor the hydration one. A row written
+        before those landed — or any row at all, if a future writer forgets —
+        was still the maximum, which made this statistic the one place the
+        ceiling did not reach and the one the ceiling was written to protect.
+        The bound is applied in the query, so the answer is bounded whatever
+        the table holds.
+        """
         await self._ensure_table()
 
         cutoff = time.time() - (window_hours * 3600)
@@ -470,7 +535,7 @@ class SocialFeedEngine:
             SELECT event_type,
                    COUNT(*)            AS count,
                    AVG(ranked_score)   AS avg_score,
-                   MAX(value_usd)      AS max_value,
+                   MIN(MAX(value_usd), ?) AS max_value,
                    COUNT(DISTINCT actor) AS unique_actors
             FROM social_feed_events
             WHERE timestamp >= ?
@@ -478,7 +543,7 @@ class SocialFeedEngine:
             ORDER BY count DESC
             LIMIT 20
             """,
-            (cutoff,),
+            (_MAX_EVENT_VALUE_USD, cutoff),
         )
         return [
             {
