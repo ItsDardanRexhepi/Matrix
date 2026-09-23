@@ -55,6 +55,13 @@ def test_every_capability_and_category_count_is_the_catalog():
         f"the README says {caps} capabilities served by {backing} of {services} services; "
         f"the code has {m['capabilities']}, {m['backing']} and {m['services']}")
 
-    buckets = re.search(r"/api/v1/capabilities/categories\s+#\s+(\d+) buckets", README)
-    if buckets:
-        assert int(buckets.group(1)) == m["categories"]
+    # The example may carry arguments between the path and its comment (it
+    # carries the API key header), so anything but a newline or a "#" may sit
+    # there. A README without the comment fails here rather than skipping it.
+    buckets = re.search(r"/api/v1/capabilities/categories\b[^\n#]*#\s*(\d+) buckets", README)
+    assert buckets, (
+        "the README's /api/v1/capabilities/categories example no longer says "
+        "how many buckets it returns")
+    assert int(buckets.group(1)) == m["categories"], (
+        f"the README says the categories route returns {buckets.group(1)} buckets; "
+        f"the catalog defines {m['categories']}")
