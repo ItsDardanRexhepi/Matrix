@@ -48,6 +48,17 @@ def same_caller(a: Any, b: Any) -> bool:
     return canonical_identity(a) == canonical_identity(b)
 
 
+def account_conversation_id(value: Any) -> Any:
+    """A ``user:<address>`` conversation id with its address in the one
+    spelling; anything else unchanged. Such an id names an account (the
+    conversation the gateway derives for a signed-in caller who sent no id),
+    so ``user:0xAbC…`` and ``user:0xabc…`` are the same account's."""
+    prefix = "user:"
+    if isinstance(value, str) and value.startswith(prefix) and is_wallet_address(value[len(prefix):]):
+        return prefix + canonical_identity(value[len(prefix):])
+    return value
+
+
 def canonical_identity(value: Any) -> Any:
     """*value* in the one spelling the platform names a caller by.
 

@@ -23,7 +23,10 @@ Append a ``(version, description, sql_statements)`` tuple to
 :data:`MIGRATIONS` with a ``version`` strictly greater than every
 previous entry. The database will apply it on the next start and
 record the new version in the ``schema_version`` table. Never edit or
-renumber an already-released migration — add a new one instead.
+renumber an already-released migration — add a new one instead. A step
+may also be a function of the connection, for work plain SQL cannot
+express (a table another module creates, which may not exist yet); it
+runs in the same transaction as the migration's other steps.
 """
 
 from __future__ import annotations
@@ -272,7 +275,181 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "INSERT OR IGNORE INTO conversation_erasure_state (id, seq, pruned_through) VALUES (1, 0, 0)",
         ],
     ),
+    (
+        8,
+        "a caller stored in one spelling: every identity this database holds, rewritten once",
+        [
+            lambda conn: _one_spelling_for_stored_callers(conn),
+        ],
+    ),
 ]
+
+# ── Migration 8: a caller stored in one spelling ─────────────────────
+#
+# The platform names a wallet in one spelling, ``0x`` and its digits in lower
+# case (runtime/auth/identity.py). Before that rule a SIWE session was stored
+# under the address as it was sent, usually the EIP-55 checksum form, and
+# everything keyed on the account was keyed on that spelling. Only the session
+# and Apple-user stores read their rows back in the new spelling, so after an
+# upgrade an account was refused its own conversation, and deleting it left its
+# conversation claims, its memory and its devices stored: the deletion looked
+# them up in the new spelling. This rewrites, once, every identity the platform
+# keeps in this database in the one spelling. It never touches a value that is
+# not a hex address (``apple:<sub>``, a label, an anonymous conversation id).
+
+_HEX_ADDRESS_GLOB = "0[xX]" + "[0-9a-fA-F]" * 40
+
+#: Columns that hold a caller as a whole value. No key contains them.
+_CALLER_COLUMNS = (
+    ("wallet_sessions", "address"),
+    ("apple_users", "wallet_address"),
+    ("conversation_owners", "owner"),
+    ("conversation_turns", "owner"),
+    ("push_tokens", "owner"),
+    ("push_tokens", "wallet"),
+    ("iap_transactions", "user_key"),
+    ("iap_entitlements", "user_key"),
+)
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    # Table names come from the fixed tuples in this module, never a caller.
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}  # nosec B608
+
+
+def _one_spelling(conn: sqlite3.Connection, table: str, column: str, *, or_ignore: bool = False) -> None:
+    """Rewrite *column* in the one spelling wherever it holds a hex address in
+    another. With *or_ignore*, a row whose rewrite would duplicate a key is
+    left as it is (the caller decides what to do with it)."""
+    if column not in _columns(conn, table):
+        return
+    verb = "UPDATE OR IGNORE" if or_ignore else "UPDATE"
+    conn.execute(  # nosec B608 - fixed table and column names
+        f"{verb} {table} SET {column} = lower(trim({column})) "
+        f"WHERE trim({column}) GLOB ? AND {column} <> lower(trim({column}))",
+        (_HEX_ADDRESS_GLOB,))
+
+
+def _is_other_spelling(column: str) -> str:
+    """SQL condition: *column* is a hex address in a spelling other than the one."""
+    return f"(trim({column}) GLOB '{_HEX_ADDRESS_GLOB}' AND {column} <> lower(trim({column})))"
+
+
+def _account_id(value: str) -> str:
+    """A ``user:<address>`` conversation id in the one spelling; anything else
+    as it is."""
+    from runtime.auth.identity import account_conversation_id
+
+    return account_conversation_id(value)
+
+
+def _memory_key(value: str) -> str:
+    """An ``<agent>@<scope>`` memory key whose scope names an account
+    (``<address>`` or ``conv:user:<address>``) in the one spelling; anything
+    else as it is. The scope is what follows the first ``@``, as
+    MemoryManager reads it."""
+    from runtime.auth.identity import canonical_identity, is_wallet_address
+
+    agent, at, scope = value.partition("@")
+    if not at:
+        return value
+    if is_wallet_address(scope):
+        return f"{agent}@{canonical_identity(scope)}"
+    conv = "conv:"
+    if scope.startswith(conv) and _account_id(scope[len(conv):]) != scope[len(conv):]:
+        return f"{agent}@{conv}{_account_id(scope[len(conv):])}"
+    return value
+
+
+def _move_sequence(conn: sqlite3.Connection, table: str, key: str, old: str, new: str) -> None:
+    """Move *old*'s rows of a ``(key, seq)`` table under *new*, after any rows
+    *new* already has."""
+    offset = conn.execute(  # nosec B608 - fixed table and column names
+        f"SELECT COALESCE(MAX(seq), 0) FROM {table} WHERE {key} = ?", (new,)).fetchone()[0]
+    conn.execute(  # nosec B608
+        f"UPDATE {table} SET {key} = ?, seq = seq + ? WHERE {key} = ?", (new, offset, old))
+
+
+def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
+    from runtime.auth.identity import canonical_identity
+
+    # (a) whole-value caller columns
+    for table, column in _CALLER_COLUMNS:
+        _one_spelling(conn, table, column)
+
+    # (b) account conversation ids. A claim under the one spelling already
+    # held by the same account absorbs the other: its turns follow the
+    # claim's own. A claim held by a different account is left as it is.
+    ids = {row[0] for row in conn.execute(
+        "SELECT session_id FROM conversation_owners UNION "
+        "SELECT session_id FROM conversation_turns")}
+    for old in sorted(ids):
+        new = _account_id(old)
+        if new == old:
+            continue
+        mine = conn.execute(
+            "SELECT owner FROM conversation_owners WHERE session_id = ?", (old,)).fetchone()
+        held = conn.execute(
+            "SELECT owner FROM conversation_owners WHERE session_id = ?", (new,)).fetchone()
+        if mine is not None and held is not None:
+            if canonical_identity(mine[0]) != canonical_identity(held[0]):
+                continue
+            conn.execute("DELETE FROM conversation_owners WHERE session_id = ?", (old,))
+        elif mine is not None:
+            conn.execute("UPDATE conversation_owners SET session_id = ? WHERE session_id = ?",
+                         (new, old))
+        _move_sequence(conn, "conversation_turns", "session_id", old, new)
+    for table in ("first_boot", "conversation_erasures"):
+        for (old,) in conn.execute(f"SELECT session_id FROM {table}").fetchall():  # nosec B608
+            new = _account_id(old)
+            if new != old:
+                conn.execute(  # nosec B608
+                    f"UPDATE OR IGNORE {table} SET session_id = ? WHERE session_id = ?", (new, old))
+    # A first-boot mark is only "the welcome was sent": a second one goes.
+    for (old,) in conn.execute("SELECT session_id FROM first_boot").fetchall():
+        if _account_id(old) != old:
+            conn.execute("DELETE FROM first_boot WHERE session_id = ?", (old,))
+    if "session_id" in _columns(conn, "push_tokens"):
+        for (old,) in conn.execute(
+                "SELECT DISTINCT session_id FROM push_tokens WHERE session_id IS NOT NULL").fetchall():
+            new = _account_id(old)
+            if new != old:
+                conn.execute("UPDATE push_tokens SET session_id = ? WHERE session_id = ?", (new, old))
+
+    # (c) agent memory scoped to an account. For a key both spellings hold,
+    # the newer value stays; turns follow each other.
+    for (old,) in conn.execute("SELECT DISTINCT agent FROM agent_memory").fetchall():
+        new = _memory_key(old)
+        if new == old:
+            continue
+        for key, updated in conn.execute(
+                "SELECT key, updated_at FROM agent_memory WHERE agent = ?", (old,)).fetchall():
+            kept = conn.execute("SELECT updated_at FROM agent_memory WHERE agent = ? AND key = ?",
+                                (new, key)).fetchone()
+            if kept is not None and kept[0] >= updated:
+                conn.execute("DELETE FROM agent_memory WHERE agent = ? AND key = ?", (old, key))
+                continue
+            if kept is not None:
+                conn.execute("DELETE FROM agent_memory WHERE agent = ? AND key = ?", (new, key))
+            conn.execute("UPDATE agent_memory SET agent = ? WHERE agent = ? AND key = ?",
+                         (new, old, key))
+    for (old,) in conn.execute("SELECT DISTINCT agent FROM agent_turns").fetchall():
+        new = _memory_key(old)
+        if new != old:
+            _move_sequence(conn, "agent_turns", "agent", old, new)
+
+    # (d) wallet-keyed stores other modules create. A follow both spellings
+    # hold is one follow; a purchase row that would duplicate one already held
+    # in the one spelling is kept as the record it is.
+    if {"follower", "followee"} <= _columns(conn, "social_follows"):
+        _one_spelling(conn, "social_follows", "follower", or_ignore=True)
+        _one_spelling(conn, "social_follows", "followee", or_ignore=True)
+        conn.execute(  # nosec B608 - fixed names
+            "DELETE FROM social_follows WHERE "
+            f"{_is_other_spelling('follower')} OR {_is_other_spelling('followee')} "
+            "OR follower = followee")
+    _one_spelling(conn, "plugin_purchases", "wallet_address", or_ignore=True)
+
 
 # The schema_version table itself is bootstrapped by the Database class
 # before any user migration runs.
@@ -353,7 +530,10 @@ class Database:
             try:
                 self._conn.execute("BEGIN IMMEDIATE")
                 for stmt in statements:
-                    self._conn.execute(stmt)
+                    if callable(stmt):
+                        stmt(self._conn)
+                    else:
+                        self._conn.execute(stmt)
                 self._conn.execute(
                     "INSERT INTO schema_version (version, description, applied_at) "
                     "VALUES (?, ?, ?)",

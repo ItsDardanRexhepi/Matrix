@@ -27,6 +27,7 @@ from runtime.react_loop import (  # noqa: F401 — CLIENT_CONTEXT_FENCE re-expor
 )
 from runtime.time.temporal_context import TemporalContext
 from runtime.auth.constant_time import digests_equal
+from runtime.auth.identity import same_caller
 from runtime.auth.session_store import (
     WalletSessionStore,
     NonceStore,
@@ -2903,8 +2904,13 @@ class GatewayServer:
         """The one spelling of a caller-named session id: stripped, at most 100
         characters. Every leg that checks, stores, or looks up by a session id
         uses this — a check on one spelling and a lookup on another is a check
-        on nothing ("conv-A " passed resume's ownership check for "conv-A")."""
-        return str(raw or "").strip()[:100]
+        on nothing ("conv-A " passed resume's ownership check for "conv-A").
+        An account's own id, ``user:<address>``, names the address in the one
+        spelling a caller is named by (runtime/auth/identity.py), as the
+        gateway derives it and as the database holds it; any other id keeps
+        the case its caller chose."""
+        from runtime.auth.identity import account_conversation_id
+        return account_conversation_id(str(raw or "").strip()[:100])
 
     def _resolve_session_id(self, request: web.Request, requested):
         """``(session_id, error)`` for a chat, push or action request.
@@ -2964,7 +2970,7 @@ class GatewayServer:
         if not claim.owner and identity:
             memory.claim_conversation(session_id, identity)
             claim = memory.conversation_claim(session_id)
-        if claim.owner and claim.owner != identity:  # another account's, or its claim landed first
+        if claim.owner and not same_caller(claim.owner, identity):  # another account's, or its claim landed first
             return claim, "this conversation belongs to another account"
         return claim, None
 
@@ -2980,7 +2986,7 @@ class GatewayServer:
         if self._names_another_account(session_id, identity):
             return "this conversation belongs to another account"
         owner = self.react_loop.memory.conversation_owner(session_id)
-        if owner and owner != identity:
+        if owner and not same_caller(owner, identity):
             return "this conversation belongs to another account"
         return None
 

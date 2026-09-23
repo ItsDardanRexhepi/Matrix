@@ -144,6 +144,14 @@ class SponsorshipPolicy:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as conn:
                 conn.executescript(_SCHEMA)
+                # A spender recorded before the platform's one spelling of a
+                # caller (this meter kept a 0X-prefixed address apart from the
+                # same address with 0x) is rewritten in it, so what it spent
+                # still counts against its one budget.
+                conn.execute(
+                    "UPDATE sponsorship_spend SET identity = lower(trim(identity)) "
+                    "WHERE trim(identity) GLOB ? AND identity <> lower(trim(identity))",
+                    ("0[xX]" + "[0-9a-fA-F]" * 40,))
 
     # ── construction ─────────────────────────────────────────────────────
 
