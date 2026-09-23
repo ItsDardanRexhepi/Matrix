@@ -9,6 +9,18 @@ from runtime.blockchain.agent_identity import AgentIdentity
 
 CFG = {"blockchain": {"network": "base-sepolia"}}
 UID = "0x" + "ab" * 32  # 66-char bytes32
+WALLET = "0x" + "3c" * 20           # the platform wallet: the attester of its own registrations
+SCHEMA = "0x" + "cd" * 32           # the platform's configured schema
+LIVE = {"blockchain": {"network": "base-sepolia", "platform_wallet": WALLET, "eas_schema": SCHEMA}}
+
+
+def _found(agent="neo", action="agent_registration", attester=WALLET, schema=SCHEMA):
+    """An attestation as EASClient.verify reports one that exists and is not
+    revoked, with the data _register writes: (platform, action, agent, time)."""
+    from eth_abi import encode
+    data = encode(["string", "string", "string", "uint256"], ["The Matrix", action, agent, 1])
+    return {"verified": True, "exists": True, "revoked": False, "attester": attester,
+            "schema": schema, "data": "0x" + data.hex()}
 
 
 def _verify(svc, **params):
@@ -37,11 +49,10 @@ def test_unconfigured_lookup_is_not_verified(monkeypatch):
 
 
 def test_attested_agent_is_verified(monkeypatch):
-    svc = AgentIdentity(CFG)
+    svc = AgentIdentity(LIVE)
     svc._registrations["neo"] = UID
     async def fake_verify(self, uid):
-        return {"uid": uid, "verified": True, "exists": True, "revoked": False,
-                "attester": "0xattester"}
+        return {"uid": uid, **_found("neo")}
     monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.verify", fake_verify)
     out = _verify(svc, agent_name="neo")
     assert out["verified"] is True
@@ -73,12 +84,11 @@ def test_an_agent_registered_under_any_spelling_verifies_under_it(monkeypatch, w
         return {"status": "attested", "uid": UID}
 
     async def fake_verify(self, uid):
-        return {"uid": uid, "verified": uid == UID, "exists": True, "revoked": False,
-                "attester": "0xattester"}
+        return {"uid": uid, **_found("neo"), "verified": uid == UID}
 
     monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.attest", fake_attest)
     monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.verify", fake_verify)
-    svc = AgentIdentity(CFG)
+    svc = AgentIdentity(LIVE)
     asyncio.run(svc.execute(action="register", agent_name=written))
     out = json.loads(asyncio.run(svc.execute(action="verify", agent_name=written)))
     assert out["verified"] is True, out
@@ -91,3 +101,56 @@ def test_an_identity_read_under_any_spelling_is_that_agents():
     import asyncio
     out = json.loads(asyncio.run(AgentIdentity(CFG).execute(action="get_identity", agent_name=" Neo ")))
     assert out["agent"] == "neo" and out["role"] == "execution" and out["capabilities"], out
+
+
+# ── an attestation that exists is not a registration ─────────────────────
+#
+# The uid is the caller's to write (the register-time cache is filled only when
+# EASClient.attest returns a uid), and anybody can make an attestation on EAS,
+# under any schema, saying anything. verify() checked only that the uid existed
+# and was not revoked, so it answered "verified" for any agent the caller named,
+# from an attestation the platform never made. At fix/oldq-census 083ed72 the
+# four [control] tests below fail; the [guard] passes before and after.
+
+def _verify_with(monkeypatch, found, **params):
+    import asyncio
+
+    async def fake_verify(self, uid):
+        return {"uid": uid, **found}
+
+    monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.verify", fake_verify)
+    return json.loads(asyncio.run(AgentIdentity(LIVE).execute(
+        action="verify", attestation_uid=UID, **params)))
+
+
+def test_an_attestation_anybody_made_verifies_no_agent(monkeypatch):
+    """[control] The review's reproduction: a stranger's attestation under an
+    unrelated schema, presented for an agent the platform does not run."""
+    out = _verify_with(monkeypatch, _found("smith", attester="0x" + "e7" * 20,
+                                           schema="0x" + "99" * 32), agent_name="smith")
+    assert out["verified"] is False, out
+    assert "not made by the platform" in out["reason"]
+
+
+def test_the_platforms_key_under_another_schema_is_not_a_registration(monkeypatch):
+    """[control]"""
+    out = _verify_with(monkeypatch, _found("neo", schema="0x" + "99" * 32), agent_name="neo")
+    assert out["verified"] is False and "schema" in out["reason"], out
+
+
+def test_one_agents_registration_does_not_verify_another(monkeypatch):
+    """[control] Trinity's real registration, presented as Neo's."""
+    out = _verify_with(monkeypatch, _found("trinity"), agent_name="neo")
+    assert out["verified"] is False and "'neo'" in out["reason"], out
+
+
+def test_a_platform_statement_that_is_not_a_registration_does_not_verify(monkeypatch):
+    """[control] The platform's own record of something else, naming the agent."""
+    out = _verify_with(monkeypatch, _found("neo", action="contract_deployed"), agent_name="neo")
+    assert out["verified"] is False, out
+
+
+def test_the_platforms_registration_of_this_agent_verifies(monkeypatch):
+    """[guard]"""
+    out = _verify_with(monkeypatch, _found("neo"), agent_name=" Neo ")
+    assert out["verified"] is True and out["agent"] == "neo", out

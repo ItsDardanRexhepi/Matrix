@@ -114,12 +114,17 @@ class AgentIdentity(BlockchainInterface):
         Resolves THIS agent's own registration attestation UID (from an explicit
         ``attestation_uid`` param, else the register-time cache) and checks THAT
         attestation on-chain via ``EASClient.verify`` (EAS ``getAttestation``:
-        exists + not revoked). ``verified`` is derived only from the agent's own
-        attestation — never from unrelated platform-wallet activity (the previous
-        ``tx_count > 0`` trap). Fail-closed:
+        exists + not revoked), then reads it: the platform wallet must be its
+        attester, the configured schema its schema, and its data must say
+        ``agent_registration`` for THIS agent. The uid can be the caller's, and
+        anyone can attest anything on EAS; an attestation that merely exists
+        verified any agent the caller named. ``verified`` is derived only from
+        the agent's own attestation — never from unrelated platform-wallet
+        activity (the previous ``tx_count > 0`` trap). Fail-closed:
           • no registration resolved   -> verified False ("no registration")
           • RPC/EAS unconfigured        -> verified False ("lookup unconfigured")
           • attestation absent/revoked  -> verified False (honest reason)
+          • not the platform's registration of this agent -> verified False
 
         AND ``verified`` IS NOT A FIELD THE OUTCOME CLASSIFIER READS. Every
         branch below returns a structure with no ``ok``, no ``status`` and no
@@ -160,6 +165,17 @@ class AgentIdentity(BlockchainInterface):
                                          "not configured); this agent's identity cannot be confirmed."},
                               indent=2)
         if result.get("verified"):
+            # Existing and unrevoked is not enough: anyone can make an
+            # attestation on EAS, under any schema, saying anything, and the uid
+            # here is the caller's to write. It is this agent's registration
+            # only if the PLATFORM made it, under the platform's schema, and it
+            # says "agent_registration" for this agent.
+            mismatch = self._not_this_agents_registration(result, agent_name)
+            if mismatch:
+                # The check ran and answered no. The call succeeded.
+                return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": False,
+                                   "attestation_uid": uid, "attester": result.get("attester"),
+                                   "reason": mismatch}, indent=2)
             return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": True,
                                "attestation_uid": uid,
                                "attester": result.get("attester"),
@@ -173,6 +189,35 @@ class AgentIdentity(BlockchainInterface):
         # The check RAN and returned a negative answer. The call succeeded.
         return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": False,
                            "attestation_uid": uid, "reason": reason}, indent=2)
+
+    def _not_this_agents_registration(self, found: dict, agent_name: str) -> str | None:
+        """Why the attestation *found* is not the platform's registration of
+        *agent_name*, or None when it is. Reads what ``_register`` writes: the
+        platform wallet as attester, the configured schema, and data encoding
+        (platform, "agent_registration", agent, timestamp)."""
+        bc = self.config.get("blockchain", {}) if isinstance(self.config, dict) else {}
+
+        def norm(value) -> str:
+            text = str(value or "").strip().lower()
+            return text[2:] if text.startswith("0x") else text
+
+        wallet, schema = norm(bc.get("platform_wallet")), norm(bc.get("eas_schema"))
+        if not wallet or norm(found.get("attester")) != wallet:
+            return ("This attestation was not made by the platform, so it is not this "
+                    "agent's registration.")
+        if not schema or norm(found.get("schema")) != schema:
+            return ("This attestation is not under the platform's registration schema, so "
+                    "it is not this agent's registration.")
+        try:
+            from eth_abi import decode
+            _platform, action, agent, _ts = decode(
+                ["string", "string", "string", "uint256"], bytes.fromhex(norm(found.get("data"))))
+        except Exception:
+            return "This attestation's data is not a registration the platform wrote."
+        if action != "agent_registration" or str(agent).strip().lower() != agent_name:
+            return (f"This attestation is the platform's, but it is not a registration of "
+                    f"agent '{agent_name}'.")
+        return None
 
     async def _attest_action(self, params: dict) -> str:
         """REFUSED. This signed a public, platform-keyed statement that agent

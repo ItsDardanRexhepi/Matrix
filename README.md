@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,560 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,583 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -270,11 +270,14 @@ check behind it:
   door that dispatches them — capability invoke, `/bridge/v1/action`,
   Trinity's escalation to Neo and Neo's `platform_action` — whoever is
   asking, the operator key included. A registration names one of the
-  platform's own three agents. Every other attestation a blockchain tool
-  signs has a fixed statement, and the address it is about — an identity
+  platform's own three agents, and verifying one checks that the
+  attestation is the platform's own registration of that agent, not merely
+  one that exists. Every other attestation a blockchain tool signs has a
+  fixed statement, and the address it is about — an identity
   registration, an achievement, an IP registration, an investor
   whitelisting — can be no address but the one your session is bound to;
-  the same holds for a DeFi supply or borrow made for you. A cross-border
+  the same holds for a DeFi supply or borrow made for you, and for the
+  account an NFT or game-item transfer moves from. A cross-border
   payment's compliance record names no address at all, since that call
   pays nobody. Tests walk every attestation these tools make, and drive
   every one of those doors. Two limits, stated: a record about your own

@@ -23,25 +23,35 @@ THE CHANGE. ``eas`` attest, batch_attest and revoke are refused. The seam binds
 each attestation's subject field to the caller's own identity, as it already
 did for identity.register. The cross-border record names no subject.
 
-THE CENSUS. The last three tests walk the source of every twin tool, find every
-``.attest(`` call, trace its ``action``, ``agent`` and ``recipient`` back to the
-request, and fail if a request field reaches the action or the agent, or reaches
-the recipient through a field the seam does not bind for that tool and verb. A
-planted violation proves the walk can see one. A guard keeps the walk honest
-about what ``EASClient`` actually writes on-chain: if it ever encodes
-``details``, the census has to learn to read them.
+THE CENSUS. The walk reads the source of every twin tool, finds every
+``.attest(`` call, traces its ``action``, ``agent`` and ``recipient`` back to the
+request, and fails if a request field reaches the action or the agent, or reaches
+the recipient through a field the seam does not bind for that tool and verb. It
+also fails wherever it cannot follow the request: ``attest`` taken as a value,
+an attestation outside a tool method, a method ``execute`` hands a rewritten
+request, a request rewritten before it is read, and a request carried on
+``self`` from one method to another. Planted violations prove the walk sees
+each of those. A guard keeps the walk honest about what ``EASClient`` actually
+writes on-chain: if it ever encodes ``details``, the census has to learn to
+read them.
 
-WHAT THIS DOES NOT COVER, stated: the services layer
-(``runtime/blockchain/services/``), which the capability routes and Trinity's
-escalation reach, has its own attestation service with the same axis — a
-different reach, recorded in the register as its own finding, not closed here. And a bound subject is not a verified statement: an achievement, an IP
-claim or an investor's whitelisting recorded for the caller's own address is
-still the caller's word.
+WHAT THIS DOES NOT COVER, stated. The services layer
+(``runtime/blockchain/services/``) has its own attestation service; its three
+request-facing actions are refused at every door that dispatches them
+(tests/test_no_request_makes_the_attestation_service_sign.py), but the records
+the services write about operations they ran are not walked here. A bound
+subject is not a verified statement: an achievement, an IP claim or an
+investor's whitelisting recorded for the caller's own address is still the
+caller's word. And the walk follows the request through local names, ``self``
+attributes and ``execute``'s hand-off; through another object's state, a module
+global or what another method returns, it does not follow it.
 
 CONTROL. At The Matrix ``main`` b478b51, and on the first repair (fix/oldq-census
-9102bde), the 12 tests marked [control] fail; the 9 marked [guard] pass before
-and after — they pin what must keep working (the caller's own address, an absent
-field, a payment to somebody else) and that the census can see what it looks for.
+9102bde), the 12 tests marked [control] before the planted-shape section fail;
+the 9 marked [guard] pass before and after — they pin what must keep working
+(the caller's own address, an absent field, a payment to somebody else) and
+that the census can see what it looks for. At 083ed72 the four [control] tests
+in the planted-shape section fail and its [guard] passes.
 """
 
 from __future__ import annotations
@@ -233,10 +243,18 @@ def _verbs(cls: ast.ClassDef) -> dict[str, str]:
     return out
 
 
-def _fields(expr: ast.AST, roots: set[str], tainted: dict[str, set[str]]) -> tuple[bool, set[str]]:
+def _fields(expr: ast.AST, roots: set[str], tainted: dict[str, set[str]],
+            carried: frozenset[str] = frozenset()) -> tuple[bool, set[str]]:
     """Whether *expr* draws on the request, and through which fields ("*" = the
-    request as a whole, or a field not named by a literal)."""
+    request as a whole, or a field not named by a literal). *carried* names the
+    ``self`` attributes some method of the class stored the request in; one
+    read back here is the request, through fields the census cannot name."""
     drawn, fields, consumed = False, set(), set()
+    for n in ast.walk(expr):
+        if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                and n.value.id == "self" and n.attr in carried):
+            drawn = True
+            fields.add("*")
     for n in ast.walk(expr):
         if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "get"
                 and isinstance(n.func.value, ast.Name) and n.func.value.id in roots):
@@ -260,7 +278,7 @@ def _fields(expr: ast.AST, roots: set[str], tainted: dict[str, set[str]]) -> tup
     return drawn, fields
 
 
-def _taint(fn: ast.AST, roots: set[str]) -> dict[str, set[str]]:
+def _taint(fn: ast.AST, roots: set[str], carried: frozenset[str] = frozenset()) -> dict[str, set[str]]:
     """Local names assigned (directly or through other names) from the request."""
     tainted: dict[str, set[str]] = {}
     changed = True
@@ -276,7 +294,7 @@ def _taint(fn: ast.AST, roots: set[str]) -> dict[str, set[str]]:
             else:
                 continue
             for target, value in pairs:
-                drawn, fields = _fields(value, roots, tainted)
+                drawn, fields = _fields(value, roots, tainted, carried)
                 if not drawn:
                     continue
                 for t in ast.walk(target):
@@ -301,38 +319,165 @@ def _seam_binds(tool: str, verb: str | None) -> set[str]:
     return set(BENEFICIARY_FIELDS) | set(ACTION_BENEFICIARY_FIELDS.get((tool, verb), ()))
 
 
-def _census(source: str, filename: str, binds=_seam_binds):
-    """Every ``.attest(`` call in the source: (tool, verb, method, line, problems)."""
-    tree = ast.parse(source, filename=filename)
-    for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
-        tool, verbs = _tool_name(cls), _verbs(cls)
+_MUTATORS = frozenset({"update", "setdefault", "pop", "popitem", "clear",
+                       "__setitem__", "__delitem__", "__ior__"})
+
+
+def _roots(fn) -> set[str]:
+    roots = {a.arg for a in fn.args.args + fn.args.kwonlyargs if a.arg != "self"}
+    if fn.args.kwarg:
+        roots.add(fn.args.kwarg.arg)
+    if fn.args.vararg:
+        roots.add(fn.args.vararg.arg)
+    return roots
+
+
+def _rewrites(fn, roots: set[str]) -> str | None:
+    """Why *fn* changes the request before a field of it is read, or None. A
+    field read after ``params["player_address"] = params.get("to")`` is not the
+    field the request wrote under that name."""
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Assign):
+            targets = n.targets
+        elif isinstance(n, (ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
+            targets = [n.target]
+        elif isinstance(n, ast.Delete):
+            targets = n.targets
+        else:
+            targets = []
+        for t in targets:
+            if isinstance(t, ast.Name) and t.id in roots:
+                return "the request is rebound before it is read"
+            for sub in ast.walk(t):
+                if isinstance(sub, ast.Subscript) and isinstance(sub.value, ast.Name) \
+                        and sub.value.id in roots:
+                    return "the request is rewritten before it is read"
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr in _MUTATORS and isinstance(n.func.value, ast.Name)
+                and n.func.value.id in roots):
+            return "the request is rewritten before it is read"
+    return None
+
+
+def _handoffs(cls: ast.ClassDef) -> dict[str, list[str]]:
+    """method name -> why ``execute`` does not hand it the request as it
+    arrived. A method is read as if its argument's fields were the request's;
+    ``self._m({**kwargs, "player_address": kwargs.get("to")})`` makes that
+    untrue, and so does rewriting ``kwargs`` first."""
+    out: dict[str, list[str]] = {}
+    for node in cls.body:
+        if not (isinstance(node, ast.AsyncFunctionDef) and node.name == "execute"):
+            continue
+        root = node.args.kwarg.arg if node.args.kwarg else None
+        rewritten = _rewrites(node, {root} if root else set())
+        for c in ast.walk(node):
+            if not (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                    and isinstance(c.func.value, ast.Name) and c.func.value.id == "self"):
+                continue
+            plain = (root is not None and len(c.args) == 1 and not c.keywords
+                     and isinstance(c.args[0], ast.Name) and c.args[0].id == root)
+            problems = out.setdefault(c.func.attr, [])
+            if not plain:
+                problems.append("execute hands it something other than the request as it "
+                                "arrived; the census cannot map its fields")
+            if rewritten:
+                problems.append(f"in execute, {rewritten}")
+    return out
+
+
+def _carried(cls: ast.ClassDef) -> frozenset[str]:
+    """The ``self`` attributes any method of the class stores the request in
+    (``self._who = kwargs.get("to")``, ``self._seen.append(params)``), to a
+    fixed point: a method that reads one back is reading the request."""
+    carried: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
         for fn in cls.body:
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            roots = {a.arg for a in fn.args.args if a.arg != "self"}
-            if fn.args.kwarg:
-                roots.add(fn.args.kwarg.arg)
-            tainted = _taint(fn, roots)
+            roots = _roots(fn)
+            tainted = _taint(fn, roots, frozenset(carried))
+            for n in ast.walk(fn):
+                stores = []
+                if isinstance(n, ast.Assign):
+                    stores = [(t, n.value) for t in n.targets]
+                elif isinstance(n, (ast.AugAssign, ast.AnnAssign)) and n.value is not None:
+                    stores = [(n.target, n.value)]
+                elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and isinstance(n.func.value, (ast.Attribute, ast.Subscript))):
+                    stores = [(n.func.value, a) for a in [*n.args, *(k.value for k in n.keywords)]]
+                for target, value in stores:
+                    if not _fields(value, roots, tainted, frozenset(carried))[0]:
+                        continue
+                    for sub in ast.walk(target):
+                        if (isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name)
+                                and sub.value.id == "self" and sub.attr not in carried):
+                            carried.add(sub.attr)
+                            changed = True
+    return frozenset(carried)
+
+
+def _census(source: str, filename: str, binds=_seam_binds):
+    """Every ``.attest(`` call in the source: (tool, verb, method, line, problems).
+
+    Beyond the calls it can read, it reports as a problem every place it could
+    NOT follow the request to an attestation: ``attest`` taken as a value
+    (``sign = client.attest``, ``getattr(client, "attest")``), an attestation
+    outside a tool method, a method ``execute`` hands a rewritten request, and a
+    request carried on ``self`` between methods. A census that cannot see a
+    site must not pass it."""
+    tree = ast.parse(source, filename=filename)
+    accounted: set[int] = set()
+    for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+        tool, verbs = _tool_name(cls), _verbs(cls)
+        handoffs, carried = _handoffs(cls), _carried(cls)
+        for fn in cls.body:
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            roots = _roots(fn)
+            tainted = _taint(fn, roots, carried)
+            called = {id(c.func) for c in ast.walk(fn) if isinstance(c, ast.Call)}
+            for ref in ast.walk(fn):
+                aliased = (isinstance(ref, ast.Attribute) and ref.attr == "attest"
+                           and id(ref) not in called)
+                looked_up = (isinstance(ref, ast.Call) and isinstance(ref.func, ast.Name)
+                             and ref.func.id == "getattr" and len(ref.args) >= 2
+                             and isinstance(ref.args[1], ast.Constant)
+                             and ref.args[1].value == "attest")
+                if aliased or looked_up:
+                    accounted.add(id(ref))
+                    yield tool, verbs.get(fn.name), fn.name, ref.lineno, [
+                        "attest is reached through an alias; the census cannot read its arguments"]
             for call in ast.walk(fn):
                 if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
                         and call.func.attr == "attest"):
                     continue
+                accounted.add(id(call.func))
                 verb = verbs.get(fn.name)
                 kw = {k.arg: k.value for k in call.keywords}
-                problems = []
+                problems = list(handoffs.get(fn.name, []))
+                rewritten = _rewrites(fn, roots)
+                if rewritten:
+                    problems.append(rewritten)
                 if call.args or not {"action", "agent"} <= set(kw):
                     problems.append("action/agent not passed by keyword; the census cannot read it")
                 for part in ("action", "agent"):
-                    if part in kw and _fields(kw[part], roots, tainted)[0]:
+                    if part in kw and _fields(kw[part], roots, tainted, carried)[0]:
                         if not (part == "agent" and (tool, verb) in AGENT_FROM_A_FIXED_SET):
                             problems.append(f"{part} is drawn from the request")
                 if "recipient" in kw:
-                    drawn, fields = _fields(kw["recipient"], roots, tainted)
+                    drawn, fields = _fields(kw["recipient"], roots, tainted, carried)
                     bound = binds(tool, verb)
                     if drawn and (verb is None or "*" in fields or not fields <= bound):
                         problems.append(f"recipient is drawn from request field(s) "
                                         f"{sorted(fields - bound) or sorted(fields)} the seam does not bind")
                 yield tool, verb, fn.name, call.lineno, problems
+    for ref in ast.walk(tree):
+        if (isinstance(ref, ast.Attribute) and ref.attr == "attest"
+                and id(ref) not in accounted):
+            yield None, None, "<outside a tool method>", ref.lineno, [
+                "attest is used outside a tool method; the census cannot tie it to a request"]
 
 
 def _twin_sites():
@@ -405,3 +550,111 @@ def test_the_census_reads_what_the_client_writes_on_chain():
                        if isinstance(e, ast.Subscript) and isinstance(e.slice, ast.Constant)}
             assert len(encoded) == len(node.args[1].elts), "an encoded value the census cannot name"
     assert encoded == {"platform", "action", "agent", "timestamp"}, encoded
+
+
+# ── what a review planted that the walk above did not see ────────────────
+#
+# Three shapes re-opened the class and passed the census at fix/oldq-census
+# 083ed72: execute rewriting the field before the method reads it, ``attest``
+# reached through an alias, and a recipient carried on ``self`` from one method
+# to another. An attestation outside any tool method was not seen either. Each
+# test below plants one; at 083ed72 each fails [control], because the walk
+# reports no problem.
+
+_PLANTED_HEAD = (
+    "class Planted:\n"
+    "    @property\n"
+    "    def name(self):\n"
+    "        return 'gaming'\n"
+)
+
+
+def _problems(body: str, binds=lambda tool, verb: {"player_address"}) -> list[str]:
+    return [p for *_site, problems in _census(_PLANTED_HEAD + body, "<planted>", binds=binds)
+            for p in problems]
+
+
+def test_the_census_sees_execute_rewrite_the_field():
+    """[control] The field the method reads is bound; execute put the request's
+    `to` under that name first."""
+    rewritten_call = (
+        "    async def execute(self, **kwargs):\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(\n"
+        "                {**kwargs, 'player_address': kwargs.get('to')})\n"
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='achievement', agent='neo', details={},\n"
+        "                            recipient=params.get('player_address'))\n"
+    )
+    assert any("other than the request as it arrived" in p for p in _problems(rewritten_call))
+    rewritten_first = (
+        "    async def execute(self, **kwargs):\n"
+        "        kwargs['player_address'] = kwargs.get('to')\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(kwargs)\n"
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='achievement', agent='neo', details={},\n"
+        "                            recipient=params.get('player_address'))\n"
+    )
+    assert any("rewritten" in p for p in _problems(rewritten_first))
+    in_the_method = (
+        "    async def execute(self, **kwargs):\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(kwargs)\n"
+        "    async def _record(self, params):\n"
+        "        params.update(player_address=params.get('to'))\n"
+        "        await client.attest(action='achievement', agent='neo', details={},\n"
+        "                            recipient=params.get('player_address'))\n"
+    )
+    assert any("rewritten" in p for p in _problems(in_the_method))
+
+
+def test_the_census_sees_attest_through_an_alias():
+    """[control]"""
+    for alias in ("        sign = client.attest\n"
+                  "        await sign(action=params.get('what'), agent='neo', details={})\n",
+                  "        await getattr(client, 'attest')(action=params.get('what'), agent='neo', details={})\n"):
+        planted = (
+            "    async def execute(self, **kwargs):\n"
+            "        if kwargs.get('action') == 'go':\n"
+            "            return await self._go(kwargs)\n"
+            "    async def _go(self, params):\n" + alias)
+        assert any("through an alias" in p for p in _problems(planted)), alias
+
+
+def test_the_census_sees_a_recipient_carried_on_self():
+    """[control]"""
+    planted = (
+        "    async def execute(self, **kwargs):\n"
+        "        self._who = kwargs.get('to')\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(kwargs)\n"
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='achievement', agent='neo', details={},\n"
+        "                            recipient=self._who)\n"
+    )
+    assert any("recipient is drawn" in p for p in _problems(planted))
+
+
+def test_the_census_sees_an_attestation_outside_a_tool_method():
+    """[control]"""
+    source = (
+        "async def _sign_for(params):\n"
+        "    await client.attest(action=params.get('what'), agent='neo', details={})\n"
+    )
+    sites = list(_census(source, "<planted>"))
+    assert sites and any("outside a tool method" in p for *_s, problems in sites for p in problems)
+
+
+def test_the_hardened_census_still_passes_a_clean_site():
+    """[guard] Stricter, not blind: the shape every twin uses passes."""
+    clean = (
+        "    async def execute(self, **kwargs):\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(kwargs)\n"
+        "    async def _record(self, params):\n"
+        "        who = params.get('player_address')\n"
+        "        await client.attest(action='achievement', agent='neo', details={'x': 1},\n"
+        "                            recipient=who)\n"
+    )
+    assert _problems(clean) == []
