@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 PLATFORM_AGENTS = ("neo", "trinity", "morpheus")
 
 
+def agent_key(params: dict) -> str:
+    """The agent a request names, in the one form every action keys on.
+
+    A registration is cached under this key and a verification looks it up
+    under this key; if they normalised differently, registering "Neo" and then
+    verifying "Neo" would find nothing. An absent name is Neo, as it always
+    was; an empty one stays empty and names no agent."""
+    return str(params.get("agent_name", "neo") or "").strip().lower()
+
+
 class AgentIdentity(BlockchainInterface):
 
     def __init__(self, config: dict):
@@ -72,7 +82,7 @@ class AgentIdentity(BlockchainInterface):
 
         The name is the only thing the caller chooses in this attestation, and
         the platform key signs it: so it must be an agent the platform runs."""
-        agent_name = str(params.get("agent_name", "neo") or "").strip().lower()
+        agent_name = agent_key(params)
         if agent_name not in PLATFORM_AGENTS:
             return refusal(
                 f"'{params.get('agent_name')}' is not one of this platform's agents "
@@ -126,7 +136,7 @@ class AgentIdentity(BlockchainInterface):
             failed calls would teach the learner that checking a bad credential
             is a broken tool.
         """
-        agent_name = params.get("agent_name", "neo")
+        agent_name = agent_key(params)
         uid = params.get("attestation_uid") or self._registrations.get(agent_name)
 
         base = {"agent": agent_name, "platform": "The Matrix", "network": self.network,
@@ -179,7 +189,7 @@ class AgentIdentity(BlockchainInterface):
             code="denied")
 
     async def _get_identity(self, params: dict) -> str:
-        agent_name = params.get("agent_name", "neo")
+        agent_name = agent_key(params)
         return json.dumps({
             "agent": agent_name,
             "role": self._get_role(agent_name),

@@ -27,8 +27,14 @@ statement the caller composed. ``register`` names only an agent the platform
 runs. And the seam binds each action's own beneficiary field to the caller's
 identity, the rule it already applied to the generic names.
 
-Each test failed before the change and passes after it; the last one keeps the
-table from drifting to a field its tool does not read.
+CONTROL, measured at The Matrix ``main`` b478b51: 12 of the 16 tests fail
+there and all 16 pass after. The other 4 — the four cases of
+``test_the_callers_own_address_and_reads_still_pass`` — are guards: they pass
+before and after, and pin that the caller's own address, an absent field and a
+read are not refused. The last test keeps the table from drifting to a field
+its tool does not read. The same class on the tools a later review drove (the
+general ``eas`` tool, gaming, IP, securities, cross-border) is closed and
+censused in tests/test_every_twin_attestation_is_the_platforms_own.py.
 """
 
 from __future__ import annotations
@@ -127,12 +133,21 @@ async def test_the_seam_refuses_before_the_gate_sees_it():
     assert stack._morpheus_security.seen == [], "refused at the seam; the gate never saw it"
 
 
+def _source_of(tool: str) -> pathlib.Path:
+    """The twin module whose ``name`` is *tool*."""
+    hits = [f for f in sorted(pathlib.Path("runtime/blockchain").glob("*.py"))
+            if re.search(r'def name\(self\)[^:]*:\s*\n\s*return "%s"' % re.escape(tool),
+                         f.read_text(encoding="utf-8"))]
+    assert len(hits) == 1, f"{tool!r}: {hits}"
+    return hits[0]
+
+
 def test_every_listed_beneficiary_field_is_one_its_tool_reads():
     """The table cannot name a field nobody reads (that was the bug, inverted)."""
     from runtime.security.action_map import ACTION_BENEFICIARY_FIELDS
-    source_of = {"defi": "runtime/blockchain/defi.py", "identity": "runtime/blockchain/identity.py"}
     for (tool, verb), fields in ACTION_BENEFICIARY_FIELDS.items():
-        text = pathlib.Path(source_of[tool]).read_text()
+        source = _source_of(tool)
+        text = source.read_text(encoding="utf-8")
         for field in fields:
             assert re.search(r'params\.get\(\s*"%s"' % re.escape(field), text), \
-                f"{tool}.{verb} lists {field!r}, which {source_of[tool]} never reads"
+                f"{tool}.{verb} lists {field!r}, which {source} never reads"

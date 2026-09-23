@@ -262,7 +262,6 @@ _DRIVEN = {
     ("defi.py", "DeFi", "_repay"): dict(_POOL),
     ("eas_client.py", "EASClient", "attest"): {"action": "a", "agent": "neo", "details": {}},
     ("eas_manager.py", "EASManager", "_create_schema"): {"schema": "string action"},
-    ("eas_manager.py", "EASManager", "_revoke"): {"attestation_uid": "0x" + "ef" * 32},
     ("gaming.py", "Gaming", "_mint_item"): {"contract_address": ADDR, "player_address": ADDR},
     ("gaming.py", "Gaming", "_transfer_item"): {"contract_address": ADDR, "to": ADDR},
     ("gas_sponsor.py", "GasSponsor", "sponsor_transaction"): {"tx": {"to": ADDR}},

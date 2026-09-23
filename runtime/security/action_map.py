@@ -71,17 +71,34 @@ TWIN_TOOLS = frozenset(SIGNING_ACTIONS)
 BENEFICIARY_FIELDS = ("onBehalfOf", "on_behalf_of", "beneficiary")
 
 # ...and the field a particular signing action actually reads as the account it
-# acts FOR, where that is not one of the generic names. The insurance twin reads
-# `beneficiary`; the DeFi twin hands Aave its `user_address` as onBehalfOf, and
-# the identity twin makes the request's `address` the recipient of a platform-
-# signed attestation — so for those two the check above looked at names the tool
-# never reads, and refused nothing (a review of the T4 seam; register
-# entry::U-ATTEST-AXIS). An ABSENT field is not a violation: each of these tools
-# then acts for the platform's own account.
+# acts FOR, where that is not one of the generic names. Two kinds:
+#
+#   * the account a position is opened for — the DeFi twin hands Aave its
+#     `user_address` as onBehalfOf (the insurance twin's is `beneficiary`,
+#     above);
+#   * the SUBJECT of a platform-signed attestation: its on-chain recipient, the
+#     address the statement is about. The identity twin's `address`, the gaming
+#     twin's `player_address`, the IP twin's `owner` and the securities twin's
+#     `investor_address` each become that recipient.
+#
+# For every one of these the check above looked at names the tool never reads,
+# and refused nothing (a review of the T4 seam; register entry::U-ATTEST-AXIS).
+# An ABSENT field is not a violation: the tool then acts for the platform's own
+# account, or names no subject. tests/test_every_twin_attestation_is_the_
+# platforms_own.py walks every twin attestation and fails if its recipient
+# draws on a field this table does not bind.
+#
+# NOT here, deliberately: the address a payment, transfer or mint DELIVERS TO
+# (`to`, a mint's `player_address`). Paying somebody else is what those actions
+# are for; the gate evaluates them as value movement by their verb. Binding the
+# subject of a statement is a different thing from choosing a payee.
 ACTION_BENEFICIARY_FIELDS: dict[tuple[str, str], tuple[str, ...]] = {
     ("defi", "supply"): ("user_address",),
     ("defi", "borrow"): ("user_address",),
     ("identity", "register"): ("address",),
+    ("gaming", "record_achievement"): ("player_address",),
+    ("ip_royalties", "register_ip"): ("owner",),
+    ("securities", "whitelist_investor"): ("investor_address",),
 }
 
 # Twin actions that grant a spender rights over the platform's own tokens

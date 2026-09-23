@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,490 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,512 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -260,16 +260,23 @@ check behind it:
   it was told not to trust, and what is enforced — the security gate,
   which tools each agent may hold, the shell's refusal outside a declared
   development environment — is enforced elsewhere
-- **The platform's key signs only what the platform can stand behind.**
-  An attestation that an agent did something is written when the platform
-  executes the action, never composed from a request, so the
-  agent-identity tool no longer signs one on demand; a registration names
-  one of the platform's own three agents. A platform-signed action meant
-  for you — an identity registration, a DeFi supply or borrow — can name
-  no address but the one your session is bound to: the check reads the
-  field each of those actions actually uses, where it used to read names
-  those two tools never looked at. The general attestation tool (`eas`)
-  still signs the recipient and data it is given; closing that is next
+- **The platform's key signs no attestation a request composed.** An
+  attestation that an agent did something is written when the platform
+  executes the action, never composed from a request: the agent-identity
+  tool and the general attestation tool (`eas`) no longer sign one on
+  demand, and `eas` no longer revokes one because a request names it; a
+  registration names one of the platform's own three agents. Every other
+  attestation a blockchain tool signs has a fixed statement, and the
+  address it is about — an identity registration, an achievement, an IP
+  registration, an investor whitelisting — can be no address but the one
+  your session is bound to; the same holds for a DeFi supply or borrow
+  made for you. A cross-border payment's compliance record names no
+  address at all, since that call pays nobody. A test walks every
+  attestation these tools make and fails if one draws its statement or
+  its subject from the request. Two limits, stated: a record about your
+  own address is still your word (the platform checks no achievement and
+  no investor's eligibility), and the separate attestation service behind
+  the capability routes is not covered by this yet
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused

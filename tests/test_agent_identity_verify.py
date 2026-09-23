@@ -57,3 +57,37 @@ def test_revoked_attestation_is_not_verified(monkeypatch):
     out = _verify(svc, agent_name="neo", attestation_uid=UID)  # explicit uid path
     assert out["verified"] is False
     assert "revoked" in out["reason"].lower()
+
+
+@pytest.mark.parametrize("written", ["Neo", " NEO ", "neo"])
+def test_an_agent_registered_under_any_spelling_verifies_under_it(monkeypatch, written):
+    """Registering and verifying key on one form of the name. Registration
+    learned to lowercase the name (only the platform's own three are signed for)
+    while verification still looked the name up as written, so registering "Neo"
+    and verifying "Neo" found no registration — a working verification turned
+    into a refusal. Fails wherever registration lowercases and verification does
+    not; passes where neither does, and where both do."""
+    import asyncio
+
+    async def fake_attest(self, action, agent, details, recipient="0x" + "0" * 40):
+        return {"status": "attested", "uid": UID}
+
+    async def fake_verify(self, uid):
+        return {"uid": uid, "verified": uid == UID, "exists": True, "revoked": False,
+                "attester": "0xattester"}
+
+    monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.attest", fake_attest)
+    monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.verify", fake_verify)
+    svc = AgentIdentity(CFG)
+    asyncio.run(svc.execute(action="register", agent_name=written))
+    out = json.loads(asyncio.run(svc.execute(action="verify", agent_name=written)))
+    assert out["verified"] is True, out
+    assert out["attestation_uid"] == UID
+
+
+def test_an_identity_read_under_any_spelling_is_that_agents():
+    """A read keys on the same form: " Neo " is Neo, not an unknown agent with no
+    role and no capabilities."""
+    import asyncio
+    out = json.loads(asyncio.run(AgentIdentity(CFG).execute(action="get_identity", agent_name=" Neo ")))
+    assert out["agent"] == "neo" and out["role"] == "execution" and out["capabilities"], out

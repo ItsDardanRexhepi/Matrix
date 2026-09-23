@@ -78,7 +78,13 @@ class CrossBorderPayments(BlockchainInterface):
         from runtime.blockchain.eas_client import EASClient
         from runtime.protocols.outcome_truth import SUCCESS, report_of
 
-        # First, attest the payment for compliance
+        # First, attest the payment for compliance. The attestation's on-chain
+        # RECIPIENT is its subject, and this call pays nobody: naming the payee
+        # there put a platform-signed "cross-border payment" on an address the
+        # request chose, for a payment that was never made (register
+        # entry::U-ATTEST-AXIS, the same axis as identity.register). The payee
+        # is still in `details`, which describes what was prepared and which
+        # EASClient does not write on-chain; the recipient is the zero address.
         client = EASClient(self.config)
         attestation = await client.attest(
             action="crossborder_payment",
@@ -92,7 +98,7 @@ class CrossBorderPayments(BlockchainInterface):
                 "reference": params.get("reference", ""),
                 "timestamp": int(time.time()),
             },
-            recipient=params.get("to", "0x0000000000000000000000000000000000000000"),
+            recipient="0x0000000000000000000000000000000000000000",
         )
 
         attested = report_of(attestation) is SUCCESS
