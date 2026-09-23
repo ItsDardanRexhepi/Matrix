@@ -122,6 +122,13 @@ Or use the one-liner install script:
 curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/Matrix/main/install.sh | bash
 ```
 
+It installs into `~/.the-matrix` (or `$MATRIX_DIR`) and, when there is no
+config there yet, starts the same setup. Piped like this, the setup reads your answers from your terminal, not from the pipe. Run
+where there is no terminal (a CI job, a provisioning script), it installs,
+then stops with a non-zero exit and the command to run setup yourself. The
+setup itself, run with its input redirected or closed, stops the same way at
+its first unanswered question instead of ending in a traceback.
+
 ---
 
 ## Model Support
@@ -182,7 +189,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,482 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,486 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
