@@ -337,6 +337,23 @@ class ToolDispatcher:
                                agent_name, reason)
                 return ToolOutcome.failure(f"[DENIED] {reason}", code="denied", ref=ref)
 
+        # What no caller may have dispatched, the operator key and a caller-less
+        # dispatch included: the attestation service's attest, batch_attest and
+        # revoke sign what the request composes with the platform's key
+        # (runtime/access_policy.py REFUSED_ON_REQUEST). request_execution takes
+        # no service override (runtime/agents/handoff.py), platform_action does.
+        if tool_name in self.ACTION_DISPATCH_TOOLS:
+            from runtime.access_policy import refused_on_request
+            args = arguments if isinstance(arguments, dict) else {}
+            refused = refused_on_request(
+                args.get("action"),
+                args.get("service") if tool_name == "platform_action" else None,
+            )
+            if refused:
+                logger.warning("DENIED tool '%s' action '%s' for every caller: %s",
+                               tool_name, args.get("action"), refused)
+                return ToolOutcome.failure(f"[DENIED] {refused}", code="denied", ref=ref)
+
         # Session boundary for the dispatching tools. A session is refused, on
         # its own routes, operations such as a cross-border send; through chat
         # (a PUBLIC path) it — or an anonymous caller — asked Trinity, whose

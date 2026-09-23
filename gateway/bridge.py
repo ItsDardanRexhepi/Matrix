@@ -964,6 +964,14 @@ class BridgeRoutes:
         # `send_payment`. The refusal is keyed on the (service, method) the
         # action resolves to, so every dispatcher gives one answer; the operator
         # key is unaffected.
+        # What no caller may have dispatched, the operator key included
+        # (runtime/access_policy.py REFUSED_ON_REQUEST): the attestation
+        # service signing or revoking what the request composed.
+        from runtime.access_policy import refused_on_request
+        refused_for_all = refused_on_request(action)
+        if refused_for_all:
+            return MobileResponse.error(refused_for_all, 403)
+
         caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
         if caller_kind and caller_kind != "operator":
             # One refusal for every dispatcher and every credential tier.

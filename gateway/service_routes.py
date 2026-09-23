@@ -3291,6 +3291,13 @@ class ServiceRoutes:
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
+        # What no caller may have dispatched, the operator key included
+        # (runtime/access_policy.py REFUSED_ON_REQUEST).
+        from runtime.access_policy import refused_on_request
+        refused_for_all = refused_on_request(action_label)
+        if refused_for_all:
+            return web.json_response({"error": "forbidden", "message": refused_for_all},
+                                     status=403)
         # aiohttp's Request is a mapping; the suite's fake request objects are not.
         auth = (request.get("auth") if hasattr(request, "get") else None) or {}
         if auth.get("kind") == "session":

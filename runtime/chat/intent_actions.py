@@ -635,23 +635,24 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     # ===================================================================
 
     "create_attestation": {
-        "action_name": "create_attestation",
-        "description": "Create an on-chain attestation via EAS.",
-        "required_params": [
-            {"name": "schema_uid", "type": "string", "description": "EAS schema UID.", "example": "0xabc..."},
-            {"name": "data", "type": "object", "description": "Attestation data fields.", "example": {"name": "Verified Developer", "level": "senior"}},
-        ],
-        "optional_params": [
-            {"name": "recipient", "type": "string", "description": "Attestation recipient address.", "default": None},
-            {"name": "revocable", "type": "boolean", "description": "Whether the attestation can be revoked.", "default": True},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY. This asked the attestation service to sign, with
+            # the platform's key, whatever schema, data and recipient the
+            # request wrote, an emergency-freeze category through the unmetered
+            # signer; a session reached it from chat and from capability
+            # invoke. Every door that dispatches it now refuses it, whoever is
+            # asking (runtime/access_policy.py REFUSED_ON_REQUEST).
+            #
+            # RE-ENABLE BAR: do not restore it as a convenience. The platform
+            # attests what it executes, and a statement a request composes is
+            # not one its key can stand behind.
+            "NOT AVAILABLE — the platform's key does not sign an attestation a request composes. The platform records an action on-chain when it executes that action, and that record is made automatically."
+        ),
         "keywords": ["create attestation", "attest", "make attestation", "issue attestation", "EAS attestation"],
-        "follow_up": "What schema and data would you like to attest?",
-        "example_conversation": (
-            "User: I want to create an attestation for a developer\n"
-            "Trinity: What schema should I use, and what data should the attestation contain?\n"
-            "User: Schema 0xabc, data: Verified Developer, senior level\n"
-            "Trinity: [calls platform_action with action='create_attestation', params={schema_uid: '0xabc', data: {name: 'Verified Developer', level: 'senior'}}]"
+        "follow_up": (
+            "I can't create an attestation on request: the platform's key signs only its own record of an action it has carried out, which happens automatically when the action runs. "
+            "If you have an attestation UID, I can verify it, provided this deployment has its EAS configuration in place."
         ),
     },
 
@@ -671,19 +672,22 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "revoke_attestation": {
-        "action_name": "revoke_attestation",
-        "description": "Revoke an on-chain attestation.",
-        "required_params": [
-            {"name": "attestation_uid", "type": "string", "description": "UID of the attestation to revoke.", "example": "0xdef..."},
-        ],
-        "optional_params": [
-            {"name": "reason", "type": "string", "description": "Reason for revocation.", "default": ""},
-        ],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY. The platform is the attester of every record it
+            # signs, so its key can revoke any of them; this revoked whichever
+            # uid the request named, somebody else's registration included,
+            # through the unmetered signer. Refused at every door
+            # (runtime/access_policy.py REFUSED_ON_REQUEST).
+            #
+            # RE-ENABLE BAR: not without a check that the uid is one this
+            # caller may void.
+            "NOT AVAILABLE — the platform's key does not revoke an attestation because a request names it."
+        ),
         "keywords": ["revoke attestation", "cancel attestation", "remove attestation", "invalidate attestation"],
-        "follow_up": "Which attestation would you like to revoke?",
-        "example_conversation": (
-            "User: Revoke attestation 0xdef123\n"
-            "Trinity: [calls platform_action with action='revoke_attestation', params={attestation_uid: '0xdef123'}]"
+        "follow_up": (
+            "I can't revoke an attestation on request: the platform's key revokes none because a request names it. "
+            "If you have an attestation UID, I can verify it, provided this deployment has its EAS configuration in place."
         ),
     },
 
@@ -721,19 +725,16 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
     },
 
     "batch_attest": {
-        "action_name": "batch_attest",
-        "description": "Create multiple attestations in a single batch.",
-        "required_params": [
-            {"name": "attestations", "type": "array", "description": "List of attestation data objects.", "example": [{"schema_uid": "0x...", "data": {}}]},
-        ],
-        "optional_params": [],
+        "unavailable": True,
+        "description": (
+            # DEFECT HISTORY: create_attestation's, for a list of them.
+            #
+            # RE-ENABLE BAR: create_attestation's.
+            "NOT AVAILABLE — the platform's key does not sign attestations a request composes, singly or in a batch. The platform records an action on-chain when it executes that action, and that record is made automatically."
+        ),
         "keywords": ["batch attest", "bulk attestation", "multiple attestations", "batch attestations"],
-        "follow_up": "How many attestations would you like to create, and what data should each contain?",
-        "example_conversation": (
-            "User: I need to create attestations for 5 team members\n"
-            "Trinity: I can batch those. What schema and data for each?\n"
-            "User: [provides list]\n"
-            "Trinity: [calls platform_action with action='batch_attest', params={attestations: [...]}]"
+        "follow_up": (
+            "I can't create attestations on request, one or many: the platform's key signs only its own record of an action it has carried out, which happens automatically when the action runs."
         ),
     },
 

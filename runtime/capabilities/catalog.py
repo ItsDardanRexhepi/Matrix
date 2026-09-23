@@ -226,9 +226,13 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("register_agent",          "Register AI Agent",       "identity", "agent_identity", "register_agent", feed_event="ai_agent_registered"),
     _cap("update_agent",            "Update Agent",            "identity", "agent_identity", "update_agent"),
     _cap("deregister_agent",        "Deregister Agent",        "identity", "agent_identity", "deregister_agent"),
-    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest"),
-    _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke"),
-    _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest"),
+    # Refused at every door that dispatches them, whoever asks: the platform's
+    # key signs no attestation a request composes and revokes none a request
+    # names (runtime/access_policy.py REFUSED_ON_REQUEST). Routed, so a caller
+    # gets the refusal, not a 404.
+    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest",       available=False),
+    _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke",       available=False),
+    _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest", available=False),
 
     # ── Governance ─────────────────────────────────────────────────────────
     _cap("create_dao",              "Create DAO",              "governance", "dao_management", "create_dao",         feed_event="dao_created"),

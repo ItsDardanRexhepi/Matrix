@@ -145,6 +145,40 @@ def dispatch_pair(action: object, service: object = None) -> tuple[str, str] | N
     return (str(service) if service else pair[0], pair[1])
 
 
+# Operations no request may have dispatched, whoever sends it: the operator key,
+# a session, an anonymous chat, a caller with no HTTP request behind it. Keyed
+# on the pair a dispatch RUNS (dispatch_pair), so a new action name or a
+# platform_action ``service`` override onto the same method is the same answer.
+#
+# The attestation service signs with the platform's key (a time-critical
+# category and a revocation through the unmetered signer), and these three take
+# what it signs from the request: the schema, the data — its action, its agent,
+# its category — and the recipient; or the uid of any attestation the platform
+# ever made, to void it. The platform attests what it EXECUTES: the
+# dispatcher's own record of an action it ran, each service's record of an
+# operation it performed. Those are called in process and never come through a
+# door, so they are untouched. The twin ``eas`` tool refuses the same three
+# (runtime/blockchain/eas_manager.py); tests/test_no_request_makes_the_
+# attestation_service_sign.py drives every door that reaches the dispatcher.
+_PLATFORM_KEY_STATEMENT = (
+    "The platform's key signs no attestation a request composes and revokes none "
+    "a request names; the platform attests an action when it executes it. "
+    "Nothing was signed.")
+REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
+    ("attestation", "attest"): _PLATFORM_KEY_STATEMENT,
+    ("attestation", "batch_attest"): _PLATFORM_KEY_STATEMENT,
+    ("attestation", "revoke"): _PLATFORM_KEY_STATEMENT,
+}
+
+
+def refused_on_request(action: object, service: object = None) -> str | None:
+    """Why no request may dispatch *action* (with *service* as a platform_action
+    override would set it), or None. Resolved on the pair, the way
+    ServiceDispatcher.execute resolves it."""
+    pair = dispatch_pair(action, service)
+    return REFUSED_ON_REQUEST.get(pair) if pair is not None else None
+
+
 def operation_could_move_value(action_type: str | None, service: str | None = None,
                                method: str | None = None) -> bool:
     """`could_move_value` for a label, AND for the pair that label runs: either

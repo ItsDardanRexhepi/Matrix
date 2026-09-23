@@ -73,6 +73,21 @@ class AgentHandoff:
         params = params or {}
         ctx = {**(context or {}), "via_agent_flow": True, "origin_agent": "trinity"}
 
+        # 0. What no request may have dispatched, before the gate is asked
+        #    (runtime/access_policy.py REFUSED_ON_REQUEST). The tool dispatcher
+        #    refuses it first; this holds for a caller that reaches the hand-off
+        #    some other way. No service override: Neo runs the ACTION_MAP pair.
+        from runtime.access_policy import refused_on_request
+        refused = refused_on_request(action)
+        if refused:
+            return {
+                "handoff": "trinity->morpheus->neo",
+                OUTCOME_FIELD: FAILURE,
+                "approved": False,
+                "executed": False,
+                "reason": refused,
+            }
+
         # 1. Morpheus security gate (authoritative server-side). OBSERVE by default:
         #    it logs/classifies and (in ENFORCE) can deny. We honour an explicit deny.
         decision: dict[str, Any] = {}
