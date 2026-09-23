@@ -1,8 +1,38 @@
 """Shared fixtures for The Matrix test suite."""
 
 import os
+import shutil
+import tempfile
 
 import pytest
+
+# THE SUITE CLEANS UP ITS OWN TEMPORARY FILES. Dozens of tests create scratch
+# directories with tempfile.mkdtemp and never remove them, so every run left
+# hundreds in the system temp folder, and parallel runs filled a disk. For the
+# life of the pytest process, Python's temporary directory is a folder private
+# to that process, removed when the session ends: every mkdtemp made by a test
+# or by the code under test lands there, child processes inherit it through
+# TMPDIR, and one run cannot delete another's files.
+_SESSION_TEMP = {"dir": None, "tempdir": None, "env": None}
+
+
+def pytest_configure(config):
+    base = tempfile.mkdtemp(prefix="the-matrix-suite-")
+    _SESSION_TEMP.update(dir=base, tempdir=tempfile.tempdir, env=os.environ.get("TMPDIR"))
+    tempfile.tempdir = base
+    os.environ["TMPDIR"] = base
+
+
+def pytest_unconfigure(config):
+    base = _SESSION_TEMP["dir"]
+    if not base:
+        return
+    tempfile.tempdir = _SESSION_TEMP["tempdir"]
+    if _SESSION_TEMP["env"] is None:
+        os.environ.pop("TMPDIR", None)
+    else:
+        os.environ["TMPDIR"] = _SESSION_TEMP["env"]
+    shutil.rmtree(base, ignore_errors=True)
 
 # Environment prefixes whose variables switch security posture: production mode,
 # the gateway credential wall, the test-mint switch, the seam's state/attest/OTP
