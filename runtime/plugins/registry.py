@@ -1,7 +1,9 @@
 """Plugin registry — tracks loaded plugins and their capabilities.
 
-Provides a unified view of all active plugins, their tools, commands,
-and hooks for the gateway and ReAct loop to query.
+Provides a unified view of loaded plugins, their tools, commands and hooks.
+Nothing in the gateway or the ReAct loop constructs this registry today
+(tests/test_gateway_loads_no_plugins.py measures it), so it holds what the code
+that built it loaded, and nothing more.
 """
 
 from __future__ import annotations
@@ -18,8 +20,8 @@ logger = logging.getLogger(__name__)
 class PluginRegistry:
     """Central registry of loaded plugins and their capabilities.
 
-    The gateway and ReAct loop query this registry to discover
-    plugin-provided tools, commands, and message hooks.
+    Intended for a caller that wants plugin-provided tools, commands and message
+    hooks in one place. The gateway and the ReAct loop do not construct it.
     """
 
     def __init__(self, loader: PluginLoader | None = None):

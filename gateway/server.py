@@ -1956,16 +1956,26 @@ class GatewayServer:
         return web.json_response(plugin)
 
     async def handle_marketplace_purchase(self, request: web.Request) -> web.Response:
-        """POST /marketplace/plugins/{plugin_id}/purchase — purchase a plugin."""
+        """POST /marketplace/plugins/{plugin_id}/purchase — answer a purchase
+        request. Installs nothing; a paid plugin answers 501 (not built)."""
         if not self.plugin_marketplace:
             return web.json_response({"error": "Not available"}, status=503)
         plugin_id = request.match_info.get("plugin_id", "")
         wallet = self._caller_identity(request) or "anonymous"
         result = await self.plugin_marketplace.purchase(wallet, plugin_id)
+        if result.get("status") == "not_built":
+            # A paid purchase has no path to completion; 501, not a 200 that
+            # reads as "go finish this elsewhere".
+            return web.json_response(result, status=501)
+        if result.get("status") == "error":
+            # An unknown plugin id is a 404, as GET /marketplace/plugins/{id}
+            # answers it, not a 200 carrying an error.
+            return web.json_response(result, status=404)
         return web.json_response(result)
 
     async def handle_marketplace_submit(self, request: web.Request) -> web.Response:
-        """POST /marketplace/plugins/submit — submit a plugin for review."""
+        """POST /marketplace/plugins/submit — store a pending plugin listing.
+        Nothing reviews, approves or activates it."""
         if not self.plugin_marketplace:
             return web.json_response({"error": "Not available"}, status=503)
         try:

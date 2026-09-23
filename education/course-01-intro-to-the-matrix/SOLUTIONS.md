@@ -63,22 +63,29 @@ python -c "import json; data=json.load(open('exercise1_response.json')); print(d
 ### __init__.py
 
 ```python
-from plugins.base import MatrixPlugin
+import logging
+
+from runtime.plugins.base import MatrixPlugin
+
+logger = logging.getLogger(__name__)
 
 
 class WeatherPlugin(MatrixPlugin):
     """Mock weather plugin that returns hardcoded weather data."""
 
-    def __init__(self):
-        super().__init__()
-        self.name = "weather-plugin"
-        self.version = "1.0.0"
+    @property
+    def name(self) -> str:
+        return "weather-plugin"
 
-    async def on_load(self):
-        self.logger.info(f"{self.name} v{self.version} loaded successfully")
+    @property
+    def version(self) -> str:
+        return "1.0.0"
 
-    async def on_unload(self):
-        self.logger.info(f"{self.name} unloaded")
+    async def on_load(self, config: dict) -> None:
+        logger.info("%s v%s loaded successfully", self.name, self.version)
+
+    async def on_unload(self) -> None:
+        logger.info("%s unloaded", self.name)
 
     def get_tools(self):
         return [
@@ -119,7 +126,7 @@ class WeatherPlugin(MatrixPlugin):
         ]
 
     async def handle_weather_command(self, args: str) -> str:
-        """Handle the /weather CLI command."""
+        """Handle the /weather command."""
         city = args.strip() if args.strip() else "New York"
         data = await self.handle_get_weather(city)
         return (
@@ -132,22 +139,28 @@ class WeatherPlugin(MatrixPlugin):
 
 ### Testing
 
-```bash
-# Restart gateway to load the plugin
-python -m gateway.server
+Nothing in the gateway loads plugins, so load it yourself from the repository
+root (the loader looks in `plugins/installed/` relative to where it runs):
 
-# Look for in startup logs:
-# [INFO] Plugin loaded: weather-plugin v1.0.0
+```python
+import asyncio
 
-# Test via MTRX CLI:
-# mtrx> /weather San Francisco
+from runtime.plugins.loader import PluginLoader
 
-# Test via API (Neo should invoke the get_weather tool):
-curl -X POST http://localhost:18790/chat \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{"message": "What is the weather in San Francisco?"}'
+
+async def main():
+    loader = PluginLoader()
+    await loader.load_all({})
+    plugin = loader.loaded["weather-plugin"]
+    print(await plugin.handle_weather_command("San Francisco"))
+    await loader.unload_all()
+
+
+asyncio.run(main())
 ```
+
+Neo cannot invoke `get_weather` through `/chat`: nothing registers plugin tools
+with the dispatcher.
 
 ### Expected Output
 
@@ -161,7 +174,7 @@ Weather for San Francisco:
 ### Key Points
 
 - The plugin defaults to "New York" when no city is provided, handling the empty-argument case gracefully
-- `get_tools()` and `get_commands()` serve different purposes: tools are for Neo, commands are for the CLI
+- `get_tools()` and `get_commands()` describe different things: tools are meant for an agent, commands for a person. Nothing registers either with the platform today
 - The `handler` for the tool returns a dict (structured data), while the command handler returns a string (formatted for display)
 
 ---

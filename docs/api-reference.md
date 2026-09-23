@@ -473,33 +473,46 @@ List available plugins. Supports query filters:
 
 Get details for a single plugin.
 
-### `POST /marketplace/plugins/purchase`
+### `POST /marketplace/plugins/{plugin_id}/purchase`
 
-Purchase or install a plugin.
-
-```json
-{ "wallet_address": "0xabc...", "plugin_id": "plugin_abc123" }
-```
+Answer a purchase request for a plugin. It installs nothing. No body: the plugin
+comes from the path, and the buyer is the caller's session identity (or, on the
+operator's key, the `X-Wallet-Address` header). A free listing returns `200` with
+`status: "already_purchased"` and `installed: false`: free listings count as
+owned by every caller, and nothing is recorded. Nothing in the gateway loads a
+plugin either: `runtime/plugins/loader.py` can import a package from
+`plugins/installed/`, and no code in the gateway calls it. A paid plugin returns
+`501` with `status: "not_built"` — paid purchases have no completion path — and
+reports `platform_commission_rate` from `plugin_marketplace.commission_rate`
+(`null` when unset). An unknown `plugin_id` returns `404`.
 
 ### `POST /marketplace/plugins/submit`
 
-Submit a new plugin for review (Enterprise tier required).
+Submit a new plugin listing. Requires the API key; no subscription tier is
+checked. The listing is stored with `status: "pending"` and is not returned by
+`GET /marketplace/plugins` (which lists `active` listings held in memory).
+Nothing in this gateway approves or activates a listing, and stored listing rows
+are not read back after a restart. `author` is taken from the body as given
+(default `"anonymous"`); it is not verified against the caller. Paid sales are
+not built, so a `price_usd` above zero produces a listing that cannot be bought
+(see purchase above).
 
 ```json
 {
   "name": "My Plugin",
   "description": "Does something useful",
-  "price_usd": 4.99,
+  "author": "0xYourWallet",
   "category": "defi",
   "repository_url": "https://github.com/..."
 }
 ```
 
-### `GET /marketplace/plugins/purchased`
+Response: `{"status": "submitted", "plugin_id": "...", "message": "..."}`.
 
-List all plugins purchased by a wallet.
+### `GET /marketplace/purchased`
 
-**Query:** `?wallet=0xabc...`
+List the plugins the caller owns (same identity rule as purchase): every free
+listing, plus any recorded purchase — and nothing records one today.
 
 ---
 

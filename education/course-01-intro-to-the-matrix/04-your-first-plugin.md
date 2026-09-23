@@ -2,13 +2,13 @@
 
 ## What Plugins Are
 
-Plugins extend The Matrix with new capabilities. A plugin can add custom commands to the MTRX CLI, provide new tools that Neo can invoke during task execution, or integrate external services into the platform. Plugins are Python packages that follow a standard interface.
+Plugins are Python packages that follow a standard interface, the `MatrixPlugin` base class. A plugin declares tools, slash commands and lifecycle hooks. Today nothing on the platform uses them: nothing in the gateway loads a plugin. `runtime/plugins/loader.py` can import a package from `plugins/installed/`, and no code in the gateway calls it, so a package placed there runs only in a process that loads it itself (Step 4 shows how), and no dispatcher hands a plugin's tools to Neo or serves its commands.
 
-The Matrix plugin marketplace uses a **90/10 revenue split** -- plugin developers keep 90% of all revenue. The marketplace handles distribution, installation, updates, and payments.
+The Matrix plugin marketplace lists plugins; it does not distribute or install them. Paid plugin sales are not live yet: no purchase path completes one. When they are, the platform commission is an operator setting (the published Terms state 10%), and a sale through Apple In-App Purchase also pays the App Store's commission first.
 
 ## The Plugin Directory Structure
 
-Plugins live in `plugins/installed/`. Each plugin gets its own directory:
+`PluginLoader` looks in `plugins/installed/`, relative to the directory it runs in. Each plugin gets its own directory:
 
 ```
 plugins/
@@ -43,55 +43,54 @@ Create `plugins/installed/my-plugin/config.json`:
 }
 ```
 
-The `permissions` field declares what your plugin needs access to. Options include:
-- `commands` -- register CLI commands
-- `tools` -- provide tools for Neo to use
-- `events` -- subscribe to platform events
-- `network` -- make outbound HTTP requests
-- `storage` -- persist data between sessions
+The loader does not read `config.json`: it is metadata for people and for your marketplace listing. The `permissions` field describes what your plugin intends to use (`commands`, `tools`, `network`, `storage`); nothing checks or enforces it today.
 
 ## Step 2: The Plugin Class (__init__.py)
 
 Create `plugins/installed/my-plugin/__init__.py`:
 
 ```python
-from plugins.base import MatrixPlugin
+import logging
+
+from runtime.plugins.base import MatrixPlugin
+
+logger = logging.getLogger(__name__)
 
 
 class MyPlugin(MatrixPlugin):
     """A simple example plugin that demonstrates the plugin interface."""
 
-    def __init__(self):
-        super().__init__()
-        self.name = "my-plugin"
-        self.version = "1.0.0"
+    @property
+    def name(self) -> str:
+        return "my-plugin"
 
-    async def on_load(self):
-        """Called when the plugin is loaded by the platform.
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    async def on_load(self, config: dict) -> None:
+        """Awaited by PluginLoader.load() right after it imports this package.
 
         Use this for initialization: setting up connections,
         loading configuration, preparing state.
         """
-        self.logger.info(f"{self.name} v{self.version} loaded")
-        # Initialize any state your plugin needs
         self.request_count = 0
+        logger.info("%s v%s loaded", self.name, self.version)
 
-    async def on_unload(self):
-        """Called when the plugin is unloaded.
+    async def on_unload(self) -> None:
+        """Awaited by PluginLoader.unload() / unload_all().
 
         Use this for cleanup: closing connections, saving state,
         releasing resources.
         """
-        self.logger.info(
-            f"{self.name} unloaded after {self.request_count} requests"
-        )
+        logger.info("%s unloaded after %d requests", self.name, self.request_count)
 
     def get_tools(self):
-        """Return tools that Neo can invoke.
+        """Return tool definitions.
 
         Each tool is a dictionary with:
         - name: unique identifier
-        - description: what the tool does (Neo reads this to decide when to use it)
+        - description: what the tool does
         - parameters: JSON Schema for the tool's input
         - handler: async function that executes the tool
         """
@@ -122,7 +121,7 @@ class MyPlugin(MatrixPlugin):
         }
 
     def get_commands(self):
-        """Return CLI commands this plugin provides.
+        """Return slash commands this plugin provides.
 
         Each command is a dictionary with:
         - name: the command string (e.g., "/greet")
@@ -140,7 +139,7 @@ class MyPlugin(MatrixPlugin):
         ]
 
     async def handle_greet_command(self, args: str) -> str:
-        """Handle the /greet CLI command."""
+        """Handle the /greet command."""
         name = args.strip() if args.strip() else "World"
         result = await self.handle_greet(name)
         return result["greeting"]
@@ -148,82 +147,88 @@ class MyPlugin(MatrixPlugin):
 
 ## Step 3: Understanding the Interface
 
-Your plugin class must extend `MatrixPlugin` and implement four key methods:
+Your plugin class must extend `MatrixPlugin`, give it a `name` and a `version`, and can implement four methods:
 
-**`on_load()`** is called once when the gateway starts or when the plugin is installed. This is where you set up database connections, load API keys, initialize caches, or prepare any state your plugin needs.
+**`on_load(config)`** is awaited by `PluginLoader.load()` right after it imports your package. Nothing in the gateway calls the loader, so this runs when your own code loads the plugin. This is where you set up database connections, load API keys, initialize caches, or prepare any state your plugin needs.
 
-**`on_unload()`** is called when the gateway shuts down or the plugin is removed. Close connections, flush buffers, and clean up resources here. Failing to clean up properly can cause resource leaks.
+**`on_unload()`** is awaited by `PluginLoader.unload()` / `unload_all()`, again only where your code calls them. Close connections, flush buffers, and clean up resources here. Failing to clean up properly can cause resource leaks.
 
-**`get_tools()`** returns a list of tools available to Neo. The `description` field is critical -- Neo reads it to decide when your tool is relevant to a user's request. Write clear, specific descriptions. If Neo cannot understand what your tool does from the description, it will never invoke it.
+**`get_tools()`** returns tool definitions. `PluginRegistry.get_all_tools()` collects them, and nothing in the gateway calls that or registers the result with the tool dispatcher, so Neo cannot invoke a plugin tool today. Write clear, specific descriptions anyway: a description is what a dispatcher would show the model.
 
-**`get_commands()`** returns a list of CLI commands available in the MTRX interface. Commands start with `/` and are invoked directly by the user, unlike tools which are invoked by Neo during task execution.
+**`get_commands()`** returns slash-command definitions. `PluginRegistry.get_all_commands()` collects them; no gateway route or CLI serves them, so `/greet` reaches nothing on this platform today.
 
 ## Step 4: Testing Locally
 
-Restart the gateway to load your plugin:
+Starting the gateway does not load your plugin — no code in it calls the plugin
+loader. Load it yourself. From the repository root (the loader looks in
+`plugins/installed/` relative to where it runs), save this as `run_my_plugin.py`:
+
+```python
+import asyncio
+
+from runtime.plugins.loader import PluginLoader
+
+
+async def main():
+    loader = PluginLoader()               # scans plugins/installed/
+    plugins = await loader.load_all({})   # imports each package, awaits on_load(config)
+    print([p.name for p in plugins])
+    plugin = loader.loaded["my-plugin"]
+    print(await plugin.handle_greet_command("Alice"))
+    print([c["name"] for c in plugin.get_commands()],
+          [t["name"] for t in plugin.get_tools()])
+    await loader.unload_all()             # awaits on_unload()
+
+
+asyncio.run(main())
+```
 
 ```bash
-python -m gateway.server
+python run_my_plugin.py
 ```
 
-Watch the startup logs for your plugin:
+Expected output:
 
 ```
-[INFO] Plugin loaded: my-plugin v1.0.0
-```
-
-Test the command via the MTRX CLI:
-
-```
-mtrx> /greet Alice
+['my-plugin']
 Hello, Alice! Welcome to The Matrix.
+['/greet'] ['my_plugin_greet']
 ```
 
-Test the tool via the chat API:
+The chat API will not reach `my_plugin_greet`, and no CLI serves `/greet`:
+nothing registers plugin tools or commands. Test the handlers directly, as
+above, or from your own unit tests.
 
-```bash
-curl -X POST http://localhost:18790/chat \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{"message": "Greet someone named Bob"}'
-```
+## Step 5: Listing in the Marketplace
 
-Neo will recognize the intent, invoke your `my_plugin_greet` tool, and Trinity will format the response.
-
-## Step 5: Submitting to the Marketplace
-
-When your plugin is ready for distribution:
+When your plugin is ready to share:
 
 1. Ensure your `config.json` is complete with accurate metadata
 2. Add a README.md with usage instructions and examples
-3. Test thoroughly -- plugins that crash the gateway will be rejected
-4. Submit via the MTRX CLI:
+3. Test thoroughly on your own gateway
+4. Submit a listing with the gateway's API key:
 
 ```bash
-mtrx plugin submit ./plugins/installed/my-plugin
+curl -X POST http://localhost:18790/marketplace/plugins/submit \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"name": "My Plugin", "description": "Greets people", "author": "you", "repository_url": "https://github.com/you/my-plugin"}'
 ```
 
-The review process checks for:
-- Security: no malicious code, appropriate permission requests
-- Stability: no uncaught exceptions, proper error handling
-- Quality: working functionality, clear documentation
-
-Once approved, your plugin appears in the marketplace. Revenue from paid plugins follows the 90/10 split -- you receive 90% of every sale.
+There is no review process. The listing is stored with status `pending`, and nothing in this gateway reviews, approves or activates a listing, so a submitted plugin does not appear in `GET /marketplace/plugins` on its own. Nothing installs it for anyone either, and another operator's gateway will not run it: they would place the package in their own `plugins/installed/` and load it themselves, as in Step 4. Paid plugins cannot be bought yet (the purchase route answers 501).
 
 ## Common Patterns
 
-**Stateful plugins**: Use `on_load` to restore state from disk and `on_unload` to save it. The `self.data_dir` property provides a directory for plugin-specific data.
+**Stateful plugins**: Use `on_load` to restore state from disk and `on_unload` to save it. The base class gives you no data directory; choose one yourself.
 
-**External API integration**: Use the `network` permission and make HTTP requests in your tool handlers. Always handle timeouts and errors gracefully.
-
-**Event-driven plugins**: With the `events` permission, subscribe to platform events like `contract_deployed`, `transaction_confirmed`, or `user_connected`.
+**External API integration**: Make HTTP requests in your tool handlers. Always handle timeouts and errors gracefully.
 
 ## Key Takeaways
 
 - Plugins extend The Matrix via the `MatrixPlugin` base class
-- Four methods: `on_load`, `on_unload`, `get_tools`, `get_commands`
-- Tools are used by Neo; commands are used by humans via CLI
-- The marketplace uses a 90/10 revenue split favoring developers
+- A `name`, a `version`, and four methods: `on_load`, `on_unload`, `get_tools`, `get_commands`
+- Nothing in the gateway loads a plugin; your own code drives `PluginLoader`
+- The marketplace lists plugins and installs none; paid plugin sales are not live yet
 - Test plugins locally before submitting
 
 ---

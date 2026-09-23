@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,468 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,489 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -664,7 +664,14 @@ Professional certifications backed by on-chain attestations:
 
 ## Plugin Development
 
-Build and sell plugins for The Matrix. Developers keep 90% of revenue.
+Build plugins for The Matrix. The plugin loader (`runtime/plugins/loader.py`)
+can import a package from `plugins/installed/`, but nothing in the gateway loads
+one: placing a package there runs nothing today. You can load one yourself with
+`PluginLoader.load_all()`. The marketplace lists plugins and does not install
+them. Paid plugin sales are not live yet — no purchase path completes one, so
+the purchase route answers `501` for a paid plugin. The platform commission on
+them is an operator setting (`plugin_marketplace.commission_rate`); the
+published Terms of Service state 10%.
 
 ```bash
 # See the example plugin
@@ -674,7 +681,9 @@ cat runtime/plugins/example_plugin.py
 cat docs/PLUGIN_DEVELOPMENT.md
 ```
 
-Submit plugins at `/marketplace` or via `POST /marketplace/plugins/submit`.
+Submit a listing with `POST /marketplace/plugins/submit` and the gateway's API
+key (the `/marketplace` page cannot submit one). The listing is stored as
+`pending`; nothing in this gateway reviews, approves or activates it.
 
 ---
 

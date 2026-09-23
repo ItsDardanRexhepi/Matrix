@@ -1,14 +1,23 @@
 """Plugin marketplace store with SQLite persistence.
 
-Manages plugin listings, purchases, and download tracking.
-Supports free and paid plugins with Stripe integration for
-payment processing.
+Manages plugin listings and download tracking.
+
+Nothing here installs a plugin. A free listing counts as owned by every caller
+(`has_purchased`), so its purchase route records nothing and places no code.
+Nothing in the gateway loads a plugin either: runtime/plugins/loader.py can
+import a package from `plugins/installed/`, and no code in the gateway calls it
+(tests/test_gateway_loads_no_plugins.py places one and measures that the gateway
+never imports it). Paid plugin purchases are NOT built: there is no App
+Store product for a plugin (gateway/iap.py) and no server path that records a
+paid plugin purchase, so the paid branch answers `not_built` rather than
+pointing the caller at a checkout that does not exist.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -16,8 +25,35 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Platform commission on paid plugins
-PLATFORM_COMMISSION = 0.10  # 10%
+
+def platform_commission_rate(config: dict | None) -> float | None:
+    """The commission this deployment applies to paid plugin sales, or None.
+
+    Configuration (`plugin_marketplace.commission_rate`, a fraction in [0, 1]),
+    not a constant in the public repository: a commercial term belongs to the
+    deployment that sets it. Unset is unknown, and so is anything that is not
+    a finite fraction: reporting a guessed rate as the platform's term would be
+    worse than reporting none.
+    """
+    raw = ((config or {}).get("plugin_marketplace") or {}).get("commission_rate")
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        # float(True) is 1.0: `"commission_rate": true` would read as the whole sale.
+        logger.error("plugin_marketplace.commission_rate is %r, a boolean, not a "
+                     "fraction; treating the commission as unknown", raw)
+        return None
+    try:
+        rate = float(raw)
+    except (TypeError, ValueError):
+        logger.error("plugin_marketplace.commission_rate is %r, not a number; "
+                     "treating the commission as unknown", raw)
+        return None
+    if not math.isfinite(rate) or not 0.0 <= rate <= 1.0:
+        logger.error("plugin_marketplace.commission_rate is %r, not a fraction "
+                     "in [0, 1]; treating the commission as unknown", raw)
+        return None
+    return rate
 
 
 @dataclass
@@ -65,38 +101,23 @@ class PluginListing:
         }
 
 
-# Built-in example plugins
+# Built-in example listings. Each must name a plugin that exists in this tree
+# (tests/test_plugin_marketplace_installs_nothing.py): two listings described
+# plugins with no implementation anywhere, and the marketplace page rendered
+# them as plugins on the gateway.
 EXAMPLE_PLUGINS: list[dict] = [
     {
         "name": "Hello World Plugin",
-        "description": "Example plugin demonstrating the Matrix plugin API. Adds a /hello command that greets the user.",
+        "description": ("Example plugin demonstrating The Matrix plugin API: a /hello "
+                        "command and a greeting tool (runtime/plugins/example_plugin.py). "
+                        "Listing it does not install it."),
         "author": "The Matrix Team",
         "version": "1.0.0",
         "price_usd": 0.0,
         "category": "example",
         "min_tier_required": "free",
         "capabilities": ["custom_command"],
-        "repository_url": "https://github.com/ItsDardanRexhepi/TheMatrix",
-    },
-    {
-        "name": "Portfolio Tracker",
-        "description": "Track your DeFi portfolio across multiple chains. Automatic balance updates and PnL calculations.",
-        "author": "The Matrix Team",
-        "version": "1.0.0",
-        "price_usd": 0.0,
-        "category": "finance",
-        "min_tier_required": "free",
-        "capabilities": ["dashboard_widget", "scheduled_task"],
-    },
-    {
-        "name": "Gas Price Alerts",
-        "description": "Get notified when gas prices drop below your threshold. Supports Base, Ethereum, and Polygon.",
-        "author": "The Matrix Team",
-        "version": "1.0.0",
-        "price_usd": 0.0,
-        "category": "utility",
-        "min_tier_required": "free",
-        "capabilities": ["notification", "scheduled_task"],
+        "repository_url": "https://github.com/ItsDardanRexhepi/Matrix",
     },
 ]
 
@@ -117,9 +138,8 @@ class PluginMarketplace:
         db : Database, optional
             SQLite database for persistence.
 
-        Paid plugin purchases are handled client-side in the MTRX iOS app
-        via Apple IAP. The backend records ownership after the app reports
-        a successful purchase.
+        Paid plugin purchases are not built (see the module docstring):
+        nothing on this server records one.
         """
         self.config = config or {}
         self.db = db
@@ -225,10 +245,12 @@ class PluginMarketplace:
         wallet_address: str,
         plugin_id: str,
     ) -> dict:
-        """Initiate a plugin purchase.
+        """Answer a plugin purchase request. Installs nothing.
 
-        For free plugins, completes immediately. For paid plugins,
-        creates a Stripe checkout session.
+        A free listing counts as owned by every caller, so it answers
+        ``already_purchased`` with ``installed: False`` and records nothing. A
+        paid listing answers ``status: not_built`` — no purchase path exists to
+        complete one.
 
         Parameters
         ----------
@@ -240,36 +262,43 @@ class PluginMarketplace:
         Returns
         -------
         dict
-            Purchase result with checkout URL for paid plugins.
+            Purchase result; ``not_built`` for a paid plugin.
         """
         listing = self.listings.get(plugin_id)
         if not listing:
             return {"status": "error", "message": "Plugin not found."}
 
-        # Check if already purchased
+        # A free listing is owned by every caller (has_purchased), so the free
+        # "instant purchase" branch that used to follow this check could never
+        # run, and nothing anywhere installed the plugin it named. Say so.
         if await self.has_purchased(wallet_address, plugin_id):
-            return {"status": "already_purchased", "plugin_id": plugin_id}
-
-        # Free plugins — instant purchase
-        if listing.price_usd <= 0:
-            await self._record_purchase(wallet_address, plugin_id, 0.0)
             return {
-                "status": "ok",
+                "status": "already_purchased",
                 "plugin_id": plugin_id,
-                "purchased": True,
-                "price_paid": 0.0,
+                "installed": False,
+                "message": (
+                    "Nothing to buy or record: this listing is already owned. The "
+                    "marketplace does not install plugins, and nothing in the gateway "
+                    "loads one: a package placed in plugins/installed/ runs only in a "
+                    "process that calls runtime/plugins/loader.py itself."
+                ),
             }
 
-        # Paid plugins — purchase flow lives in the MTRX iOS app (Apple IAP).
-        # Clients should initiate the purchase via StoreKit and then call
-        # `record_purchase` with the verified transaction.
+        # Paid plugins. There is no App Store product for a plugin,
+        # /api/v1/iap/verify never records plugin ownership, and no code records
+        # a paid purchase, so a paid purchase cannot be completed. No proceeds
+        # figure is returned: there is no sale to have proceeds, and an IAP sale
+        # would pay the App Store's commission before any platform split.
         return {
-            "status": "requires_iap",
+            "status": "not_built",
             "plugin_id": plugin_id,
             "price_usd": listing.price_usd,
-            "platform_fee": round(listing.price_usd * PLATFORM_COMMISSION, 2),
-            "developer_revenue": round(listing.price_usd * (1 - PLATFORM_COMMISSION), 2),
-            "message": "Complete the purchase in the MTRX iOS app.",
+            "platform_commission_rate": platform_commission_rate(self.config),
+            "message": (
+                "Paid plugin purchases are not available: no App Store product "
+                "exists for a plugin and no server path records a paid plugin "
+                "purchase, so nothing can complete or verify one yet."
+            ),
         }
 
     async def has_purchased(self, wallet_address: str, plugin_id: str) -> bool:
@@ -309,9 +338,12 @@ class PluginMarketplace:
         ]
 
     async def submit_listing(self, author: str, listing_data: dict) -> dict:
-        """Submit a new plugin listing for review.
+        """Store a new plugin listing with status pending. Nothing reviews,
+        approves or activates it.
 
-        Only Enterprise tier users can submit plugins.
+        No subscription tier is checked here or in the route handler; the
+        route is behind the gateway API key. ``author`` is whatever the
+        caller supplied and is not verified.
 
         Parameters
         ----------
@@ -366,7 +398,8 @@ class PluginMarketplace:
         return {
             "status": "submitted",
             "plugin_id": listing.plugin_id,
-            "message": "Plugin submitted for review. You will be notified when approved.",
+            "message": ("Plugin listing stored with status pending. It is not listed "
+                        "until it is made active; this gateway has no approval route."),
         }
 
     async def record_download(self, plugin_id: str) -> None:
@@ -379,27 +412,5 @@ class PluginMarketplace:
             await self.db.execute(
                 "UPDATE plugin_listings SET downloads = downloads + 1 WHERE plugin_id = ?",
                 (plugin_id,),
-                commit=True,
-            )
-
-    async def _record_purchase(
-        self,
-        wallet_address: str,
-        plugin_id: str,
-        price_paid: float,
-    ) -> None:
-        """Record a completed purchase."""
-        if wallet_address not in self.purchases:
-            self.purchases[wallet_address] = set()
-        self.purchases[wallet_address].add(plugin_id)
-
-        if self.db:
-            await self.db.execute(
-                """
-                INSERT OR IGNORE INTO plugin_purchases
-                    (wallet_address, plugin_id, price_paid, purchased_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (wallet_address, plugin_id, price_paid, time.time()),
                 commit=True,
             )

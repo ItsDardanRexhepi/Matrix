@@ -71,7 +71,7 @@ The gap between "I want to create a token" and actually creating one has histori
 
 This is not about dumbing down blockchain. The smart contracts deployed through The Matrix are real Solidity contracts, audited by the Glasswing security engine, attested on-chain through EAS (Ethereum Attestation Service), and deployed to real networks. The technical rigor is preserved -- the complexity is just handled for you.
 
-For developers, The Matrix provides a plugin system and SDK that lets you extend the platform, build on top of it, and distribute your tools through the marketplace. Plugin developers keep 90% of revenue from the marketplace, with a 90/10 split that prioritizes creators.
+For developers, The Matrix provides a plugin interface and SDK that let you build on top of the platform, and a marketplace where you can list your tools. The marketplace lists plugins and does not install them, and nothing in the gateway loads one (the plugin loader exists, and no code in the gateway calls it); paid plugin sales are not live yet, and their platform commission is an operator setting (the published Terms state 10%).
 
 ## Key Takeaways
 
@@ -79,7 +79,7 @@ For developers, The Matrix provides a plugin system and SDK that lets you extend
 - Three agents: Neo (execution), Trinity (conversation), Morpheus (confirmation of irreversible actions)
 - 221 blockchain capabilities accessible through natural language or API, organized into 21 discoverable categories
 - The gateway runs on port 18790 and serves as the central coordination point
-- Plugin marketplace with 90/10 revenue split (developers keep 90%)
+- Plugin marketplace: lists plugins, installs none; paid sales not live yet
 
 ---
 
