@@ -41,20 +41,25 @@ ERC721_OWNER_ABI = [{
 # NFT GATING CONDITION — read before setting `nft.contract_address` (NEW-93)
 # ─────────────────────────────────────────────────────────────────────────
 #
-# ONE config key arms SEVEN fabrications at once. Each of the following opens
-# with `if not self._web3.available or self._web3.is_placeholder(...)` and
-# returns not_deployed TODAY — that gate is the only reason they are inert:
+# ONE config key arms SEVEN methods at once. Each of the following opens with
+# `if not self._web3.available or self._web3.is_placeholder(...)` and returns
+# not_deployed while the key is unset. Once it is set, each writes a local
+# record and returns it through `recorded_unsettled_response` — status
+# `recorded_unsettled`, `settled: False`, and a disclosure saying what did NOT
+# happen:
 #
-#     fractionalize      -> "fractionalized"   writes self._fractions
-#     rent               -> "rented"           writes self._rentals
-#     mint_soulbound     -> "minted"           writes self._soulbound
-#     batch_mint         -> "minted"
-#     royalty_claim      -> "claimed"
-#     bridge_nft         -> "bridged"
-#     dynamic_update     -> "updated"
+#     fractionalize      -> recorded_unsettled, value_moved False   writes self._fractions
+#     rent               -> recorded_unsettled, value_moved False   writes self._rentals
+#     mint_soulbound     -> recorded_unsettled, value_moved None    writes self._soulbound
+#     batch_mint         -> recorded_unsettled, value_moved None
+#     royalty_claim      -> recorded_unsettled, value_moved False
+#     bridge_nft         -> recorded_unsettled, value_moved False
+#     dynamic_update     -> recorded_unsettled, value_moved None
 #
-# None of them touches a chain, a signer, or a token record. Setting the key
-# does not make them work; it makes them ANSWER.
+# They used to answer "fractionalized", "rented", "minted", "claimed",
+# "bridged" and "updated". None of them touches a signer or a token record
+# (fractionalize alone READS the chain, for the owner check). Setting the key
+# does not make them work; it makes them answer that they did not.
 #
 # WHY THIS DOMAIN'S ARMING IS DIFFERENT FROM EVERY PRIOR ONE. In insurance,
 # deployment supplied an already-running consumer with its first objects — the
@@ -83,8 +88,12 @@ ERC721_OWNER_ABI = [{
 #      ownership it cannot check, so any caller can fractionalize, rent or
 #      bridge a token they do not hold.
 #   2. EACH OF THE SEVEN EITHER PERFORMS ITS OPERATION OR REFUSES. Writing a
-#      dict and returning "fractionalized" is not fractionalising.
-#      PARTIAL-STATE FAILURE MODE: seven confident receipts for nothing.
+#      dict is not fractionalising. Today each writes its record and answers
+#      `recorded_unsettled` — a statement that the operation did not happen,
+#      which the dispatcher files with the refusals — so nothing is claimed.
+#      What is still missing is the other half: none of them performs.
+#      PARTIAL-STATE FAILURE MODE: seven records that promise nothing, where a
+#      caller expected an operation.
 #   3. `buy_nft`'s FEED EVENT IS DERIVED FROM SETTLEMENT, not from the request
 #      being accepted — the NEW-88 rule, which this domain has not yet applied.
 #      PARTIAL-STATE FAILURE MODE: the public feed becomes the loudest surface

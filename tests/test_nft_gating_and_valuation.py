@@ -164,18 +164,83 @@ def test_no_ownership_store_exists_yet():
     )
 
 
-async def test_the_seven_still_refuse_and_are_unchanged():
-    """SCOPE. NEW-92/93 changed a valuation response and added a comment block.
-    None of the seven gated fabrications was touched."""
-    svc = NFTService({})
-    svc._web3.available = False
-    for coro in (
+def _the_seven(svc):
+    return (
         svc.fractionalize("0xC", 1, 10, 1.0),
         svc.rent("0xC", 1, "0xR", 7, 1.0),
         svc.batch_mint("0xC", "0xA", 2, {}),
         svc.royalty_claim("0xC", 1, "0xA"),
         svc.bridge_nft("0xC", 1, "base", "0xA"),
-        svc.mint_soulbound("0xI", "0xR", {}),
+        svc.mint_soulbound("0xR", {}, "0xI"),
         svc.dynamic_update("0xC", 1, {}),
-    ):
+    )
+
+
+async def test_the_seven_refuse_while_the_key_is_unset():
+    """SCOPE. With `nft.contract_address` unset every one of the seven refuses
+    with not_deployed — the gate the NEW-93 header describes."""
+    svc = NFTService({})
+    svc._web3.available = False
+    for coro in _the_seven(svc):
         assert (await coro)["status"] == "not_deployed"
+
+
+async def test_the_seven_say_nothing_settled_once_armed():
+    """What arming the key does TODAY. This test's predecessor said "None of
+    the seven gated fabrications was touched" and asserted only the gated
+    branch — while the armed branch of all seven had been changed from
+    "fractionalized" / "rented" / "minted" / "claimed" / "bridged" / "updated"
+    to `recorded_unsettled`. A docstring about the branch it never ran.
+
+    Armed here with a contract address and an available chain whose owner
+    read fails (so fractionalize's owner check reads nothing and does not
+    refuse). Every one must answer `recorded_unsettled` with `settled: False`
+    — the header's table, driven."""
+    svc = NFTService({})
+    svc._web3.available = True
+    svc._web3.is_placeholder = lambda _value: False
+    svc._nft_contract = "0x" + "c0" * 20
+
+    def _no_chain(*_a, **_k):
+        raise RuntimeError("no chain in this test")
+
+    svc._web3.load_contract = _no_chain
+    for coro in _the_seven(svc):
+        record = await coro
+        assert record["status"] == "recorded_unsettled", record
+        assert record["settled"] is False, record
+        assert record.get("value_moved") is not True, record
+        assert record["disclosure"], record
+
+
+async def test_the_header_table_says_what_each_method_returns():
+    """The NEW-93 header's table is a claim about seven methods, and it went
+    stale: it kept mapping them to "fractionalized", "rented", "minted" … after
+    all seven had been changed to answer `recorded_unsettled`. This reads the
+    table out of the module and holds each row to what the armed method
+    actually returns, so the next change to a return has to change the row."""
+    import re
+
+    text = SERVICE_SRC.read_text()
+    rows = dict(re.findall(r"^#\s{5}(\w+)\s+->\s+(\w+)", text, flags=re.M))
+    assert set(rows) == {
+        "fractionalize", "rent", "mint_soulbound", "batch_mint",
+        "royalty_claim", "bridge_nft", "dynamic_update",
+    }, rows
+
+    svc = NFTService({})
+    svc._web3.available = True
+    svc._web3.is_placeholder = lambda _value: False
+    svc._nft_contract = "0x" + "c0" * 20
+
+    def _no_chain(*_a, **_k):
+        raise RuntimeError("no chain in this test")
+
+    svc._web3.load_contract = _no_chain
+    calls = dict(zip(
+        ("fractionalize", "rent", "batch_mint", "royalty_claim", "bridge_nft",
+         "mint_soulbound", "dynamic_update"),
+        _the_seven(svc),
+    ))
+    for name, coro in calls.items():
+        assert (await coro)["status"] == rows[name], (name, rows[name])
