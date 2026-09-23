@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,494 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,495 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -369,11 +369,12 @@ category, security & wallets, has no capabilities in it yet. The 195
 are served by 43 of the 45 services in the service registry.
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.
-Browse them at runtime:
+Browse them at runtime, with the gateway API key setup generated
+(`gateway.api_key` in `matrix.config.json`):
 
 ```bash
-curl http://localhost:18790/api/v1/capabilities            # list all
-curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
+curl http://localhost:18790/api/v1/capabilities -H "Authorization: Bearer YOUR_API_KEY"             # list all
+curl http://localhost:18790/api/v1/capabilities/categories -H "Authorization: Bearer YOUR_API_KEY"  # 21 buckets
 ```
 
 Gas is sponsored by the platform paymaster **within the policy the
@@ -436,9 +437,9 @@ observe-only mode, and it deliberately tells you nothing else. Which check
 failed is in the log against the request id, because a readiness endpoint that
 announces what is not enforcing is telling whoever asks where to push.
 
-**Get platform status**
+**Get platform status** (it needs the API key; `/health` and `/ready` do not)
 ```bash
-curl http://localhost:18790/status
+curl http://localhost:18790/status -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 **Run an example script**
