@@ -1,8 +1,5 @@
 # The Matrix
 
-[![GitHub Sponsors](https://img.shields.io/github/sponsors/ItsDardanRexhepi?style=flat&logo=github)](https://github.com/sponsors/ItsDardanRexhepi)
-[![Open Collective](https://img.shields.io/opencollective/all/the-matrix?style=flat&logo=opencollective)](https://opencollective.com/the-matrix)
-
 ---
 
 Hello world,
@@ -189,7 +186,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,487 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,486 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -566,34 +563,10 @@ deploy (`./scripts/ops.sh preflight`) and the deploy commands themselves.
 
 ## Sponsors
 
-The Matrix is free and open source because of the people who sponsor it.
-Sponsorship keeps the free tier free forever.
-
-[Become a Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
-
-| Tier | Monthly | What You Get |
-|------|---------|--------------|
-| Community Supporter | $5 | Name in CONTRIBUTORS.md |
-| Platform Backer | $25 | Name + link in README, Discord access |
-| Builder | $100 | Logo in README, priority issues, roadmap influence |
-| Infrastructure Partner | $500 | Logo on landing page, dedicated Slack, quarterly calls |
-| Founding Sponsor | $2,500 | Everything above + white-label rights, press mentions |
-
-**Corporate sponsors:** See [Open Collective](https://opencollective.com/the-matrix) for invoiced tiers with tax receipts.
-
-### Founding Sponsors
-
-*Your logo here* — [Become a Founding Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
-
-### Infrastructure Partners
-
-*Your logo here* — [Become an Infrastructure Partner](https://github.com/sponsors/ItsDardanRexhepi)
-
-### Builders
-
-*Your logo here* — [Become a Builder](https://github.com/sponsors/ItsDardanRexhepi)
-
-See `SPONSORS.md` for the full sponsor list.
+There is no way to sponsor The Matrix yet. GitHub Sponsors is not set up for
+my account, and the project has no Open Collective, so nothing here links to
+either. There are no sponsor tiers, perks or channels to offer, and no
+sponsors. `SPONSORS.md` says the same.
 
 ---
 

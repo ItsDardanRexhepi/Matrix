@@ -347,7 +347,7 @@ class GatewayServer:
             "/services/conversion",
             "/extensions/registry",
             "/a2a/services",
-            "/sponsor", "/glasswing", "/learn",
+            "/glasswing", "/learn",
             "/badges", "/privacy", "/terms",
             "/social", "/social/feed", "/social/feed/stream",
             "/social/trending", "/social/stats",
@@ -1984,12 +1984,6 @@ class GatewayServer:
         plugins = await self.plugin_marketplace.get_purchased(wallet)
         return web.json_response({"plugins": plugins})
 
-    # ─── Sponsor Redirect ────────────────────────────────────────
-
-    async def handle_sponsor_redirect(self, request: web.Request) -> web.Response:
-        """GET /sponsor — redirect to GitHub Sponsors."""
-        raise web.HTTPFound("https://github.com/sponsors/ItsDardanRexhepi")
-
     # ─── Glasswing & Badge Endpoints ─────────────────────────────
 
     async def handle_glasswing_page(self, request: web.Request) -> web.Response:
@@ -2554,7 +2548,6 @@ class GatewayServer:
         app.router.add_get("/marketplace/purchased", self.handle_marketplace_purchased)
 
         # ── Sponsor redirect ─────────────────────────────────────────
-        app.router.add_get("/sponsor", self.handle_sponsor_redirect)
 
         # ── Glasswing & badges ────────────────────────────────────────
         app.router.add_get("/glasswing", self.handle_glasswing_page)
