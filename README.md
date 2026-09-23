@@ -342,13 +342,13 @@ where it is set, and what happens while it is unset.
 
 ## The Security Layer
 
-The Matrix has a closed-source security layer that governs all agent behavior. This layer is not in this repository by design. See `SECURITY_STUB.md` for details.
+The Matrix has a closed-source security layer that enforces agent boundaries in a deployment that installs it. It is not in this repository by design, and without it the seam here runs an inert no-op, as described above. See `SECURITY_STUB.md` for details.
 
 ---
 
 ## The Unified Rexhepi Framework
 
-Every decision made by every agent on The Matrix passes through the Unified Rexhepi Framework. See `docs/unified-rexhepi-framework.md`.
+Every tool call an agent makes passes through the Unified Rexhepi Framework before it is dispatched. Its operational layer is open source, in `runtime/protocols/urf.py`. See `docs/unified-rexhepi-framework.md`.
 
 ---
 
