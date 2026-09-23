@@ -14,11 +14,13 @@ tidy it:
   * The domain openmatrix-ai.com. A name is only a URL if it is owned.
   * Absolute filesystem paths that still resolve.
 
-Those exemptions live in tools/name-guard.py, which is also wired as an editor
-hook so a reappearance is corrected as it is typed rather than found here later.
+Those exemptions live in the name guard, a separate tool. When
+MATRIX_NAME_GUARD points at it, this test runs it over the whole repository;
+where it is not available the test is skipped rather than guessed at.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -26,10 +28,11 @@ import sys
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-GUARD = pathlib.Path("/home/user/Matrix/tools/name-guard.py")
+_GUARD_PATH = os.environ.get("MATRIX_NAME_GUARD", "")
+GUARD = pathlib.Path(_GUARD_PATH) if _GUARD_PATH else None
 
 
-@pytest.mark.skipif(not GUARD.exists(), reason="the private tools repo is not checked out here")
+@pytest.mark.skipif(GUARD is None or not GUARD.exists(), reason="MATRIX_NAME_GUARD does not point at the name guard here")
 def test_no_file_in_this_repository_carries_an_old_name():
     result = subprocess.run(
         [sys.executable, str(GUARD), str(REPO)],
