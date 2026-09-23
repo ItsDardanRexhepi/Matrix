@@ -2226,10 +2226,11 @@ class GatewayServer:
         same rule for the gate itself:
 
         * the seam builds the gate for the HOST, and hands it out only once it
-          is built and loaded; after a failed start it builds no other, and a
-          caller that asks gets a gate fault (a value-moving action is refused)
-        * while the gate is not up the agent-tool boundary refuses every tool
-          call and asks no policy in the gate's place
+          is built and loaded; after a failed start it builds no other
+        * while the gate is not up the HTTP gate refuses every gated action,
+          reads included, and the agent-tool boundary and the chat path's
+          pre-action check refuse every tool call, none of them asking another
+          policy in the gate's place
         * production refuses to start, naming the cause
         * elsewhere the gateway runs, /ready reports it not ready, and the
           cause is in the server log
@@ -2258,9 +2259,9 @@ class GatewayServer:
                 ) from exc
             logger.error(
                 "Failed to initialise the Morpheus security layer: %s. The gateway "
-                "runs NOT READY: no caller is handed a gate, so a value-moving "
-                "action is refused, not run ungated, and every agent tool call "
-                "is refused.", exc, exc_info=exc,
+                "runs NOT READY: no caller is handed a gate, so every gated "
+                "action is refused, reads included, and so is every agent tool "
+                "call.", exc, exc_info=exc,
             )
         if self._morpheus is not None:
             self._security_flush_task = asyncio.create_task(self._security_flush_loop())

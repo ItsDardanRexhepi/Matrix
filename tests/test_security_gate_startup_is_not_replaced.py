@@ -31,9 +31,8 @@ THE CLASS, AND THE AXES CLOSED HERE
   (e) a later caller building a gate -> the seam hands out the host's gate and
                                         never builds another while a host has
                                         declared one; after a failed start it
-                                        raises, which every caller already
-                                        treats as a gate fault (value-moving
-                                        actions are refused, not run ungated)
+                                        raises, and the callers refuse rather
+                                        than run ungated (see (f) and (g))
   (e') the host adopting a gate someone else built earlier -> the host builds
                                         its own from its own config
   (f) the agent-tool boundary while the gate is not up -> every tool call is
@@ -41,6 +40,12 @@ THE CLASS, AND THE AXES CLOSED HERE
                                         backend's policy nor the public default
                                         is asked in the gate's place; with the
                                         gate up, or no host, the policy decides
+  (g) the HTTP gate and the chat path's pre-action check while the gate is not
+      up                             -> every request is refused, reads
+                                        included, and the public fail-direction
+                                        classifier is not asked in the gate's
+                                        place; a gate that is up and faults on
+                                        one call keeps that fail direction
 
 The test doubles below stand in for the backend's accessor. Nothing here says
 how the core decides anything; it pins what the host and the seam do when the
@@ -60,6 +65,15 @@ passed is the scope pin (a healthy start and no host still ask the policy).
 The three failed on the behaviour: the boundary answered (True, '') after a
 failed start and while the gate was starting, having asked the policy. After
 the change, all 12 in this file passed, on both backends.
+
+(g), measured against a966d5c, the tree whose documents said no other policy
+decides in the gate's place after a failed start: 3 failed and 13 passed. The
+one (g) test that passed is its scope pin (a gate that is up and faults keeps
+the fail direction). The three failed on the behaviour: get_balance answered
+allow=True with route observe-read-failopen after a failed start and while the
+gate was starting, and the pre-action check approved a platform_action read,
+each having asked the public classifier. After the change, all 16 in this file
+passed, on both backends.
 """
 
 from __future__ import annotations
@@ -379,6 +393,105 @@ async def test_while_the_gate_is_starting_a_tool_call_is_refused(monkeypatch):
     assert policy.asked == []
     assert seam.agent_access_allowed("trinity", "web_search")[0] is True
     assert len(policy.asked) == 1
+
+
+class _ClassifierSpy:
+    """Records every question put to the platform's public fail-direction
+    classifier, and answers as the real one does."""
+
+    def __init__(self, monkeypatch):
+        import runtime.access_policy as public_policy
+
+        self.asked: list[tuple] = []
+        for name in ("could_move_value", "operation_could_move_value",
+                     "dispatch_could_move_value"):
+            real = getattr(public_policy, name)
+
+            def spy(*args, _real=real, _name=name, **kwargs):
+                self.asked.append((_name, args))
+                return _real(*args, **kwargs)
+
+            monkeypatch.setattr(public_policy, name, spy)
+
+
+@pytest.mark.parametrize("fault", ["construct", "initialize"])
+async def test_after_a_failed_start_a_gated_read_is_refused_and_no_classifier_stands_in(
+        monkeypatch, fault):
+    """(g): the HTTP gate and the chat path's pre-action check, after a failed
+    start. A read is refused like everything else, and the platform's public
+    fail-direction classifier is not asked in the gate's place: that would be a
+    decision about the request made without the gate the host failed to bring
+    up. Refusing a read is stricter than what either side of the gate ever did
+    before; it lasts until a gateway starts with the gate up."""
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    _install(monkeypatch, _Backend(fail_construct=fault == "construct",
+                                   fail_initialize=fault == "initialize"))
+    server = _server()
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        assert (await client.get("/ready")).status == 503
+        spy = _ClassifierSpy(monkeypatch)
+
+        from gateway.security_gate import gate_action
+        for action in ("get_balance", "get_price", "send"):
+            decision = await gate_action(action, {}, context={"wallet": "0x" + "b" * 40},
+                                         operation=("wallet", action))
+            assert decision["allow"] is False, (action, decision)
+
+        from runtime.protocols.integration import ProtocolStack
+        stack = ProtocolStack(server.config, "trinity")
+        for tool, args in (("platform_action", {"action": "get_balance"}),
+                           ("platform_action", {"action": "send"})):
+            verdict = await stack.pre_action(tool, args, {"wallet": "0x" + "b" * 40})
+            assert verdict["approved"] is False, (tool, args, verdict)
+            assert verdict["denial_reason"], verdict
+
+        assert spy.asked == [], f"the public classifier stood in for the gate: {spy.asked}"
+
+
+async def test_while_the_gate_is_starting_a_gated_read_is_refused(monkeypatch):
+    """(g), the other phase: between the host declaring the gate and the gate
+    finishing its load, the HTTP gate and the pre-action check refuse too."""
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    seen: list = []
+    spy = _ClassifierSpy(monkeypatch)
+
+    class _SlowGate(_FakeGate):
+        async def initialize(self):
+            from gateway.security_gate import gate_action
+            from runtime.protocols.integration import ProtocolStack
+
+            seen.append(await gate_action("get_balance", {}, context={"wallet": "0x" + "b" * 40}))
+            stack = ProtocolStack({}, "trinity")
+            seen.append(await stack.pre_action("platform_action", {"action": "get_balance"}, {}))
+
+    monkeypatch.setattr(seam, "_backend_get_gate", lambda config=None: _SlowGate(config))
+    monkeypatch.setattr(seam, "_backend_reset_gate", lambda: None)
+    await seam.start_security_gate({"db": object()})
+    assert seen[0]["allow"] is False, seen
+    assert seen[1]["approved"] is False, seen
+    assert spy.asked == [], spy.asked
+
+
+async def test_a_gate_that_is_up_and_faults_on_one_call_keeps_the_public_fail_direction(
+        monkeypatch):
+    """SCOPE PIN for (g): a gate that came up and then raises on one call is a
+    different case, and it keeps the direction it always had: an action that
+    could move value is refused, a clearly benign read proceeds."""
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+
+    class _FaultingGate(_FakeGate):
+        async def evaluate(self, action, context):
+            raise RuntimeError("transient fault")
+
+    monkeypatch.setattr(seam, "_backend_get_gate", lambda config=None: _FaultingGate(config))
+    monkeypatch.setattr(seam, "_backend_reset_gate", lambda: None)
+    await seam.start_security_gate({"db": object()})
+    assert seam.security_gate_state() == "up"
+
+    from gateway.security_gate import gate_action
+    assert (await gate_action("get_balance", {}, context={}))["allow"] is True
+    assert (await gate_action("send", {}, context={}))["allow"] is False
 
 
 async def test_with_the_gate_up_or_no_host_the_policy_decides(monkeypatch):

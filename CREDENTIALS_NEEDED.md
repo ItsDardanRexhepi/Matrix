@@ -109,8 +109,10 @@ you set in this repository.
   loads its saved state before it serves. If either step fails, a production
   gateway refuses to start and names the cause; any other gateway runs with
   `GET /ready` failing, and no request is handed a gate, or decided by
-  another policy, in its place: an action that moves value is refused rather
-  than run ungated, and so is every agent tool call. `docker-compose.prod.yml` and
+  another policy, in its place: every request the gate would decide is
+  refused, reads included, and so is every agent tool call. A gate that did
+  come up and then faults on a single call fails that call closed when it
+  could move value and lets a plain read through. `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core

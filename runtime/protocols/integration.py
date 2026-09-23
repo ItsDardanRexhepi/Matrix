@@ -457,6 +457,19 @@ class ProtocolStack:
             "risk": None,
         }
 
+        # While the gateway's security gate is not up (still starting, or its
+        # start failed) the seam hands out no gate, and this check refuses
+        # every call before anything else is asked: neither the fail direction
+        # below (_deny_on_gate_fault) nor any other gate decides in its place.
+        from runtime.security import security_gate_withheld
+        if security_gate_withheld():
+            logger.error("security gate not up; tool call refused (tool=%s)", tool_name)
+            result["approved"] = False
+            result["denial_reason"] = (
+                "This action couldn't be authorized right now. Please try again."
+            )
+            return result
+
         # What the call DOES, not what the tool is called (§DL.4): the twin
         # tools take their real verb in arguments.action, and a contract
         # deployment or an ERC-20 approve signed with the platform key must

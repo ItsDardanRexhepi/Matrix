@@ -185,14 +185,15 @@ CALLER_IDENTITY_KEY = "wallet_address"
 # The split: a HOST (the gateway, at startup) builds the gate from its full
 # config and loads its durable state, and only then is the gate handed out.
 # While the host is starting it, and after the host's start failed, the accessor
-# raises SecurityGateUnavailable instead of building a lesser gate. Every caller
-# already treats a raise as a gate fault: a value-moving action is refused, not
-# run ungated. The per-agent tool boundary (agent_access_allowed) follows the
-# same rule: while the host's gate is not up it refuses every tool call and
-# asks no policy in the gate's place, so no decision about a caller is made
-# through the seam while the host's gate is down. With no host (a script, the
-# CLI, a test that boots no gateway) the accessor and the boundary behave as
-# they always have.
+# raises SecurityGateUnavailable instead of building a lesser gate. While the
+# host's gate is not up (security_gate_withheld), every caller that would ask
+# it refuses instead and asks no other policy in its place: the per-agent tool
+# boundary (agent_access_allowed) refuses every tool call, the HTTP gate
+# (gateway/security_gate.py) refuses every gated action, reads included, and
+# the chat path's pre-action check (runtime/protocols/integration.py) refuses
+# every tool call it is asked about. No decision about a request is made while
+# the host's gate is down. With no host (a script, the CLI, a test that boots
+# no gateway) the accessor and the boundary behave as they always have.
 
 class SecurityGateUnavailable(RuntimeError):
     """The process-wide gate is not up: its host is still starting it, or its
@@ -269,6 +270,15 @@ def security_gate_state() -> str:
     return _host_phase
 
 
+def security_gate_withheld() -> bool:
+    """True while a host has declared the gate and it is not up: still
+    starting, or its start failed. Every caller that would otherwise decide a
+    request with the gate refuses it instead, and asks no other policy in the
+    gate's place (the tool boundary below, the HTTP gate, the chat path's
+    pre-action check)."""
+    return _host_phase in (_HOST_STARTING, _HOST_FAILED)
+
+
 def release_security_gate() -> None:
     """HOST ONLY, at shutdown: withdraw the declaration, so a later host in the
     same process starts from nothing. The gate object itself is untouched."""
@@ -310,7 +320,7 @@ def agent_access_allowed(
     other gate. With no host (a script, the CLI) the policy decides as it
     always has.
     """
-    if _host_phase in (_HOST_STARTING, _HOST_FAILED):
+    if security_gate_withheld():
         return False, _GATE_NOT_UP_REFUSAL
     if _private_agent_access is not None:
         try:
@@ -337,5 +347,6 @@ __all__ = [
     "SecurityGateStartFailed",
     "start_security_gate",
     "security_gate_state",
+    "security_gate_withheld",
     "release_security_gate",
 ]
