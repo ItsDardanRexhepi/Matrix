@@ -1,11 +1,14 @@
 """
 BlockchainInterface — base class for all blockchain capabilities.
 
-Every capability inherits from this and gets:
-- Web3 connection via RPC
-- Gas sponsorship via ERC-4337 paymaster
-- EAS attestation for every action
-- Config-driven chain/contract addresses (no hardcoded values)
+An agent blockchain tool that inherits from this gets:
+- a Web3 connection via the configured RPC
+- the platform signer, metered by the gas-sponsorship policy (`_platform_signer`)
+- receipt handling (`_receipt`, `_unconfirmed`)
+- config-driven chain and contract addresses
+
+The base class writes no attestation. A tool attests only where it calls
+EASClient itself, under a metered operation name of its own module.
 """
 
 import json

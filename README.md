@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,608 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,614 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -465,8 +465,8 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 | `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
 | `05_marketplace_flow.py` | List, buy, and escrow a marketplace transaction |
-| `06_eas_attestation_chain.py` | Every action creates a verifiable on-chain attestation record |
-| `07_revenue_to_neosafe.py` | Platform fee routing and tracking to the NeoSafe multisig wallet |
+| `06_eas_attestation_chain.py` | Attest sample records through the attestation capabilities (queued unless time-critical), batch them, verify one |
+| `07_revenue_to_neosafe.py` | Inject a fee into a generated contract, record sample fees with the NeoSafe router (in memory, nothing moves), and where the platform's fees actually go |
 | `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
 | `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
 

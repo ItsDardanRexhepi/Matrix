@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-06 — EAS Attestation Chain: Every Action Creates a Verifiable Record
+06 — EAS Attestation Chain: Attesting Records Through the Capabilities
 
-Demonstrates how The Matrix uses Ethereum Attestation Service (EAS) to
-create permanent, verifiable on-chain records for every platform action:
+Demonstrates the attestation capabilities of Ethereum Attestation Service (EAS)
+with sample records this example composes:
 
-  1. Deploy a contract -> attestation
-  2. Transfer ownership -> attestation
-  3. Create an insurance policy -> attestation
-  4. Verify a specific attestation on-chain
+  1. A sample contract-deployment record -> create_attestation
+  2. A sample ownership-transfer record -> create_attestation
+  3. A sample insurance-policy record -> create_attestation
+  4. Three sample records -> batch_attest
+  5. Verify an attestation on-chain, when step 1 returned one
 
-This is the trust layer of The Matrix: every state-modifying capability is attested on-chain automatically.
+Nothing here deploys, transfers or insures anything; the records are sample
+data. An attestation that is not time-critical is queued in memory and written
+on-chain only when a batch of 50 fills in the same process, so a run of this
+example usually gets queue receipts rather than transaction hashes. The
+dispatcher also records each state-modifying action that settles, the same way.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -51,9 +56,9 @@ async def main():
   The Matrix Example 06: EAS Attestation Chain
 {'=' * 60}{RESET}
 
-  Every action on The Matrix creates an on-chain attestation
-  via Ethereum Attestation Service (EAS) on Base Sepolia.
-  This provides a permanent, verifiable audit trail.
+  Attests sample records through the attestation capabilities
+  (Ethereum Attestation Service on Base Sepolia). A record that is not
+  time-critical is queued in memory until a batch of 50 fills.
 """)
 
     config = load_config()
@@ -63,7 +68,7 @@ async def main():
     attestation_uids = []
 
     # ── Step 1: Create attestation for contract deployment ──────────
-    step(1, "Attesting a contract deployment...")
+    step(1, "Attesting a sample contract-deployment record...")
 
     try:
         result = await dispatcher.execute(
@@ -86,9 +91,12 @@ async def main():
         data = json.loads(result)
         if data.get("status") == "ok":
             att = data["result"]
-            uid = att.get("uid", att.get("attestation_tx", "N/A"))
-            attestation_uids.append(uid)
-            ok(f"Attestation UID: {uid}")
+            # The service answers with a transaction hash when it submitted
+            # the attestation, or a queue receipt; it never returns an EAS UID.
+            if att.get("uid"):
+                attestation_uids.append(att["uid"])
+            ok(f"Status: {att.get('status', 'unknown')}"
+               + (f", tx {att['attestation_tx']}" if att.get("attestation_tx") else ""))
             ok(f"Action: deploy_contract")
             ok(f"Schema: contract_deployment")
             ok(f"Recipient: {wallet}")
@@ -100,7 +108,7 @@ async def main():
         warn(f"Attestation: {e}")
 
     # ── Step 2: Attest ownership transfer ───────────────────────────
-    step(2, "Attesting an ownership transfer...")
+    step(2, "Attesting a sample ownership-transfer record...")
 
     new_owner = "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"
 
@@ -123,9 +131,12 @@ async def main():
         data = json.loads(result)
         if data.get("status") == "ok":
             att = data["result"]
-            uid = att.get("uid", att.get("attestation_tx", "N/A"))
-            attestation_uids.append(uid)
-            ok(f"Attestation UID: {uid}")
+            # The service answers with a transaction hash when it submitted
+            # the attestation, or a queue receipt; it never returns an EAS UID.
+            if att.get("uid"):
+                attestation_uids.append(att["uid"])
+            ok(f"Status: {att.get('status', 'unknown')}"
+               + (f", tx {att['attestation_tx']}" if att.get("attestation_tx") else ""))
             ok(f"Action: transfer_rwa_ownership")
             ok(f"From: {wallet[:12]}...")
             ok(f"To: {new_owner[:12]}...")
@@ -135,7 +146,7 @@ async def main():
         warn(f"Attestation: {e}")
 
     # ── Step 3: Attest insurance creation ───────────────────────────
-    step(3, "Attesting an insurance policy creation...")
+    step(3, "Attesting a sample insurance-policy record...")
 
     try:
         result = await dispatcher.execute(
@@ -157,9 +168,12 @@ async def main():
         data = json.loads(result)
         if data.get("status") == "ok":
             att = data["result"]
-            uid = att.get("uid", att.get("attestation_tx", "N/A"))
-            attestation_uids.append(uid)
-            ok(f"Attestation UID: {uid}")
+            # The service answers with a transaction hash when it submitted
+            # the attestation, or a queue receipt; it never returns an EAS UID.
+            if att.get("uid"):
+                attestation_uids.append(att["uid"])
+            ok(f"Status: {att.get('status', 'unknown')}"
+               + (f", tx {att['attestation_tx']}" if att.get("attestation_tx") else ""))
             ok(f"Action: create_insurance")
             ok(f"Policy: policy-crop-001")
         else:
@@ -168,7 +182,7 @@ async def main():
         warn(f"Attestation: {e}")
 
     # ── Step 4: Batch attestation ───────────────────────────────────
-    step(4, "Creating batch attestation (multiple actions at once)...")
+    step(4, "Attesting three sample records with batch_attest...")
 
     try:
         result = await dispatcher.execute(
@@ -187,7 +201,7 @@ async def main():
                     },
                     {
                         "schema_name": "platform_action",
-                        "data": {"action": "stake", "amount": 10, "token": "0pnMTX"},
+                        "data": {"action": "stake", "amount": 10, "token": "USDC"},
                         "recipient": wallet,
                     },
                 ],
@@ -195,13 +209,13 @@ async def main():
         )
         data = json.loads(result)
         if data.get("status") == "ok":
-            batch = data["result"]
-            count = batch.get("count", batch.get("attested", 3))
-            ok(f"Batch attested: {count} actions in one transaction")
-            if isinstance(batch.get("uids"), list):
-                for uid in batch["uids"]:
-                    attestation_uids.append(uid)
-                    ok(f"  UID: {uid}")
+            # One result per entry: each is queued or, if time-critical,
+            # submitted on its own. There is no single batch transaction.
+            batch = data["result"] if isinstance(data["result"], list) else []
+            ok(f"batch_attest processed {len(batch)} records")
+            for entry in batch:
+                ok(f"  {entry.get('status', 'unknown')}"
+                   + (f": {entry['attestation_tx']}" if entry.get("attestation_tx") else ""))
         else:
             warn(f"Batch attestation: {data.get('error', 'N/A')}")
     except Exception as e:
@@ -236,22 +250,23 @@ async def main():
         except Exception as e:
             warn(f"Verification: {e}")
     else:
-        warn("No attestation UIDs to verify (attestation service may not be fully configured)")
+        warn("No attestation UID to verify: the service returned transaction hashes "
+             "or queue receipts, not EAS UIDs")
 
     # ── Summary: the attestation chain ──────────────────────────────
-    print(f"\n{BOLD}  Attestation Chain Visualisation:{RESET}\n")
+    print(f"\n{BOLD}  The sample records this example asked to attest:{RESET}\n")
 
     chain = [
-        ("deploy_contract",         "RentalAgreement deployed"),
-        ("transfer_rwa_ownership",  "House ownership transferred"),
-        ("create_insurance",        "Crop insurance created"),
-        ("mint_nft",                "NFT #1 minted (batch)"),
-        ("create_loan",             "DeFi loan created (batch)"),
-        ("stake",                   "Tokens staked (batch)"),
+        ("deploy_contract",         "sample record: RentalAgreement deployment"),
+        ("transfer_rwa_ownership",  "sample record: house ownership transfer"),
+        ("create_insurance",        "sample record: crop insurance policy"),
+        ("mint_nft",                "sample record: NFT #1 mint (batch)"),
+        ("create_loan",             "sample record: DeFi loan (batch)"),
+        ("stake",                   "sample record: staking (batch)"),
     ]
 
     for i, (action, desc) in enumerate(chain):
-        uid = attestation_uids[i] if i < len(attestation_uids) else "pending..."
+        uid = attestation_uids[i] if i < len(attestation_uids) else "none returned"
         uid_short = str(uid)[:20] + "..." if len(str(uid)) > 20 else uid
         connector = "|" if i < len(chain) - 1 else " "
         print(f"  [{i+1}] {action}")
@@ -266,16 +281,18 @@ async def main():
 {'=' * 60}{RESET}
 
   {BOLD}Actions demonstrated:{RESET}
-    1. create_attestation  - Individual action attestation
-    2. create_attestation  - Ownership transfer attestation
-    3. create_attestation  - Insurance policy attestation
-    4. batch_attest        - Multiple attestations in one tx
-    5. verify_attestation  - Verify attestation on-chain
+    1. create_attestation  - One record
+    2. create_attestation  - One record
+    3. create_attestation  - One record
+    4. batch_attest        - Several records, each queued or submitted on its own
+    5. verify_attestation  - Verify an attestation on-chain
 
-  {BOLD}Key insight:{RESET}
-    Every state-modifying action across all 195 capabilities
-    automatically creates an EAS attestation. The ServiceDispatcher
-    handles this transparently — no extra code needed.
+  {BOLD}What the dispatcher adds:{RESET}
+    When an action on its state-modifying list settles, the
+    ServiceDispatcher hands the attestation service a record of it
+    (action, service, actor, a parameter hash, a timestamp), queued
+    like any record that is not time-critical. A refusal is logged,
+    not attested.
 
   {BOLD}EAS contract:{RESET} {bc.get('eas_contract', 'see config')}
   {BOLD}Network:{RESET} Base Sepolia

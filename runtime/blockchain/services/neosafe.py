@@ -1,7 +1,9 @@
 """NeoSafe revenue router — records fees and can send ETH to the NeoSafe multisig.
 
-No service calls it: `route_fee` and `route_revenue` are reached only from
-examples/07_revenue_to_neosafe.py. This module is not how fees reach NeoSafe.
+No service calls it. `route_fee` is called only by
+examples/07_revenue_to_neosafe.py. Nothing outside the tests calls
+`route_revenue` (ServiceDispatcher builds a router in `_get_neosafe`, which
+nothing calls). This module is not how fees reach NeoSafe.
 The platform contracts pay their on-chain fees to each contract's
 `platformFeeRecipient`, which scripts/deploy_all.py sets to the configured
 NeoSafe address; injected conversion fees go to `blockchain.platform_wallet`;
@@ -30,9 +32,11 @@ class NeoSafeRouter:
     """Record fees and route ETH revenue to the NeoSafe wallet, when called.
 
     Nothing in the services calls it. :meth:`route_fee` appends to an in-memory
-    ledger (lost on restart) and attests the entry; it moves no value.
-    :meth:`route_revenue` sends ETH to the multisig when a chain is configured,
-    and otherwise appends a queued entry that nothing later executes.
+    ledger (lost on restart) and hands the entry to the attestation service as
+    a platform record, which queues it like any attestation that is not
+    time-critical; it moves no value. :meth:`route_revenue` sends ETH to the
+    multisig when a chain is configured, and otherwise records an unsent entry
+    that nothing later sends.
 
     Config keys used:
         - ``blockchain.platform_wallet`` — the NeoSafe wallet address
@@ -144,15 +148,17 @@ class NeoSafeRouter:
             no receipt in time-> "pending", carrying the hash: not a refusal and
                                  not a failure, and not attested
 
-        When the platform is not configured for live execution the routing is
-        queued in-memory and ``status='queued'`` is returned.
+        With no chain configured nothing is sent: the entry is recorded in this
+        router's in-memory ledger and ``status='recorded_unqueued'``,
+        ``sent=False`` is returned. Nothing reads the ledger to send a recorded
+        entry later, and the ledger is lost on restart.
         """
         if amount_eth <= 0:
             return {"status": "skipped", "reason": "non-positive amount"}
 
         if not self._web3.available:
             logger.info(
-                "Revenue routing queued: %.6f ETH from %s "
+                "Revenue routing not sent: %.6f ETH from %s recorded in memory "
                 "(blockchain not configured)",
                 amount_eth, source_action,
             )
@@ -162,13 +168,15 @@ class NeoSafeRouter:
                 "source": source_action,
                 "recipient": self._neosafe_wallet,
                 "timestamp": int(time.time()),
-                "queued": True,
+                "sent": False,
             })
             return {
-                "status": "queued",
+                "status": "recorded_unqueued",
+                "sent": False,
                 "message": (
-                    "Revenue routing queued — will execute when blockchain "
-                    "is configured"
+                    "Not sent: no chain is configured. The routing is recorded "
+                    "in this router's in-memory ledger only; nothing sends a "
+                    "recorded entry later, and it is lost on restart."
                 ),
                 "amount_eth": amount_eth,
                 "source": source_action,

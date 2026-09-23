@@ -5,24 +5,21 @@ from __future__ import annotations
 
 Demonstrates the NeoSafe router, called directly by this example:
 
-  1. A contract conversion generates a platform fee
-  2. The RevenueEnforcer injects fee logic into the contract
-  3. The NeoSafeRouter records and routes the fee
-  4. An EAS attestation is created for the payment
-  5. Revenue totals are queried from the ledger
+  1. The RevenueEnforcer injects fee logic into a sample contract
+  2. NeoSafeRouter.route_fee records sample fees on its in-memory ledger and
+     hands each one to the attestation service, which queues it
+  3. Revenue totals are read back from that ledger
+  4. Where the platform's fees actually go
+  5. What the injected fee logic does on-chain
 
-No service follows this pattern today: nothing outside this example calls
-NeoSafeRouter.route_fee or route_revenue, and the platform's fees go where
-docs/blockchain.md lists them under Fees (each contract's platformFeeRecipient,
+No service follows this pattern today. This example is the only caller of
+NeoSafeRouter.route_fee, which records a fee and moves no value. Nothing outside
+the tests calls `route_revenue`, the method that sends ETH to the multisig
+when a chain is configured. The platform's fees go where docs/blockchain.md
+lists them under Fees (each contract's platformFeeRecipient,
 blockchain.platform_wallet for injected conversion fees, service ledgers).
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
-
-NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
-``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
-``status='queued'``; nothing later executes a queued entry. Once the chain is
-live, the same call executes the transfer and EAS attestation. See ROADMAP.md "Blockchain
-Activation".
 
 Usage:
     python examples/07_revenue_to_neosafe.py
@@ -36,7 +33,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+from runtime.blockchain.services.service_dispatcher import ServiceDispatcher  # noqa: F401  (patched by the example tests)
 
 CYAN = "\033[96m"; GREEN = "\033[92m"; YELLOW = "\033[93m"
 RED = "\033[91m"; BOLD = "\033[1m"; DIM = "\033[2m"; RESET = "\033[0m"
@@ -63,17 +60,18 @@ async def main():
 {'=' * 60}{RESET}
 
   The platform contracts pay their fees to platformFeeRecipient, which
-  scripts/deploy_all.py sets to the configured NeoSafe address; this router
-  is called only by this example. Every routed payment is attested on-chain.
+  scripts/deploy_all.py sets to the configured NeoSafe address. The router
+  shown here records fees in memory and moves no value; this example is the
+  only caller of its route_fee.
 """)
 
     config = load_config()
-    dispatcher = ServiceDispatcher(config)
     bc = config.get("blockchain", {})
     platform_wallet = bc.get("platform_wallet", "0xNeoSafeWallet")
+    fee_bps = int(bc.get("platform_fee_bps", 250))
 
     print(f"  {BOLD}NeoSafe wallet:{RESET} {platform_wallet}")
-    print(f"  {BOLD}Fee basis points:{RESET} {bc.get('platform_fee_bps', 250)} (2.5%)")
+    print(f"  {BOLD}Injected fee:{RESET} {fee_bps} bps ({fee_bps / 100:g}%)")
 
     # ── Step 1: Show RevenueEnforcer injection ──────────────────────
     step(1, "RevenueEnforcer: Injecting fee logic into a contract...")
@@ -109,7 +107,7 @@ contract SimpleToken {
             injected_lines = len(injected.splitlines())
             ok(f"After injection: {injected_lines} lines with fee logic")
             ok(f"Fee recipient: {platform_wallet}")
-            ok(f"Fee bps: {bc.get('platform_fee_bps', 250)}")
+            ok(f"Fee bps: {fee_bps}")
 
             print(f"\n  {DIM}Injected elements:{RESET}")
             print(f"    - platformFeeRecipient state variable")
@@ -122,28 +120,28 @@ contract SimpleToken {
             warn("platform_wallet not configured — showing injection pattern only")
             print(f"\n  {DIM}The RevenueEnforcer would inject:{RESET}")
             print(f"    - platformFeeRecipient = <NeoSafe address>")
-            print(f"    - platformFeeBps = 250 (2.5%)")
+            print(f"    - platformFeeBps = {fee_bps} ({fee_bps / 100:g}%)")
             print(f"    - collectPlatformFee modifier on payable functions")
             print(f"    - Owner-only setters for fee config")
     except Exception as e:
         warn(f"RevenueEnforcer demo: {e}")
 
-    # ── Step 2: Simulate fee-generating actions ─────────────────────
-    step(2, "Simulating fee-generating platform actions...")
+    # ── Step 2: Record sample fees with route_fee ───────────────────
+    step(2, "Recording sample fees with NeoSafeRouter.route_fee (in memory; nothing moves)...")
 
-    # Use NeoSafeRouter directly to demonstrate fee routing
+    # Sample amounts for five of the fees docs/blockchain.md lists under Fees.
+    fees = [
+        (0.025, "ETH",  "contract_conversion", "Injected fee: 2.5% of 1 ETH sent to a payable function"),
+        (5.00,  "USDC", "marketplace",         "Marketplace sale: 5% of a 100 USDC sale"),
+        (0.10,  "USDC", "stablecoin",          "Stablecoin transfer: 0.1% of 100 USDC"),
+        (2.50,  "USDC", "cross_border",        "Cross-border payment: 0.5% of 500 USDC"),
+        (0.05,  "ETH",  "staking",             "Staking rewards: 5% of 1 ETH of rewards"),
+    ]
+
     try:
         from runtime.blockchain.services.neosafe import NeoSafeRouter
 
         router = NeoSafeRouter(config)
-
-        fees = [
-            (0.005, "ETH",  "contract_conversion", "Contract conversion: RentalAgreement"),
-            (0.001, "ETH",  "nft_services",        "NFT collection deployment: GART"),
-            (2.50,  "USDC", "marketplace",          "Marketplace sale: ERC-20 template"),
-            (0.25,  "ETH",  "insurance",            "Insurance premium: crop policy"),
-            (0.002, "ETH",  "defi",                 "DeFi loan origination fee"),
-        ]
 
         for amount, token, source, desc in fees:
             receipt = await router.route_fee(
@@ -154,23 +152,20 @@ contract SimpleToken {
             )
             if receipt.get("status") == "ok":
                 fee = receipt["fee"]
-                attestation = fee.get("attestation_uid", "pending")
-                ok(f"{amount:8.4f} {token:4s} from {source:25s} (attested: {attestation or 'N/A'})")
+                attestation = fee.get("attestation_uid")
+                ok(f"{amount:8.4f} {token:4s} from {source:25s} "
+                   f"(attestation tx: {attestation or 'none; queued, not submitted'})")
             else:
                 warn(f"Fee routing: {receipt.get('reason', 'N/A')}")
 
     except Exception as e:
         warn(f"NeoSafeRouter: {e}")
-        # Show the fees conceptually
-        print(f"\n  {DIM}Fee routing pattern (conceptual):{RESET}")
-        print(f"    0.0050 ETH  <- contract_conversion")
-        print(f"    0.0010 ETH  <- nft_services")
-        print(f"    2.5000 USDC <- marketplace")
-        print(f"    0.2500 ETH  <- insurance")
-        print(f"    0.0020 ETH  <- defi")
+        print(f"\n  {DIM}The sample fees this step would have recorded:{RESET}")
+        for amount, token, source, _desc in fees:
+            print(f"    {amount:8.4f} {token:4s} <- {source}")
 
-    # ── Step 3: Query total revenue ─────────────────────────────────
-    step(3, "Querying accumulated revenue totals...")
+    # ── Step 3: Read back the router's ledger ───────────────────────
+    step(3, "Reading the router's in-memory ledger totals...")
 
     try:
         totals = await router.get_total_revenue()
@@ -187,34 +182,26 @@ contract SimpleToken {
     except Exception as e:
         warn(f"Revenue query: {e}")
 
-    # ── Step 4: Show the fee flow diagram ───────────────────────────
-    step(4, "Platform fee flow architecture")
+    # ── Step 4: Where the platform's fees go ────────────────────────
+    step(4, "Where the platform's fees go (docs/blockchain.md, Fees)")
 
     print(f"""
-  {BOLD}Fee Flow:{RESET}
-
-  User Action (any of 44 services)
-       |
-       v
-  ServiceDispatcher.execute()
-       |
-       +---> Service Method (e.g., defi.create_loan)
-       |         |
-       |         v
-       |     RevenueEnforcer (injects fee logic into contracts)
-       |
-       +---> _attest_action() (EAS attestation)
-       |
-       v
-  NeoSafeRouter.route_fee()
-       |
-       +---> Record in ledger
-       +---> Attest fee payment (EAS)
-       +---> Route to NeoSafe wallet
-       |
+  {BOLD}Platform contracts{RESET} (marketplace, staking, DAO, NFT, insurance)
+       |  each pays its fee on-chain to its platformFeeRecipient,
+       |  which scripts/deploy_all.py sets to the NeoSafe address
        v
   {GREEN}NeoSafe Multisig Wallet{RESET}
-  {DIM}({platform_wallet}){RESET}
+
+  {BOLD}Generated contracts{RESET} (RevenueEnforcer)
+       |  pay the injected fee on-chain
+       v
+  blockchain.platform_wallet {DIM}({platform_wallet}){RESET}
+
+  {BOLD}Service-ledger fees{RESET} (stablecoin, cross-border, service staking, ...)
+       computed and recorded on the service's own ledger; nothing moves them
+
+  {BOLD}NeoSafeRouter.route_fee{RESET} (this example only)
+       records a fee in memory and queues its attestation; moves no value
 """)
 
     # ── Step 5: Show contract-level fee collection ──────────────────
@@ -243,22 +230,15 @@ contract SimpleToken {
 
     print(f"""
 {GREEN}{BOLD}{'=' * 60}
-  REVENUE TO NEOSAFE COMPLETE
+  EXAMPLE 07 COMPLETE
 {'=' * 60}{RESET}
 
   {BOLD}Components demonstrated:{RESET}
-    1. RevenueEnforcer  - Injects fee logic into contracts
-    2. NeoSafeRouter    - Routes a fee with attestation when called, as here
-    3. EAS              - Every payment attested on-chain
-    4. ServiceDispatcher - Automatic attestation on every action
+    1. RevenueEnforcer  - Injects fee logic into a generated contract
+    2. NeoSafeRouter    - Records a fee in memory and queues its attestation,
+                          when called directly, as here; it moves no value
 
-  {BOLD}Revenue sources:{RESET}
-    - Contract conversions (Component 1)
-    - NFT deployments (Component 3)
-    - Marketplace sales (Component 24)
-    - Insurance premiums (Component 13)
-    - DeFi origination (Component 2)
-    - ... and all other fee-generating services
+  {BOLD}Every fee and where it goes:{RESET} docs/blockchain.md, under Fees
 
   {BOLD}NeoSafe wallet:{RESET} {platform_wallet}
 
