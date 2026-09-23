@@ -2084,7 +2084,8 @@ class GatewayServer:
         return web.json_response({"badges": badges})
 
     async def handle_badge_issue(self, request: web.Request) -> web.Response:
-        """POST /badge/issue — issue a badge after audit payment.
+        """POST /badge/issue — issue a badge on the platform's own audit of the
+        submitted source. No payment is involved or checked.
 
         Takes `source_code`, not an `audit_report`: the platform runs the audit
         and issues on its own verdict. See BadgeManager.issue_badge.

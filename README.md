@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,489 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,498 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -636,9 +636,12 @@ The gateway serves a built-in web interface:
 
 ## Glasswing Security Badges
 
-Projects that pass a Glasswing audit can display a verifiable security
-badge backed by on-chain EAS attestation. Badges are embeddable,
-independently verifiable, and expire after one year (renewable).
+A contract whose source passes the platform's own Glasswing audit can be
+issued a security badge with `POST /badge/issue` (behind the gateway's API
+key); the gateway audits the source itself, so a request cannot supply the
+verdict. A badge is a record in the gateway's database, stored with a hash of
+that audit report — not an on-chain attestation — and it is embeddable and
+expires after one year. No gateway route renews one yet.
 
 See `/glasswing` for the badge registry.
 
@@ -654,7 +657,9 @@ See `/learn` for details or browse the open source content in `education/`.
 
 ## Get Certified
 
-Professional certifications backed by on-chain attestations:
+Certifications the gateway records when you pass an exam. They are not
+attested on-chain: the certificate record has an `eas_uid` field that nothing
+fills. The exam routes take no payment; the prices below are the intended fees.
 
 - **Certified Developer** ($149) — Plugins, SDK, deploying what the pipeline generates
 - **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis
