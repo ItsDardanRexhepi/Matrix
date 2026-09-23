@@ -499,7 +499,7 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 
 **Morpheus Triggers** — Determines when Morpheus appears. Activates before irreversible actions, significant events, and high-stakes moments.
 
-**Rexhepi Gate** — The execution gate. Every agent decision passes through the Unified Rexhepi Framework before it reaches the user.
+**Rexhepi Gate** — The execution gate. Every tool call an agent makes is scored by the Unified Rexhepi Framework before it is dispatched, and only an EXECUTE outcome lets it run. The agent's reply to the user does not pass through it.
 
 **Omega** — The synthesis layer. Combines all protocol outputs into a single unified agent response — the orchestration brain.
 

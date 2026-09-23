@@ -1,8 +1,9 @@
 """
 ENS Importer — imports Ethereum Name Service records.
 
-Resolves ENS names associated with an address and creates
-local records of domain ownership in The Matrix.
+Resolves ENS names associated with an address and writes them as JSON
+under imported/ens/ (--output changes it). Nothing is written into the
+gateway's database.
 """
 
 import argparse

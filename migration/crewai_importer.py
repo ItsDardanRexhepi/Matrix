@@ -3,8 +3,9 @@ from __future__ import annotations
 """
 CrewAI Importer — converts CrewAI crew and agent definitions to The Matrix.
 
-Parses CrewAI's Python-based agent/crew configs, YAML configs,
-and converts the multi-agent setup to The Matrix hivemind format.
+Parses CrewAI's Python-based agent/crew configs and YAML configs, and
+converts each agent it finds to The Matrix's agent format (see base.py).
+Tasks and the crew's process are not carried over.
 """
 
 import ast

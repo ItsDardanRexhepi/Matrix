@@ -1,8 +1,9 @@
 """
 MetaMask Importer — imports wallet data from MetaMask exports.
 
-Reads MetaMask's exported JSON format and creates corresponding
-wallet records in The Matrix. Only public data is imported.
+Reads MetaMask's exported JSON format and writes one JSON file per
+wallet address under imported/metamask/ (--output changes it). Only
+public data is read; nothing is written into the gateway's database.
 """
 
 import argparse

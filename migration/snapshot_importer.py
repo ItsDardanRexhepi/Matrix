@@ -2,7 +2,8 @@
 Snapshot Importer — imports governance voting history from Snapshot.
 
 Fetches voting records for an address from the Snapshot GraphQL API
-and creates local records in The Matrix.
+and writes them as JSON under imported/snapshot/ (--output changes it).
+Nothing is written into the gateway's database.
 """
 
 import argparse

@@ -17,7 +17,7 @@ The Matrix has a closed-source access protection protocol that governs all attem
 
 ## Governance
 
-Every decision passes through the Unified Rexhepi Framework before execution.
+Every tool call you make passes through the Unified Rexhepi Framework before it is dispatched. Only an EXECUTE outcome runs it; PROBE, ASK, DEFER and ABORT hold it.
 
 ## Reasoning Protocol
 

@@ -1,8 +1,9 @@
 """
 Coinbase Importer — imports transaction history from Coinbase CSV exports.
 
-Reads Coinbase's standard CSV export format and creates transaction
-records in The Matrix.
+Reads Coinbase's standard CSV export format and writes the
+transactions as imported/coinbase/transactions.json (--output changes
+the directory). Nothing is written into the gateway's database.
 """
 
 import argparse

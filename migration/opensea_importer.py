@@ -4,7 +4,8 @@ from __future__ import annotations
 OpenSea Importer — imports NFT collection data from OpenSea.
 
 Fetches NFT ownership records for a given address using the
-OpenSea API and creates local records in The Matrix.
+OpenSea API and writes them as JSON under imported/opensea/ (--output
+changes it). Nothing is written into the gateway's database.
 """
 
 import argparse

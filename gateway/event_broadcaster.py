@@ -5,9 +5,11 @@ gateway/event_broadcaster.py
 In-process pub/sub fan-out for the ``/api/v1/events/stream`` SSE endpoint.
 
 The ``EventBroadcaster`` is intentionally tiny and has **no persistence**
-— it's purely a live feed for connected SSE subscribers. Durable events
-still go through ``hivemind.events.EventBus``; the broadcaster is the
-push side of the house.
+— it's purely a live feed for connected SSE subscribers, and there is no
+durable event log behind it: an event is gone once it leaves the replay
+buffer described below. ``hivemind/`` has an event bus that writes a log
+of its own, but nothing outside ``hivemind/`` and the tests uses it (see
+``hivemind/README.md``).
 
 Design notes
 ------------
