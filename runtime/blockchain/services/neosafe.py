@@ -1,4 +1,5 @@
-"""Revenue routing — all platform fees go to the NeoSafe multisig.
+"""Revenue routing to the NeoSafe multisig. Nothing in the gateway calls it yet
+(see NeoSafeRouter).
 
 The canonical NeoSafe address is ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 That value is used when ``blockchain.neosafe_wallet`` is not set in config.

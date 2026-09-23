@@ -69,7 +69,7 @@ The **195 Capabilities** are the actual blockchain operations: contract deployme
 
 The gap between "I want to create a token" and actually creating one has historically been weeks of learning, thousands of dollars in developer costs, and significant risk of security vulnerabilities. The Matrix collapses that gap to a single conversation.
 
-This is not about dumbing down blockchain. The smart contracts deployed through The Matrix are real Solidity contracts, audited by the Glasswing security engine, attested on-chain through EAS (Ethereum Attestation Service), and deployed to real networks. The technical rigor is preserved -- the complexity is just handled for you.
+This is not about dumbing down blockchain. The smart contracts deployed through The Matrix are real Solidity contracts, audited by the Glasswing security engine before deployment, and deployed to real networks; a deployment the chain confirms is recorded with an EAS (Ethereum Attestation Service) attestation when EAS is configured. The technical rigor is preserved -- the complexity is just handled for you.
 
 For developers, The Matrix provides a plugin system and SDK that lets you extend the platform, build on top of it, and distribute your tools through the marketplace. Plugin developers keep 90% of revenue from the marketplace, with a 90/10 split that prioritizes creators.
 

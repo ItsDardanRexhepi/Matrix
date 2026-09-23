@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,500 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,503 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -477,7 +477,7 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 | `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
 | `05_marketplace_flow.py` | List, buy, and escrow a marketplace transaction |
-| `06_eas_attestation_chain.py` | Every action creates a verifiable on-chain attestation record |
+| `06_eas_attestation_chain.py` | Writing EAS attestations, batching them and verifying one |
 | `07_revenue_to_neosafe.py` | Platform fee routing and tracking to the NeoSafe multisig wallet |
 | `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
 | `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
@@ -639,9 +639,14 @@ The gateway serves a built-in web interface:
 
 ## Glasswing Security Badges
 
-Projects that pass a Glasswing audit can display a verifiable security
-badge backed by on-chain EAS attestation. Badges are embeddable,
-independently verifiable, and expire after one year (renewable).
+`POST /badge/issue` audits a contract's source with Glasswing and, on a
+pass, records a security badge with a page (`/badge/{badge_id}`), a status
+endpoint and an embed snippet. No EAS attestation is written for a badge
+yet, so the gateway that issued it is the only place to check one. The
+registry at `/badges` is public, but the badge page, its status, its embed
+and `/badge/widget.js` are not in the gateway's public set: with an API key
+set, a visitor without the key is answered 401 on each. A badge expires
+after one year; `BadgeManager` has a renewal method, but no route calls it.
 
 See `/glasswing` for the badge registry.
 

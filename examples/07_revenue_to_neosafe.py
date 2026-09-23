@@ -62,8 +62,9 @@ async def main():
   The Matrix Example 07: Revenue Routing to NeoSafe
 {'=' * 60}{RESET}
 
-  All platform fees flow to the NeoSafe multisig wallet.
-  Every payment is attested on-chain for full transparency.
+  The NeoSafeRouter records fees against the NeoSafe multisig
+  wallet and sends revenue to it. Nothing in the gateway calls
+  it yet, so this example calls it directly.
 """)
 
     config = load_config()
@@ -248,8 +249,8 @@ contract SimpleToken {
   {BOLD}Components demonstrated:{RESET}
     1. RevenueEnforcer  - Injects fee logic into contracts
     2. NeoSafeRouter    - Routes fees with attestation
-    3. EAS              - Every payment attested on-chain
-    4. ServiceDispatcher - Automatic attestation on every action
+    3. EAS              - route_fee, and a route_revenue once mined, are attested
+    4. ServiceDispatcher - Queues an attestation for an action it completes
 
   {BOLD}Revenue sources:{RESET}
     - Contract conversions (Component 1)
