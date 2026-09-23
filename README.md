@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,518 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,519 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -497,7 +497,7 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 
 ## Protocol Stack
 
-The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every user interaction passes through these protocols before a response is produced, except Omega, which nothing calls.
+The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every turn reaches Jarvis, Friday, Vision and Outcome Learning, which can add to what the model is given before it is called, and Jarvis adjusts the reply's voice before it goes out. Trajectory, Ultron, the Morpheus Triggers and the Rexhepi Gate run only on a tool call: each call the model makes is scored by the Rexhepi Gate before it is dispatched and, if the gate lets it run, assessed by the other three, and Outcome Learning then records what it returned. A turn with no tool call does not reach them. Omega is built and never called.
 
 **Jarvis** — Identity foundation. Handles agent personality persistence, voice consistency, memory integration, and structured planning that feeds into the ReAct loop.
 
