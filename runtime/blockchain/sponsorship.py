@@ -732,12 +732,15 @@ def resolve_caller_identity() -> str:
 # recipient and payload fields the caller supplies, and revoke_attestation
 # reaches eas.revoke with the attestation uid and schema the caller names. The
 # service dispatcher's record of a completed action goes through the same
-# queue. They are exempt so that one caller's daily cap is not charged for
-# another's attestation and the audit trail does not stop at the cap; the cost
-# is that whoever can call those capabilities spends the platform's gas with
-# no cap. The fourth, gas_sponsor.sponsor, is GasSponsor.sponsor_transaction,
-# which signs and sends whatever transaction it is handed; nothing in this tree
-# calls it.
+# queue. EASClient.attest is also called directly by 13 actions of the agent's
+# blockchain tools (runtime/blockchain/*.py) and by the conversion pipeline for
+# a contract it deployed, and the real-estate service queues its own.
+# docs/blockchain.md lists every path. They are exempt so that one caller's
+# daily cap is not charged for another's attestation and the audit trail does
+# not stop at the cap; the cost is that whoever can reach those paths spends
+# the platform's gas with no cap. The fourth, gas_sponsor.sponsor, is
+# GasSponsor.sponsor_transaction, which signs and sends whatever transaction it
+# is handed; nothing in this tree calls it.
 #
 # AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
 # was listed as "shared account handle; every USE of it is a call site metered on
@@ -755,7 +758,7 @@ def resolve_caller_identity() -> str:
 # exactly the failure this list exists to prevent.
 UNMETERED_PLATFORM_OPERATIONS = {
     "eas.attest": "EAS attestation write (EASClient.attest), the batch queue's submissions included",
-    "eas.attest_time_critical": "the same write on the time-critical path (create_attestation)",
+    "eas.attest_time_critical": "the same write on the time-critical path (create_attestation, batch_attest)",
     "eas.revoke": "revoking an attestation by the uid the caller names (revoke_attestation)",
     "gas_sponsor.sponsor": "GasSponsor.sponsor_transaction: signs and sends the transaction it "
                            "is handed; nothing in this tree calls it",

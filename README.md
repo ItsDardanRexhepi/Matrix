@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,509 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,515 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -396,9 +396,20 @@ signs:
 - a few signing paths are exempt from the policy altogether. They are
   listed by name in `UNMETERED_PLATFORM_OPERATIONS`
   (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
-  rather than guessed at. Three catalog capabilities reach them:
-  `create_attestation`, `batch_attest` and `revoke_attestation` are signed
-  with the platform key whatever the allowlist and the cap say.
+  rather than guessed at. Three of them, an EAS attestation, a
+  time-critical one and a revocation, are signed with the platform key
+  whatever the allowlist and the cap say, and these reach them: the
+  `create_attestation`, `batch_attest` and `revoke_attestation`
+  capabilities; the service dispatcher's own record of each
+  state-modifying action it completes, queued and signed once 50 have
+  gathered; `convert_contract`'s attestation of a contract it deployed,
+  with `conversion.auto_deploy` on; the real-estate routes' attestations,
+  with `services.real_estate.enabled` set; and 13 actions of Neo's
+  blockchain tools `eas`, `agent_identity`, `identity`,
+  `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`,
+  `securities` and `supply_chain`, each signed when it is called.
+  `docs/blockchain.md` lists every path by file and function, and the
+  callers that reach the same code and sign nothing.
 
 Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping

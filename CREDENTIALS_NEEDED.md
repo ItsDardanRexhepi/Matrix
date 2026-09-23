@@ -58,7 +58,7 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 | **Paymaster signer key** | platform `blockchain.paymaster.signer_key` (env `MATRIX_PAYMASTER_SIGNER_KEY`); when that is absent, the flat `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | `POST /api/v1/paymaster/sign`, the server half of the verifying paymaster. The sponsorship signature covers gas only, never anything the user's account does. |
 | **Platform signer key** | platform `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | Required under `MATRIX_ENV=production`: the gateway refuses to start without it. The platform's own on-chain calls — EAS attestations and the transactions the blockchain services send — are signed with it, and it is the paymaster signer's fallback. |
 | **Paymaster address** | platform `blockchain.paymaster.address` | The deployed verifying paymaster the signature is for. Without it, or without the signer key, the sign route answers 503. |
-| Sponsorship policy | platform `blockchain.paymaster.policy.allowed_actions` + `.daily_cap_usd` | Which actions, decoded from the call data being signed, are sponsored, and the per-identity daily cap enforced before signing. Unset → no allowlist and no cap. |
+| Sponsorship policy | platform `blockchain.paymaster.policy.allowed_actions` + `.daily_cap_usd` | Which actions, decoded from the call data being signed, are sponsored, and the per-identity daily cap enforced before signing. Unset → no allowlist and no cap. Some EAS attestation and revocation paths are signed with the platform signer key outside the policy, whatever it says; `docs/blockchain.md` lists each of them. |
 
 ## 3. Platform gateway + AI
 
