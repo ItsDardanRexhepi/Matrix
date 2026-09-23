@@ -1751,6 +1751,13 @@ class GatewayServer:
         platform = str(body.get("platform", "all"))
         if not content:
             return web.json_response({"error": "content is required"}, status=400)
+        from runtime.social.manager import ROUTED_PLATFORMS
+        if platform not in ROUTED_PLATFORMS:
+            # A platform no client routes is sent nowhere. It answered 200 `{}`,
+            # which says nothing failed about a post that went nowhere.
+            return web.json_response(
+                {"error": f"platform must be one of {sorted(ROUTED_PLATFORMS)}"},
+                status=400)
         result = await self.social_manager.post(content=content, platform=platform,
                                                  metadata=body.get("metadata"))
         return web.json_response(result)
