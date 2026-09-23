@@ -4,10 +4,18 @@ Component Deployer — installs approved components into the live runtime.
 Only deploys components that have:
     1. Passed sanitization (is_clean == True)
     2. Been approved by Dardan (ApprovalStatus.APPROVED)
-    3. A valid manifest entry
 
-Deployment targets the Matrix runtime service directory, registers the
-component with the ServiceRegistry, and records an EAS attestation on-chain.
+Those two are the guards ``deploy`` checks. A third this docstring used to list
+— "a valid manifest entry" — is checked nowhere here: this module does not read
+the manifest, and a bundle with no entry installs. The manifest's own guard
+(``BridgeManifest.update_deployment``) is what refuses to RECORD an unapproved
+component as deployed.
+
+Deployment writes the component's files into the runtime service directory and
+stamps ``_deployment.json``. It does not register anything with the
+ServiceRegistry and it does not attest on-chain: no EAS call is made here, and
+``DeploymentResult.attested`` says so (it used to be set True over a sha256
+of the metadata presented as an attestation UID).
 """
 
 from __future__ import annotations
@@ -149,16 +157,15 @@ class ComponentDeployer:
             target_path=str(target_path),
         )
 
-        # Record EAS attestation
-        try:
-            attestation_uid = await self._attest_deployment(bundle, deployment_id)
-            result.attested = True
-            result.attestation_uid = attestation_uid
-        except Exception as exc:
-            logger.warning(
-                "EAS attestation failed for %s (non-blocking): %s",
-                bundle.component_name, exc,
-            )
+        # NOT ATTESTED. This called `_attest_deployment`, set `attested = True`
+        # and stored its return value as the attestation UID — a sha256 of the
+        # metadata dict, computed locally, with no EAS call anywhere. The
+        # owner's notification then said "EAS Attested: True". Nothing is
+        # attested here, so the result says `attested: False` and carries no
+        # UID; the log says the attestation was not made.
+        logger.info(
+            "Deployment of %s was NOT attested on-chain: this deployer makes no "
+            "EAS call.", bundle.component_name)
 
         # Notify the owner (SMS, best-effort) — Telegram is gone.
         if self.notifier:
@@ -212,14 +219,13 @@ class ComponentDeployer:
         bundle: ExportBundle,
         deployment_id: str,
     ) -> str:
-        """Record an EAS attestation for this deployment.
+        """A LOCAL FINGERPRINT of the deployment, not an attestation.
 
-        Returns:
-            The attestation UID string.
-
-        Note:
-            In production this calls the EAS contract on Base mainnet.
-            Currently returns a deterministic placeholder UID.
+        No EAS contract is called. The value is a sha256 of the deployment
+        metadata — reproducible, and useful for matching a record to a bundle,
+        but nobody else has seen it and nothing on-chain carries it. ``deploy``
+        no longer presents it as an attestation UID; it is kept for callers
+        that want the fingerprint by name.
         """
         from bridge import EAS_CONTRACT, EAS_SCHEMA_UID, NEOSAFE_ADDRESS
 

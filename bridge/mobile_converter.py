@@ -136,7 +136,11 @@ class MobileConverter:
     async def package_all(self) -> IOSPackageResult:
         """Package all configured components for iOS.
 
-        Guard: Will only proceed if all required components are deployed.
+        Guard: will only proceed if a directory exists for every required
+        component under the runtime directory. That is directory PRESENCE, not
+        a deployment record: the check does not read ``_deployment.json`` (which
+        ComponentDeployer writes), so a hand-made or built-in service directory
+        satisfies it. This used to say "all required components are deployed".
 
         Returns:
             IOSPackageResult with packaging status and manifest.

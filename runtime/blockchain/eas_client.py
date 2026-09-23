@@ -111,7 +111,7 @@ class EASClient:
     ) -> dict:
         """
         Create an on-chain attestation for a blockchain action.
-        Gas is covered by the platform — users never pay.
+        The platform signs it and pays its gas.
 
         Args:
             action: The action being attested (e.g., "deploy_contract")

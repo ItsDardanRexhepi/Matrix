@@ -279,7 +279,11 @@ def _write_env(updates: dict[str, str]) -> None:
 def test_channel_via_dispatcher(config: dict, channel_name: str) -> dict:
     """Instantiate the NotificationDispatcher and fire a test message.
 
-    Returns the adapter's result dict. Never raises.
+    Returns the adapter's result dict. Never raises — which it used to, from
+    two places: the dispatcher's constructor sat outside every try, and the
+    fallback for an already-running event loop called run_until_complete,
+    which raises again in that situation. The standalone channel scripts do
+    not wrap this call.
     """
     try:
         from runtime.notifications import NotificationDispatcher
@@ -287,13 +291,22 @@ def test_channel_via_dispatcher(config: dict, channel_name: str) -> dict:
         return {"status": "error", "error": f"failed to import dispatcher: {exc}"}
 
     import asyncio
-    dispatcher = NotificationDispatcher(config)
     try:
-        return asyncio.run(dispatcher.test_channel(channel_name))
+        dispatcher = NotificationDispatcher(config)
+    except Exception as exc:  # noqa: BLE001 — the promise is "never raises"
+        return {"status": "error", "error": f"failed to build dispatcher: {exc}"}
+    try:
+        asyncio.get_running_loop()
+        loop_running = True
     except RuntimeError:
-        # If an event loop is already running we can't use asyncio.run().
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(dispatcher.test_channel(channel_name))
-        finally:
-            loop.close()
+        loop_running = False
+    try:
+        if not loop_running:
+            return asyncio.run(dispatcher.test_channel(channel_name))
+        # A loop is already running on this thread: run the test on a worker
+        # thread with its own loop rather than trying to nest one.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, dispatcher.test_channel(channel_name)).result()
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "error", "error": f"test send failed: {exc}"}

@@ -11,6 +11,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.blockchain.web3_manager import recorded_unsettled_response
+
 from .compliance_filter import ComplianceFilter
 from .appeals import AppealProcess
 
@@ -103,9 +105,16 @@ class MarketplaceService:
         return {**listing, "compliance": compliance_result}
 
     async def buy_item(self, listing_id: str, buyer: str) -> dict:
-        """Purchase a listed item.
+        """Record a purchase of a listed item. Nothing is paid or transferred.
 
-        Applies the platform fee and records the sale.
+        Computes the platform fee and records the sale in this service's
+        in-memory book: no escrow, no payment, no asset transfer, no
+        transaction. The record says so (``recorded_unsettled``, ``settled``
+        and ``value_moved`` False), which is this platform's rule for a method
+        that writes a record and calls no contract — so the dispatcher does not
+        attest it as a purchase or announce it on the public feed. It used to
+        return the sale with ``completed_at`` and no disclosure, and the shipped
+        marketplace example narrated it as an atomic escrow purchase.
 
         Args:
             listing_id: The listing to purchase.
@@ -132,7 +141,7 @@ class MarketplaceService:
         sale_id = f"sale_{uuid.uuid4().hex[:12]}"
         now = time.time()
 
-        sale = {
+        sale = recorded_unsettled_response("marketplace", "buy_item", {
             "sale_id": sale_id,
             "listing_id": listing_id,
             "buyer": buyer,
@@ -143,7 +152,11 @@ class MarketplaceService:
             "platform_wallet": self.config["platform_wallet"],
             "seller_proceeds": seller_proceeds,
             "completed_at": now,
-        }
+        }, disclosure=(
+            "The sale is recorded in the marketplace's book. No payment was "
+            "taken, nothing was escrowed and the asset was not transferred: "
+            "there is no settlement path behind this method."
+        ))
 
         listing["status"] = "sold"
         listing["buyer"] = buyer

@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-06 — EAS Attestation Chain: Every Action Creates a Verifiable Record
+06 — EAS Attestation Chain: Recording Actions as Attestations
 
-Demonstrates how The Matrix uses Ethereum Attestation Service (EAS) to
-create permanent, verifiable on-chain records for every platform action:
+Demonstrates the attestation service, which writes records to the Ethereum
+Attestation Service (EAS). This example calls it directly, with sample data:
 
   1. Deploy a contract -> attestation
   2. Transfer ownership -> attestation
   3. Create an insurance policy -> attestation
   4. Verify a specific attestation on-chain
 
-This is the trust layer of The Matrix: every state-modifying capability is attested on-chain automatically.
+What gets attested outside an example like this one is narrower than "every
+action". The service dispatcher attests a state-modifying action it dispatched
+and that SETTLED, and only when EAS is configured; a refusal, a broadcast
+nobody has confirmed, and a capability called as an agent tool directly are not
+attested as done. And an attestation is revocable, so it is a record the
+platform signed, not a permanent one: what it proves is that this platform said
+the thing, with the data it was given — which here is sample data.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -51,9 +57,9 @@ async def main():
   The Matrix Example 06: EAS Attestation Chain
 {'=' * 60}{RESET}
 
-  Every action on The Matrix creates an on-chain attestation
-  via Ethereum Attestation Service (EAS) on Base Sepolia.
-  This provides a permanent, verifiable audit trail.
+  The attestation service writes records to the Ethereum
+  Attestation Service (EAS) on Base Sepolia. The data below is
+  sample data; an attestation records what it was given.
 """)
 
     config = load_config()

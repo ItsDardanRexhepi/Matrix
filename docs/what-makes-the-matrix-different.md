@@ -2,7 +2,7 @@
 
 ## Everything Is Free
 
-Every capability on The Matrix is free. Smart contracts, DeFi loans, NFTs, identity, governance, payments, insurance — all of it. No subscriptions. No premium tiers. No hidden fees. No gas fees. The platform covers all blockchain transaction costs for every user, for every capability, forever. Users never pay gas on The Matrix.
+The platform is free to run: this repository is open source and self-hosting it has no plans, tiers or licence fees. The hosted MTRX app has subscription tiers, and says so. Gas for the transactions the platform signs is paid by the platform; a transaction prepared for your own wallet to sign is paid by that wallet. Some services take a fee that is not gas — the marketplace's platform fee on a sale, a DEX pool's liquidity-provider fee on a swap, the fee the conversion pipeline writes into the contracts it generates — and each one is shown where it applies.
 
 ## Everything Is Conversation
 

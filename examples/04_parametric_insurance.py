@@ -8,11 +8,14 @@ Demonstrates Insurance (Component 13) and Oracle Gateway (Component 11):
   1. Creates a parametric insurance policy for crop protection
   2. Sets trigger conditions (e.g., rainfall below 50mm in a month)
   3. Simulates an oracle weather data feed
-  4. Triggers automatic payout when conditions are met
-  5. Shows how the claim is attested on-chain via EAS
+  4. Files a claim, which the insurance service decides against oracle data
+  5. Shows what the service recorded for it — and what it did not do
 
-Parametric insurance pays out automatically based on verifiable data
-(from oracles) rather than manual claims adjustment.
+Parametric insurance DECIDES a claim from data rather than by an adjuster:
+the insurance service checks the trigger against the oracle and fails closed.
+It does not PAY one. An approved claim is a reserve-ledger entry — the
+service's own record says `value_moved: False` and that no funds were sent —
+so this example prints what the service returned instead of a payout.
 
 Usage:
     python examples/04_parametric_insurance.py
@@ -52,8 +55,8 @@ async def main():
   The Matrix Example 04: Parametric Crop Insurance
 {'=' * 60}{RESET}
 
-  Weather-based insurance that pays out automatically
-  when oracle data confirms a triggering event (drought).
+  Weather-based insurance whose claim is decided by oracle
+  data — recorded against the reserve, not paid out.
 """)
 
     config = load_config()
@@ -158,7 +161,7 @@ async def main():
         print(f"  {icon} {label:25s} rainfall={rainfall:5.1f}mm  [{status}]")
 
     # ── Step 4: File claim (drought triggered) ──────────────────────
-    step(4, "Drought detected! Filing automatic insurance claim...")
+    step(4, "Drought detected! Filing an insurance claim...")
     print(f"  {DIM}Rainfall: 32.0mm (< 50mm threshold){RESET}")
 
     try:
@@ -179,30 +182,27 @@ async def main():
                 "claim_amount_eth": 5.0,
             },
         )
+        claim = {}
         data = json.loads(result)
         if data.get("status") == "ok":
-            claim = data["result"]
-            ok(f"Claim filed: {claim.get('claim_id', 'N/A')}")
-            ok(f"Claim amount: 5.0 ETH")
-            ok(f"Status: {claim.get('status', 'processing')}")
-            ok(f"Oracle verified: yes")
+            claim = data.get("result") or {}
+            ok(f"Claim filed: {claim.get('claim_id', '—')}")
+            ok(f"Status: {claim.get('status', '—')}")
         else:
             warn(f"Claim: {data.get('error', 'N/A')}")
     except Exception as e:
         warn(f"Claim filing: {e}")
 
-    # ── Step 5: Automatic payout ────────────────────────────────────
-    step(5, "Processing automatic payout to policyholder...")
-
-    print(f"\n  {BOLD}Payout Breakdown:{RESET}")
-    print(f"  {DIM}{'─' * 40}{RESET}")
-    print(f"  Coverage amount:    5.0000 ETH")
-    print(f"  Oracle verification: passed")
-    print(f"  Trigger condition:   rainfall 32.0mm < 50mm")
-    print(f"  Payout to farmer:   5.0000 ETH")
-    print(f"  Platform fee (2%):  0.1000 ETH")
-    print(f"  Net payout:         4.9000 ETH")
-    print(f"  {DIM}{'─' * 40}{RESET}")
+    # ── Step 5: What the service recorded ───────────────────────────
+    # This step used to print a "Payout Breakdown" — 5 ETH to the farmer, a
+    # 2% fee, a net payout — from constants, whatever the claim step returned.
+    # No payout happens: the service records the claim against its reserve
+    # ledger and says so. What it returned is printed instead.
+    step(5, "What the insurance service recorded for the claim...")
+    print(f"  Value moved:  {claim.get('value_moved', '—')}")
+    print(f"  Settled:      {claim.get('settled', '—')}")
+    if claim.get("disclosure"):
+        print(f"  {DIM}{claim['disclosure']}{RESET}")
 
     # ── Step 6: Query final policy status ───────────────────────────
     step(6, "Querying final policy status...")
@@ -215,9 +215,7 @@ async def main():
         data = json.loads(result)
         if data.get("status") == "ok":
             policy = data["result"]
-            ok(f"Policy status: {policy.get('status', 'claimed')}")
-            ok(f"Claim paid: {policy.get('claim_paid', True)}")
-            ok(f"Payout amount: {policy.get('payout_amount', 5.0)} ETH")
+            ok(f"Policy status: {policy.get('status', '—')}")
         else:
             warn(f"Policy query: {data.get('error', 'N/A')}")
     except Exception as e:
@@ -232,13 +230,14 @@ async def main():
     1. create_insurance       - Create parametric policy
     2. oracle_request         - Fetch weather data
     3. (trigger evaluation)   - Automated condition check
-    4. file_insurance_claim   - Oracle-verified claim
-    5. (automatic payout)     - Smart contract payout
+    4. file_insurance_claim   - Oracle-verified claim decision
+    5. (what was recorded)    - A reserve-ledger entry, not a transfer
     6. get_insurance_policy   - Final status query
 
   {BOLD}Key feature:{RESET}
-    No manual claims adjuster needed. Oracle data triggers
-    automatic payout via smart contract — trustless and instant.
+    No claims adjuster decides the claim: oracle data does, and the
+    service fails closed when it cannot check it. Paying the claim out
+    is not built — an approved claim is recorded, not sent.
 
   {BOLD}Services used:{RESET}
     - Insurance (Component 13)

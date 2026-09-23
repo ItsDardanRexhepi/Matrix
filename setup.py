@@ -633,7 +633,10 @@ def confirm_overwrite_upfront():
 
 
 def write_config(config):
-    """Write the config file. The ONLY writer in the wizard.
+    """Write the config file — the wizard's only writer OF THE CONFIG FILE.
+
+    It is not the wizard's only writer: channel modules write secrets to .env
+    (setup/_shared.py) and the wizard appends to .gitignore.
 
     Still re-checks rather than trusting confirm_overwrite_upfront(), so this
     stays safe if it is ever called from somewhere else.

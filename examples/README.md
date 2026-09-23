@@ -55,9 +55,9 @@ will print a warning and continue with the remaining steps.
 | 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
-| 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
-| 05 | `05_marketplace_flow.py` | List item, search, buy via atomic escrow, fee routing | 24 |
-| 06 | `06_eas_attestation_chain.py` | Every action creates an EAS attestation; batch attest; verify | 8 |
+| 04 | `04_parametric_insurance.py` | Weather-based crop insurance; the claim is decided by oracle data and recorded, not paid out | 13, 11 |
+| 05 | `05_marketplace_flow.py` | List item, search, record a purchase (no escrow, payment or transfer) | 24 |
+| 06 | `06_eas_attestation_chain.py` | Attest sample records through the attestation service; batch attest; verify | 8 |
 | 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee routing | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
@@ -108,18 +108,17 @@ Every example works on mainnet with zero code changes — just update your confi
 - Revenue from all fee-generating actions routes to NeoSafe automatically
 - Oracle data feeds switch to mainnet Chainlink contracts automatically
 
-## EAS Attestation on Every Action
+## EAS Attestation of Settled Actions
 
-Every state-modifying action in The Matrix creates an on-chain EAS (Ethereum Attestation Service) attestation. This is built into `ServiceDispatcher.execute()` — you don't need to do anything extra.
+`ServiceDispatcher.execute()` attests a state-modifying action it dispatched when the action SETTLED and EAS is configured (`blockchain.eas_contract`, `eas_schema`, the paymaster key and `platform_wallet`). You don't need to do anything extra — and it is narrower than "every action":
 
-What gets attested:
-- Contract deployments (code hash, deployer, audit status)
-- Token transfers (sender, recipient, amount, tx hash)
-- Loan originations and repayments
-- NFT mints and sales (with royalty info)
-- Insurance policy creation and claim payouts
-- Governance votes and proposal executions
-- Identity registrations and verifications
+- a refusal is recorded as a refusal, not attested as done;
+- a transaction that was only broadcast is recorded under its hash, not attested;
+- a method that wrote a record and moved nothing (`recorded_unsettled`) is not attested as done — a marketplace purchase is one;
+- a capability called as an agent tool directly does not pass through the dispatcher;
+- with EAS unconfigured the attestation is skipped and the action still happens.
+
+The attestation encodes the platform, the action name, the agent name and a timestamp, signed by the platform key, and it is revocable.
 
 See `examples/06_eas_attestation_chain.py` for the full attestation flow.
 

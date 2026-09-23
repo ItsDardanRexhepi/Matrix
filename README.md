@@ -27,7 +27,7 @@ What you can do on The Matrix:
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
 - Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
-- Access parametric insurance that pays automatically when the data it watches meets the condition, no claims, no adjusters, no waiting
+- Access parametric insurance whose claims are decided by the data it watches, with no adjuster in between — the decision is automatic and recorded against the reserve today; paying it out on-chain is the part still being built
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
 - Verify the complete history of any product, property, or asset before you buy it
 - Participate in governance and voting that is tamper-proof, transparent, and permanently recorded on-chain
@@ -186,7 +186,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,694 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,709 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -469,9 +469,9 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 | `01_contract_conversion.py` | Plain English to audited Solidity, ready for you to deploy with your own wallet |
 | `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
 | `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
-| `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
-| `05_marketplace_flow.py` | List, buy, and escrow a marketplace transaction |
-| `06_eas_attestation_chain.py` | Every action creates a verifiable on-chain attestation record |
+| `04_parametric_insurance.py` | Weather-based crop insurance whose claim is decided by oracle data and recorded against the reserve — no payout is sent |
+| `05_marketplace_flow.py` | List, search and record a marketplace purchase — a record, with no escrow, payment or transfer behind it |
+| `06_eas_attestation_chain.py` | The attestation service writes sample records to EAS and verifies one — what the platform attests on its own is narrower: settled state-modifying actions, when EAS is configured |
 | `07_revenue_to_neosafe.py` | Platform fee routing and tracking to the NeoSafe multisig wallet |
 | `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
 | `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |

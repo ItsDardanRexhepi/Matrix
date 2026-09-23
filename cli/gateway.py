@@ -173,7 +173,11 @@ def cmd_start(args) -> None:
         print()
 
         try:
-            # Monitor subprocess — forward only errors to terminal
+            # Monitor subprocess — every line goes to the log file; lines that
+            # mention ERROR/CRITICAL/FATAL, and lines that mention WARNING, are
+            # also shown in the terminal. (This said "forward only errors", and
+            # warnings are forwarded too; the match is a substring, so a line
+            # that merely contains the word is shown as well.)
             while proc.poll() is None:
                 if proc.stderr:
                     line = proc.stderr.readline()

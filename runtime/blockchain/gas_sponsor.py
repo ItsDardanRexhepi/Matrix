@@ -1,13 +1,16 @@
 """
 Gas Sponsor — ERC-4337 paymaster integration.
 
-The platform covers ALL gas fees for users. This module handles:
+The platform covers the gas of the operations it sponsors. This module handles:
 - UserOperation construction for account abstraction
 - Paymaster signature and sponsorship
 - Gas estimation and submission via bundler
 - Transaction receipt tracking
 
-Users never pay gas. The paymaster_private_key in config funds all operations.
+The paymaster_private_key in config funds the operations sponsored here. That
+is not every transaction a user is part of: a service that prepares an unsigned
+transaction for the user's own wallet leaves its gas to that wallet, and the
+gateway's sponsorship route applies the operator's policy and daily cap.
 """
 
 import logging
@@ -82,7 +85,7 @@ class GasSponsor:
         Wrap a raw transaction in an ERC-4337 UserOperation
         with paymaster sponsorship. Returns the sponsored tx receipt.
 
-        The platform wallet pays all gas — users never pay.
+        The platform wallet pays this transaction's gas.
         """
         try:
             from web3 import Web3

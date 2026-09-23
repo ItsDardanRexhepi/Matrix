@@ -158,13 +158,21 @@ class SharedContextLayer:
             return dict(self._state)
 
     def subscribe(self, key: str, callback: Callable):
-        """Subscribe to changes on a specific key."""
-        if key not in self._subscribers:
-            self._subscribers[key] = []
-        self._subscribers[key].append(callback)
+        """Subscribe to changes on a specific key.
+
+        Under the lock: "thread-safe" covered only the state, and two threads
+        subscribing to one key could each create the list and lose a callback.
+        """
+        with self._lock:
+            self._subscribers.setdefault(key, []).append(callback)
 
     def _notify(self, key: str, value: Any):
-        for callback in self._subscribers.get(key, []):
+        # A snapshot taken under the lock, called OUTSIDE it: iterating the
+        # live list raced subscribe(), and a callback that calls get()/set()
+        # must not run while the non-reentrant lock is held.
+        with self._lock:
+            callbacks = list(self._subscribers.get(key, []))
+        for callback in callbacks:
             try:
                 callback(key, value)
             except Exception as e:

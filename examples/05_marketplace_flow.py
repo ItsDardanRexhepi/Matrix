@@ -7,9 +7,14 @@ Demonstrates the Marketplace service (Component 24):
 
   1. Seller lists a digital asset on the marketplace
   2. Buyer browses and finds the listing
-  3. Buyer purchases — payment is held in escrow
-  4. Asset transfer and payment release happen atomically
-  5. Platform fee is deducted and routed to NeoSafe
+  3. Buyer records a purchase
+  4. The fee arithmetic the marketplace applies to it
+
+What a purchase is here, stated plainly: the marketplace service records the
+sale in its own book. There is no escrow, no payment, no asset transfer and no
+transaction — the sale record says `recorded_unsettled` and `value_moved:
+False`. This example used to describe an atomic escrow in which payment and
+transfer happen in one transaction; none of that exists.
 
 Usage:
     python examples/05_marketplace_flow.py
@@ -49,8 +54,8 @@ async def main():
   The Matrix Example 05: Marketplace Buy/Sell Flow
 {'=' * 60}{RESET}
 
-  Atomic buy/sell via escrow — seller lists, buyer pays,
-  platform handles transfer + fee routing in one transaction.
+  Seller lists, buyer records a purchase, and the marketplace
+  computes its fee. No payment or transfer happens on this path.
 """)
 
     config = load_config()
@@ -152,9 +157,9 @@ async def main():
     except Exception as e:
         warn(f"Listing details: {e}")
 
-    # ── Step 4: Buy item (atomic escrow) ────────────────────────────
-    step(4, "Buyer purchases item via atomic escrow...")
-    print(f"  {DIM}Payment + asset transfer happen in a single transaction.{RESET}")
+    # ── Step 4: Record the purchase ─────────────────────────────────
+    step(4, "Buyer records a purchase...")
+    print(f"  {DIM}A record in the marketplace's book — no payment, no transfer.{RESET}")
 
     try:
         result = await dispatcher.execute(
@@ -165,22 +170,26 @@ async def main():
                 "payment_amount_eth": 0.05,
             },
         )
+        purchase = {}
         data = json.loads(result)
         if data.get("status") == "ok":
-            purchase = data["result"]
-            ok(f"Purchase completed!")
-            ok(f"Order ID: {purchase.get('order_id', purchase.get('id', 'N/A'))}")
-            ok(f"Buyer: {buyer[:12]}...")
-            ok(f"Payment: 0.05 ETH")
-            if purchase.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{purchase['tx_hash']}")
+            purchase = data.get("result") or {}
+            ok(f"Sale recorded: {purchase.get('sale_id', '—')}")
+            ok(f"Status: {purchase.get('status', '—')}")
+            ok(f"Value moved: {purchase.get('value_moved', '—')}")
+            if purchase.get("disclosure"):
+                print(f"  {DIM}{purchase['disclosure']}{RESET}")
         else:
             warn(f"Purchase: {data.get('error', 'N/A')}")
     except Exception as e:
         warn(f"Purchase: {e}")
 
-    # ── Step 5: Show escrow settlement breakdown ────────────────────
-    step(5, "Escrow settlement breakdown")
+    # ── Step 5: The fee arithmetic ──────────────────────────────────
+    # This used to print "Asset transferred: Buyer now owns template" and
+    # "Escrow: Released atomically" after the step above, whether or not the
+    # purchase had happened — from constants, not from a result. What is true
+    # is the arithmetic: what the marketplace's fee would take from this price.
+    step(5, "Fee arithmetic for this price (nothing is paid)")
 
     platform_fee_bps = config.get("services", {}).get("marketplace", {}).get("platform_fee_bps", 500)
     platform_fee_pct = platform_fee_bps / 100
@@ -189,14 +198,14 @@ async def main():
     platform_fee = sale_price * (platform_fee_bps / 10000)
     seller_receives = sale_price - platform_fee
 
-    print(f"\n  {BOLD}Settlement:{RESET}")
+    print(f"\n  {BOLD}Fee arithmetic:{RESET}")
     print(f"  {DIM}{'─' * 45}{RESET}")
     print(f"  Sale price:            {sale_price:.4f} ETH")
-    print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH  -> NeoSafe")
-    print(f"  Seller receives:       {seller_receives:.4f} ETH")
+    print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH")
+    print(f"  Seller would receive:  {seller_receives:.4f} ETH")
     print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Asset transferred:     Buyer now owns template")
-    print(f"  Escrow:                Released atomically")
+    print(f"  Asset transfer:        not performed")
+    print(f"  Escrow:                none on this path")
     print(f"  {DIM}{'─' * 45}{RESET}")
 
     print(f"""
@@ -208,14 +217,14 @@ async def main():
     1. list_marketplace    - Seller creates listing
     2. search_marketplace  - Buyer discovers items
     3. get_listing         - View listing details
-    4. buy_marketplace     - Atomic escrow purchase
-    5. (settlement)        - Fee routing to NeoSafe
+    4. buy_marketplace     - Records a purchase (no payment, no transfer)
+    5. (fee arithmetic)    - What the platform fee would be
 
-  {BOLD}Key features:{RESET}
-    - Atomic buy/sell: payment and transfer in one tx
-    - Escrow protection: funds held until transfer confirmed
-    - Automatic fee routing to NeoSafe platform wallet
-    - EAS attestation for every transaction
+  {BOLD}What this path does not do yet:{RESET}
+    - No escrow, no payment and no asset transfer
+    - No fee is routed anywhere: the fee is arithmetic on a record
+    - The recorded sale is not attested or announced as a purchase,
+      because nothing settled
 
   {BOLD}Services used:{RESET}
     - Marketplace (Component 24)

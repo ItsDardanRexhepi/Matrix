@@ -26,7 +26,7 @@ The Matrix provides 221 discrete Web3 capabilities organised into 21 categories,
 20. **Gaming** — games, assets, tournaments, achievements, in-game economies
 21. **Infrastructure** — AI agents, ML models, training data
 
-Every capability routes through the platform paymaster — users never pay gas.
+Transactions the platform signs are paid for by the platform account. Some capabilities instead prepare an unsigned transaction for your own wallet to sign (advanced governance, auctions), and your wallet pays that gas; user operations the gateway sponsors are sponsored within the operator's policy and daily cap.
 
 ## How It Works
 
@@ -38,4 +38,6 @@ The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-val
 
 ## Fees
 
-There are none. The platform covers all blockchain transaction fees for every capability across all 21 categories — smart contracts, DeFi, NFTs, staking, restaking, identity, governance, payments, cross-chain, privacy, oracles, storage, compute, real-world assets, markets, gaming, infrastructure, and everything else. Users never pay gas on The Matrix. No exceptions. No conditions. Ever.
+Gas: the platform pays for the transactions it signs, and sponsors user operations within the policy and per-identity daily cap its operator configures. A transaction prepared for your wallet to sign is paid by your wallet.
+
+Fees that are not gas exist and are shown where they apply: the marketplace takes a platform fee from a sale, a DEX pool deducts its liquidity-provider fee from a swap's input, and the conversion pipeline writes a platform fee into the contracts it generates. This page used to say there were none, with no exceptions and no conditions — each of the above is an exception.
