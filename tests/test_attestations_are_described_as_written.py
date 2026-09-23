@@ -1,6 +1,6 @@
 """What the documents say is attested is what the code writes.
 
-Three statements had no writer behind them:
+Four statements had no writer behind them:
 
 * "Every action creates a verifiable on-chain attestation record", in the
   README's example table, examples/README.md, example 06 and 07, and the EAS
@@ -19,7 +19,10 @@ Three statements had no writer behind them:
 
 The first pattern missed "attestation for every action" (the blockchain
 capability base class, the deploy-script attestor, example 05) and is wider
-now.
+now. The fee pattern missed example 07's diagram, which drew route_fee
+ending in "Route to NeoSafe wallet" (route_fee moves no funds), and the
+router's own log lines, "Fees route to" the wallet and, with no wallet,
+fees "not routed on-chain"; it is wider too.
 
 The tests derive each fact from the code, by running it or reading its
 writes, and hold the documents to it.
@@ -48,7 +51,9 @@ _FEES_REACH_NEOSAFE = re.compile(
     r"(all|every) (platform )?(fees?|revenue|payments?)[^.\n]{0,40}\b(route[sd]?|flows?|go(es)?|reach(es)?)\b"
     r"[^.\n]{0,30}NeoSafe|single point of revenue collection"
     r"|(fee|revenue)s? (is |are )?(deducted and )?routed to NeoSafe|fee routing to NeoSafe"
-    r"|->\s*NeoSafe|goes to NeoSafe automatically|confirms all platform fees",
+    r"|->\s*NeoSafe|goes to NeoSafe automatically|confirms all platform fees"
+    r"|\broute to (the )?NeoSafe|\bfees? (will )?(be )?(route[sd]?|routed) (to|on-chain)"
+    r"|not routed on-chain",
     re.IGNORECASE)
 _ATTESTATION_CERTIFIES_AUDIT = re.compile(
     r"on-chain record that certifies|attestation (that |which )?certifies|proof of audit"

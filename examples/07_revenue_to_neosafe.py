@@ -205,14 +205,18 @@ contract SimpleToken {
        |         v
        |     RevenueEnforcer (injects fee logic into contracts)
        |
-       +---> _attest_action() (EAS attestation)
+       +---> _attest_action() (queues an EAS attestation)
        |
        v
   NeoSafeRouter.route_fee()
        |
-       +---> Record in ledger
-       +---> Attest fee payment (EAS)
-       +---> Route to NeoSafe wallet
+       +---> Record in ledger (no funds move)
+       +---> Queue an EAS attestation of the fee
+
+  NeoSafeRouter.route_revenue()
+       |
+       +---> Send ETH to the NeoSafe wallet
+       +---> Attest it once the transfer is mined
        |
        v
   {GREEN}NeoSafe Multisig Wallet{RESET}
