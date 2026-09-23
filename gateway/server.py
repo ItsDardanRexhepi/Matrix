@@ -361,8 +361,11 @@ class GatewayServer:
         self._wallet_session_ttl = gw.get("wallet_session_ttl_seconds", 86400)
         self._auth_cleanup_task: asyncio.Task | None = None
         # Morpheus security layer (the process-wide gate) + its durable-state flusher.
+        # The cause is set when the startup of the gate failed (see
+        # _start_security_gate); /ready reads it, the log carries it.
         self._morpheus = None
         self._security_flush_task: asyncio.Task | None = None
+        self._security_gate_cause: str | None = None
         # Security OTP services — phone verification (owner + consumer phone connect).
         #
         # H2's principle applied to THIS branch: a security service that fails to
@@ -681,7 +684,7 @@ class GatewayServer:
         real and worse than the diagnosis, because every probe shared the
         always-ok liveness route. This is the missing half.
 
-        Two conditions fail closed:
+        Three conditions fail closed:
 
         * **No model provider reachable.** Every chat path terminates at the
           router; an instance whose providers are all down cannot serve its
@@ -691,6 +694,11 @@ class GatewayServer:
           the platform is running with security in OBSERVE — no enforcement.
           That is a legitimate local/dev state and a NON-STARTER in production,
           so it is only fatal when ``MATRIX_ENV=production``.
+        * **The security gate this host starts is not up.** Its start failed
+          (production refuses to start on that; elsewhere the gateway runs, and
+          no caller is handed a gate), or the loop that writes its state back is
+          missing or has stopped. Fatal everywhere: it is not a posture a
+          deployment chooses.
 
         THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
         endpoint returned each check with its values — `"backend": "noop"`,
@@ -728,6 +736,13 @@ class GatewayServer:
         if production and backend == "noop":
             failed.append("security_backend")
 
+        # The gate this host starts must have come up, and the loop that writes
+        # its state back must still be running. Without this, a gate that
+        # failed to build or load left /ready at 200 while the gateway served.
+        gate_up = self._security_gate_is_up()
+        if not gate_up:
+            failed.append("security_gate")
+
         ready = not failed
         ref = get_request_id() or "-"
         if not ready:
@@ -735,8 +750,10 @@ class GatewayServer:
             # client can quote.
             logger.error(
                 "Readiness FAILED [ref=%s] checks=%s | providers_reachable=%s "
-                "probed=%s | security_backend=%s production=%s",
+                "probed=%s | security_backend=%s production=%s | security_gate "
+                "up=%s cause=%s",
                 ref, failed, providers_up, sorted(model_health), backend, production,
+                gate_up, self._security_gate_cause,
             )
 
         return web.json_response(
@@ -2184,6 +2201,69 @@ class GatewayServer:
             except Exception:
                 logger.exception("Security flush loop iteration failed")
 
+    async def _start_security_gate(self) -> None:
+        """Build the process-wide Morpheus gate WITH the DB handle and load its
+        durable state before serving; then write that state back (bans -> DB /
+        on-chain, breach alerts -> SMS / on-chain) on a short timer.
+
+        All three steps sat in one ``try`` whose ``except`` only logged. A
+        fault in any of them left the gateway serving and reporting ready,
+        with the gate unbuilt or unloaded and no loop writing its state back;
+        the next request then had the seam build the gate for it, without the
+        database or the gate's own settings, and every later caller was handed
+        that one. The OTP services and the App Attest verifier above already
+        refuse a production start when they cannot be built (H2). This is the
+        same rule for the gate itself:
+
+        * the seam builds the gate for the HOST, and hands it out only once it
+          is built and loaded; after a failed start it builds no other, and a
+          caller that asks gets a gate fault (a value-moving action is refused)
+        * production refuses to start, naming the cause
+        * elsewhere the gateway runs, /ready reports it not ready, and the
+          cause is in the server log
+        * the write-back loop runs whenever a gate object exists, including one
+          that was built and did not finish loading, so nothing it comes to
+          hold waits for a clean shutdown to be written
+        """
+        from runtime.security import SecurityGateStartFailed, start_security_gate
+
+        self._security_gate_cause = None
+        try:
+            self._morpheus = await start_security_gate(
+                {**self.config, "db": self.react_loop.memory.db}
+            )
+            logger.info("Morpheus security layer initialised (mode=%s)",
+                        getattr(getattr(self._morpheus, "mode", None), "value", "unknown"))
+        except SecurityGateStartFailed as exc:
+            self._morpheus = exc.gate
+            self._security_gate_cause = str(exc)
+            if is_production_mode():
+                raise RuntimeError(
+                    f"MATRIX_ENV=production but {exc}. Refusing to start rather "
+                    "than serving with the security gate replaced by a lesser one "
+                    "or by none. Fix the named cause, or unset MATRIX_ENV for a "
+                    "non-production run."
+                ) from exc
+            logger.error(
+                "Failed to initialise the Morpheus security layer: %s. The gateway "
+                "runs NOT READY: no caller is handed a gate, so a value-moving "
+                "action is refused, not run ungated.", exc, exc_info=exc,
+            )
+        if self._morpheus is not None:
+            self._security_flush_task = asyncio.create_task(self._security_flush_loop())
+
+    def _security_gate_is_up(self) -> bool:
+        """True when this host's gate came up, the seam is handing it out, and
+        its write-back loop is alive."""
+        from runtime.security import security_gate_state
+
+        if getattr(self, "_security_gate_cause", None) is not None:
+            return False
+        if security_gate_state() != "up":
+            return False
+        task = getattr(self, "_security_flush_task", None)
+        return self._morpheus is not None and task is not None and not task.done()
+
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
@@ -2191,19 +2271,7 @@ class GatewayServer:
         await self.wallet_sessions.initialize()
         await self.apple_users.initialize()
         await self.wallet_nonces.initialize()
-        # Security layer — create the process-wide Morpheus gate WITH the DB handle
-        # and load durable bans before serving; then flush its durable state
-        # (bans -> DB/on-chain, breach alerts -> SMS/on-chain) on a short timer.
-        try:
-            from runtime.security import get_morpheus_security  # seam → morpheus_security or no-op
-            self._morpheus = get_morpheus_security(
-                {**self.config, "db": self.react_loop.memory.db}
-            )
-            await self._morpheus.initialize()
-            self._security_flush_task = asyncio.create_task(self._security_flush_loop())
-            logger.info("Morpheus security layer initialised (mode=%s)", self._morpheus.mode.value)
-        except Exception:
-            logger.exception("Failed to initialise the Morpheus security layer")
+        await self._start_security_gate()
         # Optional OTel push exporter (no-op unless configured + installed)
         try:
             self.otel_bridge.start()
@@ -2459,6 +2527,12 @@ class GatewayServer:
                     await task
                 except (asyncio.CancelledError, Exception):
                     pass
+        # This host no longer holds the process-wide gate.
+        try:
+            from runtime.security import release_security_gate
+            release_security_gate()
+        except Exception as exc:
+            logger.debug("Security gate release raised during shutdown: %s", exc)
         try:
             bridge = getattr(self, "otel_bridge", None)
             if bridge is not None:

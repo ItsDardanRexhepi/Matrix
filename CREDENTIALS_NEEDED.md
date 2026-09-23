@@ -104,7 +104,12 @@ you set in this repository.
   That is a normal state for local and testnet use.
 - Under `MATRIX_ENV=production` the gateway refuses to start on the no-op
   backend, and names the cause. The readiness probe (`GET /ready`) fails on it
-  too, as a second line of defence. `docker-compose.prod.yml` and
+  too, as a second line of defence.
+- With the core installed, the gateway builds the security gate at startup and
+  loads its saved state before it serves. If either step fails, a production
+  gateway refuses to start and names the cause; any other gateway runs with
+  `GET /ready` failing, and no request is handed a gate in its place, so an
+  action that moves value is refused rather than run ungated. `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core

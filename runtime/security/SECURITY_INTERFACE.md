@@ -8,6 +8,15 @@ owners, or sanitizes — are **not in this repository** and never will be.
 
 ## What the platform sees
 
+- The gateway builds the process-wide gate once, at startup, with
+  `start_security_gate(config)`: from its whole configuration and database
+  handle, loading the gate's saved state before it serves. The gate is handed
+  out only when both steps succeeded. If either fails, a production gateway
+  refuses to start; elsewhere `get_morpheus_security()` raises
+  `SecurityGateUnavailable` instead of building a lesser gate for whoever asks
+  next, every caller treats that as a gate fault (an action that moves value is
+  refused), and `/ready` fails. With no gateway running (a script, the CLI) the
+  accessor builds the gate on first use, as before.
 - A security gate is obtained via `from runtime.security import get_morpheus_security`
   and consulted **first** in
   `runtime/protocols/integration.py::ProtocolStack.pre_action`, ahead of

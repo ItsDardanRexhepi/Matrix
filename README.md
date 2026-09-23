@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,478 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,486 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -417,10 +417,12 @@ The `models` map in `/health` says which providers **answered**, not which ones
 you configured a key for — each one is asked, with a short timeout, and they are
 all asked at once so the probe costs one timeout rather than five. `/ready` is
 the one an orchestrator should point at: it answers 503 when no provider
-answered, or when the platform is running in production with security in
-observe-only mode, and it deliberately tells you nothing else. Which check
-failed is in the log against the request id, because a readiness endpoint that
-announces what is not enforcing is telling whoever asks where to push.
+answered, when the platform is running in production with security in
+observe-only mode, or when the security gate the gateway builds at startup did
+not come up or the loop that writes its state back has stopped, and it
+deliberately tells you nothing else. Which check failed is in the log against
+the request id, because a readiness endpoint that announces what is not
+enforcing is telling whoever asks where to push.
 
 **Get platform status**
 ```bash
@@ -520,10 +522,15 @@ launch:
 - **No production boot without enforcement** — with
   `MATRIX_ENV=production`, which `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
-  gateway refuses to start on the no-op security backend. The
-  `Dockerfile` installs only the public requirements, so a production
-  image needs the separately installed security core as well
-  (`CREDENTIALS_NEEDED.md`, section 5).
+  gateway refuses to start on the no-op security backend, and refuses
+  to start when the security core is installed but its gate cannot be
+  built or cannot load its saved state at startup. The gate is built
+  once, by the gateway, from its whole configuration; outside production
+  a gate that did not come up leaves the gateway running and not ready,
+  and no request is handed a lesser gate in its place: an action that
+  moves value is refused. The `Dockerfile` installs only the public
+  requirements, so a production image needs the separately installed
+  security core as well (`CREDENTIALS_NEEDED.md`, section 5).
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.

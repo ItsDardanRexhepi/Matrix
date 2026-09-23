@@ -36,8 +36,8 @@ try:
         MorpheusSecurity,
         OTPService,
         OwnerVerification,
-        get_morpheus_security,
-        reset_morpheus_security,
+        get_morpheus_security as _backend_get_gate,
+        reset_morpheus_security as _backend_reset_gate,
         evaluate_agent_access as _private_agent_access,
         get_app_attest_verifier,
     )
@@ -129,13 +129,13 @@ except (ImportError, ModuleNotFoundError):
 
     _noop_singleton: _NoopMorpheus | None = None
 
-    def get_morpheus_security(config: dict[str, Any] | None = None) -> MorpheusSecurity:
+    def _backend_get_gate(config: dict[str, Any] | None = None) -> MorpheusSecurity:
         global _noop_singleton
         if _noop_singleton is None:
             _noop_singleton = MorpheusSecurity()
         return _noop_singleton  # type: ignore[return-value]
 
-    def reset_morpheus_security() -> None:
+    def _backend_reset_gate() -> None:
         global _noop_singleton
         _noop_singleton = None
 
@@ -169,6 +169,112 @@ except (ImportError, ModuleNotFoundError):
 #: bound (a session's wallet), never one a model wrote into tool arguments.
 #: What the core does with it is the core's business; that it arrives is ours.
 CALLER_IDENTITY_KEY = "wallet_address"
+
+
+# ── The process-wide gate: the host builds it, every other caller receives it ──
+#
+# The gate is process-wide so the state it keeps is shared by every request.
+# The backend builds it for whichever caller asks first, with that caller's
+# config, and most callers ask with less than the whole: every gated HTTP route
+# asks with no config, the chat path and the hand-off with no database. So when
+# the gateway's own start of the gate failed, the next request rebuilt it,
+# silently, without the database or the gate's settings, and every later caller
+# was handed that one.
+#
+# The split: a HOST (the gateway, at startup) builds the gate from its full
+# config and loads its durable state, and only then is the gate handed out.
+# While the host is starting it, and after the host's start failed, the accessor
+# raises SecurityGateUnavailable instead of building a lesser gate. Every caller
+# already treats a raise as a gate fault: a value-moving action is refused, not
+# run ungated. With no host (a script, the CLI, a test that boots no gateway)
+# the accessor behaves as it always has.
+
+class SecurityGateUnavailable(RuntimeError):
+    """The process-wide gate is not up: its host is still starting it, or its
+    start failed. Callers treat this exactly as a gate fault."""
+
+
+class SecurityGateStartFailed(SecurityGateUnavailable):
+    """The host's start of the gate failed.
+
+    ``stage`` names the step: ``"construct"`` or ``"initialize"``. ``gate`` is
+    the gate object when it was built and did not finish loading (the host
+    keeps writing back whatever it comes to hold), and None otherwise.
+    """
+
+    def __init__(self, stage: str, cause: BaseException, gate: Any = None) -> None:
+        super().__init__(f"the security gate failed to {stage}: {cause}")
+        self.stage = stage
+        self.gate = gate
+
+
+_HOST_NONE, _HOST_STARTING, _HOST_UP, _HOST_FAILED = "none", "starting", "up", "failed"
+_host_phase: str = _HOST_NONE
+_host_gate: Any = None
+
+
+def get_morpheus_security(config: dict[str, Any] | None = None) -> MorpheusSecurity:
+    """The process-wide gate.
+
+    Under a host this is the gate the host built, whatever ``config`` the
+    caller passes; it never builds another. While the host is starting it, or
+    after the host's start failed, it raises SecurityGateUnavailable. With no
+    host the backend builds it on first use, as it always has.
+    """
+    if _host_phase == _HOST_UP:
+        return _host_gate
+    if _host_phase == _HOST_STARTING:
+        raise SecurityGateUnavailable("the process-wide security gate is still starting")
+    if _host_phase == _HOST_FAILED:
+        raise SecurityGateUnavailable("the process-wide security gate failed to start")
+    return _backend_get_gate(config)
+
+
+async def start_security_gate(config: dict[str, Any]) -> MorpheusSecurity:
+    """HOST ONLY. Build the process-wide gate from the host's full config and
+    load its durable state, before anything is served.
+
+    The gate is handed out only once both steps succeed. A gate that an earlier
+    caller built from its own, lesser config is dropped first, so the host's
+    gate is built from the host's config rather than adopted. On failure this
+    raises SecurityGateStartFailed, and the accessor raises from then on until
+    the host releases its declaration.
+    """
+    global _host_phase, _host_gate
+    _host_phase, _host_gate = _HOST_STARTING, None
+    try:
+        _backend_reset_gate()
+        gate = _backend_get_gate(config)
+    except Exception as exc:
+        _host_phase = _HOST_FAILED
+        raise SecurityGateStartFailed("construct", exc) from exc
+    try:
+        await gate.initialize()
+    except Exception as exc:
+        _host_phase = _HOST_FAILED
+        raise SecurityGateStartFailed("initialize", exc, gate=gate) from exc
+    _host_phase, _host_gate = _HOST_UP, gate
+    return gate
+
+
+def security_gate_state() -> str:
+    """``"none"`` (no host), ``"starting"``, ``"up"`` or ``"failed"``. Read by
+    the host's readiness check. The cause of a failure is the host's to log."""
+    return _host_phase
+
+
+def release_security_gate() -> None:
+    """HOST ONLY, at shutdown: withdraw the declaration, so a later host in the
+    same process starts from nothing. The gate object itself is untouched."""
+    global _host_phase, _host_gate
+    _host_phase, _host_gate = _HOST_NONE, None
+
+
+def reset_morpheus_security() -> None:
+    """Test/lifecycle helper: drop the gate and any host declaration, so the
+    next get_morpheus_security() builds it again."""
+    release_security_gate()
+    _backend_reset_gate()
 
 
 def agent_access_allowed(
@@ -212,4 +318,9 @@ __all__ = [
     "SECURITY_BACKEND",
     "agent_access_allowed",
     "CALLER_IDENTITY_KEY",
+    "SecurityGateUnavailable",
+    "SecurityGateStartFailed",
+    "start_security_gate",
+    "security_gate_state",
+    "release_security_gate",
 ]
