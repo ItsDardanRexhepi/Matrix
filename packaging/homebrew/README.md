@@ -12,7 +12,8 @@ matrix setup
 
 Verified here, by running it rather than by reading it:
 
-* the source tarball URL resolves and its `sha256` is the hash of what it serves;
+* the source tarball URL resolves: under the repository's old name it redirects
+  to the new one;
 * all 61 Python dependencies pin to a real PyPI sdist with its own `sha256`,
   taken from the versions a clean `pip install .` actually resolved;
 * the formula is valid Ruby (`ruby -c`);
@@ -34,13 +35,17 @@ that closes this out.
 ## Two things that are the owner's
 
 1. **The tap.** `brew install matrix` on its own needs homebrew-core, which has
-   notability requirements this project does not meet yet. A TAP works today and
-   needs no approval: create a public repo named `homebrew-matrix` under
-   ItsDardanRexhepi, put this file in `Formula/matrix.rb`, and the two commands
-   above work. Creating a public repository is a new public surface, so it is
-   yours to make, not mine.
-2. **The pin.** `url` points at a specific commit so the hash is exact. Point it
-   at a release tag when you cut one, and update `sha256` to that tarball's.
+   notability requirements this project does not meet yet. A TAP needs no
+   approval: create a public repo named `homebrew-matrix` under
+   ItsDardanRexhepi, put this file in `Formula/matrix.rb`, and once the pin below
+   is refreshed the two commands above work. Creating a public repository is a
+   new public surface, so it is yours to make, not mine.
+2. **The pin.** `url` points at a specific commit so the hash is exact, and the
+   hash is now stale: since the repository was renamed to Matrix, GitHub serves
+   that commit's archive with a `Matrix-<commit>/` top directory, and it no longer
+   hashes to the pinned `sha256`. Point `url` at a release tag when you cut one,
+   or at the same commit under the new name, and update `sha256` to that
+   tarball's.
 
 ## Why a tap and not just pip
 
