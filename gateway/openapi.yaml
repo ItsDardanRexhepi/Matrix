@@ -960,7 +960,7 @@ paths:
 
   /bridge/v1/services:
     get:
-      summary: Enumerate all 221 capabilities
+      summary: Enumerate all 195 capabilities
       responses:
         "200":
           description: Service catalog

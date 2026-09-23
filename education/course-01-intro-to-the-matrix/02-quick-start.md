@@ -48,15 +48,16 @@ source .venv/bin/activate    # once per terminal; setup created .venv
 python -m gateway.server
 ```
 
-You should see output indicating the server has started:
+Among its startup log lines you should see the line the gateway writes just
+before it starts serving:
 
 ```
-[INFO] The Matrix Gateway starting...
-[INFO] Loading middleware chain...
-[INFO] Agents initialized: Neo, Trinity, Morpheus
-[INFO] 221 capabilities across 21 categories loaded
-[INFO] Gateway listening on port 18790
+The Matrix gateway starting
 ```
+
+It then listens on port 18790 (`gateway.port`). With no private security core
+installed it also says, once at import, that the security backend is `noop`
+and runs in OBSERVE mode.
 
 The gateway is now running. Leave this terminal open and open a new terminal for the next steps.
 
@@ -68,13 +69,15 @@ In your new terminal, verify the gateway is responding:
 curl http://localhost:18790/health
 ```
 
-Expected response:
+The response has this shape (`agents` lists the agents enabled in your
+config, and `models` is the model router's own health check):
 
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2026-04-10T12:00:00Z",
-  "version": "1.0.0"
+  "status": "ok",
+  "agents": ["neo", "trinity", "morpheus"],
+  "model_provider": "ollama",
+  "models": {}
 }
 ```
 
@@ -88,26 +91,28 @@ The `/status` endpoint provides more detail about the running system:
 curl http://localhost:18790/status
 ```
 
-Expected response:
+The response has this shape (values vary with your config and how long the
+gateway has been up):
 
 ```json
 {
-  "status": "operational",
-  "agents": {
-    "neo": {"status": "active", "role": "execution"},
-    "trinity": {"status": "active", "role": "conversation"},
-    "morpheus": {"status": "active", "role": "confirmation"}
-  },
-  "capabilities": {
-    "total": 221,
-    "categories": 21,
-    "available_now": 150
-  },
-  "uptime_seconds": 45
+  "platform": "The Matrix",
+  "version": "1.0.0",
+  "agents": ["neo", "trinity", "morpheus"],
+  "model": {"provider": "ollama", "primary": "..."},
+  "sessions": 0,
+  "wallet_sessions": 0,
+  "total_requests": 2,
+  "uptime_seconds": 45.0,
+  "memory_mb": 120.5,
+  "subsystems": {"models": {}, "memory": {}, "blockchain": {"configured": false}, "protocols": {}}
 }
 ```
 
-This tells you all three agents are loaded and the 221-capability catalog is ready. Capabilities for protocols you haven't configured return a clean not_deployed response rather than failing.
+The capability catalog is not part of `/status`: `GET /api/v1/capabilities`
+lists all 195 capabilities, and `GET /api/v1/capabilities/categories` the 21
+categories. Capabilities for protocols you haven't configured return a clean
+not_deployed response rather than failing.
 
 ## Step 6: Your First Chat with Trinity
 

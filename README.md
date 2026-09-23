@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,582 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,587 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -344,8 +344,8 @@ Every decision made by every agent on The Matrix passes through the Unified Rexh
 
 ## Web3 Capability Surface
 
-**221 capabilities across 21 categories** — smart contracts, DeFi,
-DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
+**195 capabilities across 21 categories** — smart contracts, DeFi,
+DeFi advanced (an orderbook and Pyth pull prices), NFTs, NFT
 finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
 governance (DAOs, veTokens, quadratic voting, RetroPGF), social
 (Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
@@ -353,8 +353,8 @@ Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
 (CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
 (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK,
 oracles (Chainlink, Pyth, RedStone, API3, Keepers), storage (IPFS,
-Arweave, Filecoin, Ceramic, OrbitDB), compute & DePIN (Akash, Gensyn,
-Render), real-world assets, markets (prediction, auction), gaming,
+Filecoin, Ceramic, OrbitDB), compute & DePIN (Akash, device rentals),
+real-world assets, markets (prediction, auction), gaming,
 and security (MPC, social recovery, session keys).
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.

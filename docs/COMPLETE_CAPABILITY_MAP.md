@@ -10,7 +10,7 @@ State-modifying capabilities below are signed by the platform, which pays their 
 
 The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/capabilities/catalog.py). It is the single source of truth that backs Trinity's `platform_action` tool, the gateway REST endpoints, the iOS extensions registry, and this document.
 
-- **221 capabilities** across **21 categories**, backed by **44 services** in `runtime/blockchain/services/`.
+- **195 capabilities** across **21 categories**, backed by **43 services** in `runtime/blockchain/services/`.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (`free` / `pro` / `enterprise`), `uses_paymaster` flag, `protocol` tag, and `available` flag.
 - Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them.
 

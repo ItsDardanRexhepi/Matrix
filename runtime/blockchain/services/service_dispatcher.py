@@ -1,9 +1,9 @@
 """
 Service Dispatcher — routes Trinity's natural language intents to the correct
-blockchain service. This is what makes all 221 capabilities user-facing, backed by 44 services.
+blockchain service. This is what makes all 195 capabilities user-facing, backed by 43 services.
 
 Trinity's ReAct loop calls tools. This dispatcher registers one mega-tool
-'platform_action' that can invoke any of the 221 capabilities (backed by 44 services) based on the action name.
+'platform_action' that can invoke any of the 195 capabilities (backed by 43 services) based on the action name.
 """
 
 from __future__ import annotations
@@ -1081,7 +1081,7 @@ except Exception as _cap_exc:
 
 
 class ServiceDispatcher:
-    """Bridge between Trinity's tool calls and the 221 capabilities (44 backing services).
+    """Bridge between Trinity's tool calls and the 195 capabilities (43 backing services).
 
     Registers as a single ``platform_action`` tool that the ReAct loop can
     invoke with any of the defined actions. The dispatcher resolves the target

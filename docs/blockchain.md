@@ -1,8 +1,8 @@
 # Blockchain
 
-## 221 Capabilities Across 21 Categories
+## 195 Capabilities Across 21 Categories
 
-The Matrix provides 221 discrete Web3 capabilities organised into 21 categories, all accessible through conversation:
+The Matrix provides 195 discrete Web3 capabilities organised into 21 categories, all accessible through conversation:
 
 1. **Smart Contracts** — deploy, convert, templates
 2. **DeFi** — swaps, lending, yield, LP, vaults, flash loans
