@@ -22,6 +22,11 @@ from runtime.blockchain.services.attestation.time_critical import (
     TIME_CRITICAL_CATEGORIES,
     TimeCriticalHandler,
 )
+# Bound at module scope: `except SponsorshipDenied` is evaluated before
+# `except ImportError`, so a function-local import of it would make the clause
+# itself raise whenever a chain library is missing, and the missing-dependency
+# answer below could never be returned.
+from runtime.blockchain.sponsorship import SponsorshipDenied
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,21 @@ class AttestationService:
     - Batched submission for regular attestations (see `attest` — the batch
       submits at the size threshold only; there is no interval timer running)
     - Verification and revocation of existing attestations
+
+    Who pays the gas is decided by which entry point is used, never by a
+    field the caller writes:
+    - `attest` is the platform's own record — the dispatcher's record of each
+      capability call and records other services write after an operation —
+      and is signed unmetered (`eas.attest` / `eas.attest_time_critical` in
+      UNMETERED_PLATFORM_OPERATIONS);
+    - `attest_for_caller`, `batch_attest` and `revoke` are the attestation
+      capabilities (`create_attestation`, `batch_attest`, `revoke_attestation`
+      in ACTION_MAP): a caller composes the write, so it is metered under
+      `attestation.<method>` like any other platform-signed operation — the
+      allowlist, the per-identity daily cap and the identity requirement
+      apply, and a refusal raises SponsorshipDenied. On the queued path the
+      policy is checked when the write is queued and again when its batch
+      signs, against the identity it was queued under.
 
     NOT provided (NEW-48b / NEW-50, both removed as fabrications):
     - Querying attestations. There is no EAS subgraph reader in this repo.
@@ -91,7 +111,11 @@ class AttestationService:
         time_critical: bool = False,
     ) -> dict[str, Any]:
         """
-        Create an attestation on-chain via EAS.
+        Create an attestation on-chain via EAS, as the platform's own record.
+
+        Not the entry point for a caller's request: that is `attest_for_caller`,
+        which meters the write. This one is signed unmetered and is what the
+        dispatcher and the services call to record what they did.
 
         Time-critical attestations are submitted immediately. All others
         are queued for batch submission to reduce gas costs.
@@ -106,8 +130,67 @@ class AttestationService:
         Returns:
             Dict with attestation result or queue confirmation.
         """
+        return await self._attest(schema_uid, data, recipient, time_critical)
+
+    async def attest_for_caller(
+        self,
+        schema_uid: str,
+        data: dict[str, Any],
+        recipient: str,
+        time_critical: bool = False,
+        *,
+        caller_identity: str = "",
+        caller_source: str = "",
+    ) -> dict[str, Any]:
+        """
+        The `create_attestation` capability: an attestation a caller asked for.
+
+        Same mechanics as `attest`, metered under `attestation.attest` against
+        the caller (`caller_identity` as the dispatcher injects it, else the
+        identity bound to the current dispatch). Raises SponsorshipDenied when
+        the sponsorship policy refuses it: on the time-critical path at
+        signing, on the queued path when it is queued and again when its batch
+        signs.
+        """
+        return await self._attest(schema_uid, data, recipient, time_critical,
+                                  operation="attestation.attest",
+                                  identity=self._caller(caller_identity))
+
+    @staticmethod
+    def _caller(caller_identity: str) -> str:
+        from runtime.blockchain.sponsorship import canonical_identity, resolve_caller_identity
+        return canonical_identity(caller_identity) or resolve_caller_identity()
+
+    def _precheck(self, operation: str, identity: str) -> None:
+        """The deterministic part of the policy, applied before a write is
+        queued: with a cap configured, an operation off the allowlist, one with
+        no attributable identity, or one for an identity already at the cap is
+        refused now rather than dropped later. With no cap the signer does not
+        consult the policy, and neither does this."""
+        from runtime.blockchain.sponsorship import SponsorshipPolicy
+
+        policy = SponsorshipPolicy.from_config(self.config)
+        if not policy.enforces_a_cap:
+            return
+        decision = policy.authorize_and_reserve(operation, identity=identity, est_usd=0.0)
+        if not decision.allowed:
+            raise SponsorshipDenied(decision)
+        policy.release(decision.reservation_id)
+
+    async def _attest(
+        self,
+        schema_uid: str,
+        data: dict[str, Any],
+        recipient: str,
+        time_critical: bool = False,
+        *,
+        operation: str | None = None,
+        identity: str | None = None,
+    ) -> dict[str, Any]:
         # Resolve schema UID
         resolved_schema = self._resolve_schema(schema_uid)
+        if operation:
+            self._precheck(operation, identity or "")
 
         # Detect time-critical category from data
         category = data.get("category", "")
@@ -126,14 +209,23 @@ class AttestationService:
                 data=data,
                 recipient=recipient,
                 category=category,
+                operation=operation,
+                identity=identity,
             )
 
-        # Regular attestation — queue for batching
-        await self._batch_processor.add({
+        # Regular attestation — queue for batching. A caller's write carries
+        # the operation and the identity it was asked under, so the batch
+        # signs it metered against that caller (BatchProcessor._submit_batch),
+        # not against whoever's request happens to flush the batch.
+        entry = {
             "schema_uid": resolved_schema,
             "data": data,
             "recipient": recipient,
-        })
+        }
+        if operation:
+            entry["operation"] = operation
+            entry["identity"] = identity or ""
+        await self._batch_processor.add(entry)
 
         # NEW-51(b): disclose the REAL batch mechanics, not a bare "queued".
         #
@@ -164,6 +256,11 @@ class AttestationService:
         # cured by a differently-worded approximate one.
         pending = self._batch_processor.pending_count
         threshold = self._batch_processor.batch_size
+        metered_note = (
+            f" Gas for this attestation is metered under '{operation}' against "
+            "the identity it was queued under when its batch signs; a refusal "
+            "then is logged and the attestation is dropped, not returned here."
+            if operation else "")
         return {
             "status": "queued",
             "schema_uid": resolved_schema,
@@ -187,15 +284,26 @@ class AttestationService:
                 "guarantee of submission. Queued attestations are lost if the "
                 "process exits before the threshold is reached. Use "
                 "time_critical=True for immediate on-chain submission."
+                + metered_note
             ),
         }
 
-    async def batch_attest(self, attestations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    async def batch_attest(
+        self,
+        attestations: list[dict[str, Any]],
+        *,
+        caller_identity: str = "",
+        caller_source: str = "",
+    ) -> list[dict[str, Any]]:
         """
-        Submit multiple attestations, routing each appropriately.
+        The `batch_attest` capability: several attestations a caller asked for,
+        each routed as `attest_for_caller` routes one and metered under
+        `attestation.batch_attest`. At most MAX_ATTESTATIONS_PER_BATCH.
 
         Time-critical attestations in the list are submitted immediately.
-        Regular attestations are queued for batching.
+        Regular attestations are queued for batching. A refusal by the
+        sponsorship policy raises SponsorshipDenied at the entry it refuses;
+        entries before it were processed.
 
         Args:
             attestations: List of dicts, each with schema_uid, data,
@@ -204,14 +312,28 @@ class AttestationService:
         Returns:
             List of result dicts, one per input attestation.
         """
+        from runtime.blockchain.eas_client import MAX_ATTESTATIONS_PER_BATCH
+
+        if not isinstance(attestations, list):
+            raise ValueError("attestations must be a list")
+        if len(attestations) > MAX_ATTESTATIONS_PER_BATCH:
+            # Each entry is a platform-signed write; the count one request can
+            # ask for is bounded here, and each is metered below.
+            raise ValueError(
+                f"a batch may hold at most {MAX_ATTESTATIONS_PER_BATCH} attestations; "
+                f"this one holds {len(attestations)}")
+
+        identity = self._caller(caller_identity)
         results: list[dict[str, Any]] = []
 
         for att in attestations:
-            result = await self.attest(
+            result = await self._attest(
                 schema_uid=att.get("schema_uid", "primary"),
                 data=att.get("data", {}),
                 recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
                 time_critical=att.get("time_critical", False),
+                operation="attestation.batch_attest",
+                identity=identity,
             )
             results.append(result)
 
@@ -254,9 +376,19 @@ class AttestationService:
                 "error": str(exc),
             }
 
-    async def revoke(self, attestation_uid: str, schema_uid: str) -> dict[str, Any]:
+    async def revoke(
+        self,
+        attestation_uid: str,
+        schema_uid: str,
+        *,
+        caller_identity: str = "",
+        caller_source: str = "",
+    ) -> dict[str, Any]:
         """
-        Revoke an existing attestation on-chain.
+        The `revoke_attestation` capability: revoke an existing attestation
+        on-chain, metered under `attestation.revoke` against the caller.
+        Nothing in the platform revokes on its own behalf; this is only ever a
+        caller's request, so it is never signed unmetered.
 
         Args:
             attestation_uid: The attestation UID to revoke.
@@ -264,6 +396,9 @@ class AttestationService:
 
         Returns:
             Dict with revocation status.
+
+        Raises:
+            SponsorshipDenied: when the sponsorship policy refuses the write.
         """
         if not attestation_uid or not schema_uid:
             return {
@@ -281,7 +416,7 @@ class AttestationService:
         try:
             from web3 import Web3
             from eth_account import Account
-            from runtime.blockchain.sponsorship import unmetered_platform_signer
+            from runtime.blockchain.sponsorship import platform_signer
 
             bc = self.config.get("blockchain", {})
             rpc_url = bc.get("rpc_url", "")
@@ -335,10 +470,14 @@ class AttestationService:
                 "nonce": w3.eth.get_transaction_count(platform_wallet),
             })
 
-            account = unmetered_platform_signer(paymaster_key, "eas.revoke")
+            account = await platform_signer(self.config, "attestation.revoke",
+                                            key=paymaster_key,
+                                            identity=self._caller(caller_identity))
             signed = account.sign_transaction(tx)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
 
+        except SponsorshipDenied:
+            raise
         except ImportError as exc:
             logger.warning("Revocation skipped — missing dependency: %s", exc)
             return {

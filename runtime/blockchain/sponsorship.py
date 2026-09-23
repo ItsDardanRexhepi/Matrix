@@ -722,12 +722,30 @@ def resolve_caller_identity() -> str:
 # Every platform signature in runtime/blockchain/ is produced here, and
 # tests/test_sponsorship_policy_is_enforced.py fails if a new one is not.
 #
-# The exemptions below are platform-initiated record-keeping, not sponsorship of
-# a caller's operation: fixed call data the model never composes, written on the
-# platform's own behalf. Metering them against a per-CALLER daily cap would
-# charge one user's budget for another's attestation and would stop the audit
-# trail at $50 a day. They are listed rather than simply absent so the set is
-# reviewable — an unlisted unmetered site fails the test.
+# The exemptions below are writes the platform signs without metering: its own
+# record-keeping, not sponsorship of a caller's operation. Metering them against
+# a per-CALLER daily cap would charge one user's budget for another's record
+# and would stop the audit trail at the cap. They are listed rather than simply
+# absent so the set is reviewable — an unlisted unmetered site fails the test.
+#
+# WHAT THEY COVER IS DECIDED BY THE ENTRY POINT, NOT BY THE CALL DATA. This
+# comment used to rest on "fixed call data the model never composes". That was
+# false: the model-facing `eas` tool passed model-chosen action, agent and
+# recipient, over an unbounded batch, through `eas.attest`; eight more tools
+# (agent identity, cross-border, gaming, identity, insurance, IP, securities,
+# supply chain) attested the same way; and the attestation capabilities a caller composes
+# (`create_attestation`, `batch_attest`, `revoke_attestation`) signed as
+# `eas.attest` / `eas.attest_time_critical` / `eas.revoke`. A tool attestation
+# now passes its own `<capability>.<method>` to EASClient.attest, the three
+# capabilities reach metered entry points (AttestationService.attest_for_caller,
+# batch_attest, revoke — `attestation.<method>`), a batch is bounded, and
+# `eas.revoke` is gone: nothing revokes on the platform's own behalf.
+# tests/test_platform_attestations_are_metered.py fails on an unmetered one.
+#
+# What remains: `eas.attest` / `eas.attest_time_critical` as reached from
+# EASClient.attest with no `operation` and AttestationService.attest — the
+# dispatcher's record of each capability call and records other services write
+# after an operation — and the sponsorship accounting path.
 #
 # AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
 # was listed as "shared account handle; every USE of it is a call site metered on
@@ -744,9 +762,12 @@ def resolve_caller_identity() -> str:
 # allowlist that silently excluded the platform's busiest signing path was
 # exactly the failure this list exists to prevent.
 UNMETERED_PLATFORM_OPERATIONS = {
-    "eas.attest": "EAS attestation write — fixed schema, the platform's own record",
-    "eas.attest_time_critical": "the same write on the time-critical path",
-    "eas.revoke": "revoking an attestation the platform itself issued",
+    "eas.attest": "EAS attestation written as the platform's own record "
+                  "(AttestationService.attest, or EASClient.attest with no "
+                  "operation): the dispatcher's record of a capability call, or "
+                  "a record a service writes after another operation; a "
+                  "caller's own attestation is metered instead",
+    "eas.attest_time_critical": "the same platform record on the time-critical path",
     "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
 }
 

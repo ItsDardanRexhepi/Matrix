@@ -68,6 +68,7 @@ class SupplyChain(BlockchainInterface):
                 "location": params.get("location", ""),
                 "metadata": params.get("metadata", {}),
             },
+            operation="supply_chain.create_record",
         )
         return json.dumps(result, indent=2, default=str)
 
@@ -84,6 +85,7 @@ class SupplyChain(BlockchainInterface):
                 "location": params.get("location", ""),
                 "updated_at": int(time.time()),
             },
+            operation="supply_chain.update_status",
         )
         return json.dumps(result, indent=2, default=str)
 

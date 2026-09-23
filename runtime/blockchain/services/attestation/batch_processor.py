@@ -236,10 +236,18 @@ class BatchProcessor:
         abandoned: list[str] = []
         sent_unconfirmed: list[str] = []
 
+        refused: list[str] = []
+
         for att in batch:
             result = paired.get(att["id"])
             if result is not None and report_of(result) is SUCCESS:
                 landed.append(att)
+                continue
+            if isinstance(result, dict) and result.get("sponsorship_refused") is True:
+                # REFUSED BY POLICY: NOT OWED AGAIN. Nothing was signed. The
+                # sponsorship policy said no for the identity it was queued
+                # under; re-queueing would ask again on every flush.
+                refused.append(f"{att['id']} ({result.get('sponsorship', {}).get('code')})")
                 continue
             if (isinstance(result, dict) and result.get("broadcast") is True
                     and result.get("settled") is not True):
@@ -270,6 +278,13 @@ class BatchProcessor:
                 len(abandoned), _MAX_ATTEMPTS, ", ".join(abandoned),
             )
 
+        if refused:
+            logger.warning(
+                "%d queued attestation(s) were refused by the sponsorship policy and "
+                "dropped, NOT written to the chain: %s",
+                len(refused), ", ".join(refused),
+            )
+
         if sent_unconfirmed:
             logger.warning(
                 "%d attestation(s) were SENT and no receipt confirmed them; they "
@@ -290,7 +305,16 @@ class BatchProcessor:
 
         Uses the EASClient for each attestation in the batch. In production
         this would use the EAS multiAttest function for a single transaction.
+
+        An entry a caller asked for through an attestation capability carries
+        `operation` and `identity` from the moment it was queued, and is signed
+        metered against that identity — not against whoever's request happens
+        to flush the batch. A refusal by the sponsorship policy is that entry's
+        result (`status: "refused"`, `sponsorship_refused: True`); `_reconcile`
+        drops it rather than re-queueing it, and the other entries still sign.
         """
+        from runtime.blockchain.sponsorship import SponsorshipDenied
+
         try:
             client = _eas_client_for(self.config)
         except ImportError as exc:
@@ -310,15 +334,24 @@ class BatchProcessor:
             # collected, and `flush`'s handler then re-queued the WHOLE batch:
             # the ones that HAD landed lost their record and were queued to be
             # written to the chain a second time.
+            metered = ({"operation": att["operation"], "identity": att.get("identity", "")}
+                       if att.get("operation") else {})
             try:
                 result = await client.attest(
                     action=att.get("data", {}).get("action", "batch_attestation"),
                     agent=att.get("data", {}).get("agent", "system"),
                     details=att.get("data", {}),
                     recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
+                    **metered,
                 )
             except asyncio.CancelledError:
                 raise
+            except SponsorshipDenied as denied:
+                logger.warning("queued attestation %s refused by the sponsorship policy: %s",
+                               att["id"], denied.decision.code)
+                result = {"status": "refused", "sponsorship_refused": True,
+                          "reason": denied.decision.reason,
+                          "sponsorship": denied.decision.to_dict()}
             except Exception as exc:  # noqa: BLE001 — one failure is not the batch's
                 logger.error("Attestation %s failed: %s", att["id"], exc)
                 result = {"status": "failed", "error": str(exc)}

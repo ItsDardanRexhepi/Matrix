@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import SponsorshipDenied
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,7 @@ class Identity(BlockchainInterface):
                     "registered_at": int(time.time()),
                 },
                 recipient=address if address else "0x0000000000000000000000000000000000000000",
+                operation="identity.register",
             )
 
             return json.dumps({
@@ -100,6 +102,10 @@ class Identity(BlockchainInterface):
                 "gas_paid_by": "platform (The Matrix)",
             }, indent=2, default=str)
 
+        except SponsorshipDenied:
+            # A refusal by the sponsorship policy, not a configuration fault:
+            # the tool dispatcher renders its reason.
+            raise
         except Exception as e:
             return json.dumps({
                 "status": "failed",

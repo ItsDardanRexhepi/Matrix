@@ -226,7 +226,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("register_agent",          "Register AI Agent",       "identity", "agent_identity", "register_agent", feed_event="ai_agent_registered"),
     _cap("update_agent",            "Update Agent",            "identity", "agent_identity", "update_agent"),
     _cap("deregister_agent",        "Deregister Agent",        "identity", "agent_identity", "deregister_agent"),
-    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest"),
+    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest_for_caller"),
     _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke"),
     _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest"),
 

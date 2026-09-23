@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,512 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,524 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -373,10 +373,14 @@ sponsorship is refused rather than silently granted, and an operator who
 configures no policy sponsors everything. Every transaction the platform
 signs goes through that policy, including the ones the services send
 through the shared web3 manager — if you configure an allowlist, list
-`web3.send_transaction` or those will be refused. The only operations
-exempt are the platform's own record-keeping writes, and they are listed
-by name in `runtime/blockchain/sponsorship.py` so the exemptions can be
-read rather than guessed at. Capabilities return
+`web3.send_transaction` or those will be refused. An attestation you ask
+for — through an agent tool or through the attestation capabilities, queued
+or immediate, and a revocation — is metered like any other operation, under
+its own `<capability>.<method>` name and against your identity, and one
+request may ask for at most 20. The only operations exempt are the
+platform's own record-keeping writes, and they are listed by name in
+`runtime/blockchain/sponsorship.py` so the exemptions can be read rather
+than guessed at. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 

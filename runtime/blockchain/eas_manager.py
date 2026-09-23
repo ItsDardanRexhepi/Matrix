@@ -133,6 +133,7 @@ class EASManager(BlockchainInterface):
             agent=data.get("agent", "neo"),
             details=data,
             recipient=params.get("recipient", "0x0000000000000000000000000000000000000000"),
+            operation="eas_manager.attest",
         )
         return json.dumps(result, indent=2, default=str)
 
@@ -220,16 +221,26 @@ class EASManager(BlockchainInterface):
                 code="capability_error")
 
     async def _batch_attest(self, params: dict) -> str:
-        """Create multiple attestations. Gas covered by platform."""
+        """Create multiple attestations. Each entry is metered as
+        `eas_manager.batch_attest` by the sponsorship policy, and a batch longer
+        than MAX_ATTESTATIONS_PER_BATCH is refused whole."""
+        from runtime.blockchain.eas_client import EASClient, MAX_ATTESTATIONS_PER_BATCH
         attestations = params.get("attestations", [])
+        if not isinstance(attestations, list):
+            return refusal("attestations must be a list", code="invalid_arguments")
+        if len(attestations) > MAX_ATTESTATIONS_PER_BATCH:
+            return refusal(
+                f"a batch may hold at most {MAX_ATTESTATIONS_PER_BATCH} attestations; "
+                f"this one holds {len(attestations)}",
+                code="batch_too_large")
         results = []
-        from runtime.blockchain.eas_client import EASClient
         client = EASClient(self.config)
         for att in attestations:
             result = await client.attest(
                 action=att.get("action", "custom"),
                 agent=att.get("agent", "neo"),
                 details=att,
+                operation="eas_manager.batch_attest",
             )
             results.append(result)
         return json.dumps({"batch_results": results, "count": len(results)}, indent=2, default=str)
