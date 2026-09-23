@@ -114,7 +114,8 @@ def test_every_documented_endpoint_is_registered():
 # ── Web pages served by the gateway ─────────────────────────────────────────
 
 _LEGAL_COPY = {"web/terms.html", "web/privacy.html"}
-# Unregistered paths in legal copy, carried to counsel as a redline.
+# Unregistered paths in legal copy, left for counsel to change. Each is listed
+# for counsel; that memo is counsel's and is kept outside this repository.
 _LEGAL_COPY_PENDING_REDLINE = {
     ("web/privacy.html", "/pricing"),
     ("web/terms.html", "/pricing"),
