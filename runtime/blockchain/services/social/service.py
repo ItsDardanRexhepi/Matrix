@@ -54,6 +54,13 @@ class SocialService:
         self.config = {**DEFAULT_CONFIG, **(config or {})}
         self._profiles: dict[str, dict] = {}
         self._feed_items: list[dict] = []
+        #: Communities, by id. `create_community` used to mint an id, set
+        #: status "active" and return the record WITHOUT storing it anywhere,
+        #: so the gateway's 200 named a community that existed nowhere and the
+        #: read legs are 501, which is where a caller would have found out.
+        #: Process-local, exactly like `_profiles` beside it: it does not
+        #: survive a restart and it is not shared between workers.
+        self._communities: dict[str, dict] = {}
         self.messaging = XMTPMessaging(self.config)
         self.moderation = ContentModeration(self.config)
         self.proof_sharing = ProofSharing(self.config)
@@ -536,7 +543,27 @@ class SocialService:
     async def create_community(
         self, creator: str, name: str, description: str = "", token_gate: dict | None = None,
     ) -> dict:
-        """Create a social community."""
+        """Create a social community, and keep it.
+
+        This minted ``comm_{uuid4}``, set ``"status": "active"`` and returned
+        the record without storing it — no dict, no db, no chain. The gateway
+        answered HTTP 200 with an id for a community that existed nowhere, and
+        every read leg of /api/v1/groups is an honest 501, so nothing in the
+        platform could contradict it. `create_profile`, ten methods up in this
+        same class, has stored its record in `self._profiles` all along.
+
+        Kept in `self._communities`, which is process-local: it does not
+        survive a restart and is not shared across workers, the same terms as
+        `_profiles`. The read legs stay 501 until there is a store worth
+        reading them from.
+
+        Refuses an empty creator or name rather than storing a record nobody
+        can be said to own — the guard `create_profile` already makes.
+        """
+        if not creator:
+            raise ValueError("creator is required")
+        if not name:
+            raise ValueError("name is required")
         comm_id = f"comm_{uuid.uuid4().hex[:16]}"
         record = {
             "id": comm_id,
@@ -549,8 +576,16 @@ class SocialService:
             "member_count": 1,
             "created_at": time.time(),
         }
+        self._communities[comm_id] = record
         logger.info("Community created: id=%s name=%s", comm_id, name)
-        return record
+        return dict(record)
+
+    def get_community(self, community_id: str) -> dict | None:
+        """The stored community, or None. Reading back what was written is what
+        makes the created id a fact rather than a string; the /api/v1/groups
+        read legs are still 501 and this is what they would read."""
+        record = self._communities.get(community_id)
+        return dict(record) if record is not None else None
 
     # -- Messaging read delegators -------------------------------------
     # The gateway seam (_call) resolves a service method by a flat getattr on

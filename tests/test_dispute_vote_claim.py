@@ -66,7 +66,7 @@ async def test_claim_requires_resolution():
 
 
 @pytest.mark.asyncio
-async def test_winner_claims_once_then_rejected():
+async def test_winner_claims_once_and_a_repeat_is_the_same_record():
     svc = DisputeResolution(config={})
     d = await _filed_dispute(svc)
     # Craft a resolved outcome (resolve() itself is exercised elsewhere).
@@ -81,8 +81,16 @@ async def test_winner_claims_once_then_rejected():
     first = await svc.claim(d["dispute_id"], "0xclaimant")
     assert first["type"] == "stake_return" and first["amount"] == 100.0
     assert "holds no funds" in first["settlement"]
-    with pytest.raises(ValueError, match="already claimed"):
-        await svc.claim(d["dispute_id"], "0xclaimant")
+    # A repeat used to raise "already claimed", which the route answers 400 —
+    # so a client retrying a timed-out POST was refused the entitlement the
+    # platform had already recorded for it. The endpoint is documented
+    # idempotent at both ends; the repeat is answered with the record, and the
+    # record is not written again.
+    again = await svc.claim(d["dispute_id"], "0xclaimant")
+    assert again["replay"] is True
+    assert again["type"] == first["type"] and again["amount"] == first["amount"]
+    assert again["claimed_at"] == first["claimed_at"]
+    assert list(d["claims"]) == ["0xclaimant"]
 
 
 @pytest.mark.asyncio
