@@ -162,6 +162,15 @@ except (ImportError, ModuleNotFoundError):
         return _noop_attest_singleton
 
 
+# ── The caller's identity in a seam context ───────────────────────────────
+
+#: The one key under which the platform hands the seam the caller's identity
+#: when it builds a context for a security decision: the value the entry point
+#: bound (a session's wallet), never one a model wrote into tool arguments.
+#: What the core does with it is the core's business; that it arrives is ours.
+CALLER_IDENTITY_KEY = "wallet_address"
+
+
 def agent_access_allowed(
     agent: str | None,
     tool: str,
@@ -171,7 +180,10 @@ def agent_access_allowed(
     """Per-agent tool-access decision, bound through the security seam.
 
     The ToolDispatcher calls this on EVERY tool call, keyed on the trusted
-    ``agent`` from the request context. The authoritative policy lives in the
+    ``agent`` from the request context, with a ``context`` that carries the
+    caller the entry point bound (under ``CALLER_IDENTITY_KEY``, when there is
+    one), so the decision can be about this caller and not only this agent.
+    The authoritative policy lives in the
     private ``morpheus_security`` package when installed; otherwise the public
     coarse default (``runtime.access_policy``) applies. Either way the per-agent
     boundary is enforced — a subverted agent cannot reach another agent's tools.
@@ -199,4 +211,5 @@ __all__ = [
     "get_app_attest_verifier",
     "SECURITY_BACKEND",
     "agent_access_allowed",
+    "CALLER_IDENTITY_KEY",
 ]

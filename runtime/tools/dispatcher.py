@@ -18,7 +18,7 @@ from typing import Any, Callable, Awaitable
 # instead would be NEW-25 — a caller reimplementing a shared contract inline —
 # which is the exact defect this engagement keeps finding.
 from gateway.error_contract import classify as _classify_exception
-from runtime.security import agent_access_allowed
+from runtime.security import CALLER_IDENTITY_KEY, agent_access_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -310,8 +310,22 @@ class ToolDispatcher:
         # trusted agent_name from the request context (NOT on tool arguments), so a
         # subverted agent cannot reach another agent's tools. For the platform_action
         # mega-tool the specific action is checked too.
+        #
+        # The seam is handed WHO is calling as well: the caller the entry point
+        # bound, built from this method's own parameters and never from
+        # `arguments`, which the model writes. Both boundary calls below used to
+        # pass no context, so any decision the core makes about a particular
+        # caller could not be made here: the one frame that knew the caller
+        # dropped it one line before asking. The core decides; this only makes
+        # sure it is told.
+        access_ctx = {
+            key: value
+            for key, value in ((CALLER_IDENTITY_KEY, caller_identity), ("caller_kind", caller_kind))
+            if value
+        }
         action = arguments.get("action") if tool_name == "platform_action" else None
-        allowed, reason = agent_access_allowed(agent_name, tool_name, action)
+        allowed, reason = agent_access_allowed(agent_name, tool_name, action,
+                                               context=dict(access_ctx))
         if not allowed:
             logger.warning("Agent '%s' DENIED tool '%s'%s: %s", agent_name, tool_name,
                            f" action '{action}'" if action else "", reason)
@@ -330,7 +344,8 @@ class ToolDispatcher:
         # refusals below see only the two dispatching tools, so without this the
         # rest of the toolset was fenced by the agent name alone.
         if caller_kind not in ("operator", ""):
-            allowed, reason = agent_access_allowed(self.NON_OPERATOR_AGENT, tool_name, action)
+            allowed, reason = agent_access_allowed(self.NON_OPERATOR_AGENT, tool_name, action,
+                                                   context=dict(access_ctx))
             if not allowed:
                 logger.warning("Caller '%s' DENIED tool '%s'%s as agent '%s': %s", caller_kind,
                                tool_name, f" action '{action}'" if action else "",

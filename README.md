@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,468 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,478 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -193,7 +193,14 @@ What works today, no chain required:
   happened to it. A denial by the security gate, a gate that could not be
   reached, an executor that was not wired and an execution that threw are
   each reported as the refusal they are, and when Neo does run, the
-  hand-off relays Neo's own verdict rather than its own opinion of it
+  hand-off relays Neo's own verdict rather than its own opinion of it.
+  Every tool call asks the security seam with the caller identity the
+  request's entry point bound, never one the model wrote into its
+  arguments, and the hand-off's gate is told the same identity, so a
+  decision the core makes about who is calling can bind at both. On every
+  chat entrance that identity comes from the session the caller presents;
+  only an operator integration may name the user it acts for, and an
+  anonymous caller has none
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 50+ blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide

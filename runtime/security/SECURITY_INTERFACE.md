@@ -14,6 +14,12 @@ owners, or sanitizes — are **not in this repository** and never will be.
   `RexhepiGate`, so every execution path passes it before any privileged action.
 - `gate.evaluate(action, context)` returns an allow/deny decision. The gate is
   **authoritative server-side** — app-side checks are UX only.
+- The per-agent tool boundary, `agent_access_allowed(agent, tool, action, context)`,
+  is asked on every tool call by `runtime/tools/dispatcher.py`. Its `context`
+  carries the caller identity the entry point bound, under
+  `CALLER_IDENTITY_KEY`, and never a value from the model's tool arguments. The
+  hand-off (`runtime/agents/handoff.py`) hands its gate the same caller. What the
+  core decides from it is the core's; the seam's part is that it arrives.
 - OTP / owner-verification services are obtained the same way
   (`from runtime.security import OTPService, OwnerVerification`) and back the
   `/security/...` endpoints and the bridge approval gate.

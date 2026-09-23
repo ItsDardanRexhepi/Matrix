@@ -29,6 +29,7 @@ import logging
 from typing import Any
 
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+from runtime.security import CALLER_IDENTITY_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -115,9 +116,11 @@ class AgentHandoff:
                 "morpheus": decision,
             }
         try:
-            # 17-J: this chain has no human caller — Trinity -> Morpheus -> Neo is
-            # agent-to-agent, with no HTTP request, session or wallet anywhere in
-            # the path. `caller_identity` is correctly "", and DECLARING the
+            # 17-J: Neo's execution is agent-to-agent — Trinity -> Morpheus -> Neo —
+            # and runs under that declared source with `caller_identity` "". The
+            # caller the chat bound, when there is one, is handed to the GATE
+            # above (as_tool); who Neo's execution is recorded as acting for is a
+            # separate question this channel does not answer, and DECLARING the
             # source is what stops that "" being read as a dropped identity.
             result = await self._dispatcher.execute(
                 action, None, params, caller_source="agent_handoff",
@@ -147,12 +150,27 @@ class AgentHandoff:
             "result": result,
         }
 
-    async def as_tool(self, action: str = "", params: dict | None = None, **extra: Any) -> str:
+    async def as_tool(
+        self,
+        action: str = "",
+        params: dict | None = None,
+        *,
+        caller_identity: str = "",
+        **extra: Any,
+    ) -> str:
         """Tool-handler shape: returns a JSON string for the ReAct loop. ``params``
-        may arrive as a dict or be spread across keyword args."""
+        may arrive as a dict or be spread across keyword args.
+
+        ``caller_identity`` is the caller the entry point bound. The dispatcher
+        injects it because this signature names it, after stripping any value
+        the model wrote under that name, so it is never model-authored. It is
+        handed to the gate that decides on the inner action, which used to be
+        asked with no idea who was calling, only that Trinity was relaying.
+        """
         merged = dict(params or {})
         merged.update({k: v for k, v in extra.items() if k not in ("action", "params")})
-        outcome = await self.escalate(action, merged)
+        context = {CALLER_IDENTITY_KEY: caller_identity} if caller_identity else None
+        outcome = await self.escalate(action, merged, context)
         return json.dumps(outcome, default=str)
 
     @property
