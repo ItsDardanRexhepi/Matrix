@@ -764,9 +764,16 @@ class ServiceRoutes:
         except ValueError as exc:
             # Invalid parameter *value* (e.g. an unsupported oracle pair) is an
             # honest client error, not a server fault — surface a 400, never a 500.
+            # A refusal that names a machine-readable `code` (governance's
+            # AlreadyVoted) carries it as `error_code`, so a client can tell
+            # refusals apart without reading the sentence.
             logger.info("Rejected %s.%s: %s", service_name, method_name, exc)
+            body: dict[str, Any] = {"error": str(exc)}
+            code = getattr(exc, "code", None)
+            if isinstance(code, str) and code:
+                body["error_code"] = code
             raise web.HTTPBadRequest(
-                text=json.dumps({"error": str(exc)}),
+                text=json.dumps(body),
                 content_type="application/json",
             )
         except NotImplementedError as exc:
