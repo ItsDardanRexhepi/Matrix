@@ -15,7 +15,9 @@ import pytest
 # or by the code under test lands there, child processes inherit it through
 # TMPDIR, and one run cannot delete another's files. A run that is killed never
 # reaches session end, so its folder carries its process id, and each new run
-# removes the folders of processes that have exited — never a live one's.
+# removes the folders of processes that have exited — keeping any folder whose
+# process is alive or cannot be checked, and any that still holds a live run's
+# folder. The check is POSIX-only; on Windows no folder is swept.
 _SESSION_TEMP = {"dir": None, "tempdir": None, "env": None}
 _SUITE_PREFIX = "the-matrix-suite-"
 _SUITE_FOLDER = re.compile(r"the-matrix-suite-([0-9]+)-.+")
@@ -23,7 +25,8 @@ _SUITE_FOLDER = re.compile(r"the-matrix-suite-([0-9]+)-.+")
 
 def _pid_of(name: str):
     """The process id a suite folder's name carries, or None when the name is not
-    exactly a suite folder's (ASCII digits, then a dash) or the id is unusable."""
+    exactly a suite folder's (ASCII digits, then a dash). Whether the id names a
+    process at all is left to _process_is_alive."""
     match = _SUITE_FOLDER.fullmatch(name)
     return int(match.group(1)) if match else None
 
@@ -31,7 +34,11 @@ def _pid_of(name: str):
 def _process_is_alive(pid: int) -> bool:
     """True unless the process has certainly exited. Anything the check cannot
     settle — an id out of range, a permission refusal — counts as alive, so the
-    sweep keeps the folder rather than guessing."""
+    sweep keeps the folder rather than guessing. On Windows os.kill(pid, 0) sends
+    a console control event instead of probing, so there every process counts as
+    alive and nothing is swept."""
+    if os.name == "nt":
+        return True
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
