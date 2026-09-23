@@ -55,7 +55,6 @@ jobs:
           pdoc \
             --output-directory site \
             --docformat google \
-            --logo "https://raw.githubusercontent.com/${{ github.repository }}/main/docs/logo.png" \
             --footer-text "The Matrix — built by Neo" \
             runtime gateway hivemind
 

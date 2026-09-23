@@ -93,3 +93,7 @@ web/pricing.html
 AUDIT_BASELINE*.txt
 contracts/out/
 contracts/cache/
+# What contracts/deploy.py writes on a run: each deployed contract's ABI and
+# the deployment record (network, chain id, addresses). One operator's output.
+contracts/deployment.json
+contracts/*.abi.json
