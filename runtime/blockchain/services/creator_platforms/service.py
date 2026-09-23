@@ -468,9 +468,13 @@ class CreatorPlatformsService:
         # AS ONE.
         #
         # Safe to run first, checked rather than assumed: the 21-B refusal does
-        # NOT name the operator's configured value (measured), so an
-        # unauthenticated caller learns only that theirs was rejected. And it
-        # touches no network.
+        # NOT name the operator's configured value (measured), and it touches
+        # no network. It is not silent about a correct guess, though: a caller
+        # who names the configured party passes this gate and is answered by
+        # the next one (a credential or endpoint gate), which is a different
+        # response — so the pair of answers confirms a guess. Accepted and
+        # stated: a byline or a publication is ordinarily public, and the
+        # refusal still never discloses it.
         #
         # THE 21-A ENABLEMENT GATE STILL PRECEDES EVERYTHING, deliberately.
         # SR-2 orders gates WITHIN AN ENABLED SERVICE. "Is this service on at
@@ -582,7 +586,8 @@ class CreatorPlatformsService:
                 "publish_mirror_post",
                 extra={"reason": (
                     f"mirror_endpoint must be a URL string, got "
-                    f"{type(endpoint).__name__} {endpoint!r}."
+                    f"{type(endpoint).__name__} "
+                    f"{safe_text(repr(endpoint))}."
                 )},
             )
         url = endpoint.rstrip("/") + "/tx"
@@ -670,9 +675,13 @@ class CreatorPlatformsService:
         # AS ONE.
         #
         # Safe to run first, checked rather than assumed: the 21-B refusal does
-        # NOT name the operator's configured value (measured), so an
-        # unauthenticated caller learns only that theirs was rejected. And it
-        # touches no network.
+        # NOT name the operator's configured value (measured), and it touches
+        # no network. It is not silent about a correct guess, though: a caller
+        # who names the configured party passes this gate and is answered by
+        # the next one (a credential or endpoint gate), which is a different
+        # response — so the pair of answers confirms a guess. Accepted and
+        # stated: a byline or a publication is ordinarily public, and the
+        # refusal still never discloses it.
         #
         # THE 21-A ENABLEMENT GATE STILL PRECEDES EVERYTHING, deliberately.
         # SR-2 orders gates WITHIN AN ENABLED SERVICE. "Is this service on at
@@ -760,7 +769,8 @@ class CreatorPlatformsService:
                 "publish_paragraph_post",
                 extra={"reason": (
                     f"paragraph_endpoint must be a URL string, got "
-                    f"{type(endpoint).__name__} {endpoint!r}."
+                    f"{type(endpoint).__name__} "
+                    f"{safe_text(repr(endpoint))}."
                 )},
             )
         url = endpoint.rstrip("/") + "/v1/posts"

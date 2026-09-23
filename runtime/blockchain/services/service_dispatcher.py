@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 # params.from, all written by the caller; on /chat, through the
 # `platform_action` tool, it is the chat body's `wallet` field, session or not
 # (runtime/react_loop.py). One constant so the service side and the injection
-# side cannot drift apart.
+# side cannot drift apart — which holds because BOTH read it: the signature
+# check below and the injection in `execute` (it used to write the literal
+# "caller_identity" there, so renaming the constant would have split them).
 CALLER_IDENTITY_PARAM = "caller_identity"
 
 
@@ -64,10 +66,12 @@ def _method_accepts_caller_identity(method: Any) -> bool:
     unreadable signature degrades to today's behaviour instead of raising.
 
     Caching is keyed on the underlying FUNCTION, not on the bound method:
-    `getattr(instance, name)` mints a fresh bound method on every dispatch, so
-    caching those would both miss every time and pin every service instance
-    the cache ever saw. `__func__` is the module-level function object, which
-    is stable and already immortal.
+    `getattr(instance, name)` mints a fresh bound method on every dispatch,
+    and although bound methods hash equal when their instance and function
+    match (so the registry's cached instances WOULD hit from the second
+    dispatch on — this used to say they would "miss every time"), a cache
+    keyed on them pins every service instance it ever saw. `__func__` is the
+    module-level function object, which is stable and already immortal.
     """
     target = getattr(method, "__func__", method)
     try:
@@ -1502,12 +1506,13 @@ class ServiceDispatcher:
             #
             # WHY SIGNATURE INJECTION AND NOT A ContextVar. A ContextVar (the
             # shape `gateway/security_gate.py` uses for the security context)
-            # would be less code, but it is bound at ONE of the four entry
-            # points that reach this dispatcher — the other three
-            # (capabilities/registry.py, agents/handoff.py, tools/dispatcher.py)
-            # never bind it, so a service reading it would silently see the
-            # PREVIOUS request's identity or nothing, with no signature to say
-            # so. Declaring the parameter makes the dependency visible in the
+            # would be less code, but it is bound by the gateway's security
+            # middleware for HTTP requests — which covers the capabilities
+            # invoke route and the bridge — and by nothing on the agent paths
+            # (agents/handoff.py, tools/dispatcher.py), where a service reading
+            # it would see whatever the task inherited or nothing, with no
+            # signature to say so. (This said three of the four entry points
+            # never bind it; the capabilities route is bound, one frame up.) Declaring the parameter makes the dependency visible in the
             # service's own API, works identically from all four entry points,
             # and is checkable by `inspect`.
             #
@@ -1530,7 +1535,7 @@ class ServiceDispatcher:
             # (tests/test_bound_identity_is_not_called_authenticated.py drives
             # it through the gateway).
             if _method_accepts_caller_identity(method):
-                params = {**params, "caller_identity": caller_identity or "",
+                params = {**params, CALLER_IDENTITY_PARAM: caller_identity or "",
                           "caller_source": _actor_source}
 
             # The caller's arguments either bind to the method or they do not,
@@ -1829,8 +1834,15 @@ class ServiceDispatcher:
         # it — the same principle the attestation path is built on, applied to
         # the path that runs when the attestation path declines.
         _status = result.get("status") if isinstance(result, dict) else None
-        # 17-D. A refusal names WHO was refused. "The system declined" is only
-        # half an audit record if it cannot say who it declined.
+        # 17-D. A refusal names WHO was refused, when there is someone to name.
+        # "The system declined" is only half an audit record if it cannot say
+        # who it declined. Not every refusal can: an action whose params carry
+        # no wallet/address, reached through an entry point with no identity,
+        # is logged as `actor=<unknown>` — this used to read as if every
+        # refusal identified its party. And the name is the one the entry point
+        # resolved, which is not always authenticated (see
+        # CALLER_IDENTITY_PARAM); the attestation carries that source, this
+        # line does not, so that it stays identical to the HTTP surface's.
         #
         # And it names, separately, who the REQUEST said was acting when that
         # disagrees with the identity the entry point resolved. Reading the

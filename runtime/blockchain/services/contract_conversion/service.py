@@ -132,6 +132,13 @@ class ContractConversionService:
                 artifact_key = key
                 break
         if artifact_key is None:
+            # `next(iter(...))` on an empty compile output raised StopIteration
+            # out of a method whose docstring says it raises only on
+            # cancellation. An empty artifact map is a compile result with
+            # nothing in it, answered like any other compile failure.
+            if not compiled:
+                return {"status": "error", "stage": "compile",
+                        "error": "compiler produced no contract artifacts"}
             artifact_key = next(iter(compiled.keys()))
         artifact = compiled[artifact_key]
         abi = artifact.get("abi", [])
@@ -310,15 +317,22 @@ class ContractConversionService:
             #
             # The regex pipeline recovers names, state variables, and function
             # signatures, but does NOT synthesise function bodies. A pseudocode
-            # declaration therefore yields a syntactically valid but behaviorally
-            # inert contract: the functions exist and do nothing.
+            # declaration therefore yields a syntactically valid contract whose
+            # declared functions do nothing of their own. Not quite inert: with
+            # fee injection on (the default), a body-less PAYABLE function
+            # gains `collectPlatformFee(msg.value)`, so calling it moves the
+            # platform's fee. Such a contract has no executable logic of its
+            # own, so it never passes the audit gate below and cannot deploy.
             #
             # Two consequences the old code reported dishonestly:
             #   part 2 — a conversion with unimplemented (empty-body) functions
             #            is not a "success"; it is "partial", and the caller is
             #            owed the explicit list of what was left empty.
-            #   part 3 — the Glasswing auditor finds nothing to flag in a
-            #            contract with no statements, so it returned passed=True.
+            #   part 3 — the Glasswing auditor finds nothing to flag at critical
+            #            or high severity in a contract with no statements (it
+            #            does flag low ones — the floating pragma every
+            #            generated contract carries), so it returned
+            #            passed=True.
             #            A green security verdict on a contract that cannot
             #            function is the actual hazard: the false all-clear. When
             #            there is no executable logic there is nothing to audit,
@@ -370,7 +384,11 @@ class ContractConversionService:
                 )
 
             if not has_executable_logic:
-                # No statements anywhere — the audit cannot render a verdict.
+                # None of the caller's functions has a statement — so the
+                # verdict the auditor rendered (it did run, above, and its
+                # report is set aside here) is not one worth giving. Injected
+                # fee code may still have statements; it is the platform's,
+                # not the logic the caller asked to have audited.
                 audit_dict = {
                     "verdict": "not_applicable",
                     "reason": (

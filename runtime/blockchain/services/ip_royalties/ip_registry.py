@@ -18,7 +18,11 @@ class IPRegistry:
 
     Each IP is registered with a content hash (SHA-256 of the work),
     a timestamp, and rich metadata. Registration is content-addressed:
-    the same content hash cannot be registered twice.
+    the same content hash cannot be registered twice IN THIS REGISTRY — the
+    index is this instance's, in memory, so it does not survive a restart
+    and is not shared between processes. ``update`` keeps the index: it used
+    to replace the record without touching it, so updating a record's hash
+    and then registering that hash again produced two records carrying it.
     """
 
     def __init__(self, config: dict) -> None:
@@ -84,9 +88,20 @@ class IPRegistry:
         return record
 
     async def update(self, ip_id: str, data: dict) -> dict:
-        """Update an existing IP record."""
+        """Update an existing IP record, keeping the content-hash index true."""
         if ip_id not in self._registry:
             raise ValueError(f"IP {ip_id} not found")
+        old_hash = self._registry[ip_id].get("content_hash", "")
+        new_hash = data.get("content_hash", old_hash)
+        if new_hash != old_hash:
+            holder = self._hash_index.get(new_hash)
+            if holder is not None and holder != ip_id:
+                raise ValueError(
+                    f"Content hash already registered as IP {holder}")
+            if self._hash_index.get(old_hash) == ip_id:
+                del self._hash_index[old_hash]
+            if new_hash:
+                self._hash_index[new_hash] = ip_id
         self._registry[ip_id] = data
         return data
 

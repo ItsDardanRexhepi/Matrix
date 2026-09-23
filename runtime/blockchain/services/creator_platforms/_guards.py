@@ -553,12 +553,16 @@ def classify_transport_fault(exc: Exception) -> str:
     """
     import json as _json
 
+    # A decode fault happens AFTER a response arrived — the post may exist.
+    # Checked FIRST: JSONDecodeError IS a ValueError, and with the encoding
+    # branch below ahead of it, a gateway 2xx with a non-JSON body was
+    # reported as "never left this process ... retrying is safe" about an
+    # entry already permanent on Arweave — and the retry published a second.
+    if isinstance(exc, _json.JSONDecodeError):
+        return "unknown"
     # Proof it never left: encoding failed before any socket write.
     if isinstance(exc, (TypeError, ValueError)) and not isinstance(exc, OSError):
         return "not_sent"
-    if isinstance(exc, _json.JSONDecodeError):
-        # A decode fault happens AFTER a response arrived — the post may exist.
-        return "unknown"
 
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int):

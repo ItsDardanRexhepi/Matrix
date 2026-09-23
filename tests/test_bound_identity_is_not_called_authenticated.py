@@ -465,10 +465,9 @@ FALSE_PHRASES = {
 # phrase. A new occurrence outside the quoted sentence still fails, so an
 # exemption covers the site that was read, not the file.
 TRUE_IN_CONTEXT = {
-    "runtime/blockchain/services/creator_platforms/service.py": [
-        ("an unauthenticated caller learns only that theirs was rejected",
-         "about what a refusal discloses, not about who the caller is"),
-    ],
+    # creator_platforms/service.py's "an unauthenticated caller learns only
+    # that theirs was rejected" was corrected (a matching guess is confirmed
+    # by the next gate's different answer) and no longer uses the word.
     "runtime/blockchain/services/governance/service.py": [
         ("bind `signer` to an authenticated caller (deferred register item 0",
          "a requirement on unwritten multisig approval, which raises today"),

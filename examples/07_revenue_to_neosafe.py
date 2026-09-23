@@ -113,7 +113,8 @@ contract SimpleToken {
             print(f"    - platformFeeBps state variable")
             print(f"    - collectPlatformFee modifier")
             print(f"    - _collectERC20Fee internal helper")
-            print(f"    - setPlatformFeeRecipient (owner-only)")
+            print(f"    - setPlatformFeeRecipient / setPlatformFeeBps (owner-only: the")
+            print(f"      contract's onlyOwner if it has one, else its deployer)")
             print(f"    - Constructor initialisation")
         else:
             warn("platform_wallet not configured — showing injection pattern only")
@@ -121,7 +122,8 @@ contract SimpleToken {
             print(f"    - platformFeeRecipient = <NeoSafe address>")
             print(f"    - platformFeeBps = 250 (2.5%)")
             print(f"    - collectPlatformFee modifier on payable functions")
-            print(f"    - Owner-only setters for fee config")
+            print(f"    - Owner-only setters for fee config (the contract's onlyOwner,")
+            print(f"      or the deployer when it has no owner)")
     except Exception as e:
         warn(f"RevenueEnforcer demo: {e}")
 

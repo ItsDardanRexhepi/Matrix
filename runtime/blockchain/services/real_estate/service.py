@@ -65,7 +65,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "deed_contract": "",
 }
 
-# Escrow state machine — the ONLY legal transitions. Everything else raises.
+# Escrow state machine — the ONLY legal transitions. Everything else raises:
+# every state change goes through `_move`, which asserts against this table
+# before the store writes it. (Four call sites used to write the store
+# directly, and one of them "transitioned" initiated -> initiated to attach a
+# ref, appending a duplicate history entry; attaching a ref is not a
+# transition and no longer writes one.)
 VALID_TRANSITIONS: dict[str, frozenset[str]] = {
     "initiated": frozenset({"funds_locked", "refunded"}),
     "funds_locked": frozenset({"settled", "refunded"}),
@@ -462,11 +467,16 @@ class RealEstateService:
             amount_wei=prop["price_wei"], state="initiated",
             readiness_snapshot=readiness,
         )
-        # Bind the exact readiness snapshot into the on-chain condition: the
-        # bytes32 the contract requires (non-zero) is the readiness digest, so
-        # the settlement is cryptographically tied to THIS verdict and the
-        # contract's "no readiness attestation" guard passes only for a real
-        # one. The EAS attestation of the same snapshot is recorded off-chain.
+        # Put the exact readiness snapshot into the on-chain condition: the
+        # bytes32 the contract requires is the readiness digest, in the
+        # calldata this method prepares. What the CONTRACT checks is only
+        # that the value is non-zero — `require(readinessAttestation !=
+        # bytes32(0))` — and the buyer sends the transaction, so a buyer who
+        # writes their own calldata can put any non-zero bytes32 there and
+        # settle with no readiness verdict at all. This comment used to say
+        # the guard "passes only for a real one"; it does not, and nothing
+        # on-chain ties the settlement to this verdict. The EAS attestation of
+        # the same snapshot is recorded off-chain.
         readiness_digest = hashlib.sha256(
             json.dumps(readiness, sort_keys=True).encode()).digest()
         snapshot_ref, snapshot_status = await self._attest(
@@ -487,9 +497,11 @@ class RealEstateService:
             # accepts it; it commits the settlement to this exact snapshot.
         )
         # Record the snapshot attestation outcome on the escrow (honest even
-        # when unattested — the ref field carries the status string).
-        await self._store.transition_escrow(
-            escrow["id"], new_state="initiated",
+        # when unattested — the ref field carries the status string). An
+        # annotation, not a transition: the state stays `initiated` and no
+        # history entry is written.
+        await self._store.annotate_escrow(
+            escrow["id"],
             attestation_refs={"readiness_snapshot": snapshot_ref or snapshot_status})
 
         await self._store.update_property(property_id, status="under_escrow")
@@ -587,10 +599,15 @@ class RealEstateService:
                         " matching Settled event) — escrow state unchanged.",
                         "tx_hash": tx_hash}
 
-            # Genuinely settled: the atomic contract op means lock + settle both
-            # happened in this one tx — walk the machine truthfully.
-            await self._store.transition_escrow(
-                escrow_id, new_state="funds_locked", tx_hashes={"lock": tx_hash})
+            # Genuinely settled. Walk the machine truthfully — including WHICH
+            # transaction locked the funds. `lockAndSettle` locks and settles
+            # in one transaction; the two-step `settle` settles funds another
+            # transaction locked, and its receipt carries the same Settled
+            # event. This used to record this hash as the lock either way.
+            lock_hash = (tx_hash if self._receipt_locks_escrow(receipt, escrow, escrow_addr)
+                         else "earlier transaction, not identified")
+            await self._move(
+                escrow, "funds_locked", tx_hashes={"lock": lock_hash})
             settlement_ref, settlement_status = await self._attest(
                 schema="document_verification",
                 data={
@@ -602,12 +619,11 @@ class RealEstateService:
                 },
                 recipient=escrow["buyer_wallet"],
             )
-            await self._store.transition_escrow(
-                escrow_id, new_state="settled",
+            settled = await self._move(
+                {**escrow, "state": "funds_locked"}, "settled",
                 tx_hashes={"settle": tx_hash},
                 attestation_refs={"settlement": settlement_ref or settlement_status})
-            final = await self._store.transition_escrow(
-                escrow_id, new_state="offchain_recording_pending")
+            final = await self._move(settled, "offchain_recording_pending")
             await self._store.update_property(escrow["property_id"], status="sold")
             return {
                 "status": "settled",
@@ -674,9 +690,8 @@ class RealEstateService:
         escrow = await self._store.get_escrow(escrow_id)
         if escrow is None:
             raise ValueError(f"escrow not found: {escrow_id}")
-        self._assert_transition(escrow["state"], "complete")
-        updated = await self._store.transition_escrow(
-            escrow_id, new_state="complete",
+        updated = await self._move(
+            escrow, "complete",
             attestation_refs={"recording_reference": recording_reference or "unreferenced"})
         return updated
 
@@ -688,9 +703,8 @@ class RealEstateService:
         escrow = await self._store.get_escrow(escrow_id)
         if escrow is None:
             raise ValueError(f"escrow not found: {escrow_id}")
-        self._assert_transition(escrow["state"], "refunded")
-        updated = await self._store.transition_escrow(
-            escrow_id, new_state="refunded",
+        updated = await self._move(
+            escrow, "refunded",
             attestation_refs={"refund_reason": reason or "unspecified"})
         await self._store.update_property(escrow["property_id"], status="listed")
         return updated
@@ -701,6 +715,33 @@ class RealEstateService:
         if escrow is None:
             raise ValueError(f"escrow not found: {escrow_id}")
         return escrow
+
+    async def _move(self, escrow: dict, new_state: str, **changes) -> dict:
+        """The one way an escrow changes state: asserted, then written."""
+        self._assert_transition(escrow["state"], new_state)
+        return await self._store.transition_escrow(
+            escrow["id"], new_state=new_state, **changes)
+
+    def _receipt_locks_escrow(self, receipt, escrow: dict, escrow_addr: str) -> bool:
+        """Does the receipt ALSO carry this escrow's FundsLocked event from our
+        contract — i.e. did this transaction lock the funds it settled?"""
+        try:
+            from web3 import Web3
+            want_addr = Web3.to_checksum_address(escrow_addr)
+            locked_topic0 = bytes(Web3.keccak(
+                text="FundsLocked(bytes32,address,address,uint256,uint64)"))
+            want_escrow_id = hashlib.sha256(escrow["id"].encode()).digest()
+            for log in receipt.get("logs", []):
+                addr = log.get("address")
+                if addr is None or Web3.to_checksum_address(addr) != want_addr:
+                    continue
+                topics = [bytes(t) for t in log.get("topics", [])]
+                if len(topics) >= 2 and topics[0] == locked_topic0 \
+                        and topics[1] == want_escrow_id:
+                    return True
+        except Exception:  # noqa: BLE001 — unknown is "not identified"
+            logger.debug("lock-event check failed", exc_info=True)
+        return False
 
     def _assert_transition(self, current: str, target: str) -> None:
         allowed = VALID_TRANSITIONS.get(current, frozenset())
