@@ -11,8 +11,9 @@ configure it to.
 
 The enforcing security core is a separately installed private package and is not
 part of this repository. Without it the platform runs the no-op security
-backend, which allows every action, enforces nothing and says so at boot; a
-gateway declared production (`MATRIX_ENV=production`) refuses to start on it
+backend: its gate allows every action it is asked about and applies none of the
+core's checks, the platform's own per-agent tool boundary still holds, and it says
+so at boot. A gateway declared production (`MATRIX_ENV=production`) refuses to start on it
 (section 5).
 
 Terms used below: **CREDENTIAL-GATED** (code complete, needs the value to
@@ -54,7 +55,8 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 
 | Credential | Set in | Unlocks |
 |---|---|---|
-| **Paymaster signer key** | platform `blockchain.paymaster.signer_key` (env `MATRIX_PAYMASTER_SIGNER_KEY`); when that is absent, the flat `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | `POST /api/v1/paymaster/sign`, the server half of the verifying paymaster. It signs gas sponsorship only, never anything the user's account does. |
+| **Paymaster signer key** | platform `blockchain.paymaster.signer_key` (env `MATRIX_PAYMASTER_SIGNER_KEY`); when that is absent, the flat `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | `POST /api/v1/paymaster/sign`, the server half of the verifying paymaster. The sponsorship signature covers gas only, never anything the user's account does. |
+| **Platform signer key** | platform `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | Required under `MATRIX_ENV=production`: the gateway refuses to start without it. The platform's own on-chain calls — EAS attestations and the transactions the blockchain services send — are signed with it, and it is the paymaster signer's fallback. |
 | **Paymaster address** | platform `blockchain.paymaster.address` | The deployed verifying paymaster the signature is for. Without it, or without the signer key, the sign route answers 503. |
 | Sponsorship policy | platform `blockchain.paymaster.policy.allowed_actions` + `.daily_cap_usd` | Which actions, decoded from the call data being signed, are sponsored, and the per-identity daily cap enforced before signing. Unset → no allowlist and no cap. |
 
@@ -95,8 +97,10 @@ platform reaches it only through the seam in `runtime/security/` (see
 `runtime/security/SECURITY_INTERFACE.md`). Nothing in this section is a value
 you set in this repository.
 
-- With no core installed the platform runs the inert no-op backend: every action
-  is allowed and logged, nothing is enforced, and the platform says so at boot.
+- With no core installed the platform runs the inert no-op backend: its gate
+  allows every action it is asked about and applies none of the core's checks,
+  the platform's own per-agent tool boundary still holds, and the platform says so
+  at boot.
   That is a normal state for local and testnet use.
 - Under `MATRIX_ENV=production` the gateway refuses to start on the no-op
   backend, and names the cause. The readiness probe (`GET /ready`) fails on it
@@ -104,8 +108,10 @@ you set in this repository.
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core
-  does not start. For a run without the core, leave `MATRIX_ENV` unset or set a
-  non-production value such as `testnet`.
+  does not start. For a run without the core, set a non-production value such as
+  `MATRIX_ENV=testnet`. Leaving it unset is enough only when you start
+  `python -m gateway.server` yourself: `docker-compose.yml` turns an unset value
+  into `production`.
 - `python -c "import runtime.security as s; print(s.SECURITY_BACKEND)"` prints
   the backend that is live: `noop`, or `morpheus_security` when the core is
   installed and loaded. `./scripts/ops.sh doctor` reports the same value, and
@@ -173,14 +179,19 @@ gate → tool → chain**. To exercise it end-to-end on Base Sepolia:
 
 1. **Check the security backend:**
    `python -c "import runtime.security as s; print(s.SECURITY_BACKEND)"` prints
-   `noop` without the separately installed core (the gate logs and allows) and
+   `noop` without the separately installed core (the gate allows what it is asked) and
    `morpheus_security` with it (section 5). Either runs this on testnet, but
-   `noop` only with `MATRIX_ENV` unset or set to a non-production value: a
+   `noop` only with a non-production `MATRIX_ENV` (unset counts only for a direct
+   `python -m gateway.server`; `docker-compose.yml` defaults it to production): a
    production gateway refuses to start on it.
 2. **Set the values** (sections 1 and 3): for the deploy scripts `MATRIX_RPC_URL`,
    `MATRIX_PRIVATE_KEY` and `MATRIX_NEOSAFE_ADDRESS` (chain 84532 is their
    default); for the gateway `blockchain.rpc_url` (or `BASE_RPC_URL`),
-   `blockchain.platform_wallet`, your model provider's key and `MATRIX_API_KEY`.
+   `blockchain.platform_wallet`, the platform signer key `MATRIX_PAYMASTER_KEY`,
+   the attestation schema `blockchain.eas_schema` (step 5 attests), your model
+   provider's key and `MATRIX_API_KEY`. `docker-compose.yml` passes every secret
+   the gateway reads into the container from your shell or from a `.env` file
+   beside it; values in the config file are stripped in production.
 3. **Deploy the contracts:** `python -m scripts.deploy_all` (or `python scripts/deploy_all.py`).
    It compiles, deploys to Base Sepolia, attests each via EAS, and writes
    `deployment_manifest.json`. Copy addresses into `services.*` (section 7).

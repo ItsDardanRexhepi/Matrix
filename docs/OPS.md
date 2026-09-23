@@ -59,6 +59,13 @@ installed security core (`CREDENTIALS_NEEDED.md`, section 5). For a testnet run
 without the core, start `docker-compose.yml` alone with a non-production
 `MATRIX_ENV` and put your own TLS in front of it.
 
+`docker-compose.yml` passes every secret the gateway reads into the container —
+the platform signer key `MATRIX_PAYMASTER_KEY`, `MATRIX_API_KEY`, `BASE_RPC_URL`,
+the model provider keys and the rest of the table in
+`runtime/config/validation.py` — from your shell or from a `.env` file beside it.
+In production the gateway strips secret-shaped values out of `matrix.config.json`,
+so the environment is the only route by which they reach it.
+
 ```bash
 export MATRIX_DOMAIN=gateway.example.com
 export MATRIX_ADMIN_EMAIL=ops@example.com
