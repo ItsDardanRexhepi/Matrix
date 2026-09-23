@@ -10,7 +10,8 @@ Architecture
 ------------
 
 * **FeedEvent** — immutable value object representing a single action
-  (deployment, swap, NFT mint, vote …).
+  (swap, NFT mint, vote …). Not a deployment: no label narrates one
+  (NEW-12, below).
 * **FeedRankingEngine** — scores each event on four dimensions:
   recency (exponential decay), rarity (inverse frequency), value
   (log-scaled USD), and novelty (first-time actors or action types).

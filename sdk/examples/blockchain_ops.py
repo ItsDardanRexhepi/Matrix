@@ -36,7 +36,7 @@ contract HelloMatrix {
 }
 '''
     # NEW-12: this called client.deploy_contract(), which now raises
-    # NotImplementedError — the platform does not deploy contracts. The real
+    # NotImplementedError — the platform does not deploy a contract on request. The real
     # capability is conversion: it returns Solidity scaffolding you deploy
     # yourself with your own tooling and signer.
     result = await client.convert_contract(contract_source, source_lang="solidity")

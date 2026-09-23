@@ -266,7 +266,11 @@ class JarvisProtocol:
         "deploy": [
             {"action": "audit", "description": "Audit contract source", "priority": 1},
             {"action": "estimate_gas", "description": "Estimate deployment gas", "priority": 2},
-            # NEW-12: removed — suggesting an action the platform cannot perform.
+            # NEW-12: removed — a "deploy" step here suggested an action no
+            # caller can request: nothing dispatches a deployment and
+            # smart_contracts.deploy answers not_implemented. (The one path
+            # that does deploy is operator-controlled — conversion.auto_deploy,
+            # off by default — and is not a step a plan can ask for.)
             {"action": "verify", "description": "Verify deployment on explorer", "priority": 4},
         ],
         "claim": [

@@ -522,7 +522,10 @@ class MorpheusTriggerSystem:
 
         irreversible_notes: dict[str, str] = {
             # NEW-12: removed — warned about the consequences of a deployment
-            # the platform cannot perform.
+            # no action can request. The one path that does deploy,
+            # conversion.auto_deploy (off by default), runs inside
+            # convert_contract and reaches Morpheus as that action, not as a
+            # deployment, so a deploy note here would never be the one shown.
             "burn_nft": "Burning this NFT will destroy it permanently. It cannot be recovered.",
             "transfer_ownership": "Transferring ownership is permanent. You will lose control of this contract.",
             "self_destruct": "Self-destructing this contract will remove its code from the blockchain permanently.",

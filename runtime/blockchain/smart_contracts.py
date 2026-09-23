@@ -122,7 +122,7 @@ class SmartContracts(BlockchainInterface):
             "status": "not_implemented",
             "error": "Contract deployment is not available.",
             "detail": (
-                "This platform compiles and audits Solidity; it does not deploy "
+                "This tool compiles and audits Solidity; it does not deploy "
                 "it. Use action 'compile' to get the ABI and bytecode, then "
                 "deploy with your own signer. Nothing was deployed."
             ),

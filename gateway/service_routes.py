@@ -1438,7 +1438,11 @@ class ServiceRoutes:
                     "reported success, which read as a completed deployment. It "
                     "never deployed anything. Use POST /api/v1/contracts/convert "
                     "to generate Solidity; deploying it is a separate step you "
-                    "currently perform with your own tooling and signer."
+                    "currently perform with your own tooling and signer, unless "
+                    "this gateway's operator has turned on automatic "
+                    "deployment for conversions (conversion.auto_deploy, off "
+                    "by default), which deploys a conversion that passes its "
+                    "audit with the platform's key."
                 ),
                 "see": "/api/v1/contracts/convert",
             },

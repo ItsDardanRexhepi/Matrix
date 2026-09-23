@@ -115,10 +115,17 @@ CAPABILITIES: list[dict[str, Any]] = [
     # ── Smart Contracts ────────────────────────────────────────────────────
     # NEW-4: `deploy_contract` used to be declared here as a separate capability
     # bound to contract_conversion.convert, described as producing "a deployed
-    # smart contract", and emitting a `contract_deployed` feed event. Nothing in
-    # that path deploys anything (auto_deploy defaults False and is set nowhere),
-    # so a successful conversion was broadcast to the social feed as a
-    # deployment. The fake success did not stop at the API.
+    # smart contract", and emitting a `contract_deployed` feed event. On the
+    # shipped configuration nothing in that path deploys — `conversion.
+    # auto_deploy` defaults False and no shipped config sets it — so a
+    # successful conversion was broadcast to the social feed as a deployment.
+    # The fake success did not stop at the API.
+    #
+    # "Nothing in that path deploys anything" is what this said, and it is not
+    # true of the path: with auto_deploy on, ContractConversionService compiles
+    # an audited, fully implemented conversion and broadcasts its constructor
+    # with the platform's key (`_compile_and_deploy`). The feed still has no
+    # row for it (feed_engine.ACTION_LABELS, NEW-12).
     #
     # The capability is removed rather than renamed: there is exactly one thing
     # this method does, and `convert_contract` already advertises it honestly.
