@@ -816,6 +816,118 @@ def platform_address(key: str) -> PlatformAddress:
     return PlatformAddress(Account.from_key(key))
 
 
+# ── what happened to a signature after it was signed ─────────────────────
+#
+# `settle` and `abandon` existed and nothing called them. Every metered
+# signature stayed SIGNED until the 24h sweep: the ledger never recorded SPENT,
+# and a signature the node refused outright never gave its budget back. The
+# only parties that learn either fact are the send (the node answers the raw
+# transaction) and the receipt wait (a receipt arrives) — so the signer files
+# each signature it produces under its transaction hash, which exists the
+# moment the bytes are signed, and those two places close the row by that hash.
+#
+# PER PROCESS, AND THAT IS ENOUGH. The send and the receipt wait for one
+# transaction run in the process that signed it. A row this table no longer
+# holds (evicted, or signed by a process that has since restarted) simply stays
+# SIGNED — the accounting it had before this existed, which holds budget and
+# never releases it early.
+
+import threading  # noqa: E402  (kept beside the thing it exists for)
+from collections import OrderedDict  # noqa: E402
+
+# Bounded: a signature whose sender never waits for a receipt is never closed,
+# and the table must not grow with them. Evicting the oldest leaves its row
+# SIGNED, the conservative state.
+_MAX_TRACKED_SIGNATURES = 4096
+
+_signed_rows: "OrderedDict[str, tuple[SponsorshipPolicy, str]]" = OrderedDict()
+_signed_rows_lock = threading.Lock()
+
+
+def _tx_key(tx_hash: Any) -> str:
+    """One spelling per transaction hash: `0x` + lowercase hex. hexbytes 1.x's
+    `.hex()` drops the prefix and a node's answer carries it, so neither form
+    may be compared raw."""
+    if isinstance(tx_hash, (bytes, bytearray, memoryview)):
+        return "0x" + bytes(tx_hash).hex()
+    text = str(tx_hash or "").strip().lower()
+    if text and not text.startswith("0x"):
+        text = "0x" + text
+    return text
+
+
+def _file_signature(tx_hash: Any, policy: "SponsorshipPolicy", reservation_id: str) -> None:
+    key = _tx_key(tx_hash)
+    if not key or not reservation_id or policy is None:
+        return
+    with _signed_rows_lock:
+        _signed_rows[key] = (policy, reservation_id)
+        _signed_rows.move_to_end(key)
+        while len(_signed_rows) > _MAX_TRACKED_SIGNATURES:
+            _signed_rows.popitem(last=False)
+
+
+def _take_signature(tx_hash: Any) -> Optional[tuple["SponsorshipPolicy", str]]:
+    with _signed_rows_lock:
+        return _signed_rows.pop(_tx_key(tx_hash), None)
+
+
+def settle_signature(tx_hash: Any) -> bool:
+    """A receipt answered for *tx_hash*: the transaction was MINED, and gas was
+    paid whether it succeeded or reverted. Marks its ledger row SPENT. False
+    when this process holds no row for it (unmetered, uncapped, or unknown)."""
+    entry = _take_signature(tx_hash)
+    if entry is None:
+        return False
+    policy, reservation_id = entry
+    policy.settle(reservation_id)
+    return True
+
+
+def abandon_signature(tx_hash: Any) -> bool:
+    """The node REFUSED *tx_hash*'s raw transaction: it will not be mined, no
+    gas is paid, and the budget goes back. Only for a refusal the node itself
+    stated — a transport fault says nothing about whether the bytes arrived,
+    and the row must then stay SIGNED."""
+    entry = _take_signature(tx_hash)
+    if entry is None:
+        return False
+    policy, reservation_id = entry
+    policy.abandon(reservation_id)
+    return True
+
+
+# Node answers that mean the transaction IS (or may yet be) in a mempool: the
+# same bytes were already accepted. Abandoning on these would hand back budget
+# for a transaction that can still be mined.
+_STILL_PENDING_REFUSALS = ("already known", "known transaction", "already imported")
+
+
+def node_refused(exc: BaseException) -> bool:
+    """Did the NODE answer this send with a refusal of the transaction?
+
+    Only a JSON-RPC error response counts: the node received the bytes and said
+    no. web3 7 raises `Web3RPCError` for that; web3 6 raised `ValueError`
+    carrying the RPC error dict. Anything else — a timeout, a dropped
+    connection, a 5xx from a proxy — may have delivered the bytes, so it is not
+    a refusal, and neither is a node saying it already has them.
+    """
+    message = ""
+    try:
+        from web3.exceptions import Web3RPCError
+    except Exception:  # noqa: BLE001 — older web3 has no such type
+        Web3RPCError = ()  # type: ignore[assignment]
+    if Web3RPCError and isinstance(exc, Web3RPCError):
+        message = str(exc)
+    elif isinstance(exc, ValueError) and exc.args and isinstance(exc.args[0], dict) \
+            and "message" in exc.args[0]:
+        message = str(exc.args[0].get("message", ""))
+    else:
+        return False
+    lowered = message.lower()
+    return not any(k in lowered for k in _STILL_PENDING_REFUSALS)
+
+
 class MeteredSigner:
     """An eth_account signer that consults the sponsorship policy at the moment
     it signs — when the transaction's real gas numbers exist.
@@ -840,8 +952,10 @@ class MeteredSigner:
 
         A caller that goes on to broadcast is the only party that ever learns
         whether the transaction landed, and it had no handle on the row — which
-        is why the row could only ever be written at signing time. It can now
-        call `policy.settle(...)` or `policy.abandon(...)` with this.
+        is why the row could only ever be written at signing time. The row is
+        also filed under the signed transaction's hash, so the send and the
+        receipt wait close it without holding this signer
+        (`abandon_signature` / `settle_signature`).
         """
         return self._last_reservation_id
 
@@ -877,6 +991,11 @@ class MeteredSigner:
         # budget, because it may land, and it does not claim gas has been paid.
         self._policy.commit(decision.reservation_id)
         self._last_reservation_id = decision.reservation_id
+        # Filed under the transaction's own hash, which the signed bytes already
+        # determine, so whoever next learns its fate can close the row.
+        tx_hash = getattr(signed, "hash", None)
+        if tx_hash is not None:
+            _file_signature(tx_hash, self._policy, decision.reservation_id)
         return signed
 
 

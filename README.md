@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,498 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,510 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -239,7 +239,16 @@ check behind it:
   the verification gas limit three times, not once, because that limit
   also bounds the paymaster's postOp — so the cap cannot authorise more
   real spend than it names. The sponsored action is decoded from the call
-  data being signed rather than read from a label the caller supplies. An
+  data being signed rather than read from a label the caller supplies. The
+  ledger says what became of each signature: it holds budget as signed,
+  becomes spent when a receipt shows the transaction was mined (a revert
+  pays gas too), and gives the budget back when the node refuses the
+  transaction outright; a send whose fate nobody learned keeps holding it,
+  because it may still be mined. A node refusal is read on the shared
+  web3 manager's send, which the services sign through; the blockchain
+  capabilities that broadcast on their own do not read it yet, so a
+  signature the node refused there holds budget until the day's window
+  passes. An
   operator who configures no cap keeps the previous behaviour
 - **The deployment tools will not put the old paymaster on a chain.** The
   paymaster the platform uses is the ERC-4337 verifying one, which pays

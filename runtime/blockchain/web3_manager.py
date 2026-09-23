@@ -316,7 +316,24 @@ class Web3Manager:
 
                 signed = account.sign_transaction(tx_to_sign)
                 raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
-                tx_hash = self.w3.eth.send_raw_transaction(raw)
+                try:
+                    tx_hash = self.w3.eth.send_raw_transaction(raw)
+                except Exception as send_exc:
+                    # THE NODE SAID NO: nothing will be mined and no gas is
+                    # paid, so the sponsorship budget this signature holds goes
+                    # back. Only a refusal the node stated — a transport fault
+                    # may have delivered the bytes, and that row stays SIGNED.
+                    signed_hash = getattr(signed, "hash", None)
+                    try:
+                        from runtime.blockchain.sponsorship import (
+                            abandon_signature, node_refused,
+                        )
+                        if signed_hash is not None and node_refused(send_exc):
+                            abandon_signature(signed_hash)
+                    except Exception as ledger_exc:  # noqa: BLE001
+                        logger.warning("sponsorship ledger: could not release a "
+                                       "refused signature: %s", ledger_exc)
+                    raise
                 return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             except Exception as exc:
                 logger.error("Web3Manager.send_transaction failed: %s", exc)
@@ -418,7 +435,7 @@ async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
         if remaining <= 0:
             break
         try:
-            return await asyncio.to_thread(
+            receipt = await asyncio.to_thread(
                 w3.eth.wait_for_transaction_receipt,
                 tx_hash,
                 timeout=min(slice_s, remaining),
@@ -430,6 +447,19 @@ async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
             # cannot reliably name web3's timeout type across versions, so
             # the DEADLINE decides and the last error is re-raised at it.
             last_exc = exc
+            continue
+        if receipt is not None:
+            # MINED — reverted or not, gas was paid. This is the one wait every
+            # receipt in the tree goes through, so it is where a sponsored
+            # signature's ledger row becomes SPENT. Outside the `try` above: a
+            # ledger fault must neither be read as a slice expiring nor cost
+            # the caller the receipt it is holding.
+            try:
+                from runtime.blockchain.sponsorship import settle_signature
+                settle_signature(tx_hash)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("sponsorship ledger: could not settle %s: %s", tx_hash, exc)
+        return receipt
     if last_exc is not None:
         raise last_exc
     raise TimeoutError(
