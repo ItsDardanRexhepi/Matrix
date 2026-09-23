@@ -12,12 +12,40 @@ import pytest
 # life of the pytest process, Python's temporary directory is a folder private
 # to that process, removed when the session ends: every mkdtemp made by a test
 # or by the code under test lands there, child processes inherit it through
-# TMPDIR, and one run cannot delete another's files.
+# TMPDIR, and one run cannot delete another's files. A run that is killed never
+# reaches session end, so its folder carries its process id, and each new run
+# removes the folders of processes that have exited — never a live one's.
 _SESSION_TEMP = {"dir": None, "tempdir": None, "env": None}
+_SUITE_PREFIX = "the-matrix-suite-"
+
+
+def _process_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _remove_folders_of_exited_runs(parent: str) -> None:
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith(_SUITE_PREFIX):
+            continue
+        pid_text = name[len(_SUITE_PREFIX):].split("-", 1)[0]
+        if not pid_text.isdigit() or _process_is_alive(int(pid_text)):
+            continue
+        shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
 
 
 def pytest_configure(config):
-    base = tempfile.mkdtemp(prefix="the-matrix-suite-")
+    _remove_folders_of_exited_runs(tempfile.gettempdir())
+    base = tempfile.mkdtemp(prefix=f"{_SUITE_PREFIX}{os.getpid()}-")
     _SESSION_TEMP.update(dir=base, tempdir=tempfile.tempdir, env=os.environ.get("TMPDIR"))
     tempfile.tempdir = base
     os.environ["TMPDIR"] = base

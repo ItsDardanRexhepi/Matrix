@@ -45,3 +45,33 @@ def test_the_session_temp_folder_is_private_to_this_run():
     assert here.name.startswith("the-matrix-suite-"), here
     made = pathlib.Path(tempfile.mkdtemp(prefix="the-matrix-probe-"))
     assert made.parent == here, (made, here)
+
+
+def _dead_pid() -> int:
+    """A process id that has certainly exited: run a child and reap it."""
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    return child.pid
+
+
+def test_a_killed_run_s_folder_is_removed_by_the_next_run(tmp_path):
+    """A run that is killed never reaches session end, so its private folder is
+    left behind. The next run removes folders whose process has exited and keeps
+    those whose process is alive."""
+    system_temp = tmp_path / "system-temp"
+    system_temp.mkdir()
+    orphan = system_temp / f"the-matrix-suite-{_dead_pid()}-abcd1234"
+    (orphan / "left-behind").mkdir(parents=True)
+    alive = system_temp / f"the-matrix-suite-{os.getpid()}-efgh5678"
+    alive.mkdir()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MATRIX_")}
+    env["TMPDIR"] = str(system_temp)
+    env["PYTHONPATH"] = str(ROOT)
+    run = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/test_the_suite_leaves_no_temporary_files.py::test_the_session_temp_folder_is_private_to_this_run",
+         "-q", "-p", "no:cacheprovider"],
+        cwd=ROOT, env=env, capture_output=True, text=True, timeout=300,
+    )
+    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+    assert not orphan.exists(), "a dead run's folder was left behind"
+    assert alive.exists(), "a live run's folder was removed"
