@@ -4,9 +4,18 @@ Two tables, async sqlite (house style of ``runtime.notifications.token_store``):
 
 * ``iap_transactions`` — one row per verified signed transaction, keyed on
   ``transaction_id``. This is the idempotency ledger: replaying the same
-  signed transaction (client retry, purchase-return + updates listener, or a
-  re-posted webhook) records NOTHING new. Consumables live here — accepted
-  and recorded, never entitlement rows, never a tier.
+  signed transaction (client retry, purchase-return + updates listener)
+  through /iap/verify records NOTHING new — the ledger row is not written
+  twice, and the entitlement row is not touched, so a replay cannot rebind a
+  lineage to the replayer's session or lift an expired row back to active.
+  It used to upsert the entitlement on every verify, replay or not. (The one
+  thing a replay may do is create an entitlement row that is MISSING, when
+  the first attempt recorded the transaction and failed before writing it.)
+  An App Store notification is not a replay of this kind: EXPIRED and
+  DID_RENEW carry the same transaction as the purchase they follow, so the
+  webhook applies its state flip whether or not the ledger row is new.
+  Consumables live here — accepted and recorded, never entitlement rows,
+  never a tier.
 * ``iap_entitlements`` — one row per subscription lineage, keyed on
   ``originalTransactionId``. ASN flips update ``status`` in place: refund
   flips the row to ``refunded``, revoke to ``revoked``, expiry to
@@ -19,7 +28,11 @@ terminal status, and ``set_status`` refuses to leave one without an explicit
 ``allow_terminal_override``. Refund wins regardless of arrival order.
 (A rare REFUND_REVERSED is deliberately NOT auto-reactivated — the ASN
 handler logs it for manual review; fail-closed means toward less
-entitlement, never more.)
+entitlement, never more.) That includes a refund or revocation that arrives
+BEFORE the lineage has a row: the webhook writes the row in its terminal
+state, so a later /verify of the same lineage cannot create it ``active``.
+It used to drop that notification (``set_status`` found no row) and answer
+Apple 200, so the refund was lost for good and the next verify entitled.
 
 This is the server-side entitlement PRIMITIVE — a queryable fact table.
 Nothing here gates existing routes; adopting it as a gate is a later,

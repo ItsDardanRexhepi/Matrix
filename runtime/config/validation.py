@@ -1,14 +1,20 @@
 """Pre-flight configuration validation and secret loading.
 
-The gateway must never start with obviously-broken config. This
-module centralises two responsibilities:
+In production (``MATRIX_ENV=production``) the gateway must not start with
+obviously-broken config: a validation error stops it. Outside production
+the same errors are logged and startup continues — a local or testnet run
+is allowed to be half-configured, and says so. This module centralises two
+responsibilities:
 
-1. **Env-only secret loading.** Private keys and third-party API tokens
-   must come from environment variables, never from the committed
-   config file. :func:`enforce_env_only_secrets` removes any such
-   fields from the loaded config dict and replaces them with the
-   corresponding environment variable value, or raises
-   :class:`ConfigValidationError` if the field is required and unset.
+1. **Env-only secret loading.** In production, private keys and third-party
+   API tokens come from environment variables (or, for a mounted secret,
+   the file its ``*_PATH`` variable names), never from the committed config
+   file: :func:`enforce_env_only_secrets` removes any plaintext copy of a
+   secret this module names and replaces it with the environment's value,
+   or raises :class:`ConfigValidationError` if the field is required and
+   unset. Outside production a real value in the file is kept and only
+   placeholders are removed, so "never from the config file" is a
+   production rule, not a universal one.
 
 2. **Pre-flight validation.** :func:`validate_config` walks the
    assembled config and returns a structured report of *all* missing
@@ -88,8 +94,11 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("notifications.whatsapp.account_sid",  "TWILIO_ACCOUNT_SID",    False),
     # NOTE: owner-verification secrets (OWNER_APPLE_ID / OWNER_WALLET /
     # OWNER_PHONE_NUMBER) are declared and validated by the private security
-    # package (morpheus_security), not here — the public platform never references
-    # the owner-auth factors. All env-only; never committed.
+    # package (morpheus_security), not here — no public code reads those
+    # variables. The public platform does pass owner FACTORS through: the
+    # bridge approval gate takes an Apple ID and a wallet from its caller and
+    # hands them to the seam's owner-OTP start (bridge/approval_gate.py), and
+    # CREDENTIALS_NEEDED.md names the variables. All env-only; never committed.
     # Sign in with Apple: the .p8 that signs token-revocation requests
     # (gateway/apple_auth.py). It had no env bridge at all, so the only place to
     # put it was the committed config file.
@@ -553,7 +562,10 @@ def validate_config(
             "not_deployed until a real RPC is configured",
         )
 
-    # Model providers: at least one must be usable
+    # Model providers: at least one SHOULD be usable. This is a WARNING in
+    # every mode, production included — the gateway starts with none, and a
+    # chat turn then answers that no model is configured. It used to read
+    # "must", which is the language of the errors above that stop a start.
     providers = _get(config, "model.providers") or {}
     if isinstance(providers, dict):
         usable = []

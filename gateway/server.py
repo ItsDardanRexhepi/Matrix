@@ -1360,7 +1360,16 @@ class GatewayServer:
                 purchase_date=tx["purchase_date"],
                 environment=tx["environment"],
             )
-            if product_type == "subscription" and tier:
+            # A REPLAY CHANGES NOTHING. This upserted on every verify, so the
+            # same signed transaction posted again rebound the lineage to the
+            # replayer's session and wrote `active` over an EXPIRED row. On a
+            # replay the only write left is creating a row that is MISSING —
+            # the first attempt recorded the transaction and failed before
+            # the entitlement, and the retry must not strand it.
+            writes_entitlement = product_type == "subscription" and tier and (
+                fresh or await self._entitlements.entitlement(
+                    tx["original_transaction_id"]) is None)
+            if writes_entitlement:
                 await self._entitlements.upsert_entitlement(
                     original_transaction_id=tx["original_transaction_id"],
                     product_id=tx["product_id"],
@@ -1453,14 +1462,28 @@ class GatewayServer:
                 )
             elif notification_type == "EXPIRED":
                 await self._entitlements.set_status(original_id, "expired")
-            elif notification_type == "REFUND":
-                await self._entitlements.set_status(original_id, "refunded")
+            elif notification_type in ("REFUND", "REVOKE"):
+                terminal = "refunded" if notification_type == "REFUND" else "revoked"
+                flipped = await self._entitlements.set_status(original_id, terminal)
+                if not flipped and product_type == "subscription" and tier \
+                        and await self._entitlements.entitlement(original_id) is None:
+                    # The refund arrived before the lineage had a row. Dropping
+                    # it (set_status finds nothing) and answering 200 lost the
+                    # refund for good — Apple does not resend an acknowledged
+                    # notification — and the next /verify created the row
+                    # `active`. The row is written in its terminal state, which
+                    # upsert keeps sticky against every later verify.
+                    await self._entitlements.upsert_entitlement(
+                        original_transaction_id=original_id,
+                        product_id=tx["product_id"],
+                        tier=tier,
+                        status=terminal,
+                        purchase_date=tx["purchase_date"],
+                        expires_date=tx["expires_date"],
+                        environment=tx["environment"],
+                    )
                 await self._entitlements.mark_transaction(
-                    tx["transaction_id"], "refunded")
-            elif notification_type == "REVOKE":
-                await self._entitlements.set_status(original_id, "revoked")
-                await self._entitlements.mark_transaction(
-                    tx["transaction_id"], "revoked")
+                    tx["transaction_id"], terminal)
             elif notification_type == "REFUND_REVERSED":
                 # Deliberately NOT auto-reactivated: terminal states are
                 # sticky (a replayed reversal after a second refund must not

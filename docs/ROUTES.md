@@ -8,14 +8,14 @@
 
 | Method | Path | Handler | Source | Public |
 |---|---|---|---|---|
-| GET | `/` | `handle_landing` | server.py:2547 | ✅ |
-| POST | `/a2a/jobs` | `handle_a2a_submit_job` | server.py:2581 |  |
-| GET | `/a2a/jobs/{job_id}` | `handle_a2a_get_job` | server.py:2582 |  |
-| GET | `/a2a/services` | `handle_a2a_services` | server.py:2580 | ✅ |
+| GET | `/` | `handle_landing` | server.py:2570 | ✅ |
+| POST | `/a2a/jobs` | `handle_a2a_submit_job` | server.py:2604 |  |
+| GET | `/a2a/jobs/{job_id}` | `handle_a2a_get_job` | server.py:2605 |  |
+| GET | `/a2a/services` | `handle_a2a_services` | server.py:2603 | ✅ |
 | POST | `/api/v1/agent/register` | `_handle_agent_register` | service_routes.py:308 |  |
 | GET | `/api/v1/attestation/verify/{uid}` | `_handle_attestation_verify` | service_routes.py:320 |  |
-| DELETE | `/api/v1/auth/account` | `handle_account_delete` | server.py:2535 | ✅ |
-| POST | `/api/v1/auth/apple` | `handle_apple_auth` | server.py:2534 | ✅ |
+| DELETE | `/api/v1/auth/account` | `handle_account_delete` | server.py:2558 | ✅ |
+| POST | `/api/v1/auth/apple` | `handle_apple_auth` | server.py:2557 | ✅ |
 | POST | `/api/v1/batch` | `_handle_batch` | service_routes.py:421 |  |
 | POST | `/api/v1/brand/campaign/create` | `_handle_brand_campaign_create` | service_routes.py:287 |  |
 | GET | `/api/v1/capabilities` | `_handle_capabilities_list` | service_routes.py:415 |  |
@@ -52,8 +52,8 @@
 | POST | `/api/v1/governance/snapshot/vote` | `_handle_snapshot_vote` | service_routes.py:371 |  |
 | POST | `/api/v1/governance/vote` | `_handle_governance_vote` | service_routes.py:261 |  |
 | POST | `/api/v1/groups` | `_handle_groups_create` | service_routes.py:2816 |  |
-| POST | `/api/v1/iap/asn` | `handle_iap_asn` | server.py:2537 | ✅ |
-| POST | `/api/v1/iap/verify` | `handle_iap_verify` | server.py:2536 | ✅ |
+| POST | `/api/v1/iap/asn` | `handle_iap_asn` | server.py:2560 | ✅ |
+| POST | `/api/v1/iap/verify` | `handle_iap_verify` | server.py:2559 | ✅ |
 | POST | `/api/v1/identity/create` | `_handle_did_create` | service_routes.py:235 |  |
 | POST | `/api/v1/identity/credential/issue` | `_handle_credential_issue` | service_routes.py:344 |  |
 | POST | `/api/v1/identity/credential/verify` | `_handle_credential_verify` | service_routes.py:345 |  |
@@ -123,17 +123,17 @@
 | POST | `/api/v1/supply-chain/provenance/log` | `_handle_provenance_log` | service_routes.py:388 |  |
 | POST | `/api/v1/supply-chain/register` | `_handle_supply_chain_register` | service_routes.py:299 |  |
 | POST | `/api/v1/supply-chain/verify` | `_handle_authenticity_verify` | service_routes.py:389 |  |
-| GET | `/audit` | `handle_audit_page` | server.py:2549 | ✅ |
-| POST | `/audit/request` | `handle_audit_request` | server.py:2560 |  |
-| GET | `/audit/{audit_id}` | `handle_audit_report` | server.py:2561 |  |
-| POST | `/auth/nonce` | `handle_auth_nonce` | server.py:2532 | ✅ |
-| POST | `/auth/verify` | `handle_auth_verify` | server.py:2533 | ✅ |
-| POST | `/badge/issue` | `handle_badge_issue` | server.py:2601 |  |
-| GET | `/badge/widget.js` | `handle_badge_widget_js` | server.py:2596 |  |
-| GET | `/badge/{badge_id}` | `handle_badge_page` | server.py:2597 |  |
-| GET | `/badge/{badge_id}/embed` | `handle_badge_embed` | server.py:2599 |  |
-| GET | `/badge/{badge_id}/status` | `handle_badge_status` | server.py:2598 |  |
-| GET | `/badges` | `handle_badges_list` | server.py:2600 | ✅ |
+| GET | `/audit` | `handle_audit_page` | server.py:2572 | ✅ |
+| POST | `/audit/request` | `handle_audit_request` | server.py:2583 |  |
+| GET | `/audit/{audit_id}` | `handle_audit_report` | server.py:2584 |  |
+| POST | `/auth/nonce` | `handle_auth_nonce` | server.py:2555 | ✅ |
+| POST | `/auth/verify` | `handle_auth_verify` | server.py:2556 | ✅ |
+| POST | `/badge/issue` | `handle_badge_issue` | server.py:2624 |  |
+| GET | `/badge/widget.js` | `handle_badge_widget_js` | server.py:2619 |  |
+| GET | `/badge/{badge_id}` | `handle_badge_page` | server.py:2620 |  |
+| GET | `/badge/{badge_id}/embed` | `handle_badge_embed` | server.py:2622 |  |
+| GET | `/badge/{badge_id}/status` | `handle_badge_status` | server.py:2621 |  |
+| GET | `/badges` | `handle_badges_list` | server.py:2623 | ✅ |
 | POST | `/bridge/v1/action` | `execute_action` | bridge.py:667 |  |
 | POST | `/bridge/v1/chat` | `chat` | bridge.py:665 | ✅ |
 | GET | `/bridge/v1/components` | `get_components` | bridge.py:679 |  |
@@ -147,48 +147,48 @@
 | POST | `/bridge/v1/session/resume` | `resume_session` | bridge.py:663 |  |
 | POST | `/bridge/v1/wallet/link` | `link_wallet` | bridge.py:669 |  |
 | GET | `/bridge/v1/wallet/status` | `wallet_status` | bridge.py:670 |  |
-| POST | `/certification/start` | `handle_cert_start` | server.py:2606 |  |
-| POST | `/certification/submit` | `handle_cert_submit` | server.py:2607 |  |
-| GET | `/certification/tracks` | `handle_cert_tracks` | server.py:2605 |  |
-| GET | `/certification/{cert_id}` | `handle_cert_verify` | server.py:2608 |  |
-| GET | `/chat` | `handle_chat_page` | server.py:2548 | ✅ |
-| POST | `/chat` | `handle_chat` | server.py:2524 | ✅ |
-| POST | `/chat/stream` | `handle_chat_stream` | server.py:2525 | ✅ |
-| GET | `/extensions/registry` | `handle_extensions_registry` | server.py:2556 | ✅ |
-| GET | `/extensions/registry/{component_id}` | `handle_extensions_component` | server.py:2557 |  |
-| GET | `/glasswing` | `handle_glasswing_page` | server.py:2595 | ✅ |
-| GET | `/health` | `handle_health` | server.py:2527 | ✅ |
-| GET | `/learn` | `handle_learn_page` | server.py:2604 | ✅ |
-| GET | `/marketplace` | `handle_marketplace_page` | server.py:2550 | ✅ |
-| GET | `/marketplace/plugins` | `handle_marketplace_list` | server.py:2585 |  |
-| POST | `/marketplace/plugins/submit` | `handle_marketplace_submit` | server.py:2588 |  |
-| GET | `/marketplace/plugins/{plugin_id}` | `handle_marketplace_plugin` | server.py:2586 |  |
-| POST | `/marketplace/plugins/{plugin_id}/purchase` | `handle_marketplace_purchase` | server.py:2587 |  |
-| GET | `/marketplace/purchased` | `handle_marketplace_purchased` | server.py:2589 |  |
-| POST | `/memory/read` | `handle_memory_read` | server.py:2530 |  |
-| POST | `/memory/write` | `handle_memory_write` | server.py:2531 |  |
-| GET | `/metrics` | `handle_metrics` | server.py:2543 |  |
-| GET | `/metrics/prom` | `handle_metrics_prometheus` | server.py:2544 |  |
-| GET | `/privacy` | `handle_privacy_page` | server.py:2552 | ✅ |
-| GET | `/ready` | `handle_ready` | server.py:2528 | ✅ |
-| POST | `/security/appattest/attest` | `handle_appattest_attest` | server.py:2542 | ✅ |
-| GET | `/security/appattest/challenge` | `handle_appattest_challenge` | server.py:2541 | ✅ |
-| POST | `/security/owner/request` | `handle_owner_otp_request` | server.py:2540 |  |
-| POST | `/security/phone/request` | `handle_otp_request` | server.py:2538 | ✅ |
-| POST | `/security/phone/verify` | `handle_otp_verify` | server.py:2539 | ✅ |
-| GET | `/services/conversion` | `handle_conversion_page` | server.py:2551 | ✅ |
-| GET | `/social` | `handle_social_feed_page` | server.py:2567 | ✅ |
-| GET | `/social/actor/{wallet}` | `handle_social_actor` | server.py:2571 |  |
-| GET | `/social/feed` | `handle_social_feed` | server.py:2568 | ✅ |
-| GET | `/social/feed/stream` | `handle_social_feed_stream` | server.py:2569 | ✅ |
-| POST | `/social/follow` | `handle_social_follow` | server.py:2574 |  |
-| POST | `/social/post` | `handle_social_post` | server.py:2564 |  |
-| GET | `/social/stats` | `handle_social_stats` | server.py:2572 | ✅ |
-| GET | `/social/trending` | `handle_social_trending` | server.py:2570 | ✅ |
-| POST | `/social/unfollow` | `handle_social_unfollow` | server.py:2575 |  |
-| GET | `/social/{address}/followers` | `handle_social_followers` | server.py:2576 |  |
-| GET | `/social/{address}/following` | `handle_social_following` | server.py:2577 |  |
-| GET | `/sponsor` | `handle_sponsor_redirect` | server.py:2592 | ✅ |
-| GET | `/status` | `handle_status` | server.py:2529 |  |
-| GET | `/terms` | `handle_terms_page` | server.py:2553 | ✅ |
-| GET | `/ws` | `handle_websocket` | server.py:2526 | ✅ |
+| POST | `/certification/start` | `handle_cert_start` | server.py:2629 |  |
+| POST | `/certification/submit` | `handle_cert_submit` | server.py:2630 |  |
+| GET | `/certification/tracks` | `handle_cert_tracks` | server.py:2628 |  |
+| GET | `/certification/{cert_id}` | `handle_cert_verify` | server.py:2631 |  |
+| GET | `/chat` | `handle_chat_page` | server.py:2571 | ✅ |
+| POST | `/chat` | `handle_chat` | server.py:2547 | ✅ |
+| POST | `/chat/stream` | `handle_chat_stream` | server.py:2548 | ✅ |
+| GET | `/extensions/registry` | `handle_extensions_registry` | server.py:2579 | ✅ |
+| GET | `/extensions/registry/{component_id}` | `handle_extensions_component` | server.py:2580 |  |
+| GET | `/glasswing` | `handle_glasswing_page` | server.py:2618 | ✅ |
+| GET | `/health` | `handle_health` | server.py:2550 | ✅ |
+| GET | `/learn` | `handle_learn_page` | server.py:2627 | ✅ |
+| GET | `/marketplace` | `handle_marketplace_page` | server.py:2573 | ✅ |
+| GET | `/marketplace/plugins` | `handle_marketplace_list` | server.py:2608 |  |
+| POST | `/marketplace/plugins/submit` | `handle_marketplace_submit` | server.py:2611 |  |
+| GET | `/marketplace/plugins/{plugin_id}` | `handle_marketplace_plugin` | server.py:2609 |  |
+| POST | `/marketplace/plugins/{plugin_id}/purchase` | `handle_marketplace_purchase` | server.py:2610 |  |
+| GET | `/marketplace/purchased` | `handle_marketplace_purchased` | server.py:2612 |  |
+| POST | `/memory/read` | `handle_memory_read` | server.py:2553 |  |
+| POST | `/memory/write` | `handle_memory_write` | server.py:2554 |  |
+| GET | `/metrics` | `handle_metrics` | server.py:2566 |  |
+| GET | `/metrics/prom` | `handle_metrics_prometheus` | server.py:2567 |  |
+| GET | `/privacy` | `handle_privacy_page` | server.py:2575 | ✅ |
+| GET | `/ready` | `handle_ready` | server.py:2551 | ✅ |
+| POST | `/security/appattest/attest` | `handle_appattest_attest` | server.py:2565 | ✅ |
+| GET | `/security/appattest/challenge` | `handle_appattest_challenge` | server.py:2564 | ✅ |
+| POST | `/security/owner/request` | `handle_owner_otp_request` | server.py:2563 |  |
+| POST | `/security/phone/request` | `handle_otp_request` | server.py:2561 | ✅ |
+| POST | `/security/phone/verify` | `handle_otp_verify` | server.py:2562 | ✅ |
+| GET | `/services/conversion` | `handle_conversion_page` | server.py:2574 | ✅ |
+| GET | `/social` | `handle_social_feed_page` | server.py:2590 | ✅ |
+| GET | `/social/actor/{wallet}` | `handle_social_actor` | server.py:2594 |  |
+| GET | `/social/feed` | `handle_social_feed` | server.py:2591 | ✅ |
+| GET | `/social/feed/stream` | `handle_social_feed_stream` | server.py:2592 | ✅ |
+| POST | `/social/follow` | `handle_social_follow` | server.py:2597 |  |
+| POST | `/social/post` | `handle_social_post` | server.py:2587 |  |
+| GET | `/social/stats` | `handle_social_stats` | server.py:2595 | ✅ |
+| GET | `/social/trending` | `handle_social_trending` | server.py:2593 | ✅ |
+| POST | `/social/unfollow` | `handle_social_unfollow` | server.py:2598 |  |
+| GET | `/social/{address}/followers` | `handle_social_followers` | server.py:2599 |  |
+| GET | `/social/{address}/following` | `handle_social_following` | server.py:2600 |  |
+| GET | `/sponsor` | `handle_sponsor_redirect` | server.py:2615 | ✅ |
+| GET | `/status` | `handle_status` | server.py:2552 |  |
+| GET | `/terms` | `handle_terms_page` | server.py:2576 | ✅ |
+| GET | `/ws` | `handle_websocket` | server.py:2549 | ✅ |

@@ -12,12 +12,24 @@ A single instance is shared across services. It is responsible for:
 - Detecting placeholder values in config so services can fall back to
   honest "not_deployed" responses instead of fabricating data.
 
-Web3Manager never raises an unhandled exception from public methods —
-errors are caught, logged, and surfaced as boolean availability or
-explicit ``RuntimeError`` from ``get_account``/``send_transaction``
-when the caller has explicitly opted into a real on-chain operation, and
-``BalanceUnavailable`` (a ``RuntimeError``) from ``get_balance_eth`` when no
-balance was read, because a 0.0 there is indistinguishable from an empty wallet.
+Web3Manager's constructor never raises: a connection that cannot be made
+leaves ``available`` False. The public methods that DO raise, which a caller
+opting into a real on-chain operation must handle, are:
+
+  * ``get_account`` / ``signer`` / ``send_transaction`` — ``RuntimeError``
+    when the chain or the paymaster key is not configured (``send_transaction``
+    also re-raises the node's own error after logging it);
+  * ``load_contract`` — ``RuntimeError`` when not available, ``ValueError``
+    for a placeholder or invalid address;
+  * ``wait_for_receipt`` — ``RuntimeError`` when not available, the last
+    error web3 raised while polling, or ``TimeoutError`` when no receipt
+    arrives in time;
+  * ``get_balance_eth`` — ``BalanceUnavailable`` (a ``RuntimeError``) when no
+    balance was read, because a 0.0 there is indistinguishable from an empty
+    wallet.
+
+This used to say the class "never raises an unhandled exception from public
+methods" and named only the first and the last of these.
 """
 
 from __future__ import annotations

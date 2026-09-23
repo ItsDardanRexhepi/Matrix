@@ -309,9 +309,19 @@ class PluginMarketplace:
         ]
 
     async def submit_listing(self, author: str, listing_data: dict) -> dict:
-        """Submit a new plugin listing for review.
+        """Record a new plugin listing with status ``pending``.
 
-        Only Enterprise tier users can submit plugins.
+        NO TIER IS CHECKED. This said "Only Enterprise tier users can submit
+        plugins", and nothing here or at the route reads a tier: the platform
+        has no server-side tier gate yet (subscriptions are Apple IAP, and the
+        entitlement store gates no route), and ``author`` is whatever the
+        request body says. Any caller the gateway's auth lets through can
+        submit.
+
+        NOTHING REVIEWS IT EITHER. There is no approval method and no
+        notification, so a listing stays ``pending`` — and ``list_plugins``
+        shows ``active`` ones only — until an operator changes it by hand. The
+        response says that rather than promising a review and a notice.
 
         Parameters
         ----------
@@ -366,7 +376,11 @@ class PluginMarketplace:
         return {
             "status": "submitted",
             "plugin_id": listing.plugin_id,
-            "message": "Plugin submitted for review. You will be notified when approved.",
+            "message": (
+                "Plugin recorded as pending. There is no review workflow or "
+                "approval notice in this platform yet; a pending listing is "
+                "not shown in the marketplace until an operator activates it."
+            ),
         }
 
     async def record_download(self, plugin_id: str) -> None:

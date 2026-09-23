@@ -37,11 +37,23 @@ def test_unconfigured_lookup_is_not_verified(monkeypatch):
 
 
 def test_attested_agent_is_verified(monkeypatch):
-    svc = AgentIdentity(CFG)
+    """The attestation has to BE this agent's registration by this platform —
+    its schema, its wallet as attester, and an agent_registration of `neo` in
+    its data. This used to pass with any live attestation and any attester,
+    which is what let one UID verify every agent name
+    (tests/test_runtime_core_claims_hold.py)."""
+    from eth_abi import encode
+
+    schema, wallet = "0x" + "cd" * 32, "0x" + "12" * 20
+    svc = AgentIdentity({"blockchain": {"network": "base-sepolia",
+                                        "eas_schema": schema,
+                                        "platform_wallet": wallet}})
     svc._registrations["neo"] = UID
+    data = "0x" + encode(["string", "string", "string", "uint256"],
+                         ["The Matrix", "agent_registration", "neo", 1]).hex()
     async def fake_verify(self, uid):
         return {"uid": uid, "verified": True, "exists": True, "revoked": False,
-                "attester": "0xattester"}
+                "attester": wallet, "schema": schema, "data": data}
     monkeypatch.setattr("runtime.blockchain.eas_client.EASClient.verify", fake_verify)
     out = _verify(svc, agent_name="neo")
     assert out["verified"] is True

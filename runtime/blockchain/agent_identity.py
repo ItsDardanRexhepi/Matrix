@@ -2,8 +2,15 @@
 Agent Identity — on-chain identity for AI agents in The Matrix.
 
 Each agent (Neo, Trinity, Morpheus) can have an on-chain identity
-attested via EAS, enabling verifiable agent actions.
-Gas covered by the platform.
+attested via EAS. Gas covered by the platform.
+
+What such an attestation proves is narrower than "verifiable agent
+actions". It is the PLATFORM's signature (its paymaster key) over the
+strings (platform, action, agent, timestamp); the agent name and action
+come from the caller, and the ``details`` dict is not encoded at all. It
+shows that this platform said an agent did something, not that the agent
+did it. ``verify`` checks an attestation is the platform's own registration
+of the named agent before it says ``verified``.
 """
 
 import json
@@ -88,7 +95,15 @@ class AgentIdentity(BlockchainInterface):
         attestation on-chain via ``EASClient.verify`` (EAS ``getAttestation``:
         exists + not revoked). ``verified`` is derived only from the agent's own
         attestation — never from unrelated platform-wallet activity (the previous
-        ``tx_count > 0`` trap). Fail-closed:
+        ``tx_count > 0`` trap).
+
+        "The agent's own" is checked, not assumed. The UID may come from the
+        caller, and exists-and-not-revoked is true of every live attestation on
+        that EAS contract, so any live UID used to verify any agent name. The
+        attestation must now be under the configured schema, attested by the
+        platform wallet, and decode to an ``agent_registration`` of THIS agent;
+        anything else answers ``verified: False`` and says which part did not
+        match. Fail-closed:
           • no registration resolved   -> verified False ("no registration")
           • RPC/EAS unconfigured        -> verified False ("lookup unconfigured")
           • attestation absent/revoked  -> verified False (honest reason)
@@ -132,6 +147,13 @@ class AgentIdentity(BlockchainInterface):
                                          "not configured); this agent's identity cannot be confirmed."},
                               indent=2)
         if result.get("verified"):
+            mismatch = self._not_this_agents_registration(result, agent_name)
+            if mismatch:
+                # The lookup ran and the attestation exists — it is just not
+                # this agent's registration by this platform. An answer.
+                return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": False,
+                                   "attestation_uid": uid, "reason": mismatch},
+                                  indent=2)
             return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": True,
                                "attestation_uid": uid,
                                "attester": result.get("attester"),
@@ -145,6 +167,30 @@ class AgentIdentity(BlockchainInterface):
         # The check RAN and returned a negative answer. The call succeeded.
         return json.dumps({**base, OUTCOME_FIELD: SUCCESS, "verified": False,
                            "attestation_uid": uid, "reason": reason}, indent=2)
+
+    def _not_this_agents_registration(self, result: dict, agent_name: str) -> str:
+        """Why a live attestation is not *agent_name*'s registration by this
+        platform, or "" when it is."""
+        bc = self.config.get("blockchain", {}) if isinstance(self.config, dict) else {}
+        schema = str(bc.get("eas_schema", "") or "").lower()
+        wallet = str(bc.get("platform_wallet", "") or "").lower()
+        if not schema or str(result.get("schema", "")).lower() != schema:
+            return "The attestation is not under this platform's EAS schema."
+        if not wallet or str(result.get("attester", "")).lower() != wallet:
+            return "The attestation was not made by this platform's wallet."
+        raw = str(result.get("data") or "")
+        try:
+            from eth_abi import decode
+            _platform, action, agent, _ts = decode(
+                ["string", "string", "string", "uint256"],
+                bytes.fromhex(raw[2:] if raw.startswith("0x") else raw))
+        except Exception:  # noqa: BLE001 — undecodable is not this agent's
+            return "The attestation's data does not decode as a platform record."
+        if action != "agent_registration":
+            return f"The attestation records '{action}', not an agent registration."
+        if agent != agent_name:
+            return f"The attestation registers agent '{agent}', not '{agent_name}'."
+        return ""
 
     async def _attest_action(self, params: dict) -> str:
         """Attest an action performed by an agent."""

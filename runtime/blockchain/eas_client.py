@@ -1,9 +1,22 @@
 """
 EAS Client — Ethereum Attestation Service integration.
 
-Every blockchain action in The Matrix is attested on-chain via EAS.
-Attestations provide a permanent, verifiable record of what was done,
-by whom, and when. All attestation gas is covered by the platform.
+Attestations are written on-chain via EAS, and their gas is covered by the
+platform. What one records is narrower than this module used to claim ("a
+permanent, verifiable record of what was done, by whom, and when"):
+
+  * not every blockchain action — the dispatcher attests a settled
+    state-modifying action it dispatched, when EAS is configured, and
+    ``attest`` answers ``skipped`` otherwise;
+  * not permanent — every attestation is created ``revocable`` and
+    ``verify`` treats a revocation as not verified;
+  * not "what was done" in full — the encoded data is (platform, action,
+    agent, timestamp); the ``details`` argument is accepted and NOT encoded;
+  * not "by whom" in the sense of who acted — the agent is a string the
+    caller chose, and the signer is always the platform's key.
+
+It is a record that THIS PLATFORM said an action happened, when, and which
+agent name it gave.
 """
 
 import json
@@ -67,10 +80,20 @@ class EASClient:
         self._manager = Web3Manager.get_shared(config)
 
     def _is_configured(self) -> bool:
-        """Return True only if EAS is fully configured and the manager is online."""
+        """Return True only if EAS is fully configured and the manager was
+        online when it was built.
+
+        "Fully configured" includes ``platform_wallet``: ``attest`` sends from
+        it and ``_validate_config`` requires it, and this check used to leave it
+        out, so a config without it passed here and failed inside the send.
+        "Online" is ``Web3Manager.available``, which is decided once, when the
+        shared manager connects; an RPC that goes down later is found by the
+        send, not here.
+        """
         if not self._manager.available:
             return False
-        for val in (self.eas_contract, self.eas_schema, self.paymaster_key):
+        for val in (self.eas_contract, self.eas_schema, self.paymaster_key,
+                    self.platform_wallet):
             if is_placeholder_value(val):
                 return False
         return True
@@ -258,6 +281,10 @@ class EASClient:
                 "schema": "0x" + attestation[1].hex() if isinstance(attestation[1], bytes) else str(attestation[1]),
                 "attester": attestation[7],
                 "recipient": attestation[6],
+                # The encoded payload, so a caller can check WHAT was attested
+                # and not only that something was (agent_identity does).
+                "data": "0x" + (attestation[9].hex() if isinstance(attestation[9], (bytes, bytearray))
+                                else str(attestation[9]).replace("0x", "")),
                 "time": attestation[2],
                 "network": self.config.get("blockchain", {}).get("network", "base-sepolia"),
             }
