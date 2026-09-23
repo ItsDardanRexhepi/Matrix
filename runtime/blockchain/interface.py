@@ -8,6 +8,7 @@ Every capability inherits from this and gets:
 - Config-driven chain/contract addresses (no hardcoded values)
 """
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
@@ -106,6 +107,32 @@ class BlockchainInterface(ABC):
         """
         from runtime.blockchain.sponsorship import platform_signer
         return await platform_signer(self.config, action)
+
+    async def _receipt(self, tx_hash: Any, action: str):
+        """The receipt of a transaction this capability SENT, or None.
+
+        None means no receipt arrived within the wait, and the caller answers it
+        with `_unconfirmed`, never with a refusal. Every capability used to call
+        `self.web3.eth.wait_for_transaction_receipt` inside the same `try` as
+        the send, so a wait that ran out was an exception, and the `except`
+        answered "Stake failed" or "Transfer failed" — to the agent, and to
+        outcome learning as a failure — for a transaction that was out and may
+        be mined, without its hash. The wait also blocked the event loop for up
+        to two minutes; `receipt_within` runs it off the loop.
+
+        `action` is `<capability>.<method>`, for the log line.
+        """
+        from runtime.blockchain.web3_manager import receipt_within
+        return await receipt_within(self.web3, tx_hash, 120, what=action)
+
+    def _unconfirmed(self, tx_hash: Any, **fields: Any) -> str:
+        """What a capability answers for a transaction it sent that no receipt
+        has confirmed: `web3_manager.unconfirmed_broadcast`, with the hash, as
+        JSON. Not a refusal, and not a success: outcome learning reads it as
+        unknown."""
+        from runtime.blockchain.web3_manager import unconfirmed_broadcast
+        return json.dumps(unconfirmed_broadcast(
+            tx_hash, {**fields, "gas_paid_by": "platform (The Matrix)"}), indent=2)
 
     def _require_config(self, *keys: str):
         """Validate that required config keys are present and not placeholder."""

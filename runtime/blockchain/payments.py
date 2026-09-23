@@ -98,7 +98,9 @@ class Payments(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "payments.send_eth")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"to": to, "amount_eth": str(amount_eth), "explorer": _explorer_url(self.network, tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash))})
 
             tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             return json.dumps({
@@ -156,7 +158,9 @@ class Payments(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "payments.send_token")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"to": to, "token": token_addr, "explorer": _explorer_url(self.network, tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash))})
 
             tx_hash_hex = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             return json.dumps({

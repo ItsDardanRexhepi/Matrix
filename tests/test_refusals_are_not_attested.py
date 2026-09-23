@@ -86,12 +86,17 @@ def dispatcher_with_spies():
     # site, which `execute` reports as "Invalid parameters" and which surfaced
     # here as "the refusal left no record at all". Defaulted, so the doubles
     # keep working for callers that do not pass it.
+    #
+    # `actor_claimed` arrived the same way and for the same reason: the actor is
+    # now the identity the entry point resolved, and an address the request body
+    # wrote is recorded beside it as a claim
+    # (tests/test_the_actor_is_the_resolved_identity.py).
     async def _spy_attest(action, service_name, params, result, *, actor: str = "",
-                          actor_source: str = ""):
+                          actor_source: str = "", actor_claimed: str = ""):
         attested.append(action)
 
     async def _spy_refusal(action, service_name, params, result, *, actor: str = "",
-                           actor_source: str = ""):
+                           actor_source: str = "", actor_claimed: str = ""):
         declined.append(action)
 
     d._attest_action = _spy_attest

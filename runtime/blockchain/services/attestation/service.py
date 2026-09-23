@@ -338,16 +338,6 @@ class AttestationService:
             account = unmetered_platform_signer(paymaster_key, "eas.revoke")
             signed = account.sign_transaction(tx)
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-
-            return {
-                "status": "revoked" if receipt["status"] == 1 else "failed",
-                "attestation_uid": attestation_uid,
-                "schema_uid": resolved_schema,
-                "revocation_tx": tx_hash.hex(),
-                "block_number": receipt["blockNumber"],
-                "gas_paid_by": "platform (The Matrix)",
-            }
 
         except ImportError as exc:
             logger.warning("Revocation skipped — missing dependency: %s", exc)
@@ -365,6 +355,34 @@ class AttestationService:
                 "attestation_uid": attestation_uid,
                 "schema_uid": resolved_schema,
             }
+
+        # A SENT REVOCATION IS NOT DECIDED BY AN `except`. The receipt wait sat
+        # inside the `try` above, so a wait that ran out came back as
+        # {"status": "failed", "error": ...} with no hash, and the dispatcher
+        # filed "ACTION DECLINED" for a revocation the platform had signed, paid
+        # gas for and sent. Once the hash exists the transaction is out, so the
+        # wait is outside the `try` and goes through the shared helper:
+        # confirmed -> "revoked", reverted -> "failed", no receipt in time ->
+        # "pending" with the hash and `broadcast: True`. The wait also runs off
+        # the event loop now; `wait_for_transaction_receipt` inline blocked it.
+        from runtime.blockchain.web3_manager import RawWeb3Receipts, settle_transaction
+
+        revocation_tx = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+        outcome = await settle_transaction(
+            RawWeb3Receipts(w3), revocation_tx, "revoke", "attestation",
+            {
+                "attestation_uid": attestation_uid,
+                "schema_uid": resolved_schema,
+                "revocation_tx": revocation_tx,
+                "gas_paid_by": "platform (The Matrix)",
+            },
+            settled_status="revoked",
+            timeout=120,
+        )
+        if outcome.get("value_moved") is True:
+            # The helper speaks for transfers. A revocation moves no value.
+            outcome["value_moved"] = None
+        return outcome
 
     # ── REMOVED: query (NEW-48b) ──────────────────────────────────────
     #

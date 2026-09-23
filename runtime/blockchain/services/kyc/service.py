@@ -39,6 +39,7 @@ from runtime.blockchain.web3_manager import (
     Web3Manager,
     is_placeholder_value,
     not_deployed_response,
+    settle_transaction,
 )
 
 logger = logging.getLogger(__name__)
@@ -741,20 +742,6 @@ class KYCService:
 
             # Platform paymaster signs + broadcasts (non-custodial, gas-sponsored).
             tx_hash = await self._web3.send_transaction(tx)
-
-            return {
-                "status": "issued",
-                "service": self.service_name,
-                "method": "issue_kyc_credential",
-                "protocol": "EAS verifiable credential",
-                "subject": recipient,
-                "kyc_level": kyc_level,
-                "issued_at": issued_at,
-                "tx_hash": tx_hash,
-                "explorer_url": self._web3.explorer_url(tx_hash),
-                "gas_paid_by": "platform paymaster (non-custodial)",
-                "pii_storage": "none (only kyc_level + holder address on-chain)",
-            }
         except Exception as exc:  # noqa: BLE001
             logger.error("issue_kyc_credential attestation failed: %s", exc)
             return {
@@ -763,3 +750,39 @@ class KYCService:
                 "method": "issue_kyc_credential",
                 "error": str(exc),
             }
+
+        # A CREDENTIAL IS ISSUED WHEN THE CHAIN SAYS SO, NOT WHEN A NODE TOOK THE
+        # BYTES. This returned `{"status": "issued", "tx_hash": ...}` the moment
+        # `send_transaction` returned. "issued" is a real-outcome word, so the
+        # dispatcher EAS-attested the action and the feed published it: a
+        # durable statement that a person holds a KYC credential, made before
+        # anything was mined and standing even if the attestation reverted. The
+        # broadcast census missed it because it searched for the word
+        # "submitted" rather than for the send.
+        #
+        # The shared helper waits for the receipt: confirmed -> "issued" with
+        # `settled: True`; reverted -> "failed"; no receipt in time ->
+        # "pending" with `broadcast: True`, which the dispatcher records as a
+        # broadcast — neither attested as issued nor declined. OUTSIDE the
+        # `try` above on purpose: once the hash exists the transaction is out,
+        # and nothing that happens after it may be reported as `chain_error`.
+        outcome = await settle_transaction(
+            self._web3, tx_hash, "issue_kyc_credential", self.service_name,
+            {
+                "service": self.service_name,
+                "method": "issue_kyc_credential",
+                "protocol": "EAS verifiable credential",
+                "subject": recipient,
+                "kyc_level": kyc_level,
+                "issued_at": issued_at,
+                "explorer_url": self._web3.explorer_url(tx_hash),
+                "gas_paid_by": "platform paymaster (non-custodial)",
+                "pii_storage": "none (only kyc_level + holder address on-chain)",
+            },
+            settled_status="issued",
+        )
+        if outcome.get("value_moved") is True:
+            # The helper speaks for transfers. An attestation moves no value and
+            # never claimed to; `None` is this tree's word for "does not arise".
+            outcome["value_moved"] = None
+        return outcome

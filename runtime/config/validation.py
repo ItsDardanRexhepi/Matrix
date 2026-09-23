@@ -61,6 +61,13 @@ def _provider_secret_fields() -> tuple[tuple[str, str, bool], ...]:
 SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # Blockchain signer keys
     ("blockchain.paymaster_private_key", "MATRIX_PAYMASTER_KEY", True),
+    # The gas-sponsorship signer at the location matrix.config.json.example
+    # documents. gateway/paymaster.py reads THIS first and falls back to the
+    # flat key above only when it is absent — so a real key written here
+    # survived production loading unstripped, and no variable could set it.
+    # Not required: the flat key alone still configures the signer, and a
+    # deployment without sponsorship answers 503 on /paymaster/sign.
+    ("blockchain.paymaster.signer_key", "MATRIX_PAYMASTER_SIGNER_KEY", False),
     ("blockchain.demo_wallet_private_key", "MATRIX_DEMO_WALLET_KEY", False),
     # Model provider API keys (fallback to the per-provider env vars
     # that ``_apply_env_overrides`` in gateway/server.py already reads)
@@ -78,15 +85,127 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     ("notifications.sms.from_number",       "TWILIO_FROM_NUMBER",    False),
     ("notifications.whatsapp.auth_token",   "TWILIO_AUTH_TOKEN",     False),
     ("notifications.webhook.bearer_token",  "NOTIFY_WEBHOOK_BEARER", False),
+    ("notifications.whatsapp.account_sid",  "TWILIO_ACCOUNT_SID",    False),
     # NOTE: owner-verification secrets (OWNER_APPLE_ID / OWNER_WALLET /
     # OWNER_PHONE_NUMBER) are declared and validated by the private security
     # package (morpheus_security), not here — the public platform never references
     # the owner-auth factors. All env-only; never committed.
+    # Sign in with Apple: the .p8 that signs token-revocation requests
+    # (gateway/apple_auth.py). It had no env bridge at all, so the only place to
+    # put it was the committed config file.
+    ("auth.apple.private_key_p8", "APPLE_PRIVATE_KEY_P8", False),
+    # Third-party service keys. These were read directly from os.environ by the
+    # modules that use them (runtime/social/twitter.py, runtime/social/discord.py)
+    # — which works, and leaves the plaintext copy in the config file untouched
+    # in production, and leaves this table unable to tell an operator what to set.
+    ("social.twitter.api_key",        "TWITTER_API_KEY",        False),
+    ("social.twitter.api_secret",     "TWITTER_API_SECRET",     False),
+    ("social.twitter.access_token",   "TWITTER_ACCESS_TOKEN",   False),
+    ("social.twitter.access_secret",  "TWITTER_ACCESS_SECRET",  False),
+    ("social.discord.webhook_url",    "DISCORD_WEBHOOK_URL",    False),
+    ("social.discord.announcements_webhook",
+     "DISCORD_ANNOUNCEMENTS_WEBHOOK", False),
+    # Oracle API keys, at the paths the oracle gateway READS
+    # (runtime/blockchain/services/oracle_gateway/: weather_oracle.py reads
+    # oracle.weather.api_key, gateway.py reads oracle.sports.api_key). The
+    # weather entry used to target services.oracle_gateway.weather_api_key, a
+    # leaf the example shipped and nothing read — WEATHER_API_KEY bridged a
+    # value to nowhere while the census called the key handled.
+    ("oracle.weather.api_key", "WEATHER_API_KEY", False),
+    ("oracle.sports.api_key",  "SPORTS_API_KEY",  False),
+    # Supply-chain authenticity. There is no default: without this the QR
+    # generator refuses to issue or verify codes
+    # (runtime/blockchain/services/supply_chain/qr_codes.py).
+    ("supply_chain.qr_secret", "MATRIX_QR_SECRET", False),
     # Observability
     ("monitoring.sentry_dsn", "SENTRY_DSN", False),
     # Gateway auth
     ("gateway.api_key", "MATRIX_API_KEY", False),
 )
+
+#: Secrets whose material arrives as a MOUNTED FILE rather than an env value,
+#: read into the config by ``gateway/server.py`` before validation runs.
+#: ``(config path, the env var naming the file)``.
+#:
+#: They belong in the census — an operator asking "is this secret handled?" must
+#: get yes — but NOT in SECRET_FIELDS, because the stripper would delete the
+#: contents the mount just supplied and silently disable the channel in exactly
+#: the deployment that configured it properly.
+FILE_MOUNTED_SECRETS: tuple[tuple[str, str], ...] = (
+    ("notifications.ios_push.auth_key_p8", "APNS_AUTH_KEY_P8_PATH"),
+)
+
+#: How a secret-shaped setting is recognised, by the END of its leaf name.
+#: Derived rather than listed: the census below walks whatever config it is
+#: handed, so a secret added to the shipped example — or to an operator's own
+#: file — is named without anyone remembering to add it anywhere.
+#:
+#: ``signer_key`` is the whole word on purpose. A bare ``key`` would name every
+#: leaf that ends in it — a public key, a cache key — as a secret, and a census
+#: that cries wolf is one that stops being read.
+SECRET_NAME_SUFFIXES: tuple[str, ...] = (
+    "api_key", "apikey", "secret", "password", "passwd", "_pass",
+    "private_key", "auth_key", "signing_key", "signer_key", "_p8", "_token", "_sid",
+    "_dsn", "webhook_url", "_webhook", "credential", "credentials",
+    "passphrase", "mnemonic", "seed_phrase", "salt",
+)
+
+#: Leaf names that END like a secret and are not one. In this codebase `token`
+#: is an ERC-20 symbol — `reward_token`, `token_out`, `payment_token` are asset
+#: names in ordinary service config. Listing them here keeps the census quiet
+#: enough to be read; a census nobody reads is a census that hides the one line
+#: that mattered.
+NOT_SECRET_LEAVES: frozenset[str] = frozenset({
+    "token", "token_id", "token_in", "token_out", "token_a", "token_b",
+    "token_name", "token_symbol", "token_address", "token_uri", "token_type",
+    "reward_token", "payment_token", "collateral_token", "base_token",
+    "quote_token", "stake_token", "lp_token", "governance_token",
+    "from_token", "to_token", "native_token",
+})
+
+
+def is_secret_shaped(name: str) -> bool:
+    """Does this leaf config key name a secret?"""
+    leaf = str(name or "").strip().lower()
+    if not leaf or leaf in NOT_SECRET_LEAVES:
+        return False
+    return any(leaf.endswith(suffix) for suffix in SECRET_NAME_SUFFIXES)
+
+
+def secret_shaped_paths(config: dict) -> tuple[str, ...]:
+    """Every dotted path in *config* whose leaf key names a secret, sorted.
+
+    Values are not inspected: a secret that is currently empty or still holding
+    a placeholder is exactly the one an operator is about to fill in.
+    """
+    found: list[str] = []
+
+    def _walk(node: Any, prefix: str) -> None:
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if isinstance(value, dict):
+                _walk(value, path)
+            elif not isinstance(value, list) and is_secret_shaped(str(key)):
+                found.append(path)
+
+    _walk(config or {}, "")
+    return tuple(sorted(found))
+
+
+def uncovered_secret_paths(config: dict) -> tuple[str, ...]:
+    """Secret-shaped settings in *config* that no entry in this module covers.
+
+    Covered means: in SECRET_FIELDS (loaded from an env var, plaintext copy
+    stripped in production) or in FILE_MOUNTED_SECRETS (supplied by a mount).
+    Anything else is a secret this module does not know about, which means
+    nothing strips it, nothing documents it, and nothing tells the operator
+    where it is supposed to come from.
+    """
+    covered = {path for path, _env, _req in SECRET_FIELDS}
+    covered |= {path for path, _env in FILE_MOUNTED_SECRETS}
+    return tuple(p for p in secret_shaped_paths(config) if p not in covered)
 
 # Fields that MUST exist and be non-placeholder in production.
 REQUIRED_FIELDS: tuple[tuple[str, str], ...] = (
@@ -97,7 +216,12 @@ REQUIRED_FIELDS: tuple[tuple[str, str], ...] = (
     ("database.path", "SQLite database path"),
 )
 
-PLACEHOLDER_PREFIXES: tuple[str, ...] = ("YOUR_", "CHANGE_ME", "REPLACE_", "xxx-")
+# Both separators, because both are shipped: the config example writes
+# `CHANGE-ME-long-random-per-deployment-value` with hyphens, which the
+# underscore-only list read as a real value — so the placeholder sweep stayed
+# quiet about the one secret an operator is most likely to leave unset.
+PLACEHOLDER_PREFIXES: tuple[str, ...] = (
+    "YOUR_", "YOUR-", "CHANGE_ME", "CHANGE-ME", "REPLACE_", "REPLACE-", "xxx-")
 PLACEHOLDER_VALUES: frozenset[str] = frozenset(
     {"", "0x0000000000000000000000000000000000000000"}
 )
@@ -198,6 +322,18 @@ def _is_placeholder(value: Any) -> bool:
             if value.startswith(prefix):
                 return True
     return False
+
+
+def is_placeholder(value: Any) -> bool:
+    """Is *value* an unfilled slot rather than a configured value?
+
+    Public because it is the platform's one answer to "has the operator chosen
+    this?", and callers outside config loading need it: a secret with a
+    placeholder in it is NOT configured, and code that fails closed on an unset
+    secret has to fail closed on `CHANGE-ME-...` too, or the fix lasts exactly
+    as long as it takes someone to copy the example file.
+    """
+    return _is_placeholder(value)
 
 
 def is_production_mode() -> bool:
@@ -385,6 +521,28 @@ def validate_config(
                 "provider's api_key or run ollama locally",
             )
 
+    # Secrets that escaped the central table. `enforce_env_only_secrets` has
+    # already run by the time load_config gets here, so anything still holding a
+    # real value at a secret-shaped path is a secret this module does not know
+    # how to keep out of the config file. In production that is an error and the
+    # gateway does not start; in development it is said once and life goes on.
+    # Placeholders are left to the sweep below — reporting an unfilled slot as an
+    # escaped secret is how a report stops being read.
+    for path in uncovered_secret_paths(config):
+        value = _get(config, path)
+        if value is None or _is_placeholder(value):
+            continue
+        message = (
+            "holds a secret that no env-only entry covers — add it to "
+            "SECRET_FIELDS (runtime/config/validation.py) with the environment "
+            "variable it should come from, so the committed config never "
+            "carries it"
+        )
+        if strict:
+            report.add_error(path, message)
+        else:
+            report.add_warning(path, message)
+
     # Placeholder sweep — warn about anything still sporting YOUR_ or
     # similar so operators see the full list once at startup.
     for path, value in _walk_placeholders(config):
@@ -407,11 +565,18 @@ def _walk_placeholders(
 
 __all__ = [
     "ConfigValidationError",
+    "FILE_MOUNTED_SECRETS",
+    "NOT_SECRET_LEAVES",
     "SECRET_FIELDS",
+    "SECRET_NAME_SUFFIXES",
     "REQUIRED_FIELDS",
+    "is_secret_shaped",
+    "secret_shaped_paths",
+    "uncovered_secret_paths",
     "ValidationIssue",
     "ValidationReport",
     "enforce_env_only_secrets",
+    "is_placeholder",
     "is_production_mode",
     "validate_config",
 ]

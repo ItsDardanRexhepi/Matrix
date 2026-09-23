@@ -11,7 +11,12 @@ import logging
 import time
 from typing import Any
 
-from runtime.blockchain.web3_manager import Web3Manager, is_placeholder_value
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    is_placeholder_value,
+    receipt_within,
+    unconfirmed_broadcast,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +165,18 @@ class EASClient:
             account = unmetered_platform_signer(self.paymaster_key, "eas.attest")
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            # Sent. A wait that runs out from here is not a failed attestation —
+            # it may be mined — so it is answered with the hash, not by the
+            # `except` below. The batch processor re-sent every attestation
+            # this called "failed", so one that had landed was written twice.
+            receipt = await receipt_within(self.web3, tx_hash, 120, what="eas.attest")
+            if receipt is None:
+                return unconfirmed_broadcast(tx_hash, {
+                    "attestation_tx": tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash),
+                    "action": action,
+                    "agent": agent,
+                    "gas_paid_by": "platform (The Matrix)",
+                })
 
             logger.info(f"EAS attestation created: {tx_hash.hex()} for action={action}")
 

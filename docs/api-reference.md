@@ -145,7 +145,7 @@ Two credentials exist, and they open different doors.
 
 **A URL on the list is not every operation behind it.** Three session-reachable doors dispatch an operation by name into the same service dispatcher the dedicated `/api/v1` routes call: `POST /api/v1/capabilities/{id}/invoke`, `POST /bridge/v1/action`, and the chat agent's `request_execution` / `platform_action` tools on the public chat surfaces. Each refuses a session, and an anonymous chat caller, any operation whose (service, method) backs a route the session is refused — the same answer the dedicated route gives (`SERVICE_METHODS_OFF_ALLOWLIST` in `gateway/session_routes.py`). The operator key is unaffected.
 
-Without either, a non-public route answers **401**. Sessions expire (`gateway.wallet_session_ttl_seconds`, default 24 h); an expired token is no credential anywhere.
+Without either, a non-public route answers **401** — whether or not the path exists; an anonymous caller is not told which paths are real. A **401** always means the credential is bad (absent, expired, or never issued): with a live session, a path that matches no route answers **404** and a matched path with another method answers **405** with `Allow`, exactly as they answer the operator — never 401, which the iOS client reads as a bad token and signs the user out. Sessions expire (`gateway.wallet_session_ttl_seconds`, default 24 h); an expired token is no credential anywhere.
 
 **Identity is derived from a session; on the operator path it is asserted, and this says which.** On a request carrying a wallet session the caller's identity is the session's subject, and nothing in the request overrides it — the wallet linked to the Apple user when one exists, else `apple:<sub>` or the SIWE address. As the caller's identity — what the security gate attributes a `POST /api/v1/*` request to, the caller the chat entrances hand the dispatcher, the follower on `/social/follow`, the identity `/security/appattest/attest` verifies for — an `X-Wallet-Address` or `X-Apple-Id` header or a `wallet` / `apple_id` body field is consulted only when no session is presented and the request carries the operator key (an operator integration naming the user it acts for; development, where auth is off, counts). Two things are not that: the `identity` a client names on `/security/appattest/challenge` and in the attest body is the binding of a server-issued one-time challenge, not a credential; and some `/api/v1` service routes take a `wallet` parameter the service acts on (for example `/api/v1/defi/swap/execute`), which this gateway does not check against the caller. The chat entrances are public, so this matters most there: an anonymous chat has **no** identity, and the body's `wallet`, `apple_id`, `wallet_connected`, `network`, `balance`, `jurisdiction` and `total_transactions` are read only from an operator's request — they feed the dispatcher's caller identity and the security gates' verdicts, so a caller may not write them about itself. Where no session is presented and the request is the operator's, the value is ASSERTED, not authenticated — the header as the caller wrote it — and the routes that record or check "the caller" (for example `/api/v1/capabilities/{id}/invoke`, `/api/v1/insurance/claim`, `/api/v1/paymaster/sign`) receive that asserted value. A wallet proven by `POST /auth/verify` while holding an Apple session is linked to that Apple user.
 
@@ -338,8 +338,13 @@ answers with its own status rather than dressing a refusal as a success:
   `GET /api/v1/price/eth-usd` (the price, `503` when no source is reachable),
   `POST /api/v1/paymaster/sign` (`{paymasterAndData}`),
   `POST /api/v1/security/preflight` (`{allow, mode}`, or `403` for a denial),
-  `POST /api/v1/batch` (each item carries the sub-response's own status and
-  body, so an item inherits the `503` its route would have answered) and
+  `POST /api/v1/batch` (each item carries the sub-response's own status, body
+  and `call_outcome`, so an item inherits the `503` its route would have
+  answered *and* the verdict a domain refusal's deliberate `200` would
+  otherwise have hidden — `unknown` for an item that timed out, which was
+  cancelled mid-flight and may have acted. The completion event counts
+  `success_count` and `refused_count` from those verdicts, and
+  `abort_on_failure` stops on anything that is not a success) and
   `GET /api/v1/events/stream` (SSE).
 * **`POST /api/v1/capabilities/{id}/invoke`**, which relays the dispatcher
   under `{status, call_outcome, capability_id, action, result}`. The

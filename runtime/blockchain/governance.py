@@ -96,7 +96,9 @@ class Governance(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "governance.schedule")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"delay_seconds": delay})
 
             return json.dumps({
                 "status": "scheduled" if receipt["status"] == 1 else "failed",
@@ -144,7 +146,9 @@ class Governance(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "governance.execute_op")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"timelock": params["timelock_address"]})
 
             return json.dumps({
                 "status": "executed" if receipt["status"] == 1 else "failed",
@@ -211,7 +215,9 @@ class Governance(BlockchainInterface):
 
             signed = signer.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "governance.grant_role")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"role": role_hash, "account": account_addr})
 
             return json.dumps({
                 "status": "granted" if receipt["status"] == 1 else "failed",
@@ -266,7 +272,9 @@ class Governance(BlockchainInterface):
 
             signed = signer.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "governance.revoke_role")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"role": role_hash, "account": account_addr})
 
             return json.dumps({
                 "status": "revoked" if receipt["status"] == 1 else "failed",

@@ -116,7 +116,7 @@ components:
 
     BatchItemResult:
       type: object
-      required: [id, status]
+      required: [id, status, call_outcome]
       properties:
         id:
           type: string
@@ -128,6 +128,17 @@ components:
         error:
           type: string
           nullable: true
+        call_outcome:
+          type: string
+          enum: [success, failure, unknown]
+          description: |
+            What the CALL reported — a different claim from `status`, which is
+            about the transport. A domain refusal (a rejected claim, a blocked
+            transfer) is a real answer the caller asked for, so its sub-route
+            answers 200 deliberately; this field is how that refusal stays
+            visible. `unknown` for an item that timed out: it was cancelled
+            mid-flight and may already have acted, so it is neither counted as
+            a success nor asserted to be a refusal.
 
     BatchResponse:
       type: object

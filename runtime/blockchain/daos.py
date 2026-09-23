@@ -97,7 +97,9 @@ class DAOs(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "daos.create_proposal")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"governor": params["governor_address"], "description": params.get("description", "")})
 
             return json.dumps({
                 "status": "proposed" if receipt["status"] == 1 else "failed",
@@ -134,7 +136,9 @@ class DAOs(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "daos.vote")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"proposal_id": proposal_id, "support": support})
 
             vote_label = {0: "Against", 1: "For", 2: "Abstain"}.get(support, "Unknown")
             return json.dumps({
@@ -184,7 +188,9 @@ class DAOs(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "daos.execute_proposal")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"governor": params["governor_address"], "description": description})
 
             return json.dumps({
                 "status": "executed" if receipt["status"] == 1 else "failed",

@@ -14,6 +14,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.constant_time import digests_equal
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,9 +130,11 @@ class ZKPEligibility:
             stored["commitment"], stored["challenge"]
         )
 
-        commitment_match = hmac.compare_digest(proof.get("commitment", ""), stored["commitment"])
-        challenge_match = hmac.compare_digest(proof.get("challenge", ""), stored["challenge"])
-        response_match = hmac.compare_digest(proof.get("response", ""), expected_response)
+        # digests_equal: a proof field the caller wrote that is not an ASCII
+        # string is a mismatch, not a TypeError out of hmac.compare_digest.
+        commitment_match = digests_equal(proof.get("commitment", ""), stored["commitment"])
+        challenge_match = digests_equal(proof.get("challenge", ""), stored["challenge"])
+        response_match = digests_equal(proof.get("response", ""), expected_response)
 
         valid = commitment_match and challenge_match and response_match
         if valid:

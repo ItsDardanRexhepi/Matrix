@@ -101,6 +101,74 @@ def test_an_envelope_over_an_unlabelled_payload_is_unknown_not_success():
     assert report_of({"status": "ok", "data": {"status": "pending"}}) == UNKNOWN
 
 
+def test_the_bridge_envelope_the_bridge_ACTUALLY_EMITS_sees_through_too():
+    """THE SHAPE, NOT AN APPROXIMATION OF IT.
+
+    Every bridge case above is a dict typed out in this file. The real
+    ``MobileResponse.ok`` writes one more field than any of them —
+    ``call_outcome``, defaulted to SUCCESS when the caller did not state one —
+    and that field is the one ``report_of`` believes over everything else,
+    including its own unwrapping. So the control passed on a shape the bridge
+    does not emit, while the shape it does emit hid the refusal exactly as
+    before the fix.
+
+    Built by calling the emitter, so this cannot drift from it again.
+    """
+    body = json.loads(MobileResponse.ok(_refusal()).body.decode())
+    assert report_of(body) == FAILURE, (
+        "the bridge envelope stated a verdict nobody established, and that "
+        f"stated SUCCESS outranks the unwrapping that would have found it: {body}")
+
+
+def test_the_bridge_envelope_does_not_bury_a_verdict_the_dispatcher_STATED():
+    """THE WORST CASE THE DEFAULT ALLOWED — LATENT, NOT LIVE.
+
+    ``ServiceDispatcher.execute`` reads its payload with the one fact no reader
+    downstream holds — whether the action modifies state — and STATES the
+    answer. When that answer is FAILURE and the bridge wraps it with a
+    defaulted SUCCESS, the outer default outranks the inner statement: the
+    layer that knew was overruled by the layer that did not look.
+
+    This docstring first called that live. It was not. When the default was
+    removed, the one bridge route that relays a dispatcher payload,
+    /bridge/v1/action, already passed ``outcome=``; the other thirteen routes
+    that build this envelope carry payloads with no verdict field in them —
+    chat replies, sessions, catalogs, the dashboard — which read as success
+    with the default or without it. No response the bridge sent changed. The
+    control stays because the next route that relays a stated verdict without
+    ``outcome=`` would bury it, and nothing else would notice.
+    """
+    relayed = json.dumps({"status": "ok", "action": "create_loan",
+                          "service": "defi", OUTCOME_FIELD: FAILURE,
+                          "result": _refusal()})
+    body = json.loads(MobileResponse.ok(relayed).body.decode())
+    assert report_of(body) == FAILURE, (
+        "the dispatcher stated FAILURE and the bridge's defaulted SUCCESS "
+        f"buried it: {body}")
+
+
+def test_the_bridge_envelope_still_states_success_for_a_payload_that_succeeded():
+    """The scope pin. A wrapper that downgraded everything would teach the
+    learner that the whole platform fails — the same defect facing the other
+    way. A payload that reports success, and one that reports nothing at all,
+    both stay SUCCESS."""
+    for data in ({"status": "deployed", "tx_hash": "0x1"},
+                 {"registered": True},
+                 {"components": [1, 2, 3]}):
+        body = json.loads(MobileResponse.ok(data).body.decode())
+        assert body[OUTCOME_FIELD] == SUCCESS, body
+        assert report_of(body) == SUCCESS, body
+
+
+def test_a_caller_that_KNOWS_still_outranks_what_the_payload_looks_like():
+    """``outcome=`` is why the field exists: /bridge/v1/action holds the action
+    name and the dispatcher's reading of it, and that statement must survive
+    a payload the generic reader would grade differently."""
+    body = json.loads(
+        MobileResponse.ok({"status": "failed"}, outcome=SUCCESS).body.decode())
+    assert body[OUTCOME_FIELD] == SUCCESS and report_of(body) == SUCCESS, body
+
+
 def test_an_envelope_over_a_real_success_is_still_a_success():
     """The dangerous half. A wrapper that downgraded everything would teach the
     learner that the whole platform fails."""
@@ -219,6 +287,85 @@ def test_the_ripple_still_publishes_a_real_action(routes):
     routes._maybe_ripple("defi", "create_loan", {"owner": "0xabc"},
                          {"status": "created", "id": "loan-1"})
     assert len(published) == 1 and published[0][0] == "feed.ripple"
+
+
+# ── 3b. nor a broadcast — the third answer, on the HTTP path ───────────────
+#
+# The dispatcher's feed path records a transaction that was sent and not
+# confirmed as a BROADCAST and announces nothing (`_record_verdict`, the third
+# answer). `_maybe_ripple` is the same feed on the /api/v1 path, and it read the
+# result through `report_of` alone, which answers SUCCESS for the bare
+# `{"status": "submitted", "tx_hash": ...}` that twenty-six methods return
+# straight off the send — so the live feed announced a bridge, a channel close
+# or a liquidation as an executed action on the evidence that a node had taken
+# the bytes. The README says a broadcast is not announced on the feed as done;
+# it was, on this surface.
+
+_HASH = "0x" + "ab" * 32
+
+
+def _feed(routes) -> list:
+    published: list = []
+    routes._broadcaster = type("B", (), {
+        "publish_dict": lambda _self, topic, payload: published.append((topic, payload))
+    })()
+    return published
+
+
+def test_the_ripple_does_not_announce_a_bare_broadcast_as_done(routes, caplog):
+    """DEFECT-PROVER. The shape is what `neosafe.route_revenue` and its
+    twenty-five siblings return with no receipt wait, and what the dispatcher
+    records as a broadcast."""
+    import logging
+
+    from runtime.blockchain.services.service_dispatcher import RECORD_BROADCAST, _record_verdict
+
+    published = _feed(routes)
+    sent = {"status": "submitted", "tx_hash": _HASH, "service": "bridge"}
+    assert _record_verdict(sent) == RECORD_BROADCAST, "premise changed — the dispatcher no longer calls this a broadcast"
+    with caplog.at_level(logging.INFO):
+        routes._maybe_ripple("bridge", "cross_chain_bridge", {"sender": "0xabc"}, sent)
+    assert published == [], (
+        f"the public feed announced a broadcast as an executed action: {published}")
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("ACTION BROADCAST" in m and _HASH in m for m in messages), (
+        f"a sent transaction left no record carrying its hash: {messages}")
+    assert not any("ACTION DECLINED" in m for m in messages), "a broadcast was recorded as a decline"
+
+
+async def test_the_ripple_does_not_announce_an_unconfirmed_wait_either(routes):
+    """The other broadcast shape, built by calling the emitter: what
+    `settle_transaction` returns when its wait runs out."""
+    from runtime.blockchain.web3_manager import settle_transaction
+
+    class _NoReceipt:
+        async def wait_for_receipt(self, _tx_hash, timeout=120):
+            raise TimeoutError("no receipt in time")
+
+    unconfirmed = await settle_transaction(_NoReceipt(), _HASH, "route_revenue", "neosafe")
+    assert unconfirmed.get("broadcast") is True and unconfirmed.get("settled") is False
+    published = _feed(routes)
+    routes._maybe_ripple("neosafe", "route_revenue", {"sender": "0xabc"}, unconfirmed)
+    assert published == [], (
+        f"the public feed announced an unconfirmed transaction as an executed action: {published}")
+
+
+async def test_the_ripple_still_announces_a_settled_transaction(routes):
+    """SCOPE PIN, and the ordering argument: `settle_transaction`'s confirmed
+    shape keeps the word "submitted" and carries `settled: True`, and a gate
+    keyed on the word would silence exactly the services that wait."""
+    from runtime.blockchain.web3_manager import settle_transaction
+
+    class _Confirmed:
+        async def wait_for_receipt(self, _tx_hash, timeout=120):
+            return {"status": 1, "blockNumber": 7, "gasUsed": 21000}
+
+    settled = await settle_transaction(_Confirmed(), _HASH, "route_revenue", "neosafe")
+    assert settled.get("settled") is True and settled.get("status") == "submitted"
+    published = _feed(routes)
+    routes._maybe_ripple("neosafe", "route_revenue", {"sender": "0xabc"}, settled)
+    assert len(published) == 1 and published[0][0] == "feed.ripple", published
+    assert published[0][1].get("ref") == _HASH and published[0][1].get("status") == "submitted"
 
 
 # ── 4. the bridge must not answer ok:true over the dispatcher's refusal ────
@@ -550,3 +697,4 @@ async def test_a_provider_that_raises_is_not_ready_rather_than_an_exception():
     router = ModelRouter.__new__(ModelRouter)
     router.providers = {"broken": _Broken(), "fine": _Fine()}
     assert await router.health_check() == {"broken": False, "fine": True}
+

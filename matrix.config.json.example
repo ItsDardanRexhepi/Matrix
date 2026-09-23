@@ -141,7 +141,7 @@
       "eth_usd": ""
     },
     "paymaster": {
-      "//": "P4 verifying-paymaster gas sponsorship. address = deployed MatrixVerifyingPaymaster; signer_key = the platform signing key (env/secret, never user funds); policy.allowed_actions gates which actions get sponsored (omit = allow all); each action is decoded from the userOp's own callData/initCode, never taken from the request's action_type: transfer (value, or ERC-20 transfer), approve, swap (MatrixDEX), mint_nft (MatrixNFT), call:0x<selector> for any other function, init_code:<factory> for a deployment not through account_factory. A batch is sponsored only if every call in it is allowed; only canonical ABI encodings are described and a batch over 256 calls is oversized_batch. LIMIT: the allowlist constrains which ABI function names the call data invokes, not what code runs - the target contract, a value recipient's receive/fallback and the sender account itself are not verified (no address/codehash registry), so it is not a boundary against a caller who deploys contracts. daily_cap_usd is not one either: it is metered per identity, and without a session the identity is the X-Wallet-Address header or body sender the caller writes (with a SIWE session, an address whose key the caller holds), so it bounds spend per address, not per caller. Unset signer/address -> /api/v1/paymaster/sign returns 503.",
+      "//": "P4 verifying-paymaster gas sponsorship. address = deployed MatrixVerifyingPaymaster; signer_key = the platform signing key (MATRIX_PAYMASTER_SIGNER_KEY in the environment, never in this file in production and never user funds; unset, the deployer key MATRIX_PAYMASTER_KEY signs sponsorship too); policy.allowed_actions gates which actions get sponsored (omit = allow all); each action is decoded from the userOp's own callData/initCode, never taken from the request's action_type: transfer (value, or ERC-20 transfer), approve, swap (MatrixDEX), mint_nft (MatrixNFT), call:0x<selector> for any other function, init_code:<factory> for a deployment not through account_factory. A batch is sponsored only if every call in it is allowed; only canonical ABI encodings are described and a batch over 256 calls is oversized_batch. LIMIT: the allowlist constrains which ABI function names the call data invokes, not what code runs - the target contract, a value recipient's receive/fallback and the sender account itself are not verified (no address/codehash registry), so it is not a boundary against a caller who deploys contracts. daily_cap_usd is not one either: it is metered per identity, and without a session the identity is the X-Wallet-Address header or body sender the caller writes (with a SIWE session, an address whose key the caller holds), so it bounds spend per address, not per caller. Each request is metered at the EntryPoint v0.6 prefund (callGasLimit + verificationGasLimit*3 + preVerificationGas, priced at a live ETH/USD quote): the verification limit counts three times because it also bounds the paymaster postOp, so the cap reserves what the EntryPoint can actually take. No reachable quote -> 503 rather than an unmetered signature. Unset signer/address -> /api/v1/paymaster/sign returns 503.",
       "address": "0x0E393e90af2DAb65e60318F110270f045B125880",
       "signer_key": "",
       "bundler_url": "",
@@ -372,8 +372,7 @@
       },
       "vrf_coordinator": "YOUR_VRF_COORDINATOR_ADDRESS",
       "vrf_key_hash": "YOUR_VRF_KEY_HASH",
-      "vrf_subscription_id": "YOUR_VRF_SUBSCRIPTION_ID",
-      "weather_api_key": "YOUR_WEATHER_API_KEY"
+      "vrf_subscription_id": "YOUR_VRF_SUBSCRIPTION_ID"
     },
     "privacy": {
       "enabled": true,
@@ -456,6 +455,17 @@
     "kyc":                  {"enabled": false},
     "payment_channels":     {"enabled": false}
   },
+  "oracle": {
+    "//": "What the oracle gateway READS (runtime/blockchain/services/oracle_gateway/): weather.api_key from WEATHER_API_KEY, sports.api_key from SPORTS_API_KEY (env/secret; a placeholder or empty value reads as unset and the oracle says not configured rather than calling out with YOUR_...). The weather oracle serves oracle_weather_query and the insurance weather triggers. The providers read this block, not services.oracle_gateway, whose `enabled` is the service's switch.",
+    "weather": {
+      "api_base": "https://api.openweathermap.org/data/2.5",
+      "api_key": "YOUR_WEATHER_API_KEY"
+    },
+    "sports": {
+      "api_base": "",
+      "api_key": "YOUR_SPORTS_API_KEY"
+    }
+  },
   "protocol_referrals": {
     "enabled": true,
     "neosafe_address": "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
@@ -473,7 +483,7 @@
     "block_on_critical": true,
     "block_on_high": false
   },
-  "_supply_chain_note": "qr_secret has a WORKING DEFAULT that is published in this public repo. Unset, the product-authenticity hash is forgeable by anyone who can read the source. Set it to a long random per-deployment value BEFORE issuing any QR code you intend to treat as authoritative.",
+  "_supply_chain_note": "qr_secret has NO default and nothing falls back to one: unset (or left as this placeholder, or set to the retired published value) the QR generator refuses to issue or verify product-authenticity codes and says not_configured. Set it to a long random per-deployment value, in the environment as MATRIX_QR_SECRET, before issuing any QR code you intend to treat as authoritative. The verification hash is HMAC-SHA256 over product_id|timestamp, so every code ever issued under a different secret stops verifying when you rotate it.",
   "supply_chain": {
     "qr_secret": "CHANGE-ME-long-random-per-deployment-value"
   },

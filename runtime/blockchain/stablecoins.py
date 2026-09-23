@@ -109,7 +109,9 @@ class Stablecoins(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "stablecoins.transfer")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"token": token, "amount": params.get("amount"), "to": params["to"]})
 
             return json.dumps({
                 "status": "transferred" if receipt["status"] == 1 else "failed",
@@ -175,7 +177,9 @@ class Stablecoins(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "stablecoins.approve")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"token": token, "spender": params["spender"]})
 
             return json.dumps({
                 "status": "approved" if receipt["status"] == 1 else "failed",

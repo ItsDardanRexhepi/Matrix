@@ -68,9 +68,9 @@ FAILURE = "failure"
 UNKNOWN = "unknown"
 
 # ── The vocabulary, split for THIS question ──────────────────────────────
-# Source: service_dispatcher._NON_OUTCOME_STATUSES (62 strings) and
-# _REAL_OUTCOME_STATUSES (101). Every one of the 163 is classified below; the
-# test re-derives that and fails on an unclassified addition.
+# Source: service_dispatcher._NON_OUTCOME_STATUSES and _REAL_OUTCOME_STATUSES.
+# Every word in both is classified below; the test re-derives that and fails on
+# an unclassified addition, which is also why no count is written here to go stale.
 
 #: Refusals and failures. The call did not do what was asked.
 _FAILED: frozenset[str] = frozenset({
@@ -155,7 +155,7 @@ _INDETERMINATE: frozenset[str] = frozenset({
 
 
 def _real_outcome_statuses() -> frozenset[str]:
-    """The 101 statuses that report a real state change, read from the ONE place
+    """The statuses that report a real state change, read from the ONE place
     they are measured rather than copied here.
 
     Imported lazily and defensively: ``service_dispatcher`` pulls in the whole
@@ -261,7 +261,7 @@ def _asserts_success(obj: dict) -> bool:
 
     The signature of a transport envelope: a boolean verdict field set True, or
     a status the vocabulary resolves to SUCCESS. `{"status": "ok"}` qualifies
-    because `ok` is one of the 101 measured real-outcome statuses.
+    because `ok` is one of the measured real-outcome statuses.
     """
     for key in ("ok", "success", "succeeded"):
         if obj.get(key) is True:
@@ -432,26 +432,55 @@ def foreign_report_of(result: Any) -> str:
     this module exists for, inside the fix written for it.
 
     So: only an EXPLICIT verdict is believed, and everything else is the third
-    answer. UNKNOWN costs the caller a retry or a human; SUCCESS costs a
-    customer a charge that was refused.
+    answer. SUCCESS costs a customer a charge that was refused; UNKNOWN costs a
+    human, and the caller must make sure it costs nothing more than that — a
+    charge whose outcome is unknown is not a charge to present again.
+
+    WHAT COUNTS AS EXPLICIT, and the first version of this function got it
+    wrong. It still handed any reply carrying a boolean verdict or a `status` to
+    `report_of`, and `report_of` reads more than the verdict: `created: True` as
+    success before it looks at the status, and any of the real-outcome
+    words — measured over THIS tree — as success. So a gateway replying
+    `cancelled`, `processing`, `refunded` or `requested`, or `declined` beside
+    `created: True`, was booked as a settled renewal. The measured vocabulary
+    had come back in through the status field.
+
+    The rule now, field by field, and nothing else is read:
+
+      * a verdict stated in ``OUTCOME_FIELD``, or a boolean ``ok`` /
+        ``success`` / ``succeeded`` — the verdict the gateway ADAPTER states;
+      * a populated ``error`` — a refusal;
+      * a ``status`` — a refusal where the word is one of this tree's refusal
+        words, and otherwise NOT A YES. A status word from a party whose
+        vocabulary nobody measured cannot say a charge settled; it can only
+        disagree with something that did;
+      * ``settled: False`` or ``value_moved: False`` — not a yes.
+
+    When the reply speaks in more than one of those fields, every one has to
+    say the same thing (``combine``): `{"ok": true, "status": "refunded"}` is
+    not a settled charge, it is a reply that contradicts itself. When it speaks
+    in none, it said nothing, and silence is not a yes.
     """
     obj = _as_object(result)
     if obj is None:
         return UNKNOWN
-    if _stated_verdict(obj) is not None:
-        return report_of(obj)
+    said: list[str] = []
+    stated = _stated_verdict(obj)
+    if stated is not None:
+        said.append(stated)
     for key in ("ok", "success", "succeeded"):
-        if isinstance(obj.get(key), bool):
-            return report_of(obj)
+        value = obj.get(key)
+        if isinstance(value, bool):
+            said.append(SUCCESS if value else FAILURE)
     if obj.get("error") not in (None, "", [], {}, False):
-        return FAILURE
+        said.append(FAILURE)
     if "status" in obj:
-        # The status vocabulary is this tree's, measured on this tree. A foreign
-        # `status` is read only where it lands in the vocabulary unambiguously;
-        # anything else — including a word we have never seen — is UNKNOWN,
-        # which is what `report_of` already answers for an unrecognised status.
-        return report_of(obj)
-    return UNKNOWN
+        said.append(FAILURE if _status_of(obj.get("status")) in _FAILED else UNKNOWN)
+    if obj.get("settled") is False or obj.get("value_moved") is False:
+        said.append(UNKNOWN)
+    if not said:
+        return UNKNOWN
+    return combine(said)
 
 
 def refusal(message: str, *, code: str | None = None) -> str:

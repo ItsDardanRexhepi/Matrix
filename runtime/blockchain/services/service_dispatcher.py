@@ -613,6 +613,47 @@ _REAL_OUTCOME_STATUSES: frozenset[str] = frozenset({
     "validated", "under_escrow",
 })
 
+#: The three answers a durable record may be written from. `_outcome_is_real` is
+#: a BOOLEAN, and two answers were one too few: see `_record_verdict`.
+RECORD_SETTLED = "settled"
+RECORD_BROADCAST = "broadcast"
+RECORD_REFUSED = "refused"
+
+#: Real-outcome statuses that report a BROADCAST rather than a settlement — the
+#: bytes were handed to a node, or a request was handed to a third party, and
+#: nobody has confirmed the result.
+#:
+#: MEASURED, not chosen: an AST census of `services/` finds 26 reachable methods
+#: across ten service directories that return one of these words with NO
+#: `settled` key and no receipt wait — the five CCIP bridges and the CCIP
+#: cross-chain message, both payment channels, both token-bound accounts, three
+#: auction/orderbook writes, four advanced-governance writes, three NFT lending
+#: writes, MPC recovery and session keys, the Lens profile, the keeper job, the
+#: compute job and the compute reward claim. Twenty-five broadcast a transaction;
+#: the compute job hands a request to a provider's API. Every one is reachable as
+#: a state-modifying action. `tests/test_a_broadcast_is_not_a_settlement.py`
+#: re-derives that census and pins its count.
+#:
+#: A WORD LIST CANNOT BE THE WHOLE GATE, and the first version of that census
+#: proved it by missing `kyc.issue_kyc_credential`, which broadcast and said
+#: "issued". The same test file now also derives the surface from the SEND — every
+#: function that calls a send primitive and waits for no receipt — and fails if
+#: any literal such a function returns would be recorded as settled. A second
+#: miss taught the other half: a function that waited INLINE was skipped as
+#: settled-by-construction, and `attestation.revoke` and the time-critical
+#: `attest_now` filed a wait that ran out as a refusal, with no hash. So every
+#: sender is now sorted by how it learns its outcome, and under `services/` a
+#: receipt wait is allowed only inside `settle_transaction`.
+#:
+#: THE WORD IS NOT THE EVIDENCE — the flag is. `settle_transaction` returns its
+#: settled status once the receipt is in, and that status DEFAULTS to the word
+#: "submitted", so a gate keyed on the word alone would stop attesting exactly
+#: the services that do wait. `_record_verdict` reads `settled` first and only
+#: consults this set when the result states nothing.
+_BROADCAST_STATUSES: frozenset[str] = frozenset({
+    "submitted", "claim_submitted", "verification_submitted",
+})
+
 
 def _normalise_status(status: Any) -> str:
     """Reduce a status value to the string the classification sets are keyed on.
@@ -727,6 +768,78 @@ def _outcome_is_real(result: Any) -> bool:
     # `compliance_hold` be attested and published to the public feed as a
     # completed $5,000 payment that compliance had in fact refused.
     return False
+
+
+def _record_verdict(result: Any) -> str:
+    """What the durable surfaces are allowed to say this result established.
+
+    A NODE ACCEPTING THE BYTES IS NOT THE CHAIN AGREEING THEY WERE VALID.
+    `neosafe.route_revenue` returned `"routed"` the moment `send_transaction`
+    returned; `routed` reads as a real outcome, so this dispatcher EAS-attested
+    it and the public feed announced platform revenue that may have reverted.
+    That method now waits for its receipt. Twenty-six others do not: they return
+    `{"status": "submitted", "tx_hash": ...}` (or `claim_submitted`; one of them
+    is a compute provider's API rather than a chain) with no `settled` key, and
+    `"submitted"` is in `_REAL_OUTCOME_STATUSES`, so `_outcome_is_real` answered
+    True and the platform wrote an EAS attestation — a durable claim addressed
+    to third parties, whose entire value is that someone who does not trust this
+    platform can check it — asserting that a bridge, a channel close or a
+    liquidation HAPPENED, on the evidence that a transaction had been sent.
+
+    THE GATE HAD TWO ANSWERS AND THE TRUTH HAS THREE. The obvious fix — drop
+    `"submitted"` from the real-outcome vocabulary — routes these to
+    `_attest_refusal`, which records "ACTION DECLINED". A broadcast is not a
+    decline. That is the same defect facing the other way, and this engagement
+    has now written the same sentence in six places: a mislabelled record is
+    worse than an unlabelled one. So the third answer is stated rather than
+    folded into one of the other two.
+
+    ORDER IS THE WHOLE ARGUMENT:
+
+      0. `broadcast is True` and not `settled is True` -> BROADCAST. The service
+         sent the transaction and no receipt has answered for it.
+         `web3_manager.settle_transaction` writes exactly this when its wait
+         runs out — `{"status": "pending", "settled": False, "broadcast":
+         True}` — and says in its own disclosure that it is NOT a refusal. It
+         is read BEFORE step 1 because `settled: False` makes
+         `_outcome_is_real` answer False, and the first version of this gate
+         sent that shape to `_attest_refusal`: "ACTION DECLINED" for a
+         transaction the platform signed, paid gas for and sent, in the very
+         services that do wait for their receipts. A mined REVERT carries the
+         flag too, with `settled: True`: a receipt answered, the outcome is
+         established, and it falls through to step 1 as the refusal it is.
+         Only the boolean counts; the emitters write it after
+         `send_transaction` has returned a hash.
+      1. Not a real outcome            -> REFUSED. Unchanged; `_outcome_is_real`
+         keeps its measured vocabulary and its two measured defaults.
+      2. `settled is True`             -> SETTLED. The service positively stated
+         that the chain confirmed it. This is read BEFORE the status word
+         because `settle_transaction`'s settled status defaults to the word
+         "submitted"; keying on the word alone would strip the attestation from
+         precisely the services that do wait for a receipt — the remediation
+         running backwards.
+      3. A broadcast word, nothing else -> BROADCAST.
+      4. Anything else                 -> SETTLED.
+
+    STEP 4 IS NOT A SHRUG, and the direction is measured rather than reasoned.
+    Most genuine actions here never touch a chain and never emit `settled`:
+    `dex.add_liquidity`, `loyalty.earn_points`, `dao.join_dao` return a plain
+    success dict. Defaulting those to BROADCAST would silently stop attesting
+    the great majority of the surface — the mistake `_outcome_is_real`'s own
+    docstring records making once, where "fail closed" was applied to the wrong
+    axis. Only the measured broadcast vocabulary diverts.
+    """
+    if (isinstance(result, dict) and result.get("broadcast") is True
+            and result.get("settled") is not True):
+        return RECORD_BROADCAST
+    if not _outcome_is_real(result):
+        return RECORD_REFUSED
+    if isinstance(result, dict):
+        if result.get("settled") is True:
+            return RECORD_SETTLED
+        if _normalise_status(result.get("status")) in _BROADCAST_STATUSES:
+            return RECORD_BROADCAST
+    return RECORD_SETTLED
 
 
 #: Keys a service uses to report the figure its action actually moved, most
@@ -1420,21 +1533,50 @@ class ServiceDispatcher:
             # the FEED are attributed from one value: attributing the public
             # feed and leaving the audit record anonymous is the half-fix.
             #
-            # Order is deliberate and conservative: the existing params-derived
-            # actor keeps precedence so no currently-attributed action changes
-            # who it names, and the threaded `caller_identity` is the FALLBACK
-            # that fills the "" hole. Note the residual — a client-supplied
-            # `wallet` param still outranks the threaded identity on this
-            # surface, even when that identity came from a session.
-            # That is a pre-existing attribution weakness, wider than 17-D
-            # (it touches every state-modifying action), and is not narrowed
-            # here.
-            _actor = (
-                params.get("wallet")
-                or params.get("address")
-                or caller_identity
-                or ""
+            # THE RESIDUAL 17-D LEFT, CLOSED. That fix ordered the value
+            #     params.get("wallet") or params.get("address") or caller_identity
+            # and said so: "a client-supplied `wallet` param still outranks the
+            # threaded identity on this surface, even when that identity came
+            # from a session." It does not any more.
+            #
+            # WHAT THAT ORDER MEANT. `params` is the request body on the bridge
+            # path. A request presenting a session, whose wallet bridge.py reads
+            # and threads here, was attested AND published to the public social
+            # feed under whatever address the body wrote. Measured on the tree
+            # before this change:
+            #
+            #   execute("create_social_profile",
+            #           params={"address": "0xVICTIM", ...},
+            #           caller_identity="0xSESSION")
+            #     -> attestation actor "0xVICTIM"   feed actor "0xVICTIM"
+            #
+            # and the resolved identity appeared in neither record. Not one
+            # action's parameter spelling: `address` is declared by
+            # social.create_profile/update_profile, and `wallet` binds through
+            # the `**kwargs` signature of 55 state-modifying actions (auctions,
+            # restaking, ccip, mpc, storage, social_protocols …), every one of
+            # which reached this line.
+            #
+            # THE ACTOR IS WHAT THE ENTRY POINT RESOLVED. Only that. A body
+            # value is still RECORDED — dropping it would trade a false record
+            # for a thinner one — as `_claimed_actor`, a claim about who acted.
+            # When it agrees with the resolved identity nothing is claimed: a
+            # field that is always populated stops distinguishing anything, and
+            # the case worth seeing in a trail is the DISAGREEMENT, which is the
+            # shape of one caller naming another.
+            #
+            # "RESOLVED" IS NOT "AUTHENTICATED", and this does not pretend
+            # otherwise — see 17-J above and
+            # tests/test_bound_identity_is_not_called_authenticated.py. What
+            # changes here is narrower and complete: a value the request body
+            # wrote cannot outrank the bound one, and cannot be the actor when
+            # the entry point bound nothing at all.
+            _actor = caller_identity or ""
+            _claimed_actor = str(
+                params.get("wallet") or params.get("address") or ""
             )
+            if _claimed_actor == _actor:
+                _claimed_actor = ""
 
 
             # ── DOMAIN 16-K ────────────────────────────────────────────────
@@ -1466,18 +1608,34 @@ class ServiceDispatcher:
             # trade a false record for no record, which is the same defect facing
             # the other way: an audit trail must show that the system DECLINED,
             # not that nothing occurred.
+            #
+            # AND A BROADCAST IS NEITHER. `_outcome_is_real` is a boolean, and
+            # the third case has to go somewhere: 25 methods return
+            # `{"status": "submitted", "tx_hash": ...}` (or `claim_submitted`)
+            # straight off `send_transaction`, which read as real and were
+            # attested as done — and `settle_transaction`'s own timeout shape
+            # says `broadcast: True` with `settled: False`.
+            # Sending them to the refusal path instead would record "ACTION
+            # DECLINED" for a transaction that may well be mined. Three records
+            # for three answers — `_record_verdict` holds the argument.
             if action in _STATE_MODIFYING_ACTIONS:
-                _happened = _outcome_is_real(result)
+                _verdict = _record_verdict(result)
+                _happened = _verdict == RECORD_SETTLED
 
                 if _happened:
                     await self._attest_action(
                         action, target_service, params, result, actor=_actor,
-                        actor_source=_actor_source,
+                        actor_source=_actor_source, actor_claimed=_claimed_actor,
+                    )
+                elif _verdict == RECORD_BROADCAST:
+                    await self._record_broadcast(
+                        action, target_service, params, result, actor=_actor,
+                        actor_source=_actor_source, actor_claimed=_claimed_actor,
                     )
                 else:
                     await self._attest_refusal(
                         action, target_service, params, result, actor=_actor,
-                        actor_source=_actor_source,
+                        actor_source=_actor_source, actor_claimed=_claimed_actor,
                     )
 
                 # Fire-and-forget: publish to the social feed.
@@ -1487,6 +1645,16 @@ class ServiceDispatcher:
                 # announced. The refusal is still recorded above, where an audit
                 # trail belongs; the public feed is a different surface with a
                 # different contract.
+                #
+                # NEITHER IS A BROADCAST, and this is the condition NEW-88 wrote
+                # down when it removed the `cross_chain_bridge` feed event:
+                # "a feed event for bridging may be restored only when it is
+                # DERIVED from a settlement result (a confirmed destination-chain
+                # receipt), never from the fact that a request was accepted."
+                # That was stated for one action and is true of every one of
+                # them, so it is enforced here rather than maintained by hand in
+                # ACTION_TO_FEED_EVENT — `_happened` is now settlement, not
+                # submission.
                 if _happened and self._feed_engine is not None:
                     _component_id = None
                     try:
@@ -1498,17 +1666,27 @@ class ServiceDispatcher:
                     if isinstance(result, dict):
                         _tx = result.get("tx_hash") or result.get("transaction_hash")
                     _value = _feed_value_of(result)
+                    # The claim rides in `detail` rather than in `actor`. The
+                    # feed's `actor` column is what get_feed(actor=…) filters on
+                    # and what the summary line names, so putting an unresolved
+                    # address there is the publication this change stops. It is
+                    # added only when there IS a disagreement, because `detail`
+                    # is a rendered surface and an always-empty key reads as a
+                    # missing value rather than as "nobody claimed anything".
+                    _detail: dict[str, Any] = {
+                        "service": target_service,
+                        "params": {
+                            k: v for k, v in params.items()
+                            if k not in ("private_key", "seed_phrase", "mnemonic")
+                        },
+                    }
+                    if _claimed_actor:
+                        _detail["actor_claimed"] = _claimed_actor
                     asyncio.create_task(
                         self._feed_engine.ingest(
                             action=action,
                             actor=_actor,
-                            detail={
-                                "service": target_service,
-                                "params": {
-                                    k: v for k, v in params.items()
-                                    if k not in ("private_key", "seed_phrase", "mnemonic")
-                                },
-                            },
+                            detail=_detail,
                             component=_component_id,
                             tx_hash=_tx,
                             value_usd=_value,
@@ -1581,6 +1759,7 @@ class ServiceDispatcher:
         *,
         actor: str = "",
         actor_source: str = "",
+        actor_claimed: str = "",
     ) -> None:
         """Record that the platform DECLINED to act — as a decline.
 
@@ -1607,10 +1786,78 @@ class ServiceDispatcher:
         _status = result.get("status") if isinstance(result, dict) else None
         # 17-D. A refusal names WHO was refused. "The system declined" is only
         # half an audit record if it cannot say who it declined.
+        #
+        # And it names, separately, who the REQUEST said was acting when that
+        # disagrees with the identity the entry point resolved. Reading the
+        # claim as the actor is exactly the defect this line used to carry one
+        # frame up; dropping it would lose the most interesting line in the
+        # trail, which is a caller that named someone else.
         logger.info(
             "ACTION DECLINED (not attested, not published): action=%s service=%s "
-            "actor=%s status=%s — no outcome evidence in the service result",
-            action, service_name, actor or "<unknown>", _status,
+            "actor=%s%s status=%s — no outcome evidence in the service result",
+            action, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "", _status,
+        )
+
+    async def _record_broadcast(
+        self,
+        action: str,
+        service_name: str,
+        params: dict,
+        result: Any,
+        *,
+        actor: str = "",
+        actor_source: str = "",
+        actor_claimed: str = "",
+    ) -> None:
+        """Record that a transaction went OUT and nobody has confirmed it landed.
+
+        THE THIRD RECORD, for the third answer. `_attest_action` says the action
+        happened and `_attest_refusal` says the platform declined; a broadcast is
+        neither, and until this existed it was filed as the first — an EAS
+        attestation, addressed to third parties, asserting a bridge or a
+        liquidation had occurred because a node had accepted the bytes.
+
+        A LOG RECORD RATHER THAN AN ATTESTATION, for the reason `_attest_refusal`
+        gives: an on-chain attestation costs gas and asserts a fact to third
+        parties, and "we sent this and do not yet know" is not a
+        counterparty-facing claim. It is also the half that cannot be taken back
+        — which is the argument for waiting, not for asserting early.
+
+        THE HASH IS THE POINT. It is what makes the record checkable by anyone,
+        including by this platform later, and it is the difference between this
+        and a refusal: an auditor reading the trail can settle the question
+        themselves rather than having to trust either verdict.
+
+        THE STANDING WORK THIS LEAVES. The honest end state is for these methods
+        to wait for their own receipts through `web3_manager.settle_transaction`,
+        which returns settled/failed/pending and is what every service under
+        `services/` that waits at all now waits through: `neosafe`,
+        `restaking`, `kyc.issue_kyc_credential`, `creator_platforms.mint_sound`,
+        the attestation service's revocation and time-critical attestation, and
+        the contract conversion deploy (the census in
+        tests/test_a_broadcast_is_not_a_settlement.py holds that). That is
+        25 transaction-sending methods each taking a receipt wait (the 26th word
+        match, the compute job, is a provider API call with no receipt to wait
+        for), which changes their latency and is a behavioural decision per
+        service. This gate protects the durable records in the meantime, and
+        protects any method added later on the same pattern — which a per-service
+        sweep would not.
+        """
+        _status = result.get("status") if isinstance(result, dict) else None
+        _tx = None
+        if isinstance(result, dict):
+            _tx = result.get("tx_hash") or result.get("transaction_hash")
+        # The claim rides here as it does on the other two records: a broadcast
+        # under a caller that named someone else is exactly the line an auditor
+        # wants, and the hash beside it is what lets them settle who acted.
+        logger.info(
+            "ACTION BROADCAST (not attested, not published): action=%s service=%s "
+            "actor=%s%s status=%s tx_hash=%s — the transaction was SENT and no "
+            "receipt confirms it; it may still be mined, and it may revert",
+            action, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "",
+            _status, _tx or "<none>",
         )
 
     async def _attest_action(
@@ -1622,6 +1869,7 @@ class ServiceDispatcher:
         *,
         actor: str = "",
         actor_source: str = "",
+        actor_claimed: str = "",
     ) -> None:
         """Record an EAS attestation for a state-modifying action."""
         try:
@@ -1658,6 +1906,11 @@ class ServiceDispatcher:
                     "service": service_name,
                     "actor": actor or "",
                     "actor_source": actor_source or "unauthenticated",
+                    # ALWAYS PRESENT, unlike the feed's copy. This is the audit
+                    # record: "" here is the positive fact that the request made
+                    # no claim the resolved identity contradicts, where an
+                    # omitted key would read as "this build did not look".
+                    "actor_claimed": actor_claimed or "",
                     "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
                     "timestamp": int(time.time()),
                 },

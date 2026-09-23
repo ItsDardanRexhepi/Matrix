@@ -115,7 +115,9 @@ class NFTs(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "nfts.mint")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"to": to, "contract": contract_address})
 
             return json.dumps({
                 "status": "minted" if receipt["status"] == 1 else "failed",
@@ -162,7 +164,9 @@ class NFTs(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "nfts.transfer")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"from": from_addr, "to": to, "token_id": token_id})
 
             return json.dumps({
                 "status": "transferred" if receipt["status"] == 1 else "failed",

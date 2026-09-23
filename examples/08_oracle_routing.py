@@ -157,7 +157,7 @@ async def main():
                 ok(f"Normal conditions: above 50mm threshold")
         else:
             warn(f"Weather: {data.get('error', 'N/A')}")
-            print(f"  {DIM}Ensure services.oracle_gateway.weather_api_key is configured{RESET}")
+            print(f"  {DIM}Ensure oracle.weather.api_key (WEATHER_API_KEY) is configured{RESET}")
     except Exception as e:
         warn(f"Weather oracle: {e}")
 

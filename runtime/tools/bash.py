@@ -1,20 +1,65 @@
+"""
+Bash Tool — runs a shell command for the agent, with a timeout and a scrubbed
+environment.
+
+WHAT THIS DOES NOT DO, stated first because the previous docstring claimed all
+three and none was true: it is NOT a sandbox, it does NOT block the network, and
+the command runs as the same user as the platform process.
+
+What it does do:
+
+* The child receives an ALLOWLISTED environment (`SAFE_ENV_KEYS`) and nothing
+  else. It used to run with `env=None`, which inherits the whole environment —
+  so one `printenv` returned the gateway master key, every model-provider key,
+  the config encryption key and the paymaster private key. An allowlist, not a
+  denylist, because a denylist is only right until the next secret is added
+  under a name nobody thought to block.
+
+* The tool RUNS ONLY in an environment that has POSITIVELY declared itself
+  development (`MATRIX_ENV` in `DEVELOPMENT_ENVIRONMENTS`), or where an operator
+  sets `tools.bash.allow_in_production` to the boolean `True`. Everywhere else —
+  including an unset `MATRIX_ENV` — it refuses. It used to refuse only when
+  `MATRIX_ENV` was exactly "production", and railway.toml, the Dockerfile, the
+  Procfile and start.sh set no `MATRIX_ENV` at all, so every shipped launcher ran
+  it. A safe default cannot depend on someone remembering a variable. Scrubbing
+  the child's environment is not isolation: a same-user process can still read
+  its parent's environment through the operating system (`/proc/<ppid>/environ`
+  on Linux, `ps eww` on macOS) and still reach the network. Only a real sandbox
+  — a separate user or namespace — closes those, and this tool does not have one.
+
+`BLOCKED_COMMANDS` is a courtesy against accidents, not a control. Substring
+matching on a shell command is trivially sidestepped and must not be read as a
+security boundary.
+"""
 from __future__ import annotations
-
-"""
-Bash Tool — executes shell commands in a sandboxed subprocess.
-
-Commands run with a timeout and restricted environment.
-No network access from bash by default — use the web tools instead.
-"""
 
 import asyncio
 import logging
+import os
 import shlex
 
 logger = logging.getLogger(__name__)
 from runtime.protocols.outcome_truth import refusal
 
 COMMAND_TIMEOUT = 30
+
+#: The ONLY environment variables a shell command can see. Everything the
+#: platform process holds that is not named here — every key, token and secret —
+#: is absent from the child, whatever it is called.
+SAFE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR",
+                 "USER", "LOGNAME", "SHELL", "TZ")
+
+
+#: The only MATRIX_ENV values in which the shell runs without an explicit opt-in.
+DEVELOPMENT_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+
+
+def _declared_development() -> bool:
+    return os.environ.get("MATRIX_ENV", "").strip().lower() in DEVELOPMENT_ENVIRONMENTS
+
+
+def _child_environment() -> dict[str, str]:
+    return {k: os.environ[k] for k in SAFE_ENV_KEYS if k in os.environ}
 
 BLOCKED_COMMANDS = {
     "rm -rf /",
@@ -49,7 +94,22 @@ class BashTool:
     def __init__(self, config: dict):
         self.config = config
 
+    def _allowed_in_production(self) -> bool:
+        tools = (self.config or {}).get("tools") or {}
+        bash = tools.get("bash") if isinstance(tools, dict) else None
+        # `is True`, not truthiness: the strings "false" and "0" are truthy.
+        return isinstance(bash, dict) and bash.get("allow_in_production") is True
+
     async def execute(self, command: str, timeout: int | None = None) -> str:
+        if not _declared_development() and not self._allowed_in_production():
+            return refusal(
+                "Error: the shell tool does not run outside a declared development "
+                "environment. It has no sandbox: a command runs as the platform's own "
+                "user, can read the platform process's environment and can reach the "
+                "network. Set MATRIX_ENV=development locally, or an operator can opt in "
+                "with tools.bash.allow_in_production = true.",
+                code="disabled_in_production",
+            )
         if any(blocked in command for blocked in BLOCKED_COMMANDS):
             return refusal("Error: this command is blocked for safety",
                            code="blocked_command")
@@ -62,7 +122,8 @@ class BashTool:
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=None,
+                # NEVER env=None: that inherits every secret the platform holds.
+                env=_child_environment(),
             )
 
             stdout, stderr = await asyncio.wait_for(

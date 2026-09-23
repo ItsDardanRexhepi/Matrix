@@ -89,7 +89,9 @@ class Gaming(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "gaming.mint_item")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"item_id": params.get("item_id", 1), "amount": params.get("amount", 1), "player": player})
 
             return json.dumps({
                 "status": "minted" if receipt["status"] == 1 else "failed",
@@ -133,7 +135,9 @@ class Gaming(BlockchainInterface):
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "gaming.transfer_item")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"item_id": params.get("item_id", 1), "amount": params.get("amount", 1), "to": params["to"]})
 
             return json.dumps({
                 "status": "transferred" if receipt["status"] == 1 else "failed",

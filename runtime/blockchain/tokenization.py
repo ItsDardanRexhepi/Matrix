@@ -134,7 +134,9 @@ contract {symbol}Token is ERC20, Ownable {{
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "tokenization.transfer")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"to": params["to"], "amount": params.get("amount")})
 
             return json.dumps({
                 "status": "transferred" if receipt["status"] == 1 else "failed",
@@ -174,7 +176,9 @@ contract {symbol}Token is ERC20, Ownable {{
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "tokenization.approve")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"spender": params["spender"]})
 
             return json.dumps({
                 "status": "approved" if receipt["status"] == 1 else "failed",
@@ -245,7 +249,9 @@ contract {symbol}Token is ERC20, Ownable {{
 
             signed = account.sign_transaction(tx)
             tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = await self._receipt(tx_hash, "tokenization.mint")
+            if receipt is None:
+                return self._unconfirmed(tx_hash, **{"to": to, "amount": params.get("amount")})
 
             return json.dumps({
                 "status": "minted" if receipt["status"] == 1 else "failed",

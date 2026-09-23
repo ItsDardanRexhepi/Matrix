@@ -29,7 +29,7 @@ from multidict import MultiDict, MultiDictProxy
 from gateway.error_contract import (
     DISPATCHER_CATEGORY_HTTP, client_error, dispatcher_failure, refusal_http_status,
 )
-from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, UNKNOWN, report_of
 
 from gateway.event_broadcaster import (
     BroadcastEvent,
@@ -663,7 +663,7 @@ class ServiceRoutes:
 
         AND `status` NEVER ANSWERED FOR THE PAYLOAD. `_FAILURE_STATUSES` is two
         strings wide, so every other refusal idiom in the platform's own
-        163-word vocabulary went out as `{"status": "ok"}` — including
+        refusal vocabulary went out as `{"status": "ok"}` — including
         `not_deployed`, which 42 modules return and which means the platform
         could not act at all.
 
@@ -840,7 +840,7 @@ class ServiceRoutes:
 
     @staticmethod
     def _record_decline(service_name: str, method_name: str, result: Any,
-                        *, actor: str) -> None:
+                        *, actor: str, actor_claimed: str = "") -> None:
         """Record that the platform DECLINED to act — as a decline.
 
         Deliberately the same sentence, level and fields as
@@ -856,8 +856,35 @@ class ServiceRoutes:
         status = result.get("status") if isinstance(result, dict) else None
         logger.info(
             "ACTION DECLINED (not attested, not published): action=%s service=%s "
-            "actor=%s status=%s — no outcome evidence in the service result",
-            method_name, service_name, actor or "<unnamed>", status,
+            "actor=%s%s status=%s — no outcome evidence in the service result",
+            method_name, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "", status,
+        )
+
+    @staticmethod
+    def _record_broadcast(service_name: str, method_name: str, result: Any,
+                          *, actor: str, actor_claimed: str = "") -> None:
+        """Record that a transaction went OUT and nobody has confirmed it landed.
+
+        The dispatcher's third record (`ServiceDispatcher._record_broadcast`),
+        in the same sentence, at the same level and with the same fields, for
+        the same reason `_record_decline` mirrors `_attest_refusal`: this
+        surface never enters `ServiceDispatcher.execute`, so a broadcast on the
+        /api/v1 path left no record at all once it stopped being announced.
+        The hash is the point — it is what lets anyone settle the question
+        later — and a service that had none is recorded as having none.
+        """
+        status = result.get("status") if isinstance(result, dict) else None
+        tx = None
+        if isinstance(result, dict):
+            tx = result.get("tx_hash") or result.get("transaction_hash")
+        logger.info(
+            "ACTION BROADCAST (not attested, not published): action=%s service=%s "
+            "actor=%s%s status=%s tx_hash=%s — the transaction was SENT and no "
+            "receipt confirms it; it may still be mined, and it may revert",
+            method_name, service_name, actor or "<unknown>",
+            f" claimed={actor_claimed}" if actor_claimed else "",
+            status, tx or "<none>",
         )
 
     def _maybe_ripple(self, service_name: str, method_name: str, kwargs: dict, result: Any) -> None:
@@ -898,6 +925,20 @@ class ServiceRoutes:
         What stops is announcing it as something that happened. An outcome
         nobody established (UNKNOWN — `pending`, `queued`) still ripples and
         still carries its status: those calls did begin.
+
+        EXCEPT A BROADCAST, WHICH IS THE THIRD ANSWER HERE TOO. `report_of`
+        asks whether the CALL succeeded, and for a transaction that was sent it
+        did — the bytes went out — so the bare `{"status": "submitted",
+        "tx_hash": ...}` that twenty-six methods return straight off the send
+        read as SUCCESS here and was published to the live feed as an executed
+        action, and `settle_transaction`'s unconfirmed shape rippled as
+        `pending`. The dispatcher's feed path had already stopped doing that
+        (`_record_verdict`: settled, broadcast, refused), so the two surfaces
+        disagreed about the same result. The same gate now decides here, read
+        before the publish: a broadcast is recorded under its hash and not
+        announced, because a feed entry for a bridge or a liquidation may be
+        restored only when it is derived from a settlement, never from the fact
+        that a node accepted the bytes.
         """
         refused = report_of(result) == FAILURE
         if service_name == "privacy":
@@ -913,20 +954,61 @@ class ServiceRoutes:
         # create_post already emits a richer ``social.post`` event — don't double.
         if service_name == "social" and method_name == "create_post":
             return
-        actor = ""
+        # WHO THE LIVE FEED SAYS ACTED.
+        #
+        # This scan — fifteen body keys, first hit wins — WAS the actor. Every
+        # one of them is written by the request, so the public broadcast for
+        # every executed /api/v1 action announced an address the platform had
+        # not resolved, while the identity the security middleware bound for
+        # that same request (`current_request_security()["wallet"]`, set for
+        # every POST /api/v1/*) went unread one frame away. Measured before this
+        # change: POST /api/v1/groups {"creator": "0xCLAIMED"} published
+        # feed.ripple {"actor": "0xCLAIMED", …} with nothing bound at all.
+        #
+        # The actor is now the resolved identity and only that. The scanned
+        # value survives as `actor_claimed` when it disagrees — a claim about
+        # who acted, labelled as one. Same rule, same two fields, as the
+        # dispatcher's attestation and feed path
+        # (runtime/blockchain/services/service_dispatcher.py); a fix on one
+        # attribution surface and not the other is the half-fix this codebase
+        # keeps catching.
+        #
+        # RESOLVED, NOT AUTHENTICATED: the middleware binds a session's subject
+        # when there is one and, for an operator request, the X-Wallet-Address
+        # header or a body field as written. That is pinned and disclosed in
+        # tests/test_bound_identity_is_not_called_authenticated.py and is not
+        # narrowed here.
+        from gateway.security_gate import current_request_security
+        actor = str((current_request_security() or {}).get("wallet") or "")
+        claimed = ""
         for k in ("owner", "creator", "author", "sender", "from_", "from",
                   "uploader", "requester", "employer", "holder", "minter",
                   "user", "voter", "address", "delegator"):
             v = kwargs.get(k)
             if isinstance(v, str) and v:
-                actor = v
+                claimed = v
                 break
+        if claimed == actor:
+            claimed = ""
         if refused:
             # The read and collection clauses run first deliberately: the
             # dispatcher records a decline for the actions it would have
             # attested (`_STATE_MODIFYING_ACTIONS`), and these are the calls
             # this surface would have rippled. Same scope, same record.
-            self._record_decline(service_name, method_name, result, actor=actor)
+            self._record_decline(service_name, method_name, result,
+                                 actor=actor, actor_claimed=claimed)
+            return
+        # THE THIRD ANSWER, from the gate that holds the argument. Imported
+        # here, as the dispatcher is everywhere on this file, because the
+        # verdict has to be the dispatcher's own: a broadcast on one surface
+        # must be a broadcast on the other.
+        from runtime.blockchain.services.service_dispatcher import (
+            RECORD_BROADCAST,
+            _record_verdict,
+        )
+        if _record_verdict(result) == RECORD_BROADCAST:
+            self._record_broadcast(service_name, method_name, result,
+                                   actor=actor, actor_claimed=claimed)
             return
         from gateway.security_gate import action_type_for
         payload: Dict[str, Any] = {
@@ -935,6 +1017,10 @@ class ServiceRoutes:
             "method": method_name,
             "actor": actor,
         }
+        # Conditional, like `ref` and `status` below: this is a broadcast to
+        # live subscribers, and the key is here to carry a disagreement.
+        if claimed:
+            payload["actor_claimed"] = claimed
         if isinstance(result, dict):
             ref = result.get("id") or result.get("tx_hash") or result.get("hash")
             if ref:
@@ -999,22 +1085,37 @@ class ServiceRoutes:
     async def _estimate_sponsorship_usd(self, cfg: dict, body: dict) -> float:
         """Worst-case USD cost of the gas this userOp asks the platform to cover.
 
-        max_fee_per_gas x (callGasLimit + verificationGasLimit +
-        preVerificationGas) is the ceiling the EntryPoint can charge the
-        paymaster for this operation, so metering the ceiling is the reading
-        that cannot under-count. Priced with the same PriceFeed the /price route
-        uses; it raises rather than return a stale number, and this method lets
-        that raise through to the caller's 503.
+        The EntryPoint reserves ``_getRequiredPrefund`` from the paymaster's
+        deposit before it executes, so that prefund — not the bare sum of the
+        gas limits — is the ceiling one signature can commit. This used to sum
+        callGasLimit + verificationGasLimit + preVerificationGas and call that
+        the ceiling; EntryPoint v0.6 counts the verification limit THREE times
+        when a paymaster is present (it also bounds postOp, which may run
+        twice), so the cap was metering as little as 45% of the reservable
+        spend and authorised more than the operator configured.
+        ``gateway.paymaster.required_prefund_wei`` is the pinned formula.
+
+        Priced with the same PriceFeed the /price route uses; it raises rather
+        than return a stale number, and this method lets that raise through to
+        the caller's 503.
         """
+        from gateway.paymaster import required_prefund_wei
+
         def _int(key: str) -> int:
             try:
                 return int(body.get(key, 0) or 0)
             except (TypeError, ValueError):
                 return 0
 
-        total_gas = (_int("call_gas_limit") + _int("verification_gas_limit")
-                     + _int("pre_verification_gas"))
-        wei = total_gas * _int("max_fee_per_gas")
+        # has_paymaster is the default: this handler has already refused with
+        # 503 unless a paymaster address is configured, and every operation it
+        # signs carries that paymaster in its paymasterAndData.
+        wei = required_prefund_wei(
+            call_gas_limit=_int("call_gas_limit"),
+            verification_gas_limit=_int("verification_gas_limit"),
+            pre_verification_gas=_int("pre_verification_gas"),
+            max_fee_per_gas=_int("max_fee_per_gas"),
+        )
         if wei <= 0:
             return 0.0
         quote = await self._price_feed().eth_usd()
@@ -3218,7 +3319,7 @@ class ServiceRoutes:
             status, err = failure
             return web.json_response({**err, "capability_id": capability_id}, status=status)
         # AND `dispatcher_failure` FIRES ONLY ON status == "error". Every other
-        # refusal idiom in the platform's 163-word vocabulary went out of here
+        # refusal idiom in the platform's measured vocabulary went out of here
         # as HTTP 200 {"status": "ok"} — `not_deployed` above all, which means
         # the platform could not act at all. The registry states the action's
         # own verdict now (`CapabilityRegistry.invoke`), and this relays it
@@ -3314,12 +3415,33 @@ class ServiceRoutes:
         total_ms = int((time.monotonic() - start_wall) * 1000)
         self._metric_observe("batch.duration_ms", float(total_ms))
 
-        success_count = sum(1 for r in results if 200 <= r["status"] < 300)
-        failure_count = len(results) - success_count
+        # COUNTED FROM WHAT EACH ITEM REPORTED, NOT FROM ITS HTTP STATUS.
+        #
+        # This was `200 <= r["status"] < 300`, and a DOMAIN refusal keeps its
+        # 200 deliberately — `_ok` is right that a rejected claim is a real
+        # answer the caller asked for, and promoting one would break a working
+        # flow. So the transport's truthful statement about ITSELF was counted
+        # as the action's verdict: a batch of refusals was counted as a batch of
+        # successes, the count was PUBLISHED to every SSE subscriber below, and
+        # the same number went into the metric an operator reads to decide
+        # whether the platform is working.
+        #
+        # THREE ANSWERS, BECAUSE THERE ARE THREE. `failure_count` used to be
+        # `len - success`, which files an item nobody established a verdict for
+        # — a timed-out item above all, which may well have acted — under
+        # failure. It gets its own count instead; a number that lumps the
+        # unknown in with the refused is a number that asserts a negative fact
+        # nothing established.
+        outcomes = [r.get(OUTCOME_FIELD) for r in results]
+        success_count = sum(1 for o in outcomes if o == SUCCESS)
+        refused_count = sum(1 for o in outcomes if o == FAILURE)
+        unknown_count = len(results) - success_count - refused_count
         if success_count:
             self._metric_incr("batch.item.success", success_count)
-        if failure_count:
-            self._metric_incr("batch.item.failure", failure_count)
+        if refused_count:
+            self._metric_incr("batch.item.failure", refused_count)
+        if unknown_count:
+            self._metric_incr("batch.item.unknown", unknown_count)
         timeout_count = sum(1 for r in results if r.get("status") == 504)
         if timeout_count:
             self._metric_incr("batch.items.timeout", timeout_count)
@@ -3332,6 +3454,11 @@ class ServiceRoutes:
                 {
                     "item_count": len(items),
                     "success_count": success_count,
+                    # Stated rather than left to be inferred from the other two:
+                    # a subscriber that subtracts reads every unestablished
+                    # outcome as a refusal, which is the defect facing the other
+                    # way. `item_count - success - refused` is the unknown.
+                    "refused_count": refused_count,
                     "total_duration_ms": total_ms,
                 },
             )
@@ -3353,7 +3480,21 @@ class ServiceRoutes:
         for item in items:
             result = await self._dispatch_batch_item(item, auth=auth)
             results.append(result)
-            if abort_on_failure and not (200 <= result["status"] < 300):
+            # ABORTS ON WHAT THE ITEM REPORTED, NOT ON ITS HTTP STATUS. This
+            # read `200 <= status < 300`, so a refusal that keeps its 200 — the
+            # domain refusals `_ok` deliberately does not promote — did not stop
+            # the items queued behind it. A caller sends a sequential batch with
+            # `abort_on_failure` because the later items DEPEND on the earlier
+            # ones; the loan was refused and the repayment ran anyway.
+            #
+            # An UNKNOWN outcome stops it too, and for an item that answered
+            # 2xx THAT IS A WIDENING. A timeout and a route miss were already
+            # non-2xx and already stopped the batch; an item that answered 200
+            # with `pending`, `queued`, `recorded_unsettled` or `settled: false`
+            # used to let everything behind it run, and now stops it. Chosen,
+            # not incidental: an item whose outcome nobody established is
+            # exactly the item a dependent call must not be built on.
+            if abort_on_failure and result.get(OUTCOME_FIELD) != SUCCESS:
                 # Pad remaining items so the response shape stays aligned
                 # with the request order.
                 for remaining in items[len(results):]:
@@ -3363,6 +3504,9 @@ class ServiceRoutes:
                         "status": 0,
                         "body": None,
                         "error": "aborted",
+                        # Not UNKNOWN: this one is established. The item was
+                        # never dispatched, so the call did not happen.
+                        OUTCOME_FIELD: FAILURE,
                     })
                 break
         return results
@@ -3382,8 +3526,45 @@ class ServiceRoutes:
             pass
         return results
 
+    @staticmethod
+    def _item_outcome(status: int, body: Any) -> str:
+        """What the SUB-CALL reported, for the batch item to state.
+
+        The batch envelope is the third HTTP envelope in this file, and it hid
+        what the other two stopped hiding. `_ok` states `call_outcome` in the
+        body it answers with; this method used to put that body under ``body``,
+        write the sub-route's HTTP status beside it, set ``error`` to None and
+        pass on nothing else — so a refusal that correctly keeps its 200 reached
+        every consumer of the batch as an item indistinguishable from an
+        executed action. MTRXPackager.unpackBatchItem decodes on
+        ``status >= 200 && < 300``; the batch's own `success_count` counted the
+        same way; `abort_on_failure` tested the same thing.
+
+        READ, NOT RE-DERIVED. `report_of` believes a `call_outcome` the
+        sub-route already stated over anything it would infer, so the item
+        cannot disagree with the body it carries. Routes that state none — the
+        ones answering raw payloads rather than `_ok` — are read from their
+        structure, by the same reader, at the same strength.
+
+        A NON-2XX IS ITSELF A REPORT. The sub-route said the call did not
+        succeed; when its body states an outcome that is the outcome, and when
+        the body says nothing (an `HTTPException`'s bare `{"error": ...}`, or no
+        body at all) the status is the only report there is and it is a refusal.
+        The measured default that reads a silent payload as success is a fact
+        about payloads this tree RETURNS, not about a status it raised.
+        """
+        if 200 <= status < 300:
+            return report_of(body)
+        reported = report_of(body) if body is not None else FAILURE
+        return reported if reported != SUCCESS else FAILURE
+
     async def _dispatch_batch_item(self, item: Any, auth: Optional[dict] = None) -> dict:
-        """Run one batch item and return a ``BatchItemResult`` dict."""
+        """Run one batch item and return a ``BatchItemResult`` dict.
+
+        Every branch states ``call_outcome``. A field that appears only on
+        failure is read as silence on every other path — the shape this whole
+        cluster is about.
+        """
 
         if not isinstance(item, dict):
             return {
@@ -3391,6 +3572,7 @@ class ServiceRoutes:
                 "status": 400,
                 "body": None,
                 "error": "Batch item must be an object",
+                OUTCOME_FIELD: FAILURE,
             }
 
         item_id = item.get("id") or ""
@@ -3404,6 +3586,7 @@ class ServiceRoutes:
                 "status": 400,
                 "body": None,
                 "error": "Batch item missing 'path'",
+                OUTCOME_FIELD: FAILURE,
             }
 
         # "/path?x=1": route on the path, hand the handler the query — as the
@@ -3417,6 +3600,7 @@ class ServiceRoutes:
                 "status": 404,
                 "body": None,
                 "error": f"No route for {method} {path}",
+                OUTCOME_FIELD: FAILURE,
             }
 
         handler, match_info, literal_path = resolved
@@ -3442,6 +3626,11 @@ class ServiceRoutes:
                 "error": (
                     f"Batch item exceeded {BATCH_ITEM_TIMEOUT_SECONDS:.0f}s timeout"
                 ),
+                # THE THIRD ANSWER, AND THIS IS WHERE IT BELONGS. The handler
+                # was cancelled mid-flight; it may already have signed, spent or
+                # written. A refusal is a claim that nothing happened, and
+                # nothing establishes that here.
+                OUTCOME_FIELD: UNKNOWN,
             }
         except web.HTTPException as exc:
             return {
@@ -3449,6 +3638,12 @@ class ServiceRoutes:
                 "status": exc.status,
                 "body": None,
                 "error": self._extract_http_error(exc),
+                # `_call` raises these for a capability that does not exist, a
+                # bad parameter, a validation refusal — the route decided, and
+                # it decided no. Except at 504, where it decided nothing:
+                # `client_error` maps an upstream timeout to that status, and a
+                # request that timed out upstream may have been acted on.
+                OUTCOME_FIELD: self._outcome_for_error_status(exc.status),
             }
         except Exception as exc:  # pragma: no cover — defence in depth
             # RUN-5: this shipped str(exc) — the raw exception — as the item's
@@ -3460,14 +3655,30 @@ class ServiceRoutes:
                 "status": status,
                 "body": None,
                 "error": err["error"],
+                OUTCOME_FIELD: self._outcome_for_error_status(status),
             }
 
+        body_json = self._extract_response_body(response)
         return {
             "id": item_id,
             "status": response.status,
-            "body": self._extract_response_body(response),
+            "body": body_json,
             "error": None,
+            OUTCOME_FIELD: self._item_outcome(response.status, body_json),
         }
+
+    @staticmethod
+    def _outcome_for_error_status(status: int) -> str:
+        """The outcome of an item that never produced a response body.
+
+        FAILURE for every status the gateway decides on its own — a missing
+        parameter, an absent capability, an unreachable dependency: the call did
+        not happen. UNKNOWN at 504 only, where `client_error` is saying the
+        upstream stopped answering, which is not the same as saying it did
+        nothing. A timeout is the one error this surface cannot turn into a
+        negative fact.
+        """
+        return UNKNOWN if status == 504 else FAILURE
 
     @staticmethod
     def _extract_http_error(exc: web.HTTPException) -> str:

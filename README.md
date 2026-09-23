@@ -69,7 +69,7 @@ Getting there is not one commit, it is a long line of them, so I hold every one 
 - **Nothing here claims to do something it does not do.** When a claim in the code, the docs, or this README turns out to be untrue, the rule is to build it true where that is possible, and to correct it plainly where it is not. Both happen, and the correction is written down either way.
 - **A fix arrives with the check that catches it.** Every change ships with a test that fails against the old behaviour and passes against the new one, and I run it against the old behaviour first — a test that was never seen failing has not proven anything.
 - **A refusal is a feature.** When a service has no chain, it says `not_deployed`. When the platform cannot do a thing, it says so instead of returning something that looks like success. When a number is not known, you get a dash and not a plausible figure. Money is the place where a comforting lie costs the most, so that is the place it is least welcome.
-- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested`. Cashback you have not been paid stays claimable. A subscription counts the charges that settled. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from.
+- **A record says what happened, not what was attempted.** Anything here that outlives the call — an attestation, a public feed entry, a claimable balance, a billing counter, an invoice — is written from the verdict the thing it called actually returned. A batch of attestations is judged one attestation at a time, and the ones that did not land go back on the queue instead of being reported as written — except one that was sent and that no receipt confirmed in time, which leaves the queue and is logged under its hash rather than sent again, because a second send could put two claims on the chain where one was made. A transfer is `routed` when a receipt confirms it, `failed` when the chain reverted it, and `pending` when it was broadcast and nobody knows yet — and the attestation follows the receipt, because a claim put on a public chain cannot be taken back. That holds for every action that sends a transaction, not only the ones whose service remembers to wait: sending is not the same event as the chain accepting it, so a bridge, a channel close or a liquidation that has only been broadcast, or a transfer whose receipt did not arrive in time, is recorded as a broadcast, with its hash, and is neither attested on-chain as done nor announced on the feed as done — and not recorded as declined either, because it may still be mined. A KYC credential is issued when its receipt confirms it. The list of methods that send is not kept by hand: a test finds every one of them from the send itself, not from the word it answers with, and fails if any could be recorded as settled without a receipt; a second finds every one that waits for its receipt and holds that it waits through the one helper whose three answers are driven, because the two that waited on their own called a wait that ran out a refusal. Settled, sent, and refused are three different things, and the record says which one it was rather than rounding the middle one to either side. A method that writes a record and calls no contract says `recorded_unsettled` and says plainly that nothing moved, rather than `purchased`, `claimed`, `minted` or `attested`. Cashback you have not been paid stays claimable. A subscription counts the charges that settled. A job whose tools refused is not invoiced, and one whose tools disagree is not invoiced either — an outcome nobody established is not something to bill for, and it is not something to learn from.
 - **The security layer is described as it is.** With no enforcement core installed the platform runs in OBSERVE mode and announces it at boot, because "secured" is a claim like any other and has to be earned.
 - **This README is part of the software.** Each commit that changes what the platform can do updates this file in the same breath, so what you read here keeps matching what you would find if you went looking in the code.
 
@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 3,756 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,465 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -203,7 +203,14 @@ What works today, no chain required:
   states the verdict of the action in a `call_outcome` field of its own
   rather than letting its own `ok` stand in for it — on both `/api/v1`
   doors, the dedicated route and the capability-invoke one, which used to
-  give opposite answers for the same refusal. And a refusal the live feed
+  give opposite answers for the same refusal, and on the mobile bridge,
+  where a wrapper that was not told the verdict reads it off the payload
+  instead of defaulting to success. A stated verdict is believed over
+  everything else, so a defaulted one would outrank the refusal sitting
+  inside it, even one the dispatcher had already read and written down.
+  No bridge route relayed a payload like that without stating its
+  verdict, so the default never did it to a live response; it is gone so
+  that the next route cannot. And a refusal the live feed
   does not announce is still written down as a decline, on whichever
   surface refused it: a trail has to show that the platform said no, not
   that nothing was ever asked. The field is spelled that way on purpose: the services here already use the word `outcome`
@@ -225,25 +232,92 @@ check behind it:
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
   vulnerabilities detected", and no security badge is issued on it
-- **Gas sponsorship is metered.** The per-identity daily cap the
-  configuration documents is enforced before signing, over a durable
-  ledger, and the sponsored action is decoded from the call data being
-  signed rather than read from a label the caller supplies. An operator
-  who configures no cap keeps the previous behaviour
+- **Gas sponsorship is metered against what the EntryPoint can charge.**
+  The per-identity daily cap the configuration documents is enforced
+  before signing, over a durable ledger, and each request is priced at
+  the EntryPoint v0.6 prefund for a sponsored operation — which counts
+  the verification gas limit three times, not once, because that limit
+  also bounds the paymaster's postOp — so the cap cannot authorise more
+  real spend than it names. The sponsored action is decoded from the call
+  data being signed rather than read from a label the caller supplies. An
+  operator who configures no cap keeps the previous behaviour
+- **The deployment tools will not put the old paymaster on a chain.** The
+  paymaster the platform uses is the ERC-4337 verifying one, which pays
+  gas out of its own EntryPoint deposit. Its predecessor can send any
+  calldata to any address from any authorized key, nothing in the runtime
+  calls it, and the tools used to deploy it as their first step and wire
+  0.1 ETH to it. They deploy what they declare, they say out loud what
+  they will not deploy and why, and a deployment manifest that names the
+  old one stops the pipeline before a single address is configured or a
+  single transfer is sent. Deploying it is now a deliberate act by hand,
+  which is the only kind of act it should ever have been
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
   rather than adopted. Which agent answers is settled by one resolver, so
   a different spelling of a privileged agent's name is not a way past the
   operator check
+- **A record names who the platform resolved, not who the request said.**
+  The attestation, the decline record, the broadcast record and the public
+  live feed are all attributed to the identity the entry point bound for
+  that request, on the dispatcher's path and on the `/api/v1` path alike.
+  An address written into the request body no longer outranks it, and
+  where nothing was bound it is written down as a claim rather than
+  promoted to the actor — so a caller who names somebody else shows up in
+  the trail as exactly that, whichever of the three answers the record
+  gives, instead of the platform quietly agreeing. The one deliberate
+  exception is a privacy action refused on the `/api/v1` path: its decline
+  is recorded with no actor and no claim, because naming who was refused
+  is exactly what the privacy exclusion exists to prevent
 - **Deleting your account is all or nothing.** The conversations, their
   claims, the scoped memory and the erasure record go in a single
   transaction; if any part of it fails the request answers 503 and
   removes nothing, rather than reporting success over data it left behind
+- **A payment nobody confirmed is not a payment.** A subscription
+  renewal is booked only when the payment gateway says plainly that the
+  charge went through, and a gateway is not this platform: the rule that
+  silence means success is measured over code written here, and so are
+  the platform's own words for success, so neither is applied to a party
+  whose way of saying yes or no we have never seen. A gateway answering
+  `processing`, `refunded` or `cancelled` has not been paid, and a reply
+  that says yes in one field and no in another is not a yes. A charge
+  whose answer we cannot read leaves the counters where they are, does
+  not push the subscription toward cancellation, and is not presented
+  again — it may already have been taken, so it waits for someone to
+  check it with the gateway. A renewal nobody tried to charge, because no
+  gateway is configured, simply stays due
 - **A batch request carries the credential it was sent with.** Each item
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it
   brought
+- **A batch item says what its call did, not that it came back.** The
+  item used to carry the sub-route's HTTP status and nothing else about
+  the outcome, and a refusal that is a domain answer keeps its `200` on
+  purpose — so a refused loan and a granted one were the same item to
+  everyone reading it. Each item now states the call's own verdict beside
+  the status, and everything downstream reads that instead: the counts
+  the platform publishes to its live feed are counts of calls that did
+  the thing, and `abort_on_failure` stops at a refusal the transport
+  delivered perfectly well. It also stops at an item whose outcome nobody
+  established, even one that answered `200` — `pending`, `queued`, a
+  record that says nothing settled — because the later items in a
+  sequential batch are built on the earlier ones. The verdict is in each
+  item for a client to read before it decodes the result; a client that
+  decodes on the HTTP status alone still reads a refusal as a result. An
+  item that timed out is neither counted nor refused — it was cancelled
+  mid-flight, and it may have acted
+- **The agent's shell runs only where someone said it may.** It has no
+  sandbox: a command runs as the platform's own user, can read the
+  platform process's environment and can reach the network. So it refuses
+  unless `MATRIX_ENV` declares a development environment or an operator
+  opts in, an unset `MATRIX_ENV` refuses too, and a test finds every file
+  in this tree that starts the server — from the start command it names,
+  not from a list kept by hand — and reads each of them, with the compose
+  files and Kubernetes manifests that start it by image, to hold that none
+  of them declares one.
+  A command it does run gets an allowlisted environment with none of the
+  platform's keys in it, which is not isolation, and is why it refuses by
+  default
 - **Security posture is stated, not assumed.** With no enforcement core
   installed the platform runs in OBSERVE mode and says so at boot
 
@@ -415,10 +489,19 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 The Matrix ships with the plumbing required for a hardened mainnet
 launch:
 
-- **Env-only secrets** — `runtime/config/validation.py` strips
-  placeholder values (`YOUR_`, `CHANGE_ME`, …) and, with
-  `MATRIX_ENV=production`, refuses to start if a required secret is
-  missing from the environment.
+- **Env-only secrets, and a census that finds the ones that escape** —
+  `runtime/config/validation.py` strips placeholder values (`YOUR_`,
+  `CHANGE-ME`, … in either spelling) and, with `MATRIX_ENV=production`,
+  refuses to start if a required secret is missing from the environment.
+  It also walks the loaded config for secret-shaped settings and reports
+  any that no env-only entry covers — in production that refusal stops
+  the boot, so a new third-party key cannot quietly live in the
+  committed file the way the Twitter and Apple ones did. Each entry
+  targets the path the code reads: the paymaster's gas-sponsorship
+  signer arrives as `MATRIX_PAYMASTER_SIGNER_KEY` at the location the
+  example documents, and the oracle keys at `oracle.weather.api_key` and
+  `oracle.sports.api_key` — an entry at a path nothing reads bridges a
+  value to nowhere while calling the key handled.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
