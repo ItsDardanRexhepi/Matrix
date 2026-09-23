@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,503 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,504 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -486,7 +486,7 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 
 ## Protocol Stack
 
-The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every user interaction passes through these protocols before a response is produced.
+The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every user interaction passes through these protocols before a response is produced, except Omega, which nothing calls.
 
 **Jarvis** — Identity foundation. Handles agent personality persistence, voice consistency, memory integration, and structured planning that feeds into the ReAct loop.
 
@@ -504,9 +504,9 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 
 **Rexhepi Gate** — The execution gate. Every tool call an agent makes is scored by the Unified Rexhepi Framework before it is dispatched, and only an EXECUTE outcome lets it run. The agent's reply to the user does not pass through it.
 
-**Omega** — The synthesis layer. Combines all protocol outputs into a single unified agent response — the orchestration brain.
+**Omega** — A synthesis layer (`runtime/protocols/omega.py`) written to run Jarvis, Ultron, Vision, Friday, the Morpheus triggers and the Rexhepi Gate in sequence and merge what they return into one response. Nothing calls it. The protocol stack constructs an `OmegaMind` and counts it among the protocols it loaded, but the ReAct loop calls only the stack's `pre_process`, `pre_action`, `post_action` and `post_process`, and the reply the user gets is the model's, not Omega's.
 
-**Protocol Stack (Integration)** — Wires all protocols into the agent runtime. The single entry point that the ReAct loop calls on every turn.
+**Protocol Stack (Integration)** — Wires the protocols above, Omega apart, into the agent runtime. The single entry point that the ReAct loop calls on every turn.
 
 ---
 
