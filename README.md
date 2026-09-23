@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,498 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,500 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -657,7 +657,12 @@ See `/learn` for details or browse the open source content in `education/`.
 
 ## Get Certified
 
-Professional certifications backed by on-chain attestations:
+The gateway runs three certification exams (`GET /certification/tracks`,
+`POST /certification/start`, `POST /certification/submit`). A passing score
+records a certificate with an ID that `GET /certification/{cert_id}` looks
+up. No on-chain attestation is written for a certificate yet, and the
+gateway takes no payment for an exam; the prices are the ones the tracks
+list:
 
 - **Certified Developer** ($149) — Plugins, SDK, deploying what the pipeline generates
 - **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis

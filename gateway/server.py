@@ -2547,8 +2547,6 @@ class GatewayServer:
         app.router.add_post("/marketplace/plugins/submit", self.handle_marketplace_submit)
         app.router.add_get("/marketplace/purchased", self.handle_marketplace_purchased)
 
-        # ── Sponsor redirect ─────────────────────────────────────────
-
         # ── Glasswing & badges ────────────────────────────────────────
         app.router.add_get("/glasswing", self.handle_glasswing_page)
         app.router.add_get("/badge/widget.js", self.handle_badge_widget_js)
