@@ -158,9 +158,17 @@ def check_apple_auth(config: dict) -> tuple:
     if not _filled(auth.get("bundle_id", "")):
         return ("apple auth", UNCONFIGURED,
                 "no auth.apple.bundle_id — /api/v1/auth/apple returns 503")
+    # This said "revocation READY" when the three credentials were filled in.
+    # Nothing in this tree revokes an Apple token — gateway/apple_auth.py says
+    # so at the top — so READY was doctor repeating a docstring rather than
+    # reporting a subsystem. The credentials are still worth reporting: they
+    # are half of what the revocation will need, and the operator who filled
+    # them in should learn here that the other half is missing.
     revocation = all(_filled(auth.get(k, "")) for k in ("team_id", "key_id", "private_key_p8"))
-    detail = "identity verify READY" + (
-        "; revocation READY" if revocation else "; revocation SKIPPED (no .p8) — deletion still works")
+    detail = "identity verify READY; token revocation NOT implemented " + (
+        "(credentials are configured and unused — App Store 5.1.1(v) unmet)"
+        if revocation else
+        "(and no credentials configured) — local deletion still works")
     return ("apple auth", READY, detail)
 
 
