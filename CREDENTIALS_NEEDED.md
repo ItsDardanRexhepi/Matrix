@@ -1,8 +1,34 @@
-# CREDENTIALS_NEEDED — the credentials a deployment needs
+# CREDENTIALS_NEEDED — what a deployment of The Matrix needs
+
+The credentials, keys and addresses a deployment of The Matrix needs, grouped by
+the capability each one unlocks, with what happens while it is unset. Nothing in
+this repository ships with a real secret: every value below is a placeholder in
+`matrix.config.json.example` or an environment variable, and
+`runtime/config/validation.py` lists the secrets the gateway takes from the
+environment, each with its variable. Default network is
+**Base Sepolia (testnet, chain 84532)**; nothing touches mainnet unless you
+configure it to.
+
+The enforcing security core is a separately installed private package and is not
+part of this repository. Without it the platform runs in **OBSERVE**, where the
+gates report what they would have done instead of blocking, and says so at boot
+(section 5).
+
+Terms used below: **CREDENTIAL-GATED** (code complete, needs the value to
+function) · **UNVERIFIED** (built, provable only after a deployment).
 
 ---
 
-## 1. Chain core — unlocks ALL on-chain features (app + platform)
+## 0. Where configuration lives
+
+| Source | What goes there |
+|---|---|
+| `matrix.config.json` (copy from `matrix.config.json.example`; gitignored) | Every setting below that names a config path. |
+| Environment variables | Secrets. With `MATRIX_ENV=production` the gateway refuses to start when a required secret is missing, and when a secret-shaped setting sits in the file with no variable covering it. |
+
+---
+
+## 1. Chain core — unlocks ALL on-chain features
 
 | Credential | Set in | Unlocks |
 |---|---|---|
@@ -17,15 +43,22 @@
 > signs **platform-level** ops (deploys, sponsorship, attestations). The server never
 > signs or moves user funds — non-custodial invariant.
 
+## 2. Gas sponsorship — the platform's paymaster signer (ERC-4337)
+
+| Credential | Set in | Unlocks |
+|---|---|---|
+| **Paymaster signer key** | platform `blockchain.paymaster.signer_key` (env `MATRIX_PAYMASTER_SIGNER_KEY`); when that is absent, the flat `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | `POST /api/v1/paymaster/sign`, the server half of the verifying paymaster. It signs gas sponsorship only, never anything the user's account does. |
+| **Paymaster address** | platform `blockchain.paymaster.address` | The deployed verifying paymaster the signature is for. Without it, or without the signer key, the sign route answers 503. |
+| Sponsorship policy | platform `blockchain.paymaster.policy.allowed_actions` + `.daily_cap_usd` | Which actions, decoded from the call data being signed, are sponsored, and the per-identity daily cap enforced before signing. Unset → no allowlist and no cap. |
+
 ## 3. Platform gateway + AI
 
 | Credential | Set in | Unlocks |
 |---|---|---|
-| **Gateway API key** | platform `gateway.api_key` (env `MATRIX_API_KEY` / `MTRX_API_KEY`) | Bearer auth for `/api/v1/*`. The app sends this. |
-| **Anthropic API key** | env `ANTHROPIC_API_KEY` | The agents' model (Claude). Required for the ReAct loop to run. |
-| OpenAI API key | env `OPENAI_API_KEY` | Optional fallback model. |
+| **Gateway API key** | platform `gateway.api_key` (env `MATRIX_API_KEY`) | Bearer auth for `/api/v1/*`. The app sends this. |
+| **Model provider key** | the env var of the provider you choose — e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`; none for `ollama` (README → Model Support) | The agents' model. The ReAct loop needs one reachable provider, and `GET /ready` fails while none is. |
 
-## 4. The 14 protocol services (Part 2A) — each CREDENTIAL-GATED until its key is set
+## 4. The 14 protocol services — each CREDENTIAL-GATED until its key is set
 
 Set under `services.<name>.*` in `matrix.config.json`. Each service returns a
 `not_deployed` response naming its exact missing key until configured.
@@ -47,52 +80,113 @@ Set under `services.<name>.*` in `matrix.config.json`. Each service returns a
 | ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + per-bridge addresses | CCIP/Hyperlane/Wormhole/Axelar/Stargate |
 | auctions | `services.auctions.auction_address` + `.orderbook_address` | Dutch/English/sealed-bid + orderbook |
 
-## 6b. Per-deployment secrets that have a WORKING DEFAULT — set these or they hold
+## 5. Security layer — a separately installed private package
 
-**These are the dangerous ones**, because nothing fails when you skip them. A
-credential you forget usually announces itself: a feature returns "needs config"
-and you go and set it. A secret with a working default does not — the feature
-functions, no test fails, no log complains, and the value protecting it is the
-one printed in a public repository.
+The enforcing security core is closed source, is not part of this repository,
+and is installed separately; its own configuration is not documented here. The
+platform reaches it only through the seam in `runtime/security/` (see
+`runtime/security/SECURITY_INTERFACE.md`). Nothing in this section is a value
+you set in this repository.
 
-| Credential | Set in | Default if unset | Why it matters |
+- With no core installed the platform runs the inert no-op backend: every action
+  is allowed and logged, nothing is enforced, and the platform says so at boot.
+  That is a normal state for local and testnet use.
+- Under `MATRIX_ENV=production` the no-op backend fails the readiness probe
+  (`GET /ready`), so an unenforced instance is not presented as ready for
+  production.
+- `python -c "import runtime.security as s; print(s.SECURITY_BACKEND)"` prints
+  the backend that is live: `noop`, or `morpheus_security` when the core is
+  installed and loaded. `./scripts/ops.sh doctor` reports the same value, and
+  says so when the core is installed but failed to load.
+- The core itself defaults to OBSERVE, and ENFORCE is not to be enabled before a
+  human security review and testnet validation.
+
+## 6. The supply-chain authenticity secret — no default, and changing it has a cost
+
+| Credential | Set in | If unset | Why it matters |
 |---|---|---|---|
-| **QR verification secret** | platform `supply_chain.qr_secret` | `"the-matrix-default-qr-secret"` — **published in this public repo** | The entire secret in the product-authenticity hash (`qr_codes.py:200`, `sha256(product_id\|timestamp\|qr_secret)`). Left unset, **anyone who can read this repository can forge a valid product verification hash for any product id.** Set it to a long random per-deployment value. |
+| **QR verification secret** | platform `supply_chain.qr_secret` (env `MATRIX_QR_SECRET`) | **No default.** Product QR codes are refused (`not_configured`) rather than issued, and no scan is called valid. A placeholder such as `CHANGE-ME-…` counts as unset, and so does the value that used to be the published default. | The entire secret in the product-authenticity hash (`HMAC-SHA256(qr_secret, product_id\|timestamp)`, in `runtime/blockchain/services/supply_chain/qr_codes.py`). Anyone who knows it can mint a valid code for any product id. Set it to a long random per-deployment value. |
 
 **DEPLOYMENT PREREQUISITE — ordering matters, as it did for `blockchain.eas_schema`.**
-Set `supply_chain.qr_secret` **before** issuing any product QR code you intend to
-treat as authoritative.
+Set the value you mean to keep **before** issuing any product QR code you intend
+to treat as authoritative. A code issued under a test value stops verifying when
+the value changes.
 
-**READ THIS BEFORE SETTING THE KEY — it has a cost, and the cost lands on
+**READ THIS BEFORE CHANGING THE KEY — it has a cost, and the cost lands on
 physical goods.** Verification hashes are computed from the secret, so changing
-the secret changes every hash. **Rotating does not repair codes minted under the
-default; it invalidates them.** Every QR code already generated stops verifying
-the moment you set this key.
+the secret changes every hash. Every QR code already generated stops verifying
+the moment you change this key.
 
 So the operational consequence, stated plainly:
 
 - **Set it before your first production QR code** → costs nothing.
-- **Set it after** → **every code already printed, applied to a product, shipped,
-  or sitting in a warehouse becomes invalid**, and each one must be re-generated
-  and physically re-applied. The bill is labour and relabelling, not engineering.
-- **Never set it** → the codes verify, and anyone who can read this public
-  repository can forge a valid one for any product id.
+- **Change it after** → **every code already printed, applied to a product,
+  shipped, or sitting in a warehouse becomes invalid**, and each one must be
+  re-generated and physically re-applied. The bill is labour and relabelling,
+  not engineering.
+- **Never set it** → no code is issued, and none verifies.
 
-There is no option where you keep both the already-printed codes and a secret
-worth having. **Whoever sets this key needs to know it obsoletes every code
+There is no option where you keep both the already-printed codes and a new
+secret. **Whoever changes this key needs to know it obsoletes every code
 already in circulation.**
 
-## 8. Sign in with Apple — server credentials (P1-8)
+## 7. Contract addresses — fill AFTER `deploy_all.py`
+
+`scripts/deploy_all.py` deploys the platform contracts and writes
+`deployment_manifest.json`. Copy each deployed address into the matching
+`services.<name>.*` key in `matrix.config.json` (section 4); a service whose
+address is blank keeps answering `not_deployed`.
+
+## 8. Sign in with Apple — server credentials
 
 | Credential | Where | Unlocks |
 |---|---|---|
 | `auth.apple.bundle_id` (`com.opnmatrx.mtrx`) | `matrix.config.json` | **Required** for `POST /api/v1/auth/apple` — the identity-token audience check. Unset → route fails closed (503). |
 | `auth.apple.team_id` + `key_id` + `private_key_p8` (Sign in with Apple key) | `matrix.config.json` / secret | Token **revocation** on account deletion (`DELETE /api/v1/auth/account`). App Review requires working deletion once server accounts are live. Unconfigured → local data still deleted, Apple revocation skipped with a WARNING. |
 
-## 9. IAP verification — monetization server (Phase 3)
+## 9. IAP verification — monetization server
 
 | Credential | Where | Unlocks |
 |---|---|---|
 | `iap.bundle_id` (`com.opnmatrx.mtrx`) | `matrix.config.json` | **Required** for `POST /api/v1/iap/verify` + `POST /api/v1/iap/asn` — the signed-transaction bundle check. Unset → both routes fail closed (503). |
 | `iap.environment` (`Production` or `Sandbox`) | `matrix.config.json` | Optional: restricts accepted payloads to one App Store environment. Unset → both accepted (each row records its environment). |
 | ASN V2 webhook URL registered in App Store Connect → `https://<gateway>/api/v1/iap/asn` | App Store Connect → App Information | Renewal/expiry/refund/revoke flips reaching the server. No shared secret — the webhook authenticates by its Apple-signed JWS chain (pinned root at `gateway/certs/AppleRootCA-G3.pem`). |
+
+---
+
+## First testnet transaction — runbook
+
+The full chain is wired in code: **app → gateway → agent → dispatcher → security
+gate → tool → chain**. To exercise it end-to-end on Base Sepolia:
+
+1. **Check the security backend:**
+   `python -c "import runtime.security as s; print(s.SECURITY_BACKEND)"` prints
+   `noop` without the separately installed core (the gate logs and allows) and
+   `morpheus_security` with it (section 5). Either runs this on testnet.
+2. **Set the env** (sections 1 and 3): RPC, chain 84532, deploy wallet key, platform
+   wallet, your model provider's key, `MATRIX_API_KEY`.
+3. **Deploy the contracts:** `python -m scripts.deploy_all` (or `python scripts/deploy_all.py`).
+   It compiles, deploys to Base Sepolia, attests each via EAS, and writes
+   `deployment_manifest.json`. Copy addresses into `services.*` (section 7).
+4. **Start the gateway:** it serves on `:18790` (front it with TLS on your own
+   host: the bundled `Caddyfile` through `docker-compose.prod.yml`, or
+   `k8s/ingress.yaml`). `GET /health` to confirm.
+5. **First tx, two paths:**
+   - *Client-signed (non-custodial):* a wallet client builds a UserOperation,
+     signs it with the user's own key and submits it to its bundler, sponsored
+     through section 2 if that is configured. You get a real `userOpHash` —
+     verify it on `sepolia.basescan.org`.
+   - *Agent-routed:* `POST /chat` as Trinity with a read request → returns data.
+     Ask for an execution → Trinity calls `request_execution` → the Morpheus gate
+     evaluates (OBSERVE: logs, allows) → Neo executes via the service dispatcher →
+     EAS attestation is written. Inspect the gateway logs for the
+     `trinity->morpheus->neo` hand-off and the attestation tx.
+6. **Confirm the boundary:** a `/chat` as Trinity asking to run a state-changing
+   `platform_action` directly returns `[DENIED]` (she must use the hand-off) — proof
+   the per-agent boundary is live.
+
+> Everything above is **CREDENTIAL-GATED / UNVERIFIED** until these steps are
+> done: the code is connected, but a real end-to-end testnet transaction can
+> only be confirmed once credentials are in and the gateway is deployed. The
+> security core, where it is installed, does not leave OBSERVE before a human
+> security review (section 5).

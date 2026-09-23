@@ -25,6 +25,9 @@ Runs, and fails on the first problem:
 |---|---|---|
 | `ops.sh doctor` | Gateway posture diagnostic | none (read-only) |
 | `ops.sh routes` | Regenerate `docs/ROUTES.md` | writes the doc only |
+| `ops.sh routes-check` | Fail if `ROUTES.md` is stale | none |
+| `ops.sh abis` | ABI doc/source drift audit | none |
+| `ops.sh health [URL]` | `curl` the gateway `/health` | none |
 
 ### If you turn on GitHub Pages
 
@@ -40,6 +43,24 @@ too — a broken deploy will leave the run green and only its own step log will
 say the site did not update. **Remove `continue-on-error` from the deploy job in
 `.github/workflows/docs.yml` when you enable Pages**, so a failed publish is
 visible in the run's status again.
-| `ops.sh routes-check` | Fail if `ROUTES.md` is stale | none |
-| `ops.sh abis` | ABI doc/source drift audit | none |
-| `ops.sh health [URL]` | `curl` the gateway `/health` | none |
+
+## Deploy (side-effectful, run deliberately)
+
+This repository ships its own production stack: `docker-compose.yml`, with
+`docker-compose.prod.yml` layered on top for Caddy TLS termination, and a
+Kubernetes stack in `k8s/` (README → Production Deployment).
+
+```bash
+export MATRIX_DOMAIN=gateway.example.com
+export MATRIX_ADMIN_EMAIL=ops@example.com
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f gateway
+```
+
+The APNs `.p8` arrives as a mounted file, never an env value: point
+`APNS_AUTH_KEY_P8_PATH` at it and the gateway reads its contents into the push
+channel at startup. Push stays an honest no-op if the file is absent or
+unreadable.
+
+Never commit the real `.env`, `secrets/`, or `matrix.config.json` — `.gitignore`
+excludes them, and only the `.example` files are tracked.

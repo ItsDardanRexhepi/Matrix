@@ -324,7 +324,9 @@ check behind it:
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
 responses in place of every `not_deployed`. Populate `blockchain.*` in
-`matrix.config.json` to flip them.
+`matrix.config.json` to flip them. `CREDENTIALS_NEEDED.md` lists what a
+deployment needs, capability by capability: which key or address unlocks it,
+where it is set, and what happens while it is unset.
 
 ---
 
@@ -533,7 +535,9 @@ kubectl apply -f k8s/
 ./scripts/build-contracts.sh
 ```
 
-See `docs/api-reference.md` for the complete HTTP / WebSocket surface.
+See `docs/api-reference.md` for the complete HTTP / WebSocket surface, and
+`docs/OPS.md` for the operator kit: the read-only checks to run before a
+deploy (`./scripts/ops.sh preflight`) and the deploy commands themselves.
 
 ---
 
