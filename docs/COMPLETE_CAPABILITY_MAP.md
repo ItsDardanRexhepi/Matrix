@@ -42,7 +42,7 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Token Swap | Swap any token for another at the best rate | Free | POST /api/v1/dex/swap | Uniswap V3, Curve, Balancer |
+| Token Swap | Record a swap against the platform's in-memory pools at the best route they offer — no tokens move and no transaction is sent yet (the result says `recorded_unsettled`); each pool deducts its LP fee, the platform takes none | Free | POST /api/v1/dex/swap | in-memory pools |
 | Swap Route | Get the optimal swap route across DEXs | Free | POST /api/v1/defi/swap/route | Uniswap V3, Curve, 1inch |
 | Swap Execute | Execute a pre-computed swap route | Free | POST /api/v1/defi/swap/execute | Uniswap V3, Curve, 1inch |
 | Liquidity Add | Add liquidity to a DEX pool | Free | POST /api/v1/dex/liquidity/add | Uniswap V3, Curve |
@@ -262,7 +262,7 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
 | Oracle Price Query | Get the current price for a trading pair | Free | GET /api/v1/oracle/price/{pair} | Chainlink, Pyth, Band |
-| Oracle VRF | Request verifiable randomness | Free | via capability registry | Chainlink VRF |
+| Oracle VRF | Not available: the request is refused (`not_implemented`) rather than sent — no signer or subscription is wired | — | via capability registry | — |
 | Weather Oracle | Query weather data for an address | Free | via capability registry | custom |
 | Pyth Pull | Pull a Pyth price update on demand | Free | via capability registry | Pyth |
 | RedStone Request | Fetch a signed RedStone data package | Free | via capability registry | RedStone |

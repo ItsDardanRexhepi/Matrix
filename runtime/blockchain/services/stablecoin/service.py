@@ -311,7 +311,9 @@ class StablecoinService:
         }
 
     def set_balance(self, address: str, token: str, amount: float) -> None:
-        """Set a balance directly. TEST/FUNDING ONLY — refuses outside tests.
+        """Set a balance directly. TEST/FUNDING ONLY — refuses outside a
+        process running pytest (``PYTEST_CURRENT_TEST`` set, or pytest
+        imported). No environment switch opens it.
 
         DOMAIN 15-C. This is an ARBITRARY MINT on a stablecoin ledger: any
         address, any token, any amount, no authorisation, no audit record. It had
@@ -353,10 +355,13 @@ class StablecoinService:
         import os
         import sys
 
+        # A PROCESS RUNNING PYTEST, AND NOTHING ELSE. There was a third way
+        # in: MATRIX_ALLOW_TEST_MINT=1 opened the mint in any process, a
+        # production gateway included, while this docstring said it "refuses
+        # outside tests". No test sets it; it is gone.
         if not (
             "PYTEST_CURRENT_TEST" in os.environ
             or "pytest" in sys.modules
-            or os.environ.get("MATRIX_ALLOW_TEST_MINT") == "1"
         ):
             raise RuntimeError(
                 "set_balance is a test-only funding helper and is an arbitrary "

@@ -13,13 +13,19 @@ Both are on-chain WRITES. They are signed by the **platform paymaster
 account** (via ``Web3Manager.send_transaction``) so the platform pays gas
 and no user key is ever custodied server-side. Deploying / executing a TBA
 is a platform-level operation; this service never moves a user's wallet
-funds — ``execute_as_tba`` operates the token-bound account whose
-controller is the NFT, and the call is sponsored, not user-signed.
+funds — ``execute_as_tba`` operates a token-bound account whose controlling
+NFT the platform account holds, and the platform account SENDS the call
+(this said "sponsored", which is a smaller role than signing it).
 
 Each method gates on its required config FIRST and returns the canonical
 CREDENTIAL-GATED ``not_deployed_response`` when a credential is missing or
 the chain is unreachable. The real protocol call is only attempted once the
 operator has populated the relevant ``services.tba`` config keys.
+``execute_as_tba`` used to read NO config key at all: any caller could name a
+token-bound account and a target, value and calldata, and the platform
+signed it — so whatever an NFT the platform holds controlled was the caller's
+to move. It now acts only on an account the operator lists in
+``services.tba.executable_accounts``.
 
 Config keys (read from ``services.tba``):
     - ``registry_address``       — ERC-6551 registry (defaults to the
@@ -28,6 +34,9 @@ Config keys (read from ``services.tba``):
                                    (REQUIRED — no canonical default)
     - ``salt``                   — bytes32 salt for deterministic accounts
                                    (defaults to zero salt)
+    - ``executable_accounts``    — the token-bound accounts ``execute_as_tba``
+                                   may act as (REQUIRED for it — no default;
+                                   an account not listed is refused)
 """
 
 from __future__ import annotations
@@ -230,9 +239,10 @@ class TokenBoundAccountService:
         default empty), optional ``operation`` (default 0 == CALL).
 
         On-chain WRITE: ``IERC6551Account.execute(to, value, data,
-        operation)``, signed by the platform paymaster (gas-sponsored). The
-        platform never custodies a user wallet key — it operates the
-        token-bound account on the platform's behalf.
+        operation)``, signed by the platform paymaster. The platform never
+        custodies a user wallet key — it operates the token-bound account on
+        the platform's behalf, and only an account listed in
+        ``services.tba.executable_accounts``.
         """
         account = params.get("account") or params.get("tba")
         to = params.get("to") or params.get("target")
@@ -253,6 +263,24 @@ class TokenBoundAccountService:
                 "missing": "account / to (call params)",
                 "protocol": "ERC-6551 (IERC6551Account.execute)",
             })
+        listed = self._cfg().get("executable_accounts") or []
+        if not isinstance(listed, list) or not listed:
+            return not_deployed_response(self.service_name, extra={
+                "method": "execute_as_tba",
+                "missing": "services.tba.executable_accounts",
+                "protocol": "ERC-6551 (IERC6551Account.execute)",
+            })
+        if str(account).lower() not in {str(a).lower() for a in listed}:
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "execute_as_tba",
+                "refused": True,
+                "reason": (
+                    "This token-bound account is not one the operator lists "
+                    "in services.tba.executable_accounts; the platform signs "
+                    "only for accounts it has been told to operate."),
+            }
 
         # ── REAL path: IERC6551Account.execute(...) via platform paymaster ─
         try:

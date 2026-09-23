@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 """
-OracleGateway — single entry point for ALL oracle data across The Matrix.
+OracleGateway — the platform's oracle entry point, for the components that
+use it.
 
-Every component that needs external data (prices, weather, sports,
-randomness, etc.) must route through this gateway.  It provides:
+Components that need external data (prices, weather, sports, randomness)
+are meant to route through this gateway. Not all do, and this used to say
+"single entry point for ALL oracle data": oracles_plus fetches Pyth (Hermes)
+and RedStone prices directly, so those reads get none of the caching or
+rate limiting below. It provides:
 
 - Unified ``request()`` API keyed by oracle type
 - Per-type TTL caching (via :class:`OracleCache`)
@@ -12,6 +16,7 @@ randomness, etc.) must route through this gateway.  It provides:
 - Config-driven provider wiring (no hardcoded secrets)
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -83,6 +88,8 @@ class OracleGateway:
         # Cache
         cache_ttls: dict[str, int] | None = oracle_cfg.get("cache_ttls")
         self._cache = OracleCache(ttls=cache_ttls)
+        #: (oracle_type, cache_key) -> the lock one miss is fetched under.
+        self._inflight: dict[tuple[str, str], asyncio.Lock] = {}
 
         # Rate limiting
         self._rate_limit: int = int(
@@ -177,28 +184,34 @@ class OracleGateway:
         # Build cache key from type + sorted params
         cache_key = self._cache_key(params)
 
-        # Try cache first
-        cached = await self._cache.get(oracle_type, cache_key)
-        if cached is not None:
-            logger.debug(
-                "Cache hit for %s:%s (caller=%s)", oracle_type, cache_key, caller
-            )
-            return {**cached, "cached": True}
+        # ONE FETCH PER KEY AT A TIME. Two requests that both missed used to
+        # both fetch, and the later-finishing one overwrote the cache with a
+        # fresh TTL — an OLDER price served as cached for the whole TTL. The
+        # second waiter now finds the first one's answer in the cache.
+        lock = self._inflight.setdefault((oracle_type, cache_key), asyncio.Lock())
+        async with lock:
+            # Try cache first
+            cached = await self._cache.get(oracle_type, cache_key)
+            if cached is not None:
+                logger.debug(
+                    "Cache hit for %s:%s (caller=%s)", oracle_type, cache_key, caller
+                )
+                return {**cached, "cached": True}
 
-        # Dispatch to the appropriate handler
-        handler = self._dispatch(oracle_type)
-        result = await handler(params)
+            # Dispatch to the appropriate handler
+            handler = self._dispatch(oracle_type)
+            result = await handler(params)
 
-        # Wrap response
-        response: dict[str, Any] = {
-            "oracle_type": oracle_type,
-            "cached": False,
-            "timestamp": int(time.time()),
-            **result,
-        }
+            # Wrap response
+            response: dict[str, Any] = {
+                "oracle_type": oracle_type,
+                "cached": False,
+                "timestamp": int(time.time()),
+                **result,
+            }
 
-        # Store in cache (no-op for TTL=0 types like VRF)
-        await self._cache.set(oracle_type, cache_key, response)
+            # Store in cache (no-op for TTL=0 types like VRF)
+            await self._cache.set(oracle_type, cache_key, response)
 
         return response
 

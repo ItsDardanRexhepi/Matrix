@@ -14,15 +14,29 @@ from typing import Any
 
 from runtime.blockchain.services.dex.pools import LiquidityPoolManager
 from runtime.blockchain.services.dex.router import SwapRouter
-from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
+from runtime.blockchain.web3_manager import (
+    Web3Manager,
+    not_deployed_response,
+    recorded_unsettled_response,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class DEXService:
-    """Native DEX service with zero user fees.
+    """Native DEX service with no platform fee.
 
-    Gas costs are absorbed by the platform. Users pay nothing for swaps.
+    The platform takes no fee from a swap. The POOL does: each hop deducts
+    its liquidity-provider fee from the amount going in (0.3% by default),
+    and the trade records it. This used to say "zero user fees ... Users pay
+    nothing for swaps" while recording ``user_fee: 0.0`` beside a smaller
+    output.
+
+    And a swap here moves no tokens. It is computed against this service's
+    in-memory pools and recorded; the configured router contract is a gate,
+    not something this method calls. The record says so
+    (``recorded_unsettled``) — it used to say ``confirmed``, which the
+    dispatcher attested and the public feed announced as a swap.
 
     Config keys (under ``config["dex"]``):
         platform_wallet (str): Wallet that absorbs gas costs.
@@ -52,7 +66,7 @@ class DEXService:
         # (provider, pool_id) -> position tracking
         self._user_positions: dict[str, list[dict]] = {}
 
-        logger.info("DEXService initialised (zero-fee mode, gas absorbed by platform).")
+        logger.info("DEXService initialised (no platform fee; pools charge their LP fee).")
 
     @property
     def pools(self) -> LiquidityPoolManager:
@@ -74,9 +88,10 @@ class DEXService:
         amount_in: float,
         slippage: float = 0.5,
     ) -> dict:
-        """Execute a token swap with zero fees to the user.
+        """Record a token swap against the in-memory pools.
 
-        Platform absorbs all gas costs.
+        No platform fee; each pool hop deducts its LP fee. No tokens move and
+        no transaction is sent — see the class docstring.
 
         Args:
             trader: Trader wallet address.
@@ -128,10 +143,13 @@ class DEXService:
         # Execute the swap along the route
         current_amount = amount_in
         executed_pools = []
+        lp_fees: list[dict[str, Any]] = []
 
         for i, pool_id in enumerate(route["pools"]):
             hop_token_in = route["route"][i]
             result = self._pools.execute_swap(pool_id, hop_token_in, current_amount)
+            lp_fees.append({"pool_id": pool_id, "token": hop_token_in,
+                            "amount": result.get("fee_amount", 0.0)})
             current_amount = result["amount_out"]
             executed_pools.append({
                 "pool_id": pool_id,
@@ -150,7 +168,7 @@ class DEXService:
                 f"got {actual_output:.6f}"
             )
 
-        trade = {
+        trade = recorded_unsettled_response("dex", "swap", {
             "trade_id": str(uuid.uuid4()),
             "trader": trader,
             "token_in": token_in,
@@ -162,15 +180,18 @@ class DEXService:
             "route": route["route"],
             "hops": route["hops"],
             "slippage_tolerance": slippage,
-            "user_fee": 0.0,  # ZERO FEES to users
-            "gas_absorbed_by": self._platform_wallet,
+            "platform_fee": 0.0,
+            "lp_fees": lp_fees,
             "executed_at": int(time.time()),
-            "status": "confirmed",
-        }
+        }, disclosure=(
+            "Computed against this service's in-memory pools and recorded. No "
+            "tokens moved and no transaction was sent. Each hop's pool deducted "
+            "its liquidity-provider fee (lp_fees); the platform took none."
+        ))
 
         self._trades.append(trade)
         logger.info(
-            "Swap executed: trader=%s %s %.6f %s -> %.6f %s (0 user fees)",
+            "Swap recorded (no tokens moved): trader=%s %s %.6f %s -> %.6f %s",
             trader, token_in, amount_in, token_out, actual_output, token_out,
         )
         return trade
@@ -205,7 +226,8 @@ class DEXService:
             "price_impact_pct": route["price_impact_pct"],
             "route": route["route"],
             "hops": route["hops"],
-            "user_fee": 0.0,  # ZERO FEES
+            "platform_fee": 0.0,
+            "lp_fee_included": True,  # the expected output is after pool fees
             "available": True,
             "warning": route.get("warning"),
         }

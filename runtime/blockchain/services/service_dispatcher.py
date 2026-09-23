@@ -407,8 +407,12 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     #      16-C replaced `CollateralManager.record_repayment(user, token,
     #      amount)` — a SUBTRACT fed the wrong quantity — with
     #      `set_borrow_position(user, token, principal)`, and service.py:196 now
-    #      passes `result["remaining_principal"]`, the loan's own figure, so the
-    #      two ledgers cannot disagree. `record_repayment` no longer exists;
+    #      passed `result["remaining_principal"]` — one loan's figure, which
+    #      made the ledgers disagree as soon as a borrower held two loans in a
+    #      token (record_borrow adds each loan; the assignment erased the
+    #      other). It now passes the principal outstanding across the
+    #      borrower's active loans in that token, which is what makes the two
+    #      ledgers agree. `record_repayment` no longer exists;
     #      tests/test_defi_borrow_ledger_matches_the_loan.py pins its absence.
     #
     #      16-U. THE STALE CONDITION IS CORRECTED IN PLACE RATHER THAN DELETED,

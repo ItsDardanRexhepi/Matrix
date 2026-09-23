@@ -1,10 +1,15 @@
 """
-Chainlink VRF v2 integration for verifiable random number generation.
+Chainlink VRF v2 — the request shape, and a refusal to pretend it was sent.
 
-Used by Component 30 (juror selection) and any other subsystem that
-needs provably-fair randomness.  Requests go on-chain via the VRF
-Coordinator and results are retrieved once the Chainlink node fulfils
-the callback.
+NOT A WORKING VRF INTEGRATION. This module builds the coordinator's
+``requestRandomWords`` transaction and does not sign or send it: nothing here
+holds a signer, a funded subscription is not wired, and nothing ever reads a
+fulfilment back. It used to return a locally minted ``vrf_<hex>`` request id
+with status ``pending`` for a request that was never sent — a pending state
+nothing could ever resolve — under a header promising on-chain, verifiable,
+provably-fair randomness. ``request_random`` now answers ``not_implemented``
+and says why, so a caller (juror selection) falls back and says so, rather
+than waiting on a request that does not exist.
 """
 
 import logging
@@ -129,7 +134,18 @@ class VRFProvider:
         if not 1 <= num_words <= 500:
             raise ValueError("num_words must be between 1 and 500")
 
-        try:
+        return {
+            "status": "not_implemented",
+            "num_words": num_words,
+            "reason": (
+                "No VRF request was sent. This provider builds the "
+                "coordinator transaction but has no signer and no funded "
+                "subscription wired, and nothing reads a fulfilment back. "
+                "It used to return a locally minted request id as 'pending'."
+            ),
+        }
+
+        try:  # pragma: no cover — the unwired send path, kept for its shape
             from web3 import Web3
 
             coordinator = self.web3.eth.contract(

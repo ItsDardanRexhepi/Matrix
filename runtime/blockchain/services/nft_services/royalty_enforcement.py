@@ -1,9 +1,12 @@
 """
-RoyaltyEnforcement — ensure royalties are paid on every NFT sale.
+RoyaltyEnforcement — royalty configuration and the royalty split of a sale.
 
-ERC-2981 compliant royalty configuration and automatic distribution.
-Attests royalty payments via the attestation service (Component 8)
-for on-chain proof of payment.
+ERC-2981 compliant royalty configuration, and a computed split for each sale
+REPORTED to it. It does not ensure royalties are paid on every sale, which
+this used to say: nothing here pays anyone (no wallet, no balance, no payout
+rail — the sale record says settled/value_moved False), and a sale is known
+only if a caller reports it, at the price the caller states. On-chain,
+ERC-2981 marketplaces that honour the standard pay the royalty themselves.
 """
 
 from __future__ import annotations
@@ -318,9 +321,10 @@ class RoyaltyEnforcement:
             "sale_price": sale_price,
             # 17-A. §U, THE FIFTH SELF-ATTESTATION INSTANCE. `sale_price` is
             # supplied by the party who OWES the royalty computed from it, and
-            # nothing here consults a chain receipt, escrow, or oracle — grep
-            # over this method for web3/chain/receipt/verify/escrow/oracle
-            # returns nothing. Measured with a 10% royalty configured: an
+            # nothing here consults a chain receipt, escrow, or oracle — a read
+            # of this method finds no such call (a grep for those words now
+            # hits only this comment and the disclosure text below, which name
+            # them). Measured with a 10% royalty configured: an
             # honest 10.0 pays the creator 1.0; reporting 1.0 pays 0.1. No
             # malformed input required.
             #

@@ -11,18 +11,23 @@ Two integration surfaces, selected per-method by which config key is present:
 * On-chain modules (``recover_wallet``, ``create_session_key``) — a smart-account
   recovery / session-key module the USER has already authorized on their
   account abstraction wallet (e.g. a guardian/recovery module, or an ERC-4337
-  session-key validator). The platform paymaster only SPONSORS the gas of the
-  module call; the authorization to act on the user account comes from the
-  user-installed module, never from the server holding user keys.
+  session-key validator). The platform account SENDS the module call — it is
+  the transaction's sender and so the module's msg.sender, not a sponsor of
+  someone else's operation (there is no UserOperation and no paymaster here).
+  Whether that sender may act on the account is the module's decision; this
+  service makes the call for whatever account the caller names, and checks
+  nothing about whether the caller controls it. The server never holds the
+  user's keys.
 
 * Off-chain MPC node API (``mpc_sign``) — a threshold-signature node cluster
   (``cfg.endpoint`` + ``cfg.api_key``). The server coordinates a signing
   request against the user's MPC key shares held by the node cluster; the
   server never possesses a full private key.
 
-NON-CUSTODIAL: the server NEVER holds or moves a user's wallet funds. The only
-key the server signs with is the platform paymaster account, used solely to pay
-gas for module calls that the user's own on-chain module authorizes.
+NON-CUSTODIAL: the server NEVER holds a user's keys. The only key the server
+signs with is the platform paymaster account, which SENDS the module calls
+above (and pays their gas) — it is the caller of the module, which is a larger
+role than "paying gas", and one a module that trusts it would honour.
 
 Config keys (under ``services.mpc``):
     endpoint            — MPC node cluster base URL (off-chain threshold signing)
@@ -189,10 +194,12 @@ class MPCService:
     async def recover_wallet(self, **params: Any) -> dict:
         """Initiate social recovery of a user smart account via its recovery module.
 
-        The platform paymaster only SPONSORS the gas of the module call. The
-        authority to recover the account comes from the recovery module the user
-        installed on their own smart account — the server never holds user keys
-        and never moves user funds.
+        The platform account SENDS the module call (it is msg.sender), for the
+        ``account`` and ``new_owner`` the caller names, unvalidated here. The
+        authority to recover the account is the recovery module's decision —
+        this used to say the platform "only sponsors the gas", which
+        understates a caller that initiates an ownership change. The server
+        never holds user keys.
 
         Params: ``account`` (user smart account), ``new_owner`` (recovered owner).
         """
@@ -239,7 +246,9 @@ class MPCService:
                 "module": module,
                 "tx_hash": tx_hash,
                 "explorer_url": self._web3.explorer_url(tx_hash),
-                "custody": "non-custodial: recovery authorized by user-installed module; platform only sponsors gas",
+                "custody": ("non-custodial: the platform account sent the module "
+                            "call; whether it may act on this account is the "
+                            "user-installed module's decision"),
             }
         except Exception as exc:  # noqa: BLE001
             logger.error("recover_wallet failed: %s", exc)
@@ -257,9 +266,10 @@ class MPCService:
         """Register a scoped, time-bounded session key on a user smart account.
 
         Registers ``session_key`` on the user's account via the session-key
-        validator/module the user installed. The platform paymaster only
-        SPONSORS the gas; the server never holds the user's root key and the
-        session key's scope/expiry are enforced on-chain by the module.
+        validator/module the user installed. The platform account SENDS the
+        call (it is msg.sender), for the account and key the caller names; the
+        server never holds the user's root key and the session key's
+        scope/expiry are enforced on-chain by the module.
 
         Params: ``account`` (user smart account), ``session_key`` (the key to
         authorize), optional ``valid_until`` (unix ts; default now+1h).
@@ -313,7 +323,9 @@ class MPCService:
                 "module": module,
                 "tx_hash": tx_hash,
                 "explorer_url": self._web3.explorer_url(tx_hash),
-                "custody": "non-custodial: session key scoped on-chain by user-installed module; platform only sponsors gas",
+                "custody": ("non-custodial: the platform account sent the module "
+                            "call; the session key's scope is enforced by the "
+                            "user-installed module"),
             }
         except Exception as exc:  # noqa: BLE001
             logger.error("create_session_key failed: %s", exc)

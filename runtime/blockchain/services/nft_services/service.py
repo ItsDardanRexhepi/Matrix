@@ -69,8 +69,10 @@ ERC721_OWNER_ABI = [{
 #     store on EITHER side that can say the caller never owned it.
 #   * and `buy_nft` — already live, already ungated on
 #     POST /api/v1/capabilities/buy_nft/invoke — is in _STATE_MODIFYING_ACTIONS
-#     with ACTION_TO_FEED_EVENT "nft_purchased", so every sale that transfers
-#     nothing is BROADCAST to the public social feed as a purchase.
+#     with ACTION_TO_FEED_EVENT "nft_purchased", so every sale that transferred
+#     nothing WAS broadcast to the public social feed as a purchase. No longer:
+#     such a sale now answers recorded_unsettled with settled/value_moved
+#     False, and the dispatcher publishes only what settled.
 #
 # A false claim about money is contradicted by a balance. A false claim about
 # property, with no title record on either side, is contradicted by nothing.
@@ -354,16 +356,23 @@ class NFTService:
             # capability appeared. A caller that discards a refusal reports a
             # success the refusal never authorised.
             #
-            # These two sites each write a FRESH key so the 22-A authority
-            # check cannot refuse them — but `configure_royalty` also rejects a
-            # malformed recipient or an out-of-range bps, and THOSE were always
-            # possible. The discard was latent before and is closed now.
-            _royalty_result = await self._royalty.configure_royalty(
-                collection=collection,
-                token_id=token_id,
-                recipient=creator,
-                bps=royalty_bps,
-            )
+            # These two sites write a key that is fresh UNLESS someone got
+            # there first: `configure_nft_royalty` and `set_nft_rights` accept
+            # any token id, so a stranger can pre-register one before it is
+            # minted, and then the 22-A/22-C authority checks refuse the mint's
+            # own write — which this used to say they could not. The inner
+            # methods RAISE their refusal, so it is caught here and recorded
+            # on the result: an escaping PermissionError after the on-chain
+            # mint reported a minted token as a failed call.
+            try:
+                _royalty_result = await self._royalty.configure_royalty(
+                    collection=collection,
+                    token_id=token_id,
+                    recipient=creator,
+                    bps=royalty_bps,
+                )
+            except PermissionError as exc:
+                _royalty_result = {"refused": True, "reason": str(exc)}
             if isinstance(_royalty_result, dict) and _royalty_result.get("refused"):
                 result["royalty_configured"] = False
                 result["disclosure"] = (
@@ -378,17 +387,27 @@ class NFTService:
             # the moment that becomes true (it did so for configure_royalty in
             # 22-A). This site creates a FRESH key for a newly minted token,
             # so the 22-C check cannot refuse it; the capture closes the
-            # latent discard rather than an active one.
-            _rights_result = await self._rights.set_rights(
-                collection=collection,
-                token_id=token_id,
-                rights={
-                    "display": {"granted": True, "holder": creator},
-                    "commercial": {"granted": False, "holder": creator},
-                    "derivative": {"granted": False, "holder": creator},
-                    "physical": {"granted": False, "holder": creator},
-                },
-            )
+            # latent discard rather than an active one. (Fresh unless
+            # pre-registered — see the royalty note above; a refusal is caught.)
+            try:
+                _rights_result = await self._rights.set_rights(
+                    collection=collection,
+                    token_id=token_id,
+                    rights={
+                        "display": {"granted": True, "holder": creator},
+                        "commercial": {"granted": False, "holder": creator},
+                        "derivative": {"granted": False, "holder": creator},
+                        "physical": {"granted": False, "holder": creator},
+                    },
+                )
+            except PermissionError as exc:
+                _rights_result = {"refused": True, "reason": str(exc)}
+            if isinstance(_rights_result, dict) and _rights_result.get("refused"):
+                result["rights_configured"] = False
+                result["disclosure"] = (
+                    (result.get("disclosure", "") + " ").lstrip()
+                    + "The token was minted but its default rights were NOT "
+                    "set: " + str(_rights_result.get("reason", "")))
 
             logger.info(
                 "NFT minted: collection=%s token_id=%d creator=%s",

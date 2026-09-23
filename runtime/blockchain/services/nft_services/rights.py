@@ -107,8 +107,10 @@ class RightsManagement:
         # granted THAT right), because a later call that changes one right type
         # must not silently reassign authorship of the others.
         #
-        # THIS IS NOT AN AUTHORITY CHECK, AND IS NOT WRITTEN AS ONE. Nothing
-        # here refuses. This platform holds no ownership record to check
+        # THIS BLOCK IS NOT AN AUTHORITY CHECK, AND IS NOT WRITTEN AS ONE —
+        # the method's refusal is the 22-C check further down, which this
+        # line used to deny existed ("Nothing here refuses"). This block only
+        # attributes. This platform holds no ownership record to check
         # against — `NFTFactory._collections` has zero writers — so a check
         # would have to invent its own truth. What lands here is the ATTRIBUTION
         # an ownership check would need once ownership is readable, plus a
@@ -163,8 +165,13 @@ class RightsManagement:
         # platform was holding `created_by` — a record it wrote itself — and
         # never looked at it.
         #
-        # THE RULE IS 22-A's, TRANSFERRED RATHER THAN REINVENTED: an
-        # unidentified caller may CREATE, never MODIFY. Checked that it
+        # THE RULE IS 22-A's, TRANSFERRED RATHER THAN REINVENTED: through
+        # THIS method, an unidentified caller may CREATE, never MODIFY. Not
+        # through `transfer_rights` below, which reassigns the holder of a
+        # granted right and consults no caller — it is reached from
+        # NFTService.process_sale after a settled transfer (the transfer is
+        # the authority there) and from NFTService.transfer_rights, which no
+        # action dispatches. Checked that it
         # transfers before adopting it — the asymmetry is identical (the
         # platform wrote the record and declines to read it), and the same
         # reason applies for ignoring `_set_by`-only comparison: under the
@@ -197,9 +204,11 @@ class RightsManagement:
         # intent caught it. The granularity had to be MEASURED against the
         # suite, not derived from the threat.
         #
-        # An existing right may be changed only by the party that set it; a
-        # right type not yet granted may be added by anyone, which is what the
-        # design intends and what the measured attack never needed.
+        # Through set_rights, an existing right may be changed only by the
+        # party that set it (transfer_rights moves the holder without that
+        # check — see above); a right type not yet granted may be added by
+        # anyone, which is what the design intends and what the measured
+        # attack never needed.
         _existing = self._rights.get(key)
         if _existing is not None:
             for _rt in rights:

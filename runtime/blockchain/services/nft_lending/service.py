@@ -17,19 +17,24 @@ is ever custodied server-side.
 
 NON-CUSTODIAL NOTE: NFT lending moves real user value (the user's NFT
 collateral and the borrowed reserve asset). The server NEVER signs with or
-moves a user's wallet funds. The platform paymaster only sponsors gas. When
-an operation would move a *user's* collateral or borrowed funds, the
-``onBehalfOf`` / borrower address must be the platform-controlled account
-or the caller must supply a target the platform legitimately operates;
-this service operates at the platform level (``onBehalfOf`` defaults to the
-platform account) and never custodies a third-party user's NFT or key. A
+moves a user's wallet funds. The platform account is not merely paying gas
+here, which this used to say: it SENDS these transactions, and is by default
+the borrower of record and the liquidation bidder. ``onBehalfOf`` must be the
+platform account — a request naming any other beneficiary is refused, where it
+used to be passed straight through, opening a loan naming a third party under
+the platform's signature. This service operates at the platform level and
+never custodies a third-party user's NFT or key. A
 production deployment should instead return a prepared/unsigned UserOp for
 the user's own wallet to sign — that path is gated behind operator config.
 
 Each method gates on its required config FIRST and returns the canonical
 CREDENTIAL-GATED ``not_deployed_response`` when a credential is missing or
 the chain is unreachable. The real protocol call is only attempted once the
-operator has populated the relevant ``services.nft_lending`` config keys.
+operator has populated the relevant ``services.nft_lending`` config keys — and
+a caller cannot stand in for one: ``breed_nft`` used to accept a
+``breed_contract`` from the request, which satisfied the config gate and aimed
+a platform-signed transaction at a contract the caller chose. The contract is
+the configured one; a request naming another is refused.
 
 Config keys (read from ``services.nft_lending``):
     - ``pool_address``      — lending-pool / LoanCore contract address for
@@ -237,8 +242,19 @@ class NFTLendingService:
             # paymaster account — the server never opens a loan custodying a
             # third-party user's NFT/key. An operator wiring a user-signed
             # flow must pass that wallet via on_behalf_of AND have it sign.
-            beneficiary = on_behalf_of or self._web3.get_account().address
-            beneficiary_cs = w3.to_checksum_address(beneficiary)
+            platform_account = self._web3.get_account().address
+            if on_behalf_of and str(on_behalf_of).lower() != str(platform_account).lower():
+                return {
+                    "status": "invalid_request",
+                    "service": self.service_name,
+                    "method": "borrow_against_nft",
+                    "refused": True,
+                    "reason": (
+                        "on_behalf_of must be the platform account: this loan "
+                        "is signed with the platform's key, and a loan naming "
+                        "another beneficiary is not the platform's to open."),
+                }
+            beneficiary_cs = w3.to_checksum_address(on_behalf_of or platform_account)
 
             tx = pool.functions.borrow(
                 reserve_cs,
@@ -416,7 +432,19 @@ class NFTLendingService:
             parent_b = params.get("parentB")
 
         cfg = self._cfg()
-        breed_contract = params.get("breed_contract") or cfg.get("breed_contract", "")
+        breed_contract = cfg.get("breed_contract", "")
+        requested = params.get("breed_contract")
+        if requested and str(requested).lower() != str(breed_contract).lower():
+            return {
+                "status": "invalid_request",
+                "service": self.service_name,
+                "method": "breed_nft",
+                "refused": True,
+                "reason": (
+                    "The breeding contract is the operator's configuration "
+                    "(services.nft_lending.breed_contract), not a request "
+                    "parameter: this call is signed with the platform's key."),
+            }
 
         # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
         if not self._web3.available:
