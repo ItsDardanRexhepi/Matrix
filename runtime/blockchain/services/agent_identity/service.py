@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from runtime.blockchain.services.agent_identity.reputation import AgentReputation
+from runtime.blockchain.web3_manager import recorded_unsettled_response
 from runtime.blockchain.services.agent_identity.update_monitor import UpdateMonitor
 
 logger = logging.getLogger(__name__)
@@ -329,21 +330,34 @@ class AgentIdentityService:
     async def trade_model_access(
         self, seller: str, buyer: str, model_id: str, price: float, license_type: str = "inference",
     ) -> dict[str, Any]:
-        """Trade access to an AI model."""
+        """Record a trade of access to an AI model. NOTHING IS PAID OR GRANTED.
+
+        It returned `status: "traded"` over a caller-supplied price with no
+        payment taken and no access granted, and the dispatcher attested it as
+        settled — the same shape as `GamingService.trade_item`, and the same
+        record now.
+        """
         trade_id = f"mta_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
-        record: dict[str, Any] = {
-            "id": trade_id,
-            "status": "traded",
-            "seller": seller,
-            "buyer": buyer,
-            "model_id": model_id,
-            "price": price,
-            "license_type": license_type,
-            "traded_at": now,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "agent_identity", "trade_model_access", {
+                "id": trade_id,
+                "seller": seller,
+                "buyer": buyer,
+                "model_id": model_id,
+                "price": price,
+                "license_type": license_type,
+                "recorded_at": now,
+            },
+            value_moved=False,
+            disclosure=(
+                "The trade is recorded on The Matrix and did NOT settle: no "
+                "payment was taken from the buyer and no model access was "
+                "granted."
+            ),
+        )
         self._agents[f"_trade_{trade_id}"] = record
-        logger.info("Model access traded: id=%s", trade_id)
+        logger.info("Model access trade recorded (unsettled): id=%s", trade_id)
         return record
 
     async def verify_inference(
@@ -368,19 +382,30 @@ class AgentIdentityService:
     async def sell_training_data(
         self, seller: str, buyer: str, dataset_id: str, price: float, sample_count: int = 0,
     ) -> dict[str, Any]:
-        """Sell access to training data."""
+        """Record a sale of access to training data. NOTHING IS PAID OR DELIVERED.
+
+        It returned `status: "sold"` over a caller-supplied price with no
+        payment taken and no data delivered, and the dispatcher attested it as
+        settled. It is recorded, and the record says nothing moved.
+        """
         sale_id = f"tds_{uuid.uuid4().hex[:16]}"
         now = int(time.time())
-        record: dict[str, Any] = {
-            "id": sale_id,
-            "status": "sold",
-            "seller": seller,
-            "buyer": buyer,
-            "dataset_id": dataset_id,
-            "price": price,
-            "sample_count": sample_count,
-            "sold_at": now,
-        }
+        record: dict[str, Any] = recorded_unsettled_response(
+            "agent_identity", "sell_training_data", {
+                "id": sale_id,
+                "seller": seller,
+                "buyer": buyer,
+                "dataset_id": dataset_id,
+                "price": price,
+                "sample_count": sample_count,
+                "recorded_at": now,
+            },
+            value_moved=False,
+            disclosure=(
+                "The sale is recorded on The Matrix and did NOT settle: no "
+                "payment was taken from the buyer and no data was delivered."
+            ),
+        )
         self._agents[f"_data_{sale_id}"] = record
-        logger.info("Training data sold: id=%s", sale_id)
+        logger.info("Training data sale recorded (unsettled): id=%s", sale_id)
         return record
