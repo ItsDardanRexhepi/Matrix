@@ -63,7 +63,7 @@ class SocialService:
         self._communities: dict[str, dict] = {}
         self.messaging = XMTPMessaging(self.config)
         self.moderation = ContentModeration(self.config)
-        self.proof_sharing = ProofSharing(self.config)
+        self.proof_sharing = ProofSharing(self.config, is_follower=self._is_follower)
         logger.info("SocialService initialised")
 
     async def create_profile(self, address: str, display_name: str, bio: str) -> dict:
@@ -249,12 +249,26 @@ class SocialService:
     def _item_comments(item: dict) -> int:
         return len(item.get("comments") or [])
 
+    def _is_follower(self, owner: str, viewer: str) -> bool:
+        """Does *viewer* follow *owner*, by the follow graph this service keeps
+        (the viewer's profile ``following`` list, which ``follow_wallet``
+        writes)? ProofSharing asks this before showing a followers-only share."""
+        profile = self._profiles.get(viewer) or {}
+        return owner in (profile.get("following") or [])
+
     @staticmethod
     def _is_public_item(item: dict) -> bool:
         """Privacy gate for feeds. Only publicly-visible items may enter ANY feed.
         Proof-shares carry visibility in proof_data; plain posts have none and are
         public by default. Anything not explicitly 'public' is treated as private
-        and never surfaced — the strict reading of 'never enters anyone's feed'."""
+        and never surfaced — the strict reading of 'never enters anyone's feed'.
+
+        "ANY feed" covers the platform's other one too. The dispatcher publishes
+        every settled state-modifying action to the public social feed, and
+        `send_message` is `share_proof`, so a followers-only share used to be
+        written there with its proof_data. That path now applies this same
+        reading (`service_dispatcher.declares_non_public`) and carries no
+        caller params at all, and the HTTP ripple applies it too."""
         vis = item.get("visibility")
         if vis is None:
             vis = (item.get("proof_data") or {}).get("visibility", "public")

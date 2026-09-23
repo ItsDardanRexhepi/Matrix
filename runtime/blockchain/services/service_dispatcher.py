@@ -842,6 +842,38 @@ def _record_verdict(result: Any) -> str:
     return RECORD_SETTLED
 
 
+def declares_non_public(*sources: Any) -> bool:
+    """True when any of *sources* says its content is not for everyone.
+
+    THE PLATFORM HAS ONE PUBLIC FEED AND IT IS UNAUTHENTICATED. Anything this
+    dispatcher ingests is served from /social/feed to whoever asks, and
+    anything the HTTP routes ripple goes to every /api/v1/events/stream
+    subscriber. SocialService states the rule for its own feed — only items
+    whose visibility is explicitly "public" enter it, and a proof-share
+    carries its visibility inside ``proof_data`` — and that rule was kept only
+    there: `send_message` routes to `social.share_proof`, a state-modifying
+    action, and its whole params dict, a followers-only ``proof_data``
+    included, was written into the public feed row.
+
+    This is SocialService's reading, applied platform-wide: a ``visibility``
+    that is present and is not "public", at the top of a payload or inside its
+    ``proof_data``, makes the item non-public, and so does an explicit
+    ``private``/``is_private`` flag. Absence of both is public, as it is there.
+    """
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for node in (source, source.get("proof_data")):
+            if not isinstance(node, dict):
+                continue
+            visibility = node.get("visibility")
+            if visibility is not None and str(visibility).strip().lower() != "public":
+                return True
+            if node.get("private") is True or node.get("is_private") is True:
+                return True
+    return False
+
+
 #: Keys a service uses to report the figure its action actually moved, most
 #: specific first. `value_usd` is the settled figure where a service states one.
 _FEED_VALUE_KEYS: tuple[str, ...] = ("value_usd", "amount", "value", "total", "price")
@@ -1655,7 +1687,17 @@ class ServiceDispatcher:
                 # them, so it is enforced here rather than maintained by hand in
                 # ACTION_TO_FEED_EVENT — `_happened` is now settlement, not
                 # submission.
-                if _happened and self._feed_engine is not None:
+                # NOTHING THAT IS NOT PUBLIC ENTERS THE PUBLIC FEED. Two rules,
+                # each the platform's own stated elsewhere and not kept here:
+                #   * the privacy service never publishes — the HTTP ripple has
+                #     always excluded it ("Privacy actions NEVER ripple"), and
+                #     this path announced a zk proof, a private store or a
+                #     deletion request under the caller's address;
+                #   * an item that declares itself non-public never publishes —
+                #     `declares_non_public`, SocialService's own reading.
+                if (_happened and self._feed_engine is not None
+                        and target_service != "privacy"
+                        and not declares_non_public(params, result)):
                     _component_id = None
                     try:
                         from extensions import registry as _reg
@@ -1673,13 +1715,16 @@ class ServiceDispatcher:
                     # added only when there IS a disagreement, because `detail`
                     # is a rendered surface and an always-empty key reads as a
                     # missing value rather than as "nobody claimed anything".
-                    _detail: dict[str, Any] = {
-                        "service": target_service,
-                        "params": {
-                            k: v for k, v in params.items()
-                            if k not in ("private_key", "seed_phrase", "mnemonic")
-                        },
-                    }
+                    # THE CALLER'S PARAMS DO NOT RIDE ALONG. This copied the
+                    # whole request body into the public row, filtering only
+                    # three key-material names — so an encrypted message's
+                    # plaintext, a credential's claims and a disclosure's
+                    # fields went out to an unauthenticated endpoint whenever
+                    # the action succeeded. Nothing reads them back (the row's
+                    # summary, value and tx hash are what the feed renders), and
+                    # none of them is explicitly public, which is the only kind
+                    # of content this surface may carry.
+                    _detail: dict[str, Any] = {"service": target_service}
                     if _claimed_actor:
                         _detail["actor_claimed"] = _claimed_actor
                     asyncio.create_task(
