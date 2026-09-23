@@ -74,6 +74,13 @@ def _remove_folders_of_exited_runs(parent: str) -> None:
 
 
 def pytest_configure(config):
+    # One definition of this hook per file: a second one replaces this one,
+    # and the suite then stops keeping its temporary directories to itself.
+    config.addinivalue_line(
+        "markers",
+        "knowledge_refresh: let KnowledgeRetriever start its real background "
+        "refresh in this test (see _no_background_knowledge_fetch)",
+    )
     _remove_folders_of_exited_runs(tempfile.gettempdir())
     base = tempfile.mkdtemp(prefix=f"{_SUITE_PREFIX}{os.getpid()}-")
     _SESSION_TEMP.update(dir=base, tempdir=tempfile.tempdir, env=os.environ.get("TMPDIR"))
@@ -194,6 +201,37 @@ def _ambient_security_switches(_ambient_security_switches_session):
     yield
     _clear_ambient_security_switches()
     _pin_backend_label()
+
+
+@pytest.fixture(autouse=True)
+def _no_background_knowledge_fetch(request, monkeypatch):
+    """No test reaches CoinGecko or a Base RPC by accident.
+
+    `KnowledgeRetriever.get_relevant_context` never waits for a source: it
+    reads a process-wide cache and, when an entry is missing, SCHEDULES a
+    background refresh that fetches the live sources. Every chat-path test
+    reaches it, so every chat-path test started real network fetches as
+    fire-and-forget tasks, and those tasks were left unfinished when the test's
+    event loop closed — measured as 111 PytestUnraisableExceptionWarnings in
+    one full run ("coroutine KnowledgeRetriever._fetch_eth_price ... ignored
+    GeneratorExit"). Nothing failed; the suite was making network calls it did
+    not ask for.
+
+    So the scheduler is a no-op here unless a test says otherwise with
+    `@pytest.mark.knowledge_refresh`, which the tests ABOUT the refresh do. The
+    process-wide cache is cleared on both sides of every test, because a value
+    one test cached would otherwise reach another test's prompt.
+    """
+    from runtime.knowledge import retriever as knowledge
+
+    clear = getattr(knowledge, "clear_cache", lambda: None)
+    clear()
+    if (request.node.get_closest_marker("knowledge_refresh") is None
+            and hasattr(knowledge.KnowledgeRetriever, "_schedule_refresh")):
+        monkeypatch.setattr(
+            knowledge.KnowledgeRetriever, "_schedule_refresh", lambda self: None)
+    yield
+    clear()
 
 
 @pytest.fixture

@@ -321,6 +321,9 @@ class ProtocolStack:
                 logger.debug("OutcomeLearning pattern injection failed")
 
         # ── Live knowledge injection (non-blocking) ────────────────
+        # A new retriever per turn is fine now and was not before: the cache it
+        # reads is process-wide, so the instance being thrown away no longer
+        # throws the cache away with it. Nothing below waits on a network call.
         try:
             from runtime.knowledge.retriever import KnowledgeRetriever
 
