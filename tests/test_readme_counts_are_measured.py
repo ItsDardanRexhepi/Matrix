@@ -2,9 +2,8 @@
 catalog is the one the code has.
 
 The README said "50+ blockchain services" in three places, the architecture
-diagram among them, while runtime/blockchain/services/registry.py has 45; the
-diagram's copy survived the first correction. It said "221 capabilities" while
-runtime/capabilities/catalog.py has 195. A number written by hand goes stale
+diagram among them, while runtime/blockchain/services/registry.py has 45. It
+said "221 capabilities" while runtime/capabilities/catalog.py has 195. A number written by hand goes stale
 without anyone touching it, so each one is compared with the code here.
 """
 from __future__ import annotations
