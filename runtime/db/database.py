@@ -363,9 +363,14 @@ def _memory_key(value: str) -> str:
 
 def _move_sequence(conn: sqlite3.Connection, table: str, key: str, old: str, new: str) -> None:
     """Move *old*'s rows of a ``(key, seq)`` table under *new*, after any rows
-    *new* already has."""
+    *new* already has.
+
+    The platform numbers turns from 0 (runtime/memory/manager.py), so the first
+    moved row goes at *new*'s highest seq plus one; when *new* holds nothing the
+    rows keep their seqs. Two runs numbered from 0 merge into one numbered from
+    0, which is what the next ``seq = len(turns)`` write relies on."""
     offset = conn.execute(  # nosec B608 - fixed table and column names
-        f"SELECT COALESCE(MAX(seq), 0) FROM {table} WHERE {key} = ?", (new,)).fetchone()[0]
+        f"SELECT COALESCE(MAX(seq) + 1, 0) FROM {table} WHERE {key} = ?", (new,)).fetchone()[0]
     conn.execute(  # nosec B608
         f"UPDATE {table} SET {key} = ?, seq = seq + ? WHERE {key} = ?", (new, offset, old))
 
@@ -405,10 +410,13 @@ def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
             if new != old:
                 conn.execute(  # nosec B608
                     f"UPDATE OR IGNORE {table} SET session_id = ? WHERE session_id = ?", (new, old))
-    # A first-boot mark is only "the welcome was sent": a second one goes.
-    for (old,) in conn.execute("SELECT session_id FROM first_boot").fetchall():
-        if _account_id(old) != old:
-            conn.execute("DELETE FROM first_boot WHERE session_id = ?", (old,))
+    # A first-boot mark is only "the welcome was sent", and an erasure of the
+    # same conversation under the same sequence number is one erasure: a second
+    # row under the other spelling goes.
+    for table in ("first_boot", "conversation_erasures"):
+        for (old,) in conn.execute(f"SELECT DISTINCT session_id FROM {table}").fetchall():  # nosec B608
+            if _account_id(old) != old:
+                conn.execute(f"DELETE FROM {table} WHERE session_id = ?", (old,))  # nosec B608
     if "session_id" in _columns(conn, "push_tokens"):
         for (old,) in conn.execute(
                 "SELECT DISTINCT session_id FROM push_tokens WHERE session_id IS NOT NULL").fetchall():
@@ -540,8 +548,11 @@ class Database:
                     (version, description, _time.time()),
                 )
                 self._conn.execute("COMMIT")
-            except sqlite3.Error:
-                self._conn.execute("ROLLBACK")
+            except Exception:
+                # A callable step can raise anything, not only a database
+                # error; every failure is rolled back and logged the same way.
+                if self._conn.in_transaction:
+                    self._conn.execute("ROLLBACK")
                 logger.exception("Migration v%d failed; rolled back", version)
                 raise
 

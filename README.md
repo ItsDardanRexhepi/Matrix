@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,548 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,552 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -206,7 +206,8 @@ What works today, no chain required:
   in another case is still the same caller, an owner a record holds in
   another case is still its owner, what the gateway stored under a wallet
   before that rule is rewritten in it the first time the gateway opens its
-  database, and the gateway starts the security core's gate only when the
+  database (one wallet stored under two spellings becomes one, its turns in
+  order), and the gateway starts the security core's gate only when the
   core names a caller by the same rule
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 50+ blockchain services** — return a standardised
