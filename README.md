@@ -90,7 +90,7 @@ If you ever catch this repository claiming something it cannot do, that is a bug
 ## Quick Start
 
 ```bash
-git clone https://github.com/ItsDardanRexhepi/TheMatrix.git
+git clone https://github.com/ItsDardanRexhepi/Matrix.git TheMatrix
 cd TheMatrix
 python3 setup.py
 ```
@@ -119,7 +119,7 @@ python3 setup_communications.py --list    # show enabled channels
 Or use the one-liner install script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/TheMatrix/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/Matrix/main/install.sh | bash
 ```
 
 ---

@@ -3,14 +3,14 @@
 # The Matrix — One-Command Installer
 #
 # Install:
-#   curl -sSL https://raw.githubusercontent.com/ItsDardanRexhepi/TheMatrix/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/ItsDardanRexhepi/Matrix/main/install.sh | bash
 #
 # Or clone first, then:
 #   ./install.sh
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="https://github.com/ItsDardanRexhepi/TheMatrix.git"
+REPO="https://github.com/ItsDardanRexhepi/Matrix.git"
 INSTALL_DIR="${MATRIX_DIR:-$HOME/.the-matrix}"
 BRANCH="${MATRIX_BRANCH:-main}"
 MIN_PYTHON="3.10"
