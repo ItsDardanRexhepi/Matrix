@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,468 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,479 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -231,7 +231,13 @@ check behind it:
   and a test walks those surfaces so the offer cannot return quietly
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
-  vulnerabilities detected", and no security badge is issued on it
+  vulnerabilities detected", and no security badge is issued on it. The
+  agent's `audit_contract` skill says NOT AUDITABLE too, and it lists a
+  contract's findings by rule id instead of failing on them
+- **A skill runs on the server's configuration, not the model's.** The
+  agent's chain skills (balance, transaction lookup, gas estimate) read the
+  chain this gateway is configured for, through the platform's shared
+  connection; a `config` the model writes into a tool call is dropped
 - **Gas sponsorship is metered against what the EntryPoint can charge.**
   The per-identity daily cap the configuration documents is enforced
   before signing, over a durable ledger, and each request is priced at

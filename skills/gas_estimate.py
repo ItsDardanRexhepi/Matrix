@@ -8,7 +8,8 @@ contract deployments, and other common operations.
 SKILL_NAME = "gas_estimate"
 SKILL_DESCRIPTION = (
     "Estimate current gas prices and costs for common blockchain operations. "
-    "Shows ETH transfer cost, ERC-20 transfer cost, swap cost, and deploy cost. "
+    "Multiplies the configured network's current gas price by typical gas units "
+    "for an ETH transfer, an ERC-20 transfer, a swap, a deploy and others. "
     "Use when the user asks about gas fees, transaction costs, or network congestion."
 )
 SKILL_PARAMETERS = {
@@ -38,18 +39,24 @@ GAS_ESTIMATES = {
 async def execute(operation: str = "", **kwargs) -> str:
     """Estimate gas costs."""
     try:
-        from runtime.blockchain.interface import BlockchainInterface
+        # The platform's shared connection, whose `.w3` this skill was written
+        # against. It used to build `BlockchainInterface(config)` — an abstract
+        # class, which cannot be instantiated — and read `.w3`, which that class
+        # does not have, so every call answered "Gas estimation failed".
+        from runtime.blockchain.web3_manager import Web3Manager
 
-        config = kwargs.get("config", {})
-        blockchain = BlockchainInterface(config)
-        w3 = blockchain.w3
+        chain = Web3Manager.get_shared(kwargs.get("config") or {})
+        if not chain.available or chain.w3 is None:
+            return ("Gas estimation failed: no blockchain is reachable "
+                    "(blockchain.rpc_url is not configured, or its node did not answer).")
+        w3 = chain.w3
 
         gas_price = w3.eth.gas_price
         gas_price_gwei = w3.from_wei(gas_price, "gwei")
 
         lines = [
             f"## Gas Estimates\n",
-            f"**Current Gas Price**: {gas_price_gwei:.2f} Gwei\n",
+            f"**Current Gas Price on {chain.network}**: {gas_price_gwei:.2f} Gwei\n",
             "| Operation | Gas Units | Cost (ETH) | Cost (USD*) |",
             "|-----------|-----------|------------|-------------|",
         ]

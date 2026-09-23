@@ -1656,12 +1656,15 @@ class ServiceDispatcher:
                 # ACTION_TO_FEED_EVENT — `_happened` is now settlement, not
                 # submission.
                 if _happened and self._feed_engine is not None:
+                    # No component number. The feed's `component` is an integer
+                    # column, and nothing in this tree maps a service to one:
+                    # this used to import `extensions.registry` for
+                    # `service_to_component`, a module that has never existed
+                    # (extensions/ holds registry.json, whose component ids are
+                    # strings), inside a bare `except: pass`. It always failed,
+                    # silently, and every event was stored with component NULL.
+                    # It still is, now without pretending otherwise.
                     _component_id = None
-                    try:
-                        from extensions import registry as _reg
-                        _component_id = _reg.service_to_component(target_service)
-                    except Exception:
-                        pass
                     _tx = None
                     if isinstance(result, dict):
                         _tx = result.get("tx_hash") or result.get("transaction_hash")
