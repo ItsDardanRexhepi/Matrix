@@ -24,7 +24,7 @@ By completing this course, you will have:
 
 | Module | Title | Duration |
 |--------|-------|----------|
-| [01](./01-what-is-matrix.md) | What is Matrix? | ~15 min |
+| [01](./01-what-is-the-matrix.md) | What is The Matrix? | ~15 min |
 | [02](./02-quick-start.md) | Quick Start | ~20 min |
 | [03](./03-understanding-the-gateway.md) | Understanding the Gateway | ~25 min |
 | [04](./04-your-first-plugin.md) | Your First Plugin | ~30 min |

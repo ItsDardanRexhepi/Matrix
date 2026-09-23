@@ -1,4 +1,4 @@
-# Module 01: What is Matrix?
+# Module 01: What is The Matrix?
 
 ## The Problem
 
