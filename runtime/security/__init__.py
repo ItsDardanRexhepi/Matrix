@@ -256,11 +256,11 @@ def get_morpheus_security(config: dict[str, Any] | None = None) -> MorpheusSecur
 # ── One spelling for a caller, on both sides of the seam ─────────────────
 #
 # The platform names a caller in one spelling (runtime/auth/identity.py) and
-# hands the seam that spelling. The core keeps records about callers and
-# compares the caller it is handed against them. If it named a caller any
-# other way, a record it holds under another spelling of the same wallet would
-# match no caller the platform hands it, so the platform settling on one
-# spelling would make that record bind for nobody. The core therefore names a
+# hands the seam that spelling. Whatever the core holds about a caller, it is
+# handed that spelling. If it named a caller any other way, a record under
+# another spelling of the same wallet would match no caller the platform hands
+# it, so the platform settling on one spelling would make that record bind for
+# nobody. The core therefore names a
 # caller by the same rule, exported as ``canonical_identity``, and before the
 # host starts the gate it checks that the rule the backend exports gives the
 # platform's answer for every spelling below. A backend that exports no rule,

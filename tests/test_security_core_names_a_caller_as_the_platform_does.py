@@ -5,13 +5,13 @@ a wallet address as `0x` and its digits in lower case, anything else as given)
 and hands the security seam that spelling: the wallet bound for a gated HTTP
 action, the caller at the agent-tool boundary and at the hand-off's gate. Before
 that rule, a session carried the address as it was sent to /auth/verify, and a
-sign-in usually sends the EIP-55 checksum form. The core keeps records about
-callers and compares the caller it is handed against them. A record it holds
-under the checksum spelling bound for a caller who signed in that way; once the
-platform hands it only the lower-case spelling, that record matches nobody. So
-folding every spelling into one on the platform's side, with nothing on the
-core's side, turned a record that bound for one spelling into one that binds
-for none.
+sign-in usually sends the EIP-55 checksum form, so the seam was handed whatever
+spelling the session carried. Whatever the core holds about a caller, it is
+handed the platform's spelling of that caller; if the core named a caller by
+any other rule, a record under another spelling of the same wallet would match
+no caller the platform hands it. So folding every spelling into one on the
+platform's side, with nothing checked about the core's rule, would turn such a
+record into one that binds for nobody.
 
 THE RULE. The core names a caller by the same rule, exported from the core as
 `canonical_identity`. Before the gateway starts the gate, the seam checks that
