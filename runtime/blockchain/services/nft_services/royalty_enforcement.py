@@ -17,6 +17,7 @@ from runtime.blockchain.services.nft_services._guards import (
     require_finite_amount,
     require_finite_bps,
 )
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ class RoyaltyEnforcement:
         )
         if _existing is not None:
             _owner = str(_existing.get("set_by") or "")
-            _may_change = bool(_set_by) and _owner.lower() == _set_by.lower()
+            _may_change = bool(_set_by) and same_caller(_owner, _set_by)
             if not _may_change:
                 raise PermissionError(
                     f"royalty for {collection} #{token_id} was configured by "

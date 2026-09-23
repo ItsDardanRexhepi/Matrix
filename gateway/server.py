@@ -893,8 +893,13 @@ class GatewayServer:
         except json.JSONDecodeError:
             return web.json_response({"error": "invalid JSON"}, status=400)
 
+        # Any spelling of a wallet address /auth/verify accepts, 0X included:
+        # the session it leads to names the wallet in the one spelling either
+        # way (runtime/auth/identity.py). What is not a 20-byte hex address is
+        # refused here rather than signed for and refused at /auth/verify.
+        from runtime.auth.identity import is_wallet_address
         address = str(body.get("address", "")).strip()
-        if not address or not address.startswith("0x") or len(address) != 42:
+        if not is_wallet_address(address):
             return web.json_response({"error": "valid 0x address required"}, status=400)
 
         nonce = generate_nonce()

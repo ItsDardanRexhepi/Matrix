@@ -19,6 +19,11 @@ address (``apple:<sub>``, a label, ``""``, a value that is not a string) is
 returned exactly as given: a user id may distinguish ``A`` from ``a``, and
 folding those together would merge two callers into one.
 
+Where the platform checks that a caller is the party a record names (an
+owner, a seller, whoever set a value), it compares the two with
+``same_caller``, so an owner written in one spelling and a caller named in
+another are the same caller.
+
 This is the only place the rule is written.
 """
 
@@ -34,6 +39,13 @@ def is_wallet_address(value: Any) -> bool:
     """True when *value* is a 20-byte hex address in any spelling (surrounding
     whitespace aside)."""
     return isinstance(value, str) and _HEX_ADDRESS.fullmatch(value.strip()) is not None
+
+
+def same_caller(a: Any, b: Any) -> bool:
+    """True when *a* and *b* name the same caller: equal once each is in the
+    one spelling. Two spellings of one wallet address are the same caller;
+    two ids that are not addresses and differ only in case are not."""
+    return canonical_identity(a) == canonical_identity(b)
 
 
 def canonical_identity(value: Any) -> Any:
