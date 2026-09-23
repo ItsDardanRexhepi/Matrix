@@ -25,8 +25,8 @@ Usage:
 
 NOTE: Until the platform contracts are deployed on-chain, every dispatch
 returns ``status='not_deployed'`` and the script falls back to printing
-the intended action. This is by design — see ROADMAP.md "Blockchain
-Activation" for the deployment plan.
+the intended action. This is by design; deploying the contracts is
+covered in contracts/DEPLOYMENT_GUIDE.md.
 """
 
 import argparse

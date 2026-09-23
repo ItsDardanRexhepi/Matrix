@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,488 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,491 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -378,16 +378,26 @@ curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 
 Gas is sponsored by the platform paymaster **within the policy the
 operator configures** — an allowlist of actions and a per-identity daily
-cap, decided from the call data being signed. Inside that policy a user
-pays no gas; past the cap, or for an action the allowlist does not cover,
-sponsorship is refused rather than silently granted, and an operator who
-configures no policy sponsors everything. Every transaction the platform
-signs goes through that policy, including the ones the services send
-through the shared web3 manager — if you configure an allowlist, list
-`web3.send_transaction` or those will be refused. The only operations
-exempt are the platform's own record-keeping writes, and they are listed
-by name in `runtime/blockchain/sponsorship.py` so the exemptions can be
-read rather than guessed at. Capabilities return
+cap. Inside that policy a user pays no gas, and an operator who
+configures no policy sponsors everything. What is checked depends on who
+signs:
+
+- a smart-account operation the paymaster signs
+  (`POST /api/v1/paymaster/sign`) is checked against the allowlist, with
+  its actions decoded from the call data being signed, and against the
+  cap when one is set; past either, sponsorship is refused rather than
+  silently granted;
+- a transaction the platform signs itself for a capability, including
+  the ones the services send through the shared web3 manager, is checked
+  against the allowlist and the cap only when a daily cap is set. With no
+  cap it is signed whatever the allowlist says. With a cap and an
+  allowlist, list `web3.send_transaction` or those will be refused;
+- a few signing paths are exempt from the policy altogether. They are
+  listed by name in `UNMETERED_PLATFORM_OPERATIONS`
+  (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
+  rather than guessed at.
+
+Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 

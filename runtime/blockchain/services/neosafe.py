@@ -19,11 +19,13 @@ NEOSAFE_DEFAULT_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 
 
 class NeoSafeRouter:
-    """Route all platform fees to the NeoSafe wallet.
+    """Record platform fees against the NeoSafe wallet, and send revenue to it.
 
-    Every fee-generating action across the platform's services calls
-    :meth:`route_fee` to record and forward fees. An EAS attestation is
-    created for each payment so there is a permanent on-chain receipt.
+    :meth:`route_fee` records a fee in this process's in-memory ledger and
+    attests it through EAS; it moves no funds. :meth:`route_revenue` sends
+    ETH to the NeoSafe wallet and attests it once the transfer is mined.
+    Nothing in the gateway calls either yet: no platform action maps to this
+    router, and examples/07_revenue_to_neosafe.py calls it directly.
 
     Config keys used:
         - ``blockchain.platform_wallet`` — the NeoSafe wallet address

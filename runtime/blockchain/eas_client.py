@@ -88,7 +88,10 @@ class EASClient:
     ) -> dict:
         """
         Create an on-chain attestation for a blockchain action.
-        Gas is covered by the platform — users never pay.
+        Gas is covered by the platform — users never pay. It is signed
+        through "eas.attest", an exemption listed in
+        UNMETERED_PLATFORM_OPERATIONS, so no sponsorship allowlist or daily
+        cap is checked.
 
         Args:
             action: The action being attested (e.g., "deploy_contract")

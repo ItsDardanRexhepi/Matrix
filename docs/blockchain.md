@@ -34,8 +34,14 @@ Users describe what they want to Trinity in plain language. Trinity translates t
 
 ## Networks
 
-The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-value operations and attestations. Cross-chain bridges enable movement between networks.
+The primary network is Base (Ethereum L2). The gateway writes to the one chain `blockchain.*` configures (Base Sepolia by default), attestations included; nothing sends high-value operations or attestations to Ethereum mainnet. The cross-chain capabilities are for movement between networks.
 
 ## Fees
 
-Gas is sponsored by the platform paymaster **within the policy the operator configures**: an allowlist of actions and a per-identity daily cap, decided from the call data being signed (`runtime/blockchain/sponsorship.py`). Inside that policy a user pays no gas. Past the cap, or for an action the allowlist does not cover, sponsorship is refused rather than silently granted. An operator who configures no policy sponsors everything. The README's section on the Web3 capability surface says the same.
+Gas is sponsored by the platform paymaster **within the policy the operator configures**: an allowlist of actions and a per-identity daily cap (`runtime/blockchain/sponsorship.py`). Inside that policy a user pays no gas, and an operator who configures no policy sponsors everything. What is checked depends on who signs:
+
+- A smart-account operation the paymaster signs (`POST /api/v1/paymaster/sign`) is checked against the allowlist, with its actions decoded from the call data being signed, and against the daily cap when one is set. Past either, sponsorship is refused rather than silently granted.
+- A transaction the platform signs itself for a capability is checked against the allowlist and the cap only when a daily cap is set. With no cap it is signed whatever the allowlist says.
+- A few signing paths are exempt from the policy altogether; they are listed by name in `UNMETERED_PLATFORM_OPERATIONS`.
+
+The README's section on the Web3 capability surface says the same.

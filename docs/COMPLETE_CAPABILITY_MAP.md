@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-Gas for the state-modifying capabilities below is sponsored by the platform paymaster within the policy the operator configures: an allowlist of actions and a per-identity daily cap (`runtime/blockchain/sponsorship.py`). Inside that policy a user spends no native token on gas; past the cap, or outside the allowlist, sponsorship is refused. An operator who configures no policy sponsors everything. Read-only capabilities don't touch a chain and are free to call.
+Gas for the state-modifying capabilities below is sponsored by the platform paymaster within the policy the operator configures: an allowlist of actions and a per-identity daily cap (`runtime/blockchain/sponsorship.py`). Inside that policy a user spends no native token on gas, and an operator who configures no policy sponsors everything. When a daily cap is set, a platform signature past it, or for an action outside the allowlist, is refused; with no cap, the platform signs a capability's transaction without reading the allowlist. A few signing paths are exempt from the policy; they are listed by name in `UNMETERED_PLATFORM_OPERATIONS` in the same file. Read-only capabilities don't touch a chain and are free to call.
 
 ---
 

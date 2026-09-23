@@ -11,7 +11,7 @@ create permanent, verifiable on-chain records for every platform action:
   3. Create an insurance policy -> attestation
   4. Verify a specific attestation on-chain
 
-This is the trust layer of The Matrix: every state-modifying capability is attested on-chain automatically.
+This is the trust layer of The Matrix: a state-modifying action the ServiceDispatcher completes is attested on-chain automatically, best effort.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -273,9 +273,9 @@ async def main():
     5. verify_attestation  - Verify attestation on-chain
 
   {BOLD}Key insight:{RESET}
-    Every state-modifying action across the capability catalog
-    automatically creates an EAS attestation. The ServiceDispatcher
-    handles this transparently — no extra code needed.
+    A state-modifying action the ServiceDispatcher completes gets an
+    EAS attestation automatically, best effort; a refusal or an
+    unconfirmed broadcast is not attested as done.
 
   {BOLD}EAS contract:{RESET} {bc.get('eas_contract', 'see config')}
   {BOLD}Network:{RESET} Base Sepolia

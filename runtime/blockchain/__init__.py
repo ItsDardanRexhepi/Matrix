@@ -1,9 +1,10 @@
 """
 Blockchain Module — on-chain capabilities for The Matrix.
 
-Gas is sponsored by the platform's ERC-4337 paymaster within the operator's
-sponsorship policy (sponsorship.py). Every state-changing action is attested
-via EAS.
+Gas is sponsored by the platform within the operator's sponsorship policy
+(sponsorship.py), with the exemptions listed there. ServiceDispatcher records
+an EAS attestation, best effort, for a state-changing action that completed;
+a refusal or an unconfirmed broadcast is not attested as done.
 
 This package exposes ``Web3Manager`` (and the ``not_deployed_response``
 helper) so services across the platform share a single web3 connection

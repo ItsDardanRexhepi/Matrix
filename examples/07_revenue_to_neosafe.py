@@ -11,7 +11,9 @@ Demonstrates how The Matrix routes revenue to the NeoSafe multisig wallet:
   4. An EAS attestation is created for the payment
   5. Revenue totals are queried from the ledger
 
-Every fee-generating action across the platform's services follows this pattern.
+Nothing in the gateway calls the NeoSafeRouter yet: no platform action maps to
+it, so this example calls it directly. The diagram in step 4 is the intended
+flow, not the one the dispatcher runs today.
 The platform wallet (NeoSafe) is the single point of revenue collection.
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
@@ -19,8 +21,8 @@ The canonical NeoSafe address is
 NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
 ``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
 ``status='queued'``. Once the chain is live, the same call will execute
-the actual transfer and EAS attestation. See ROADMAP.md "Blockchain
-Activation".
+the actual transfer and EAS attestation. Deploying the contracts is covered
+in contracts/DEPLOYMENT_GUIDE.md.
 
 Usage:
     python examples/07_revenue_to_neosafe.py
@@ -188,9 +190,9 @@ contract SimpleToken {
     step(4, "Platform fee flow architecture")
 
     print(f"""
-  {BOLD}Fee Flow:{RESET}
+  {BOLD}Fee Flow (intended; the dispatcher does not call the router yet):{RESET}
 
-  User Action (any fee-generating service)
+  User Action (a fee-generating service)
        |
        v
   ServiceDispatcher.execute()

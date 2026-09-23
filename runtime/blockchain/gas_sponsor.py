@@ -1,15 +1,19 @@
 """
-Gas Sponsor — ERC-4337 paymaster integration.
+Gas Sponsor — gas estimates and a direct send from the platform wallet.
 
-The platform paymaster sponsors users' gas within the operator's sponsorship
-policy (runtime/blockchain/sponsorship.py). This module handles:
-- UserOperation construction for account abstraction
-- Paymaster signature and sponsorship
-- Gas estimation and submission via bundler
-- Transaction receipt tracking
+This module does not build ERC-4337 UserOperations and does not talk to a
+bundler. The paymaster signature for a smart-account operation is
+POST /api/v1/paymaster/sign, and what the platform sponsors is decided by
+the operator's policy in runtime/blockchain/sponsorship.py. It handles:
+- gas and gas-cost estimates for a transaction
+- sponsor_transaction: signs a transaction with paymaster_private_key,
+  sends it and waits for its receipt
+- the platform wallet's balance, for monitoring its gas fund
 
-The paymaster_private_key in config funds the operations the policy allows;
-the rest are refused, not paid for.
+sponsor_transaction is not governed by that policy. It signs through
+"gas_sponsor.sponsor", one of the exemptions listed in
+UNMETERED_PLATFORM_OPERATIONS, so no action allowlist and no daily cap is
+checked before it signs. Nothing in this tree calls it.
 """
 
 import logging
@@ -29,7 +33,8 @@ _LOW_BALANCE_THRESHOLD_ETH = 0.01
 
 
 class GasSponsor:
-    """Handles ERC-4337 paymaster gas sponsorship for all user operations."""
+    """Gas estimates, the platform wallet's balance, and an unmetered direct
+    send signed with the paymaster key (see the module docstring)."""
 
     def __init__(self, config: dict):
         self.config = config
@@ -81,10 +86,15 @@ class GasSponsor:
 
     async def sponsor_transaction(self, tx: dict) -> dict:
         """
-        Wrap a raw transaction in an ERC-4337 UserOperation
-        with paymaster sponsorship. Returns the sponsored tx receipt.
+        Sign *tx* with the paymaster key as a plain transaction from the
+        platform wallet, send it, and return its receipt. The platform
+        wallet pays the gas. It is not wrapped in a UserOperation.
 
-        The platform wallet pays the gas when the sponsorship policy allows it.
+        No sponsorship policy is consulted: the signer comes from
+        unmetered_platform_signer(..., "gas_sponsor.sponsor"), an exemption
+        listed in UNMETERED_PLATFORM_OPERATIONS, so the allowlist and the
+        daily cap are never checked here. Nothing in this tree calls this
+        method.
         """
         try:
             from web3 import Web3
@@ -134,7 +144,8 @@ class GasSponsor:
             return {"error": str(e), "status": "failed"}
 
     async def estimate_gas(self, tx: dict) -> int:
-        """Estimate gas for a transaction. Cost is covered by the platform."""
+        """Estimate gas for a transaction sent from the platform wallet. Only an
+        estimate: whether the platform pays is the sponsorship policy's call."""
         try:
             estimate = self.web3.eth.estimate_gas({
                 "from": self.platform_wallet,
