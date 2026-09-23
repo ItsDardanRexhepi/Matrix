@@ -695,8 +695,7 @@ class GatewayServer:
         THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
         endpoint returned each check with its values — `"backend": "noop"`,
         the full model-provider inventory, whether the instance considers
-        itself production. A review of that first version
-        caught it: a readiness probe that announces `backend: "noop"` is telling
+        itself production. A review caught it: a readiness probe that announces `backend: "noop"` is telling
         any caller that NOTHING IS ENFORCING, which is a targeting signal, not a
         health signal. Combined with NEW-26 (auth disabled whenever no key is
         set) that caller need not be authenticated at all.

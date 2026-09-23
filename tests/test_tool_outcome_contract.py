@@ -39,6 +39,7 @@ FORBIDDEN = (
     "Connect call failed",
     "localhost:11434",
     "/Users/",
+    "/home/",
     "site-packages",
     "Errno",
     "has no attribute",

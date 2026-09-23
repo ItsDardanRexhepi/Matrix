@@ -56,7 +56,7 @@ The Matrix is a free, open source AI agent platform. It combines a personal AI a
 
 **This repository is the platform itself**: the gateway, the three agents, the Web3 service surface, the contract-conversion pipeline, the SDKs, and the example scripts. It is the part you can read, run, fork and change, and it is the whole of what the project asks you to trust — everything a request touches on its way in is in this tree.
 
-**MTRX** is the iOS app that brings it to your phone. The enforcing security core is closed source and optional: its seam lives here, and with no core installed the platform runs in OBSERVE mode, where the gates report what they would have done instead of blocking. The deployment runtime the maintainer runs is private, and nothing in this repository depends on it.
+**MTRX** is the iOS app that brings it to your phone. The enforcing security core is closed source and optional: its seam lives here, and with no core installed the platform runs an inert no-op in OBSERVE mode: its gate allows every action it is asked about and applies none of the core's checks, the platform's own per-agent tool boundary still holds, and it says so at boot. The deployment runtime the maintainer runs is private, and nothing in this repository depends on it.
 
 ---
 
@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,465 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,468 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -324,7 +324,9 @@ check behind it:
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
 responses in place of every `not_deployed`. Populate `blockchain.*` in
-`matrix.config.json` to flip them.
+`matrix.config.json` to flip them. `CREDENTIALS_NEEDED.md` lists what a
+deployment needs, capability by capability: which key or address unlocks it,
+where it is set, and what happens while it is unset.
 
 ---
 
@@ -508,6 +510,13 @@ launch:
 - **Per-wallet rate limiting** — three-tier token bucket (wallet → API
   key → IP). Limits are configurable under
   `gateway.rate_limits.wallet`.
+- **No production boot without enforcement** — with
+  `MATRIX_ENV=production`, which `docker-compose.prod.yml` and
+  `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
+  gateway refuses to start on the no-op security backend. The
+  `Dockerfile` installs only the public requirements, so a production
+  image needs the separately installed security core as well
+  (`CREDENTIALS_NEEDED.md`, section 5).
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.
@@ -533,7 +542,9 @@ kubectl apply -f k8s/
 ./scripts/build-contracts.sh
 ```
 
-See `docs/api-reference.md` for the complete HTTP / WebSocket surface.
+See `docs/api-reference.md` for the complete HTTP / WebSocket surface, and
+`docs/OPS.md` for the operator kit: the read-only checks to run before a
+deploy (`./scripts/ops.sh preflight`) and the deploy commands themselves.
 
 ---
 

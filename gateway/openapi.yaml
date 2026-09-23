@@ -44,7 +44,7 @@ components:
       scheme: bearer
       description: |
         Static API key set at gateway boot via `gateway.api_key` in
-        `matrix.config.json` or `MTRX_API_KEY` environment override.
+        `matrix.config.json` or `MATRIX_API_KEY` environment override.
         Sent as `Authorization: Bearer <key>`. The `/health`,
         `/auth/nonce` and `/auth/verify` endpoints are public.
 

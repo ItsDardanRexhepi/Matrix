@@ -34,6 +34,55 @@ services:
       # baking them into matrix.config.json.
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Every secret the gateway reads from the environment (the table in
+      # runtime/config/validation.py and the bridge in gateway/server.py),
+      # passed through from your shell or a .env file beside this one. An unset
+      # variable arrives empty, which the gateway reads as unset; in production
+      # secret-shaped values in matrix.config.json are stripped, so these are
+      # the route by which they reach the container.
+      # Gateway, chain and platform signers
+      MATRIX_API_KEY: "${MATRIX_API_KEY:-}"
+      BASE_RPC_URL: "${BASE_RPC_URL:-}"
+      MATRIX_PAYMASTER_KEY: "${MATRIX_PAYMASTER_KEY:-}"
+      MATRIX_PAYMASTER_SIGNER_KEY: "${MATRIX_PAYMASTER_SIGNER_KEY:-}"
+      MATRIX_DEMO_WALLET_KEY: "${MATRIX_DEMO_WALLET_KEY:-}"
+      MATRIX_QR_SECRET: "${MATRIX_QR_SECRET:-}"
+      # Model providers
+      MATRIX_MODEL_API_KEY: "${MATRIX_MODEL_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      XAI_API_KEY: "${XAI_API_KEY:-}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
+      CEREBRAS_API_KEY: "${CEREBRAS_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      PERPLEXITY_API_KEY: "${PERPLEXITY_API_KEY:-}"
+      NOUS_API_KEY: "${NOUS_API_KEY:-}"
+      # Apple sign-in and push
+      APPLE_PRIVATE_KEY_P8: "${APPLE_PRIVATE_KEY_P8:-}"
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_BUNDLE_ID: "${APNS_BUNDLE_ID:-}"
+      # Notifications and social
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      DISCORD_WEBHOOK_URL: "${DISCORD_WEBHOOK_URL:-}"
+      DISCORD_ANNOUNCEMENTS_WEBHOOK: "${DISCORD_ANNOUNCEMENTS_WEBHOOK:-}"
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID:-}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN:-}"
+      TWILIO_FROM_NUMBER: "${TWILIO_FROM_NUMBER:-}"
+      NOTIFY_WEBHOOK_BEARER: "${NOTIFY_WEBHOOK_BEARER:-}"
+      TWITTER_API_KEY: "${TWITTER_API_KEY:-}"
+      TWITTER_API_SECRET: "${TWITTER_API_SECRET:-}"
+      TWITTER_ACCESS_TOKEN: "${TWITTER_ACCESS_TOKEN:-}"
+      TWITTER_ACCESS_SECRET: "${TWITTER_ACCESS_SECRET:-}"
+      # Data feeds
+      WEATHER_API_KEY: "${WEATHER_API_KEY:-}"
+      SPORTS_API_KEY: "${SPORTS_API_KEY:-}"
     volumes:
       # Mount config read-only so the container can't accidentally rewrite it.
       - ./matrix.config.json:/app/matrix.config.json:ro
