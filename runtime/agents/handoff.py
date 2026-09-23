@@ -12,7 +12,12 @@ executing it herself:
            on the contract path).
         3. The result is returned to Trinity to relay to the user.
 
-Trinity never gains Neo's tools — she only ever holds this single, gated channel.
+Trinity does not hold Neo's raw execution tools. She is not limited to this one
+channel either, which this line used to say: she also holds ``platform_action``
+— the same service dispatcher this hand-off calls — for every action that does
+not modify state, directly and with no Morpheus gate on that path. This channel
+is the one she has for state-changing actions, and its gate allows everything
+when no enforcing core is installed.
 A denied request comes back as a controlled refusal, never an execution.
 
 This is the public wiring of the hand-off; the Morpheus gate's decision logic is
@@ -102,7 +107,11 @@ class AgentHandoff:
 
         # 2. PASS → Neo executes. The service dispatcher attests state-modifying
         #    actions on success; the protocol stack's Glasswing audit applies to the
-        #    contract path. Trinity never touches this executor directly.
+        #    contract path. Trinity reaches this executor directly too, for
+        #    reads: `platform_action` is this same ServiceDispatcher, and she
+        #    holds it for every non-state-modifying action. This call is the
+        #    only way her state-changing requests reach it. (This comment used
+        #    to say she never touches it directly.)
         if self._dispatcher is None:
             return {
                 "handoff": "trinity->morpheus->neo",

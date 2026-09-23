@@ -35,8 +35,11 @@ _DEFAULT_RATE_LIMIT_MAX = 30     # max actions per window
 
 
 class RexhepiGate:
-    """Unified execution gate. Every platform operation MUST pass
-    through this gate before execution.
+    """Unified execution gate for the operations that reach the protocol
+    stack's pre-action hook. Not "every platform operation", which this said:
+    the bridge's direct actions and the /api/v1 service routes go through the
+    Morpheus gate and the dispatcher without it, and when this gate raises the
+    protocol stack logs it and continues.
 
     The scored decision is produced by the URF reasoning loop; the safety,
     compliance, authorization, rate-limit, fee-validation, and
@@ -194,11 +197,19 @@ class RexhepiGate:
         """Reject actions that are unsafe given the user's state."""
         action_type = str(action.get("action_type", action.get("type", "")))
 
-        # Cannot transact without a connected wallet
+        # Refused when the context SAYS no wallet is connected. The gateway
+        # sets the flag True when it knows a wallet behind the caller (a SIWE
+        # subject, or the wallet linked to an Apple user), and an operator's
+        # request body may state it. When nobody set it the flag is ABSENT,
+        # and absent reads as connected — so this refuses a context that says
+        # "not connected", not one that says nothing. (This said "cannot
+        # transact without a connected wallet".)
         if not context.get("wallet_connected", True):
             return False, "No wallet connected. Connect a wallet before performing transactions."
 
-        # Cannot operate on an unsupported network
+        # Refused on an unsupported network — when `rexhepi.supported_networks`
+        # is configured, which no shipped config does, and when the context
+        # names a network. Unset, this check passes everything.
         supported = set(self.config.get("supported_networks", []))
         network = context.get("network")
         if supported and network and network not in supported:

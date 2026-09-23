@@ -104,6 +104,16 @@ class FridayProtocol:
         """
         category = event.get("category", "unknown")
         urgency = event.get("urgency", "low")
+        now = time.time()
+        cooldown_key = f"{category}:{event.get('id', 'default')}"
+
+        # Critical events always notify — FIRST, so that "always" holds. The
+        # suppression and cooldown checks used to run before this one, so a
+        # critical event in a suppressed category, or inside a cooldown, was
+        # silently dropped.
+        if urgency == "critical":
+            self._record_notification(event, cooldown_key)
+            return True
 
         # Suppressed?
         if category in self._suppressed_categories:
@@ -111,16 +121,9 @@ class FridayProtocol:
             return False
 
         # Cooldown?
-        now = time.time()
-        cooldown_key = f"{category}:{event.get('id', 'default')}"
         if cooldown_key in self._cooldowns and now < self._cooldowns[cooldown_key]:
             logger.debug("Cooldown active for '%s' — skipping", cooldown_key)
             return False
-
-        # Critical events always notify
-        if urgency == "critical":
-            self._record_notification(event, cooldown_key)
-            return True
 
         # User preference: minimum urgency
         min_urgency = self.config.get("min_notification_urgency", "medium")

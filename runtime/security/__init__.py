@@ -4,8 +4,10 @@ This package is a BOUNDARY, not an implementation. It exposes the security
 contract the open platform calls (the Morpheus gate, OTP, owner verification)
 and binds it to the private ``morpheus_security`` package **if that package is
 installed**. If it is not — an open-source clone, or local dev — the seam falls
-back to an inert OBSERVE no-op: every action is allowed and logged, nothing is
-enforced. The platform boots either way.
+back to an inert OBSERVE no-op: every action is allowed, each evaluation is
+logged at debug level, nothing is enforced by this gate. The platform boots
+either way. (The per-agent tool boundary is separate and still enforced, by
+the public default in runtime.access_policy.)
 
 A developer reading this repo can see that security IS invoked and where; the
 rules for HOW it decides (detection, classification, bans, owner/OTP internals,
@@ -59,9 +61,14 @@ except (ImportError, ModuleNotFoundError):
     #       nothing enforcing. That is the NEW-18 silent-fallback shape sitting
     #       on the security boundary.
     #
-    # Only the first is caught now. Anything else propagates, because a
-    # security core that cannot load should stop the process, not quietly
-    # remove itself.
+    # Only these two exception types are caught now. Anything else
+    # propagates, because a security core that cannot load should stop the
+    # process, not quietly remove itself. Not every broken install is caught
+    # by that, which this used to imply: an installed package that fails to
+    # load with an ImportError of its own — a missing dependency, a name it
+    # cannot import — is indistinguishable here from "not installed" and
+    # degrades to the no-op. The gateway refuses to start on the no-op in
+    # production (MATRIX_ENV=production); elsewhere it runs, and says so.
     SECURITY_BACKEND = "noop"
     _private_agent_access = None
     logger.warning(
@@ -75,12 +82,15 @@ except (ImportError, ModuleNotFoundError):
         ENFORCE = "enforce"
 
     class _NoopMorpheus:
-        """Inert gate: allows everything, enforces nothing. Logs that it ran so
-        the invocation is observable, but it makes no security decision."""
+        """Inert gate: allows everything, enforces nothing. Logs each
+        evaluation at debug level so the invocation is observable (this said
+        it logged and did not), but it makes no security decision."""
 
         mode = MorpheusMode.OBSERVE
 
         async def evaluate(self, action: Any, context: Any) -> dict[str, Any]:
+            logger.debug("observe no-op evaluated %r — allowed, nothing enforced",
+                         (action or {}).get("action_type") if isinstance(action, dict) else action)
             return {
                 "allow": True,
                 "would_block": False,
@@ -174,10 +184,16 @@ def agent_access_allowed(
     ``agent`` from the request context. The authoritative policy lives in the
     private ``morpheus_security`` package when installed; otherwise the public
     coarse default (``runtime.access_policy``) applies. Either way the per-agent
-    boundary is enforced — a subverted agent cannot reach another agent's tools.
+    boundary is enforced — a subverted agent cannot CALL another agent's tools.
+    It can reach what they do through its own: Trinity's ``request_execution``
+    hands an action to Neo's executor, under a gate that allows everything
+    when no enforcing core is installed.
 
-    On any internal error, falls back to the public default (the boundary still
-    holds — it never fails open).
+    On an internal error in the PRIVATE policy, falls back to the public
+    default. That is not "never fails open", which this said: the public
+    default is coarser — it allows Neo everything and an empty agent name
+    anything — so a request the private policy would refuse (a ban, a freeze)
+    is allowed while that policy is failing.
     """
     if _private_agent_access is not None:
         try:
