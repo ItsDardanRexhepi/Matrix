@@ -199,7 +199,7 @@ _MATRIX_ENV_FORMS = (
     # The quoted name, in Python or JSON: `env["MATRIX_ENV"] = "v"`, a dict
     # literal or a JSON object's `"MATRIX_ENV": "v"`, and
     # `setdefault("MATRIX_ENV", "v")`. The CLI launcher builds the server's
-    # environment in Python and the editor's launcher is JSON, and the first
+    # environment in Python, a launcher can be written as JSON, and the first
     # reader saw neither form.
     _re.compile(r"""["']MATRIX_ENV["']\s*(?:\]\s*=|[:,])\s*["']([A-Za-z_-]*)"""),
 )
@@ -238,9 +238,10 @@ def _launch_descriptors() -> list[_pathlib.Path]:
     named four files and two globs, and the README said a test read "every
     launcher shipped in this tree". It did not: `cli/gateway.py` starts
     `python -m gateway.server` for `matrix gateway start` with a copy of the
-    operator's environment, an editor workspace file starts it for the
-    editor, and `pyproject.toml` installs it as the `matrix-gateway` script,
-    and none of the three was read. A launcher added later on any of those
+    operator's environment, an editor workspace file started it inside that
+    editor's hosted workspace (the file has since left the tree), and
+    `pyproject.toml` installs it as the `matrix-gateway` script, and none of
+    the three was read. A launcher added later on any of those
     patterns would have escaped the check the same way. So the set is the
     files that NAME the start command, plus the compose files and the
     Kubernetes manifests, which start it by image and name no command.
@@ -281,8 +282,9 @@ def test_the_launcher_finder_sees_every_form_a_start_command_takes(text):
 
 def test_the_launcher_finder_finds_the_launchers_that_exist():
     """The finder has to FIND what is there before its silence means anything.
-    These are the files that start the server at the commit that wrote this,
-    including the three the hand-kept list missed."""
+    These are the files that start the server, including two of the three
+    the hand-kept list missed; the third, an editor workspace file, is no
+    longer in the tree."""
     found = {str(p.relative_to(_REPO)) for p in _launch_descriptors()}
     expected = {
         "Dockerfile", "Procfile", "railway.toml", "start.sh",
@@ -312,7 +314,7 @@ def test_the_launcher_reader_sees_every_form_a_development_declaration_takes(tex
     `matrix_env=development` in four files, so `ENV MATRIX_ENV development`,
     a TOML `MATRIX_ENV = "dev"`, a compose file and a Kubernetes manifest all
     passed it whatever they declared. The second read no Python and no JSON,
-    which is what the CLI and the editor launchers are written in."""
+    which is what the CLI launcher and a JSON launcher are written in."""
     assert set(_declared_matrix_envs(text)) & bash_module.DEVELOPMENT_ENVIRONMENTS, text
 
 
