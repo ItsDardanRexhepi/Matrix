@@ -7,7 +7,7 @@ By the end of this module, you will have The Matrix running on your machine, the
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/ItsDardanRexhepi/TheMatrix.git
+git clone https://github.com/ItsDardanRexhepi/Matrix.git TheMatrix
 cd TheMatrix
 ```
 
@@ -24,7 +24,7 @@ You should see `server.py`, `__init__.py`, and several other modules.
 The setup script installs dependencies and configures your local environment:
 
 ```bash
-python setup.py
+python3 setup.py
 ```
 
 This will:
@@ -36,7 +36,7 @@ This will:
 If you encounter version errors, confirm your Python version:
 
 ```bash
-python --version
+python3 --version
 ```
 
 You need Python 3.11 or higher. If you have multiple versions installed, you may need to use `python3.11` or `python3` explicitly.
@@ -44,6 +44,7 @@ You need Python 3.11 or higher. If you have multiple versions installed, you may
 ## Step 3: Start the Gateway
 
 ```bash
+source .venv/bin/activate    # once per terminal; setup created .venv
 python -m gateway.server
 ```
 
@@ -161,7 +162,7 @@ When Neo executes blockchain operations, the `tools_used` array will contain ent
 
 **Port already in use**: If port 18790 is occupied, check for other processes: `lsof -i :18790`
 
-**Module not found**: Make sure you ran `python setup.py` first and are using the correct Python version.
+**Module not found**: Make sure you ran `python3 setup.py` first, activated its virtual environment in this terminal with `source .venv/bin/activate`, and are using the correct Python version.
 
 **Connection refused**: Verify the gateway is still running in your other terminal. Check for error messages in its output.
 
@@ -169,7 +170,7 @@ When Neo executes blockchain operations, the `tools_used` array will contain ent
 
 ## Key Takeaways
 
-- The gateway runs on port 18790 and is started with `python -m gateway.server`
+- The gateway runs on port 18790 and is started with `python -m gateway.server` after `source .venv/bin/activate`
 - `/health` is unauthenticated and returns basic liveness information
 - `/status` provides detailed information about agents and services
 - `/chat` requires authentication via Bearer token
