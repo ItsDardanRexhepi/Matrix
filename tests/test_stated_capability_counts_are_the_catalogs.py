@@ -61,9 +61,12 @@ _SERVICES_ACROSS = re.compile(
     r"\b(\d{2,4})(\+?)\s+services\s+across\s+(\d{1,3})(\+?)\s+categor", re.I)
 _ACTION_COUNT = re.compile(r"\b(\d{2,4})(\+?)\s+platform\s+actions\b", re.I)
 
-# A blank line, a list item, a heading, a table row or a closing tag ends a
-# block; comment markers at the start of a line are not words of the sentence.
+# In prose, a blank line, a list item, a heading, a table row or a block tag
+# ends a block. In code, "# " starts a comment line, not a heading, so only a
+# blank (or bare-marker) line does, and comment lines are joined into their
+# sentences. Comment markers at the start of a line are not words.
 _BLOCK_BREAK = re.compile(r"\n[ \t]*\n|\n(?=[ \t]*(?:[-*|>]|#{1,6}\s|\d+\.\s|</?(?:li|p|div|h\d|tr|td)\b))")
+_CODE_BLOCK_BREAK = re.compile(r"\n[ \t]*(?:#|//|\*)?[ \t]*\n")
 _LINE_MARKER = re.compile(r"^[ \t]*(?:#(?!#)|//|\*(?!\*)|>)?[ \t]*", re.M)
 
 
@@ -78,14 +81,15 @@ def _measured() -> dict[str, int]:
         "services": len({c["service"] for c in CAPABILITIES}),
         "registry services": len(_SERVICE_MAP),
         "platform actions": len(ACTION_MAP),
+        "dispatched services": len({service for service, _method in ACTION_MAP.values()}),
     }
 
 
-def _sentences(text: str) -> list[tuple[int, str]]:
+def _sentences(text: str, code: bool = False) -> list[tuple[int, str]]:
     """(first line number, sentence) for every sentence, read across lines."""
     out = []
     pos = 0
-    for block in _BLOCK_BREAK.split(text):
+    for block in (_CODE_BLOCK_BREAK if code else _BLOCK_BREAK).split(text):
         start = text.find(block, pos)
         lineno = text.count("\n", 0, max(start, 0)) + 1
         pos = max(start, pos) + len(block)
@@ -124,9 +128,23 @@ def _stated(sentence: str) -> list[tuple[str, int, str]]:
     return out
 
 
+_REACHES = re.compile(r"\breaches\s+(\d{2,4})\b", re.I)
+
+
 def _problems(rel: str, text: str, want: dict[str, int]) -> list[str]:
     problems = []
-    for lineno, sentence in _sentences(text):
+    for lineno, sentence in _sentences(text, code=rel.endswith((".py", ".yaml"))):
+        # The registry's services are not all reached through ServiceDispatcher
+        # or its `platform_action` tool (they dispatch ACTION_MAP), so a
+        # sentence that puts the two together says how many are reached.
+        if (re.search(r"ServiceDispatcher|platform_action", sentence)
+                and _numbers(_REGISTRY_COUNT, sentence)
+                and not _CAPABILITY_COUNT.search(sentence)):
+            reached = [int(n) for n in _REACHES.findall(sentence)]
+            if reached != [want["dispatched services"]]:
+                problems.append(f"{rel}:{lineno}: the registry's services are said to be "
+                                f"reached through the dispatcher, which reaches "
+                                f"{want['dispatched services']} of them")
         for kind, n, plus in _stated(sentence):
             if plus:
                 problems.append(f"{rel}:{lineno}: {n}+ {kind} is a bound, not the count "
@@ -155,7 +173,7 @@ def test_the_count_scan_is_not_vacuous():
 
 def test_a_count_split_across_lines_or_stated_as_a_bound_is_read():
     want = {"capabilities": 195, "categories": 20, "services": 43,
-            "registry services": 45, "platform actions": 253}
+            "registry services": 45, "platform actions": 253, "dispatched services": 44}
     split = ("backed by\n`runtime/capabilities/catalog.py` — the canonical inventory of 221\n"
              "capabilities across 21 categories, served by 44 underlying services.\n")
     assert len(_problems("api-reference.md", split, want)) == 3
@@ -167,6 +185,12 @@ def test_a_count_split_across_lines_or_stated_as_a_bound_is_read():
     assert not _problems("x.py", "# the 45 services in runtime/blockchain/services/** have",
                          want)
     assert not _problems("x.py", "# 42 of 44 services have the same pattern", want)
+    assert _problems("x.py", "# So `platform_action`, the one\n# handler through which the "
+                     "agent reaches all 45 services, relayed it.", want)
+    assert _problems("README.md", "The complete Web3 surface — 45 blockchain services "
+                     "spanning DeFi — is wired through `ServiceDispatcher` and tested.", want)
+    assert not _problems("README.md", "45 blockchain services live in one registry, and "
+                         "`ServiceDispatcher` reaches 44 of them.", want)
     assert not _problems("README.md", "195 capabilities across 20 categories (the catalog "
                          "declares 21; one holds none), backed by 43 services.", want)
 

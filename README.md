@@ -181,9 +181,13 @@ provider".
 The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
-insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,625 tests,
-run against the versions `requirements.txt` locks.
+insurance, compute, AI, energy, legal, and social — is listed in one
+service registry (`runtime/blockchain/services/registry.py`).
+`ServiceDispatcher`, the agents' way in, reaches 44 of them;
+the forty-fifth, real-estate escrow, is reached only by its own routes,
+which answer 403 while it is disabled. All of it is exercised by an
+automated suite of 4,625 tests, run against the versions
+`requirements.txt` locks.
 
 What works today, no chain required:
 
