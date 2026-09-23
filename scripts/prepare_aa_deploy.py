@@ -81,7 +81,7 @@ def main() -> int:
     print("    locally reimplemented CREATE2 hash.\n")
 
     print("# After deploy, also set: blockchain.paymaster.entry_point =", ep)
-    print("# and the client's PendingCredentials AA/paymaster slots.")
+    print("# and the same addresses in the wallet client's AA/paymaster settings.")
     print("# DRY RUN — nothing was broadcast.")
     return 0
 

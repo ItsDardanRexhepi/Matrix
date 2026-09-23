@@ -29,8 +29,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    # Real enforcement core (private repo: Morpheus-Security-System). Present only
-    # when co-installed at deploy. The seam imports names, never logic.
+    # Real enforcement core (the separately installed private package). Present
+    # only when co-installed at deploy. The seam imports names, never logic.
     from morpheus_security import (  # type: ignore
         MorpheusMode,
         MorpheusSecurity,
