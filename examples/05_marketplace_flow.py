@@ -9,7 +9,8 @@ Demonstrates the Marketplace service (Component 24):
   2. Buyer browses and finds the listing
   3. Buyer purchases — payment is held in escrow
   4. Asset transfer and payment release happen atomically
-  5. Platform fee is deducted and routed to NeoSafe
+  5. The sale record carries the platform fee and the platform wallet it
+     is owed to; the fee is not sent anywhere
 
 Usage:
     python examples/05_marketplace_flow.py
@@ -192,7 +193,7 @@ async def main():
     print(f"\n  {BOLD}Settlement:{RESET}")
     print(f"  {DIM}{'─' * 45}{RESET}")
     print(f"  Sale price:            {sale_price:.4f} ETH")
-    print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH  -> NeoSafe")
+    print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH  (not sent anywhere)")
     print(f"  Seller receives:       {seller_receives:.4f} ETH")
     print(f"  {DIM}{'─' * 45}{RESET}")
     print(f"  Asset transferred:     Buyer now owns template")
@@ -209,18 +210,19 @@ async def main():
     2. search_marketplace  - Buyer discovers items
     3. get_listing         - View listing details
     4. buy_marketplace     - Atomic escrow purchase
-    5. (settlement)        - Fee routing to NeoSafe
+    5. (settlement)        - The fee split, computed here
 
   {BOLD}Key features:{RESET}
     - Atomic buy/sell: payment and transfer in one tx
     - Escrow protection: funds held until transfer confirmed
-    - Automatic fee routing to NeoSafe platform wallet
-    - EAS attestation for every transaction
+    - The platform fee is recorded on the sale, owed to the
+      marketplace's platform wallet; nothing sends it there
+    - The service dispatcher queues an attestation for a sale it
+      completes, written to the chain once 50 have gathered
 
   {BOLD}Services used:{RESET}
     - Marketplace (Component 24)
-    - NeoSafe revenue router
-    - Attestation (Component 8)
+    - Attestation (Component 8), through the service dispatcher
 
 {GREEN}{'=' * 60}{RESET}
 """)

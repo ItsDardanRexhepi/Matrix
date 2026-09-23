@@ -13,6 +13,13 @@ Three statements had no writer behind them:
 * The course said every deployed contract's attestation certifies the audit.
   The attestation encodes the platform, the action, the agent and a
   timestamp, not the contract or the audit.
+* "All platform fees route to NeoSafe", in several wordings. The only code
+  that sends anything to the NeoSafe wallet is NeoSafeRouter, and nothing in
+  the runtime or the gateway calls it.
+
+The first pattern missed "attestation for every action" (the blockchain
+capability base class, the deploy-script attestor, example 05) and is wider
+now.
 
 The tests derive each fact from the code, by running it or reading its
 writes, and hold the documents to it.
@@ -31,11 +38,17 @@ REPO = Path(__file__).resolve().parent.parent
 _EVERY_ACTION_ATTESTED = re.compile(
     r"every ([a-z-]+ )?(action|payment|deployment|transaction|capability|operation)"
     r"[^.\n]{0,40}(is|are|gets|get|creates|receives) [^.\n]{0,30}attest"
-    r"|every [a-z ]{0,30}attested (on-chain|via EAS)|attestation on every action"
+    r"|every [a-z ]{0,30}attested (on-chain|via EAS)|attestations? (on|for) (every|each|all) "
     r"|automatic attestation",
     re.IGNORECASE)
 _BADGE_ATTESTED = re.compile(
     r"badge[^.\n]*(backed by|recorded as|is an?|via) (an? )?(on-chain )?(EAS )?attestation",
+    re.IGNORECASE)
+_FEES_REACH_NEOSAFE = re.compile(
+    r"(all|every) (platform )?(fees?|revenue|payments?)[^.\n]{0,40}\b(route[sd]?|flows?|go(es)?|reach(es)?)\b"
+    r"[^.\n]{0,30}NeoSafe|single point of revenue collection"
+    r"|(fee|revenue)s? (is |are )?(deducted and )?routed to NeoSafe|fee routing to NeoSafe"
+    r"|->\s*NeoSafe|goes to NeoSafe automatically|confirms all platform fees",
     re.IGNORECASE)
 _ATTESTATION_CERTIFIES_AUDIT = re.compile(
     r"on-chain record that certifies|attestation (that |which )?certifies|proof of audit"
@@ -103,3 +116,18 @@ def test_the_attestation_is_not_said_to_certify_what_it_does_not_encode():
     assert not claimed, (
         f"the attestation encodes only {sorted(fields)}, and these lines say it "
         f"certifies the audit: {claimed}")
+
+
+def test_no_document_says_fees_reach_neosafe_while_nothing_routes_them():
+    router = REPO / "runtime/blockchain/services/neosafe.py"
+    assert "async def route_fee" in router.read_text(), "precondition: the router exists"
+    callers = [str(path.relative_to(REPO)) for root in ("runtime", "gateway")
+               for path in (REPO / root).rglob("*.py")
+               if path != router
+               and re.search(r"\.route_(fee|revenue)\(", path.read_text(encoding="utf-8"))]
+    if callers:
+        return
+    claimed = _lines(_FEES_REACH_NEOSAFE)
+    assert not claimed, (
+        "nothing in the runtime or the gateway calls NeoSafeRouter, the only code "
+        f"that sends anything to the NeoSafe wallet, and these lines say fees reach it: {claimed}")

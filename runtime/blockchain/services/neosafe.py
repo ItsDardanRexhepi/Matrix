@@ -23,7 +23,8 @@ class NeoSafeRouter:
     """Record platform fees against the NeoSafe wallet, and send revenue to it.
 
     :meth:`route_fee` records a fee in this process's in-memory ledger and
-    attests it through EAS; it moves no funds. :meth:`route_revenue` sends
+    queues an EAS attestation for it on the router's own attestation service,
+    written to the chain once 50 have gathered; it moves no funds. :meth:`route_revenue` sends
     ETH to the NeoSafe wallet and attests it once the transfer is mined.
     Nothing in the gateway calls either yet: no platform action maps to this
     router, and examples/07_revenue_to_neosafe.py calls it directly.

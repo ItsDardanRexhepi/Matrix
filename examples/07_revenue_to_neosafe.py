@@ -3,18 +3,20 @@ from __future__ import annotations
 """
 07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
 
-Demonstrates how The Matrix routes revenue to the NeoSafe multisig wallet:
+Demonstrates NeoSafeRouter, which records fees against the NeoSafe multisig
+wallet and can send revenue to it:
 
   1. A contract conversion generates a platform fee
   2. The RevenueEnforcer injects fee logic into the contract
-  3. The NeoSafeRouter records and routes the fee
-  4. An EAS attestation is created for the payment
+  3. The NeoSafeRouter records the fee in its ledger (it moves no funds)
+  4. An EAS attestation is queued for the fee
   5. Revenue totals are queried from the ledger
 
 Nothing in the gateway calls the NeoSafeRouter yet: no platform action maps to
 it, so this example calls it directly. The diagram in step 4 is the intended
 flow, not the one the dispatcher runs today.
-The platform wallet (NeoSafe) is the single point of revenue collection.
+The NeoSafe wallet is where the router sends revenue. There is no single
+flow that routes every platform fee to it (see examples/README.md).
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 
@@ -235,7 +237,7 @@ contract SimpleToken {
 
     function deposit() external payable collectPlatformFee(msg.value) {{
         // User deposits 1 ETH
-        // 0.025 ETH (2.5%) goes to NeoSafe automatically
+        // 0.025 ETH (2.5%) goes to platformFeeRecipient
         // 0.975 ETH goes to the contract
         balanceOf[msg.sender] += msg.value - fee;
     }}
@@ -248,17 +250,18 @@ contract SimpleToken {
 
   {BOLD}Components demonstrated:{RESET}
     1. RevenueEnforcer  - Injects fee logic into contracts
-    2. NeoSafeRouter    - Routes fees with attestation
-    3. EAS              - route_fee, and a route_revenue once mined, are attested
+    2. NeoSafeRouter    - Records fees against the NeoSafe wallet
+    3. EAS              - route_fee queues an attestation (written once 50
+                          have gathered); route_revenue attests once mined
     4. ServiceDispatcher - Queues an attestation for an action it completes
 
-  {BOLD}Revenue sources:{RESET}
+  {BOLD}Fees this example records against the router{RESET}
+  {DIM}(simulated: none of these services calls the router){RESET}
     - Contract conversions (Component 1)
     - NFT deployments (Component 3)
     - Marketplace sales (Component 24)
     - Insurance premiums (Component 13)
     - DeFi origination (Component 2)
-    - ... and all other fee-generating services
 
   {BOLD}NeoSafe wallet:{RESET} {platform_wallet}
 

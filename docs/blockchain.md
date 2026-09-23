@@ -68,7 +68,7 @@ Every call into an exempt signer in `runtime/` and `gateway/` is listed here, fo
 These call the same code and sign nothing today:
 
 - `gas_sponsor.sponsor` is `GasSponsor.sponsor_transaction` (`runtime/blockchain/gas_sponsor.py`), which signs and sends whatever transaction it is handed. 14 services construct a `GasSponsor`; nothing calls the method.
-- `NeoSafeRouter` attests a fee it records and revenue it sends (`runtime/blockchain/services/neosafe.py` `_attest_fee`, `route_revenue`); nothing in the gateway calls the router.
+- `NeoSafeRouter` queues an attestation for a fee it records, on an attestation service of its own, and attests revenue it sends once the transfer is mined (`runtime/blockchain/services/neosafe.py` `_attest_fee`, `route_revenue`); nothing in the gateway calls the router.
 - A cross-border payment's attestation (`runtime/blockchain/services/cross_border/service.py` `_attest_payment`) is queued on a new attestation service made for that one call, whose queue never reaches 50, so it is dropped unsigned.
 - An insurance claim's attestation (`runtime/blockchain/services/insurance/claims_processor.py` `_attest_claim`) is queued the same way and dropped the same way.
 - An x402 limit change's attestation (`runtime/blockchain/services/x402_payments/limit_updater.py` `_attest_limit_change`) is queued the same way and dropped the same way.
