@@ -193,8 +193,10 @@ Prometheus server.
 ## Capability registry
 
 The gateway exposes a data-driven capability surface backed by
-`runtime/capabilities/catalog.py` — the canonical inventory of 221
-capabilities across 21 categories, served by 44 underlying services.
+`runtime/capabilities/catalog.py` — the canonical inventory of 195
+capabilities across 20 categories, served by 43 underlying services. The
+catalog declares a twenty-first category, Security & Wallets, that holds
+none; `GET /api/v1/capabilities/categories` lists it with a count of 0.
 Every capability has an `id`, `category`, `service`, `method`, and
 `params_schema`; see `docs/COMPLETE_CAPABILITY_MAP.md` for the full
 catalog.
@@ -232,7 +234,7 @@ List capabilities. All filters are optional query parameters.
 
 ### `GET /api/v1/capabilities/categories`
 
-Return the 21 categories with per-category capability counts.
+Return the 21 declared categories with per-category capability counts (Security & Wallets has 0).
 
 ```json
 {

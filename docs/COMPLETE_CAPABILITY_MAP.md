@@ -10,7 +10,7 @@ State-modifying capabilities below are signed by the platform, which pays their 
 
 The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/capabilities/catalog.py). It is the single source of truth that backs Trinity's `platform_action` tool, the gateway REST endpoints, the iOS extensions registry, and this document.
 
-- **195 capabilities** across **21 categories**, backed by **43 services** in `runtime/blockchain/services/`.
+- **195 capabilities** across **20 categories**, backed by **43 services** in `runtime/blockchain/services/`. The catalog declares a twenty-first category, Security & Wallets, that holds none.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (`free` / `pro` / `enterprise`), `uses_paymaster` flag, `protocol` tag, and `available` flag.
 - Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them.
 
@@ -19,7 +19,7 @@ Discover and invoke them over HTTP:
 | Method | Path | Purpose |
 |---|---|---|
 | `GET`  | `/api/v1/capabilities` | List every capability. Filters: `?category=defi`, `?min_tier=pro`, `?available=1` |
-| `GET`  | `/api/v1/capabilities/categories` | List the 21 categories with counts |
+| `GET`  | `/api/v1/capabilities/categories` | List the 21 declared categories with counts (Security & Wallets has 0) |
 | `GET`  | `/api/v1/capabilities/{id}` | Return the full descriptor for one capability |
 | `POST` | `/api/v1/capabilities/{id}/invoke` | Execute a capability. Body: `{"params": {...}}` matching the capability's `params_schema` |
 

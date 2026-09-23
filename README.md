@@ -179,10 +179,10 @@ provider".
 ## Current Status
 
 The Matrix is **build-complete and offline-ready**. The complete Web3
-surface — 50+ blockchain services spanning DeFi, NFT, identity,
+surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,614 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,616 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -195,10 +195,13 @@ What works today, no chain required:
   each reported as the refusal they are, and when Neo does run, the
   hand-off relays Neo's own verdict rather than its own opinion of it
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
-- **All 50+ blockchain services** — return a standardised
-  `{"status": "not_deployed", ...}` response with a deployment guide
-  whenever the chain is not yet configured. No fake addresses, no
-  fabricated transaction hashes. That refusal survives the trip out: the
+- **Blockchain services, with no chain configured** — answer with what
+  happened rather than a success: a stake returns a standardised
+  `{"status": "not_deployed", ...}` response with a deployment guide, a
+  cross-border payment is recorded and says nothing moved
+  (`recorded_unsettled`), and a swap quote is computed from the service's
+  own pools. No fake addresses, no fabricated transaction hashes. A
+  not_deployed refusal survives the trip out: the
   HTTP answer is a 503, not a 200, and every envelope the gateway builds
   states the verdict of the action in a `call_outcome` field of its own
   rather than letting its own `ok` stand in for it — on both `/api/v1`
@@ -344,7 +347,7 @@ Every decision made by every agent on The Matrix passes through the Unified Rexh
 
 ## Web3 Capability Surface
 
-**195 capabilities across 21 categories** — smart contracts, DeFi,
+**195 capabilities across 20 categories** — smart contracts, DeFi,
 DeFi advanced (an orderbook and Pyth pull prices), NFTs, NFT
 finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
 governance (DAOs, veTokens, quadratic voting, RetroPGF), social
@@ -448,8 +451,8 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                               Vision · Trajectory · Morpheus
                                                               Rexhepi · Glasswing · Omega
                                                                          ↓
-                                                              50+ Blockchain Services
-                                                              200+ Platform Actions
+                                                              45 Blockchain Services
+                                                              253 Platform Actions
 ```
 
 ---

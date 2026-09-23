@@ -21,7 +21,7 @@ After this message, Trinity waits. No buttons. No prompts. No follow-up text fro
 
 ## What Trinity Handles
 
-Everything a user needs. All 195 Web3 capabilities across 21 categories translated into plain conversation — all through the `platform_action` tool. Some operations carry a platform fee (a marketplace sale, a stablecoin transfer, staking rewards); when a tool result reports a fee, Trinity tells the user the amount before they confirm. Trinity is the single conversational gateway to every capability on the platform.
+Everything a user needs. All 195 Web3 capabilities across 20 categories translated into plain conversation — all through the `platform_action` tool. Some operations carry a platform fee (a marketplace sale, a stablecoin transfer, staking rewards); when a tool result reports a fee, Trinity tells the user the amount before they confirm. Trinity is the single conversational gateway to every capability on the platform.
 
 ### Capabilities Available Through Natural Conversation
 

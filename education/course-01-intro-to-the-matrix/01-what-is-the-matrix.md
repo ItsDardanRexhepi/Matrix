@@ -10,7 +10,7 @@ The Matrix (read as "Matrix") exists to remove those barriers entirely.
 
 The Matrix is a free, open-source AI agent platform that provides blockchain infrastructure through natural conversation. Instead of writing Solidity code, you describe what you want in plain English. Instead of navigating DeFi interfaces, you chat with an AI agent that handles the complexity for you.
 
-The platform runs on **Base**, an Ethereum Layer 2 network, which means lower gas fees and faster transactions while inheriting Ethereum's security. It provides **195 blockchain capabilities** across 21 categories (DeFi, NFTs, identity, governance, social, creator economy, payments, cross-chain, staking & restaking, privacy & ZK, oracles, storage, compute & DePIN, real-world assets, markets, security, and more) -- from token deployment to DAO governance to NFT minting -- all accessible through conversation or API calls.
+The platform runs on **Base**, an Ethereum Layer 2 network, which means lower gas fees and faster transactions while inheriting Ethereum's security. It provides **195 blockchain capabilities** across 20 categories (DeFi, NFTs, identity, governance, social, creator economy, payments, cross-chain, staking & restaking, privacy & ZK, oracles, storage, compute & DePIN, real-world assets, markets, security, and more) -- from token deployment to DAO governance to NFT minting -- all accessible through conversation or API calls.
 
 ## The Three Agents
 
@@ -77,7 +77,7 @@ For developers, The Matrix provides a plugin interface and SDK that let you buil
 
 - The Matrix is a free AI agent platform for blockchain operations on Base (Ethereum L2)
 - Three agents: Neo (execution), Trinity (conversation), Morpheus (confirmation of irreversible actions)
-- 195 blockchain capabilities accessible through natural language or API, organized into 21 discoverable categories
+- 195 blockchain capabilities accessible through natural language or API, organized into 20 discoverable categories
 - The gateway runs on port 18790 and serves as the central coordination point
 - Plugin marketplace: lists plugins, installs none; paid sales not live yet
 

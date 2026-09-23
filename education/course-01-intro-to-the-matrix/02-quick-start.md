@@ -110,8 +110,8 @@ gateway has been up):
 ```
 
 The capability catalog is not part of `/status`: `GET /api/v1/capabilities`
-lists all 195 capabilities, and `GET /api/v1/capabilities/categories` the 21
-categories. Capabilities for protocols you haven't configured return a clean
+lists all 195 capabilities, and `GET /api/v1/capabilities/categories` the
+categories: twenty-one are declared, and one (Security & Wallets) holds none. Capabilities for protocols you haven't configured return a clean
 not_deployed response rather than failing.
 
 ## Step 6: Your First Chat with Trinity
