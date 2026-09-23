@@ -49,12 +49,16 @@ def bind_request_security(
 ) -> None:
     """Bind the security context for the current request task.
 
-    ``identity`` is the wallet address the action is attributed to; ``app_attest``
+    ``identity`` is the wallet address the action is attributed to, bound in the
+    one spelling the platform names a caller by (runtime/auth/identity.py), so
+    every spelling of one wallet is attributed to the same caller; ``app_attest``
     is the client's App Attest assertion block (or None). Read later via
     ``current_request_security`` at each gate call site.
     """
+    from runtime.auth.identity import canonical_identity
+
     ctx: dict[str, Any] = {
-        "wallet": identity or "",
+        "wallet": canonical_identity(identity) or "",
         "apple_id": apple_id or "",
         "session_id": session_id or "",
     }

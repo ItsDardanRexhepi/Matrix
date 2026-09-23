@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,486 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,497 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -200,7 +200,10 @@ What works today, no chain required:
   decision the core makes about who is calling can bind at both. On every
   chat entrance that identity comes from the session the caller presents;
   only an operator integration may name the user it acts for, and an
-  anonymous caller has none
+  anonymous caller has none. A wallet address has one spelling wherever
+  the platform names a caller (`0x` and its digits in lower case,
+  `runtime/auth/identity.py`), so a wallet that signs in with its address
+  in another case is still the same caller
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 50+ blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide

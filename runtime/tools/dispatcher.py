@@ -18,6 +18,7 @@ from typing import Any, Callable, Awaitable
 # instead would be NEW-25 — a caller reimplementing a shared contract inline —
 # which is the exact defect this engagement keeps finding.
 from gateway.error_contract import classify as _classify_exception
+from runtime.auth.identity import canonical_identity
 from runtime.security import CALLER_IDENTITY_KEY, agent_access_allowed
 
 logger = logging.getLogger(__name__)
@@ -293,6 +294,10 @@ class ToolDispatcher:
         read, and what a client may read.
         """
         ref = _ref()
+        # One wallet is one caller: the identity is taken in the one spelling
+        # the platform names a caller by (runtime/auth/identity.py) before the
+        # boundary, the tool and anything the tool signs see it.
+        caller_identity = canonical_identity(caller_identity)
 
         handler = self._tools.get(tool_name)
         if not handler:

@@ -29,6 +29,13 @@ owners, or sanitizes — are **not in this repository** and never will be.
   `CALLER_IDENTITY_KEY`, and never a value from the model's tool arguments. The
   hand-off (`runtime/agents/handoff.py`) hands its gate the same caller. What the
   core decides from it is the core's; the seam's part is that it arrives.
+- A wallet address reaches the seam in one spelling, wherever the platform
+  names a caller: `0x` and its digits in lower case (`runtime/auth/identity.py`).
+  The session the gateway creates, the wallet it links to an Apple user, an
+  identity the operator states, the context at the tool boundary and at the
+  hand-off's gate, and the `wallet` bound for every gated HTTP action all use
+  it, so one wallet signing in with its address in another case is one
+  caller, not several.
 - OTP / owner-verification services are obtained the same way
   (`from runtime.security import OTPService, OwnerVerification`) and back the
   `/security/...` endpoints and the bridge approval gate.

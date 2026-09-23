@@ -45,7 +45,6 @@ behaviour. Denial happens only where a cap or an allowlist is configured.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 import time
 import uuid
@@ -667,18 +666,20 @@ _caller_identity: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def canonical_identity(identity: Any) -> str:
-    """One spelling per spender, decided in one place.
+    """One spelling per spender: the platform's one spelling of a caller
+    (runtime/auth/identity.py), as a string.
 
     An EVM address is case-insensitive — EIP-55 mixed case is a checksum, not an
-    identity — so `0xCAFE…` and `0xcafe…` must draw on the same budget or the
-    cap is trivially doubled by changing capitalisation. Anything that is NOT an
-    address keeps its case: a generic user id may distinguish `A` from `a`, and
-    folding those together would merge two spenders into one.
+    identity — so `0xCAFE…`, `0xcafe…` and `0XCAFE…` must draw on the same
+    budget or the cap is trivially doubled by changing capitalisation. Anything
+    that is NOT an address keeps its case: a generic user id may distinguish `A`
+    from `a`, and folding those together would merge two spenders into one.
+    The rule lives in one module, so the meter cannot come to spell a caller
+    differently from the session that named it.
     """
-    text = str(identity or "").strip()
-    if re.fullmatch(r"0x[0-9a-fA-F]{40}", text):
-        return text.lower()
-    return text
+    from runtime.auth.identity import canonical_identity as _one_spelling
+
+    return _one_spelling(str(identity or "").strip())
 
 
 def set_caller_identity(identity: str):

@@ -951,6 +951,16 @@ class GatewayServer:
         if not verify_signature(address, message, signature):
             return web.json_response({"error": "invalid signature"}, status=401)
 
+        # The signature proves the key behind the address in whatever case the
+        # caller wrote it, so the session names the wallet in the one spelling
+        # (runtime/auth/identity.py) rather than as sent: one wallet is one
+        # caller, not one per spelling. An address that verified and has no
+        # such spelling cannot occur; if it did, no session is issued for it.
+        from runtime.auth.identity import canonical_identity, is_wallet_address
+        if not is_wallet_address(address):
+            return web.json_response({"error": "invalid signature"}, status=401)
+        address = canonical_identity(address)
+
         token = create_session_token()
         now = time.time()
         expires_at = now + self._wallet_session_ttl
@@ -2463,7 +2473,10 @@ class GatewayServer:
         if self._app_attest is None or self._security_backend == "noop":
             return web.json_response(
                 {"error": "security backend not installed"}, status=503)
-        identity = str(request.query.get("identity", "")).strip()
+        # The identity the challenge is bound to, in the one spelling the
+        # attestation below derives (runtime/auth/identity.py).
+        from runtime.auth.identity import canonical_identity
+        identity = canonical_identity(str(request.query.get("identity", "")).strip())
         try:
             challenge = await self._app_attest.new_challenge(identity)
         except Exception:
@@ -2494,7 +2507,9 @@ class GatewayServer:
         # Identity that the challenge was bound to: the session's identity when
         # a session is presented, else the caller-written X-Wallet-Address
         # header (mirrors the challenge request's identity), else a body field.
-        identity = (self._caller_identity(request) or str(body.get("identity", ""))).strip()
+        from runtime.auth.identity import canonical_identity
+        identity = canonical_identity(
+            (self._caller_identity(request) or str(body.get("identity", ""))).strip())
         try:
             result = await self._app_attest.verify_attestation(
                 identity=identity,
@@ -2792,15 +2807,17 @@ class GatewayServer:
     def _session_identity(self, request: web.Request) -> str:
         """Identity DERIVED from the presented session: the wallet linked to the
         Apple user when there is one, else the session subject (``0x…`` for
-        SIWE, ``apple:<sub>`` for Apple). Empty without a session."""
+        SIWE, ``apple:<sub>`` for Apple). Empty without a session. A wallet
+        address is in its one spelling (runtime/auth/identity.py)."""
+        from runtime.auth.identity import canonical_identity
         session = self._wallet_session_from_request(request)
         if not session:
             return ""
         subject = str(session.get("address", ""))
         if subject.startswith("apple:"):
             linked = self.apple_users.wallet_for(subject[len("apple:"):])
-            return linked or subject
-        return subject
+            return canonical_identity(linked) or subject
+        return canonical_identity(subject)
 
     def _caller_identity(self, request: web.Request) -> str:
         """Session-derived identity when a session is presented; otherwise the
@@ -2813,7 +2830,8 @@ class GatewayServer:
         if identity:
             return identity
         if self._is_operator(request):
-            return request.headers.get("X-Wallet-Address", "").strip()
+            from runtime.auth.identity import canonical_identity
+            return canonical_identity(request.headers.get("X-Wallet-Address", "").strip())
         return ""
 
     def _caller_kind(self, request: web.Request) -> str:
@@ -3123,7 +3141,9 @@ class GatewayServer:
         identity = self._session_identity(request)
         apple_id = self._session_apple_id(request)
         if not identity and operator:
-            identity = str(body.get("wallet") or body.get("wallet_address") or "").strip()
+            from runtime.auth.identity import canonical_identity
+            identity = canonical_identity(
+                str(body.get("wallet") or body.get("wallet_address") or "").strip())
             apple_id = apple_id or str(body.get("apple_id") or "").strip()
         context: dict = {
             "session_id": session_id,

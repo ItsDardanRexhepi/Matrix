@@ -165,10 +165,14 @@ class AgentHandoff:
         injects it because this signature names it, after stripping any value
         the model wrote under that name, so it is never model-authored. It is
         handed to the gate that decides on the inner action, which used to be
-        asked with no idea who was calling, only that Trinity was relaying.
+        asked with no idea who was calling, only that Trinity was relaying, in
+        the one spelling the platform names a caller by.
         """
+        from runtime.auth.identity import canonical_identity
+
         merged = dict(params or {})
         merged.update({k: v for k, v in extra.items() if k not in ("action", "params")})
+        caller_identity = canonical_identity(caller_identity)
         context = {CALLER_IDENTITY_KEY: caller_identity} if caller_identity else None
         outcome = await self.escalate(action, merged, context)
         return json.dumps(outcome, default=str)

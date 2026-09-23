@@ -166,8 +166,9 @@ except (ImportError, ModuleNotFoundError):
 
 #: The one key under which the platform hands the seam the caller's identity
 #: when it builds a context for a security decision: the value the entry point
-#: bound (a session's wallet), never one a model wrote into tool arguments.
-#: What the core does with it is the core's business; that it arrives is ours.
+#: bound (a session's wallet), never one a model wrote into tool arguments, and
+#: a wallet address in its one spelling (runtime/auth/identity.py). What the
+#: core does with it is the core's business; that it arrives is ours.
 CALLER_IDENTITY_KEY = "wallet_address"
 
 
