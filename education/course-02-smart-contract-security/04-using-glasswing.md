@@ -19,7 +19,7 @@ Glasswing runs these checks, in this order, with the rule id and severity each e
 | 7 | Integer overflow (Solidity below 0.8.0) | SWC-101 | High |
 | 8 | Floating pragma version | SWC-103 | Low |
 | 9 | Unprotected ether: ETH received but not withdrawable | SWC-105 | High |
-| 10 | Missing access control on state-changing functions | AC-001 | High |
+| 10 | Missing access control on mint, burn, pause, unpause, upgrade, setOwner or transferOwnership | AC-001 | High |
 | 11 | Front-running exposure | FR-001 | Medium |
 | 12 | Block timestamp dependence | SWC-116 | Low |
 

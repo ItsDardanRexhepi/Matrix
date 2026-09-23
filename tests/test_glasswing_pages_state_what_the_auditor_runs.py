@@ -159,6 +159,50 @@ def test_every_stated_count_is_the_number_of_checks():
     assert not problems, "\n".join(problems)
 
 
+def _access_control_functions() -> list[str]:
+    """The function names `_check_missing_access_control` inspects, read from
+    its `sensitive` list."""
+    tree = ast.parse(AUDIT.read_text(encoding="utf-8"))
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+              and n.name == "_check_missing_access_control")
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and getattr(node.targets[0], "id", "") == "sensitive"):
+            return [e.elts[1].value for e in node.value.elts]
+    raise AssertionError("_check_missing_access_control has no `sensitive` list")
+
+
+_WIDER_THAN_THE_CHECK = re.compile(
+    r"state-changing|\ball functions\b|\bany function\b|\badmin functions\b|\bprivileged\b", re.I)
+
+
+def _access_control_row_problems(item: str) -> list[str]:
+    problems = [f"{item!r} does not name {name}()" for name in _access_control_functions()
+                if not re.search(rf"\b{name}\b", item)]
+    if _WIDER_THAN_THE_CHECK.search(item):
+        problems.append(f"{item!r} claims more than the functions the check reads")
+    return problems
+
+
+def test_the_access_control_row_names_the_functions_the_check_reads():
+    """AC-001 reads seven named functions (mint, burn, pause, unpause, upgrade,
+    setOwner, transferOwnership) and only their signatures. The pages and the
+    course listed it as "Missing access control on state-changing functions",
+    so a setPrice() or withdraw() with no access control, which the check never
+    looks at, read as covered."""
+    assert _access_control_functions()[:2] == ["mint", "burn"]
+    assert _access_control_row_problems("Missing access control on state-changing functions")
+    problems = []
+    for rel in PAGES:
+        problems += [f"{rel}: {p}" for item in _page_items(rel)
+                     if _matches(item, "_check_missing_access_control")
+                     for p in _access_control_row_problems(item)]
+    problems += [f"{COURSE}: {p}" for category, _rule, _sev in _course_rows()
+                 if _matches(category, "_check_missing_access_control")
+                 for p in _access_control_row_problems(category)]
+    assert not problems, "\n".join(problems)
+
+
 _REVIEW_CLAIMS = [
     r"manual (?:expert )?(?:code )?review",
     r"expert (?:code )?review",
