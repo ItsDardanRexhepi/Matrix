@@ -498,7 +498,7 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 
 ## Protocol Stack
 
-The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every turn reaches Jarvis, Friday, Vision and Outcome Learning, which can add to what the model is given before it is called, and Jarvis adjusts the reply's voice before it goes out. Trajectory, Ultron, the Morpheus Triggers and the Rexhepi Gate run only on a tool call: each call the model makes is scored by the Rexhepi Gate before it is dispatched and, if the gate lets it run, assessed by the other three, and Outcome Learning then records what it returned. A turn with no tool call does not reach them. Omega is built and never called.
+The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every turn reaches Jarvis, Friday and Vision, which can add to what the model is given before it is called, and Jarvis adjusts the reply's voice before it goes out. Outcome Learning adds the patterns it has learned on a turn whose request matches a known action. Trajectory, Ultron, the Morpheus Triggers and the Rexhepi Gate run only on a tool call: each call the model makes is scored by the Rexhepi Gate before it is dispatched and, if the gate lets it run, assessed by the other three, and Outcome Learning then records its outcome when the call reports one. A turn with no tool call does not reach them. Omega is built and never called.
 
 **Jarvis** — Identity foundation. Handles agent personality persistence, voice consistency, memory integration, and structured planning that feeds into the ReAct loop.
 

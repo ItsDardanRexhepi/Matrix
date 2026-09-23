@@ -46,7 +46,7 @@ Gas is sponsored by the platform paymaster **within the policy the operator conf
 
 ### Signed with the platform key, with no policy check
 
-Every call into an exempt signer in `runtime/` and `gateway/` is listed here, found from the code; `tests/test_unmetered_signing_paths_are_documented.py` fails if one is missing, and it drives the paths below under a policy that allows nothing and caps at zero to see which of them sign.
+Every call into an exempt signer in `runtime/` and `gateway/` is listed here, found from the code; `tests/test_unmetered_signing_paths_are_documented.py` fails if one is missing, and, under a policy that allows nothing and caps at zero, it drives Neo's tool actions, the service dispatcher's record, the real-estate queue and the attestations queued on a service of their own to see which of them sign, and checks the other rows by reading the code; `tests/test_gas_sponsorship_is_described_as_it_signs.py` drives `revoke_attestation` and a time-critical `create_attestation`.
 
 | Path | When it signs | Exemption | Code |
 |---|---|---|---|

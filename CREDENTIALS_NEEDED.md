@@ -43,7 +43,7 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 | **Base Sepolia RPC URL** | gateway: `blockchain.rpc_url` (env `BASE_RPC_URL`) · deploy scripts: env `MATRIX_RPC_URL` | Every on-chain read/write, chain-id validation, balance reads. Get from Alchemy/Infura/QuickNode. |
 | **Chain ID = 84532** | gateway: `blockchain.chain_id` · deploy scripts: env `MATRIX_CHAIN_ID`; both default to 84532 | Chain validation; must match the RPC. (8453 = Base mainnet — leave on 84532 for testnet.) |
 | **Deploy wallet private key** (funded with Sepolia ETH) | deploy scripts: env `MATRIX_PRIVATE_KEY`; the gateway never reads it | `scripts/deploy_all.py` — deploying the platform contracts. |
-| **Platform / NeoSafe wallet address** | gateway: `blockchain.platform_wallet` · deploy scripts: env `MATRIX_NEOSAFE_ADDRESS` (required to deploy) | Fee routing, and the address the platform's own transactions, attestations included, are sent from. |
+| **Platform / NeoSafe wallet address** | gateway: `blockchain.platform_wallet` · deploy scripts: env `MATRIX_NEOSAFE_ADDRESS` (required to deploy) | The wallet fees are recorded against, and the address the platform's own transactions, attestations included, are sent from. |
 | EAS contract | already defaulted to `0x4200000000000000000000000000000000000021` (Base predeploy) | On-chain attestations. No action unless you use a custom registry. |
 | EAS schema UID | gateway: `blockchain.eas_schema` · `scripts/deploy_all.py`: env `MATRIX_EAS_SCHEMA_UID` | The attestation schema. Register once on Base Sepolia. |
 

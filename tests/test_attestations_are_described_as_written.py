@@ -13,9 +13,11 @@ Four statements had no writer behind them:
 * The course said every deployed contract's attestation certifies the audit.
   The attestation encodes the platform, the action, the agent and a
   timestamp, not the contract or the audit.
-* "All platform fees route to NeoSafe", in several wordings. The only code
-  that sends anything to the NeoSafe wallet is NeoSafeRouter, and nothing in
-  the runtime or the gateway calls it.
+* "All platform fees route to NeoSafe", in several wordings. The runtime's
+  only path for a fee to the NeoSafe wallet is NeoSafeRouter, and nothing in
+  the runtime or the gateway calls it. (The deploy scripts' helper in
+  contracts/neosafe_verifier.py can send the wallet a fee from the key in the
+  config; no platform action runs it.)
 
 The first pattern missed "attestation for every action" (the blockchain
 capability base class, the deploy-script attestor, example 05) and is wider
@@ -53,7 +55,7 @@ _FEES_REACH_NEOSAFE = re.compile(
     r"|(fee|revenue)s? (is |are )?(deducted and )?routed to NeoSafe|fee routing to NeoSafe"
     r"|->\s*NeoSafe|goes to NeoSafe automatically|confirms all platform fees"
     r"|\broute to (the )?NeoSafe|\bfees? (will )?(be )?(route[sd]?|routed) (to|on-chain)"
-    r"|not routed on-chain",
+    r"|not routed on-chain|\b[Ff]ee rout(ed|ing)\b",
     re.IGNORECASE)
 _ATTESTATION_CERTIFIES_AUDIT = re.compile(
     r"on-chain record that certifies|attestation (that |which )?certifies|proof of audit"
@@ -134,5 +136,5 @@ def test_no_document_says_fees_reach_neosafe_while_nothing_routes_them():
         return
     claimed = _lines(_FEES_REACH_NEOSAFE)
     assert not claimed, (
-        "nothing in the runtime or the gateway calls NeoSafeRouter, the only code "
-        f"that sends anything to the NeoSafe wallet, and these lines say fees reach it: {claimed}")
+        "nothing in the runtime or the gateway calls NeoSafeRouter, the runtime's only "
+        f"path for a fee to the NeoSafe wallet, and these lines say fees reach it: {claimed}")

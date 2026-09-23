@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
+07 — Revenue to NeoSafe: Platform Fee Recording and Tracking
 
 Demonstrates NeoSafeRouter, which records fees against the NeoSafe multisig
 wallet and can send revenue to it:
@@ -133,7 +133,7 @@ contract SimpleToken {
     # ── Step 2: Simulate fee-generating actions ─────────────────────
     step(2, "Simulating fee-generating platform actions...")
 
-    # Use NeoSafeRouter directly to demonstrate fee routing
+    # Call NeoSafeRouter directly to record fees in its ledger (no funds move)
     try:
         from runtime.blockchain.services.neosafe import NeoSafeRouter
 
@@ -159,12 +159,12 @@ contract SimpleToken {
                 attestation = fee.get("attestation_uid", "pending")
                 ok(f"{amount:8.4f} {token:4s} from {source:25s} (attested: {attestation or 'N/A'})")
             else:
-                warn(f"Fee routing: {receipt.get('reason', 'N/A')}")
+                warn(f"Fee not recorded: {receipt.get('reason', 'N/A')}")
 
     except Exception as e:
         warn(f"NeoSafeRouter: {e}")
         # Show the fees conceptually
-        print(f"\n  {DIM}Fee routing pattern (conceptual):{RESET}")
+        print(f"\n  {DIM}Fees the platform would record (conceptual):{RESET}")
         print(f"    0.0050 ETH  <- contract_conversion")
         print(f"    0.0010 ETH  <- nft_services")
         print(f"    2.5000 USDC <- marketplace")

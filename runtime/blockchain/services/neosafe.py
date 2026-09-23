@@ -113,7 +113,7 @@ class NeoSafeRouter:
         self._total_by_token[token] = self._total_by_token.get(token, 0.0) + amount
 
         logger.info(
-            "Fee routed: %.6f %s from %s -> %s (%s)",
+            "Fee recorded: %.6f %s from %s against %s (%s); no funds moved",
             amount, token, source, self._platform_wallet, description,
         )
 

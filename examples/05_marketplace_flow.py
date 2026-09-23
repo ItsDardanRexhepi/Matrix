@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-05 — Marketplace Flow: List, Buy, and Escrow on Base Sepolia
+05 — Marketplace Flow: List and Buy
 
 Demonstrates the Marketplace service (Component 24):
 
   1. Seller lists a digital asset on the marketplace
   2. Buyer browses and finds the listing
-  3. Buyer purchases — payment is held in escrow
-  4. Asset transfer and payment release happen atomically
-  5. The sale record carries the platform fee and the platform wallet it
-     is owed to; the fee is not sent anywhere
+  3. Buyer purchases — the service records the sale; no payment is held
+     and nothing is transferred on chain
+  4. The sale record carries the price, the platform fee and what the
+     seller is owed
+  5. The platform fee is owed to the platform wallet the record names;
+     the fee is not sent anywhere
 
 Usage:
     python examples/05_marketplace_flow.py
@@ -50,8 +52,8 @@ async def main():
   The Matrix Example 05: Marketplace Buy/Sell Flow
 {'=' * 60}{RESET}
 
-  Atomic buy/sell via escrow — seller lists, buyer pays,
-  platform handles transfer + fee routing in one transaction.
+  Seller lists, buyer buys: the marketplace records the sale and
+  its fee split. No escrow, and nothing is transferred on chain.
 """)
 
     config = load_config()
@@ -153,9 +155,9 @@ async def main():
     except Exception as e:
         warn(f"Listing details: {e}")
 
-    # ── Step 4: Buy item (atomic escrow) ────────────────────────────
-    step(4, "Buyer purchases item via atomic escrow...")
-    print(f"  {DIM}Payment + asset transfer happen in a single transaction.{RESET}")
+    # ── Step 4: Buy item ────────────────────────────────────────────
+    step(4, "Buyer purchases item...")
+    print(f"  {DIM}The service records the sale; no payment or asset moves on chain.{RESET}")
 
     try:
         result = await dispatcher.execute(
@@ -180,8 +182,8 @@ async def main():
     except Exception as e:
         warn(f"Purchase: {e}")
 
-    # ── Step 5: Show escrow settlement breakdown ────────────────────
-    step(5, "Escrow settlement breakdown")
+    # ── Step 5: Show the fee split the sale record carries ──────────
+    step(5, "The sale's fee split")
 
     platform_fee_bps = config.get("services", {}).get("marketplace", {}).get("platform_fee_bps", 500)
     platform_fee_pct = platform_fee_bps / 100
@@ -190,14 +192,13 @@ async def main():
     platform_fee = sale_price * (platform_fee_bps / 10000)
     seller_receives = sale_price - platform_fee
 
-    print(f"\n  {BOLD}Settlement:{RESET}")
+    print(f"\n  {BOLD}Fee split:{RESET}")
     print(f"  {DIM}{'─' * 45}{RESET}")
     print(f"  Sale price:            {sale_price:.4f} ETH")
     print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH  (not sent anywhere)")
     print(f"  Seller receives:       {seller_receives:.4f} ETH")
     print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Asset transferred:     Buyer now owns template")
-    print(f"  Escrow:                Released atomically")
+    print(f"  Asset:                 recorded as sold; not transferred on chain")
     print(f"  {DIM}{'─' * 45}{RESET}")
 
     print(f"""
@@ -209,12 +210,12 @@ async def main():
     1. list_marketplace    - Seller creates listing
     2. search_marketplace  - Buyer discovers items
     3. get_listing         - View listing details
-    4. buy_marketplace     - Atomic escrow purchase
-    5. (settlement)        - The fee split, computed here
+    4. buy_marketplace     - Records the sale
+    5. (fee split)         - The fee split, computed here
 
   {BOLD}Key features:{RESET}
-    - Atomic buy/sell: payment and transfer in one tx
-    - Escrow protection: funds held until transfer confirmed
+    - A sale is a record: no escrow, and no payment or asset
+      moves on chain
     - The platform fee is recorded on the sale, owed to the
       marketplace's platform wallet; nothing sends it there
     - The service dispatcher queues an attestation for a sale it

@@ -58,7 +58,7 @@ will print a warning and continue with the remaining steps.
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
 | 05 | `05_marketplace_flow.py` | List item, search, buy via atomic escrow, fee split | 24 |
 | 06 | `06_eas_attestation_chain.py` | Writing EAS attestations, batching them, verifying one | 8 |
-| 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee routing | 1, NeoSafe |
+| 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
 

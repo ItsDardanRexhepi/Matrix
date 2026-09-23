@@ -126,17 +126,33 @@ def test_a_protocol_the_stack_never_calls_is_said_to_be_idle():
         f"it: " + "; ".join(wrong))
 
 
-def _reached_from(hooks: set[str]) -> set[str]:
-    """Every ``self._<attr>`` a method is called on inside the named stack hooks."""
+def _reached_from(hooks: set[str], *, unconditionally: bool = False) -> set[str]:
+    """Every ``self._<attr>`` a method is called on inside the named stack hooks.
+
+    With ``unconditionally``, only calls whose sole enclosing ``if`` is the
+    protocol's own ``self._<attr> is not None`` check: a call under any other
+    condition runs on some turns, not on every one."""
+    tree = ast.parse(INTEGRATION.read_text())
+    parent = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     reached = set()
-    for fn in ast.walk(ast.parse(INTEGRATION.read_text())):
+    for fn in ast.walk(tree):
         if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.name in hooks:
             for node in ast.walk(fn):
                 if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                         and isinstance(node.func.value, ast.Attribute)
                         and isinstance(node.func.value.value, ast.Name)
                         and node.func.value.value.id == "self"):
-                    reached.add(node.func.value.attr)
+                    attr = node.func.value.attr
+                    if unconditionally:
+                        own_guard = f"self.{attr} is not None"
+                        up, guarded = parent.get(node), False
+                        while up is not None and up is not fn:
+                            if isinstance(up, ast.If) and ast.unparse(up.test) != own_guard:
+                                guarded = True
+                            up = parent.get(up)
+                        if guarded:
+                            continue
+                    reached.add(attr)
     return reached
 
 
@@ -144,11 +160,17 @@ def test_the_opening_line_says_which_protocols_a_turn_reaches():
     built = _constructed_protocols()
     # pre_process runs once a turn before the model is called and post_process
     # once on the reply; pre_action and post_action run around each tool call.
-    every_turn = _reached_from({"pre_process", "post_process"}) & set(built)
+    # A protocol called on a turn only under a condition of its own (Outcome
+    # Learning, when the request matched a known action) is reached on some turns.
+    turn_hooks = {"pre_process", "post_process"}
+    every_turn = _reached_from(turn_hooks, unconditionally=True) & set(built)
+    some_turns = (_reached_from(turn_hooks) & set(built)) - every_turn
     tool_call_only = (_reached_from({"pre_action", "_pre_action", "post_action"})
-                      & set(built)) - every_turn
+                      & set(built)) - every_turn - some_turns
     assert "_jarvis" in every_turn and "_rexhepi_gate" in tool_call_only, (
         f"precondition: the hooks are read ({sorted(every_turn)}, {sorted(tool_call_only)})")
+    assert "_outcome_learning" in some_turns, (
+        f"precondition: a conditional call is told apart ({sorted(some_turns)})")
 
     section = (REPO / "README.md").read_text().split("## Protocol Stack", 1)[1]
     opening = section.split("\n**", 1)[0]
@@ -167,6 +189,14 @@ def test_the_opening_line_says_which_protocols_a_turn_reaches():
         if not any(name in s for s in turn_sentences):
             wrong.append(f"{name} is reached on every turn and no sentence beginning "
                          f"'Every turn' names it")
+    for attr in sorted(some_turns):
+        name = names.get(built[attr], built[attr])
+        if any(name in s for s in turn_sentences):
+            wrong.append(f"{name} is reached only on some turns and is named among "
+                         f"what every turn reaches")
+        if not any(name in s for s in sentences
+                   if s not in turn_sentences and s not in tool_sentences):
+            wrong.append(f"{name} is reached on some turns and no sentence says when")
     for attr in sorted(tool_call_only):
         name = names.get(built[attr], built[attr])
         if not any(name in s for s in tool_sentences):
