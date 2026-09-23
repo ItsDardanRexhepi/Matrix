@@ -489,7 +489,10 @@ class ContractConversionService:
             }
 
     async def estimate_cost(self, source_code: str) -> dict[str, Any]:
-        """Estimate the conversion cost without performing the conversion.
+        """Quote the conversion tier fee without performing the conversion.
+
+        A quote only: nothing collects it, and it is not a gas or deployment
+        estimate, although the capability id is `estimate_contract_cost`.
 
         Returns
         -------

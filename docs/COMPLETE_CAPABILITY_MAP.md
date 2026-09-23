@@ -33,7 +33,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Convert Contract | Convert plain-English or pseudocode into Solidity | Free | POST /api/v1/contracts/convert | Solidity, Vyper |
 | ~~Deploy Contract~~ **NOT AVAILABLE** | The route answers 501 on every request: nothing in the platform deploys a contract. Use `POST /api/v1/contracts/convert` to generate Solidity and deploy it with your own tooling and signer. | — | POST /api/v1/contracts/deploy → 501 | — |
-| Estimate Deployment Cost (a conversion fee quote) | Despite its registry name, quotes the conversion tier fee for a contract's size and complexity; a quote only, not collected, and not a gas or deployment estimate | Free | via capability registry | — |
+| Quote Conversion Fee | Quote the conversion tier fee for a contract's size and complexity (capability id `estimate_contract_cost`); a quote only, not collected, and not a gas or deployment estimate | Free | via capability registry | — |
 | List Contract Templates | Browse built-in templates | Free | via capability registry | — |
 
 ---

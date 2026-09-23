@@ -1,7 +1,8 @@
 """
-TierManager — classify contract complexity and calculate conversion fees.
+TierManager — classify contract complexity and quote a conversion fee.
 
-Tiered pricing model:
+Tiered quote (a quote only: no route or service collects it; see "Quoted, not
+collected" under Fees in docs/blockchain.md):
   - Simple  (<100 lines):  0.01 ETH
   - Medium  (100-500 lines): 0.05 ETH
   - Complex (500+ lines):  0.1  ETH

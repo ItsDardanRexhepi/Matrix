@@ -593,3 +593,23 @@ def test_the_fee_documents_say_where_the_contract_fee_recipient_points():
     assert not offenders, (
         "these documents do not say, in one sentence, that the contracts pay platformFeeRecipient "
         "and that scripts/deploy_all.py sets it to the NeoSafe address: " + ", ".join(offenders))
+
+
+def test_the_conversion_quote_is_not_called_a_deployment_or_gas_estimate():
+    """`contract_conversion.estimate_cost` returns the conversion tier fee
+    (`fee_eth`) and nothing about deployment or gas. The catalog named the
+    capability "Estimate Deployment Cost" and the dispatcher told the model it
+    would "Estimate deployment cost"."""
+    import inspect
+    from runtime.blockchain.services.contract_conversion.service import ContractConversionService
+    from runtime.capabilities.catalog import CAPABILITIES
+
+    src = inspect.getsource(ContractConversionService.estimate_cost)
+    assert '"fee_eth"' in src and "gas" not in src.split('"""')[-1].lower()  # measured premise
+    entries = [c for c in CAPABILITIES if c["method"] == "estimate_cost"]
+    assert entries, "no capability reaches estimate_cost; re-derive this check"
+    for entry in entries:
+        assert not re.search(r"deploy|gas", entry["name"], re.I), entry
+    dispatcher = _src("runtime/blockchain/services/service_dispatcher.py")
+    help_line = re.search(r"estimate_contract_cost — ([^\n]*\n[^\n]*)", dispatcher)
+    assert help_line and "deployment cost" not in help_line.group(1).lower(), help_line
