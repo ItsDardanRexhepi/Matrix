@@ -9,6 +9,7 @@ import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import SponsorshipDenied
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -235,12 +236,25 @@ class EASManager(BlockchainInterface):
                 code="batch_too_large")
         results = []
         client = EASClient(self.config)
-        for att in attestations:
-            result = await client.attest(
-                action=att.get("action", "custom"),
-                agent=att.get("agent", "neo"),
-                details=att,
-                operation="eas_manager.batch_attest",
-            )
+        for index, att in enumerate(attestations):
+            try:
+                result = await client.attest(
+                    action=att.get("action", "custom"),
+                    agent=att.get("agent", "neo"),
+                    details=att,
+                    operation="eas_manager.batch_attest",
+                )
+            except SponsorshipDenied as denied:
+                if not results:
+                    raise  # nothing was written: the refusal is the whole answer
+                # The entries before this one were signed and sent. Report them,
+                # and the refusal, rather than an error that hides them.
+                results.append({"status": "refused", "reason": denied.decision.reason,
+                                "code": denied.decision.code})
+                return json.dumps({
+                    "batch_results": results, "count": len(results),
+                    "not_attempted": len(attestations) - index - 1,
+                    "refused_at": index,
+                }, indent=2, default=str)
             results.append(result)
         return json.dumps({"batch_results": results, "count": len(results)}, indent=2, default=str)

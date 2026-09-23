@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,597 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,600 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -368,26 +368,27 @@ curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 Gas is sponsored by the platform paymaster **within the policy the
 operator configures**, and with no paymaster key configured nothing is
 sponsored. When a per-identity daily cap is set, every transaction the
-platform signs, including the ones the services send through the shared web3
-manager, is checked against the cap, the action allowlist and a signed-in
-identity, and one that fails is refused with the reason rather than charged
-to the user — if you set a cap and an allowlist, list
+platform signs, including the ones the services send through the shared
+web3 manager, is checked against the cap, the action allowlist and a
+signed-in identity, and one that fails is refused with the reason rather
+than charged to the user — if you set a cap and an allowlist, list
 `web3.send_transaction` or those will be refused. The action allowlist is
-always applied by `/api/v1/paymaster/sign` to the actions decoded from a user
-operation's call data, and binds the operations the platform signs only when
-a cap is also set. With no cap, the platform signs without a limit. Some
-operations carry a platform fee: the platform contracts pay theirs to each
-contract's `platformFeeRecipient`, which `scripts/deploy_all.py` sets to the
-configured NeoSafe address, and every fee, its rate and where it goes is
-listed under Fees in `docs/blockchain.md`, checked against the code by a
-test. An attestation you ask
-for — through an agent tool or through the attestation capabilities, queued
-or immediate, and a revocation — is metered like any other operation, under
-its own `<capability>.<method>` name and against your identity, and one
-request may ask for at most 20. The only operations exempt are the
-platform's own record-keeping writes, and they are listed by name in
-`runtime/blockchain/sponsorship.py` so the exemptions can be read rather
-than guessed at. Capabilities return
+always applied by `/api/v1/paymaster/sign` to the actions decoded from a
+user operation's call data, and binds the operations the platform signs
+only when a cap is also set. With no cap, the platform signs without a
+limit. Some operations carry a platform fee: the platform contracts pay
+theirs to each contract's `platformFeeRecipient`, which
+`scripts/deploy_all.py` sets to the configured NeoSafe address, and every
+fee, its rate and where it goes is listed under Fees in
+`docs/blockchain.md`, checked against the code by a test. An attestation
+you ask for — through an agent tool or through the attestation
+capabilities, queued or immediate, and a revocation — is metered like any
+other operation, under its own `<capability>.<method>` name and against
+your identity; one request may ask for at most 20, and a cap reached
+part-way through a batch is reported with the entries already written. The only
+operations exempt are the platform's own record-keeping writes, and they
+are listed by name in `runtime/blockchain/sponsorship.py` so the
+exemptions can be read rather than guessed at. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 

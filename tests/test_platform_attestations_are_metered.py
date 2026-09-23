@@ -452,3 +452,66 @@ async def test_batch_attest_and_revoke_are_metered(monkeypatch, tmp_path):
     with pytest.raises(SponsorshipDenied) as denied:
         await svc.revoke("0x" + "44" * 32, "primary", caller_identity="0xabc")
     assert denied.value.decision.code == "action_not_allowed" and sent == []
+
+
+# ── a refusal part-way through a batch says what was already written ────────
+
+async def test_the_eas_tool_reports_the_entries_signed_before_a_refusal(monkeypatch, tmp_path):
+    from runtime.blockchain.eas_client import EASClient
+    from runtime.blockchain.eas_manager import EASManager
+    from runtime.blockchain.sponsorship import SponsorshipDecision, SponsorshipDenied
+
+    calls: list = []
+
+    async def _attest(self, action, agent, details, recipient=None, *, operation=None,
+                      identity=None):
+        calls.append(action)
+        if len(calls) == 3:
+            raise SponsorshipDenied(SponsorshipDecision(False, "daily_cap_exceeded", "cap reached"))
+        return {"status": "attested", "attestation_tx": f"0x{len(calls)}"}
+
+    monkeypatch.setattr(EASClient, "attest", _attest)
+    out = json.loads(await EASManager(_eas_config(tmp_path, {"daily_cap_usd": 50})).execute(
+        action="batch_attest", attestations=[{"action": f"a{i}"} for i in range(5)]))
+    assert [r["status"] for r in out["batch_results"]] == ["attested", "attested", "refused"], out
+    assert out["not_attempted"] == 2 and calls == ["a0", "a1", "a2"], out
+
+
+async def test_the_batch_capability_refuses_before_writing_when_the_policy_refuses_the_caller(
+        monkeypatch, tmp_path):
+    from runtime.blockchain.eas_client import EASClient
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.sponsorship import SponsorshipDenied
+
+    signed: list = []
+
+    async def _attest(self, *a, **kw):
+        signed.append(kw.get("operation"))
+        return {"status": "attested"}
+
+    monkeypatch.setattr(EASClient, "attest", _attest)
+    svc = AttestationService(_eas_config(tmp_path, dict(EXAMPLE_POLICY)), batch_size=1)
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.batch_attest([{"data": {"action": "x"}, "recipient": ADDR}] * 3,
+                               caller_identity="0xabc")
+    assert denied.value.decision.code == "action_not_allowed"
+    assert signed == [] and svc._batch_processor.pending_count == 0
+
+
+async def test_a_cap_reached_part_way_through_a_batch_says_how_many_went_before(
+        monkeypatch, tmp_path):
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.sponsorship import SponsorshipDenied
+
+    sent: list = []
+    _fake_signing(monkeypatch, [])
+    _time_critical_web3(monkeypatch, sent)
+    # 500k gas at 1 gwei and $3000/ETH is $1.50 a write; a $2 cap allows one.
+    svc = AttestationService(_eas_config(
+        tmp_path, {"daily_cap_usd": 2, "allowed_actions": ["attestation.batch_attest"]}))
+    critical = {"data": {"category": "ban_record"}, "recipient": ADDR}
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.batch_attest([dict(critical) for _ in range(3)], caller_identity="0xabc")
+    assert denied.value.decision.code == "daily_cap_exceeded"
+    assert len(sent) == 1
+    assert "entry 2 of 3; the 1 before it were processed" in denied.value.decision.reason

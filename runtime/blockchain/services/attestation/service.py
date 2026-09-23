@@ -324,17 +324,33 @@ class AttestationService:
                 f"this one holds {len(attestations)}")
 
         identity = self._caller(caller_identity)
+        # The allowlist and the identity decide every entry alike, so they are
+        # checked once, before anything is written: a batch the policy refuses
+        # on those grounds writes nothing.
+        if attestations:
+            self._precheck("attestation.batch_attest", identity)
         results: list[dict[str, Any]] = []
 
         for att in attestations:
-            result = await self._attest(
-                schema_uid=att.get("schema_uid", "primary"),
-                data=att.get("data", {}),
-                recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
-                time_critical=att.get("time_critical", False),
-                operation="attestation.batch_attest",
-                identity=identity,
-            )
+            try:
+                result = await self._attest(
+                    schema_uid=att.get("schema_uid", "primary"),
+                    data=att.get("data", {}),
+                    recipient=att.get("recipient", "0x0000000000000000000000000000000000000000"),
+                    time_critical=att.get("time_critical", False),
+                    operation="attestation.batch_attest",
+                    identity=identity,
+                )
+            except SponsorshipDenied as denied:
+                # Only the cap can refuse part-way. The entries before this one
+                # were written or queued; the refusal says how many, so the
+                # caller is not told that nothing happened.
+                import dataclasses
+                raise SponsorshipDenied(dataclasses.replace(
+                    denied.decision,
+                    reason=(f"{denied.decision.reason} (entry {len(results) + 1} of "
+                            f"{len(attestations)}; the {len(results)} before it were "
+                            "processed and the rest were not)"))) from denied
             results.append(result)
 
         logger.info(
