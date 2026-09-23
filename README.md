@@ -469,7 +469,8 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                                          ↓
                                                               Jarvis · Ultron · Friday
                                                               Vision · Trajectory · Morpheus
-                                                              Rexhepi · Glasswing · Omega
+                                                              Rexhepi · Glasswing
+                                                              (Omega: built, never called)
                                                                          ↓
                                                               45 Blockchain Services
                                                               200+ Platform Actions

@@ -11,7 +11,9 @@ The test finds, from runtime/protocols/integration.py, every protocol the
 stack constructs and never calls a method on (and that nothing else in the
 runtime or the gateway reaches through the stack), and requires the
 README's entry for it, and the protocol's own module text, to say that
-nothing calls it.
+nothing calls it, and the README's architecture diagram, which drew it
+among the protocols between the ReAct loop and the tools, to say it is
+never called.
 
 The section's opening line said every user interaction passes through
 these protocols "except Omega". Four of them are reached only from the
@@ -88,6 +90,11 @@ def _readme_protocol_entries() -> dict[str, str]:
     return entries
 
 
+def _architecture_lines() -> list[str]:
+    readme = (REPO / "README.md").read_text()
+    return readme.split("## Architecture", 1)[1].split("\n---", 1)[0].splitlines()
+
+
 def test_a_protocol_the_stack_never_calls_is_said_to_be_idle():
     built = _constructed_protocols()
     assert "_jarvis" in built and "_rexhepi_gate" in built, (
@@ -109,6 +116,11 @@ def test_a_protocol_the_stack_never_calls_is_said_to_be_idle():
         head = " ".join((REPO / f"runtime/protocols/{module}.py").read_text()[:1200].split())
         if "Nothing calls it" not in head:
             wrong.append(f"runtime/protocols/{module}.py does not say nothing calls it")
+        name = module.replace("_", " ").title()
+        for n, line in enumerate(_architecture_lines(), 1):
+            if re.search(rf"\b{re.escape(name)}\b", line) and "never called" not in line:
+                wrong.append(f"README.md's architecture diagram names {name} among the "
+                             f"protocols a request passes through: {line.strip()!r}")
     assert not wrong, (
         f"the protocol stack constructs {sorted(idle.values())} and never calls "
         f"it: " + "; ".join(wrong))
