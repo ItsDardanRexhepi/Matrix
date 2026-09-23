@@ -1,0 +1,15 @@
+{
+ "baseline": "B2",
+ "counts": {
+  "action_map_literal": 193,
+  "action_map_runtime": 253,
+  "funnel_call_sites": 87,
+  "funnel_pairs": 84,
+  "funnel_state_modifying_pairs": 51,
+  "state_modifying_literal": 132,
+  "state_modifying_runtime": 184
+ },
+ "describes": "the dispatcher's and the funnel's tables at 73f5441, which this branch does not change",
+ "instrument": "tests/test_privileged_vocabulary_coverage.py measure(): AST over the dispatcher and funnel literals",
+ "numerators": "how many of these reach the security gate under a label the separately installed core classifies (funnel_classified, react_classified_literal, react_classified_runtime, vocabulary_classified_runtime) are counts of the core's answers: measured where the core is installed, and not written into this repository (packet OD-7)"
+}

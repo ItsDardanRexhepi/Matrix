@@ -1,0 +1,12 @@
+{
+ "baseline": "B9",
+ "collected": 5094,
+ "collected_at_base": 4468,
+ "describes": "collected: this branch's suite, at the commit that carries this file; collected_at_base: 73f5441's, a fixed figure measured by the same command in a scratch export of that commit",
+ "instrument": "pytest tests/ --collect-only, Python 3.11.15",
+ "measured": {
+  "on_top_of": "73f5441",
+  "with_uncommitted_changes": true
+ },
+ "not_recorded": "The B9 row of the plan also lists the collection counts of the Oracle Server, the security core and the iOS app. Those repositories are private, and their counts are deliberately not written into this public tree; each is measured where it is checked out. This file holds The Matrix's count only."
+}

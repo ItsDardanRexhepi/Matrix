@@ -1,0 +1,12 @@
+{
+ "attestations": 2,
+ "baseline": "B3",
+ "describes": "behaviour at 73f5441: these paths run with the evidence mode off, which this branch leaves as it was, and the suite recomputes this file at every commit and fails if it differs",
+ "instrument": "POST /bridge/v1/action twice with one body through the aiohttp test client; the shared ServiceDispatcher over a stub service counts calls",
+ "posts": 2,
+ "service_calls": 2,
+ "statuses": [
+  200,
+  200
+ ]
+}

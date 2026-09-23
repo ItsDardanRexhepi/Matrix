@@ -1,0 +1,106 @@
+{
+ "restaking._guards.settle_transaction": {
+  "pending": {
+   "broadcast": true,
+   "keys": [
+    "broadcast",
+    "disclosure",
+    "settled",
+    "status",
+    "tx_hash",
+    "value_moved"
+   ],
+   "record_verdict": "broadcast",
+   "report": "unknown",
+   "settled": false,
+   "status": "pending",
+   "value_moved": null
+  },
+  "reverted": {
+   "broadcast": true,
+   "keys": [
+    "block_number",
+    "broadcast",
+    "disclosure",
+    "settled",
+    "status",
+    "tx_hash",
+    "value_moved"
+   ],
+   "record_verdict": "refused",
+   "report": "unknown",
+   "settled": true,
+   "status": "failed",
+   "value_moved": false
+  },
+  "settled": {
+   "broadcast": true,
+   "keys": [
+    "block_number",
+    "broadcast",
+    "gas_used",
+    "settled",
+    "status",
+    "tx_hash",
+    "value_moved"
+   ],
+   "record_verdict": "settled",
+   "report": "success",
+   "settled": true,
+   "status": "submitted",
+   "value_moved": true
+  }
+ },
+ "web3_manager.settle_transaction": {
+  "pending": {
+   "broadcast": true,
+   "keys": [
+    "broadcast",
+    "disclosure",
+    "settled",
+    "status",
+    "tx_hash",
+    "value_moved"
+   ],
+   "record_verdict": "broadcast",
+   "report": "unknown",
+   "settled": false,
+   "status": "pending",
+   "value_moved": null
+  },
+  "reverted": {
+   "broadcast": true,
+   "keys": [
+    "block_number",
+    "broadcast",
+    "disclosure",
+    "settled",
+    "status",
+    "tx_hash",
+    "value_moved"
+   ],
+   "record_verdict": "refused",
+   "report": "unknown",
+   "settled": true,
+   "status": "failed",
+   "value_moved": false
+  },
+  "settled": {
+   "broadcast": true,
+   "keys": [
+    "block_number",
+    "broadcast",
+    "gas_used",
+    "settled",
+    "status",
+    "tx_hash",
+    "value_moved"
+   ],
+   "record_verdict": "settled",
+   "report": "success",
+   "settled": true,
+   "status": "submitted",
+   "value_moved": true
+  }
+ }
+}
