@@ -50,6 +50,15 @@ This repository ships its own production stack: `docker-compose.yml`, with
 `docker-compose.prod.yml` layered on top for Caddy TLS termination, and a
 Kubernetes stack in `k8s/` (README → Production Deployment).
 
+Both run the gateway with `MATRIX_ENV=production` (`docker-compose.prod.yml` and
+`k8s/deployment.yaml` set it, `docker-compose.yml` defaults to it), and a
+production gateway refuses to start on the no-op security backend, naming the
+cause. The `Dockerfile` installs only the public requirements, so the commands
+below bring up a gateway only from an image that also carries the separately
+installed security core (`CREDENTIALS_NEEDED.md`, section 5). For a testnet run
+without the core, start `docker-compose.yml` alone with a non-production
+`MATRIX_ENV` and put your own TLS in front of it.
+
 ```bash
 export MATRIX_DOMAIN=gateway.example.com
 export MATRIX_ADMIN_EMAIL=ops@example.com

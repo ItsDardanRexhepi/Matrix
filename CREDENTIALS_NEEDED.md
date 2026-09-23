@@ -10,8 +10,9 @@ environment, each with its variable. Default network is
 configure it to.
 
 The enforcing security core is a separately installed private package and is not
-part of this repository. Without it the platform runs in **OBSERVE**, where the
-gates report what they would have done instead of blocking, and says so at boot
+part of this repository. Without it the platform runs the no-op security
+backend, which allows every action, enforces nothing and says so at boot; a
+gateway declared production (`MATRIX_ENV=production`) refuses to start on it
 (section 5).
 
 Terms used below: **CREDENTIAL-GATED** (code complete, needs the value to
@@ -30,14 +31,20 @@ function) · **UNVERIFIED** (built, provable only after a deployment).
 
 ## 1. Chain core — unlocks ALL on-chain features
 
+The gateway and the deploy scripts read these from different places. The
+gateway reads `matrix.config.json`, and of the values below takes only the RPC
+URL from the environment. `scripts/deploy_all.py` and
+`scripts/verify_platform.py` read the `MATRIX_*` variables named here (or a
+flat JSON file passed as their first argument), not `matrix.config.json`.
+
 | Credential | Set in | Unlocks |
 |---|---|---|
-| **Base Sepolia RPC URL** | platform `blockchain.rpc_url` (env `MATRIX_RPC_URL` / `BASE_RPC_URL`) | Every on-chain read/write, chain-id validation, balance reads. Get from Alchemy/Infura/QuickNode. |
-| **Chain ID = 84532** | platform `blockchain.chain_id` (env `MATRIX_CHAIN_ID`) | Chain validation; must match the RPC. (8453 = Base mainnet — leave on 84532 for testnet.) |
-| **Deploy wallet private key** (funded with Sepolia ETH) | platform `blockchain.private_key` (env `MATRIX_PRIVATE_KEY`) | `scripts/deploy_all.py` — deploying the platform contracts. |
-| **Platform / NeoSafe wallet address** | platform `blockchain.platform_wallet` (env `MATRIX_NEOSAFE_ADDRESS`) | Fee routing + EAS attestation recipient. |
+| **Base Sepolia RPC URL** | gateway: `blockchain.rpc_url` (env `BASE_RPC_URL`) · deploy scripts: env `MATRIX_RPC_URL` | Every on-chain read/write, chain-id validation, balance reads. Get from Alchemy/Infura/QuickNode. |
+| **Chain ID = 84532** | gateway: `blockchain.chain_id` · deploy scripts: env `MATRIX_CHAIN_ID`; both default to 84532 | Chain validation; must match the RPC. (8453 = Base mainnet — leave on 84532 for testnet.) |
+| **Deploy wallet private key** (funded with Sepolia ETH) | deploy scripts: env `MATRIX_PRIVATE_KEY`; the gateway never reads it | `scripts/deploy_all.py` — deploying the platform contracts. |
+| **Platform / NeoSafe wallet address** | gateway: `blockchain.platform_wallet` · deploy scripts: env `MATRIX_NEOSAFE_ADDRESS` (required to deploy) | Fee routing, and the address the platform's own transactions, attestations included, are sent from. |
 | EAS contract | already defaulted to `0x4200000000000000000000000000000000000021` (Base predeploy) | On-chain attestations. No action unless you use a custom registry. |
-| EAS schema UID | platform `blockchain.eas_schema` (env `MATRIX_EAS_SCHEMA_UID`) | The attestation schema. Register once on Base Sepolia. |
+| EAS schema UID | gateway: `blockchain.eas_schema` · `scripts/deploy_all.py`: env `MATRIX_EAS_SCHEMA_UID` | The attestation schema. Register once on Base Sepolia. |
 
 > The app's Secure Enclave signs the **user's** wallet ops; the platform key only
 > signs **platform-level** ops (deploys, sponsorship, attestations). The server never
@@ -91,9 +98,14 @@ you set in this repository.
 - With no core installed the platform runs the inert no-op backend: every action
   is allowed and logged, nothing is enforced, and the platform says so at boot.
   That is a normal state for local and testnet use.
-- Under `MATRIX_ENV=production` the no-op backend fails the readiness probe
-  (`GET /ready`), so an unenforced instance is not presented as ready for
-  production.
+- Under `MATRIX_ENV=production` the gateway refuses to start on the no-op
+  backend, and names the cause. The readiness probe (`GET /ready`) fails on it
+  too, as a second line of defence. `docker-compose.prod.yml` and
+  `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
+  defaults to it, and the image this repository's `Dockerfile` builds installs
+  only the public requirements, so on those routes a gateway without the core
+  does not start. For a run without the core, leave `MATRIX_ENV` unset or set a
+  non-production value such as `testnet`.
 - `python -c "import runtime.security as s; print(s.SECURITY_BACKEND)"` prints
   the backend that is live: `noop`, or `morpheus_security` when the core is
   installed and loaded. `./scripts/ops.sh doctor` reports the same value, and
@@ -162,15 +174,23 @@ gate → tool → chain**. To exercise it end-to-end on Base Sepolia:
 1. **Check the security backend:**
    `python -c "import runtime.security as s; print(s.SECURITY_BACKEND)"` prints
    `noop` without the separately installed core (the gate logs and allows) and
-   `morpheus_security` with it (section 5). Either runs this on testnet.
-2. **Set the env** (sections 1 and 3): RPC, chain 84532, deploy wallet key, platform
-   wallet, your model provider's key, `MATRIX_API_KEY`.
+   `morpheus_security` with it (section 5). Either runs this on testnet, but
+   `noop` only with `MATRIX_ENV` unset or set to a non-production value: a
+   production gateway refuses to start on it.
+2. **Set the values** (sections 1 and 3): for the deploy scripts `MATRIX_RPC_URL`,
+   `MATRIX_PRIVATE_KEY` and `MATRIX_NEOSAFE_ADDRESS` (chain 84532 is their
+   default); for the gateway `blockchain.rpc_url` (or `BASE_RPC_URL`),
+   `blockchain.platform_wallet`, your model provider's key and `MATRIX_API_KEY`.
 3. **Deploy the contracts:** `python -m scripts.deploy_all` (or `python scripts/deploy_all.py`).
    It compiles, deploys to Base Sepolia, attests each via EAS, and writes
    `deployment_manifest.json`. Copy addresses into `services.*` (section 7).
-4. **Start the gateway:** it serves on `:18790` (front it with TLS on your own
-   host: the bundled `Caddyfile` through `docker-compose.prod.yml`, or
-   `k8s/ingress.yaml`). `GET /health` to confirm.
+4. **Start the gateway:** it serves on `:18790`; front it with TLS. The two TLS
+   routes this repository ships, the bundled `Caddyfile` through
+   `docker-compose.prod.yml` and `k8s/ingress.yaml`, both run the gateway with
+   `MATRIX_ENV=production`, so they need the security core installed in the
+   image. Without the core, start the base stack alone with a non-production
+   value (`MATRIX_ENV=testnet docker compose up -d`) and put your own TLS in
+   front of it. `GET /health` to confirm.
 5. **First tx, two paths:**
    - *Client-signed (non-custodial):* a wallet client builds a UserOperation,
      signs it with the user's own key and submits it to its bundler, sponsored
