@@ -9,13 +9,25 @@ I start the gateway right now?" without starting it.
   - It never signs, never submits a transaction, never spends gas.
   - It never sends a push, an email, an SMS, or any outbound message.
   - It never opens a network connection (config-only introspection).
-  - It never writes any file (the one exception, `--write-routes`, only
-    regenerates the committed route-table doc and is opt-in).
+  - It never writes any file. There is no exception. This line used to name
+    `--write-routes` as "the one exception"; no such option exists — `main()`
+    defines `--config` and `--json`, and argparse exits 2 on anything else.
+    Regenerating docs/ROUTES.md is `scripts/generate_route_table.py`'s job and
+    this tool only read_text()s the result to test its freshness.
 
-Exit code: 0 when the posture is internally consistent (every subsystem is
-either READY or a deliberate UNCONFIGURED no-op). Non-zero only when a
-subsystem is HALF-configured — the honest failure the operator must fix
-before go-live (e.g. a bundle id set but no trusted roots).
+Exit code — the only part of this tool CI reads:
+  * 0 when every subsystem is READY, CONFIGURED, or a deliberate UNCONFIGURED
+    no-op.
+  * 1 when a subsystem is HALF-CONFIGURED — the honest failure the operator
+    must fix before go-live (e.g. a bundle id set but no trusted roots).
+  * 1 when a STUB subsystem is not a deliberate posture. STUB is a fourth
+    status and it used to exit 0, so a go-live gate keyed on this code passed
+    while security enforcement was OFF. Two STUB shapes are refused now:
+    morpheus_security present on disk but not the live backend (it failed to
+    load — a misconfiguration in any environment), and no enforcement at all
+    under MATRIX_ENV=production, which check_security_backend itself annotates
+    FATAL. morpheus_security is a private package, so a development or public
+    checkout without it is the deliberate no-op this still forgives.
 """
 
 from __future__ import annotations
@@ -95,7 +107,34 @@ def check_paymaster(config: dict) -> tuple:
     if not _filled(pk):
         return ("paymaster signer", UNCONFIGURED,
                 "no signer_key — /api/v1/paymaster/sign returns 503")
-    return ("paymaster signer", READY, "signer configured (platform key, gas-only)")
+    # This said READY, "signer configured (platform key, gas-only)". Two
+    # overclaims in one string. READY on a `_filled()` check alone is the
+    # RUN-11 overclaim CONFIGURED exists for. And "gas-only" is the ON-CHAIN
+    # contract's role for the key (MatrixVerifyingPaymaster recovers it only
+    # over the sponsorship digest) — not its scope in this codebase. When it
+    # is resolved from the shared `blockchain.paymaster_private_key`, it is
+    # the same key ~20 modules under runtime/blockchain/ use to sign and
+    # broadcast arbitrary value-moving transactions. Doctor reports WHICH
+    # slot it came from, because that is the fact that decides the answer.
+    dedicated = _resolved_from_a_dedicated_slot(config)
+    if dedicated:
+        return ("paymaster signer", CONFIGURED,
+                "signer from paymaster.signer_key — dedicated to gas "
+                "sponsorship, NOT validated against the chain")
+    return ("paymaster signer", CONFIGURED,
+            "signer fell back to blockchain.paymaster_private_key — the "
+            "platform's GENERAL signing key (runtime/blockchain/* signs and "
+            "broadcasts value-moving txs with it), not a gas-only key")
+
+
+def _resolved_from_a_dedicated_slot(config: dict) -> bool:
+    """True when signer_key came from a `paymaster` block rather than from the
+    shared `blockchain.paymaster_private_key` fallback."""
+    cfg = config if isinstance(config, dict) else {}
+    blockchain = cfg.get("blockchain")
+    blockchain = blockchain if isinstance(blockchain, dict) else {}
+    block = cfg.get("paymaster") or blockchain.get("paymaster") or {}
+    return bool(isinstance(block, dict) and _filled(block.get("signer_key", "")))
 
 
 def check_iap(config: dict) -> tuple:
@@ -126,12 +165,33 @@ def check_apple_auth(config: dict) -> tuple:
 
 
 def check_push(config: dict) -> tuple:
-    apns = config.get("apns") or config.get("push") or {}
-    # READ-ONLY: we only report whether APNs is configured. We NEVER send.
-    key_path = apns.get("key_path") or apns.get("p8_path") or ""
-    if not (_filled(key_path) or _filled(apns.get("key_id", ""))):
-        return ("push (apns)", UNCONFIGURED, "no APNs .p8 — push fan-out is a no-op (never sent)")
-    return ("push (apns)", READY, "APNs configured (doctor does NOT send — read-only)")
+    """Ask the CHANNEL, because the channel is what sends.
+
+    This read `config["apns"]` or `config["push"]` — a top-level key nothing in
+    this repository populates, and which no sender reads. The live sender is
+    `runtime/notifications/ios_push.py`, reading `notifications.ios_push`,
+    which is the subtree the example config and setup_communications.py both
+    write. So the UNCONFIGURED branch was unconditional on every real
+    deployment — a gateway posting to api.push.apple.com was told its push
+    fan-out "is a no-op (never sent)" — and the READY branch was reachable
+    only by hand-writing a block no sender would ever read, which is the same
+    drift pointing the other way.
+
+    Reading the channel's own `available` also means the two cannot drift
+    apart again: whatever the sender counts as configured is the answer here.
+    READ-ONLY, as before — `available` consults config and nothing else, and
+    doctor NEVER sends.
+    """
+    from runtime.notifications.ios_push import iOSPushChannel
+
+    channel = iOSPushChannel(config if isinstance(config, dict) else {})
+    if not channel.available:
+        return ("push (apns)", UNCONFIGURED,
+                "notifications.ios_push incomplete — the iOS push channel "
+                "reports itself unavailable and sends nothing")
+    return ("push (apns)", CONFIGURED,
+            "notifications.ios_push filled — the channel reports itself "
+            "available; doctor does NOT send (read-only)")
 
 
 def check_security_backend(config: dict) -> tuple:
@@ -189,6 +249,19 @@ def check_route_table(config: dict) -> tuple:
         return ("route table", HALF, f"could not introspect routes: {exc}")
 
 
+def _stub_is_a_fault(result: tuple) -> bool:
+    """Which STUBs the exit code refuses.
+
+    A STUB that says the package is INSTALLED but not live failed to load, and
+    that is a misconfiguration in any environment. A STUB that says enforcement
+    is absent is the public/development posture — deliberate — unless
+    check_security_backend has already annotated it FATAL, which it does under
+    MATRIX_ENV=production.
+    """
+    detail = str(result[2])
+    return "INSTALLED" in detail or "FATAL in production" in detail
+
+
 CHECKS = [check_config_file, check_chain, check_paymaster, check_iap,
           check_apple_auth, check_push, check_security_backend, check_route_table]
 
@@ -206,6 +279,11 @@ def main() -> int:
     config = _load_config_readonly(args.config)
     results = run(config)
     half = [r for r in results if r[1] in (HALF,)]
+    # STUB is the fourth status and it exited 0 — see the exit-code block at
+    # the top of this module for which STUBs are a deliberate posture and
+    # which are a misconfiguration the gate must not pass.
+    stub_failures = [r for r in results if r[1] == STUB and _stub_is_a_fault(r)]
+    failures = half + stub_failures
 
     if args.json:
         print(json.dumps([{"check": n, "status": s, "detail": d} for n, s, d in results], indent=2))
@@ -215,15 +293,15 @@ def main() -> int:
         for name, status, detail in results:
             print(f"  {icon.get(status, '?')} {name:20} {status:16} {detail}")
         print()
-        if half:
-            print(f"{len(half)} HALF-CONFIGURED subsystem(s) — fix before go-live:")
-            for name, _, detail in half:
+        if failures:
+            print(f"{len(failures)} subsystem(s) to fix before go-live:")
+            for name, _, detail in failures:
                 print(f"    - {name}: {detail}")
         else:
-            print("Posture consistent: every subsystem is READY or a deliberate no-op.")
+            print("Posture consistent: every subsystem is READY, CONFIGURED, "
+                  "or a deliberate no-op.")
 
-    # Non-zero ONLY on a half-configured subsystem (the honest failure).
-    return 1 if half else 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
