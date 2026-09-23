@@ -1,6 +1,7 @@
 """Shared fixtures for The Matrix test suite."""
 
 import os
+import re
 import shutil
 import tempfile
 
@@ -17,16 +18,37 @@ import pytest
 # removes the folders of processes that have exited — never a live one's.
 _SESSION_TEMP = {"dir": None, "tempdir": None, "env": None}
 _SUITE_PREFIX = "the-matrix-suite-"
+_SUITE_FOLDER = re.compile(r"the-matrix-suite-([0-9]+)-.+")
+
+
+def _pid_of(name: str):
+    """The process id a suite folder's name carries, or None when the name is not
+    exactly a suite folder's (ASCII digits, then a dash) or the id is unusable."""
+    match = _SUITE_FOLDER.fullmatch(name)
+    return int(match.group(1)) if match else None
 
 
 def _process_is_alive(pid: int) -> bool:
+    """True unless the process has certainly exited. Anything the check cannot
+    settle — an id out of range, a permission refusal — counts as alive, so the
+    sweep keeps the folder rather than guessing."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:
+    except (PermissionError, OverflowError, ValueError, OSError):
         return True
     return True
+
+
+def _holds_a_live_run(folder: str) -> bool:
+    """A child pytest inherits TMPDIR, so its folder sits inside its parent's."""
+    for root, dirs, _files in os.walk(folder):
+        for name in dirs:
+            pid = _pid_of(name)
+            if pid is not None and _process_is_alive(pid):
+                return True
+    return False
 
 
 def _remove_folders_of_exited_runs(parent: str) -> None:
@@ -35,12 +57,13 @@ def _remove_folders_of_exited_runs(parent: str) -> None:
     except OSError:
         return
     for name in names:
-        if not name.startswith(_SUITE_PREFIX):
+        pid = _pid_of(name)
+        if pid is None or _process_is_alive(pid):
             continue
-        pid_text = name[len(_SUITE_PREFIX):].split("-", 1)[0]
-        if not pid_text.isdigit() or _process_is_alive(int(pid_text)):
+        folder = os.path.join(parent, name)
+        if os.path.islink(folder) or not os.path.isdir(folder) or _holds_a_live_run(folder):
             continue
-        shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def pytest_configure(config):

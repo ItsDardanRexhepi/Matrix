@@ -75,3 +75,33 @@ def test_a_killed_run_s_folder_is_removed_by_the_next_run(tmp_path):
     assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
     assert not orphan.exists(), "a dead run's folder was left behind"
     assert alive.exists(), "a live run's folder was removed"
+
+
+def _sweep(parent):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("suite_conftest", ROOT / "tests" / "conftest.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod._remove_folders_of_exited_runs(str(parent))
+
+
+def test_a_folder_name_the_sweep_cannot_read_is_skipped_not_fatal(tmp_path):
+    """A name whose process id cannot be parsed or is out of range must not
+    stop the run, and must not be deleted."""
+    odd = ["the-matrix-suite-99999999999999999999-x", "the-matrix-suite-\u00b2-x",
+           "the-matrix-suite-\u0663-x", f"the-matrix-suite-{_dead_pid()}"]
+    for name in odd:
+        (tmp_path / name).mkdir()
+    _sweep(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(odd)
+
+
+def test_a_dead_folder_holding_a_live_run_s_folder_is_kept(tmp_path):
+    """A child pytest inherits TMPDIR, so its folder sits inside its parent's.
+    If the parent is killed while the child still runs, the parent's folder
+    must survive until the child has exited."""
+    parent = tmp_path / f"the-matrix-suite-{_dead_pid()}-parent"
+    child = parent / f"the-matrix-suite-{os.getpid()}-child"
+    child.mkdir(parents=True)
+    _sweep(tmp_path)
+    assert child.exists(), "a live run's folder was deleted with its dead parent's"
