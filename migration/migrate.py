@@ -5,8 +5,8 @@ from __future__ import annotations
 Migration CLI — import agents from other frameworks into The Matrix.
 
 Usage:
-    python -m migration.migrate --source /path/to/project [--framework langchain|autogpt|openai|crewai|auto]
-    python -m migration.migrate --detect /path/to/project
+    python -m migration.migrate --source /path/to/project [--framework langchain|autogpt|openai|crewai|generic|auto]
+    python -m migration.migrate --source /path/to/project --detect
 """
 
 import argparse

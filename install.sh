@@ -287,6 +287,29 @@ check_ollama() {
     fi
 }
 
+# ── First-time setup ─────────────────────────────────────────────────
+# The setup wizard asks questions, so it needs a terminal to read answers
+# from. Under `curl … | bash` this script's stdin is the pipe curl wrote it
+# into, already read to its end by the time main() runs, and a wizard that
+# inherited it met end-of-input at its first prompt. When stdin is not a
+# terminal, the wizard reads from the controlling terminal (/dev/tty)
+# instead. When there is none (a CI job, a provisioning script), nothing can
+# answer it: say so, say how to run it, and exit non-zero rather than start
+# a wizard that cannot finish.
+launch_setup() {
+    local python="$INSTALL_DIR/.venv/bin/python3"
+    local wizard="$INSTALL_DIR/setup.py"
+    if [ -t 0 ]; then
+        exec "$python" "$wizard"
+    fi
+    if { : </dev/tty; } 2>/dev/null; then
+        exec "$python" "$wizard" </dev/tty
+    fi
+    error "The Matrix is installed, but first-time setup asks questions and there is no terminal to ask them in."
+    error "From a terminal, run:  cd \"$INSTALL_DIR\" && .venv/bin/python3 setup.py"
+    exit 1
+}
+
 # ── Main ─────────────────────────────────────────────────────────────
 main() {
     banner
@@ -318,7 +341,7 @@ main() {
         echo -e "  ${BOLD}Launching first-time setup...${NC}"
         echo ""
         sleep 1
-        exec "$INSTALL_DIR/.venv/bin/python3" "$INSTALL_DIR/setup.py"
+        launch_setup
     else
         info "Config already exists — skipping setup wizard."
         echo ""

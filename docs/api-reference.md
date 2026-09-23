@@ -193,8 +193,8 @@ Prometheus server.
 ## Capability registry
 
 The gateway exposes a data-driven capability surface backed by
-`runtime/capabilities/catalog.py` — the canonical inventory of 221
-capabilities across 21 categories, served by 44 underlying services.
+`runtime/capabilities/catalog.py` — the canonical inventory of 195
+capabilities across 21 categories, served by 43 underlying services.
 Every capability has an `id`, `category`, `service`, `method`, and
 `params_schema`; see `docs/COMPLETE_CAPABILITY_MAP.md` for the full
 catalog.

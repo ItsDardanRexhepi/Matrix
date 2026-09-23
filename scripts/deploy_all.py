@@ -18,7 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from contracts.deployer import ContractDeployer
 from contracts.eas_deployer import attest_action
-from contracts.neosafe_verifier import verify_revenue_route
+from contracts.neosafe_verifier import read_neosafe_balance
 
 logger = logging.getLogger(__name__)
 
@@ -317,12 +317,13 @@ async def deploy_all(config: dict) -> dict:
             manifest["errors"].append(error_msg)
             logger.exception("FAILED: %s", name)
 
-    # Verify NeoSafe revenue routing is set up
+    # Record the NeoSafe wallet's balance and nonce. This checks nothing about
+    # where fees go: the contracts above that take a fee recipient were given
+    # neosafe_address in their constructor, and verify_platform.py reads it back.
     try:
-        neosafe_status = await verify_revenue_route(config)
-        manifest["neosafe_status"] = neosafe_status
+        manifest["neosafe_wallet"] = await read_neosafe_balance(config)
     except Exception as exc:
-        manifest["neosafe_status"] = {"error": str(exc)}
+        manifest["neosafe_wallet"] = {"error": str(exc)}
 
     # Attest the full deployment manifest
     try:

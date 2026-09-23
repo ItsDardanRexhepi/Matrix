@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
+07 — Revenue to NeoSafe: Platform Fee Recording and Tracking
 
-Demonstrates how The Matrix routes revenue to the NeoSafe multisig wallet:
+Demonstrates NeoSafeRouter, which records fees against the NeoSafe multisig
+wallet and can send revenue to it:
 
   1. A contract conversion generates a platform fee
   2. The RevenueEnforcer injects fee logic into the contract
-  3. The NeoSafeRouter records and routes the fee
-  4. An EAS attestation is created for the payment
+  3. The NeoSafeRouter records the fee in its ledger (it moves no funds)
+  4. An EAS attestation is queued for the fee
   5. Revenue totals are queried from the ledger
 
-Every fee-generating action across all 44 services / 221 capabilities follows this pattern.
-The platform wallet (NeoSafe) is the single point of revenue collection.
+Nothing in the gateway calls the NeoSafeRouter yet: no platform action maps to
+it, so this example calls it directly. The diagram in step 4 is the intended
+flow, not the one the dispatcher runs today.
+The NeoSafe wallet is where the router sends revenue. There is no single
+flow that routes every platform fee to it (see examples/README.md).
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 
-NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
-``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
-``status='queued'``. Once the chain is live, the same call will execute
-the actual transfer and EAS attestation. See ROADMAP.md "Blockchain
-Activation".
+NOTE: When the blockchain is not configured (``rpc_url`` empty),
+``NeoSafeRouter.route_revenue`` records the entry in its in-memory ledger
+and returns ``status='queued'``; nothing sends a recorded entry later. With
+a chain configured, the same call sends the ETH and attests once the
+transfer is mined. Deploying the contracts is covered in
+contracts/DEPLOYMENT_GUIDE.md.
 
 Usage:
     python examples/07_revenue_to_neosafe.py
@@ -60,8 +65,9 @@ async def main():
   The Matrix Example 07: Revenue Routing to NeoSafe
 {'=' * 60}{RESET}
 
-  All platform fees flow to the NeoSafe multisig wallet.
-  Every payment is attested on-chain for full transparency.
+  The NeoSafeRouter records fees against the NeoSafe multisig
+  wallet and sends revenue to it. Nothing in the gateway calls
+  it yet, so this example calls it directly.
 """)
 
     config = load_config()
@@ -128,7 +134,7 @@ contract SimpleToken {
     # ── Step 2: Simulate fee-generating actions ─────────────────────
     step(2, "Simulating fee-generating platform actions...")
 
-    # Use NeoSafeRouter directly to demonstrate fee routing
+    # Call NeoSafeRouter directly to record fees in its ledger (no funds move)
     try:
         from runtime.blockchain.services.neosafe import NeoSafeRouter
 
@@ -154,12 +160,12 @@ contract SimpleToken {
                 attestation = fee.get("attestation_uid", "pending")
                 ok(f"{amount:8.4f} {token:4s} from {source:25s} (attested: {attestation or 'N/A'})")
             else:
-                warn(f"Fee routing: {receipt.get('reason', 'N/A')}")
+                warn(f"Fee not recorded: {receipt.get('reason', 'N/A')}")
 
     except Exception as e:
         warn(f"NeoSafeRouter: {e}")
         # Show the fees conceptually
-        print(f"\n  {DIM}Fee routing pattern (conceptual):{RESET}")
+        print(f"\n  {DIM}Fees the platform would record (conceptual):{RESET}")
         print(f"    0.0050 ETH  <- contract_conversion")
         print(f"    0.0010 ETH  <- nft_services")
         print(f"    2.5000 USDC <- marketplace")
@@ -188,9 +194,9 @@ contract SimpleToken {
     step(4, "Platform fee flow architecture")
 
     print(f"""
-  {BOLD}Fee Flow:{RESET}
+  {BOLD}Fee Flow (intended; the dispatcher does not call the router yet):{RESET}
 
-  User Action (any of 44 services)
+  User Action (a fee-generating service)
        |
        v
   ServiceDispatcher.execute()
@@ -200,14 +206,18 @@ contract SimpleToken {
        |         v
        |     RevenueEnforcer (injects fee logic into contracts)
        |
-       +---> _attest_action() (EAS attestation)
+       +---> _attest_action() (queues an EAS attestation)
        |
        v
   NeoSafeRouter.route_fee()
        |
-       +---> Record in ledger
-       +---> Attest fee payment (EAS)
-       +---> Route to NeoSafe wallet
+       +---> Record in ledger (no funds move)
+       +---> Queue an EAS attestation of the fee
+
+  NeoSafeRouter.route_revenue()
+       |
+       +---> Send ETH to the NeoSafe wallet
+       +---> Attest it once the transfer is mined
        |
        v
   {GREEN}NeoSafe Multisig Wallet{RESET}
@@ -232,7 +242,7 @@ contract SimpleToken {
 
     function deposit() external payable collectPlatformFee(msg.value) {{
         // User deposits 1 ETH
-        // 0.025 ETH (2.5%) goes to NeoSafe automatically
+        // 0.025 ETH (2.5%) goes to platformFeeRecipient
         // 0.975 ETH goes to the contract
         balanceOf[msg.sender] += msg.value - fee;
     }}
@@ -245,17 +255,18 @@ contract SimpleToken {
 
   {BOLD}Components demonstrated:{RESET}
     1. RevenueEnforcer  - Injects fee logic into contracts
-    2. NeoSafeRouter    - Routes fees with attestation
-    3. EAS              - Every payment attested on-chain
-    4. ServiceDispatcher - Automatic attestation on every action
+    2. NeoSafeRouter    - Records fees against the NeoSafe wallet
+    3. EAS              - route_fee queues an attestation (written once 50
+                          have gathered); route_revenue attests once mined
+    4. ServiceDispatcher - Queues an attestation for an action it completes
 
-  {BOLD}Revenue sources:{RESET}
+  {BOLD}Fees this example records against the router{RESET}
+  {DIM}(simulated: none of these services calls the router){RESET}
     - Contract conversions (Component 1)
     - NFT deployments (Component 3)
     - Marketplace sales (Component 24)
     - Insurance premiums (Component 13)
     - DeFi origination (Component 2)
-    - ... and all other fee-generating services
 
   {BOLD}NeoSafe wallet:{RESET} {platform_wallet}
 

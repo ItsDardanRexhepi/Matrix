@@ -27,10 +27,10 @@ No feature touches MTRX without all three layers passing. No exceptions.
 ## What You Can Contribute
 
 - **New tools** — Extend the tool system in `runtime/tools/`
-- **New skills** — Add capabilities to the skills system in `runtime/skills/`
+- **New skills** — Add a skill to `skills/` (the loader that registers them as tools is `runtime/skills/`)
 - **Migration importers** — Help users migrate from other platforms via `migration/`
 - **Documentation** — Improve or translate docs in `docs/`
-- **Smart contracts** — Propose new blockchain capabilities in `blockchain/contracts/`
+- **Smart contracts** — Propose new blockchain capabilities in `contracts/`
 - **SDK extensions** — Extend the developer SDK in `sdk/`
 - **Bug fixes** — Fix issues anywhere in the open source codebase
 - **HiveMind extensions** — Extend the agent orchestration system in `hivemind/`
@@ -42,10 +42,11 @@ No feature touches MTRX without all three layers passing. No exceptions.
 The following are closed source and are never exposed to contributors:
 
 - **The security layer** — The full implementation of agent boundary enforcement, constraint validation, audit trails, and the access protection protocol
-- **The Unified Rexhepi Framework implementation** — The specific gate criteria, scoring logic, probability weights, thresholds, and outcome definitions that govern every agent decision
 - **Neo's private runtime** — The operational server configuration and deployment infrastructure
 
-These boundaries exist by design. You do not need access to any of them to build on The Matrix. The open source runtime connects to the security layer through a documented interface at `runtime/security/SECURITY_INTERFACE.md`.
+These boundaries exist by design. You do not need access to either to build on The Matrix. The open source runtime connects to the security layer through a documented interface at `runtime/security/SECURITY_INTERFACE.md`.
+
+The Unified Rexhepi Framework's operational layer is not on this list: its gates, scoring, hard rules and canonical outcomes are open source, in `runtime/protocols/urf.py`, and `runtime/protocols/rexhepi_gate.py` runs them on every agent tool call. See `docs/unified-rexhepi-framework.md`.
 
 ---
 

@@ -53,11 +53,19 @@ def ask(question: str, default: str = "", *, password: bool = False) -> str:
     """Prompt for input with an optional default."""
     suffix = f" [{default}]" if default else ""
     prompt = f"{BOLD}? {question}{suffix}:{RESET} "
-    if password:
-        import getpass
-        resp = getpass.getpass(prompt)
-    else:
-        resp = input(prompt).strip()
+    try:
+        if password:
+            import getpass
+            resp = getpass.getpass(prompt)
+        else:
+            resp = input(prompt).strip()
+    except EOFError:
+        # Input ended with the question unanswered (stdin was a pipe, a file,
+        # or closed). SystemExit, not an exception the setup wizard's channel
+        # loop would catch and carry on past to its next question.
+        print()
+        error("Setup asks questions, and its input ended before this one was answered.")
+        raise SystemExit(1)
     return resp or default
 
 

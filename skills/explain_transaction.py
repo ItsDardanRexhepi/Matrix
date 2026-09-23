@@ -8,7 +8,7 @@ what the transaction did, who was involved, and how much was transferred.
 SKILL_NAME = "explain_transaction"
 SKILL_DESCRIPTION = (
     "Look up a transaction by hash and explain it in plain English. "
-    "Shows sender, receiver, value, gas, and decoded function call. "
+    "Shows sender, receiver, value, gas, and the called function's 4-byte selector. "
     "Use when the user asks about a specific transaction or wants to "
     "understand what happened on-chain."
 )
@@ -30,11 +30,17 @@ async def execute(tx_hash: str = "", **kwargs) -> str:
         return "Please provide a transaction hash."
 
     try:
-        from runtime.blockchain.interface import BlockchainInterface
+        # The platform's shared connection, whose `.w3` this skill was written
+        # against. It used to build `BlockchainInterface(config)` — an abstract
+        # class, which cannot be instantiated — and read `.w3`, which that class
+        # does not have, so every lookup answered "Could not fetch transaction".
+        from runtime.blockchain.web3_manager import Web3Manager
 
-        config = kwargs.get("config", {})
-        blockchain = BlockchainInterface(config)
-        w3 = blockchain.w3
+        chain = Web3Manager.get_shared(kwargs.get("config") or {})
+        if not chain.available or chain.w3 is None:
+            return ("Could not fetch transaction: no blockchain is reachable "
+                    "(blockchain.rpc_url is not configured, or its node did not answer).")
+        w3 = chain.w3
 
         tx = w3.eth.get_transaction(tx_hash)
         receipt = w3.eth.get_transaction_receipt(tx_hash)
@@ -50,6 +56,7 @@ async def execute(tx_hash: str = "", **kwargs) -> str:
 
         lines = [
             f"## Transaction Explanation\n",
+            f"- **Network**: {chain.network}",
             f"- **Status**: {status}",
             f"- **From**: `{tx['from'][:6]}...{tx['from'][-4:]}`",
             f"- **To**: `{tx['to'][:6]}...{tx['to'][-4:]}`" if tx.get("to") else "- **To**: Contract Creation",
@@ -60,11 +67,14 @@ async def execute(tx_hash: str = "", **kwargs) -> str:
             f"- **Block**: {receipt['blockNumber']:,}",
         ]
 
-        # Check if it's a contract interaction
-        if tx.get("input") and tx["input"] != "0x":
-            func_sig = tx["input"][:10]
-            lines.append(f"- **Function**: `{func_sig}`")
-            lines.append(f"- **Input Data**: {len(tx['input'])} bytes")
+        # Calldata arrives as bytes (HexBytes) from web3 7, not as a "0x…"
+        # string, so compare and slice it as hex text.
+        data = tx.get("input") or b""
+        data_hex = data.hex() if isinstance(data, (bytes, bytearray)) else str(data)
+        data_hex = data_hex[2:] if data_hex.startswith("0x") else data_hex
+        if data_hex:
+            lines.append(f"- **Function selector**: `0x{data_hex[:8]}`")
+            lines.append(f"- **Input Data**: {len(data_hex) // 2} bytes")
 
         if not tx.get("to"):
             if receipt.get("contractAddress"):

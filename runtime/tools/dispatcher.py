@@ -135,6 +135,14 @@ def _ref() -> str | None:
         return None
 
 
+def _with_server_config(handler: Callable[..., Awaitable[str]], config: dict):
+    """`handler` with the server's `config` bound, and the model's dropped."""
+    async def bound(**arguments):
+        arguments.pop("config", None)
+        return await handler(config=config, **arguments)
+    return bound
+
+
 class ToolDispatcher:
 
     def __init__(self, config: dict):
@@ -206,7 +214,18 @@ class ToolDispatcher:
         return await self.service_dispatcher.prune_caches(grace_seconds=grace_seconds)
 
     def _register_skills(self, config: dict):
-        """Load skills from the skills directory and register them as tools."""
+        """Load skills from the skills directory and register them as tools.
+
+        A skill reads the server's configuration from its `config` keyword: the
+        RPC the chain skills query, the auditor's blocking thresholds. A tool is
+        called as `handler(**arguments)` with the MODEL's arguments, so a skill
+        registered bare saw `config={}` on every call, or whatever `config` the
+        model wrote, since `**kwargs` accepted it. That second case would hand
+        the model the RPC URL, and when a chain skill is the first caller of
+        `Web3Manager.get_shared`, the connection it builds is the one every
+        service then uses. The server's config is bound here, and a `config` in
+        the model's arguments is dropped.
+        """
         try:
             from runtime.skills.loader import SkillLoader
             workspace = config.get("workspace", ".")
@@ -215,7 +234,7 @@ class ToolDispatcher:
             for skill in skills:
                 self.register(
                     skill.name,
-                    skill.as_tool_handler(),
+                    _with_server_config(skill.as_tool_handler(), config),
                     skill.to_tool_schema(),
                 )
         except Exception as e:
