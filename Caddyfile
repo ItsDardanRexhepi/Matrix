@@ -9,18 +9,36 @@
 
 {
 	email {$MATRIX_ADMIN_EMAIL}
-	# Opt out of Caddy's telemetry.
+	# Turn off Caddy's admin API (by default an HTTP endpoint on
+	# localhost:2019 that reads and replaces the running config). With it
+	# off, the running config cannot be read or changed over HTTP, and
+	# `caddy reload`, which uses that API, does not work. Nor can a
+	# healthcheck use it: docker-compose.prod.yml checks the loopback
+	# listener below instead.
 	admin off
-	# Compress responses globally.
+	# Serve HTTP/1.1, HTTP/2 and HTTP/3 (Caddy's default, stated). HTTP/3
+	# runs over QUIC, which is why compose publishes 443/udp. Compression
+	# is the `encode` line in the site block, not this.
 	servers {
 		protocols h1 h2 h3
 	}
 }
 
+# Liveness for the container healthcheck in docker-compose.prod.yml. Plain
+# HTTP on port 2020, bound to the container's loopback only, and not
+# published by compose, so nothing outside the container can reach it. It
+# answers when Caddy's HTTP server is up; it does not proxy to the gateway,
+# whose own healthcheck gates Caddy's start.
+:2020 {
+	bind 127.0.0.1
+	respond "ok" 200
+}
+
 {$MATRIX_DOMAIN} {
 	encode zstd gzip
 
-	# Health endpoint: bypass auth, no rate limiting.
+	# /health straight to the gateway. Caddy applies no auth and no rate
+	# limit to any path in this file; the gateway does both.
 	handle /health {
 		reverse_proxy gateway:18790
 	}
@@ -64,7 +82,7 @@
 		X-Content-Type-Options "nosniff"
 		# Minimal Referrer-Policy for an API.
 		Referrer-Policy "no-referrer"
-		# Caddy sets this automatically but be explicit.
+		# Drop the `Server: Caddy` header Caddy adds by default.
 		-Server
 	}
 

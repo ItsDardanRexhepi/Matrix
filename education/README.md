@@ -14,11 +14,11 @@ All course content is open source. Every tutorial, code example, and explanation
 
 ## What You Get
 
-- **Hands-on exercises** with clear instructions and expected outputs
-- **Complete solutions** with detailed explanations of why each approach works
-- **Certification prep materials** to validate your knowledge
-- **Discord access** for Q&A and peer support
-- **Completion certificate** issued upon finishing all exercises
+- **Course 01** has exercises with expected outputs (`EXERCISES.md`) and worked solutions that explain each approach (`SOLUTIONS.md`).
+- **Course 02** has three intentionally vulnerable contracts to analyse (`VULNERABLE_CONTRACTS.sol`) and their fixed versions, with comments on each fix (`FIXED_CONTRACTS.sol`).
+- **Course 03** is reading, with no exercises yet.
+
+There is no community chat server, no certification prep material and no completion certificate for a course yet. Questions and corrections go to the repository's GitHub issues. The certification exams the gateway runs are a separate thing; see "Get Certified" in the top-level README.
 
 ## Course Progression
 
@@ -40,7 +40,7 @@ Course 01 is recommended before taking either Course 02 or Course 03, but Course
 
 ## Community
 
-Join the [community](./COMMUNITY_GUIDE.md) to connect with other learners, attend workshops, and get help when you are stuck.
+The [community guide](./COMMUNITY_GUIDE.md) says where to ask for help and how to run a workshop of your own.
 
 ## Contributing
 

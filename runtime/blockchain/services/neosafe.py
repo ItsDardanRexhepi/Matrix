@@ -1,4 +1,5 @@
-"""Revenue routing — all platform fees go to the NeoSafe multisig.
+"""Revenue routing to the NeoSafe multisig. Nothing in the gateway calls it yet
+(see NeoSafeRouter).
 
 The canonical NeoSafe address is ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 That value is used when ``blockchain.neosafe_wallet`` is not set in config.
@@ -19,11 +20,14 @@ NEOSAFE_DEFAULT_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 
 
 class NeoSafeRouter:
-    """Route all platform fees to the NeoSafe wallet.
+    """Record platform fees against the NeoSafe wallet, and send revenue to it.
 
-    Every fee-generating action across the 44 services calls
-    :meth:`route_fee` to record and forward fees. An EAS attestation is
-    created for each payment so there is a permanent on-chain receipt.
+    :meth:`route_fee` records a fee in this process's in-memory ledger and
+    queues an EAS attestation for it on the router's own attestation service,
+    written to the chain once 50 have gathered; it moves no funds. :meth:`route_revenue` sends
+    ETH to the NeoSafe wallet and attests it once the transfer is mined.
+    Nothing in the gateway calls either yet: no platform action maps to this
+    router, and examples/07_revenue_to_neosafe.py calls it directly.
 
     Config keys used:
         - ``blockchain.platform_wallet`` — the NeoSafe wallet address
@@ -52,12 +56,13 @@ class NeoSafeRouter:
 
         if not self._platform_wallet:
             logger.warning(
-                "NeoSafeRouter: no platform_wallet configured — "
-                "fees will be logged but not routed on-chain."
+                "NeoSafeRouter: no NeoSafe wallet configured; fees are recorded "
+                "in the ledger and route_revenue has nowhere to send."
             )
         else:
             logger.info(
-                "NeoSafeRouter initialised. Fees route to %s on chain %d.",
+                "NeoSafeRouter initialised: fees are recorded against %s, and "
+                "route_revenue sends to it, on chain %d.",
                 self._platform_wallet,
                 self._chain_id,
             )
@@ -108,7 +113,7 @@ class NeoSafeRouter:
         self._total_by_token[token] = self._total_by_token.get(token, 0.0) + amount
 
         logger.info(
-            "Fee routed: %.6f %s from %s -> %s (%s)",
+            "Fee recorded: %.6f %s from %s against %s (%s); no funds moved",
             amount, token, source, self._platform_wallet, description,
         )
 
@@ -135,16 +140,17 @@ class NeoSafeRouter:
             no receipt in time-> "pending", carrying the hash: not a refusal and
                                  not a failure, and not attested
 
-        When the platform is not configured for live execution the routing is
-        queued in-memory and ``status='queued'`` is returned.
+        When the platform is not configured for live execution the entry is
+        recorded in the in-memory ledger and ``status='queued'`` is returned;
+        nothing sends a recorded entry later.
         """
         if amount_eth <= 0:
             return {"status": "skipped", "reason": "non-positive amount"}
 
         if not self._web3.available:
             logger.info(
-                "Revenue routing queued: %.6f ETH from %s "
-                "(blockchain not configured)",
+                "Revenue recorded, not sent: %.6f ETH from %s "
+                "(blockchain not configured; nothing sends it later)",
                 amount_eth, source_action,
             )
             self._ledger.append({
@@ -158,8 +164,8 @@ class NeoSafeRouter:
             return {
                 "status": "queued",
                 "message": (
-                    "Revenue routing queued — will execute when blockchain "
-                    "is configured"
+                    "Revenue recorded in the ledger, not sent: no blockchain is "
+                    "configured, and nothing sends a recorded entry later"
                 ),
                 "amount_eth": amount_eth,
                 "source": source_action,

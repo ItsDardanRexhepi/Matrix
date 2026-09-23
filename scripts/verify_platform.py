@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from contracts.deployer import ContractDeployer
 from contracts.eas_deployer import verify_attestation
-from contracts.neosafe_verifier import verify_revenue_route, get_revenue_summary
+from contracts.neosafe_verifier import read_neosafe_balance, read_neosafe_holdings
 
 logger = logging.getLogger(__name__)
 
@@ -126,34 +126,41 @@ class PlatformVerifier:
         return results
 
     # ------------------------------------------------------------------
-    # 3. NeoSafe revenue routing
+    # 3. NeoSafe wallet and fee recipients
     # ------------------------------------------------------------------
 
     async def check_neosafe(self) -> dict:
-        """Confirm NeoSafe wallet is reachable and revenue routing works."""
+        """Read the NeoSafe wallet's balance and holdings, and check that each
+        deployed contract with a platformFeeRecipient names the NeoSafe address.
+
+        The two reads are OK when the chain answered them. A balance is what
+        the wallet holds, whoever sent it, so they show no fee reaching it. The
+        fee-recipient checks are the part that can find a contract paying
+        elsewhere, and only for contracts that expose platformFeeRecipient.
+        """
         results: dict[str, Any] = {}
 
         try:
-            route = await verify_revenue_route(self.config)
-            results["revenue_route"] = {
-                "status": "OK" if route.get("is_receiving") or route.get("eth_balance_wei", 0) >= 0 else "FAIL",
-                "neosafe_address": route.get("neosafe_address"),
-                "eth_balance_ether": route.get("eth_balance_ether"),
-                "recent_tx_count": route.get("recent_tx_count"),
+            wallet = await read_neosafe_balance(self.config)
+            results["neosafe_balance"] = {
+                "status": "OK",
+                "neosafe_address": wallet.get("neosafe_address"),
+                "eth_balance_ether": wallet.get("eth_balance_ether"),
+                "nonce": wallet.get("nonce"),
             }
         except Exception as exc:
-            results["revenue_route"] = {"status": "ERROR", "error": str(exc)}
+            results["neosafe_balance"] = {"status": "ERROR", "error": str(exc)}
 
         try:
-            summary = await get_revenue_summary(self.config)
-            results["revenue_summary"] = {
+            holdings = await read_neosafe_holdings(self.config)
+            results["neosafe_holdings"] = {
                 "status": "OK",
-                "eth_balance_ether": summary.get("eth_balance_ether"),
-                "token_balances_count": len(summary.get("token_balances", [])),
-                "total_tx_count": summary.get("total_tx_count"),
+                "eth_balance_ether": holdings.get("eth_balance_ether"),
+                "token_balances_count": len(holdings.get("token_balances", [])),
+                "nonce": holdings.get("nonce"),
             }
         except Exception as exc:
-            results["revenue_summary"] = {"status": "ERROR", "error": str(exc)}
+            results["neosafe_holdings"] = {"status": "ERROR", "error": str(exc)}
 
         # Verify each deployed contract has platformFeeRecipient set to NeoSafe
         neosafe = self.config.get("neosafe_address", "").lower()

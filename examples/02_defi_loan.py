@@ -15,8 +15,8 @@ platform_action calls that any AI agent can invoke.
 
 NOTE: Until ``defi.lending_pool_address`` points at a deployed contract
 on the configured chain, every call short-circuits to
-``status='not_deployed'`` with a deployment guide. See ROADMAP.md
-"Blockchain Activation".
+``status='not_deployed'`` with a deployment guide. Deploying the
+contracts is covered in contracts/DEPLOYMENT_GUIDE.md.
 
 Usage:
     python examples/02_defi_loan.py

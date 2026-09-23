@@ -65,6 +65,11 @@ class TimeCriticalHandler:
         """
         Immediately submit an attestation without batching.
 
+        The platform pays the gas. It is signed through
+        "eas.attest_time_critical", an exemption listed in
+        UNMETERED_PLATFORM_OPERATIONS, so no sponsorship allowlist or daily
+        cap is checked.
+
         Args:
             schema_uid: The EAS schema UID to attest under.
             data: Attestation payload.

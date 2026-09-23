@@ -347,7 +347,7 @@ class GatewayServer:
             "/services/conversion",
             "/extensions/registry",
             "/a2a/services",
-            "/sponsor", "/glasswing", "/learn",
+            "/glasswing", "/learn",
             "/badges", "/privacy", "/terms",
             "/social", "/social/feed", "/social/feed/stream",
             "/social/trending", "/social/stats",
@@ -1984,12 +1984,6 @@ class GatewayServer:
         plugins = await self.plugin_marketplace.get_purchased(wallet)
         return web.json_response({"plugins": plugins})
 
-    # ─── Sponsor Redirect ────────────────────────────────────────
-
-    async def handle_sponsor_redirect(self, request: web.Request) -> web.Response:
-        """GET /sponsor — redirect to GitHub Sponsors."""
-        raise web.HTTPFound("https://github.com/sponsors/ItsDardanRexhepi")
-
     # ─── Glasswing & Badge Endpoints ─────────────────────────────
 
     async def handle_glasswing_page(self, request: web.Request) -> web.Response:
@@ -2074,7 +2068,7 @@ class GatewayServer:
         return web.json_response({"badges": badges})
 
     async def handle_badge_issue(self, request: web.Request) -> web.Response:
-        """POST /badge/issue — issue a badge after audit payment.
+        """POST /badge/issue — audit the source and issue a badge on a pass. No payment is taken.
 
         Takes `source_code`, not an `audit_report`: the platform runs the audit
         and issues on its own verdict. See BadgeManager.issue_badge.
@@ -2553,9 +2547,6 @@ class GatewayServer:
         app.router.add_post("/marketplace/plugins/submit", self.handle_marketplace_submit)
         app.router.add_get("/marketplace/purchased", self.handle_marketplace_purchased)
 
-        # ── Sponsor redirect ─────────────────────────────────────────
-        app.router.add_get("/sponsor", self.handle_sponsor_redirect)
-
         # ── Glasswing & badges ────────────────────────────────────────
         app.router.add_get("/glasswing", self.handle_glasswing_page)
         app.router.add_get("/badge/widget.js", self.handle_badge_widget_js)
@@ -2572,7 +2563,7 @@ class GatewayServer:
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
 
-        # Register all blockchain service REST endpoints (44 services, 221 capabilities)
+        # Register the blockchain service REST endpoints (gateway/service_routes.py)
         service_routes = None
         try:
             from gateway.service_routes import ServiceRoutes

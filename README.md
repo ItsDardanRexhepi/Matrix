@@ -1,8 +1,5 @@
 # The Matrix
 
-[![GitHub Sponsors](https://img.shields.io/github/sponsors/ItsDardanRexhepi?style=flat&logo=github)](https://github.com/sponsors/ItsDardanRexhepi)
-[![Open Collective](https://img.shields.io/opencollective/all/the-matrix?style=flat&logo=opencollective)](https://opencollective.com/the-matrix)
-
 ---
 
 Hello world,
@@ -41,8 +38,6 @@ Your companions Trinity, Morpheus, and Neo are with you every step of the way.
 I genuinely hope this project changes your life the way building it has changed mine.
 
 I would like to personally thank every community that is part of this journey, the developers, the creators, the builders, the dreamers, and everyone who believed that a better system was possible. You are why this exists.
-
-And finally, there is one more thank you waiting at the very end of this repository. I'll leave it there for you to find. Some things are worth reading all the way to the last line.
 
 From Neo and Dardan Rexhepi
 
@@ -122,6 +117,13 @@ Or use the one-liner install script:
 curl -fsSL https://raw.githubusercontent.com/ItsDardanRexhepi/Matrix/main/install.sh | bash
 ```
 
+It installs into `~/.the-matrix` (or `$MATRIX_DIR`) and, when there is no
+config there yet, starts the same setup. Piped like this, the setup reads your answers from your terminal, not from the pipe. Run
+where there is no terminal (a CI job, a provisioning script), it installs,
+then stops with a non-zero exit and the command to run setup yourself. The
+setup itself, run with its input redirected or closed, stops the same way at
+its first unanswered question instead of ending in a traceback.
+
 ---
 
 ## Model Support
@@ -179,10 +181,10 @@ provider".
 ## Current Status
 
 The Matrix is **build-complete and offline-ready**. The complete Web3
-surface — 50+ blockchain services spanning DeFi, NFT, identity,
+surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,473 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,526 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -195,7 +197,7 @@ What works today, no chain required:
   each reported as the refusal they are, and when Neo does run, the
   hand-off relays Neo's own verdict rather than its own opinion of it
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
-- **All 50+ blockchain services** — return a standardised
+- **All 45 blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
   fabricated transaction hashes. That refusal survives the trip out: the
@@ -231,7 +233,13 @@ check behind it:
   and a test walks those surfaces so the offer cannot return quietly
 - **An audit that could not run is not a pass.** Source with no
   executable function body comes back `not_auditable`, never "no
-  vulnerabilities detected", and no security badge is issued on it
+  vulnerabilities detected", and no security badge is issued on it. The
+  agent's `audit_contract` skill says NOT AUDITABLE too, and it lists a
+  contract's findings by rule id instead of failing on them
+- **A skill runs on the server's configuration, not the model's.** The
+  agent's chain skills (balance, transaction lookup, gas estimate) read the
+  chain this gateway is configured for, through the platform's shared
+  connection; a `config` the model writes into a tool call is dropped
 - **Gas sponsorship is metered against what the EntryPoint can charge.**
   The per-identity daily cap the configuration documents is enforced
   before signing, over a durable ledger, and each request is priced at
@@ -332,51 +340,78 @@ where it is set, and what happens while it is unset.
 
 ## The Security Layer
 
-The Matrix has a closed-source security layer that governs all agent behavior. This layer is not in this repository by design. See `SECURITY_STUB.md` for details.
+The Matrix has a closed-source security layer that enforces agent boundaries in a deployment that installs it. It is not in this repository by design, and without it the seam here runs an inert no-op, as described above. See `SECURITY_STUB.md` for details.
 
 ---
 
 ## The Unified Rexhepi Framework
 
-Every decision made by every agent on The Matrix passes through the Unified Rexhepi Framework. See `docs/unified-rexhepi-framework.md`.
+Every tool call an agent makes passes through the Unified Rexhepi Framework before it is dispatched. Its operational layer is open source, in `runtime/protocols/urf.py`. See `docs/unified-rexhepi-framework.md`.
 
 ---
 
 ## Web3 Capability Surface
 
-**221 capabilities across 21 categories** — smart contracts, DeFi,
+**195 capabilities across 21 categories** — smart contracts, DeFi,
 DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
 finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
 governance (DAOs, veTokens, quadratic voting, RetroPGF), social
 (Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
 Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
 (CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
-(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK,
-oracles (Chainlink, Pyth, RedStone, API3, Keepers), storage (IPFS,
-Arweave, Filecoin, Ceramic, OrbitDB), compute & DePIN (Akash, Gensyn,
-Render), real-world assets, markets (prediction, auction), gaming,
-and security (MPC, social recovery, session keys).
+(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK
+(including MPC signing, session keys and social recovery, all three
+catalogued as not yet available), oracles (Chainlink, Pyth,
+RedStone, API3, Keepers), storage (IPFS, Arweave, Filecoin, Ceramic,
+OrbitDB), compute & DePIN (Akash, Gensyn, Render), real-world assets,
+markets (prediction, auction), gaming, and infrastructure. The 21st
+category, security & wallets, has no capabilities in it yet. The 195
+are served by 43 of the 45 services in the service registry.
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.
-Browse them at runtime:
+Browse them at runtime, with the gateway API key setup generated
+(`gateway.api_key` in `matrix.config.json`):
 
 ```bash
-curl http://localhost:18790/api/v1/capabilities            # list all
-curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
+curl http://localhost:18790/api/v1/capabilities -H "Authorization: Bearer YOUR_API_KEY"             # list all
+curl http://localhost:18790/api/v1/capabilities/categories -H "Authorization: Bearer YOUR_API_KEY"  # 21 buckets
 ```
 
 Gas is sponsored by the platform paymaster **within the policy the
 operator configures** — an allowlist of actions and a per-identity daily
-cap, decided from the call data being signed. Inside that policy a user
-pays no gas; past the cap, or for an action the allowlist does not cover,
-sponsorship is refused rather than silently granted, and an operator who
-configures no policy sponsors everything. Every transaction the platform
-signs goes through that policy, including the ones the services send
-through the shared web3 manager — if you configure an allowlist, list
-`web3.send_transaction` or those will be refused. The only operations
-exempt are the platform's own record-keeping writes, and they are listed
-by name in `runtime/blockchain/sponsorship.py` so the exemptions can be
-read rather than guessed at. Capabilities return
+cap. Inside that policy a user pays no gas, and an operator who
+configures no policy sponsors everything. What is checked depends on who
+signs:
+
+- a smart-account operation the paymaster signs
+  (`POST /api/v1/paymaster/sign`) is checked against the allowlist, with
+  its actions decoded from the call data being signed, and against the
+  cap when one is set; past either, sponsorship is refused rather than
+  silently granted;
+- a transaction the platform signs itself for a capability, including
+  the ones the services send through the shared web3 manager, is checked
+  against the allowlist and the cap only when a daily cap is set. With no
+  cap it is signed whatever the allowlist says. With a cap and an
+  allowlist, list `web3.send_transaction` or those will be refused;
+- a few signing paths are exempt from the policy altogether. They are
+  listed by name in `UNMETERED_PLATFORM_OPERATIONS`
+  (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
+  rather than guessed at. Three of them, an EAS attestation, a
+  time-critical one and a revocation, are signed with the platform key
+  whatever the allowlist and the cap say, and these reach them: the
+  `create_attestation`, `batch_attest` and `revoke_attestation`
+  capabilities; the service dispatcher's own record of each
+  state-modifying action it completes, queued and signed once 50 have
+  gathered; `convert_contract`'s attestation of a contract it deployed,
+  with `conversion.auto_deploy` on; the real-estate routes' attestations,
+  with `services.real_estate.enabled` set; and 13 actions of Neo's
+  blockchain tools `eas`, `agent_identity`, `identity`,
+  `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`,
+  `securities` and `supply_chain`, each signed when it is called.
+  `docs/blockchain.md` lists every path by file and function, and the
+  callers that reach the same code and sign nothing.
+
+Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 
@@ -415,9 +450,9 @@ observe-only mode, and it deliberately tells you nothing else. Which check
 failed is in the log against the request id, because a readiness endpoint that
 announces what is not enforcing is telling whoever asks where to push.
 
-**Get platform status**
+**Get platform status** (it needs the API key; `/health` and `/ready` do not)
 ```bash
-curl http://localhost:18790/status
+curl http://localhost:18790/status -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 **Run an example script**
@@ -434,9 +469,10 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                                          ↓
                                                               Jarvis · Ultron · Friday
                                                               Vision · Trajectory · Morpheus
-                                                              Rexhepi · Glasswing · Omega
+                                                              Rexhepi · Glasswing
+                                                              (Omega: built, never called)
                                                                          ↓
-                                                              50+ Blockchain Services
+                                                              45 Blockchain Services
                                                               200+ Platform Actions
 ```
 
@@ -444,7 +480,7 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
 
 ## Example Scripts
 
-All examples live in `examples/` and run against Base Sepolia testnet.
+All examples live in `examples/`. Each calls the platform's services, through the dispatcher or, for example 07, directly; a step reaches Base Sepolia only through the RPC and keys in `matrix.config.json`, and example 05 completes with no chain configured.
 
 | Script | Description |
 |---|---|
@@ -452,9 +488,9 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 | `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
 | `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
-| `05_marketplace_flow.py` | List, buy, and escrow a marketplace transaction |
-| `06_eas_attestation_chain.py` | Every action creates a verifiable on-chain attestation record |
-| `07_revenue_to_neosafe.py` | Platform fee routing and tracking to the NeoSafe multisig wallet |
+| `05_marketplace_flow.py` | List, search and buy: the sale is recorded with its fee split; no escrow, and nothing moves on chain |
+| `06_eas_attestation_chain.py` | Writing EAS attestations, batching them and verifying one |
+| `07_revenue_to_neosafe.py` | Recording fees against the NeoSafe multisig wallet with `NeoSafeRouter`, which it calls directly; the gateway does not call it yet |
 | `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
 | `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
 
@@ -462,7 +498,7 @@ All examples live in `examples/` and run against Base Sepolia testnet.
 
 ## Protocol Stack
 
-The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every user interaction passes through these protocols before a response is produced.
+The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. Every turn reaches Jarvis, Friday and Vision, which can add to what the model is given before it is called, and Jarvis adjusts the reply's voice before it goes out. Outcome Learning adds the patterns it has learned on a turn whose request matches a known action. Trajectory, Ultron, the Morpheus Triggers and the Rexhepi Gate run only on a tool call: each call the model makes is scored by the Rexhepi Gate before it is dispatched and, if the gate lets it run, assessed by the other three, and Outcome Learning then records its outcome when the call reports one. A turn with no tool call does not reach them. Omega is built and never called.
 
 **Jarvis** — Identity foundation. Handles agent personality persistence, voice consistency, memory integration, and structured planning that feeds into the ReAct loop.
 
@@ -478,11 +514,11 @@ The protocol stack gives Neo, Trinity, and Morpheus their cognitive abilities. E
 
 **Morpheus Triggers** — Determines when Morpheus appears. Activates before irreversible actions, significant events, and high-stakes moments.
 
-**Rexhepi Gate** — The execution gate. Every agent decision passes through the Unified Rexhepi Framework before it reaches the user.
+**Rexhepi Gate** — The execution gate. Every tool call an agent makes is scored by the Unified Rexhepi Framework before it is dispatched, and only an EXECUTE outcome lets it run. The agent's reply to the user does not pass through it.
 
-**Omega** — The synthesis layer. Combines all protocol outputs into a single unified agent response — the orchestration brain.
+**Omega** — A synthesis layer (`runtime/protocols/omega.py`) written to run Jarvis, Ultron, Vision, Friday, the Morpheus triggers and the Rexhepi Gate in sequence and merge what they return into one response. Nothing calls it. The protocol stack constructs an `OmegaMind` and counts it among the protocols it loaded, but the ReAct loop calls only the stack's `pre_process`, `pre_action`, `post_action` and `post_process`, and the reply the user gets is the model's, not Omega's.
 
-**Protocol Stack (Integration)** — Wires all protocols into the agent runtime. The single entry point that the ReAct loop calls on every turn.
+**Protocol Stack (Integration)** — Wires the protocols above, Omega apart, into the agent runtime. The single entry point that the ReAct loop calls on every turn.
 
 ---
 
@@ -520,6 +556,9 @@ launch:
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.
+  Caddy's admin API is off; its container healthcheck asks a plain-HTTP
+  listener bound to the container's own loopback (port 2020, never
+  published) instead.
 - **Kubernetes manifests** — `k8s/` has a ready-to-`kubectl apply`
   stack: namespace, configmap, secret template, PVC, deployment with
   liveness / readiness / startup probes, service, and ingress.
@@ -550,34 +589,10 @@ deploy (`./scripts/ops.sh preflight`) and the deploy commands themselves.
 
 ## Sponsors
 
-The Matrix is free and open source because of the people who sponsor it.
-Sponsorship keeps the free tier free forever.
-
-[Become a Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
-
-| Tier | Monthly | What You Get |
-|------|---------|--------------|
-| Community Supporter | $5 | Name in CONTRIBUTORS.md |
-| Platform Backer | $25 | Name + link in README, Discord access |
-| Builder | $100 | Logo in README, priority issues, roadmap influence |
-| Infrastructure Partner | $500 | Logo on landing page, dedicated Slack, quarterly calls |
-| Founding Sponsor | $2,500 | Everything above + white-label rights, press mentions |
-
-**Corporate sponsors:** See [Open Collective](https://opencollective.com/the-matrix) for invoiced tiers with tax receipts.
-
-### Founding Sponsors
-
-*Your logo here* — [Become a Founding Sponsor](https://github.com/sponsors/ItsDardanRexhepi)
-
-### Infrastructure Partners
-
-*Your logo here* — [Become an Infrastructure Partner](https://github.com/sponsors/ItsDardanRexhepi)
-
-### Builders
-
-*Your logo here* — [Become a Builder](https://github.com/sponsors/ItsDardanRexhepi)
-
-See `SPONSORS.md` for the full sponsor list.
+There is no way to sponsor The Matrix yet. GitHub Sponsors is not set up for
+my account, and the project has no Open Collective, so nothing here links to
+either. There are no sponsor tiers, perks or channels to offer, and no
+sponsors. `SPONSORS.md` says the same.
 
 ---
 
@@ -636,9 +651,14 @@ The gateway serves a built-in web interface:
 
 ## Glasswing Security Badges
 
-Projects that pass a Glasswing audit can display a verifiable security
-badge backed by on-chain EAS attestation. Badges are embeddable,
-independently verifiable, and expire after one year (renewable).
+`POST /badge/issue` audits a contract's source with Glasswing and, on a
+pass, records a security badge with a page (`/badge/{badge_id}`), a status
+endpoint and an embed snippet. No EAS attestation is written for a badge
+yet, so the gateway that issued it is the only place to check one. The
+registry at `/badges` is public, but the badge page, its status, its embed
+and `/badge/widget.js` are not in the gateway's public set: with an API key
+set, a visitor without the key is answered 401 on each. A badge expires
+after one year; `BadgeManager` has a renewal method, but no route calls it.
 
 See `/glasswing` for the badge registry.
 
@@ -654,7 +674,12 @@ See `/learn` for details or browse the open source content in `education/`.
 
 ## Get Certified
 
-Professional certifications backed by on-chain attestations:
+The gateway runs three certification exams (`GET /certification/tracks`,
+`POST /certification/start`, `POST /certification/submit`). A passing score
+records a certificate with an ID that `GET /certification/{cert_id}` looks
+up. No on-chain attestation is written for a certificate yet, and the
+gateway takes no payment for an exam; the prices are the ones the tracks
+list:
 
 - **Certified Developer** ($149) — Plugins, SDK, deploying what the pipeline generates
 - **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis
@@ -664,7 +689,11 @@ Professional certifications backed by on-chain attestations:
 
 ## Plugin Development
 
-Build and sell plugins for The Matrix. Developers keep 90% of revenue.
+Build plugins for The Matrix. The marketplace quotes paid plugins with a
+90/10 split, 90% to the developer (`PLATFORM_COMMISSION` in
+`runtime/marketplace/plugin_store.py`), but a paid plugin cannot be bought
+yet: nothing on this server records a paid purchase, takes a payment or pays
+a developer. A free plugin is recorded as owned when it is bought.
 
 ```bash
 # See the example plugin
@@ -674,7 +703,9 @@ cat runtime/plugins/example_plugin.py
 cat docs/PLUGIN_DEVELOPMENT.md
 ```
 
-Submit plugins at `/marketplace` or via `POST /marketplace/plugins/submit`.
+Submit a plugin with `POST /marketplace/plugins/submit`. A submission is
+stored as pending; nothing here reviews or approves one yet, so it does not
+appear in the listing.
 
 ---
 
@@ -695,9 +726,6 @@ const response = await client.chat('What can you do?');
 ## Contributing
 
 See `CONTRIBUTING.md` for the open contribution model.
-
-Community builders: share your referral link to earn free subscription
-months. Generate your code at `/pricing` or via `POST /referral/generate`.
 
 ---
 
