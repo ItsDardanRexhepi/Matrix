@@ -108,7 +108,11 @@ curl http://localhost:18790/health        # {"status": "ok", ...}
 Need to add a notification channel later (Telegram, Discord, Slack, SMS,
 Email, WhatsApp, iOS push, webhook)? The setup can send each channel a test
 message; nothing in the gateway sends to them yet (no event is wired to the
-dispatcher).
+dispatcher). A channel calls itself configured only when every credential it
+needs is filled in with something that is not still the placeholder the
+example config ships: a config left holding the example's `YOUR_APNS_KEY_ID`
+reports the iOS push channel as unconfigured, not as ready. The one exception
+is the in-gateway web chat channel, which has no credential to fill in at all.
 
 ```bash
 python3 setup_communications.py           # interactive menu
@@ -182,7 +186,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,546 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,581 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
