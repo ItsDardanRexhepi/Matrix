@@ -1,7 +1,8 @@
 # Migration
 
-Bring data and agents you already have into The Matrix. There are ten
-importers in two groups. They run from the command line; no agent or gateway
+Bring agents you already have into The Matrix, and copy wallet and on-chain
+data from other platforms into local JSON files. There are ten importers in
+two groups. They run from the command line; no agent or gateway
 route calls them.
 
 ## Wallet and on-chain data

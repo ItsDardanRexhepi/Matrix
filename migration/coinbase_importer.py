@@ -72,9 +72,13 @@ def parse_coinbase_csv(filepath: Path) -> list[Transaction]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import Coinbase transaction history into The Matrix")
+    parser = argparse.ArgumentParser(description=(
+        "Read a Coinbase CSV export and write its transactions to "
+        "imported/coinbase/transactions.json (--output changes the directory). "
+        "Nothing is written into the gateway's database."))
     parser.add_argument("--input", required=True, help="Path to Coinbase CSV export")
-    parser.add_argument("--output", default="imported/coinbase", help="Output directory")
+    parser.add_argument("--output", default="imported/coinbase",
+                        help="Directory transactions.json is written to (default: imported/coinbase)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
