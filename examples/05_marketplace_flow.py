@@ -66,47 +66,42 @@ async def main():
     # ── Step 1: List item on marketplace ────────────────────────────
     step(1, "Seller lists a smart contract template on the marketplace...")
 
+    title = "Production-Ready ERC-20 Token Template"
+    price = 0.05
     listing_id = None
     try:
         result = await dispatcher.execute(
             action="list_marketplace",
             params={
                 "seller": seller,
-                "title": "Production-Ready ERC-20 Token Template",
-                "description": (
+                "item_type": "digital",
+                "price": price,
+                "metadata": {
+                    "title": title,
+                    "description": (
                     "Gas-optimised ERC-20 with permit, snapshot, and pausable. "
                     "Audited by Morpheus. Includes deployment scripts."
-                ),
-                "category": "smart_contract_template",
-                "price_eth": 0.05,
-                "currency": "ETH",
-                "asset_type": "digital",
-                "metadata": {
+                    ),
                     "language": "solidity",
                     "version": "0.8.24",
-                    "audit_status": "passed",
                     "features": ["EIP-2612 Permit", "Snapshots", "Pausable", "Ownable"],
-                    "lines_of_code": 280,
                 },
-                "duration_days": 30,
             },
         )
         data = json.loads(result)
-        if data.get("status") == "ok":
-            listing = data["result"]
-            listing_id = listing.get("listing_id", listing.get("id", "N/A"))
+        if data.get("status") == "ok" and data["result"].get("status") == "active":
+            listing_id = data["result"]["listing_id"]
             ok(f"Listing created: {listing_id}")
-            ok(f"Title: Production-Ready ERC-20 Token Template")
-            ok(f"Price: 0.05 ETH")
+            ok(f"Title: {title}")
+            ok(f"Price: {price}")
             ok(f"Seller: {seller[:12]}...")
-            if listing.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{listing['tx_hash']}")
+        elif data.get("status") == "ok":
+            warn(f"Listing not active: {data['result'].get('status')} "
+                 f"({data['result'].get('compliance', {}).get('reason', 'N/A')})")
         else:
-            warn(f"Listing: {data.get('error', 'check config')}")
-            listing_id = "demo-listing-001"
+            warn(f"Listing: {data.get('error', 'N/A')}")
     except Exception as e:
         warn(f"Listing: {e}")
-        listing_id = "demo-listing-001"
 
     # ── Step 2: Search marketplace ──────────────────────────────────
     step(2, "Buyer searches the marketplace...")
@@ -114,92 +109,70 @@ async def main():
     try:
         result = await dispatcher.execute(
             action="search_marketplace",
-            params={
-                "query": "ERC-20 template",
-                "category": "smart_contract_template",
-                "max_price_eth": 0.1,
-                "sort_by": "relevance",
-            },
+            params={"query": {"item_type": "digital", "keyword": "ERC-20", "max_price": 0.1}},
         )
         data = json.loads(result)
         if data.get("status") == "ok":
-            results = data["result"]
-            if isinstance(results, list):
-                ok(f"Found {len(results)} matching listings")
-            elif isinstance(results, dict):
-                items = results.get("items", results.get("listings", []))
-                ok(f"Found {len(items)} matching listings")
-            ok(f"Top result: Production-Ready ERC-20 Token Template")
+            found = data["result"]
+            ok(f"Found {len(found)} listing(s)")
+            for item in found[:3]:
+                ok(f"  {item['listing_id']}: {item['metadata'].get('title', 'N/A')} at {item['price']}")
         else:
             warn(f"Search: {data.get('error', 'N/A')}")
     except Exception as e:
         warn(f"Search: {e}")
 
-    # ── Step 3: View listing details ────────────────────────────────
-    step(3, "Buyer views listing details...")
+    # ── Step 3: Get listing details ─────────────────────────────────
+    step(3, "Buyer views the listing...")
 
-    try:
-        result = await dispatcher.execute(
-            action="get_listing",
-            params={"listing_id": listing_id},
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            listing = data["result"]
-            ok(f"Title: {listing.get('title', 'ERC-20 Token Template')}")
-            ok(f"Price: {listing.get('price_eth', 0.05)} ETH")
-            ok(f"Seller: {listing.get('seller', seller)[:16]}...")
-            ok(f"Status: {listing.get('status', 'active')}")
-        else:
-            warn(f"Listing details: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Listing details: {e}")
+    if listing_id is None:
+        warn("No listing was created, so there is nothing to view or buy.")
+    else:
+        try:
+            result = await dispatcher.execute(action="get_listing", params={"listing_id": listing_id})
+            data = json.loads(result)
+            if data.get("status") == "ok":
+                ok(f"Status: {data['result'].get('status', 'N/A')}")
+            else:
+                warn(f"Listing details: {data.get('error', 'N/A')}")
+        except Exception as e:
+            warn(f"Listing details: {e}")
 
     # ── Step 4: Buy item ────────────────────────────────────────────
-    step(4, "Buyer purchases item...")
+    step(4, "Buyer buys the item...")
     print(f"  {DIM}The service records the sale; no payment or asset moves on chain.{RESET}")
 
-    try:
-        result = await dispatcher.execute(
-            action="buy_marketplace",
-            params={
-                "listing_id": listing_id,
-                "buyer": buyer,
-                "payment_amount_eth": 0.05,
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            purchase = data["result"]
-            ok(f"Purchase completed!")
-            ok(f"Order ID: {purchase.get('order_id', purchase.get('id', 'N/A'))}")
-            ok(f"Buyer: {buyer[:12]}...")
-            ok(f"Payment: 0.05 ETH")
-            if purchase.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{purchase['tx_hash']}")
-        else:
-            warn(f"Purchase: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Purchase: {e}")
+    sale = None
+    if listing_id is not None:
+        try:
+            result = await dispatcher.execute(
+                action="buy_marketplace",
+                params={"listing_id": listing_id, "buyer": buyer},
+            )
+            data = json.loads(result)
+            if data.get("status") == "ok":
+                sale = data["result"]
+                ok(f"Sale recorded: {sale['sale_id']}")
+                ok(f"Buyer: {buyer[:12]}...")
+            else:
+                warn(f"Purchase: {data.get('error', 'N/A')}")
+        except Exception as e:
+            warn(f"Purchase: {e}")
 
     # ── Step 5: Show the fee split the sale record carries ──────────
     step(5, "The sale's fee split")
 
-    platform_fee_bps = config.get("services", {}).get("marketplace", {}).get("platform_fee_bps", 500)
-    platform_fee_pct = platform_fee_bps / 100
-
-    sale_price = 0.05
-    platform_fee = sale_price * (platform_fee_bps / 10000)
-    seller_receives = sale_price - platform_fee
-
-    print(f"\n  {BOLD}Fee split:{RESET}")
-    print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Sale price:            {sale_price:.4f} ETH")
-    print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH  (not sent anywhere)")
-    print(f"  Seller receives:       {seller_receives:.4f} ETH")
-    print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Asset:                 recorded as sold; not transferred on chain")
-    print(f"  {DIM}{'─' * 45}{RESET}")
+    if sale is None:
+        warn("No sale was recorded, so there is no fee split to show.")
+    else:
+        print(f"\n  {BOLD}Fee split, as the sale record states it:{RESET}")
+        print(f"  {DIM}{'─' * 45}{RESET}")
+        print(f"  Sale price:            {sale['price']}")
+        print(f"  Platform fee:          {sale['platform_fee']}  (owed to {sale['platform_wallet']}; not sent)")
+        print(f"  Seller is owed:        {sale['seller_proceeds']}")
+        print(f"  {DIM}{'─' * 45}{RESET}")
+        print(f"  Asset:                 recorded as sold; not transferred on chain")
+        print(f"  {DIM}{'─' * 45}{RESET}")
 
     print(f"""
 {GREEN}{BOLD}{'=' * 60}
@@ -211,7 +184,7 @@ async def main():
     2. search_marketplace  - Buyer discovers items
     3. get_listing         - View listing details
     4. buy_marketplace     - Records the sale
-    5. (fee split)         - The fee split, computed here
+    5. (fee split)         - The fee split the sale record carries
 
   {BOLD}Key features:{RESET}
     - A sale is a record: no escrow, and no payment or asset

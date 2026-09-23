@@ -56,7 +56,7 @@ will print a warning and continue with the remaining steps.
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
-| 05 | `05_marketplace_flow.py` | List item, search, buy via atomic escrow, fee split | 24 |
+| 05 | `05_marketplace_flow.py` | List, search, view and buy; the sale is recorded with its fee split (no escrow, nothing moves on chain) | 24 |
 | 06 | `06_eas_attestation_chain.py` | Writing EAS attestations, batching them, verifying one | 8 |
 | 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |

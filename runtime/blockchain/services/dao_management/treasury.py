@@ -8,7 +8,8 @@ Fee schedule on treasury operations:
 - 10,000-100,000 : 0.50 %
 - > 100,000  : 0.25 %
 
-Fees are routed to the ``platform_wallet`` defined in config.
+Each deposit record names the ``platform_wallet`` from config as the fee
+recipient; nothing sends the fee there.
 """
 
 import logging

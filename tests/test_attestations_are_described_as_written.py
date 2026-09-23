@@ -50,12 +50,13 @@ _BADGE_ATTESTED = re.compile(
     r"badge[^.\n]*(backed by|recorded as|is an?|via) (an? )?(on-chain )?(EAS )?attestation",
     re.IGNORECASE)
 _FEES_REACH_NEOSAFE = re.compile(
-    r"(all|every) (platform )?(fees?|revenue|payments?)[^.\n]{0,40}\b(route[sd]?|flows?|go(es)?|reach(es)?)\b"
+    r"(all|every) (platform |referral )?(fees?|revenue|payments?)[^.\n]{0,40}\b(route[sd]?|flows?|go(es)?|reach(es)?)\b"
     r"[^.\n]{0,30}NeoSafe|single point of revenue collection"
     r"|(fee|revenue)s? (is |are )?(deducted and )?routed to NeoSafe|fee routing to NeoSafe"
     r"|->\s*NeoSafe|goes to NeoSafe automatically|confirms all platform fees"
     r"|\broute to (the )?NeoSafe|\bfees? (will )?(be )?(route[sd]?|routed) (to|on-chain)"
-    r"|not routed on-chain|\b[Ff]ee rout(ed|ing)\b",
+    r"|not routed on-chain|\b[Ff]ee rout(ed|ing)\b|\b[Ff]ees? (are |is )?routed to\b"
+    r"|collects these referral fees",
     re.IGNORECASE)
 _ATTESTATION_CERTIFIES_AUDIT = re.compile(
     r"on-chain record that certifies|attestation (that |which )?certifies|proof of audit"
