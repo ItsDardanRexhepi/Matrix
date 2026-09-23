@@ -164,6 +164,24 @@ def test_no_ownership_store_exists_yet():
     )
 
 
+def _armed():
+    """An NFTService with the key set and a chain that is "available" but
+    answers no read, on a web3 double of its OWN. `NFTService` holds the
+    process-wide shared Web3Manager; arming that instance in place leaked an
+    "available" chain whose every value is a real address into every later
+    test in the run (test_p4_ripple, test_nft_refusal_not_indexed)."""
+    import types
+
+    def _no_chain(*_a, **_k):
+        raise RuntimeError("no chain in this test")
+
+    svc = NFTService({})
+    svc._web3 = types.SimpleNamespace(
+        available=True, is_placeholder=lambda _value: False, load_contract=_no_chain)
+    svc._nft_contract = "0x" + "c0" * 20
+    return svc
+
+
 def _the_seven(svc):
     return (
         svc.fractionalize("0xC", 1, 10, 1.0),
@@ -196,15 +214,7 @@ async def test_the_seven_say_nothing_settled_once_armed():
     read fails (so fractionalize's owner check reads nothing and does not
     refuse). Every one must answer `recorded_unsettled` with `settled: False`
     — the header's table, driven."""
-    svc = NFTService({})
-    svc._web3.available = True
-    svc._web3.is_placeholder = lambda _value: False
-    svc._nft_contract = "0x" + "c0" * 20
-
-    def _no_chain(*_a, **_k):
-        raise RuntimeError("no chain in this test")
-
-    svc._web3.load_contract = _no_chain
+    svc = _armed()
     for coro in _the_seven(svc):
         record = await coro
         assert record["status"] == "recorded_unsettled", record
@@ -228,15 +238,7 @@ async def test_the_header_table_says_what_each_method_returns():
         "royalty_claim", "bridge_nft", "dynamic_update",
     }, rows
 
-    svc = NFTService({})
-    svc._web3.available = True
-    svc._web3.is_placeholder = lambda _value: False
-    svc._nft_contract = "0x" + "c0" * 20
-
-    def _no_chain(*_a, **_k):
-        raise RuntimeError("no chain in this test")
-
-    svc._web3.load_contract = _no_chain
+    svc = _armed()
     calls = dict(zip(
         ("fractionalize", "rent", "batch_mint", "royalty_claim", "bridge_nft",
          "mint_soulbound", "dynamic_update"),
