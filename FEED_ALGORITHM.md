@@ -7,9 +7,17 @@ stop matching the code.
 
 > **v1 is transparent, weighted, config-tunable scoring.**
 > **There is no machine learning and no per-user model anywhere.** The only
-> personalization is the viewer's own follow set — a signal they control directly by
-> following/unfollowing. Any future "engagement learning" is a separate proposal
-> requiring explicit sign-off, not part of this system.
+> personalization is the viewer's own follow set. Any future "engagement learning"
+> is a separate proposal requiring explicit sign-off, not part of this system.
+
+> **What the viewer cannot yet do: take a follow back.** The set the ranker reads is
+> the social profile's `following` list, written by the `social_follow` action. No
+> action removes an edge from it. `POST /social/unfollow` does delete an edge, but
+> from a different store (`social_follows`) that the ranker never reads. So the
+> personalization signal is currently add-only from the viewer's side. The ranker is
+> symmetric and stateless — the gap is in the follow graph behind it — but an
+> operator should know it before telling anyone the feed is under the viewer's
+> control.
 
 ## Where it runs
 
@@ -86,7 +94,7 @@ explainably, with no retraining.
 | `comment_weight` | `2.0` | a comment counts as this many likes in engagement |
 | `engagement_ceiling` | `4.0` | max engagement term — the anti-domination cap |
 | `discovery_cap_fraction` | `0.20` | max share of a page from non-followed authors |
-| `max_posts_per_author` | `3` | max slots one author may occupy on a page (every mode) |
+| `max_posts_per_author` | `3` | max slots one author may occupy on a ranked page |
 
 ## Guardrails
 
@@ -97,22 +105,37 @@ explainably, with no retraining.
   of a page comes from non-followed authors. When followed content can't fill the page,
   the page is **shorter** — it is *never* backfilled with strangers. This is what stops
   a flood of high-engagement non-followed posts from taking over a feed. The excess is
-  not destroyed; a larger page / future paginated call surfaces it.
-- **Author diversity (no single-account takeover).** A hard cap in *every* mode,
-  including cold-start: no single author may occupy more than `max_posts_per_author`
-  slots on a page. This stops one account — viral or spamming — from owning a page
-  even when there is no follow signal to lean on (a brand-new viewer). It bounds
-  per-account dominance; it does **not** solve distinct-account (Sybil) collusion,
-  which is an identity-layer concern a ranker cannot fix — an honest limitation, not
-  a silent one.
+  not destroyed; a **larger page size** surfaces more of it. There is no pagination —
+  `rank_for_you` takes no offset and no caller supplies one — so the excess does not
+  arrive on a "next page", and this spec used to say it did.
+- **Author diversity (no single-account takeover).** A hard cap on *every ranked
+  page* — `for_you` and cold-start alike: no single author may occupy more than
+  `max_posts_per_author` slots. This stops one account — viral or spamming — from
+  owning a page even when there is no follow signal to lean on (a brand-new viewer).
+  It does **not** apply to the chronological `latest` tab, which is not a ranked page;
+  capping that would hide posts from an author the viewer deliberately followed. This
+  spec used to claim "every mode", which read as covering `latest` too, and nothing
+  bounds a single author there but the viewer's own follow set.
 - **Cold-start (new users).** A viewer who follows no one gets an all-discovery feed
   ranked by recency + engagement (the follow-based discovery cap is lifted —
   everything is discovery), still **author-diversity-capped** so no single account
   dominates, and bounded by the requested page size. As they follow people, affinity
   takes over.
+- **Non-numeric weights are refused, not absorbed.** `FeedWeights.validate()` checks
+  that every knob is a *finite* number before it checks its range. `NaN` — which
+  Python's json parser accepts as a literal — answers `False` to every `< 0` /
+  `<= 0` / `< 1` comparison, so it used to pass validation and then quietly switch a
+  guardrail off: `min(raw, NaN)` returns `raw`, removing the engagement ceiling, and
+  a `NaN` author cap made the cap check `False`, disabling author diversity inside
+  For You. Infinity did the same by flattening every score. Both are now a
+  `ValueError` the operator sees, which routes to the honest fallback below.
 - **Honest fallback.** If ranking cannot run (e.g. a misconfigured weight), `get_feed`
   logs and returns the chronological **Latest** feed — it never 500s and never
-  fabricates a ranked order or a score.
+  fabricates a ranked order or a score. That feed comes from `feed_ranker.latest()`
+  itself, the same function the Latest tab uses, so there is one chronological order
+  in the platform (newest first, ties broken by post id) rather than two that can
+  drift. Fallback items carry no `_rank_score` or `_rank_breakdown`; ranked items
+  carry both, so a caller can tell which one it received from the item itself.
 
 ## Performance
 
