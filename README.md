@@ -480,7 +480,7 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
 
 ## Example Scripts
 
-All examples live in `examples/` and run against Base Sepolia testnet.
+All examples live in `examples/`. Each calls the platform's services, through the dispatcher or, for example 07, directly; a step reaches Base Sepolia only through the RPC and keys in `matrix.config.json`, and example 05 completes with no chain configured.
 
 | Script | Description |
 |---|---|

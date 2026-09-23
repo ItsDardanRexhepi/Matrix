@@ -74,7 +74,8 @@ class TreasuryManager:
     ) -> dict:
         """Deposit funds into a DAO treasury.
 
-        A tiered fee is deducted and sent to the platform wallet.
+        A tiered fee is deducted from the amount and recorded with the
+        platform wallet named as its recipient; nothing is sent.
         """
         if amount <= 0:
             raise ValueError("Deposit amount must be positive")

@@ -1,6 +1,6 @@
 # The Matrix End-to-End Examples
 
-Runnable scripts that prove the platform works on-chain (Base Sepolia).
+Runnable scripts that walk the platform's services. A step reaches the chain (Base Sepolia) only through the RPC and keys in `matrix.config.json`; example 05 completes with no chain configured.
 
 ## Prerequisites
 

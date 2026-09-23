@@ -56,7 +56,8 @@ _FEES_REACH_NEOSAFE = re.compile(
     r"|->\s*NeoSafe|goes to NeoSafe automatically|confirms all platform fees"
     r"|\broute to (the )?NeoSafe|\bfees? (will )?(be )?(route[sd]?|routed) (to|on-chain)"
     r"|not routed on-chain|\b[Ff]ee rout(ed|ing)\b|\b[Ff]ees? (are |is )?routed to\b"
-    r"|collects these referral fees",
+    r"|collects these referral fees|\ball referral fees\b|sent to the platform wallet"
+    r"|deducted and sent|\bautomated [a-z ]*revenue collection",
     re.IGNORECASE)
 _ATTESTATION_CERTIFIES_AUDIT = re.compile(
     r"on-chain record that certifies|attestation (that |which )?certifies|proof of audit"

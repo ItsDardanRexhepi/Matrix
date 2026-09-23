@@ -1,4 +1,4 @@
-"""Protocol Referral Fees -- automated DeFi integrator revenue collection.
+"""Protocol Referral Fees -- the DeFi referral programmes and their parameters.
 
 Many DeFi protocols (Uniswap, Aave, 1inch, etc.) pay a percentage of
 transaction fees to integrators who route volume through them.  This is

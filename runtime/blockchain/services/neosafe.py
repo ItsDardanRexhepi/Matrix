@@ -140,16 +140,17 @@ class NeoSafeRouter:
             no receipt in time-> "pending", carrying the hash: not a refusal and
                                  not a failure, and not attested
 
-        When the platform is not configured for live execution the routing is
-        queued in-memory and ``status='queued'`` is returned.
+        When the platform is not configured for live execution the entry is
+        recorded in the in-memory ledger and ``status='queued'`` is returned;
+        nothing sends a recorded entry later.
         """
         if amount_eth <= 0:
             return {"status": "skipped", "reason": "non-positive amount"}
 
         if not self._web3.available:
             logger.info(
-                "Revenue routing queued: %.6f ETH from %s "
-                "(blockchain not configured)",
+                "Revenue recorded, not sent: %.6f ETH from %s "
+                "(blockchain not configured; nothing sends it later)",
                 amount_eth, source_action,
             )
             self._ledger.append({
@@ -163,8 +164,8 @@ class NeoSafeRouter:
             return {
                 "status": "queued",
                 "message": (
-                    "Revenue routing queued — will execute when blockchain "
-                    "is configured"
+                    "Revenue recorded in the ledger, not sent: no blockchain is "
+                    "configured, and nothing sends a recorded entry later"
                 ),
                 "amount_eth": amount_eth,
                 "source": source_action,

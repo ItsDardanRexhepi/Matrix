@@ -20,11 +20,12 @@ flow that routes every platform fee to it (see examples/README.md).
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 
-NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
-``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
-``status='queued'``. Once the chain is live, the same call will execute
-the actual transfer and EAS attestation. Deploying the contracts is covered
-in contracts/DEPLOYMENT_GUIDE.md.
+NOTE: When the blockchain is not configured (``rpc_url`` empty),
+``NeoSafeRouter.route_revenue`` records the entry in its in-memory ledger
+and returns ``status='queued'``; nothing sends a recorded entry later. With
+a chain configured, the same call sends the ETH and attests once the
+transfer is mined. Deploying the contracts is covered in
+contracts/DEPLOYMENT_GUIDE.md.
 
 Usage:
     python examples/07_revenue_to_neosafe.py

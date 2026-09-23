@@ -191,8 +191,10 @@ async def main():
       moves on chain
     - The platform fee is recorded on the sale, owed to the
       marketplace's platform wallet; nothing sends it there
-    - The service dispatcher queues an attestation for a sale it
-      completes, written to the chain once 50 have gathered
+    - When blockchain.eas_schema is a well-formed bytes32 UID (the code
+      checks the form, not that it is registered), the service dispatcher
+      queues an attestation for a sale it completes, written to the chain
+      once 50 have gathered; otherwise the attempt is logged and dropped
 
   {BOLD}Services used:{RESET}
     - Marketplace (Component 24)

@@ -75,8 +75,8 @@ async def execute(source_code: str = "", contract_name: str = "Unknown", **kwarg
     lines.append(("\n" if report.findings else "") + report.summary)
 
     if not report.passed:
-        # This platform does not deploy contracts (smart_contracts.py answers
-        # "deploy" with not_implemented), so this is advice to whoever will.
+        # The agent's deploy tool is not implemented and nothing deploys the
+        # source audited here, so this is advice to whoever will.
         lines.append(
             "\n**Do not deploy this contract yet.** It has not passed the audit; "
             "the summary above says why."
