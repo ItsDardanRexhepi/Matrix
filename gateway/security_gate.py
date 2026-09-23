@@ -1,22 +1,37 @@
 """Gateway security gate — the thin call site that routes every privileged /
 fund-moving HTTP action through the Morpheus contract.
 
-This is a BOUNDARY caller, not an implementation. It contains NO security logic:
-no thresholds, no spend caps, no destination allowlists, no detection signals, no
-sanitizer patterns, no owner/OTP internals. It only:
+This is a BOUNDARY caller, not an implementation. The exclusions hold and are
+what "no security logic" is worth saying about: no thresholds, no spend caps,
+no destination allowlists, no detection signals, no sanitizer patterns, no
+owner/OTP internals. It does three things:
 
   1. carries the per-request security CONTEXT (the caller's identity + the client's
-     App Attest assertion) from the HTTP entry point to each gate call site, and
+     App Attest assertion) from the HTTP entry point to each gate call site,
   2. calls ``get_morpheus_security().evaluate(action, context)`` via the public
-     security seam (``runtime.security``).
+     security seam (``runtime.security``), and
+  3. WHEN THAT SEAM CANNOT BE REACHED, decides for itself. This used to be
+     written as a two-item "It only:" list, and the third item is the one that
+     matters most: with no ``evaluate()`` result in hand, ``gate_action`` asks
+     ``runtime.access_policy`` whether the action could move value and on yes
+     returns a BINDING fail-closed deny — ``is_blocked`` reads it as a deny and
+     the call sites 403 on it. That is a decision made here, in public code.
 
-The decision — allow / deny / classification — is made entirely inside the private
-``morpheus_security`` package. When that package is not installed the seam is an inert
-OBSERVE no-op and this gate allows everything (the platform still boots).
+On the ordinary path the decision — allow / deny / classification — is made
+entirely inside the private ``morpheus_security`` package. When that package is
+not installed the seam is an inert OBSERVE no-op and this gate allows
+everything (the platform still boots); item 3 is about the seam FAULTING, not
+about it being absent.
 
 The one piece of routing metadata here, ``action_type_for``, maps a public service
-method name to a generic action label so the gate can classify it; it is NOT a list
-of which actions are privileged (that classification lives only in the private gate).
+method name to a generic action label so the gate can classify it. It is not a list
+of which actions are privileged. That does not make the classification private:
+``runtime/access_policy.py`` holds a public, code-enforced floor — the
+``could_move_value`` / ``operation_could_move_value`` pair, fail-closed on any
+verb it does not recognise — which drives the deny in item 3 and real denials
+for Trinity and Morpheus. access_policy says it plainly: the private policy
+supersedes this floor when it is installed. The authoritative classification is
+private; a floor is not.
 """
 
 from __future__ import annotations
@@ -98,11 +113,20 @@ async def gate_action(
 ) -> dict:
     """Run one action through the Morpheus gate and return its decision dict.
 
-    Pure contract call: builds ``{action_type, type, parameters}`` and the context,
-    then calls the process-wide gate via the public seam. If the seam can't be
-    reached or the gate faults, returns an OBSERVE allow — the gate itself
-    fail-closes the money path internally, so a gateway-side fault never silently
-    moves funds; it only declines to add a second, redundant block here.
+    On the ordinary path this is a pure contract call: it builds
+    ``{action_type, type, parameters}`` and the context, then calls the
+    process-wide gate via the public seam.
+
+    If the seam can't be reached or the gate faults, THIS FUNCTION DECIDES.
+    The line above used to say it "returns an OBSERVE allow" and "only declines
+    to add a second, redundant block here"; both halves were stale against the
+    code below. A value-moving or unrecognised action gets a binding
+    ``{"allow": False, "route": "fail-closed"}`` that callers turn into a 403 —
+    nothing moves value while the gate is unreachable — and a clearly-benign
+    read observe-allows, so a transient fault does not break it. The coarse
+    public label (and the ``(service, method)`` pair when the caller knows one)
+    is the only input; the authoritative classification still lives in the
+    private gate.
     """
     ctx = dict(context) if context is not None else current_request_security()
     action = {
