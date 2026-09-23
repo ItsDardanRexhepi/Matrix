@@ -838,6 +838,23 @@ class ServiceRoutes:
         "get_", "list_", "fetch_", "iter_", "is_", "has_", "read_", "query_", "query",
     )
 
+    #: Reads whose VERB is not a read verb. "Reads never ripple" was false for
+    #: exactly these three, because `verify_` cannot be a blanket read prefix
+    #: (verify_milestone, verify_buyer and snapshot_vote are writes) and all
+    #: three return a dict, so the list-result guard below missed them too.
+    #: Each one reads and mutates nothing:
+    #:   attestation.verify              — EASClient.verify, an on-chain read
+    #:   supply_chain.verify_authenticity — reads _provenance, stores nothing
+    #:   did_identity.verify_credential   — vault lookup + expiry/revocation
+    #: A lookup was being announced on the public /api/v1/events/stream as an
+    #: action somebody took, carrying the id the caller had asked about.
+    #: Named as pairs, not as a prefix, so the verb stays available to writes.
+    _READ_OPERATIONS: frozenset = frozenset({
+        ("attestation", "verify"),
+        ("supply_chain", "verify_authenticity"),
+        ("did_identity", "verify_credential"),
+    })
+
     @staticmethod
     def _record_decline(service_name: str, method_name: str, result: Any,
                         *, actor: str, actor_claimed: str = "") -> None:
@@ -892,8 +909,10 @@ class ServiceRoutes:
 
         Privacy actions NEVER ripple (private_transfer / stealth / private_vote /
         confidential_compute and the privacy-backed storage legs all live on the
-        ``privacy`` service). Reads never ripple. A publish failure can never
-        break the action itself.
+        ``privacy`` service). Reads never ripple — by verb where the verb says
+        so, and by name where it does not (``_READ_OPERATIONS``, which is what
+        made this sentence true for the three `verify_*` reads that used to
+        publish). A publish failure can never break the action itself.
 
         AND A REFUSAL IS NOT AN ACTIVITY. The docstring above `_call` said an
         honest failure "raised above" and so never rippled — true of a RAISED
@@ -950,6 +969,8 @@ class ServiceRoutes:
             return
         m = method_name.lower()
         if any(m == p or m.startswith(p) for p in self._READ_PREFIXES):
+            return
+        if (service_name, method_name) in self._READ_OPERATIONS:
             return
         # create_post already emits a richer ``social.post`` event — don't double.
         if service_name == "social" and method_name == "create_post":
