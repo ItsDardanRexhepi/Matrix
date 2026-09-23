@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,507 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,521 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -203,7 +203,8 @@ What works today, no chain required:
   anonymous caller has none. A wallet address has one spelling wherever
   the platform names a caller (`0x` and its digits in lower case,
   `runtime/auth/identity.py`), so a wallet that signs in with its address
-  in another case is still the same caller
+  in another case is still the same caller, and the gateway starts the
+  security core's gate only when the core names a caller by the same rule
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 50+ blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
@@ -527,7 +528,8 @@ launch:
   `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
   gateway refuses to start on the no-op security backend, and refuses
   to start when the security core is installed but its gate cannot be
-  built or cannot load its saved state at startup. The gate is built
+  built or cannot load its saved state at startup, or when the core does
+  not name a caller the way the platform does. The gate is built
   once, by the gateway, from its whole configuration. Outside production
   a gate that did not come up leaves the gateway running and not ready,
   and the platform hands no caller a gate and asks no other policy in its

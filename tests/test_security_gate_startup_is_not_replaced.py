@@ -139,9 +139,17 @@ class _Backend:
 
 
 @pytest.fixture(autouse=True)
-def _release_the_host():
+def _release_the_host(monkeypatch):
     """A refused start never reaches the gateway's cleanup, so the declaration
-    it made would outlive this test. Release it either way."""
+    it made would outlive this test. Release it either way.
+
+    The doubles here stand in for the whole backend, and every one of them
+    names a caller the way the platform does: whether a backend does is
+    tests/test_security_core_names_a_caller_as_the_platform_does.py's subject,
+    not this file's."""
+    from runtime.auth.identity import canonical_identity
+
+    monkeypatch.setattr(seam, "_backend_canonical_identity", canonical_identity, raising=False)
     seam.release_security_gate()
     yield
     seam.release_security_gate()

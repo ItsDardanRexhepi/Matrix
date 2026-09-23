@@ -42,6 +42,15 @@ try:
         get_app_attest_verifier,
     )
 
+    # The rule the core names a caller by (see "One spelling for a caller"
+    # below). Imported on its own: a core that does not export it is still an
+    # installed core and must not fall back to the no-op; the host declines to
+    # start its gate instead.
+    try:
+        from morpheus_security import canonical_identity as _backend_canonical_identity  # type: ignore
+    except ImportError:
+        _backend_canonical_identity = None
+
     SECURITY_BACKEND = "morpheus_security"
     logger.info("Security backend: morpheus_security (real enforcement available)")
 
@@ -64,6 +73,9 @@ except (ImportError, ModuleNotFoundError):
     # remove itself.
     SECURITY_BACKEND = "noop"
     _private_agent_access = None
+    # The no-op records nothing about any caller; it names a caller the
+    # platform's way.
+    from runtime.auth.identity import canonical_identity as _backend_canonical_identity
     logger.warning(
         "Security backend: noop. The private morpheus_security package is not "
         "installed; the platform runs with security in OBSERVE (no enforcement). "
@@ -203,13 +215,17 @@ class SecurityGateUnavailable(RuntimeError):
 class SecurityGateStartFailed(SecurityGateUnavailable):
     """The host's start of the gate failed.
 
-    ``stage`` names the step: ``"construct"`` or ``"initialize"``. ``gate`` is
-    the gate object when it was built and did not finish loading (the host
-    keeps writing back whatever it comes to hold), and None otherwise.
+    ``stage`` names the step: ``"identity"`` (the backend does not name a
+    caller the way the platform does, so nothing was built), ``"construct"``
+    or ``"initialize"``. ``gate`` is the gate object when it was built and did
+    not finish loading (the host keeps writing back whatever it comes to
+    hold), and None otherwise.
     """
 
+    _STEP = {"identity": "name a caller the way the platform does"}
+
     def __init__(self, stage: str, cause: BaseException, gate: Any = None) -> None:
-        super().__init__(f"the security gate failed to {stage}: {cause}")
+        super().__init__(f"the security gate failed to {self._STEP.get(stage, stage)}: {cause}")
         self.stage = stage
         self.gate = gate
 
@@ -237,20 +253,77 @@ def get_morpheus_security(config: dict[str, Any] | None = None) -> MorpheusSecur
     return _backend_get_gate(config)
 
 
+# ── One spelling for a caller, on both sides of the seam ─────────────────
+#
+# The platform names a caller in one spelling (runtime/auth/identity.py) and
+# hands the seam that spelling. The core keeps records about callers and
+# compares the caller it is handed against them. If it named a caller any
+# other way, a record it holds under another spelling of the same wallet would
+# match no caller the platform hands it, so the platform settling on one
+# spelling would make that record bind for nobody. The core therefore names a
+# caller by the same rule, exported as ``canonical_identity``, and before the
+# host starts the gate it checks that the rule the backend exports gives the
+# platform's answer for every spelling below. A backend that exports no rule,
+# or another one, is not started: the start fails at stage "identity" and is
+# handled like any other failed start (production refuses to start; elsewhere
+# the gate is withheld and every request it would decide is refused). How the
+# core applies the rule to what it holds is the core's.
+
+_SPELLINGS = (
+    "0x" + "aB" * 20,
+    "0X" + "Ab" * 20,
+    "0x" + "AB" * 20,
+    "0x" + "ab" * 20,
+    "  0x" + "Ab" * 20 + "\n",
+    "apple:AbC",
+    "Label",
+    "0x" + "ab" * 19,
+    "",
+)
+
+
+def backend_names_callers_as_the_platform_does() -> bool:
+    """True when the installed backend exports a rule for naming a caller and
+    it gives the platform's answer (runtime/auth/identity.py) for every
+    spelling the host tries."""
+    from runtime.auth.identity import canonical_identity
+
+    rule = _backend_canonical_identity
+    if not callable(rule):
+        return False
+    try:
+        return all(rule(v) == canonical_identity(v) for v in _SPELLINGS)
+    except Exception:
+        logger.exception("the security backend's rule for naming a caller raised")
+        return False
+
+
 async def start_security_gate(config: dict[str, Any]) -> MorpheusSecurity:
     """HOST ONLY. Build the process-wide gate from the host's full config and
     load its durable state, before anything is served.
 
-    The gate is handed out only once both steps succeed. A gate that an earlier
-    caller built from its own, lesser config is dropped first, so the host's
-    gate is built from the host's config rather than adopted. On failure this
-    raises SecurityGateStartFailed, and the accessor raises from then on until
-    the host releases its declaration.
+    The gate is handed out only once both steps succeed, and neither is taken
+    unless the backend names a caller the way the platform does (above). A
+    gate that an earlier caller built from its own, lesser config is dropped
+    first, so the host's gate is built from the host's config rather than
+    adopted. On failure this raises SecurityGateStartFailed, and the accessor
+    raises from then on until the host releases its declaration.
     """
     global _host_phase, _host_gate
     _host_phase, _host_gate = _HOST_STARTING, None
     try:
         _backend_reset_gate()
+    except Exception as exc:
+        _host_phase = _HOST_FAILED
+        raise SecurityGateStartFailed("construct", exc) from exc
+    if not backend_names_callers_as_the_platform_does():
+        _host_phase = _HOST_FAILED
+        raise SecurityGateStartFailed("identity", RuntimeError(
+            "the installed security core does not export canonical_identity, or "
+            "its rule gives another spelling than runtime/auth/identity.py, so a "
+            "record it holds about a caller could match no caller the platform "
+            "names"))
+    try:
         gate = _backend_get_gate(config)
     except Exception as exc:
         _host_phase = _HOST_FAILED
@@ -348,5 +421,6 @@ __all__ = [
     "start_security_gate",
     "security_gate_state",
     "security_gate_withheld",
+    "backend_names_callers_as_the_platform_does",
     "release_security_gate",
 ]

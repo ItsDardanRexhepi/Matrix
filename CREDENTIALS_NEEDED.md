@@ -106,8 +106,13 @@ you set in this repository.
   backend, and names the cause. The readiness probe (`GET /ready`) fails on it
   too, as a second line of defence.
 - With the core installed, the gateway builds the security gate at startup and
-  loads its saved state before it serves. If either step fails, a production
-  gateway refuses to start and names the cause; any other gateway runs with
+  loads its saved state before it serves, and first checks that the core names a
+  caller the way the platform does (`runtime/auth/identity.py`; the core exports
+  its rule as `canonical_identity`). A core that does not is not started: what it
+  holds about a caller under another spelling of the same wallet would bind for
+  nobody once the platform names that caller in one spelling. If any of these
+  steps fails, a production gateway refuses to start and names the cause; any
+  other gateway runs with
   `GET /ready` failing, and no request is handed a gate, or decided by
   another policy, in its place: every request the gate would decide is
   refused, reads included, and so is every agent tool call. A gate that did

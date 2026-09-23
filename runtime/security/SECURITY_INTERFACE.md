@@ -43,6 +43,16 @@ owners, or sanitizes — are **not in this repository** and never will be.
   hand-off's gate, and the `wallet` bound for every gated HTTP action all use
   it, so one wallet signing in with its address in another case is one
   caller, not several.
+- The core names a caller by the same rule, and exports it as
+  `canonical_identity`. Before the gateway starts the gate,
+  `start_security_gate` checks that the installed backend's rule gives the
+  platform's answer for a set of spellings; a core that exports no rule, or
+  another one, is not started (stage `"identity"`), and the start is handled
+  like any other failed start. Without that, whatever the core holds about a
+  caller under another spelling of the same wallet would match no caller the
+  platform hands it. How the core applies the rule to what it holds is the
+  core's. The no-op backend holds nothing about any caller and uses the
+  platform's rule.
 - OTP / owner-verification services are obtained the same way
   (`from runtime.security import OTPService, OwnerVerification`) and back the
   `/security/...` endpoints and the bridge approval gate.
