@@ -42,10 +42,10 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Token Swap | Swap any token for another at the best rate | Free | POST /api/v1/dex/swap | Uniswap V3, Curve, Balancer |
+| Token Swap | Swap one token for another through the DEX service's in-memory pools, on the best of the direct and bridge-token routes | Free | POST /api/v1/dex/swap | The service's own pools (no Uniswap, Curve or Balancer integration) |
 | Swap Route | Get the optimal swap route across DEXs | Free | POST /api/v1/defi/swap/route | Uniswap V3, Curve, 1inch |
 | Swap Execute | Execute a pre-computed swap route | Free | POST /api/v1/defi/swap/execute | Uniswap V3, Curve, 1inch |
-| Liquidity Add | Add liquidity to a DEX pool | Free | POST /api/v1/dex/liquidity/add | Uniswap V3, Curve |
+| Liquidity Add | Add liquidity to one of the DEX service's in-memory pools | Free | POST /api/v1/dex/liquidity/add | The service's own pools (no Uniswap or Curve integration) |
 | Create Loan | Create a collateralised DeFi loan | Free | POST /api/v1/defi/loan/create | Aave V3, Compound V3 |
 | Repay Loan | Repay an outstanding DeFi loan | Free | POST /api/v1/defi/loan/repay | Aave V3, Compound V3 |
 

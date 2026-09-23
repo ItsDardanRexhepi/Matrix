@@ -1,12 +1,19 @@
 """
 DEXService — native decentralized exchange for the Matrix platform.
 
-Uniswap wrapper with native constant-product AMM fallback.
+Swaps route through the service's own in-memory constant-product pools
+(LiquidityPoolManager, SwapRouter). There is no Uniswap integration:
+``dex.uniswap_enabled`` is read and nothing uses it. ``swap`` answers
+not_deployed unless a chain and ``dex.router_contract`` are configured, and
+past that check it still executes against the in-memory pools and signs no
+transaction.
 
 Fees: the platform takes no swap fee, but every pool hop deducts its fee tier
-from the input (LiquidityPoolManager, default 0.3%) and the fee stays in the
-pool. Quotes and trades report that as ``user_fee`` and the platform's share as
-``platform_fee`` (always 0.0).
+from that hop's input (LiquidityPoolManager, default 0.3%) and the fee stays in
+the pool. Quotes and trades report it per hop as ``pool_fees`` — one entry per
+pool, with the pool id, the token the fee is in (that hop's input token) and the
+amount — and the platform's share as ``platform_fee`` (always 0.0). On a routed
+swap the hops' fees are in different tokens, so there is no single total.
 """
 
 from __future__ import annotations
@@ -17,7 +24,7 @@ import uuid
 from typing import Any
 
 from runtime.blockchain.services.dex.pools import LiquidityPoolManager
-from runtime.blockchain.services.dex.router import SwapRouter
+from runtime.blockchain.services.dex.router import SwapRouter, _hop_fee
 from runtime.blockchain.web3_manager import Web3Manager, not_deployed_response
 
 logger = logging.getLogger(__name__)
@@ -132,10 +139,12 @@ class DEXService:
         # Execute the swap along the route
         current_amount = amount_in
         executed_pools = []
+        pool_fees = []
 
         for i, pool_id in enumerate(route["pools"]):
             hop_token_in = route["route"][i]
             result = self._pools.execute_swap(pool_id, hop_token_in, current_amount)
+            pool_fees.append(_hop_fee(pool_id, hop_token_in, result))
             current_amount = result["amount_out"]
             executed_pools.append({
                 "pool_id": pool_id,
@@ -166,9 +175,9 @@ class DEXService:
             "route": route["route"],
             "hops": route["hops"],
             "slippage_tolerance": slippage,
-            # The pools' fee, deducted from the input at each hop (in each
-            # hop's input token) and kept by the pool; the platform takes none.
-            "user_fee": route.get("total_fees", 0.0),
+            # Each pool's fee, deducted from that hop's input and kept by the
+            # pool, in that hop's input token; the platform takes none.
+            "pool_fees": pool_fees,
             "platform_fee": 0.0,
             "executed_at": int(time.time()),
             "status": "confirmed",
@@ -176,9 +185,9 @@ class DEXService:
 
         self._trades.append(trade)
         logger.info(
-            "Swap executed: trader=%s %s %.6f %s -> %.6f %s (pool fees %.6f, platform fee 0)",
+            "Swap executed: trader=%s %s %.6f %s -> %.6f %s (pool fees %s, platform fee 0)",
             trader, token_in, amount_in, token_out, actual_output, token_out,
-            route.get("total_fees", 0.0),
+            ", ".join(f"{f['amount']:.6f} {f['token']}" for f in pool_fees),
         )
         return trade
 
@@ -212,7 +221,7 @@ class DEXService:
             "price_impact_pct": route["price_impact_pct"],
             "route": route["route"],
             "hops": route["hops"],
-            "user_fee": route.get("total_fees", 0.0),
+            "pool_fees": route["fees"],
             "platform_fee": 0.0,
             "available": True,
             "warning": route.get("warning"),

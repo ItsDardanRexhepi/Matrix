@@ -92,7 +92,7 @@ The `stablecoin` agent tool's transfer (`runtime/blockchain/stablecoins.py`) sen
 
 | Operation | Fee | Source |
 |---|---|---|
-| Token swap through the service's pools (`swap_tokens`, `get_swap_quote`) | 0.3% of the input at each pool hop by default, kept by the pool; the platform takes none, and quotes and trades report it as `user_fee` | `runtime/blockchain/services/dex/pools.py` (`dex.default_fee_tier`) |
+| Token swap through the service's pools (`swap_tokens`, `get_swap_quote`) | 0.3% of each hop's input by default, kept by the pool; the platform takes none. Quotes and trades report it per hop as `pool_fees`, each entry in that hop's input token, so a routed swap has one fee per token it passes through and no single total | `runtime/blockchain/services/dex/pools.py` (`dex.default_fee_tier`) |
 
 ### Quoted, not collected
 

@@ -304,10 +304,46 @@ async def test_dex_quote_reports_the_pool_fee_it_deducts():
     dex = DEXService({})
     await dex.add_liquidity("0xlp", "AAA", "BBB", 1_000_000.0, 1_000_000.0)
     quote = await dex.get_quote("AAA", "BBB", 1_000.0)
-    route = await dex.router.find_best_route("AAA", "BBB", 1_000.0)
-    assert route["total_fees"] > 0
-    assert quote["user_fee"] == route["total_fees"], quote
+    pool = dex.pools.get_pool_by_pair("AAA", "BBB")
+    assert quote["pool_fees"] == [{"pool_id": pool["pool_id"], "token": "AAA",
+                                   "amount": 1_000.0 * pool["fee_pct"]}], quote
+    assert quote["pool_fees"][0]["amount"] > 0
     assert quote["platform_fee"] == 0.0, quote
+
+
+async def test_a_multi_hop_swap_reports_each_pool_fee_in_its_own_token():
+    """Each hop deducts its fee from that hop's input, so the fees of a routed
+    swap are in different tokens. The quote and the trade reported their sum as
+    one `user_fee` (1000 TOKA through the two pools below: 3.0 TOKA plus about
+    0.003 WETH, reported as about 3.003 of nothing). They report one fee per
+    hop, each with its token."""
+    from runtime.blockchain.services.dex.service import DEXService
+
+    dex = DEXService({})
+    await dex.add_liquidity("0xlp", "TOKA", "WETH", 1_000_000.0, 1_000.0)
+    # Named in the pools' own (sorted) order: DEXService.add_liquidity does not
+    # reorder the amounts when it sorts the pair.
+    await dex.add_liquidity("0xlp", "TOKB", "WETH", 1_000_000.0, 1_000.0)
+    quote = await dex.get_quote("TOKA", "TOKB", 1_000.0)
+    assert quote["hops"] == 2 and quote["route"] == ["TOKA", "WETH", "TOKB"], quote
+    assert "user_fee" not in quote, "a sum of fees in different tokens is not a fee"
+    assert [f["token"] for f in quote["pool_fees"]] == ["TOKA", "WETH"], quote
+    first, second = quote["pool_fees"]
+    rate = dex.pools.get_pool_by_pair("TOKA", "WETH")["fee_pct"]
+    assert first["amount"] == 1_000.0 * rate, first
+    # The second hop's fee is a fraction of the ~1 WETH the first hop gave.
+    assert second["token"] == "WETH" and 0 < second["amount"] < 0.01, second
+
+    # swap() answers not_deployed without a chain and a router contract; past
+    # that gate it executes against the same in-memory pools.
+    import types
+    dex._web3 = types.SimpleNamespace(available=True, is_placeholder=lambda _v: False)
+    trade = await dex.swap("0xtrader", "TOKA", "TOKB", 1_000.0, slippage=5.0)
+    assert trade["status"] == "confirmed", trade
+    assert "user_fee" not in trade
+    assert [f["token"] for f in trade["pool_fees"]] == ["TOKA", "WETH"], trade
+    assert trade["pool_fees"] == quote["pool_fees"], (trade, quote)
+    assert trade["platform_fee"] == 0.0
 
 
 def _pct(rate: float) -> str:
