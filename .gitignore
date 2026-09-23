@@ -56,6 +56,17 @@ openmatrix.config.json
 # Deploy and demo artifacts
 demo_deployment.json
 deployment_manifest.json
+# What the scripts write into the tree (tests/test_script_outputs_are_ignored.py
+# derives these from the scripts): scripts/deploy_all.py's cache of each
+# compiled contract's ABI and bytecode, scripts/verify_platform.py's report on
+# a deployment, and scripts/prepare_release.py's manifest, which names the
+# private files it found, and its export, a copy of the public tree.
+/artifacts/
+/platform_health_report.json
+/RELEASE_MANIFEST.md
+/export/
+# npm install next to a package.json (sdk-js/)
+node_modules/
 
 # Private internal documents
 private/
