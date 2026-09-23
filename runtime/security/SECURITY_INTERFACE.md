@@ -15,8 +15,11 @@ owners, or sanitizes — are **not in this repository** and never will be.
   refuses to start; elsewhere `get_morpheus_security()` raises
   `SecurityGateUnavailable` instead of building a lesser gate for whoever asks
   next, every caller treats that as a gate fault (an action that moves value is
-  refused), and `/ready` fails. With no gateway running (a script, the CLI) the
-  accessor builds the gate on first use, as before.
+  refused), and `/ready` fails. While the gate is starting or after its start
+  failed, `agent_access_allowed` refuses every tool call and asks no policy in
+  the gate's place. With no gateway running (a script, the CLI) the accessor
+  builds the gate on first use, and the tool boundary asks the policy, as
+  before.
 - A security gate is obtained via `from runtime.security import get_morpheus_security`
   and consulted **first** in
   `runtime/protocols/integration.py::ProtocolStack.pre_action`, ahead of

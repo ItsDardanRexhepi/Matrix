@@ -187,8 +187,12 @@ CALLER_IDENTITY_KEY = "wallet_address"
 # While the host is starting it, and after the host's start failed, the accessor
 # raises SecurityGateUnavailable instead of building a lesser gate. Every caller
 # already treats a raise as a gate fault: a value-moving action is refused, not
-# run ungated. With no host (a script, the CLI, a test that boots no gateway)
-# the accessor behaves as it always has.
+# run ungated. The per-agent tool boundary (agent_access_allowed) follows the
+# same rule: while the host's gate is not up it refuses every tool call and
+# asks no policy in the gate's place, so no decision about a caller is made
+# through the seam while the host's gate is down. With no host (a script, the
+# CLI, a test that boots no gateway) the accessor and the boundary behave as
+# they always have.
 
 class SecurityGateUnavailable(RuntimeError):
     """The process-wide gate is not up: its host is still starting it, or its
@@ -210,6 +214,7 @@ class SecurityGateStartFailed(SecurityGateUnavailable):
 
 
 _HOST_NONE, _HOST_STARTING, _HOST_UP, _HOST_FAILED = "none", "starting", "up", "failed"
+_GATE_NOT_UP_REFUSAL = "The security gate is not available, so no tool can run."
 _host_phase: str = _HOST_NONE
 _host_gate: Any = None
 
@@ -297,7 +302,16 @@ def agent_access_allowed(
 
     On any internal error, falls back to the public default (the boundary still
     holds — it never fails open).
+
+    While a host has declared the gate and it is not up (still starting, or
+    its start failed), every call is refused and neither policy is asked. A
+    decision about this caller belongs with the gate; with no gate to hand
+    out, nothing is asked in its place, as the accessor above hands out no
+    other gate. With no host (a script, the CLI) the policy decides as it
+    always has.
     """
+    if _host_phase in (_HOST_STARTING, _HOST_FAILED):
+        return False, _GATE_NOT_UP_REFUSAL
     if _private_agent_access is not None:
         try:
             verdict = _private_agent_access(agent, tool, action, context)

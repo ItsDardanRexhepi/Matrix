@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,497 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,501 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -528,12 +528,14 @@ launch:
   gateway refuses to start on the no-op security backend, and refuses
   to start when the security core is installed but its gate cannot be
   built or cannot load its saved state at startup. The gate is built
-  once, by the gateway, from its whole configuration; outside production
+  once, by the gateway, from its whole configuration. Outside production
   a gate that did not come up leaves the gateway running and not ready,
-  and no request is handed a lesser gate in its place: an action that
-  moves value is refused. The `Dockerfile` installs only the public
-  requirements, so a production image needs the separately installed
-  security core as well (`CREDENTIALS_NEEDED.md`, section 5).
+  and the platform hands no caller a gate and asks no other policy in its
+  place: an action that moves value is refused, and so is every agent
+  tool call, until a gateway starts with the gate up. The `Dockerfile`
+  installs only the public requirements, so a production image needs the
+  separately installed security core as well (`CREDENTIALS_NEEDED.md`,
+  section 5).
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.

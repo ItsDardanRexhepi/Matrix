@@ -36,6 +36,11 @@ THE CLASS, AND THE AXES CLOSED HERE
                                         actions are refused, not run ungated)
   (e') the host adopting a gate someone else built earlier -> the host builds
                                         its own from its own config
+  (f) the agent-tool boundary while the gate is not up -> every tool call is
+                                        refused, and neither the installed
+                                        backend's policy nor the public default
+                                        is asked in the gate's place; with the
+                                        gate up, or no host, the policy decides
 
 The test doubles below stand in for the backend's accessor. Nothing here says
 how the core decides anything; it pins what the host and the seam do when the
@@ -48,6 +53,13 @@ seven failed on the behaviour: no refusal in production, /ready 200 after a
 failed start, no write-back loop, and the host adopting a gate built before it.
 After the change, 8 passed. The same on the no-op backend and with the core
 installed.
+
+(f), measured against 117cf8f, the tree that made the seam refuse to hand out
+a gate after a failed start: 3 failed and 1 passed. The one that
+passed is the scope pin (a healthy start and no host still ask the policy).
+The three failed on the behaviour: the boundary answered (True, '') after a
+failed start and while the gate was starting, having asked the policy. After
+the change, all 12 in this file passed, on both backends.
 """
 
 from __future__ import annotations
@@ -280,3 +292,111 @@ async def test_the_host_does_not_adopt_a_gate_built_before_it_started(monkeypatc
         assert server._morpheus is not early
         assert "db" in server._morpheus.config
         assert seam.get_morpheus_security() is server._morpheus
+
+
+# ── (f) the tool boundary: nothing stands in for the gate ─────────────────
+
+
+class _PolicyRecorder:
+    """Stands in for the installed backend's per-agent policy; records each ask."""
+
+    def __init__(self):
+        self.asked: list[tuple] = []
+
+    def __call__(self, agent, tool, action=None, context=None):
+        self.asked.append((agent, tool, action, dict(context or {})))
+        return {"allowed": True, "reason": ""}
+
+
+def _dispatcher_with_stub():
+    from runtime.tools.dispatcher import ToolDispatcher
+
+    d = ToolDispatcher({})
+    ran: list[str] = []
+
+    async def stub(query: str = "", **extra):
+        ran.append(query)
+        return "ok"
+
+    d._tools["web_search"] = stub
+    return d, ran
+
+
+@pytest.mark.parametrize("fault", ["construct", "initialize"])
+async def test_after_a_failed_start_every_tool_call_is_refused_and_no_policy_stands_in(
+        monkeypatch, fault):
+    """(f): the per-agent tool boundary is a decision about who is calling, and
+    it belongs with the gate. With the host's gate not up, it is refused on
+    every tool call, and neither the backend's policy nor the public default is
+    asked in its place: either would be a decision made without the gate."""
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    backend = _Backend(fail_construct=fault == "construct",
+                       fail_initialize=fault == "initialize")
+    _install(monkeypatch, backend)
+    policy = _PolicyRecorder()
+    monkeypatch.setattr(seam, "_private_agent_access", policy)
+    import runtime.access_policy as public_policy
+    public_asked: list[tuple] = []
+    monkeypatch.setattr(public_policy, "default_agent_access",
+                        lambda *a, **k: public_asked.append(a) or (True, ""))
+    server = _server()
+
+    async with TestClient(TestServer(server.create_app())) as client:
+        assert (await client.get("/ready")).status == 503
+        allowed, reason = seam.agent_access_allowed(
+            "trinity", "web_search", None, context={seam.CALLER_IDENTITY_KEY: "0x" + "b" * 40})
+        assert allowed is False and reason, (allowed, reason)
+
+        d, ran = _dispatcher_with_stub()
+        for agent, kind in (("neo", "operator"), ("trinity", "session"), ("trinity", "")):
+            out = await d.dispatch("web_search", {"query": "q"}, agent_name=agent,
+                                   caller_identity="0x" + "b" * 40, caller_source="agent",
+                                   caller_kind=kind)
+            assert not out.ok and out.code == "denied", (agent, kind, out.model_text)
+        assert ran == [], "a tool ran with the gate not up"
+
+    assert policy.asked == [], f"the backend's policy was asked without the gate: {policy.asked}"
+    assert public_asked == [], "the public default stood in for the gate"
+    assert len(backend.builds) == 1, backend.builds
+
+
+async def test_while_the_gate_is_starting_a_tool_call_is_refused(monkeypatch):
+    """(f), the other phase: between the host declaring the gate and the gate
+    finishing its load, the boundary refuses as well."""
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    policy = _PolicyRecorder()
+    monkeypatch.setattr(seam, "_private_agent_access", policy)
+    seen: list[tuple] = []
+
+    class _SlowGate(_FakeGate):
+        async def initialize(self):
+            seen.append(seam.agent_access_allowed("trinity", "web_search"))
+
+    monkeypatch.setattr(seam, "_backend_get_gate", lambda config=None: _SlowGate(config))
+    monkeypatch.setattr(seam, "_backend_reset_gate", lambda: None)
+    await seam.start_security_gate({"db": object()})
+    assert len(seen) == 1 and seen[0][0] is False, seen
+    assert policy.asked == []
+    assert seam.agent_access_allowed("trinity", "web_search")[0] is True
+    assert len(policy.asked) == 1
+
+
+async def test_with_the_gate_up_or_no_host_the_policy_decides(monkeypatch):
+    """SCOPE PIN: a healthy start, and a process with no host (a script, the
+    CLI), ask the policy exactly as before; nothing is refused wholesale."""
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    policy = _PolicyRecorder()
+    monkeypatch.setattr(seam, "_private_agent_access", policy)
+
+    assert seam.agent_access_allowed("trinity", "web_search")[0] is True   # no host
+    _install(monkeypatch, _Backend())
+    server = _server()
+    async with TestClient(TestServer(server.create_app())) as client:
+        assert (await client.get("/ready")).status == 200
+        d, ran = _dispatcher_with_stub()
+        out = await d.dispatch("web_search", {"query": "q"}, agent_name="trinity",
+                               caller_identity="0x" + "b" * 40, caller_source="agent",
+                               caller_kind="session")
+        assert out.ok, out.model_text
+        assert ran == ["q"]
+    assert len(policy.asked) == 3, policy.asked

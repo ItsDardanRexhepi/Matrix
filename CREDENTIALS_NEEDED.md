@@ -108,8 +108,9 @@ you set in this repository.
 - With the core installed, the gateway builds the security gate at startup and
   loads its saved state before it serves. If either step fails, a production
   gateway refuses to start and names the cause; any other gateway runs with
-  `GET /ready` failing, and no request is handed a gate in its place, so an
-  action that moves value is refused rather than run ungated. `docker-compose.prod.yml` and
+  `GET /ready` failing, and no request is handed a gate, or decided by
+  another policy, in its place: an action that moves value is refused rather
+  than run ungated, and so is every agent tool call. `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core
