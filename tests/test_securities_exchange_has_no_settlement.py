@@ -5,8 +5,9 @@ takes only `config` and holds `_order_books`, `_orders`, `_trades`. It has **no
 reference to the service's `_balances`**. The matching engine is therefore
 incapable of transferring what it matches — not "not yet wired", but structurally
 unable. And a grep across all five files for payment/settle/escrow/debit/credit
-returns only the word "accredited". **There is no consideration leg anywhere in
-this domain**, which is what forecloses delegating to one.
+finds, in code, the word "accredited" and the fields and text that say nothing
+settled — no payment. **There is no consideration leg anywhere in this
+domain**, which is what forecloses delegating to one.
 
 Three defects followed from that, all reproduced before the fix:
 

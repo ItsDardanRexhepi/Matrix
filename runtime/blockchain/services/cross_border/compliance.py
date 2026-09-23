@@ -129,10 +129,12 @@ class ComplianceScaffold:
         # config `cross_border.sanctions_list`, which is EMPTY in the shipped
         # deployment (measured: len 0), so the branch runs and can never match.
         #
-        # NOT UNREACHABLE — UNFED. That distinction matters: the sibling
-        # controls in this method genuinely enforce (a 50,000 transfer is
-        # refused on the reporting threshold, driven), so this is ONE control
-        # configured to catch nothing, not a dead compliance module.
+        # NOT UNREACHABLE — UNFED. That distinction matters: a sibling control
+        # in this method genuinely enforces (a 50,000 transfer from a sender
+        # with no recorded verification is refused, driven, by the KYC branch
+        # below; the reporting threshold only flags, and approves), so this is
+        # ONE control configured to catch nothing, not a dead compliance
+        # module.
         #
         # A CONTROL THAT REPORTS ENABLED AND CANNOT MATCH IS WORSE THAN ONE
         # THAT REPORTS DISABLED: it produces the paperwork of screening without

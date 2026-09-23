@@ -171,7 +171,15 @@ class DeletionExecutor:
         return _offline("verify_deletion", request_id)
 
     async def get_execution_status(self, request_id: str) -> dict:
-        """Report that no execution exists — which is now always the truth.
+        """Report that no execution exists, and flag a stored record without
+        relaying it.
+
+        "No execution exists" is the answer whenever nothing is stored, which
+        is every request under NEW-38. The second branch is for a record that
+        should not be there: it is reported as PRESENT and flagged, and its
+        claims are not repeated (why is below). This summary used to claim that
+        absence was the only answer this method could give, over a branch that
+        reports presence.
 
         The first version of this kept the old relay branch, reasoning that
         "`_executions` can no longer be populated by this class, so

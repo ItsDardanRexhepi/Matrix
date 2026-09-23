@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-The platform pays gas for everything. Paymaster sponsorship is the default for every state-modifying capability below, so end users never hold or spend native tokens to transact. Read-only capabilities don't touch a chain and are free to call.
+Gas: the platform pays for the transactions it signs, and sponsors user operations within the policy and per-identity daily cap its operator configures. Some capabilities instead prepare an unsigned transaction for your own wallet to sign (advanced governance, auctions), and your wallet pays that gas. Read-only capabilities don't touch a chain and are free to call.
 
 ---
 
@@ -149,12 +149,12 @@ The sections below organise every capability by its high-level category. Older c
 | Create DID (expanded) | Create a DID with extended method support | Free | POST /api/v1/identity/did/create | DID:matrix, DID:ethr |
 | Update DID | Update a DID document | Free | via capability registry | DID:matrix |
 | Deactivate DID | Deactivate a DID | Free | via capability registry | DID:matrix |
-| Issue Credential | Issue a verifiable credential to a subject | Free | POST /api/v1/identity/credential/issue | W3C VC, EAS |
-| Verify Credential | Verify the validity of a credential | Free | POST /api/v1/identity/credential/verify | W3C VC, EAS |
+| Issue Credential | Issue a credential to a subject, held in the gateway's memory; its proof is a digest the gateway records, not a signature | Free | POST /api/v1/identity/credential/issue | shaped after W3C VC |
+| Verify Credential | Check a credential the gateway issued, by its id: present, unexpired, unrevoked | Free | POST /api/v1/identity/credential/verify | shaped after W3C VC |
 | Reputation Query | Query aggregated on-chain reputation for an agent | Free | via capability registry | custom |
 | Start KYC | Start a KYC session with the configured provider | Free | via capability registry | Sumsub, Persona |
-| Check AML Risk | Screen an address for AML risk | Free | via capability registry | Sumsub, Persona |
-| Issue KYC Credential | Issue a KYC-verified credential after approval | Free | via capability registry | W3C VC |
+| Check AML Risk | Fetch the provider's review for a KYC applicant and say whether a sanctions screen ran (a Persona response is fetched and not graded) | Free | via capability registry | Sumsub |
+| Issue KYC Credential | Attest onto a wallet that a named applicant's provider review answered GREEN with a screen (the applicant is not tied to the wallet) | Free | via capability registry | EAS |
 | Register / Update / Deregister Agent | Manage an AI agent identity | Free | via capability registry | custom |
 | Create / Revoke / Batch Attest | On-chain attestations | Free | via capability registry | EAS |
 | Attestation Verify | Verify an on-chain attestation by UID | Free | GET /api/v1/attestation/verify/{uid} | EAS |

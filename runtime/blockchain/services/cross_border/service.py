@@ -18,6 +18,25 @@ from runtime.blockchain.services.cross_border.compliance import ComplianceScaffo
 logger = logging.getLogger(__name__)
 
 
+def _rate_provenance(source: Any) -> dict[str, Any]:
+    """Where a rate came from, in the three fields a reader needs to weigh it.
+
+    One function for the quote and the payment record, so the two cannot
+    disagree about which sources are market prices (14-A)."""
+    rate_source = source or "unknown"
+    rate_is_market = rate_source not in ("fallback", "unknown")
+    return {
+        "rate_source": rate_source,
+        "rate_is_market": rate_is_market,
+        "rate_disclosure": (
+            None if rate_is_market else
+            "INDICATIVE ONLY — this rate came from a built-in fallback "
+            "table, not a live market feed. No oracle covers this currency "
+            "pair in this deployment. Do not rely on it as a quoted price."
+        ),
+    }
+
+
 class CrossBorderService:
     """Main cross-border payment service.
 
@@ -78,15 +97,21 @@ class CrossBorderService:
 
             compliance        real corridor/threshold/sanctions evaluation
                               that can and does halt the operation
-            exchange_rate     a real rate, oracle-first with a declared
-                              fallback table
+            exchange_rate     oracle-first, and otherwise a constant from the
+                              fallback table — which is every fiat corridor
+                              under the shipped config — carried with its
+                              source (rate_source / rate_is_market)
             converted_amount  a real conversion of the net amount
             fee_amount        real tiered fee arithmetic
             attestation       a real EAS call
 
         So this is category 6 (real-local-defective), not category 4: the
         guards and the arithmetic are genuine and the CUSTODY CLAIM was the
-        only fabricated part. Removing the method would destroy working
+        fabricated part. Not the only one, which this used to say: the record
+        also presented a fallback-table constant as its `exchange_rate` and
+        dropped the source `convert` reported, the defect get_quote already
+        fixed for quotes (14-A). The record carries the source now, the same
+        three fields a quote does. Removing the method would destroy working
         compliance and pricing. Renaming the outcome preserves them.
 
         Contrast ``remit``, which has none of the above: strip its claim and
@@ -170,6 +195,7 @@ class CrossBorderService:
             "converted_amount": conversion_result["converted_amount"],
             "destination_currency": to_currency,
             "exchange_rate": conversion_result["rate"],
+            **_rate_provenance(conversion_result.get("source")),
             "corridor": corridor,
             "compliance": compliance_result,
             # NEW-85: was "completed". Borrowed verbatim from the x402 idiom —
@@ -179,8 +205,9 @@ class CrossBorderService:
             "settled": False,
             "value_moved": False,
             "disclosure": (
-                "NOT SETTLED. Compliance was evaluated, the FX rate and fee "
-                "are real, and this payment instruction has been RECORDED — "
+                "NOT SETTLED. Compliance was evaluated, the fee arithmetic is "
+                "real, the FX rate carries its source (rate_source), and this "
+                "payment instruction has been RECORDED — "
                 "but no value was transferred. This service holds no ledger "
                 "and makes no on-chain or payment-provider call. The sender "
                 "has not been debited and the recipient has not been credited."
@@ -224,8 +251,9 @@ class CrossBorderService:
         rate = rate_data["rate"]
 
         # DOMAIN 14-A — CARRY THE RATE'S PROVENANCE. `get_rate` already reports
-        # where the number came from ("identity" / "cache" / an oracle /
-        # "fallback"), and this method read `rate` and DISCARDED `source`, so the
+        # where the number came from ("identity" / an oracle / "fallback", and
+        # a cached rate reports where IT came from), and this method read
+        # `rate` and DISCARDED `source`, so the
         # quote presented a hardcoded cross-rate as an `exchange_rate` with
         # nothing marking it as non-market.
         #
@@ -239,9 +267,6 @@ class CrossBorderService:
         # saying it summed nothing; the APY printed 0.0 without saying no data
         # backed it; this printed a rate without saying it was unsourced. Every
         # time, the honest datum was one call up.
-        rate_source = rate_data.get("source", "unknown")
-        rate_is_market = rate_source not in ("fallback", "unknown")
-
         fee = amount * (self._fee_pct / 100.0)
         net = amount - fee
         converted = net * rate
@@ -251,14 +276,7 @@ class CrossBorderService:
             "source_currency": from_currency,
             "destination_currency": to_currency,
             "exchange_rate": rate,
-            "rate_source": rate_source,
-            "rate_is_market": rate_is_market,
-            "rate_disclosure": (
-                None if rate_is_market else
-                "INDICATIVE ONLY — this rate came from a built-in fallback "
-                "table, not a live market feed. No oracle covers this currency "
-                "pair in this deployment. Do not rely on it as a quoted price."
-            ),
+            **_rate_provenance(rate_data.get("source")),
             "fee_amount": round(fee, 6),
             "fee_pct": self._fee_pct,
             "net_source_amount": round(net, 6),

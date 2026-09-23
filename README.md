@@ -21,12 +21,12 @@ What you can do on The Matrix:
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
 - Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
-- Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
+- Hold identity credentials and present only the claim values you choose — the other fields are replaced by commitments, though their names still show — and have them checked by the gateway that issued them (their proofs are digests that gateway records, not signatures anyone else can check)
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
 - Send money anywhere in the world in seconds, with no platform fee taken from the transfer, and network gas sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
-- Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
+- List tokenized securities and place orders on a book that enforces accreditation and jurisdiction rules, wherever the offering is lawfully available to you — settlement is not built yet, so a match moves no units and no money and says so, and a purchase is refused rather than recorded as paid
 - Access parametric insurance whose claims are decided by the data it watches, with no adjuster in between — the decision is automatic and recorded against the reserve today; paying it out on-chain is the part still being built
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
 - Verify the complete history of any product, property, or asset before you buy it
@@ -186,7 +186,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,774 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,792 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
