@@ -1037,9 +1037,12 @@ class BridgeRoutes:
             # ever reached their service.
             #
             # It is fixed here rather than filed because 17-D is unreachable
-            # without it: `set_rights` always carries params, so on this path
-            # the request died before the service was called, and a caller
-            # identity threaded into a call that never happens is not a fix.
+            # without it: `set_rights` is called WITH params in every real use
+            # (a rights grant with nothing to grant is a validation error), so
+            # on this path the request died before the service was called, and
+            # a caller identity threaded into a call that never happens is not
+            # a fix. The params are the caller's, and optional — a request that
+            # omits them sends `{}` and fails validation downstream.
             # Passing by keyword so the slot cannot be misaligned again.
             #
             # ── ONE IDENTITY, NOT TWO ───────────────────────────────────────

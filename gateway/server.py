@@ -2265,9 +2265,13 @@ class GatewayServer:
                 logger.warning("Failed to start backup loop: %s", exc)
 
         # ── Initialize platform subsystems ───────────────────────────
-        # Stripe subscriptions live in MTRX iOS (Apple IAP). This backend
-        # only initializes the plugin marketplace, A2A, social, badges,
-        # certification, and professional services.
+        # Subscriptions are bought through Apple IAP in MTRX iOS; there is no
+        # Stripe billing here. The block below initializes the plugin
+        # marketplace, A2A and social; the next one badges, certification and
+        # protocol referrals. That is not everything startup does — Morpheus,
+        # the auth and backup loops, the social feed engine and the push-token
+        # store are all started in this method too — and "professional
+        # services", which this comment used to list, are initialized nowhere.
         try:
             from runtime.marketplace.plugin_store import PluginMarketplace
             from runtime.a2a.marketplace import A2AMarketplace

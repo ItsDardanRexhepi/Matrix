@@ -56,9 +56,14 @@ BATCH_ITEM_TIMEOUT_SECONDS = 20.0
 class _BatchSubRequest:
     """A minimal aiohttp.web.Request look-alike used for batch dispatch.
 
-    The real handlers only touch ``request.json()`` and
-    ``request.match_info``; we re-implement that tiny surface so we can
-    invoke them directly without spinning up an actual HTTP round trip.
+    The handlers read more than ``request.json()`` and
+    ``request.match_info``, which is all this docstring used to name: GET
+    handlers read ``request.query`` (the social feed, the real-estate reads,
+    the messaging reads), and handlers read ``request.get(...)`` for the
+    per-request state middleware sets, above all the credential the auth wall
+    accepted. Each of those is re-implemented below, so a handler invoked
+    through a batch sees what it would see directly, without an HTTP round
+    trip.
     """
 
     __slots__ = ("_body", "match_info", "headers", "method", "path", "query", "_state")
@@ -631,8 +636,13 @@ class ServiceRoutes:
                 content_type="application/json",
             )
 
-    # RUN-4: inner status -> HTTP status. Only the two values that mean "the
-    # operation did not happen" are failures.
+    # RUN-4: inner status -> HTTP status. These two values are failures by
+    # their status alone. They are not the only values that mean "the operation
+    # did not happen" — `not_deployed` means exactly that, and it is answered by
+    # `refusal_http_status` in `_ok` below, from the outcome read off the
+    # payload, rather than by membership here. This comment used to say "only
+    # the two values that mean the operation did not happen", which read as a
+    # complete list of refusals while `not_deployed` went out as HTTP 200.
     #
     # Deliberately NOT in this set: submitted, active, pending, completed,
     # verified, registered, updated, rejected, failed. Those are legitimate

@@ -20,10 +20,15 @@ Architecture
   paginated feed queries, trending aggregation, per-actor history,
   and global stats.
 
-Ingest is designed to **never block the main request path**.  The
-service dispatcher creates an ``asyncio.Task`` that calls
-``SocialFeedEngine.ingest()``; if it fails or is slow the caller
-is unaffected.
+Ingest is kept **off the main request path**: the service dispatcher
+creates an ``asyncio.Task`` that calls ``SocialFeedEngine.ingest()``, so
+the caller never awaits it and a failure in it never reaches the caller.
+That is not the same as "never blocks". The ingest's database work —
+the insert, the COUNT(*) that decides pruning, and on the first call a
+full-table seed scan — runs on the synchronous sqlite connection ON the
+event loop, under the database's write lock. While it runs, every other
+coroutine waits. It is short for a small table; it is not free, and a
+slow disk makes it everyone's latency.
 """
 
 from __future__ import annotations
