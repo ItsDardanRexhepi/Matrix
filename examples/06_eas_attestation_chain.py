@@ -273,7 +273,7 @@ async def main():
     5. verify_attestation  - Verify attestation on-chain
 
   {BOLD}Key insight:{RESET}
-    Every state-modifying action across all 221 capabilities
+    Every state-modifying action across the capability catalog
     automatically creates an EAS attestation. The ServiceDispatcher
     handles this transparently — no extra code needed.
 

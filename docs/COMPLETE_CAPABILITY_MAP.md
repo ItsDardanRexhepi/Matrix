@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-The platform pays gas for everything. Paymaster sponsorship is the default for every state-modifying capability below, so end users never hold or spend native tokens to transact. Read-only capabilities don't touch a chain and are free to call.
+Gas for the state-modifying capabilities below is sponsored by the platform paymaster within the policy the operator configures: an allowlist of actions and a per-identity daily cap (`runtime/blockchain/sponsorship.py`). Inside that policy a user spends no native token on gas; past the cap, or outside the allowlist, sponsorship is refused. An operator who configures no policy sponsors everything. Read-only capabilities don't touch a chain and are free to call.
 
 ---
 
@@ -10,7 +10,7 @@ The platform pays gas for everything. Paymaster sponsorship is the default for e
 
 The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/capabilities/catalog.py). It is the single source of truth that backs Trinity's `platform_action` tool, the gateway REST endpoints, the iOS extensions registry, and this document.
 
-- **221 capabilities** across **21 categories**, backed by **44 services** in `runtime/blockchain/services/`.
+- **195 capabilities** across **21 categories** (Security & Wallets has none yet), backed by **43 services** in `runtime/blockchain/services/`.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (`free` / `pro` / `enterprise`), `uses_paymaster` flag, `protocol` tag, and `available` flag.
 - Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them.
 

@@ -1,5 +1,5 @@
 """
-DashboardService — unified dashboard aggregating data across all 44 services / 221 capabilities of the
+DashboardService — unified dashboard aggregating data across the services of
 The Matrix platform.
 
 Activity-based visibility: only shows components the user has interacted with.

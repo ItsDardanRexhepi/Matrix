@@ -1,8 +1,8 @@
 # Blockchain
 
-## 221 Capabilities Across 21 Categories
+## 195 Capabilities Across 21 Categories
 
-The Matrix provides 221 discrete Web3 capabilities organised into 21 categories, all accessible through conversation:
+The Matrix catalogues 195 discrete Web3 capabilities in 21 categories (`runtime/capabilities/catalog.py`), all accessible through conversation:
 
 1. **Smart Contracts** — deploy, convert, templates
 2. **DeFi** — swaps, lending, yield, LP, vaults, flash loans
@@ -22,11 +22,11 @@ The Matrix provides 221 discrete Web3 capabilities organised into 21 categories,
 16. **Compute & DePIN** — Akash, Gensyn, Render, IoT device rentals, physical infrastructure
 17. **Real-world Assets** — RWA tokenization, supply chain provenance, carbon credits, green bonds
 18. **Markets** — prediction markets, auctions (Dutch/English/sealed-bid), fundraising, securities, marketplaces
-19. **Security & Wallets** — MPC, session keys, social recovery, multisig, attestations
+19. **Security & Wallets** — catalogued with no capabilities in it yet. MPC signing, session keys and social recovery are under Privacy & ZK (all three not yet available), multisig under Governance, attestations under Identity (and one under Gaming)
 20. **Gaming** — games, assets, tournaments, achievements, in-game economies
 21. **Infrastructure** — AI agents, ML models, training data
 
-Every capability routes through the platform paymaster — users never pay gas.
+Gas for state-changing capabilities is sponsored by the platform paymaster within the policy the operator configures (see Fees).
 
 ## How It Works
 
@@ -38,4 +38,4 @@ The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-val
 
 ## Fees
 
-There are none. The platform covers all blockchain transaction fees for every capability across all 21 categories — smart contracts, DeFi, NFTs, staking, restaking, identity, governance, payments, cross-chain, privacy, oracles, storage, compute, real-world assets, markets, gaming, infrastructure, and everything else. Users never pay gas on The Matrix. No exceptions. No conditions. Ever.
+Gas is sponsored by the platform paymaster **within the policy the operator configures**: an allowlist of actions and a per-identity daily cap, decided from the call data being signed (`runtime/blockchain/sponsorship.py`). Inside that policy a user pays no gas. Past the cap, or for an action the allowlist does not cover, sponsorship is refused rather than silently granted. An operator who configures no policy sponsors everything. The README's section on the Web3 capability surface says the same.

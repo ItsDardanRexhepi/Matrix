@@ -1,8 +1,9 @@
 """
 Blockchain Module — on-chain capabilities for The Matrix.
 
-All gas fees are covered by the platform via ERC-4337 paymaster.
-Users never pay gas. Every state-changing action is attested via EAS.
+Gas is sponsored by the platform's ERC-4337 paymaster within the operator's
+sponsorship policy (sponsorship.py). Every state-changing action is attested
+via EAS.
 
 This package exposes ``Web3Manager`` (and the ``not_deployed_response``
 helper) so services across the platform share a single web3 connection

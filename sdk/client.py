@@ -6,7 +6,7 @@ MatrixClient — the main SDK client for interacting with The Matrix.
 Provides sync and async methods for:
 - Chat (single message and streaming)
 - Memory operations (read/write)
-- Blockchain operations (221 capabilities across 21 categories)
+- Blockchain operations (the capability catalog: 195 capabilities in 21 categories)
 - Platform status and health checks
 - Session management
 """

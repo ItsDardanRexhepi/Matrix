@@ -10,7 +10,7 @@ The Matrix (read as "Matrix") exists to remove those barriers entirely.
 
 The Matrix is a free, open-source AI agent platform that provides blockchain infrastructure through natural conversation. Instead of writing Solidity code, you describe what you want in plain English. Instead of navigating DeFi interfaces, you chat with an AI agent that handles the complexity for you.
 
-The platform runs on **Base**, an Ethereum Layer 2 network, which means lower gas fees and faster transactions while inheriting Ethereum's security. It provides **221 blockchain capabilities** across 21 categories (DeFi, NFTs, identity, governance, social, creator economy, payments, cross-chain, staking & restaking, privacy & ZK, oracles, storage, compute & DePIN, real-world assets, markets, security, and more) -- from token deployment to DAO governance to NFT minting -- all accessible through conversation or API calls.
+The platform runs on **Base**, an Ethereum Layer 2 network, which means lower gas fees and faster transactions while inheriting Ethereum's security. It catalogues **195 blockchain capabilities** in 21 categories (DeFi, NFTs, identity, governance, social, creator economy, payments, cross-chain, staking & restaking, privacy & ZK, oracles, storage, compute & DePIN, real-world assets, markets, and more) -- from token deployment to DAO governance to NFT minting -- all accessible through conversation or API calls.
 
 ## The Three Agents
 
@@ -18,7 +18,7 @@ The Matrix is powered by three distinct AI agents, each with a specific role:
 
 ### Neo -- The Execution Engine
 
-Neo is the backbone. When a task needs to be performed -- deploying a contract, querying a balance, executing a swap -- Neo handles it. You never interact with Neo directly. Neo operates inside a ReAct (Reasoning + Acting) loop: it receives a task, reasons about the steps required, selects the appropriate tools, executes them, observes the results, and iterates until the task is complete. Neo has access to all 221 capabilities in the registry and executes them with precision.
+Neo is the backbone. When a task needs to be performed -- deploying a contract, querying a balance, executing a swap -- Neo handles it. You never interact with Neo directly. Neo operates inside a ReAct (Reasoning + Acting) loop: it receives a task, reasons about the steps required, selects the appropriate tools, executes them, observes the results, and iterates until the task is complete. Neo has access to every capability in the catalog and executes them with precision.
 
 ### Trinity -- The Conversational Interface
 
@@ -50,7 +50,7 @@ Neo (ReAct Loop)
   +---> Tool Selection
   |       |
   |       v
-  |     221 Capabilities (Base L2)
+  |     195 Capabilities (Base L2)
   |       |
   |       v
   +<--- Results
@@ -63,7 +63,7 @@ The **Gateway** is the central server. It receives requests via REST or WebSocke
 
 The **ReAct Loop** is how Neo works. For each task, Neo cycles through: Thought (what needs to happen), Action (which tool to call), Observation (what the tool returned), and repeats until the task is complete.
 
-The **221 Capabilities** are the actual blockchain operations: contract deployment, swaps, lending, NFT mints, DAOs, restaking, cross-chain messaging, privacy-preserving transfers, oracle queries, and much more. Each service is a self-contained module that Neo can invoke.
+The **195 Capabilities** are the actual blockchain operations: contract deployment, swaps, lending, NFT mints, DAOs, restaking, cross-chain messaging, privacy-preserving transfers, oracle queries, and much more. Each service is a self-contained module that Neo can invoke.
 
 ## Why This Matters
 
@@ -77,7 +77,7 @@ For developers, The Matrix provides a plugin system and SDK that lets you extend
 
 - The Matrix is a free AI agent platform for blockchain operations on Base (Ethereum L2)
 - Three agents: Neo (execution), Trinity (conversation), Morpheus (confirmation of irreversible actions)
-- 221 blockchain capabilities accessible through natural language or API, organized into 21 discoverable categories
+- 195 blockchain capabilities accessible through natural language or API, organized into 21 discoverable categories
 - The gateway runs on port 18790 and serves as the central coordination point
 - Plugin marketplace with 90/10 revenue split (developers keep 90%)
 

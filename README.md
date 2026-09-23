@@ -39,8 +39,6 @@ I genuinely hope this project changes your life the way building it has changed 
 
 I would like to personally thank every community that is part of this journey, the developers, the creators, the builders, the dreamers, and everyone who believed that a better system was possible. You are why this exists.
 
-And finally, there is one more thank you waiting at the very end of this repository. I'll leave it there for you to find. Some things are worth reading all the way to the last line.
-
 From Neo and Dardan Rexhepi
 
 Allow your imagination to meet your creativity.
@@ -183,10 +181,10 @@ provider".
 ## Current Status
 
 The Matrix is **build-complete and offline-ready**. The complete Web3
-surface — 50+ blockchain services spanning DeFi, NFT, identity,
+surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,486 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,488 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -199,7 +197,7 @@ What works today, no chain required:
   each reported as the refusal they are, and when Neo does run, the
   hand-off relays Neo's own verdict rather than its own opinion of it
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
-- **All 50+ blockchain services** — return a standardised
+- **All 45 blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
   whenever the chain is not yet configured. No fake addresses, no
   fabricated transaction hashes. That refusal survives the trip out: the
@@ -354,18 +352,21 @@ Every tool call an agent makes passes through the Unified Rexhepi Framework befo
 
 ## Web3 Capability Surface
 
-**221 capabilities across 21 categories** — smart contracts, DeFi,
+**195 capabilities across 21 categories** — smart contracts, DeFi,
 DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
 finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
 governance (DAOs, veTokens, quadratic voting, RetroPGF), social
 (Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
 Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
 (CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
-(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK,
-oracles (Chainlink, Pyth, RedStone, API3, Keepers), storage (IPFS,
-Arweave, Filecoin, Ceramic, OrbitDB), compute & DePIN (Akash, Gensyn,
-Render), real-world assets, markets (prediction, auction), gaming,
-and security (MPC, social recovery, session keys).
+(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK
+(including MPC signing, session keys and social recovery, all three
+catalogued as not yet available), oracles (Chainlink, Pyth,
+RedStone, API3, Keepers), storage (IPFS, Arweave, Filecoin, Ceramic,
+OrbitDB), compute & DePIN (Akash, Gensyn, Render), real-world assets,
+markets (prediction, auction), gaming, and infrastructure. The 21st
+category, security & wallets, has no capabilities in it yet. The 195
+are served by 43 of the 45 services in the service registry.
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.
 Browse them at runtime:
@@ -446,7 +447,7 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                               Vision · Trajectory · Morpheus
                                                               Rexhepi · Glasswing · Omega
                                                                          ↓
-                                                              50+ Blockchain Services
+                                                              45 Blockchain Services
                                                               200+ Platform Actions
 ```
 
@@ -684,9 +685,6 @@ const response = await client.chat('What can you do?');
 ## Contributing
 
 See `CONTRIBUTING.md` for the open contribution model.
-
-Community builders: share your referral link to earn free subscription
-months. Generate your code at `/pricing` or via `POST /referral/generate`.
 
 ---
 
