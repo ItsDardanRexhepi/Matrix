@@ -392,6 +392,54 @@ async def test_a_queued_capability_attestation_is_metered_against_the_caller_it_
     assert signed == [("attestation.attest", "0x" + "ab" * 20), (None, None)], signed
 
 
+async def test_a_queued_capability_attestation_for_a_caller_with_no_cap_left_is_refused_when_queued(
+        monkeypatch, tmp_path):
+    """The queue-time check reserved $0 and refused only when `spent + 0 > cap`.
+    The ledger never holds more than the cap (a reservation is granted only
+    while it fits), so that test could not fail: a caller who had used the whole
+    daily cap was told "queued", and the write was dropped when its batch
+    signed. A caller with nothing left is refused when the write is queued; a
+    caller with headroom is still queued, and the batch meters the real price."""
+    from runtime.blockchain.eas_client import EASClient
+    from runtime.blockchain.services.attestation.service import AttestationService
+    from runtime.blockchain.sponsorship import SponsorshipDenied, SponsorshipPolicy
+
+    signed: list = []
+
+    async def _attest(self, action, agent, details, recipient=None, *, operation=None,
+                      identity=None):
+        signed.append((operation, identity))
+        return {"status": "attested"}
+
+    monkeypatch.setattr(EASClient, "attest", _attest)
+    config = _eas_config(tmp_path, {
+        "daily_cap_usd": 1,
+        "allowed_actions": ["attestation.attest", "attestation.batch_attest"]})
+    at_cap, below = "0x" + "ab" * 20, "0x" + "cd" * 20
+    policy = SponsorshipPolicy.from_config(config)
+    used = policy.authorize_and_reserve("attestation.attest", identity=at_cap, est_usd=1.0)
+    assert used.allowed, used
+    policy.commit(used.reservation_id)
+    assert policy.spent_today(at_cap) == 1.0
+
+    svc = AttestationService(config, batch_size=5)
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.attest_for_caller("primary", {"action": "x"}, ADDR, caller_identity=at_cap)
+    assert denied.value.decision.code == "daily_cap_exceeded", denied.value.decision
+    assert svc._batch_processor.pending_count == 0 and signed == []
+
+    with pytest.raises(SponsorshipDenied) as denied:
+        await svc.batch_attest([{"data": {"action": "x"}, "recipient": ADDR}],
+                               caller_identity=at_cap)
+    assert denied.value.decision.code == "daily_cap_exceeded", denied.value.decision
+    assert svc._batch_processor.pending_count == 0 and signed == []
+
+    # Headroom left: queued, and the queue-time check took no budget.
+    queued = await svc.attest_for_caller("primary", {"action": "x"}, ADDR, caller_identity=below)
+    assert queued["status"] == "queued" and svc._batch_processor.pending_count == 1
+    assert policy.spent_today(below) == 0.0 and signed == []
+
+
 async def test_a_queued_write_the_policy_refuses_at_flush_is_dropped_not_requeued(
         monkeypatch, tmp_path):
     from runtime.blockchain.eas_client import EASClient

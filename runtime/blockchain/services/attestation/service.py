@@ -53,7 +53,9 @@ class AttestationService:
       `attestation.<method>` like any other platform-signed operation — the
       allowlist, the per-identity daily cap and the identity requirement
       apply, and a refusal raises SponsorshipDenied. On the queued path the
-      policy is checked when the write is queued and again when its batch
+      allowlist, the identity requirement and whether the caller has any cap
+      left are checked when the write is queued (`_precheck`); the full policy,
+      the cap at the write's real price included, is applied when its batch
       signs, against the identity it was queued under.
 
     NOT provided (NEW-48b / NEW-50, both removed as fabrications):
@@ -149,8 +151,10 @@ class AttestationService:
         the caller (`caller_identity` as the dispatcher injects it, else the
         identity bound to the current dispatch). Raises SponsorshipDenied when
         the sponsorship policy refuses it: on the time-critical path at
-        signing, on the queued path when it is queued and again when its batch
-        signs.
+        signing; on the queued path when it is queued, if it is off the
+        allowlist, has no identity, or the caller has no cap left (see
+        `_precheck`). A queued write the batch's metered signature refuses is
+        logged and dropped, not raised here.
         """
         return await self._attest(schema_uid, data, recipient, time_critical,
                                   operation="attestation.attest",
@@ -162,20 +166,39 @@ class AttestationService:
         return canonical_identity(caller_identity) or resolve_caller_identity()
 
     def _precheck(self, operation: str, identity: str) -> None:
-        """The deterministic part of the policy, applied before a write is
-        queued: with a cap configured, an operation off the allowlist, one with
-        no attributable identity, or one for an identity already at the cap is
-        refused now rather than dropped later. With no cap the signer does not
-        consult the policy, and neither does this."""
+        """The part of the policy that can be decided before a write is priced,
+        applied before it is queued: with a cap configured, an operation off the
+        allowlist, one with no attributable identity, or one for an identity
+        with no cap left (already sponsored up to the cap in the last 24h) is
+        refused now rather than dropped later. It takes no budget. A caller with
+        some cap left is queued, and the batch meters the write at its real
+        price when it signs, so a write that would cross the cap is refused
+        there and dropped. With no cap the signer does not consult the policy,
+        and neither does this.
+
+        The reservation below is priced at $0 and the policy refuses only when
+        `spent + est > cap`; while the cap is unchanged the ledger never holds
+        more than it, so a $0 reservation is granted even to a caller with
+        nothing left. Having no cap left is therefore read from the decision's
+        own numbers (`spent >= cap`), not from its verdict.
+        """
+        import dataclasses
         from runtime.blockchain.sponsorship import SponsorshipPolicy
 
         policy = SponsorshipPolicy.from_config(self.config)
         if not policy.enforces_a_cap:
             return
         decision = policy.authorize_and_reserve(operation, identity=identity, est_usd=0.0)
-        if not decision.allowed:
-            raise SponsorshipDenied(decision)
-        policy.release(decision.reservation_id)
+        if decision.allowed:
+            policy.release(decision.reservation_id)
+            if decision.cap_usd is None or decision.spent_usd < decision.cap_usd:
+                return
+            decision = dataclasses.replace(
+                decision, allowed=False, code="daily_cap_exceeded", reservation_id="",
+                reason=(f"daily gas sponsorship cap reached: ${decision.spent_usd:.2f} of "
+                        f"${decision.cap_usd:.2f} already sponsored for this identity in "
+                        "the last 24h; no cap is left for this write"))
+        raise SponsorshipDenied(decision)
 
     async def _attest(
         self,
@@ -324,9 +347,10 @@ class AttestationService:
                 f"this one holds {len(attestations)}")
 
         identity = self._caller(caller_identity)
-        # The allowlist and the identity decide every entry alike, so they are
-        # checked once, before anything is written: a batch the policy refuses
-        # on those grounds writes nothing.
+        # The allowlist, the identity and whether the caller has any cap left
+        # decide every entry alike at this point, so they are checked once,
+        # before anything is written: a batch the policy refuses on those
+        # grounds writes nothing.
         if attestations:
             self._precheck("attestation.batch_attest", identity)
         results: list[dict[str, Any]] = []
