@@ -2,7 +2,7 @@
 DAOs — create and manage decentralized autonomous organizations on Base L2.
 
 Supports proposal creation, voting, execution, and membership management
-via Governor-style contracts. All gas covered by the platform.
+via Governor-style contracts. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -31,7 +31,7 @@ class DAOs(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Create and manage DAOs: propose, vote, execute governance actions on Base L2. Gas covered by platform."
+        return "Create and manage DAOs: propose, vote, execute governance actions on Base L2. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -154,7 +154,7 @@ class DAOs(BlockchainInterface):
                 code="capability_error")
 
     async def _execute_proposal(self, params: dict) -> str:
-        """Execute a succeeded proposal. Gas covered by platform."""
+        """Execute a succeeded proposal. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -226,5 +226,5 @@ class DAOs(BlockchainInterface):
             "status": "source_generated",
             "dao_name": dao_name,
             "components": ["GovernanceToken (ERC20Votes)", "TimelockController", "Governor"],
-            "note": "DAO deployment requires 3 contracts. Use smart_contract deploy for each. Gas covered by platform.",
+            "note": "DAO deployment requires 3 contracts. Use smart_contract deploy for each. Gas is paid by the platform within its sponsorship policy.",
         }, indent=2)

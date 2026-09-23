@@ -275,8 +275,8 @@ class MatrixClient:
     async def deploy_contract(self, source_code: str, **kwargs) -> dict:
         """NOT IMPLEMENTED — deployment does not exist yet (RUN-2).
 
-        This wrapper's old docstring said "Deploy a smart contract. Gas covered
-        by platform." Nothing behind it deployed anything: the action routed to
+        This wrapper's old docstring promised a deployment with its gas paid
+        by the platform. Nothing behind it deployed anything: the action routed to
         contract_conversion.convert, which generates Solidity and returns. The
         docstring was the most convincing part of the illusion, so it is the
         part that most needed correcting.
@@ -291,13 +291,13 @@ class MatrixClient:
         )
 
     async def send_payment(self, to: str, amount: str, token: str = "ETH") -> dict:
-        """Send a payment. Gas covered by platform."""
+        """Send a payment. Gas is paid by the platform within its sponsorship policy."""
         if token == "ETH":
             return await self.ablockchain("payment", action="send_eth", to=to, amount=amount)
         return await self.ablockchain("stablecoin", action="transfer", token=token, to=to, amount=amount)
 
     async def mint_nft(self, contract_address: str, to: str, token_uri: str = "") -> dict:
-        """Mint an NFT. Gas covered by platform."""
+        """Mint an NFT. Gas is paid by the platform within its sponsorship policy."""
         return await self.ablockchain("nft", action="mint", contract_address=contract_address, to=to, token_uri=token_uri)
 
     async def get_price(self, pair: str = "ETH/USD") -> dict:
@@ -305,7 +305,7 @@ class MatrixClient:
         return await self.ablockchain("oracle", action="get_price", pair=pair)
 
     async def create_attestation(self, action: str, agent: str = "neo", **details) -> dict:
-        """Create an EAS attestation. Gas covered by platform."""
+        """Create an EAS attestation. Gas is paid by the platform within its sponsorship policy."""
         return await self.ablockchain("eas", action="attest", data={"action": action, "agent": agent, **details})
 
     async def averify_iap(self, signed_transaction: str) -> dict:

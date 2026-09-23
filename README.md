@@ -23,7 +23,7 @@ What you can do on The Matrix:
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world in seconds, with no platform fee taken from the transfer, and network gas sponsored within the policy the operator configures
+- Send money anywhere in the world in seconds. The agent's stablecoin transfer takes nothing from it, the transfer capability deducts a small tiered fee (0.1% or less by default), every fee is listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
 - Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 50+ blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,524 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,582 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -366,14 +366,21 @@ curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
 ```
 
 Gas is sponsored by the platform paymaster **within the policy the
-operator configures** — an allowlist of actions and a per-identity daily
-cap, decided from the call data being signed. Inside that policy a user
-pays no gas; past the cap, or for an action the allowlist does not cover,
-sponsorship is refused rather than silently granted, and an operator who
-configures no policy sponsors everything. Every transaction the platform
-signs goes through that policy, including the ones the services send
-through the shared web3 manager — if you configure an allowlist, list
-`web3.send_transaction` or those will be refused. An attestation you ask
+operator configures**, and with no paymaster key configured nothing is
+sponsored. When a per-identity daily cap is set, every transaction the
+platform signs, including the ones the services send through the shared web3
+manager, is checked against the cap, the action allowlist and a signed-in
+identity, and one that fails is refused with the reason rather than charged
+to the user — if you set a cap and an allowlist, list
+`web3.send_transaction` or those will be refused. The action allowlist is
+always applied by `/api/v1/paymaster/sign` to the actions decoded from a user
+operation's call data, and binds the operations the platform signs only when
+a cap is also set. With no cap, the platform signs without a limit. Some
+operations carry a platform fee: the platform contracts pay theirs to each
+contract's `platformFeeRecipient`, which `scripts/deploy_all.py` sets to the
+configured NeoSafe address, and every fee, its rate and where it goes is
+listed under Fees in `docs/blockchain.md`, checked against the code by a
+test. An attestation you ask
 for — through an agent tool or through the attestation capabilities, queued
 or immediate, and a revocation — is metered like any other operation, under
 its own `<capability>.<method>` name and against your identity, and one

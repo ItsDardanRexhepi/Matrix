@@ -3,7 +3,8 @@
 The Matrix SDK — Blockchain Operations Example
 
 Demonstrates all blockchain capabilities through the SDK.
-All gas fees are covered by the platform — users never pay.
+Gas is paid by the platform within the deployment's sponsorship policy
+(a per-identity daily cap when one is configured).
 """
 
 import asyncio
@@ -64,7 +65,8 @@ contract HelloMatrix {
     result = await client.ablockchain("dashboard", action="platform_stats")
     print(f"Result: {result['response'][:200]}")
 
-    print("\nAll gas fees were covered by the platform.")
+    print("\nGas for these operations was paid by the platform within its sponsorship "
+          "policy; the dashboard result above carries that policy as gas_policy.")
 
 
 if __name__ == "__main__":

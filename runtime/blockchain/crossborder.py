@@ -1,8 +1,13 @@
 """
 Cross-Border Payments — international transfers via stablecoins on Base L2.
 
-Send stablecoin payments across borders with on-chain attestation for
-compliance and audit trails. All gas covered by the platform.
+Attest a cross-border stablecoin payment for compliance and audit trails, then
+hand the transfer to the `stablecoin` tool. Gas is sponsored within this
+deployment's sponsorship policy (runtime/blockchain/sponsorship.py
+describe_gas_policy). The estimate quotes the fee on each path a payment can
+take, each from the code that charges it: the `stablecoin` tool's transfer
+(no platform fee), the `transfer_stablecoin` capability (tiered fee) and the
+`send_payment` capability (cross-border fee, recorded and not settled).
 """
 
 import json
@@ -10,6 +15,7 @@ import logging
 import time
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import describe_gas_policy
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -23,7 +29,9 @@ class CrossBorderPayments(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Cross-border payments via stablecoins with compliance attestations. Gas covered by platform."
+        return ("Cross-border payments via stablecoins with compliance attestations. "
+                "Gas is sponsored within the deployment's sponsorship policy. Fees "
+                "depend on the path; the estimate quotes each one.")
 
     @property
     def parameters(self) -> dict:
@@ -104,8 +112,9 @@ class CrossBorderPayments(BlockchainInterface):
             # circumstances, whatever the attestation did.
             "settled": False,
             "value_moved": False,
-            "next_step": "Execute stablecoin transfer via stablecoin capability",
-            "gas_paid_by": "platform (The Matrix)",
+            "next_step": ("Execute the transfer with the `stablecoin` tool (action "
+                          "transfer); it sends the full amount with no platform fee"),
+            "gas_policy": describe_gas_policy(self.config),
         }
         # `prepared` and `not_ready` are both already in the dispatcher's
         # `_NON_OUTCOME_STATUSES`: neither is a payment, and this method makes
@@ -136,15 +145,52 @@ class CrossBorderPayments(BlockchainInterface):
         return json.dumps(body, indent=2, default=str)
 
     async def _estimate(self, params: dict) -> str:
-        """Estimate cross-border payment cost."""
+        """Estimate cross-border payment cost.
+
+        This used to quote "gas_cost: Covered by platform" and "transfer_fee:
+        $0.00 (no platform fee)" unconditionally. A payment can take three
+        paths with three different fees, so each is quoted from the code that
+        charges it:
+
+          * `stablecoin` tool transfer (what `_send` names): sends the full
+            amount on-chain; no platform fee;
+          * `transfer_stablecoin` capability: StablecoinService.get_fee;
+          * `send_payment` capability: CrossBorderService.fee_for, on a payment
+            that is recorded and not settled.
+        """
+        from runtime.blockchain.services.cross_border.service import CrossBorderService
+        from runtime.blockchain.services.stablecoin.service import StablecoinService
+
+        raw_amount = params.get("amount", "0")
+        try:
+            amount = float(raw_amount)
+            capability_fee = await StablecoinService(self.config).get_fee(amount)
+            send_payment_fee = CrossBorderService(self.config).fee_for(amount)
+            fees = {
+                "stablecoin_tool_transfer": {
+                    "fee": 0.0,
+                    "note": "the next step named by send: the full amount is transferred",
+                },
+                "transfer_stablecoin_capability": capability_fee,
+                "send_payment_capability": {
+                    **send_payment_fee,
+                    "note": "recorded, not settled: no value moves",
+                },
+            }
+            transfer_fee = fees["stablecoin_tool_transfer"]
+        except (TypeError, ValueError):
+            fees = None
+            transfer_fee = {"fee": None, "rate": None, "tier": "invalid",
+                            "reason": f"amount {raw_amount!r} is not a number"}
         return json.dumps({
             "token": params.get("token", "USDC"),
-            "amount": params.get("amount", "0"),
-            "gas_cost": "Covered by platform (The Matrix)",
-            "transfer_fee": "$0.00 (no platform fee)",
+            "amount": raw_amount,
+            "gas_policy": describe_gas_policy(self.config),
+            "transfer_fee": transfer_fee,
+            "fees_by_path": fees,
             "estimated_time": "< 2 minutes (Base L2 finality)",
             "network": self.network,
-        }, indent=2)
+        }, indent=2, default=str)
 
     async def _track(self, params: dict) -> str:
         """Track a cross-border payment by transaction hash."""

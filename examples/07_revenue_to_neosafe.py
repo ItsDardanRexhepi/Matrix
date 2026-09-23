@@ -3,7 +3,7 @@ from __future__ import annotations
 """
 07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
 
-Demonstrates how The Matrix routes revenue to the NeoSafe multisig wallet:
+Demonstrates the NeoSafe router, called directly by this example:
 
   1. A contract conversion generates a platform fee
   2. The RevenueEnforcer injects fee logic into the contract
@@ -11,15 +11,17 @@ Demonstrates how The Matrix routes revenue to the NeoSafe multisig wallet:
   4. An EAS attestation is created for the payment
   5. Revenue totals are queried from the ledger
 
-Every fee-generating action across all 44 services / 221 capabilities follows this pattern.
-The platform wallet (NeoSafe) is the single point of revenue collection.
+No service follows this pattern today: nothing outside this example calls
+NeoSafeRouter.route_fee or route_revenue, and the platform's fees go where
+docs/blockchain.md lists them under Fees (each contract's platformFeeRecipient,
+blockchain.platform_wallet for injected conversion fees, service ledgers).
 The canonical NeoSafe address is
 ``0x46fF491D7054A6F500026B3E81f358190f8d8Ec5``.
 
 NOTE: When the blockchain is not yet configured (``rpc_url`` empty),
 ``NeoSafeRouter.route_revenue`` queues the routing in-memory and returns
-``status='queued'``. Once the chain is live, the same call will execute
-the actual transfer and EAS attestation. See ROADMAP.md "Blockchain
+``status='queued'``; nothing later executes a queued entry. Once the chain is
+live, the same call executes the transfer and EAS attestation. See ROADMAP.md "Blockchain
 Activation".
 
 Usage:
@@ -60,8 +62,9 @@ async def main():
   The Matrix Example 07: Revenue Routing to NeoSafe
 {'=' * 60}{RESET}
 
-  All platform fees flow to the NeoSafe multisig wallet.
-  Every payment is attested on-chain for full transparency.
+  The platform contracts pay their fees to platformFeeRecipient, which
+  scripts/deploy_all.py sets to the configured NeoSafe address; this router
+  is called only by this example. Every routed payment is attested on-chain.
 """)
 
     config = load_config()
@@ -232,7 +235,7 @@ contract SimpleToken {
 
     function deposit() external payable collectPlatformFee(msg.value) {{
         // User deposits 1 ETH
-        // 0.025 ETH (2.5%) goes to NeoSafe automatically
+        // 0.025 ETH (2.5%) goes to platformFeeRecipient (blockchain.platform_wallet)
         // 0.975 ETH goes to the contract
         balanceOf[msg.sender] += msg.value - fee;
     }}
@@ -245,7 +248,7 @@ contract SimpleToken {
 
   {BOLD}Components demonstrated:{RESET}
     1. RevenueEnforcer  - Injects fee logic into contracts
-    2. NeoSafeRouter    - Routes fees with attestation
+    2. NeoSafeRouter    - Routes a fee with attestation when called, as here
     3. EAS              - Every payment attested on-chain
     4. ServiceDispatcher - Automatic attestation on every action
 

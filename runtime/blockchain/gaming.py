@@ -2,7 +2,7 @@
 Gaming — on-chain gaming assets and interactions on Base L2.
 
 Manage game items (ERC-1155), achievements, leaderboards, and in-game economies.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -28,7 +28,7 @@ class Gaming(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "On-chain gaming: manage game items (ERC-1155), achievements, transfers. Gas covered by platform."
+        return "On-chain gaming: manage game items (ERC-1155), achievements, transfers. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

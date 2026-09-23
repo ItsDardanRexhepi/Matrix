@@ -1,8 +1,8 @@
 # What Makes The Matrix Different
 
-## Everything Is Free
+## Free to Start, Fees Stated
 
-Every capability on The Matrix is free. Smart contracts, DeFi loans, NFTs, identity, governance, payments, insurance — all of it. No subscriptions. No premium tiers. No hidden fees. No gas fees. The platform covers all blockchain transaction costs for every user, for every capability, forever. Users never pay gas on The Matrix.
+The software is open source and free to run. Using the platform has a free tier; Pro and Enterprise subscriptions are sold in the MTRX app. Gas is paid by the platform when an operator configures sponsorship, within the operator's policy. When that policy sets a per-identity daily cap, an operation past the cap is refused rather than charged to you (this includes attestations you ask for, through an agent tool or the attestation capabilities; only the platform's own records — its record of each capability call and records it writes after another operation — are not counted against it); a deployment that sets no cap sponsors without a daily limit. Some operations carry a platform fee (marketplace sales, staking rewards, stablecoin transfers, cross-border payments and others); the fees and their rates are listed in `docs/blockchain.md` under **Fees**, together with how that list is checked against the code and what the check cannot see.
 
 ## Everything Is Conversation
 

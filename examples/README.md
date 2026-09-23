@@ -105,7 +105,7 @@ Every example works on mainnet with zero code changes — just update your confi
 **Before going to mainnet:**
 - Contract conversion runs the Glasswing security audit on generated Solidity; it does not deploy it unless `conversion.auto_deploy` is on, in which case it deploys with the platform's paymaster account (example 01 always runs with it off)
 - EAS attestations are created for every state-modifying action
-- Revenue from all fee-generating actions routes to NeoSafe automatically
+- Contract fees reach NeoSafe through deployment, not through a router: each platform contract pays its fee to `platformFeeRecipient`, which `scripts/deploy_all.py` sets to the configured NeoSafe address, while `NeoSafeRouter.route_fee` and `route_revenue` have no caller outside `examples/07_revenue_to_neosafe.py` (where each fee goes is listed under **Fees** in `docs/blockchain.md`)
 - Oracle data feeds switch to mainnet Chainlink contracts automatically
 
 ## EAS Attestation on Every Action
@@ -123,13 +123,12 @@ What gets attested:
 
 See `examples/06_eas_attestation_chain.py` for the full attestation flow.
 
-## Revenue Routing to NeoSafe
+## Where Fees Go, and What NeoSafe Receives
 
-All platform fees automatically route to the NeoSafe multisig via `RevenueEnforcer`:
-- Contract conversion fees
-- Marketplace transaction fees
-- NFT royalty platform share
-- Insurance premium fees
-- DeFi origination fees
+The platform contracts pay their on-chain fees (marketplace 5%, staking 5% of rewards, DAO withdrawal tiers, NFT mint proceeds, insurance excess) to each contract's `platformFeeRecipient`, and `scripts/deploy_all.py` — the deployment `CREDENTIALS_NEEDED.md` describes — sets that to the configured NeoSafe address (`MATRIX_NEOSAFE_ADDRESS`) for every platform contract, so on a deployment built that way those fees are paid to NeoSafe by the contracts themselves. `RevenueEnforcer` injects fee logic into generated contracts, paying that contract's fee to `blockchain.platform_wallet`, which the same setup calls the NeoSafe wallet.
 
-See `examples/07_revenue_to_neosafe.py` for the complete revenue flow.
+`NeoSafeRouter` (`runtime/blockchain/services/neosafe.py`) is not on that path: it can record a fee on an in-memory ledger (`route_fee`) and send ETH to the multisig (`route_revenue`), but no service calls either; only `examples/07_revenue_to_neosafe.py` does. Service fees (stablecoin transfers, cross-border payments, the service-ledger staking commission and others) are computed on the service's own ledger, some recorded and not settled; nothing moves them anywhere.
+
+The full list is under **Fees** in `docs/blockchain.md`. That table has no insurance premium fee and no DeFi origination fee; the example list that used to stand here named both.
+
+`examples/07_revenue_to_neosafe.py` shows what the router does when called directly.

@@ -18,7 +18,8 @@ used by services) with the following shape:
         "state_modifying": bool,  # True if it writes to chain / DB
         "feed_event": str | None, # live social feed event name (or None)
         "min_tier": str,          # "free" | "pro" | "enterprise"
-        "uses_paymaster": bool,   # True if platform sponsors the tx
+        "uses_paymaster": bool,   # True if the platform signs it, so it is eligible
+                                  # for sponsorship; static, not this deployment's policy
         "protocol": str | None,   # external protocol tag (eigenlayer, pyth, ...)
         "available": bool,        # True when backend+contracts deployed
     }

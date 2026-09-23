@@ -4,7 +4,7 @@ from __future__ import annotations
 Stablecoins — interact with stablecoins (USDC, DAI, USDT) on Base L2.
 
 Transfer, approve, check balances, and manage stablecoin operations.
-All gas fees covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -43,7 +43,7 @@ class Stablecoins(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Stablecoin operations: transfer USDC/DAI/USDT, check balances, approve spending. Gas covered by platform."
+        return "Stablecoin operations: transfer USDC/DAI/USDT, check balances, approve spending. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

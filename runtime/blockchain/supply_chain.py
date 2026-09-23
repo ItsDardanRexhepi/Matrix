@@ -2,7 +2,7 @@
 Supply Chain — on-chain supply chain tracking and verification.
 
 Create supply chain records, track items, verify provenance via EAS attestations.
-All gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -23,7 +23,7 @@ class SupplyChain(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Supply chain tracking: create records, track items, verify provenance via on-chain attestations. Gas covered by platform."
+        return "Supply chain tracking: create records, track items, verify provenance via on-chain attestations. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:

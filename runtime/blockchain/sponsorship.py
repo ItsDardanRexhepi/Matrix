@@ -151,46 +151,12 @@ class SponsorshipPolicy:
     @classmethod
     def from_config(cls, config: dict) -> "SponsorshipPolicy":
         cfg = config or {}
-        bc = cfg.get("blockchain", {}) or {}
-        # Resolve the paymaster block through the ONE resolver that knows its
-        # two documented homes (top-level `paymaster` and `blockchain.paymaster`)
-        # rather than re-deriving it here. An earlier draft of this method read
-        # only the second, which silently dropped the allowlist for every
-        # deployment using the first — caught by tests/test_paymaster_route.py.
-        try:
-            from gateway.paymaster import paymaster_config
-            block = paymaster_config(cfg)
-        except Exception:  # gateway unavailable (runtime imported standalone)
-            block = (cfg.get("paymaster") or bc.get("paymaster") or {})
-        policy = (block.get("policy", {}) or {}) if isinstance(block, dict) else {}
-
-        allowed = policy.get("allowed_actions")
-        if allowed is not None and not isinstance(allowed, (list, tuple, set)):
-            logger.warning(
-                "paymaster.policy.allowed_actions is %s, not a list — ignoring it "
-                "rather than guessing an allowlist", type(allowed).__name__)
-            allowed = None
-
-        cap: Optional[float]
-        raw_cap = policy.get("daily_cap_usd")
-        if raw_cap in (None, ""):
-            cap = None
-        else:
-            try:
-                cap = float(raw_cap)
-            except (TypeError, ValueError):
-                # §DL: a malformed cap is not "no cap". Refusing to parse it into
-                # unlimited spend is the only safe reading.
-                logger.error(
-                    "paymaster.policy.daily_cap_usd is %r, which is not a number. "
-                    "Treating it as zero (deny) rather than as no cap.", raw_cap)
-                cap = 0.0
-
+        allowed, cap = policy_settings(cfg)
         db_cfg = cfg.get("database", {}) or {}
         base = Path(str(db_cfg.get("path", "data/the-matrix.db"))).expanduser()
         if not base.is_absolute():
             base = Path.cwd() / base
-        return cls(allowed_actions=list(allowed) if allowed is not None else None,
+        return cls(allowed_actions=allowed,
                    daily_cap_usd=cap,
                    db_path=base.with_name("sponsorship_spend.db"))
 
@@ -652,6 +618,126 @@ def summarize_labels(labels: Sequence[str]) -> str:
     return shown
 
 
+def policy_settings(config: dict) -> tuple[Optional[list], Optional[float]]:
+    """(allowed_actions, daily_cap_usd) exactly as the signer will read them.
+
+    Split out of `SponsorshipPolicy.from_config` so that DESCRIBING the policy
+    (describe_gas_policy) and ENFORCING it read one parser: a description that
+    re-derived the cap its own way could disagree with the enforcement it
+    describes, which is the defect it exists to remove.
+    """
+    cfg = config or {}
+    bc = cfg.get("blockchain", {}) or {}
+    # Resolve the paymaster block through the ONE resolver that knows its
+    # two documented homes (top-level `paymaster` and `blockchain.paymaster`)
+    # rather than re-deriving it here. An earlier draft of this method read
+    # only the second, which silently dropped the allowlist for every
+    # deployment using the first — caught by tests/test_paymaster_route.py.
+    try:
+        from gateway.paymaster import paymaster_config
+        block = paymaster_config(cfg)
+    except Exception:  # gateway unavailable (runtime imported standalone)
+        block = (cfg.get("paymaster") or bc.get("paymaster") or {})
+    policy = (block.get("policy", {}) or {}) if isinstance(block, dict) else {}
+
+    allowed = policy.get("allowed_actions")
+    if allowed is not None and not isinstance(allowed, (list, tuple, set)):
+        logger.warning(
+            "paymaster.policy.allowed_actions is %s, not a list — ignoring it "
+            "rather than guessing an allowlist", type(allowed).__name__)
+        allowed = None
+
+    cap: Optional[float]
+    raw_cap = policy.get("daily_cap_usd")
+    if raw_cap in (None, ""):
+        cap = None
+    else:
+        try:
+            cap = float(raw_cap)
+        except (TypeError, ValueError):
+            # §DL: a malformed cap is not "no cap". Refusing to parse it into
+            # unlimited spend is the only safe reading.
+            logger.error(
+                "paymaster.policy.daily_cap_usd is %r, which is not a number. "
+                "Treating it as zero (deny) rather than as no cap.", raw_cap)
+            cap = 0.0
+
+    return (list(allowed) if allowed is not None else None), cap
+
+
+def describe_gas_policy(config: dict) -> dict:
+    """What gas sponsorship this deployment actually provides, for a user.
+
+    Every tool that used to promise a user unconditional gas coverage returns
+    this instead. It reads the same settings parser (`policy_settings`) and the
+    same key resolver (`resolve_paymaster_key`, `is_placeholder_value`) as the
+    signers, and states the policy as MeteredSigner applies it:
+
+      * with a daily cap, every platform-signed operation is checked against the
+        allowlist (by its `<capability>.<method>` name), the cap, and an
+        attributable identity, and refused otherwise;
+      * with no cap, MeteredSigner does not consult the policy at all, so the
+        allowlist applies only to user operations sent to /api/v1/paymaster/sign.
+
+    tests/test_gas_claims_follow_the_sponsorship_policy.py measures each of
+    those against SponsorshipPolicy and MeteredSigner for five configurations,
+    including the example config's allowlisted policy. It reads configuration
+    only: no ledger is opened, no price is fetched.
+    """
+    from runtime.blockchain.web3_manager import is_placeholder_value, resolve_paymaster_key
+
+    cfg = config or {}
+    platform_signs = not is_placeholder_value(resolve_paymaster_key(cfg))
+    try:
+        from gateway.paymaster import paymaster_config, signer_configured
+        user_ops = bool(signer_configured(cfg) and paymaster_config(cfg).get("address"))
+    except Exception:  # gateway unavailable (runtime imported standalone)
+        user_ops = False
+    sponsored = platform_signs or user_ops
+    allowed, cap = policy_settings(cfg)
+    listed = ", ".join(str(a) for a in allowed) if allowed is not None else ""
+
+    if not sponsored:
+        statement = ("Gas sponsorship is not configured on this deployment, so the "
+                     "platform pays no gas here.")
+        cap = None
+        allowed = None
+    elif cap is not None:
+        scope = (f"only for the actions its allowlist names ({listed})"
+                 if allowed is not None else "for your operations")
+        reasons = (["its action is not on that list"] if allowed is not None else []) + [
+            "it would cross the cap",
+            "it cannot be attributed to a signed-in identity"]
+        statement = (f"The platform pays gas {scope}, up to ${cap:.2f} per identity in a "
+                     "rolling 24 hours. An operation the platform would sign for you is "
+                     "refused, with the reason, rather than charged to you when "
+                     + ", when ".join(reasons[:-1]) + ", or when " + reasons[-1]
+                     + ". Attestations you ask for, through an agent tool "
+                     "or the attestation capabilities, are metered the same way. Not "
+                     "counted against the cap: the platform's own records (its record of "
+                     "each capability call, records it writes after another operation), "
+                     "which the platform pays for without metering.")
+    else:
+        statement = ("The platform pays gas for operations it signs for you; this "
+                     "deployment sets no daily cap.")
+        if allowed is not None:
+            statement += (f" Its action allowlist ({listed}) is applied only to app-signed "
+                          "user operations sent to /api/v1/paymaster/sign, not to "
+                          "operations the platform signs.")
+    capped = sponsored and cap is not None
+    return {
+        "sponsored": sponsored,
+        "daily_cap_usd": cap,
+        "cap_window": "rolling 24h" if cap is not None else None,
+        "allowed_actions": allowed,
+        "allowlist_applies_to_platform_signed": bool(capped and allowed is not None),
+        "identity_required": capped,
+        "unmetered_operations": (sorted(UNMETERED_PLATFORM_OPERATIONS)
+                                 if capped else []),
+        "statement": statement,
+    }
+
+
 # ── who is spending ──────────────────────────────────────────────────────
 #
 # A ContextVar rather than a parameter on 17 files' `execute(**kwargs)`: the
@@ -914,8 +1000,8 @@ async def platform_signer(config: dict, action: str, *, key: Optional[str] = Non
     from eth_account import Account
 
     cfg = config or {}
-    bc = cfg.get("blockchain", {}) or {}
-    raw_key = key if key is not None else bc.get("paymaster_private_key", "")
+    from runtime.blockchain.web3_manager import resolve_paymaster_key
+    raw_key = key if key is not None else resolve_paymaster_key(cfg)
     account = Account.from_key(raw_key)
 
     if not metered:
