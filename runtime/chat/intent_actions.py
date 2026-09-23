@@ -26,22 +26,22 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "convert_contract": {
         "action_name": "convert_contract",
-        "description": "Convert a smart contract from one language or chain to another.",
+        "description": "Convert pseudocode, Solidity or Vyper into Solidity scaffolding tuned for an EVM chain (Base, Ethereum or Polygon).",
         "required_params": [
             {"name": "source_code", "type": "string", "description": "The source code of the contract to convert.", "example": "pragma solidity ^0.8.0; contract MyToken { ... }"},
-            {"name": "source_lang", "type": "string", "description": "Language of the source contract (solidity, vyper, rust, move, etc.).", "example": "solidity"},
-            {"name": "target_chain", "type": "string", "description": "Target blockchain to convert to (ethereum, solana, aptos, sui, etc.).", "example": "solana"},
+            {"name": "source_lang", "type": "string", "description": "Language of the source: solidity, vyper or pseudocode. Nothing else is parsed.", "example": "solidity"},
+            {"name": "target_chain", "type": "string", "description": "EVM chain the generated Solidity is tuned for: base, ethereum or polygon (any other name gets Base's settings; the output is Solidity either way).", "example": "base"},
         ],
         "optional_params": [
             {"name": "optimize", "type": "boolean", "description": "Apply gas optimizations during conversion.", "default": True},
         ],
         "keywords": ["convert contract", "translate contract", "port contract", "migrate contract", "change chain", "convert my contract", "move contract to"],
-        "follow_up": "I can convert your contract. Could you share the source code, what language it's written in, and which blockchain you'd like it converted to?",
+        "follow_up": "I can turn it into Solidity. Could you share the source code, whether it's Solidity, Vyper or a plain description, and whether it's for Base, Ethereum or Polygon?",
         "example_conversation": (
-            "User: I want to convert my lease agreement contract to Solana\n"
-            "Trinity: Sure! Could you paste or upload the contract source code? And what language is it currently written in — Solidity, Vyper, or something else?\n"
+            "User: I want to move my lease agreement contract to Polygon\n"
+            "Trinity: Sure! Could you paste the contract source? Is it Solidity, Vyper, or a plain description of what it should do?\n"
             "User: It's Solidity. [pastes code]\n"
-            "Trinity: [calls platform_action with action='convert_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'solana'}]"
+            "Trinity: [calls platform_action with action='convert_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'polygon'}]"
         ),
     },
 

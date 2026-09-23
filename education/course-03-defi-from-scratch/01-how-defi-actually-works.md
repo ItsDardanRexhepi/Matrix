@@ -46,9 +46,9 @@ Stablecoins are the bridge between volatile crypto prices and predictable dollar
 
 ## The Services
 
-The Matrix provides 195 capabilities across 20 categories. The DeFi and DeFi-advanced categories alone cover perps, options, synthetics, lending, swaps, liquid staking, restaking (EigenLayer), orderbook DEX, and more. Here are the main categories:
+The Matrix provides 195 capabilities across 20 categories. Its DeFi category holds loans against collateral (borrow, repay, look a loan up) and token swaps; its DeFi (Advanced) category holds an orderbook (placing and cancelling limit orders) and Pyth pull prices, all three catalogued as not yet available. Staking, liquid staking (Lido, Rocket Pool) and restaking (EigenLayer, Symbiotic, Karak) are in the Staking & Restake category, where only the platform's own staking is available so far. Here are the kinds of service this course uses:
 
-**Lending and Borrowing**: Deposit collateral, borrow stablecoins, earn interest on deposits.
+**Lending and Borrowing**: Deposit collateral and borrow a token against it, then repay to get the collateral back.
 
 **Token Swaps**: Trade one token for another directly, without an exchange. This uses Automated Market Makers (AMMs) -- pools of tokens that use a mathematical formula to determine exchange rates.
 

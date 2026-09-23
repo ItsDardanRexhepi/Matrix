@@ -182,7 +182,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,616 tests,
+`ServiceDispatcher` and exercised by an automated suite of 4,621 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -347,25 +347,36 @@ Every decision made by every agent on The Matrix passes through the Unified Rexh
 
 ## Web3 Capability Surface
 
-**195 capabilities across 20 categories** — smart contracts, DeFi,
-DeFi advanced (an orderbook and Pyth pull prices), NFTs, NFT
-finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
-governance (DAOs, veTokens, quadratic voting, RetroPGF), social
-(Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
-Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
-(CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
-(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK,
+**195 capabilities across 20 categories** — smart contracts
+(conversion to Solidity scaffolding, a conversion fee quote, templates),
+DeFi (loans against collateral, token swaps), DeFi advanced (an
+orderbook and Pyth pull prices), NFTs (minting, trading, rights,
+royalties, fractionalization, rentals, soulbound), NFT finance
+(NFT-backed loans, breeding, ERC-6551 accounts), identity (DIDs,
+credentials, reputation, KYC, agent registry, attestations), governance
+(DAOs, proposals, multisig, veTokens, quadratic voting, RetroPGF,
+disputes), social (profiles, messaging, Lens, Farcaster, Push, creator
+coins), creator platforms (Sound.xyz, Mirror, Paragraph, IP licensing),
+payments (payments, stablecoin transfers, cross-border remittance, state
+channels), cross-chain (CCIP, Hyperlane, Wormhole, Stargate, Axelar),
+staking & restaking (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool),
+privacy & ZK (ZK proofs, MPC signing, social recovery, session keys),
 oracles (Chainlink, Pyth, RedStone, API3, Keepers), storage (IPFS,
 Filecoin, Ceramic, OrbitDB), compute & DePIN (Akash, device rentals),
-real-world assets, markets (prediction, auction), gaming,
-and security (MPC, social recovery, session keys).
+real-world assets (tokenization, supply chain, carbon credits,
+insurance), markets (prediction markets, auctions, fundraising,
+securities, marketplace, loyalty, subscriptions), gaming, and
+infrastructure (AI agents, models, training data). Many are catalogued
+with `available: false`; `docs/blockchain.md` lists every capability by
+category and says which. The catalog also declares a Security & Wallets
+category that holds none.
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.
 Browse them at runtime:
 
 ```bash
 curl http://localhost:18790/api/v1/capabilities            # list all
-curl http://localhost:18790/api/v1/capabilities/categories # 21 buckets
+curl http://localhost:18790/api/v1/capabilities/categories # 21 declared, one empty
 ```
 
 Gas is sponsored by the platform paymaster **within the policy the

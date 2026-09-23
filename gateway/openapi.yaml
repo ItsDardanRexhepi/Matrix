@@ -398,7 +398,7 @@ paths:
 
   /api/v1/contracts/convert:
     post:
-      summary: Component 1 — cross-chain contract conversion
+      summary: Component 1 — contract conversion (pseudocode, Solidity or Vyper into Solidity)
       requestBody:
         required: true
         content:

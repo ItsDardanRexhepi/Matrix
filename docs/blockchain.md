@@ -4,27 +4,28 @@
 
 The Matrix provides 195 discrete Web3 capabilities organised into 20 categories, all accessible through conversation:
 
-1. **Smart Contracts** — deploy, convert, templates
-2. **DeFi** — swaps, lending, yield, LP, vaults, flash loans
-3. **DeFi Advanced** — perpetuals, options, synthetics, orderbook, Pyth feeds
-4. **NFTs** — mint, transfer, collections, royalties, fractionalization, rentals, dynamic, soulbound
-5. **NFT Finance** — NFT-backed lending, ERC-6551 token-bound accounts, breeding
-6. **Identity** — DIDs, verifiable credentials, reputation, KYC/AML, agent identity, attestations
-7. **Governance** — DAOs, proposals, voting, Snapshot, timelock, multisig, veToken, quadratic, RetroPGF, bribes, delegation
-8. **Social** — profiles, gating, communities, XMTP messaging, Lens, Farcaster, Push Protocol
-9. **Creator Economy** — monetization, Sound.xyz, Mirror, Paragraph, IP registry, creator coins
-10. **Payments** — streaming, escrow, recurring, splits, invoicing, payroll, state channels, cross-border
-11. **Cross-chain** — CCIP, Hyperlane, Wormhole, Axelar, Stargate, remote chain queries
-12. **Staking & Restaking** — staking, unstaking, liquid staking (Lido, Rocket Pool), restaking (EigenLayer, Symbiotic, Karak), delegation
-13. **Privacy & ZK** — private transfers, stealth addresses, ZK proofs, MPC, threshold sigs, social recovery, session keys
-14. **Oracles** — Chainlink price feeds, VRF randomness, Pyth, RedStone, API3, Keepers automation
-15. **Storage** — IPFS, Arweave, Filecoin, Ceramic, OrbitDB
-16. **Compute & DePIN** — Akash, Gensyn, Render, IoT device rentals, physical infrastructure
-17. **Real-world Assets** — RWA tokenization, supply chain provenance, carbon credits, green bonds
-18. **Markets** — prediction markets, auctions (Dutch/English/sealed-bid), fundraising, securities, marketplaces
-19. **Security & Wallets** — MPC, session keys, social recovery, multisig, attestations
-20. **Gaming** — games, assets, tournaments, achievements, in-game economies
-21. **Infrastructure** — AI agents, ML models, training data
+1. **Smart Contracts** (3) — Convert to Solidity, Quote Conversion Fee, List Contract Templates
+2. **DeFi** (4) — Borrow Against Collateral, Repay Loan, Get Loan Details, Swap Tokens
+3. **DeFi (Advanced)** (3) — all catalogued with `available: false`: Place Limit Order, Cancel Limit Order, Pull Pyth Price
+4. **NFTs** (17) — Mint NFT, Create NFT Collection, Transfer NFT, List NFT for Sale, Buy NFT, Estimate NFT Value, Get NFT Rarity, Set NFT Rights, Check NFT Rights, Configure NFT Royalty, Fractionalize NFT, Rent NFT, Update Dynamic NFT, Batch Mint NFTs, Claim NFT Royalties, Bridge NFT, Mint Soulbound NFT
+5. **NFT Finance** (5) — all catalogued with `available: false`: Borrow Against NFT, Liquidate NFT Loan, Breed NFT, Create Token-bound Account, Execute As TBA
+6. **Identity** (14) — Create DID, Update DID, Deactivate DID, Issue Credential, Query Reputation, Register AI Agent, Update Agent, Deregister Agent, Create Attestation, Revoke Attestation, Batch Attest; catalogued with `available: false`: Start KYC, Check AML Risk, Issue KYC Credential
+7. **Governance** (22) — Create DAO, Join DAO, Leave DAO, Create Proposal, Vote on Proposal, Finalize Proposal, Queue Timelock Action, Propose Multisig Action, Parameter Change, File Dispute, Submit Evidence, Resolve Dispute, Appeal Dispute, Dispute File (Legacy), Request Arbitration; catalogued with `available: false`: Snapshot Vote, Approve Multisig Action, Vote-Escrow Lock, Quadratic Vote, Submit RetroPGF, Place Gauge Bribe, Delegate Voting Power
+8. **Social** (12) — Create Social Profile, Update Social Profile, Social Post, Gated Social Content, Create Community, Send Message (XMTP), Encrypted Message; catalogued with `available: false`: Create Lens Profile, Publish Farcaster Cast, Subscribe to Push, Launch Social Token, Launch Creator Coin
+9. **Creator Economy** (8) — Monetize Content, Register IP, Transfer IP, License IP, Execute Agreement; catalogued with `available: false`: Mint Sound.xyz Drop, Publish Mirror Post, Publish Paragraph Post
+10. **Payments** (8) — Create Payment, Complete Payment, Send Payment, Transfer Stablecoin, Cross-border Remit; catalogued with `available: false`: Open Payment Channel, Route via Channel, Close Payment Channel
+11. **Cross-chain** (8) — all catalogued with `available: false`: Bridge Tokens, Bridge via CCIP, Cross-chain Message, Bridge via Hyperlane, Bridge via Wormhole, Bridge via Axelar, Bridge via Stargate, Query Remote Chain
+12. **Staking & Restake** (11) — Stake Tokens, Unstake Tokens, Claim Staking Rewards, Get Staking Position; catalogued with `available: false`: Restake on EigenLayer, Restake on Symbiotic, Restake on Karak, Delegate to Operator, Withdraw Restake, Liquid Stake with Lido, Liquid Stake (Rocket)
+13. **Privacy & ZK** (5) — Generate ZK Proof; catalogued with `available: false`: MPC Sign, Social Recovery, Create Session Key, Request Deletion
+14. **Oracles & Data** (7) — Query Oracle Price, Request VRF Randomness, Query Weather Oracle; catalogued with `available: false`: Pull Pyth Update, Request RedStone Data, Query API3, Register Keeper Job
+15. **Storage** (5) — Pin to IPFS, Decentralized Store; catalogued with `available: false`: Store on Filecoin, Create Ceramic Stream, Write to OrbitDB
+16. **Compute & DePIN** (4) — Submit Legacy Compute; catalogued with `available: false`: Submit Compute Job, Rent DePIN Device, Claim Compute Reward
+17. **Real-world Assets** (21) — Tokenize Asset, Transfer RWA Ownership, RWA Tokenize, Buy RWA Fraction, Claim RWA Income, Register Product, Update Product Status, Transfer Custody, Log Provenance, Batch Track, Custody Transfer, Buy Carbon Credit, Retire Carbon Credit, Buy Renewable Cert, Invest in Green Bond, Create Policy, File Claim, Cancel Policy, Parametric Policy, Auto-settle Claim, Renew Cover
+18. **Markets** (26) — Create Prediction Market, Place Prediction Bet, Resolve Market, Create Fundraiser, Contribute to Campaign, Release Milestone Funds, Trigger Refunds, Create Security Token, List Security, Sell Security, List Marketplace Item, Buy Marketplace Item, Cancel Listing, Earn Loyalty Points, Redeem Loyalty Points, Track Spending, Claim Cashback, Create Brand Campaign, Distribute Brand Reward, Create Subscription Plan, Subscribe, Cancel Subscription; catalogued with `available: false`: Create Auction, Place Auction Bid, Settle Auction, Buy Security
+19. **Gaming** (8) — Register Game, Mint Game Asset, Transfer Game Asset, Approve Game, Mint Game Asset (Legacy), Enter Tournament, Trade Game Item, Attest Achievement
+20. **Infrastructure** (4) — Register AI Agent, Trade AI Model, Sell Training Data, Grant IP License
+
+The catalog also declares **Security & Wallets**, which holds no capability.
 
 State-changing capabilities are signed by the platform, which pays their gas within the sponsorship policy described under **Gas** below.
 
@@ -34,7 +35,7 @@ Users describe what they want to Trinity in plain language. Trinity translates t
 
 ## Networks
 
-The primary network is Base (Ethereum L2). Ethereum mainnet is used for high-value operations and attestations. Cross-chain bridges enable movement between networks.
+Everything runs on the one chain the operator configures (`blockchain.rpc_url`, `blockchain.chain_id`): the example config and the examples use Base Sepolia, and Base (Ethereum L2) is the intended mainnet. Nothing sends an operation to another network because of its value. The cross-chain capabilities are all catalogued with `available: false`.
 
 ## Gas
 
