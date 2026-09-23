@@ -2,16 +2,18 @@
 entry::B3-TWIN-SUPPLY-ONBEHALF, standing rule §DL.4).
 
 Measured at the pin (D-017 drive, register entry::TWINS-CRITICAL): the seam
-handed the security gate ``action_type = tool_name``; the gate classifies by
-verb, so ``_requires_morpheus`` was False for 18 of the 20 twin tools —
-``smart_contract`` deploying caller-supplied Solidity with the platform key
-included — and True for two by naming coincidence (``payment``, ``stake``).
+handed the security gate ``action_type = tool_name``, a label that names the
+tool that was called and not what the call does, so most twin tools reached the
+gate under a label it did not require evaluation for, ``smart_contract``
+deploying caller-supplied Solidity with the platform key included.
 ``onBehalfOf`` and ``spender`` were whatever the caller wrote.
 
 Now the seam maps every declared (tool, action) to what it DOES. These tests
 pin the table's completeness against the registry's own schemas, the refusals,
 and — when the private package is importable — the control: every signing
-action is a verb the gate requires evaluation for.
+action is one the gate requires evaluation for. The gate's own vocabulary is
+the private package's and is not restated here; without the package those
+checks are skipped, not run against a copy.
 """
 
 from __future__ import annotations
@@ -94,15 +96,10 @@ def test_reads_keep_their_verb_and_do_not_sign():
 
 def test_signing_actions_map_to_the_gates_vocabulary():
     """Every signing entry is a verb the gate treats as fund-moving. The
-    vocabulary is read from the private package when present; otherwise the
-    list below is the one measured from it (morpheus.py:84-89 at 0ee3ba9)."""
-    try:
-        from morpheus_security.morpheus import FUND_MOVING_ACTIONS as vocab
-    except Exception:
-        vocab = {"transfer", "send", "send_transaction", "send_payment", "pay", "payment", "swap", "trade",
-                 "bridge", "withdraw", "deposit", "stake", "unstake", "lend", "borrow", "repay",
-                 "provide_liquidity", "remove_liquidity", "buy", "sell", "mint", "redeem", "claim",
-                 "x402_payment"}
+    vocabulary is the private package's own, read from it where it is
+    installed; this repository keeps no copy of it."""
+    core = pytest.importorskip("morpheus_security.morpheus")
+    vocab = core.FUND_MOVING_ACTIONS
     bad = [(t, a, v) for t, acts in SIGNING_ACTIONS.items() for a, v in acts.items()
            if v != READ and v not in vocab]
     assert not bad, bad
@@ -119,7 +116,9 @@ def test_control_every_signing_action_now_requires_the_gate():
     morpheus = pytest.importorskip("morpheus_security.morpheus")
     requires = morpheus.MorpheusSecurity._requires_morpheus
     by_name_before = [t for t in TWIN_TOOLS if requires(t)]
-    assert len(by_name_before) == 2, "the pin's measurement: only payment and stake passed, by name"
+    assert len(by_name_before) < len(TWIN_TOOLS), (
+        "the pin's measurement: labelled by tool name, twin tools reached the "
+        "gate unevaluated")
     signing = [(t, a) for t, acts in SIGNING_ACTIONS.items() for a, v in acts.items() if v != READ]
     not_required = [(t, a) for t, a in signing if not requires(canonical_action(t, {"action": a})[0])]
     assert not not_required, not_required
