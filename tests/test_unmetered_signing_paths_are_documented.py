@@ -178,6 +178,16 @@ def chain(tmp_path, monkeypatch):
     fake = _fake_web3(sent)
     monkeypatch.setattr(web3, "Web3", fake)
 
+    # A metered signer prices the transaction before the policy decides; a
+    # fixed price keeps that from reaching the network, so a refusal is the
+    # policy's and not a failed price fetch.
+    from runtime.blockchain.price_feed import PriceFeed
+
+    async def _price(self, **_kw):
+        return {"price": 3000.0}
+
+    monkeypatch.setattr(PriceFeed, "eth_usd", _price)
+
     class _Manager:
         available = True
         w3 = fake()

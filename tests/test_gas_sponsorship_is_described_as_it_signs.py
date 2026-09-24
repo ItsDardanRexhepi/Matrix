@@ -209,6 +209,15 @@ def test_the_capabilities_are_metered_and_only_the_platforms_records_are_exempt(
 
     sent: list = []
     monkeypatch.setattr(web3, "Web3", _fake_web3(sent))
+    # A metered signer prices the transaction before the policy decides; a
+    # fixed price keeps that from reaching the network, so a refusal is the
+    # policy's and not a failed price fetch.
+    from runtime.blockchain.price_feed import PriceFeed
+
+    async def _price(self, **_kw):
+        return {"price": 3000.0}
+
+    monkeypatch.setattr(PriceFeed, "eth_usd", _price)
     service = AttestationService(config)
     caller = "0x" + "77" * 20
     refused = []
