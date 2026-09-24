@@ -52,7 +52,7 @@ will print a warning and continue with the remaining steps.
 
 | # | Script | What it demonstrates | Components |
 |---|--------|---------------------|------------|
-| 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
+| 01 | `01_contract_conversion.py` | Pseudocode -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |

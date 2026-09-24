@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,331 tests, run against the versions
+automated suite of 5,333 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -200,7 +200,7 @@ What works today, no chain required:
   reached, an executor that was not wired and an execution that threw are
   each reported as the refusal they are, and when Neo does run, the
   hand-off relays Neo's own verdict rather than its own opinion of it
-- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
+- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit; it compiles and deploys the result only where an operator turns on `conversion.auto_deploy`
 - **Blockchain services, with no chain configured** — answer with what
   happened rather than a success: a stake returns a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide, a
@@ -508,7 +508,7 @@ All examples live in `examples/`. Each calls the platform's services, through th
 
 | Script | Description |
 |---|---|
-| `01_contract_conversion.py` | Plain English to audited Solidity, ready for you to deploy with your own wallet |
+| `01_contract_conversion.py` | A rental agreement written as pseudocode, converted to audited Solidity for you to deploy with your own wallet |
 | `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
 | `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |

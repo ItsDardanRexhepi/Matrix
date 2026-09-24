@@ -5,10 +5,11 @@ from __future__ import annotations
 
 Demonstrates the Matrix contract conversion flow, targeting Base:
 
-  1. Takes a plain English rental agreement description
+  1. Takes a rental agreement written as pseudocode (the converter reads
+     structured pseudocode, not free prose)
   2. Estimates the conversion cost
   3. Converts it to Solidity via ContractConversionService, which runs the
-     Glasswing (Morpheus) security audit on the result
+     Glasswing security audit on the result
   4. Hands the Solidity back to you — this example does not deploy it
 
 This example reads no private key and does not deploy. The platform CAN deploy
@@ -134,7 +135,7 @@ async def main():
     dispatcher = ServiceDispatcher({**config, "conversion": conversion})
 
     # ── Step 1: Show the input ──────────────────────────────────────
-    step(1, "Input: Plain English Rental Agreement (pseudocode)")
+    step(1, "Input: Rental Agreement, written as pseudocode")
     print(f"{DIM}")
     for line in RENTAL_AGREEMENT_PSEUDOCODE.strip().splitlines():
         print(f"    {line}")

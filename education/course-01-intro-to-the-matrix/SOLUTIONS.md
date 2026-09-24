@@ -28,7 +28,7 @@ python -c "import json; data=json.load(open('exercise1_response.json')); print(d
 ```json
 {
   "request_id": "req_a1b2c3d4e5f6",
-  "response": "I'm Trinity, and I can help you with a wide range of blockchain operations on Base. Here's what The Matrix can do:\n\n1. **Token Operations**: Deploy ERC-20 tokens, manage supply, handle transfers\n2. **Smart Contracts**: Convert plain-English descriptions into audited Solidity contracts\n3. **DeFi**: Lending, borrowing, staking, and yield farming\n4. **NFTs**: Create, mint, and manage NFTs with on-chain royalties\n5. **DAOs**: Set up governance structures with voting and treasury management\n...",
+  "response": "I'm Trinity, and I can help you with a wide range of blockchain operations on Base. Here's what The Matrix can do:\n\n1. **Tokens**: Stablecoin transfers and token swaps\n2. **Smart Contracts**: Convert structured descriptions (pseudocode), Solidity or Vyper into Solidity with a Glasswing audit report\n3. **DeFi**: Loans against collateral, and staking\n4. **NFTs**: Create, mint, and manage NFTs with on-chain royalties\n5. **DAOs**: Set up governance structures with voting and treasury management\n...",
   "agent": "trinity",
   "tools_used": [],
   "timestamp": "2026-04-10T12:00:00Z"
