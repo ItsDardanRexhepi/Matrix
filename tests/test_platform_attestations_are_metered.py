@@ -6,7 +6,8 @@ allowlist, a per-identity rolling 24-hour USD cap, and a refusal when a capped
 request cannot be attributed to an identity. Three exemptions stayed listed in
 UNMETERED_PLATFORM_OPERATIONS on the premise that they were "fixed call data the
 model never composes, written on the platform's own behalf":
-`eas.attest`, `eas.attest_time_critical` and `eas.revoke`. Measured on main:
+`eas.attest`, `eas.attest_time_critical` and `eas.revoke`. Measured before
+attestations were metered:
 
   * `EASClient.attest` signed every write as `eas.attest`, and nine
     model-facing tools called it with model-chosen action, agent, details and
@@ -203,8 +204,8 @@ async def test_a_tool_attestation_is_refused_by_a_capped_policy_and_a_platform_r
 
 async def test_the_eas_tool_under_a_cap_signs_nothing_it_cannot_attribute(monkeypatch, tmp_path):
     """The behaviour, through the tool the model calls: with a $50 cap and no
-    signed-in identity, `eas` attest must not sign or send. On main it signed
-    as the exempt `eas.attest` and sent."""
+    signed-in identity, `eas` attest must not sign or send. Before attestations
+    were metered it signed as the exempt `eas.attest` and sent."""
     from runtime.blockchain.eas_manager import EASManager
     from runtime.blockchain.sponsorship import SponsorshipDenied
 

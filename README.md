@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,316 tests, run against the versions
+automated suite of 5,318 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
