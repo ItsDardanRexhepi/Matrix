@@ -17,6 +17,10 @@ tidy it:
 Those exemptions live in the name guard, a separate tool. When
 MATRIX_NAME_GUARD points at it, this test runs it over the whole repository;
 where it is not available the test is skipped rather than guessed at.
+
+One spelling needs none of those exemptions, so it is swept here whether the
+guard is present or not: the one with a zero (see
+test_no_file_spells_the_old_name_with_a_zero).
 """
 from __future__ import annotations
 
@@ -55,3 +59,71 @@ def test_the_quick_start_clones_and_enters_the_same_directory():
     readme = (REPO / "README.md").read_text()
     assert "cd TheMatrix" in readme
     assert "cd The Matrix" not in readme, "that is not a valid shell command"
+
+
+
+#: The spelling with a zero names no bundle id and no domain, so committed
+#: text needs no exemption for it, and this sweep runs whether or not the
+#: guard is installed. What can still carry it is the machine around the
+#: repository (a checkout directory, a local config that records one), so the
+#: sweep reads the files git would commit, not whatever else sits in the tree.
+#:
+#: Two files are held apart, by name, and only while they still carry it: the
+#: privacy and terms pages the gateway serves from web/. They are legal text,
+#: and a party's name in legal text is changed as legal text, not by a sweep.
+#: Any other file, a new page in web/ included, fails here.
+_ZERO_SPELLING = "0pnmatrx"
+_LEGAL_PAGES_NOT_YET_RENAMED = ("web/privacy.html", "web/terms.html")
+#: Used only where git is not available (an exported copy): directories that
+#: are not this repository's own text.
+_PRUNED = {".git", ".venv", "venv", "node_modules", "__pycache__",
+           ".pytest_cache", ".mypy_cache", ".ruff_cache", "data"}
+
+
+def _files_to_sweep():
+    here = pathlib.Path(__file__).resolve()
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=REPO, capture_output=True,
+    ) if (REPO / ".git").exists() else None
+    if listed is not None and listed.returncode == 0:
+        paths = [REPO / p for p in listed.stdout.decode().split("\0") if p]
+    else:
+        paths = []
+        for root, dirs, files in os.walk(REPO):
+            base = pathlib.Path(root)
+            dirs[:] = [d for d in dirs if d not in _PRUNED
+                       and base / d != REPO / "contracts" / "lib"]
+            paths += [base / name for name in files if name != ".git"]
+    for path in paths:
+        if path.resolve() != here and path.is_file():
+            yield path
+
+
+def test_no_file_spells_the_old_name_with_a_zero():
+    offenders = []
+    for path in _files_to_sweep():
+        rel = path.relative_to(REPO).as_posix()
+        if rel in _LEGAL_PAGES_NOT_YET_RENAMED:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if _ZERO_SPELLING in line.lower():
+                offenders.append(f"{rel}:{number}: {line.strip()[:100]}")
+    assert not offenders, (
+        "the old name is back, spelled with a zero:\n  " + "\n  ".join(offenders))
+
+
+def test_a_page_held_apart_still_needs_to_be():
+    # An exemption that exempts nothing is a door left open: once a page is
+    # renamed, it leaves the list and the sweep covers it like any other file.
+    renamed = [rel for rel in _LEGAL_PAGES_NOT_YET_RENAMED
+               if (REPO / rel).exists()
+               and _ZERO_SPELLING not in (REPO / rel).read_text(
+                   encoding="utf-8").lower()]
+    assert not renamed, (
+        f"{renamed} no longer carry the old name; remove them from "
+        "_LEGAL_PAGES_NOT_YET_RENAMED so the sweep covers them")

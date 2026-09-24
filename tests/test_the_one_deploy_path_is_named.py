@@ -31,7 +31,7 @@ WALKED = ("runtime", "gateway", "sdk", "examples", "skills", "agents", "bridge",
 #: A sentence that denies deployment for the whole platform. Tool-scoped
 #: statements ("This tool does not deploy") are true and are not matched.
 DENIAL = re.compile(
-    r"(platform|the matrix|0pnmatrx)[^.\n]{0,40}"
+    r"(platform|the matrix)[^.\n]{0,40}"
     r"(cannot|can't|does not|doesn't|never|could never)[^.\n]{0,30}deploy",
     re.IGNORECASE,
 )
