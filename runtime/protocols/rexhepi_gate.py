@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 """
-Rexhepi Framework Execution Gate — every decision passes through this gate.
+Rexhepi Framework Execution Gate — every tool call an agent makes is put to
+this gate before it is dispatched (ProtocolStack.pre_action).
 
 The gate is the runtime front door to the Unified Rexhepi Framework (URF)
 operational layer. Its reasoning core is the six-gate URF reasoning loop

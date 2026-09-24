@@ -1,0 +1,26 @@
+{
+  "id": "A8",
+  "case": "Forged callback",
+  "false_signal": "an unsigned or mis-signed notification, or a client posting a receipt",
+  "producer": {
+    "kind": "client_statement",
+    "payload": {
+      "outcome": "settled",
+      "receipt": "not-a-signed-payload"
+    }
+  },
+  "fact_source": {
+    "kind": "signature_chain",
+    "payload": {
+      "chain_to_pinned_root": false
+    },
+    "outranks_because": "only a signature chaining to the pinned root, or the chain itself, is evidence"
+  },
+  "expected": {
+    "verdict": "REJECTED",
+    "run_state": "UNCHANGED",
+    "rule": "a client statement is never evidence of a state-modifying outcome"
+  },
+  "legacy": null,
+  "head_behaviour": "The server-notification path verifies the signed chain to a pinned root; no route accepts a client's statement of an outcome, and none may be added that does."
+}

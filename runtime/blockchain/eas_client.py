@@ -1,13 +1,17 @@
 """
 EAS Client — Ethereum Attestation Service integration.
 
-Attestations are written on-chain via EAS, and their gas is covered by the
-platform. What one records is narrower than this module used to claim ("a
-permanent, verifiable record of what was done, by whom, and when"):
+Writes an EAS attestation with the platform key, one transaction per
+call, recording the platform, the action, the agent and a timestamp.
+Attestation gas is paid by the platform. What one records is narrower
+than this module used to claim ("a permanent, verifiable record of what
+was done, by whom, and when"):
 
-  * not every blockchain action — the dispatcher attests a settled
-    state-modifying action it dispatched, when EAS is configured, and
-    ``attest`` answers ``skipped`` otherwise;
+  * not every blockchain action — the service dispatcher's record of a
+    state-modifying action it completes does not come here directly: it is
+    queued by AttestationService, whose batch calls this client when 50
+    have gathered in the same process; and ``attest`` answers ``skipped``
+    when EAS is not configured;
   * not permanent — every attestation is created ``revocable`` and
     ``verify`` treats a revocation as not verified;
   * not "what was done" in full — the encoded data is (platform, action,
@@ -111,7 +115,9 @@ class EASClient:
     ) -> dict:
         """
         Create an on-chain attestation for a blockchain action.
-        The platform signs it and pays its gas.
+        The platform signs it and pays its gas. It is signed through
+        "eas.attest", an exemption listed in UNMETERED_PLATFORM_OPERATIONS,
+        so no sponsorship allowlist or daily cap is checked.
 
         Args:
             action: The action being attested (e.g., "deploy_contract")

@@ -86,7 +86,7 @@ async def test_a_body_that_is_not_an_object_is_a_400_not_a_500(entrance):
 
 @pytest.mark.parametrize("entrance", ENTRANCES)
 async def test_the_conversation_key_is_bounded_whatever_the_caller_names(entrance):
-    """Already true at 9f4aa37 on all four (``_resolve_session_id`` truncates);
+    """Already true at d0cdf73 on all four (``_resolve_session_id`` truncates);
     pinned so the bound cannot drift off one entrance again."""
     server = _server()
     async with TestClient(TestServer(server.create_app())) as client:

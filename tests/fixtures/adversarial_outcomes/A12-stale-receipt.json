@@ -1,0 +1,37 @@
+{
+  "id": "A12",
+  "case": "Stale receipt",
+  "false_signal": "a receipt, for another hash or from before the run started",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "status": "success",
+      "settled": true,
+      "tx_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "block_number": 50
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "run_tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "run_start_block": 90,
+      "receipt": {
+        "transactionHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "status": 1,
+        "blockNumber": 50
+      }
+    },
+    "outranks_because": "evidence must be for this run's hash at or after its start block"
+  },
+  "expected": {
+    "verdict": "REJECTED",
+    "run_state": "RUNNING",
+    "rule": "the receipt is not evidence for this run"
+  },
+  "legacy": {
+    "record_verdict": "settled",
+    "report": "success"
+  },
+  "head_behaviour": "Recorded settled from the service's own word; only the real-estate escrow binds a receipt to its own escrow's event."
+}

@@ -3,9 +3,9 @@
 The Matrix SDK — Blockchain Operations Example
 
 Demonstrates all blockchain capabilities through the SDK.
-Gas for the transactions the platform signs is paid by the platform. Some
-services instead prepare a transaction for YOUR wallet to sign and send, and
-your wallet pays its gas.
+Gas for the transactions the platform signs is sponsored by the platform
+within the operator's sponsorship policy. Some services instead prepare a
+transaction for YOUR wallet to sign and send, and your wallet pays its gas.
 """
 
 import asyncio

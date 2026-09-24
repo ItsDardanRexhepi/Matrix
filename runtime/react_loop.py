@@ -385,7 +385,7 @@ class ReActLoop:
                         gate = await protocol_stack.pre_action(
                             tool_name, arguments, context.metadata.get("user_context", {}),
                         )
-                        # The VERDICT decides, never its reason: be88818 skipped
+                        # The VERDICT decides, never its reason: 42551fe skipped
                         # dispatch only when a reason string came back, so
                         # `approved: False, denial_reason: None` ran the call.
                         # Only the literal approval is an approval.

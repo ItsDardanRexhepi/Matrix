@@ -1,0 +1,35 @@
+{
+  "id": "A9",
+  "case": "Missing evidence until deadline",
+  "false_signal": "nothing: no receipt and no refusal",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "broadcast": true,
+      "status": "pending",
+      "settled": false,
+      "value_moved": null,
+      "disclosure": "The transaction was BROADCAST and no receipt was obtained within the wait window. This is NOT a refusal and NOT a failure \u2014 it may be mined. Check the hash before retrying."
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "receipt": null,
+      "nonce_consumed": false,
+      "deadline_elapsed": true
+    },
+    "outranks_because": "the deadline, not the absence of an answer"
+  },
+  "expected": {
+    "verdict": "UNKNOWN",
+    "run_state": "HELD",
+    "rule": "held for a person; not failed, not retried"
+  },
+  "legacy": {
+    "record_verdict": "broadcast",
+    "report": "unknown"
+  },
+  "head_behaviour": "No deadline exists; the broadcast is logged and never looked at again."
+}

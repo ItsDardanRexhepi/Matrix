@@ -1,14 +1,15 @@
-"""Protocol Referral Fees -- automated DeFi integrator revenue collection.
+"""Protocol Referral Fees -- the DeFi referral programmes and their parameters.
 
 Many DeFi protocols (Uniswap, Aave, 1inch, etc.) pay a percentage of
 transaction fees to integrators who route volume through them.  This is
 a standard incentive mechanism: protocols want distribution, and
 integrators earn a cut for delivering users.
 
-The Matrix collects these referral fees automatically whenever a user
-executes a DeFi transaction through the platform.  The fees are routed
-to the NeoSafe multisig so they accrue to the protocol treasury without
-any manual intervention.
+Nothing in the platform collects these fees yet. The gateway constructs
+ProtocolReferralCollector at start-up, but no swap or lending path reads
+its parameters or records a referral event, so no referral fee is
+requested or received. The recipient these configurations name is the
+NeoSafe multisig.
 
 Supported programmes
 --------------------
@@ -34,7 +35,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# NeoSafe multisig — all referral fees route here
+# NeoSafe multisig — the recipient these configurations name
 # ---------------------------------------------------------------------------
 
 NEOSAFE_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"

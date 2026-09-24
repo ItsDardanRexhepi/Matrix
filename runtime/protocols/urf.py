@@ -37,13 +37,16 @@ The mapping from theory to execution (URF §9):
                          conditions with imperfect information.
 """
 
+import copy
+import hashlib
+import json
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -780,7 +783,11 @@ class URFReasoningLoop:
         return label or "unspecified action"
 
     def _record(
-        self, decision: URFDecision, action: dict[str, Any], context: dict[str, Any]
+        self,
+        decision: URFDecision,
+        action: dict[str, Any],
+        context: dict[str, Any],
+        sink: "DecisionSink | None" = None,
     ) -> None:
         entry = decision.to_log_entry(
             owner=str(context.get("owner", "")),
@@ -790,6 +797,211 @@ class URFReasoningLoop:
         self._log.append(entry)
         if len(self._log) > self._max_log:
             self._log = self._log[-self._max_log:]
+        # A copy of the entry, after the in-memory append, to the durable sink
+        # when one is set: *sink* if given, else the process-wide one the
+        # gateway installs under engines.evidence.mode = "shadow". With neither,
+        # nothing below runs. The sink is handed copies (_isolated), never the
+        # entry the log holds or the live action and context: the caller decides
+        # on those dicts again (the ReAct seam dispatches action["parameters"];
+        # _approved reads context["user_confirmed"]), and a recorder must have
+        # no way to write into what decides. A sink that fails is logged and
+        # changes nothing: the decision above is already made and already
+        # returned to the caller.
+        target = sink if sink is not None else _decision_sink
+        if target is None:
+            return
+        try:
+            target(*_isolated(entry, action, context))
+        except Exception as exc:
+            # A held database drops rows in a run: no trace per row, except at
+            # debug.
+            logger.warning("URF decision not recorded (decision=%s): %s: %s",
+                           decision.decision_id, type(exc).__name__, exc)
+            logger.debug("URF decision sink failure", exc_info=True)
+
+
+# ── Durable decision log (engines Phase 1: measurement only) ─────────
+#
+# A sink receives a copy of the §14.3 entry as the in-memory log holds it, plus
+# copies of the action and context it was decided on — copies, so that it can
+# record and cannot decide: nothing it writes into what it was handed reaches
+# the log, the next decision or what the seam dispatches. The only sink in the
+# tree writes one urf_decision_log row (database migration 8).
+
+DecisionSink = Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], None]
+
+
+def _isolated(*objects: Any) -> tuple[Any, ...]:
+    """Deep copies of *objects*, made for a sink after the decision is final.
+
+    A sink is never handed the original: not the loop's own log entry, not the
+    live action or context the caller decides on next. An object ``deepcopy``
+    cannot take is handed as a JSON round trip of itself (``default=str``),
+    which is a new object as well; one neither can take raises here, inside
+    ``_record``'s guard, and the decision is not recorded rather than exposed.
+    """
+    copies = []
+    for obj in objects:
+        try:
+            copies.append(copy.deepcopy(obj))
+        except Exception:
+            copies.append(json.loads(json.dumps(obj, default=str)))
+    return tuple(copies)
+
+
+_decision_sink: DecisionSink | None = None
+
+#: The urf_decision_log columns, in table order.
+DECISION_LOG_COLUMNS: tuple[str, ...] = (
+    "id", "date", "task",
+    "clarity", "feasibility", "risk", "uncertainty", "value",
+    "capability_expansion", "time_sensitivity",
+    "outcome", "rationale", "evidence", "hard_rule_check", "artifact",
+    "verification_method", "stop_condition", "owner", "reviewer", "status",
+    "revisit_date", "stack_key", "action", "service",
+)
+
+_INSERT_DECISION = (
+    f"INSERT OR IGNORE INTO urf_decision_log ({', '.join(DECISION_LOG_COLUMNS)}) "
+    f"VALUES ({', '.join('?' for _ in DECISION_LOG_COLUMNS)})"
+)
+
+
+def set_decision_sink(sink: DecisionSink | None) -> DecisionSink | None:
+    """Install *sink* as the process-wide decision sink (None removes it) and
+    return the one it replaces. Every URFReasoningLoop in the process — one per
+    RexhepiGate, one gate per ProtocolStack — records through it, so the gateway
+    installs it once at startup rather than reaching into stacks that do not
+    exist yet."""
+    global _decision_sink
+    previous, _decision_sink = _decision_sink, sink
+    return previous
+
+
+def current_decision_sink() -> DecisionSink | None:
+    """The process-wide decision sink, or None when the log is in memory only."""
+    return _decision_sink
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def decision_log_row(
+    entry: dict[str, Any], action: dict[str, Any], context: dict[str, Any]
+) -> dict[str, Any]:
+    """One urf_decision_log row from a §14.3 entry and what it was decided on.
+
+    The fifteen fields are copied, the seven scores expanded, ``evidence`` kept
+    as its JSON list. ``stack_key`` names the ProtocolStack that decided — the
+    context's ``agent`` and a sha256 of its ``memory_scope``, because a scope is
+    the signed-in subject (a wallet address, an Apple subject) or a
+    conversation id, and neither is written here. ``action`` is the action type
+    the loop scored and ``task`` the label it was described by, each through
+    ``recorded_name``: kept as it is when the code defines it, stored as a
+    sha256 when it does not. ``service`` is the ACTION_MAP service the action
+    dispatches to, "" when the action is not an ACTION_MAP name (a twin tool's
+    canonical verb, a builtin tool). No other field of *context* is read.
+    """
+    context = context if isinstance(context, dict) else {}
+    action = action if isinstance(action, dict) else {}
+    scores = entry.get("scores") or {}
+    scope = str(context.get("memory_scope") or "")
+    agent = str(context.get("agent") or "")
+    stack_key = f"{agent}:{_sha256(scope)}" if scope else (f"{agent}:" if agent else "")
+    name = str(action.get("action_type") or action.get("type") or "")
+    return {
+        "id": entry.get("id", ""),
+        "date": entry.get("date", ""),
+        "task": recorded_name(str(entry.get("task") or "")),
+        "clarity": scores.get("C"),
+        "feasibility": scores.get("F"),
+        "risk": scores.get("R"),
+        "uncertainty": scores.get("U"),
+        "value": scores.get("V"),
+        "capability_expansion": scores.get("CE"),
+        "time_sensitivity": scores.get("T"),
+        "outcome": entry.get("outcome", ""),
+        "rationale": entry.get("rationale", ""),
+        "evidence": json.dumps(list(entry.get("evidence") or []), default=str),
+        "hard_rule_check": entry.get("hard_rule_check", ""),
+        "artifact": entry.get("artifact", ""),
+        "verification_method": entry.get("verification_method", ""),
+        "stop_condition": entry.get("stop_condition", ""),
+        "owner": entry.get("owner", ""),
+        "reviewer": entry.get("reviewer", ""),
+        "status": entry.get("status", ""),
+        "revisit_date": entry.get("revisit_date", ""),
+        "stack_key": stack_key,
+        "action": recorded_name(name),
+        "service": _service_of(name),
+    }
+
+
+#: What ``recorded_name`` stores in place of a name the code does not define.
+UNLISTED_PREFIX = "sha256:"
+
+
+def _is_defined(name: str) -> bool:
+    """Whether the code itself defines *name* as an action label: one of the
+    dispatcher's ACTION_MAP names, or a twin tool, one of its verbs or one of
+    its canonical action types in runtime/security/action_map.py's table."""
+    try:
+        from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+        if name in ACTION_MAP:
+            return True
+    except Exception:
+        pass
+    try:
+        from runtime.security.action_map import SIGNING_ACTIONS
+    except Exception:
+        return False
+    return name in SIGNING_ACTIONS or any(
+        name in verbs or name in verbs.values() for verbs in SIGNING_ACTIONS.values())
+
+
+def recorded_name(name: str) -> str:
+    """*name* as the durable log may hold it.
+
+    The label a decision is about is not always the code's: ``platform_action``
+    hands the gate the model's own ``action`` argument, lowercased and uncapped,
+    and a tool call names whatever tool the model asked for. Either can carry
+    free text — an address, a memo. A name the code defines (``_is_defined``) is
+    kept as it is; any other is stored as ``sha256:`` and its digest, which a
+    later reader holding the name can recompute and match, and which does not
+    carry the text.
+    """
+    if not name or _is_defined(name):
+        return name
+    return UNLISTED_PREFIX + _sha256(name)
+
+
+def _service_of(name: str) -> str:
+    if not name:
+        return ""
+    try:
+        from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    except Exception:
+        return ""
+    pair = ACTION_MAP.get(name)
+    return pair[0] if pair else ""
+
+
+def durable_decision_sink(db: Any) -> DecisionSink:
+    """A sink writing each decision to *db*'s urf_decision_log (migration 8).
+
+    One INSERT per decision — ``decide`` is synchronous — through the
+    dispatcher module's ``write_without_waiting``: the connection's busy timeout
+    is zero for that statement, so a database another writer holds drops the
+    row at once instead of stalling the decision (and the event loop it runs
+    on) for sqlite3's default five seconds.
+    """
+    from runtime.blockchain.services.service_dispatcher import write_without_waiting
+
+    def sink(entry: dict[str, Any], action: dict[str, Any], context: dict[str, Any]) -> None:
+        row = decision_log_row(entry, action, context)
+        write_without_waiting(db, _INSERT_DECISION, tuple(row[c] for c in DECISION_LOG_COLUMNS))
+    return sink
 
 
 def _scores_from_dict(d: dict[str, Any]) -> GateScores:

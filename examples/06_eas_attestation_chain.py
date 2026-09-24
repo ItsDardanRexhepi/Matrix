@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-06 — EAS Attestation Chain: Recording Actions as Attestations
+06 — EAS Attestation Chain: Recording Actions as EAS Attestations
 
 Demonstrates the attestation service, which writes records to the Ethereum
 Attestation Service (EAS). This example calls it directly, with sample data:
@@ -12,12 +12,15 @@ Attestation Service (EAS). This example calls it directly, with sample data:
   4. Verify a specific attestation on-chain
 
 What gets attested outside an example like this one is narrower than "every
-action". The service dispatcher attests a state-modifying action it dispatched
-and that SETTLED, and only when EAS is configured; a refusal, a broadcast
-nobody has confirmed, and a capability called as an agent tool directly are not
-attested as done. And an attestation is revocable, so it is a record the
-platform signed, not a permanent one: what it proves is that this platform said
-the thing, with the data it was given — which here is sample data.
+action". A state-modifying action the ServiceDispatcher completes is queued
+for an EAS attestation; the queue is written to the chain once 50 have
+gathered in the same process, nothing drains it on a timer, and what is
+queued is lost if the process exits first. A refusal, a broadcast nobody has
+confirmed, a record that moved nothing, and a capability called as an agent
+tool directly are not queued as done. And an attestation is revocable, so it
+is a record the platform signed, not a permanent one: what it proves is that
+this platform said the thing, with the data it was given — which here is
+sample data.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -57,9 +60,11 @@ async def main():
   The Matrix Example 06: EAS Attestation Chain
 {'=' * 60}{RESET}
 
-  The attestation service writes records to the Ethereum
-  Attestation Service (EAS) on Base Sepolia. The data below is
-  sample data; an attestation records what it was given.
+  This example asks for EAS attestations through
+  create_attestation and batch_attest, with sample data; an
+  attestation records what it was given. A state-modifying action
+  the ServiceDispatcher completes is queued for one, and the
+  queue is written to the chain in batches of 50.
 """)
 
     config = load_config()
@@ -279,9 +284,10 @@ async def main():
     5. verify_attestation  - Verify attestation on-chain
 
   {BOLD}Key insight:{RESET}
-    Every state-modifying action across all 221 capabilities
-    automatically creates an EAS attestation. The ServiceDispatcher
-    handles this transparently — no extra code needed.
+    A state-modifying action the ServiceDispatcher completes is
+    queued for an EAS attestation, written to the chain once 50
+    have gathered in the same process; a refusal or an unconfirmed
+    broadcast is not queued as done.
 
   {BOLD}EAS contract:{RESET} {bc.get('eas_contract', 'see config')}
   {BOLD}Network:{RESET} Base Sepolia

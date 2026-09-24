@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-05 — Marketplace Flow: List, Buy, and Escrow on Base Sepolia
+05 — Marketplace Flow: List and Buy
 
 Demonstrates the Marketplace service (Component 24):
 
   1. Seller lists a digital asset on the marketplace
   2. Buyer browses and finds the listing
-  3. Buyer records a purchase
-  4. The fee arithmetic the marketplace applies to it
+  3. Buyer purchases — the service records the sale; no payment is held
+     and nothing is transferred on chain
+  4. The sale record carries the price, the platform fee and what the
+     seller is owed
+  5. The platform fee is owed to the platform wallet the record names;
+     the fee is not sent anywhere
 
-What a purchase is here, stated plainly: the marketplace service records the
-sale in its own book. There is no escrow, no payment, no asset transfer and no
-transaction — the sale record says `recorded_unsettled` and `value_moved:
-False`. This example used to describe an atomic escrow in which payment and
-transfer happen in one transaction; none of that exists.
+The sale record says so itself: its status is `recorded_unsettled` and
+`value_moved` is False. This example used to narrate a purchase in which
+payment and transfer happen in one transaction; nothing like that happens.
 
 Usage:
     python examples/05_marketplace_flow.py
@@ -54,8 +56,8 @@ async def main():
   The Matrix Example 05: Marketplace Buy/Sell Flow
 {'=' * 60}{RESET}
 
-  Seller lists, buyer records a purchase, and the marketplace
-  computes its fee. No payment or transfer happens on this path.
+  Seller lists, buyer buys: the marketplace records the sale and
+  its fee split. No escrow, and nothing is transferred on chain.
 """)
 
     config = load_config()
@@ -68,47 +70,42 @@ async def main():
     # ── Step 1: List item on marketplace ────────────────────────────
     step(1, "Seller lists a smart contract template on the marketplace...")
 
+    title = "Production-Ready ERC-20 Token Template"
+    price = 0.05
     listing_id = None
     try:
         result = await dispatcher.execute(
             action="list_marketplace",
             params={
                 "seller": seller,
-                "title": "Production-Ready ERC-20 Token Template",
-                "description": (
+                "item_type": "digital",
+                "price": price,
+                "metadata": {
+                    "title": title,
+                    "description": (
                     "Gas-optimised ERC-20 with permit, snapshot, and pausable. "
                     "Audited by Morpheus. Includes deployment scripts."
-                ),
-                "category": "smart_contract_template",
-                "price_eth": 0.05,
-                "currency": "ETH",
-                "asset_type": "digital",
-                "metadata": {
+                    ),
                     "language": "solidity",
                     "version": "0.8.24",
-                    "audit_status": "passed",
                     "features": ["EIP-2612 Permit", "Snapshots", "Pausable", "Ownable"],
-                    "lines_of_code": 280,
                 },
-                "duration_days": 30,
             },
         )
         data = json.loads(result)
-        if data.get("status") == "ok":
-            listing = data["result"]
-            listing_id = listing.get("listing_id", listing.get("id", "N/A"))
+        if data.get("status") == "ok" and data["result"].get("status") == "active":
+            listing_id = data["result"]["listing_id"]
             ok(f"Listing created: {listing_id}")
-            ok(f"Title: Production-Ready ERC-20 Token Template")
-            ok(f"Price: 0.05 ETH")
+            ok(f"Title: {title}")
+            ok(f"Price: {price}")
             ok(f"Seller: {seller[:12]}...")
-            if listing.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{listing['tx_hash']}")
+        elif data.get("status") == "ok":
+            warn(f"Listing not active: {data['result'].get('status')} "
+                 f"({data['result'].get('compliance', {}).get('reason', 'N/A')})")
         else:
-            warn(f"Listing: {data.get('error', 'check config')}")
-            listing_id = "demo-listing-001"
+            warn(f"Listing: {data.get('error', 'N/A')}")
     except Exception as e:
         warn(f"Listing: {e}")
-        listing_id = "demo-listing-001"
 
     # ── Step 2: Search marketplace ──────────────────────────────────
     step(2, "Buyer searches the marketplace...")
@@ -116,97 +113,75 @@ async def main():
     try:
         result = await dispatcher.execute(
             action="search_marketplace",
-            params={
-                "query": "ERC-20 template",
-                "category": "smart_contract_template",
-                "max_price_eth": 0.1,
-                "sort_by": "relevance",
-            },
+            params={"query": {"item_type": "digital", "keyword": "ERC-20", "max_price": 0.1}},
         )
         data = json.loads(result)
         if data.get("status") == "ok":
-            results = data["result"]
-            if isinstance(results, list):
-                ok(f"Found {len(results)} matching listings")
-            elif isinstance(results, dict):
-                items = results.get("items", results.get("listings", []))
-                ok(f"Found {len(items)} matching listings")
-            ok(f"Top result: Production-Ready ERC-20 Token Template")
+            found = data["result"]
+            ok(f"Found {len(found)} listing(s)")
+            for item in found[:3]:
+                ok(f"  {item['listing_id']}: {item['metadata'].get('title', 'N/A')} at {item['price']}")
         else:
             warn(f"Search: {data.get('error', 'N/A')}")
     except Exception as e:
         warn(f"Search: {e}")
 
-    # ── Step 3: View listing details ────────────────────────────────
-    step(3, "Buyer views listing details...")
+    # ── Step 3: Get listing details ─────────────────────────────────
+    step(3, "Buyer views the listing...")
 
-    try:
-        result = await dispatcher.execute(
-            action="get_listing",
-            params={"listing_id": listing_id},
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            listing = data["result"]
-            ok(f"Title: {listing.get('title', 'ERC-20 Token Template')}")
-            ok(f"Price: {listing.get('price_eth', 0.05)} ETH")
-            ok(f"Seller: {listing.get('seller', seller)[:16]}...")
-            ok(f"Status: {listing.get('status', 'active')}")
-        else:
-            warn(f"Listing details: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Listing details: {e}")
+    if listing_id is None:
+        warn("No listing was created, so there is nothing to view or buy.")
+    else:
+        try:
+            result = await dispatcher.execute(action="get_listing", params={"listing_id": listing_id})
+            data = json.loads(result)
+            if data.get("status") == "ok":
+                ok(f"Status: {data['result'].get('status', 'N/A')}")
+            else:
+                warn(f"Listing details: {data.get('error', 'N/A')}")
+        except Exception as e:
+            warn(f"Listing details: {e}")
 
-    # ── Step 4: Record the purchase ─────────────────────────────────
-    step(4, "Buyer records a purchase...")
-    print(f"  {DIM}A record in the marketplace's book — no payment, no transfer.{RESET}")
+    # ── Step 4: Buy item ────────────────────────────────────────────
+    step(4, "Buyer buys the item...")
+    print(f"  {DIM}The service records the sale; payment and asset transfer are not performed.{RESET}")
 
-    try:
-        result = await dispatcher.execute(
-            action="buy_marketplace",
-            params={
-                "listing_id": listing_id,
-                "buyer": buyer,
-                "payment_amount_eth": 0.05,
-            },
-        )
-        purchase = {}
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            purchase = data.get("result") or {}
-            ok(f"Sale recorded: {purchase.get('sale_id', '—')}")
-            ok(f"Status: {purchase.get('status', '—')}")
-            ok(f"Value moved: {purchase.get('value_moved', '—')}")
-            if purchase.get("disclosure"):
-                print(f"  {DIM}{purchase['disclosure']}{RESET}")
-        else:
-            warn(f"Purchase: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Purchase: {e}")
+    sale = None
+    if listing_id is not None:
+        try:
+            result = await dispatcher.execute(
+                action="buy_marketplace",
+                params={"listing_id": listing_id, "buyer": buyer},
+            )
+            data = json.loads(result)
+            if data.get("status") == "ok":
+                sale = data["result"]
+                ok(f"Sale recorded: {sale['sale_id']}")
+                ok(f"Buyer: {buyer[:12]}...")
+                ok(f"Status: {sale.get('status', 'N/A')}")
+                ok(f"Value moved: {sale.get('value_moved', 'N/A')}")
+                if sale.get("disclosure"):
+                    print(f"  {DIM}{sale['disclosure']}{RESET}")
+            else:
+                warn(f"Purchase: {data.get('error', 'N/A')}")
+        except Exception as e:
+            warn(f"Purchase: {e}")
 
-    # ── Step 5: The fee arithmetic ──────────────────────────────────
-    # This used to print "Asset transferred: Buyer now owns template" and
-    # "Escrow: Released atomically" after the step above, whether or not the
-    # purchase had happened — from constants, not from a result. What is true
-    # is the arithmetic: what the marketplace's fee would take from this price.
-    step(5, "Fee arithmetic for this price (nothing is paid)")
+    # ── Step 5: Show the fee split the sale record carries ──────────
+    step(5, "The sale's fee split")
 
-    platform_fee_bps = config.get("services", {}).get("marketplace", {}).get("platform_fee_bps", 500)
-    platform_fee_pct = platform_fee_bps / 100
-
-    sale_price = 0.05
-    platform_fee = sale_price * (platform_fee_bps / 10000)
-    seller_receives = sale_price - platform_fee
-
-    print(f"\n  {BOLD}Fee arithmetic:{RESET}")
-    print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Sale price:            {sale_price:.4f} ETH")
-    print(f"  Platform fee ({platform_fee_pct:.1f}%):   {platform_fee:.4f} ETH")
-    print(f"  Seller would receive:  {seller_receives:.4f} ETH")
-    print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Asset transfer:        not performed")
-    print(f"  Escrow:                none on this path")
-    print(f"  {DIM}{'─' * 45}{RESET}")
+    if sale is None:
+        warn("No sale was recorded, so there is no fee split to show.")
+    else:
+        print(f"\n  {BOLD}Fee split, as the sale record states it:{RESET}")
+        print(f"  {DIM}{'─' * 45}{RESET}")
+        print(f"  Sale price:            {sale['price']}")
+        print(f"  Platform fee:          {sale['platform_fee']}  (owed to {sale['platform_wallet']}; not sent)")
+        print(f"  Seller is owed:        {sale['seller_proceeds']}")
+        print(f"  {DIM}{'─' * 45}{RESET}")
+        print(f"  Asset transfer:        not performed; the listing is marked sold")
+        print(f"  Payment held:          none (no escrow on this path)")
+        print(f"  {DIM}{'─' * 45}{RESET}")
 
     print(f"""
 {GREEN}{BOLD}{'=' * 60}
@@ -217,19 +192,20 @@ async def main():
     1. list_marketplace    - Seller creates listing
     2. search_marketplace  - Buyer discovers items
     3. get_listing         - View listing details
-    4. buy_marketplace     - Records a purchase (no payment, no transfer)
-    5. (fee arithmetic)    - What the platform fee would be
+    4. buy_marketplace     - Records the sale
+    5. (fee split)         - The fee split the sale record carries
 
-  {BOLD}What this path does not do yet:{RESET}
-    - No escrow, no payment and no asset transfer
-    - No fee is routed anywhere: the fee is arithmetic on a record
-    - The recorded sale is not attested or announced as a purchase,
-      because nothing settled
+  {BOLD}Key features:{RESET}
+    - A sale is a record: no escrow, and no payment or asset
+      moves on chain
+    - The platform fee is recorded on the sale, owed to the
+      marketplace's platform wallet; nothing sends it there
+    - The sale record says recorded_unsettled, so the service
+      dispatcher logs it as not done: it is not attested as a
+      purchase and not announced on the public feed
 
   {BOLD}Services used:{RESET}
-    - Marketplace (Component 24)
-    - NeoSafe revenue router
-    - Attestation (Component 8)
+    - Marketplace (Component 24), through the service dispatcher
 
 {GREEN}{'=' * 60}{RESET}
 """)

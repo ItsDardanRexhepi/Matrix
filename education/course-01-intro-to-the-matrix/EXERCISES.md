@@ -126,7 +126,7 @@ Message 1:
 
 Message 2:
   Request ID: req_...
-  Response: There are 221 capabilities across 21 categories in the registry. Browse them with `GET /api/v1/capabilities`.
+  Response: There are 195 capabilities across 21 categories in the catalog. Browse them with `GET /api/v1/capabilities`.
   Tools used: 0
 
 Message 3:

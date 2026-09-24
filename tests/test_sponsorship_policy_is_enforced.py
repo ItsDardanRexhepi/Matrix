@@ -9,7 +9,7 @@ THE CLAIM, made in three places and read by no code:
   matrix.config.json.example `"policy": {"allowed_actions": [...],
                                   "daily_cap_usd": 50}`
 
-At 9819e06 the only policy key any code read was `allowed_actions`, in one
+At be42685 the only policy key any code read was `allowed_actions`, in one
 handler. `daily_cap_usd` appeared exactly once in the tree — in the example
 config — with no reader. A grep across runtime/blockchain/ for a caller
 identity, a cap, or an allowlist returned nothing, while 32 call sites in 13
