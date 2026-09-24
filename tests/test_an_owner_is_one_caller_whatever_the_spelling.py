@@ -36,7 +36,9 @@ THE CLASS, AND THE AXES CLOSED HERE
   (f) SCOPE PINS: a different wallet is still refused everywhere above, and
       ids that are not addresses still compare exactly
 
-§CC, measured: against e0aea6b, with this file added, 19 failed and 2 passed,
+§CC, measured: against the tree at the commit "The gateway starts the security
+core's gate only when the core names a caller the platform's way", with this
+file added, 19 failed and 2 passed,
 on the no-op backend and with the core installed. The two that passed are the
 scope pins for assert_owner and the marketplace. The nineteen failed on the
 behaviour: each owner check refused its owner's other spelling, and each

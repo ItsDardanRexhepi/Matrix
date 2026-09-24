@@ -34,7 +34,8 @@ the rule is written):
 Nothing here says what the security core does with the identity; it pins that
 the platform hands it one.
 
-§CC, measured: against the base tree (117cf8f), 9 failed and 2 passed, on the
+§CC, measured: against the base tree (the commit "The mock gateway hands the
+security gate a database it can read"), 9 failed and 2 passed, on the
 no-op backend and with the core installed. The two that passed are the scope
 pins. Each of the nine failed on the spelling it was handed back: the address
 as the caller wrote it, and for the sponsorship meter, a ``0X`` spelling drawing

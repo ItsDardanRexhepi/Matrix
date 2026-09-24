@@ -37,15 +37,16 @@ THE CLASS, AND THE AXES CLOSED HERE
       no-op backend, which records nothing about any caller, uses the
       platform's rule
 
-§CC, measured: against 4f54988, the tree before this rule, with this file
-added: 12 failed and 2 passed on the no-op backend; with the core installed 11
-failed, 2 passed and 1 skipped (the no-op test does not apply there). The two
-that passed are the scope pin's healthy start and the production companion
-check that a matching rule still starts. The rest failed on the behaviour:
-every stand-in backend was started whatever rule it exported, /ready answered
-200, production started, the doctor check called each of them READY, and the
-no-op backend exported no rule. After the change, 14 passed on the no-op
-backend, and 13 passed and 1 skipped with the core installed.
+§CC, measured: against the tree at the commit "While the security gate is not
+up, nothing decides a request in its place", the tree before this rule, with
+this file added: 12 failed and 2 passed on the no-op backend; with the core
+installed 11 failed, 2 passed and 1 skipped (the no-op test does not apply
+there). The two that passed are the scope pin's healthy start and the
+production companion check that a matching rule still starts. The rest failed
+on the behaviour: every stand-in backend was started whatever rule it exported,
+/ready answered 200, production started, the doctor check called each of them
+READY, and the no-op backend exported no rule. After the change, 14 passed on
+the no-op backend, and 13 passed and 1 skipped with the core installed.
 
 An installed core that does not export the rule is refused like the stand-ins
 above, so with such a core every test that starts a gateway and needs its gate

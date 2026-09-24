@@ -22,9 +22,10 @@ from. These checks keep either from coming back:
      defines that the core's package root does not export, the seam does not
      import and this tree does not define itself
 
-§CC, measured against 2f503dd (the tree before the copy was removed): with the
-core installed both failed, each naming tests/test_twins_seam.py and nothing
-else; on the no-op backend check 1 failed the same way and check 2 was
+§CC, measured against the tree at the commit "The agent-tool boundary refuses
+while the security gate is not up" (the tree before the copy was removed): with
+the core installed both failed, each naming tests/test_twins_seam.py and
+nothing else; on the no-op backend check 1 failed the same way and check 2 was
 skipped. After, check 1 passed on both backends and check 2 passed with the
 core installed (it is skipped on the no-op backend).
 
@@ -35,7 +36,9 @@ restatement of another of the gate's word sets planted in a tracked file: the
 check as it was passed, the check as it is failed and named the planted file.
 Against this tree, both pass.
 
-§CC for check 3, measured against 6769ed3 (the tree before it was added): with
+§CC for check 3, measured against the tree at the commit "Schema migration 8
+merges the turns the platform numbered, and a failing migration step is always
+rolled back" (the tree before it was added): with
 the core installed it failed naming tests/test_twins_seam.py at four lines (the
 core's gate module by its dotted name, twice; one of the gate module's word
 sets by its name; a private attribute of the gate class) and

@@ -51,23 +51,27 @@ The test doubles below stand in for the backend's accessor. Nothing here says
 how the core decides anything; it pins what the host and the seam do when the
 gate cannot be brought up.
 
-§CC, measured: against the base tree (73f5441), given only the names this file
-patches, each routed to the base's own accessor so the base behaved as it does,
-7 failed and 1 passed. The one that passed is the healthy-start control. The
-seven failed on the behaviour: no refusal in production, /ready 200 after a
-failed start, no write-back loop, and the host adopting a gate built before it.
-After the change, 8 passed. The same on the no-op backend and with the core
-installed.
+§CC, measured: against the base tree (the commit "Merge
+audit-remediation-2026-07: no personal address, local path or private detail in
+the shipped files, and the compose stack passes the secrets the documents
+name"), given only the names this file patches, each routed to the base's own
+accessor so the base behaved as it does, 7 failed and 1 passed. The one that
+passed is the healthy-start control. The seven failed on the behaviour: no
+refusal in production, /ready 200 after a failed start, no write-back loop, and
+the host adopting a gate built before it. After the change, 8 passed. The same
+on the no-op backend and with the core installed.
 
-(f), measured against 117cf8f, the tree that made the seam refuse to hand out
-a gate after a failed start: 3 failed and 1 passed. The one that
+(f), measured against the tree at the commit "The mock gateway hands the
+security gate a database it can read", in which the seam already refused to
+hand out a gate after a failed start: 3 failed and 1 passed. The one that
 passed is the scope pin (a healthy start and no host still ask the policy).
 The three failed on the behaviour: the boundary answered (True, '') after a
 failed start and while the gate was starting, having asked the policy. After
 the change, all 12 in this file passed, on both backends.
 
-(g), measured against a966d5c, the tree whose documents said no other policy
-decides in the gate's place after a failed start: 3 failed and 13 passed. The
+(g), measured against the tree at the commit "The public tests keep no copy of
+the security core's vocabulary", whose documents said no other policy decides
+in the gate's place after a failed start: 3 failed and 13 passed. The
 one (g) test that passed is its scope pin (a gate that is up and faults keeps
 the fail direction). The three failed on the behaviour: get_balance answered
 allow=True with route observe-read-failopen after a failed start and while the

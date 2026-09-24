@@ -43,28 +43,30 @@ left as it is. Values that are not hex addresses are never touched:
 `apple:<sub>`, labels, and anonymous conversation ids, whose case is the
 caller's to choose.
 
-§CC, measured: against 6d9bc9c, with this file added, 5 failed and 1 passed,
-on the no-op backend and with the core installed. The one that passed is the
-scope pin (ids that are not addresses are left as they are). The five failed on
-the behaviour: every row stayed in the checksum spelling and two spellings of
-one wallet stayed two; through the gateway the account's own conversation
-answered 403 "this conversation belongs to another account", and its deletion
-answered 200 and left the conversation claims, the scoped memory, the agent
-turns and the device in place; the sponsorship ledger did not count a 0X
-spender's spend against the one budget. After the change, 6 passed on both
+§CC, measured: against the tree at the commit "An owner a record holds is
+compared with the caller in one spelling", with this file added, 5 failed and 1
+passed, on the no-op backend and with the core installed. The one that passed
+is the scope pin (ids that are not addresses are left as they are). The five
+failed on the behaviour: every row stayed in the checksum spelling and two
+spellings of one wallet stayed two; through the gateway the account's own
+conversation answered 403 "this conversation belongs to another account", and
+its deletion answered 200 and left the conversation claims, the scoped memory,
+the agent turns and the device in place; the sponsorship ledger did not count a
+0X spender's spend against the one budget. After the change, 6 passed on both
 backends.
 
 §CC, second round: the first round's merge test seeded every turn with seq 1,
-and the platform numbers turns from 0 (runtime/memory/manager.py), so the
-merge it passed was not the one the gateway performs. Measured against da81d60
-with the seeds numbered from 0 and the four controls at the end of this file
-added: 4 failed and 6 passed. The merge test and the ordering test failed with
-"UNIQUE constraint failed" on (session_id, seq) and on (agent, seq), the
-migration rolled back and the database stayed at schema 7; the gateway could
-not open such a database at all; and a migration step raising something other
-than a database error was raised without the rollback being logged. With the
-seq fix alone, the same erasure recorded under both spellings stayed two rows.
-After the change, 10 passed.
+and the platform numbers turns from 0 (runtime/memory/manager.py), so the merge
+it passed was not the one the gateway performs. Measured against the tree at
+the commit "The public tree says what would follow if the core named a caller
+otherwise, not how the core compares callers", with the seeds numbered from 0
+and the four controls at the end of this file added: 4 failed and 6 passed. The
+merge test and the ordering test failed with "UNIQUE constraint failed" on
+(session_id, seq) and on (agent, seq), the migration rolled back and the
+database stayed at schema 7; the gateway could not open such a database at all;
+and a migration step raising something other than a database error was raised
+without the rollback being logged. With the seq fix alone, the same erasure
+recorded under both spellings stayed two rows. After the change, 10 passed.
 
 §CC, third round: main's engines Phase 1 numbered its two shadow logs 8 and 9,
 and this rule was numbered 8 as well. Measured on the tree merged with main,

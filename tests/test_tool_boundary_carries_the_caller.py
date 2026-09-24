@@ -31,8 +31,11 @@ core's business and is not described here.
   4. The hand-off's gate sees the same bound identity, and still not one the
      model wrote; Neo's execution keeps its declared agent-to-agent source.
 
-§CC, measured: against the base tree (73f5441), given only the key's name in
-the seam and nothing else, 8 failed and 2 passed. The two that passed are the
+§CC, measured: against the base tree (the commit "Merge
+audit-remediation-2026-07: no personal address, local path or private detail in
+the shipped files, and the compose stack passes the secrets the documents
+name"), given only the key's name in the seam and nothing else, 8 failed and 2
+passed. The two that passed are the
 scope pins: the call with no bound caller, and the hand-off's gate not seeing an
 identity the model wrote (at the base it saw no identity at all). After the
 change, 10 passed. The same on the no-op backend and with the core installed.
