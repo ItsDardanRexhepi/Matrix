@@ -317,12 +317,11 @@ async def test_no_chat_entrance_has_the_platform_sign_it(chain, call, entrance):
         status = await _drive(client, entrance,
                               {"message": "sign it", "agent": "neo", "session_id": f"s-{call}"},
                               {"Authorization": f"Bearer {OPERATOR}"})
-    assert len(seen) >= 1, f"{entrance} never reached the model (status {status})"
+    assert len(seen) == 2, f"{entrance} did not run the model's tool call (status {status})"
     assert _eas_calls_signed(chain) == [], (
         f"{entrance}: the platform wallet signed the request's {call}: {chain.sent}")
-    if len(seen) >= 2:
-        told = [m.content for m in seen[1] if m.role == "tool"]
-        assert told and "Nothing was signed" in told[-1], told
+    told = [m.content for m in seen[1] if m.role == "tool"]
+    assert len(told) == 1 and "Nothing was signed" in told[0], told
 
 
 # ── the action-dispatching doors cannot name the tool ─────────────────────
@@ -406,7 +405,9 @@ async def test_no_hand_off_reaches_the_tool(chain, tmp_path, monkeypatch, tool, 
         for args in ({"action": name, "params": _calls()["attest"]},
                      {"action": "send", "service": name, "params": _calls()["attest"]}):
             out = await dispatcher.dispatch(tool, args, agent_name=agent, caller_kind=caller_kind)
-            assert out.ok is False or "error" in out.model_text.lower(), (tool, args, out.model_text)
+            answered = json.loads(out.model_text) if out.ok else {}
+            assert out.ok is False or answered.get("call_outcome") == "failure", (
+                tool, args, out.model_text)
     assert entered == [] and _eas_calls_signed(chain) == [], (entered, chain.sent)
 
 
