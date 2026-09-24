@@ -2,9 +2,14 @@
 """
 The Matrix SDK — Blockchain Operations Example
 
-Demonstrates all blockchain capabilities through the SDK.
-Gas is paid by the platform within the deployment's sponsorship policy
-(a per-identity daily cap when one is configured).
+Five blockchain calls through the SDK: a price read, a contract conversion,
+a payment, an attestation and the platform dashboard. Each call except the
+conversion is a chat message to Neo, so what comes back is his reply.
+
+Whether the platform pays the gas depends on the deployment: with no
+paymaster key configured nothing is sponsored, and with one, the operator's
+sponsorship policy decides, and may refuse an operation (docs/blockchain.md,
+Gas). An attestation you ask for is metered like any other operation.
 """
 
 import asyncio
@@ -22,8 +27,8 @@ async def main():
     result = await client.get_price("ETH/USD")
     print(f"Result: {result['response'][:200]}")
 
-    # 2. Deploy a smart contract
-    print("\n── Deploy Contract ──")
+    # 2. Convert a smart contract (the platform does not deploy it)
+    print("\n── Convert Contract ──")
     contract_source = '''
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
@@ -65,8 +70,9 @@ contract HelloMatrix {
     result = await client.ablockchain("dashboard", action="platform_stats")
     print(f"Result: {result['response'][:200]}")
 
-    print("\nGas for these operations was paid by the platform within its sponsorship "
-          "policy; the dashboard result above carries that policy as gas_policy.")
+    print("\nWhether the platform paid gas for any of these depends on the deployment: "
+          "with no paymaster configured nothing is sponsored, and with one the operator's "
+          "sponsorship policy decides (docs/blockchain.md, Gas).")
 
 
 if __name__ == "__main__":

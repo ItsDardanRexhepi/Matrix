@@ -508,3 +508,73 @@ async def test_the_capped_statement_names_what_the_cap_does_not_count():
                    for op in UNMETERED_PLATFORM_OPERATIONS), (
         "a caller's attestation capability is listed as unmetered", UNMETERED_PLATFORM_OPERATIONS)
     assert describe_gas_policy(UNCAPPED)["unmetered_operations"] == []
+
+
+# ── an example that reports gas as paid whatever happened ────────────────────
+#
+# sdk/examples/blockchain_ops.py ended by printing "Gas for these operations
+# was paid by the platform within its sponsorship policy; the dashboard result
+# above carries that policy as gas_policy", on every run. With no paymaster
+# configured nothing is sponsored, a refused operation paid no gas at all, and
+# the dashboard result it pointed at was the agent's reply, cut to 200
+# characters. A sentence that says gas WAS paid reports an event; an example
+# may print one only inside a branch that tested what the code returned.
+
+_GAS_PAID = re.compile(
+    r"\bgas\b[^.]*\b(?:was|were|has been|have been)\s+(?:paid|covered|sponsored)\b"
+    r"|\b(?:paid|covered|sponsored)\s+(?:the\s+)?gas\b[^.]*\bfor these\b", re.I)
+
+
+def _printed_text(call) -> str:
+    import ast
+    parts = []
+    for arg in call.args:
+        for node in ast.walk(arg):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                parts.append(node.value)
+    return " ".join(parts)
+
+
+def _unconditional_gas_paid_prints(source: str) -> list[str]:
+    import ast
+    tree = ast.parse(source)
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    out = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "print"):
+            continue
+        text = _printed_text(node)
+        if not _GAS_PAID.search(" ".join(text.split())):
+            continue
+        up, guarded = parents.get(node), False
+        while up is not None:
+            if isinstance(up, ast.If) and re.search(r"sponsored|gas_policy",
+                                                    ast.unparse(up.test)):
+                guarded = True
+                break
+            up = parents.get(up)
+        if not guarded:
+            out.append(f"line {node.lineno}: {text.strip()[:120]}")
+    return out
+
+
+def test_the_gas_paid_print_scan_catches_the_old_example():
+    old = ('print("\\nGas for these operations was paid by the platform within its sponsorship "\n'
+           '      "policy; the dashboard result above carries that policy as gas_policy.")\n')
+    assert _unconditional_gas_paid_prints(old)
+    guarded = ('if result.get("gas_policy", {}).get("sponsored"):\n'
+               '    print("Gas for this operation was sponsored by the platform.")\n')
+    assert not _unconditional_gas_paid_prints(guarded)
+    assert not _unconditional_gas_paid_prints(
+        'print("Whether the platform paid gas depends on the deployment.")\n')
+
+
+def test_no_example_prints_that_gas_was_paid_whatever_happened():
+    assert describe_gas_policy(NO_PAYMASTER)["sponsored"] is False  # measured premise
+    offenders = []
+    for folder in ("examples", "sdk/examples"):
+        for path in sorted((ROOT / folder).glob("*.py")):
+            rel = str(path.relative_to(ROOT))
+            offenders += [f"{rel} {o}" for o in
+                          _unconditional_gas_paid_prints(path.read_text(encoding="utf-8"))]
+    assert not offenders, "\n".join(offenders)

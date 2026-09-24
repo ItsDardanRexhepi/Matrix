@@ -56,5 +56,5 @@ See `client.py` for the full API. The SDK mirrors the gateway's REST endpoints:
 
 See `examples/` for working examples:
 - `quickstart.py` — Basic chat and status
-- `blockchain_ops.py` — Deploying contracts, payments, attestations
+- `blockchain_ops.py` — A price read, a contract conversion (you deploy the result yourself), a payment, an attestation and the dashboard
 - `migration_example.py` — Importing agents from other frameworks
