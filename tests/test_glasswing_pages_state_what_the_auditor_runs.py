@@ -578,6 +578,96 @@ def test_the_widget_is_described_with_the_key_it_needs():
     assert not offenders, "\n".join(offenders)
 
 
+# ── Sibling axis: subscription tiers that promise what nothing performs ─────
+#
+# The phrase scan above read only the audit and conversion surfaces. The
+# landing page's pricing listed, for Pro and Enterprise, a managed cloud
+# gateway, priority API access, email support with a 24h SLA, a usage
+# analytics dashboard, dedicated infrastructure, custom agent training, SSO and
+# team management, priority support with a 4h SLA, a 99.9% SLA guarantee and an
+# on-prem deployment option, behind a "Start Pro Trial" button; course 01's
+# gateway module tied API keys to tiers with "priority processing", "dedicated
+# support" and "custom plugins". Every capability in the catalog is free tier,
+# and nothing in the gateway reads a subscription to decide anything. This
+# scan reads every public page and document. The README's section on the MTRX
+# app's hosted plans is the app's, which this repository cannot measure, and
+# is not read.
+
+_TIER_PROMISES = [
+    r"\bsla\b",
+    r"priority (?:support|api access|processing|queue)",
+    r"dedicated (?:support|infrastructure)",
+    r"custom (?:agent training|plugins)",
+    r"on-prem(?:ise)? deployment option",
+    r"managed cloud (?:gateway|hosting)",
+    r"usage analytics dashboard",
+    r"start (?:a |your )?pro trial",
+    r"contact sales",
+    r"premium tiers add",
+    r"api keys are tied to subscription tiers",
+]
+_APP_PLANS_HEADING = re.compile(r"^## [^\n]*\(the hosted app\)[^\n]*$", re.M)
+
+
+def _nothing_reads_a_subscription() -> list[str]:
+    problems = []
+    from runtime.capabilities.catalog import CAPABILITIES
+    tiers = {c["min_tier"] for c in CAPABILITIES}
+    if tiers != {"free"}:
+        problems.append(f"the catalog has capabilities above free tier now: {sorted(tiers)}")
+    out = subprocess.check_output(["git", "ls-files", "gateway/*.py", "runtime/*.py"], cwd=ROOT, text=True)
+    for rel in out.splitlines():
+        if rel == "runtime/monetization/entitlement_store.py" or not (ROOT / rel).is_file():
+            continue
+        if re.search(r"\.(?:active_tier_for|entitlements_for)\(", (ROOT / rel).read_text(encoding="utf-8")):
+            problems.append(f"{rel} reads a subscription tier now")
+    return problems
+
+
+def _without_the_app_plans(rel: str, text: str) -> str:
+    if rel != "README.md":
+        return text
+    m = _APP_PLANS_HEADING.search(text)
+    if not m:
+        return text
+    end = text.find("\n## ", m.end())
+    return text[:m.start()] + (text[end:] if end != -1 else "")
+
+
+def test_the_tier_promise_scan_catches_the_old_copy():
+    old = ("premium tiers add managed infrastructure and priority support. managed cloud hosting. "
+           "priority api access. email support (24h sla). usage analytics dashboard. custom agent "
+           "training. dedicated infrastructure. on-prem deployment option. start pro trial. contact "
+           "sales. api keys are tied to subscription tiers: all services, priority processing; "
+           "dedicated support, custom plugins")
+    hits = {p for p in _TIER_PROMISES if re.search(p, old)}
+    assert hits == set(_TIER_PROMISES), set(_TIER_PROMISES) - hits
+    assert not any(re.search(p, "every capability in the catalog is free tier; pro and enterprise "
+                                "are the app's subscription tiers, and nothing here changes with "
+                                "the tier.") for p in _TIER_PROMISES)
+    readme = "intro\n## Subscription Tiers (the hosted app)\n| Priority support |\n## Web\nsla here"
+    assert "Priority support" not in _without_the_app_plans("README.md", readme)
+    assert "sla here" in _without_the_app_plans("README.md", readme)
+
+
+def test_no_public_text_promises_a_tier_nothing_performs():
+    premises = _nothing_reads_a_subscription()
+    assert not premises, "re-derive this check: " + "; ".join(premises)
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel.startswith("tests/") or rel in {"CHANGELOG.md", "web/terms.html", "web/privacy.html"}:
+            continue
+        if not (ROOT / rel).is_file():
+            continue
+        text = _without_the_app_plans(rel, (ROOT / rel).read_text(encoding="utf-8"))
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).lower()
+        for pattern in _TIER_PROMISES:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 30]}...")
+    assert not offenders, "\n".join(offenders)
+
+
 # ── Sibling axis: a badge or a certificate is not an on-chain attestation ────
 #
 # The badge and certificate tables each carry an `eas_uid` column, and the

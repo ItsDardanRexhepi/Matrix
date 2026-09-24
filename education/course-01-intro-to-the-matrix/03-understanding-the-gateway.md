@@ -91,15 +91,7 @@ X-API-Key: mtrx_k_abc123def456
 
 Both methods are equivalent. Use whichever fits your HTTP client or framework. API keys are prefixed with `mtrx_k_` for easy identification in logs and configuration.
 
-API keys are tied to subscription tiers:
-
-| Tier | Rate Limit | Features |
-|------|------------|----------|
-| Free | Base tier | Core services, community support |
-| Pro | Elevated | All services, priority processing |
-| Enterprise | Highest | All services, dedicated support, custom plugins |
-
-Subscription pricing available in the MTRX app.
+The key is not tied to a subscription tier. Every capability in the catalog is free tier, and nothing in the gateway reads a subscription to decide what a request may do. Pro and Enterprise are the MTRX app's subscription tiers: the gateway records a subscription the App Store verifies (`POST /api/v1/iap/verify`), and no capability, limit or route depends on the tier yet.
 
 ## Rate Limiting
 
