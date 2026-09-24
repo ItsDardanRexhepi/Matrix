@@ -4,7 +4,7 @@
 Morpheus (the security spine), RexhepiGate (the URF execution gate) and the
 Glasswing contract auditor. Morpheus already got its fail-direction right twice
 over — an `evaluate` that raises denies anything `could_move_value`, and since
-9819e06 so does a gate that failed to CONSTRUCT.
+be42685 so does a gate that failed to CONSTRUCT.
 
 The other two did not. A RexhepiGate.evaluate that raised was logged and fell
 through with `approved` still True, so the exact fault that denies a transfer on
@@ -155,7 +155,7 @@ async def test_a_healthy_stack_is_unaffected(monkeypatch):
 
 # ── Round 2 of the same class: the direction itself, and the caller above it ──
 #
-# 3e704ef routed every gate fault inside pre_action through one helper,
+# 182c2c9 routed every gate fault inside pre_action through one helper,
 # `_deny_on_gate_fault`, whose direction is `could_move_value`. Two holes stayed:
 #
 #   1. `could_move_value` trusts any label starting with `list_` as a benign read,
@@ -333,7 +333,7 @@ async def test_a_protocol_stack_that_failed_to_construct_does_not_run_calls_unga
 
 
 async def test_an_audit_report_that_cannot_render_still_blocks(monkeypatch):
-    """3e704ef moved to_dict()/summary out of the fail-closed try. A block whose
+    """182c2c9 moved to_dict()/summary out of the fail-closed try. A block whose
     report raised while rendering must stay a block, and must not raise out of
     pre_action (where it would be the caller's fault path instead)."""
     stack = _stack(monkeypatch)
@@ -364,9 +364,9 @@ async def test_an_audit_report_that_cannot_render_still_blocks(monkeypatch):
 
 # ── Round 3: a deny is the verdict, not its reason ───────────────────────────
 #
-# be88818 restructured ReActLoop.run so that dispatch was skipped only when a
+# 42551fe restructured ReActLoop.run so that dispatch was skipped only when a
 # `denial` string had been read out of the gate result: `approved: False` with
-# `denial_reason: None` DISPATCHED the call. bb7a1ef skipped dispatch on the
+# `denial_reason: None` DISPATCHED the call. 120a3a1 skipped dispatch on the
 # approval flag alone. The real ProtocolStack produces exactly that shape when
 # Morpheus denies with `reason: None` — `decision.get("reason", default)` returns
 # the None, the default applies only to a missing key. A deny with no stated
@@ -442,7 +442,7 @@ async def test_a_morpheus_deny_with_no_reason_is_a_deny_through_the_real_stack(m
 
 # ── Round 3: the gateway funnel's direction was keyed on the METHOD name ─────
 #
-# be88818 said every caller of the one direction got the state-modifying set.
+# 42551fe said every caller of the one direction got the state-modifying set.
 # ServiceRoutes._call — the funnel behind every dedicated /api/v1 route — does
 # not pass an ACTION_MAP action name. It passes `action_type_for(service,
 # method)`, the METHOD name, and for marketplace.list_item that is `list_item`:
