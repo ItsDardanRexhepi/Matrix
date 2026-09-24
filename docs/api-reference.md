@@ -589,10 +589,14 @@ For programmatic access, use the Python SDK:
 ```python
 from sdk import MatrixClient
 
-client = MatrixClient("http://localhost:18790", api_key="sk-...")
-response = client.chat("Deploy a smart contract for me")
+client = MatrixClient("http://localhost:18790")
+response = client.chat("What can you help me with?")
 print(response.text)
 ```
+
+The Python client sends no API key yet, so it reaches the gateway's public
+routes, `/chat` among them; where the gateway's API key is set, the key-gated
+ones answer it `401`.
 
 Or the JavaScript SDK:
 
@@ -600,7 +604,7 @@ Or the JavaScript SDK:
 import { MatrixClient } from '@the-matrix/sdk';
 
 const client = new MatrixClient('http://localhost:18790', { apiKey: 'sk-...' });
-const response = await client.chat('Deploy a smart contract for me');
+const response = await client.chat('What can you help me with?');
 console.log(response.text);
 ```
 

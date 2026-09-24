@@ -71,34 +71,32 @@ Weather for San Francisco:
 
 ## Exercise 3: Smart Contract from English
 
-**Objective**: Convert a simple rental agreement into a smart contract.
+**Objective**: Convert a simple rental agreement into a smart contract, then deploy it yourself.
 
 **Instructions**:
-1. Write a plain-English description of a rental agreement with these terms:
+1. Write a description of a rental agreement, as pseudocode the converter can read (Module 05, Step 1), with these terms:
    - Landlord sets a monthly rent amount in USDC
    - Tenant can pay rent by calling a pay function
    - If rent is more than 5 days late, a 5% late fee applies
    - Landlord can withdraw accumulated rent payments
    - Either party can terminate the agreement with 30 days notice
-2. Send the description to Trinity via `/chat`
-3. Review the Glasswing audit report in the response
-4. If the audit passes, note the contract address from the deployment
-5. Record the EAS attestation UID
+2. Send it to `POST /api/v1/contracts/convert` with `"source_lang": "pseudocode"`
+3. Review the Glasswing audit report in the response, finding by finding
+4. Compile the generated source, fix what the compiler reports, and deploy it to Base Sepolia from your own wallet
+5. Record the contract address your deployment tool reports
 
 **Expected Output Format**:
 ```
-Contract Description: [your description]
-Audit Status: passed
-Vulnerabilities: 0 critical, 0 high
-Contract Address: 0x...
-Attestation UID: 0x...
+Contract: [the contract name in generated_source]
+Audit verdict: passed | failed | not_auditable
+Findings: [critical] critical, [high] high, [medium] medium
+Contract Address: 0x... (Base Sepolia, from your own deployment)
 ```
 
 **Success Criteria**:
-- The description is specific enough to generate a valid contract
-- The audit report returns with zero critical or high severity findings
-- You can explain what each part of the audit report means
-- The deployment (to testnet) succeeds
+- The generated contract has the state and the functions your description names
+- You can explain each finding in the audit report, including any that do not apply to your code
+- The contract compiles, and your deployment to testnet succeeds
 
 ---
 

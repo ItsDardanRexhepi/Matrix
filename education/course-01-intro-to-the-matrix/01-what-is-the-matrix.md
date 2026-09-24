@@ -22,11 +22,11 @@ Neo is the backbone. When a task needs to be performed -- converting a contract,
 
 ### Trinity -- The Conversational Interface
 
-Trinity is who you talk to. She translates your natural language requests into structured tasks that Neo can execute. When you say "deploy an ERC-20 token called MatrixCoin with a supply of 1 million," Trinity parses that intent, validates the parameters, and hands the structured task to Neo. She also translates Neo's technical output back into human-readable responses. Trinity is available through the REST API, WebSocket connections, and the MTRX command-line interface.
+Trinity is who you talk to. She translates your natural language requests into structured tasks that Neo can execute. When you say "write an ERC-20 token called MatrixCoin with a supply of 1 million," Trinity parses that intent, validates the parameters, and hands the structured task to Neo. She also translates Neo's technical output back into human-readable responses. Trinity is available through the REST API (`/chat`), WebSocket connections (`/ws`), and the MTRX iOS app.
 
 ### Morpheus -- The Guardian
 
-Morpheus appears only before irreversible actions. If you are about to deploy a contract to mainnet, transfer tokens, or execute a transaction that cannot be undone, Morpheus intervenes with a confirmation step. He presents exactly what is about to happen, the costs involved, and the consequences. Nothing irreversible executes without your explicit approval through Morpheus.
+Morpheus appears at pivotal moments: the first time you use a kind of capability, before an action that cannot be undone (a token transfer, an ownership change), when something significant happens, and when you ask him to explain something. He states what is about to happen, that it is permanent, and what it means. He informs; he does not block. Whether an action runs is decided by the platform's own gates (the Unified Rexhepi Framework on every tool call, and the closed-source security layer where a deployment installs it), not by a confirmation through Morpheus.
 
 ## Architecture Overview
 
@@ -76,7 +76,7 @@ For developers, The Matrix provides a plugin interface and SDK that let you buil
 ## Key Takeaways
 
 - The Matrix is a free AI agent platform for blockchain operations on Base (Ethereum L2)
-- Three agents: Neo (execution), Trinity (conversation), Morpheus (confirmation of irreversible actions)
+- Three agents: Neo (execution), Trinity (conversation), Morpheus (guidance at pivotal moments; he informs and does not block)
 - 195 blockchain capabilities accessible through natural language or API, organized into 20 discoverable categories
 - The gateway runs on port 18790 and serves as the central coordination point
 - Plugin marketplace: lists plugins, installs none; paid sales not live yet

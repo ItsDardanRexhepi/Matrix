@@ -35,7 +35,7 @@ Community members are encouraged to run workshops for their teams, meetup groups
 | 0:45-1:00 | First Interaction | Attendees send their first /chat request via curl. Discuss the response format. |
 | 1:00-1:10 | Break | |
 | 1:10-1:35 | Build a Plugin | Walk through Module 04. Each attendee creates a simple plugin. |
-| 1:35-1:50 | Deploy a Contract | Demonstrate the contract conversion pipeline. Attendees deploy to Base Sepolia. |
+| 1:35-1:50 | Convert and Deploy a Contract | Walk through Module 05: convert a structured description, read the audit report, then each attendee deploys the result to Base Sepolia from their own wallet. |
 | 1:50-2:00 | Wrap-Up and Next Steps | Point to the courses, the repository's issue tracker, and additional resources. Collect feedback. |
 
 ### Tips for Facilitators

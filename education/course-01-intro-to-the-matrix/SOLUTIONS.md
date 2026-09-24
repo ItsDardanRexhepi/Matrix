@@ -183,44 +183,77 @@ Weather for San Francisco:
 
 ### Contract Description
 
-```
-Create a rental agreement smart contract with the following terms:
+The converter reads pseudocode (Module 05, Step 1), so the terms are written as a contract with its state and functions. This version takes rent in ETH (`msg.value`); taking it in USDC would need an ERC-20 `transferFrom` in `payRent`.
 
-- The landlord deploys the contract, setting the monthly rent amount in USDC and the tenant's wallet address.
-- The tenant can call a payRent function to pay the current month's rent in USDC.
-- If rent is paid more than 5 days after the first of the month, a 5% late fee is automatically added to the amount due.
-- The landlord can call withdrawRent to withdraw all accumulated rent payments.
-- Either the landlord or tenant can call terminateAgreement to begin a 30-day termination notice period. After 30 days, the contract is considered terminated and no further rent is due.
-- Only the landlord can update the rent amount, and changes take effect the following month.
+```
+contract RentalAgreement
+state landlord: address
+state tenant: address
+state rentAmount: uint
+state paidThrough: uint
+state terminationStart: uint
+state balance: uint
+
+function constructor(tenantAddress: address, rent: uint)
+    landlord = msg.sender;
+    tenant = tenantAddress;
+    rentAmount = rent;
+    paidThrough = block.timestamp;
+
+function payRent() payable
+    require(msg.sender == tenant, "only tenant");
+    require(terminationStart == 0 || block.timestamp < terminationStart + 30 days, "terminated");
+    uint due = rentAmount;
+    if (block.timestamp > paidThrough + 5 days) { due = due + due * 5 / 100; }
+    require(msg.value >= due, "rent due");
+    paidThrough = paidThrough + 30 days;
+    balance += msg.value;
+
+function withdrawRent()
+    require(msg.sender == landlord, "only landlord");
+    uint amount = balance;
+    balance = 0;
+    payable(landlord).transfer(amount);
+
+function terminateAgreement()
+    require(msg.sender == landlord || msg.sender == tenant, "only parties");
+    terminationStart = block.timestamp;
+
+function updateRent(newRent: uint)
+    require(msg.sender == landlord, "only landlord");
+    rentAmount = newRent;
 ```
 
-### Sending to Trinity
+### Sending It to the Converter
+
+Put the description above in a file, `rental.txt`, and send it as `source_code` (the `jq` call builds the JSON body with the file's text escaped):
 
 ```bash
-curl -X POST http://localhost:18790/chat \
+jq -n --rawfile src rental.txt '{source_code: $src, source_lang: "pseudocode"}' |
+curl -X POST http://localhost:18790/api/v1/contracts/convert \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{
-    "message": "Create a rental agreement smart contract with the following terms: The landlord deploys the contract, setting the monthly rent amount in USDC and the tenant wallet address. The tenant can call a payRent function to pay the current month rent in USDC. If rent is paid more than 5 days after the first of the month, a 5% late fee is automatically added. The landlord can call withdrawRent to withdraw all accumulated rent payments. Either the landlord or tenant can call terminateAgreement to begin a 30-day termination notice period. After 30 days, the contract is terminated and no further rent is due. Only the landlord can update the rent amount, and changes take effect the following month."
-  }'
+  -d @-
 ```
 
 ### Expected Response Summary
 
+Measured by running this description through the conversion pipeline:
+
 ```
-Contract Description: Rental agreement with USDC payments, late fees, and termination
-Audit Status: passed
-Vulnerabilities: 0 critical, 0 high, 0 medium
-Contract Address: 0x... (Base Sepolia testnet)
-Attestation UID: 0x...
+Contract: RentalAgreement (a constructor, payRent, withdrawRent, terminateAgreement, updateRent)
+Audit verdict: passed
+Findings: 0 critical, 0 high, 0 medium, 3 low (a floating pragma, and block.timestamp
+          used in the late-fee and termination comparisons)
+Contract Address: from your own deployment to Base Sepolia
 ```
 
 ### Key Points
 
-- Specifying "USDC" tells the contract generator to use an ERC-20 token interface for payments, not raw ETH
-- The 5% late fee and 30-day notice period are specific enough for the generator to implement correctly
-- Access control is clear: landlord-only for withdrawal and rent updates, either party for termination
-- Morpheus will intervene before the actual deployment step to confirm
+- Each term became code only because the description wrote it as a function or a state variable; the converter does not read free prose
+- The two block.timestamp findings are expected here: the late fee and the notice period are measured in time, and a validator can move a timestamp by seconds, not days
+- Access control is in the function bodies (`require(msg.sender == landlord)`), which the audit's access-control check does not read; check it yourself
+- The platform does not deploy it: compile it, test it, and deploy it to Base Sepolia from your own wallet
 
 ---
 

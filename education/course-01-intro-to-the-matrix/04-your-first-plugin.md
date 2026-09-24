@@ -233,4 +233,4 @@ There is no review process. The listing is stored with status `pending`, and not
 
 ---
 
-**Next:** [Deploying Contracts](./05-deploying-contracts.md) -- convert plain English into audited smart contracts.
+**Next:** [Converting Contracts](./05-deploying-contracts.md) -- turn a structured description into Solidity, read its audit report, and deploy it yourself.

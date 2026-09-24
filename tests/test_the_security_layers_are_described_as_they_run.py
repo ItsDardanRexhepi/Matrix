@@ -12,6 +12,10 @@ Three statements had outlived the code they describe:
     protection protocol "governs all interactions with Neo". That protocol is
     part of the closed core, so it governs nothing in a deployment that does
     not install it, and a clone of this repository does not;
+  * course 01 said "Nothing irreversible executes without your explicit
+    approval through Morpheus". The Morpheus trigger in the pre-action stack
+    adds a message to the step and stops nothing (docs/agents.md: "Morpheus
+    does not block — he informs");
   * docs/what-makes-the-matrix-different.md said every decision of every agent
     passes through the Unified Rexhepi Framework, that it "cannot be bypassed",
     and that every agent response is evaluated. The framework's gate runs on
@@ -44,6 +48,7 @@ _OVERCLAIMS = [
     r"governed entirely by",
     r"every agent response is evaluated",
     r"every decision made by every agent passes through",
+    r"nothing irreversible executes without",
 ]
 
 
@@ -52,7 +57,8 @@ def _flat(text: str) -> str:
 
 
 def test_the_overclaim_scan_catches_the_old_copy():
-    old = ("A multi-layer access protection protocol governs all interactions with Neo. "
+    old = ("Nothing irreversible executes without your explicit approval through Morpheus. "
+           "A multi-layer access protection protocol governs all interactions with Neo. "
            "It governs all attempts to reach Neo. Governed entirely by the Unified Rexhepi "
            "Framework. Every decision made by every agent passes through the Unified Rexhepi "
            "Framework before execution. This is not optional. It cannot be bypassed. Every "
@@ -78,8 +84,26 @@ def _framework_gate_callers() -> set[str]:
     return callers
 
 
+def _morpheus_trigger_branch_only_adds_a_message() -> bool:
+    """In ProtocolStack.pre_action (its body is _pre_action), the Morpheus trigger branch sets
+    result["morpheus_message"] and nothing that stops the call."""
+    tree = ast.parse((ROOT / "runtime" / "protocols" / "integration.py").read_text(encoding="utf-8"))
+    stages = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
+              and n.name in ("pre_action", "_pre_action")]
+    branches = [n for stage in stages for n in ast.walk(stage) if isinstance(n, ast.If)
+                and "_morpheus_triggers" in ast.unparse(n.test)]
+    if not branches:
+        return False
+    body = "\n".join(ast.unparse(b) for b in branches)
+    stops = [n for b in branches for n in ast.walk(b) if isinstance(n, (ast.Return, ast.Raise))]
+    return "morpheus_message" in body and not stops and "allowed" not in body
+
+
 def test_no_public_text_says_a_layer_governs_everything_or_cannot_be_bypassed():
     import runtime.security as seam
+
+    assert _morpheus_trigger_branch_only_adds_a_message(), (
+        "the Morpheus trigger can stop a call now; re-derive this check")
 
     # The measured premises: this clone runs without the closed core, and the
     # framework's gate is built only by the tool-call pre-action stack (and by

@@ -6,7 +6,7 @@ The software is open source and free to run. Using the platform has a free tier;
 
 ## Everything Is Conversation
 
-There are no forms. No dashboards. No settings pages. No documentation users need to read. Every single capability is accessible through a conversation with Trinity. A user who has never touched blockchain in their life can deploy a smart contract by describing what they want in their own words, in their own language.
+Every capability in the catalog can be asked for in a conversation with Trinity, in the user's own words and language; what she can run depends on the caller's credentials and on whether the capability is available yet. A user who has never touched blockchain can have a contract written from a description, read the Glasswing report on it, and deploy it from their own wallet.
 
 ## Everything Is Governed
 
