@@ -21,9 +21,12 @@ path delivered them — and nothing ever drains a ``recorded`` row.
 AT MOST ONCE, BY CONSTRUCTION. A row is marked ``attempting`` in its own
 transaction BEFORE its delivery is tried. What a delivery answers decides the
 next state: ``done``; ``pending`` again after a backoff when the answer proves
-nothing was sent (the chain is not configured; a mined revert); ``dead`` after
-the fifth such answer; or ``held`` when the answer does not say whether an
-attestation went out. A held attestation is never sent again by this loop —
+no attestation exists — nothing was sent (the chain is not configured), or the
+chain mined the transaction and reverted it, which was sent and paid for by
+the platform and made no attestation, so each such retry is another
+platform-paid transaction; ``dead`` when the fifth attempt in all (the first
+and four retries) answers the same; or ``held`` when the answer does not say
+whether an attestation went out. A held attestation is never sent again by this loop —
 two attestations on a public chain for one action cannot be taken back — and
 it is logged at ERROR for a person to settle. A row found still ``attempting``
 after its lease (the process died mid-delivery) is held the same way if it is
@@ -61,8 +64,9 @@ PENDING = "pending"        # mode on: waiting for the loop
 ATTEMPTING = "attempting"  # a delivery was begun and has not answered
 DONE = "done"
 HELD = "held"              # nobody knows whether it went out, or it does not match its run
-DEAD = "dead"              # five deliveries answered that nothing was sent
+DEAD = "dead"              # five attempts in all each proved no attestation exists
 
+#: Attempts in all — the first and four retries — before a row is dead.
 MAX_ATTEMPTS = 5
 RETRY_BASE_S = 30.0
 RETRY_CAP_S = 3600.0
@@ -79,8 +83,9 @@ STOP_GRACE_S = 20.0
 
 @dataclass(frozen=True)
 class Delivery:
-    """What one delivery answered: ``done``, ``retry`` (provably nothing was
-    sent) or ``held`` (nobody can say)."""
+    """What one delivery answered: ``done``, ``retry`` (provably no attestation
+    exists, so another attempt cannot make a second) or ``held`` (nobody can
+    say)."""
     outcome: str
     note: str = ""
 
@@ -129,12 +134,14 @@ def feed_event_id(run_id: str) -> str:
 def classify_attestation(result: Any) -> Delivery:
     """What an attestation client's answer establishes about the send.
 
-    Retried only when the answer proves nothing reached the chain: ``skipped``
-    (the chain is not configured, a dependency is missing) and a revert the
-    chain mined (it carries its block). An answer that went out without a
-    receipt is done — sending it again is how one attestation becomes two. Any
-    other answer, including ``failed`` with no block, does not say whether the
-    transaction left, and is held."""
+    Retried only when the answer proves no attestation exists: ``skipped`` (the
+    chain is not configured, a dependency is missing — nothing was sent) and a
+    revert the chain mined (it carries its block — the transaction was sent,
+    mined and paid for, and made no attestation; a retry is another paid
+    transaction). An answer that went out without a receipt is done — sending
+    it again is how one attestation becomes two. Any other answer, including
+    ``failed`` with no block, does not say whether the transaction left, and is
+    held."""
     from runtime.protocols.outcome_truth import SUCCESS, report_of
 
     if not isinstance(result, dict):

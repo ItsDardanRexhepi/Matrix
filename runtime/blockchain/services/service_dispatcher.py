@@ -1844,6 +1844,7 @@ class ServiceDispatcher:
                             action, target_service, params, result, actor=_actor,
                             actor_claimed=_claimed_actor,
                         )) if _happened and self._feed_engine is not None else None,
+                        envelope=lambda: self._envelope(action, target_service, result, start),
                     )
 
                 if _happened:
@@ -1908,18 +1909,7 @@ class ServiceDispatcher:
             # missed its deadline. `_STATE_MODIFYING_ACTIONS` is the measured set
             # that separates them, it lives here, and it is passed rather than
             # re-derived.
-            elapsed = round(time.time() - start, 3)
-            return json.dumps({
-                "status": "ok",
-                OUTCOME_FIELD: report_of(
-                    result,
-                    status_describes_the_call=action in _STATE_MODIFYING_ACTIONS,
-                ),
-                "action": action,
-                "service": target_service,
-                "result": self._serialise(result),
-                "elapsed_ms": int(elapsed * 1000),
-            })
+            return self._envelope(action, target_service, result, start)
 
         except NotImplementedError as exc:
             logger.warning("Action %s not implemented: %s", action, exc)
@@ -1944,6 +1934,26 @@ class ServiceDispatcher:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @classmethod
+    def _envelope(cls, action: str, target_service: str, result: Any, start: float) -> str:
+        """The answer ``execute`` returns for a service that returned *result*.
+        One builder for two readers: ``execute``'s own return, and the durable
+        run's end, which records the bridge's answer built from it on the
+        request's Idempotency-Key in the same transaction (engines.durable in
+        shadow or on)."""
+        elapsed = round(time.time() - start, 3)
+        return json.dumps({
+            "status": "ok",
+            OUTCOME_FIELD: report_of(
+                result,
+                status_describes_the_call=action in _STATE_MODIFYING_ACTIONS,
+            ),
+            "action": action,
+            "service": target_service,
+            "result": cls._serialise(result),
+            "elapsed_ms": int(elapsed * 1000),
+        })
 
     @staticmethod
     def _feed_publication(

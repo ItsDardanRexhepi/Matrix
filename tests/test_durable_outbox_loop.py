@@ -6,9 +6,11 @@ either, not merely durable:
 
 * AT MOST ONCE. An attestation whose delivery answered ambiguously, or whose
   delivery was interrupted, is HELD and never sent again by the loop; it is
-  retried only when the answer proves nothing reached the chain, five times,
-  then it is a dead letter. A feed entry is delivered again after an
-  interruption because the feed stores it once under the run's id.
+  tried again only when the answer proves no attestation exists (nothing was
+  sent, or the chain mined a revert — sent, and paid for by the platform), five
+  attempts in all — the first and four retries — then it is a dead letter. A
+  feed entry is delivered again after an interruption because the feed stores
+  it once under the run's id.
 * NO AUTHORITY. The loop delivers exactly two kinds to exactly two clients, and
   only for a run the journal says COMPLETED with a settled answer. A hostile
   row — no run, a run that did not complete, an answer that was not settled, a
@@ -90,8 +92,8 @@ def test_what_an_attestation_answer_allows(answer, outcome):
 
 # ── retries, dead letters, held rows ────────────────────────────────────────
 
-async def test_an_attestation_never_sent_is_retried_five_times_then_dead(tmp_path, monkeypatch,
-                                                                         installed, caplog):
+async def test_an_attestation_never_sent_is_tried_five_times_in_all_then_dead(
+        tmp_path, monkeypatch, installed, caplog):
     clock = Clock()
     world, db, eng, _ = await _one_settled_run(
         tmp_path, monkeypatch, installed, clock=clock, feed=False,
@@ -363,7 +365,10 @@ def test_runtime_durable_imports_nothing_that_can_act():
             for name in names:
                 assert name in _ALLOWED_IMPORTS, f"{path.name} imports {name}"
             if isinstance(node, ast.ImportFrom) and node.module == "runtime.security.action_map":
-                assert {a.name for a in node.names} <= {"TWIN_TOOLS", "canonical_action"}
+                # The classification, and the declared-verb table (data) that
+                # names a twin run without writing the model's own verb out.
+                assert {a.name for a in node.names} <= {"TWIN_TOOLS", "SIGNING_ACTIONS",
+                                                        "canonical_action"}
             if isinstance(node, ast.ImportFrom) and node.module == "runtime.protocols.outcome_truth":
                 assert {a.name for a in node.names} <= {"FAILURE", "SUCCESS", "report_of"}
         for node in ast.walk(tree):

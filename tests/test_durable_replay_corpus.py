@@ -4,8 +4,8 @@ The packet's G8: duplicate effects over 1,000 replayed bodies must be 0. The
 corpus here is 1,000 distinct requests to ``POST /bridge/v1/action`` — every
 state-modifying action name in turn, under a service answering settled,
 broadcast and refused — each under its own Idempotency-Key, and each replayed:
-most once, some twice more, and one in five sent as two requests at the same
-moment. Every request carries a marker the service records, so a duplicate is a
+once, or — every seventh body — twice, and every fifth sent first as two
+requests at the same moment. Every request carries a marker the service records, so a duplicate is a
 marker the service saw twice. Each run's attestation and feed entry are counted
 too, after the outbox loop has drained.
 
@@ -144,8 +144,9 @@ async def test_g8_no_replayed_body_acts_twice(tmp_path, monkeypatch):
             "rule": "0 duplicate effects over 1,000 replayed bodies",
             "instrument": ("tests/test_durable_replay_corpus.py: 1,000 distinct POST "
                            "/bridge/v1/action bodies over every state-modifying action name, "
-                           "each under its own Idempotency-Key, each replayed (every seventh "
-                           "twice more; every fifth sent as two requests at once), through the "
+                           "each under its own Idempotency-Key, each replayed once (every "
+                           "seventh body twice; every fifth sent first as two requests at "
+                           "once), through the "
                            "aiohttp test client with engines.durable in mode on (canary "
                            "state_modifying); the service records a per-body marker, and the "
                            "outbox loop drains before counting"),

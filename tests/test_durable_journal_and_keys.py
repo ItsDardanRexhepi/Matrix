@@ -3,10 +3,11 @@ machine and recovery, and the idempotency store.
 
 What these pin: migration 10 is additive and creates exactly the four tables;
 a run moves only START → RUNNING → COMPLETE | FAIL, or START → ABORT, each move
-a compare-and-set; recovery ends an abandoned START run ABORT (its call never
-began) and never moves a RUNNING one (its call may have acted), and does the
-same thing however often and on whichever copy it runs; a key binds once, and
-answers hit / conflict / in_flight / expired without binding again.
+a compare-and-set; recovery ends an abandoned START run ABORT only when an
+engine that owned it recorded it (its call cannot have begun), leaves any
+other START and every RUNNING one where it is (its call may have acted), and
+does the same thing however often and on whichever copy it runs; a key binds
+once, and answers hit / conflict / in_flight / expired without binding again.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ sys.path.insert(0, "tests")
 from durable_harness import Clock, copy_file, database, projection  # noqa: E402
 from runtime.blockchain.services.service_dispatcher import params_digest  # noqa: E402
 from runtime.db.database import MIGRATIONS  # noqa: E402
-from runtime.durable import journal, keys  # noqa: E402
+from runtime.durable import journal, keys, wiring  # noqa: E402
 
 NEW_TABLES = {"workflow_runs", "workflow_steps", "outbox", "idempotency_keys"}
 
@@ -95,11 +96,11 @@ def test_a_run_state_outside_the_five_is_refused_by_the_table(tmp_path):
 
 # ── the journal ──────────────────────────────────────────────────────────────
 
-def _start(db, run_id="run_a", state=journal.START, at=100.0):
+def _start(db, run_id="run_a", state=journal.START, at=100.0, word=journal.START_OWNED):
     def work(conn):
         journal.insert_run(conn, run_id=run_id, action="transfer_stablecoin", service="stablecoin",
                            actor_hash="h", params_digest="p", state=state, started_at=at)
-        journal.append_step(conn, run_id, journal.STEP_START, "recorded", at=at)
+        journal.append_step(conn, run_id, journal.STEP_START, word, at=at)
     db.transaction_sync(work)
 
 
@@ -149,12 +150,35 @@ def test_recovery_aborts_an_abandoned_start_and_never_moves_a_running_run(tmp_pa
     _start(db, "run_fresh", journal.START, at=100.0 + 290)
     now = 100.0 + journal.ABANDONED_AFTER_S + 1
     result = db.transaction_sync(lambda c: journal.recover_runs(c, now=now))
-    assert result == {"aborted": ["run_s"], "unknown": ["run_r"]}
+    assert result == {"aborted": ["run_s"], "undetermined": [], "unknown": ["run_r"]}
     assert journal.get_run(db, "run_s")["state"] == journal.ABORT
     assert journal.get_steps(db, "run_s")[-1]["kind"] == journal.STEP_ABORT
     assert journal.get_run(db, "run_r")["state"] == journal.RUNNING
-    assert journal.get_steps(db, "run_r")[-1]["kind"] == journal.STEP_UNKNOWN
+    assert [(s["kind"], s["state"]) for s in journal.get_steps(db, "run_r")][-1] == (
+        journal.STEP_UNKNOWN, journal.NO_ANSWER_RECORDED)
     assert journal.get_run(db, "run_fresh")["state"] == journal.START, "inside the window"
+
+
+@pytest.mark.parametrize("word", [journal.START_OBSERVED, "", "anything else"])
+def test_recovery_never_reads_a_start_it_did_not_own_as_not_attempted(word, tmp_path):
+    """Only an engine that owned a run keeps its call from beginning before the
+    RUNNING mark. A START left by any other writer — shadow, mode on outside its
+    canary, or a start step that says neither — may have been called unmarked:
+    it is not closed, and its key is not given back, so a replay never acts."""
+    db = database(tmp_path / "a.db")
+    _start(db, "run_o", journal.START, at=100.0, word=word)
+    db.transaction_sync(lambda c: keys.claim(c, key="k", request_digest="d", run_id="run_o",
+                                             now=100.0))
+    eng = wiring.DurableEngine(db, mode="on", canary="state_modifying",
+                               clock=Clock(100.0 + journal.ABANDONED_AFTER_S + 1))
+    first = eng.maintain()
+    assert first["runs"] == {"aborted": [], "undetermined": ["run_o"], "unknown": []}
+    assert journal.get_run(db, "run_o")["state"] == journal.START
+    assert [(s["kind"], s["state"]) for s in journal.get_steps(db, "run_o")][-1] == (
+        journal.STEP_UNKNOWN, journal.NOT_KNOWN_IF_CALLED)
+    assert _claim(db, key="k", digest="d", run_id="run_new", now=500.0).outcome == keys.IN_FLIGHT
+    assert eng.maintain()["runs"] == {"aborted": [], "undetermined": [], "unknown": []}
+    assert eng._maintenance_due(eng._clock()) is False, "nothing left to write"
 
 
 def test_recovery_is_idempotent_and_the_same_on_every_copy(tmp_path):
@@ -166,7 +190,7 @@ def test_recovery_is_idempotent_and_the_same_on_every_copy(tmp_path):
     for i, copy in enumerate(copies):
         copy.transaction_sync(lambda c, i=i: journal.recover_runs(c, now=10_000.0 + i))
         again = copy.transaction_sync(lambda c: journal.recover_runs(c, now=20_000.0))
-        assert again == {"aborted": [], "unknown": []}
+        assert again == {"aborted": [], "undetermined": [], "unknown": []}
     assert projection(copies[0]) == projection(copies[1])
 
 

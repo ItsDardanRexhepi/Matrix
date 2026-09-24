@@ -381,7 +381,12 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             # none), `decision_ref` the gate decision's id where the entry point
             # has one. The caller and the parameters are sha256 digests, as in
             # evidence_shadow; params_digest is the same digest evidence_shadow
-            # writes for the same dispatch.
+            # writes for the same dispatch. A twin tool's run is named
+            # `<tool>.<declared verb>`, or `<tool>.undeclared`: the model's own
+            # verb string is never written out. The first step, `start`, says
+            # whether the engine that recorded the run owned its lifecycle
+            # (`recorded`) or not (`observed`): only an owned START proves its
+            # call never began.
             """
             CREATE TABLE IF NOT EXISTS workflow_runs (
                 run_id         TEXT PRIMARY KEY,
@@ -457,9 +462,12 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             # Idempotency keys (runtime/durable/keys.py). `key` is a sha256 of
             # the surface, the caller the gate saw and the client's
             # Idempotency-Key — never the raw key. The first request under a key
-            # binds it to its run; the answer it got is kept for 24 hours
-            # (`response`, with secret-named fields withheld) and then dropped,
-            # while the row stays, so the key never runs a second time.
+            # binds it to its run; the answer it got (`response`, with
+            # secret-named fields withheld) is given to a replay for 24 hours,
+            # and the engine's loop then clears it — only while an engine runs
+            # (shadow or on): with the mode back at off, answers recorded earlier
+            # stay until one runs again. The row stays, so the key never runs a
+            # second time.
             """
             CREATE TABLE IF NOT EXISTS idempotency_keys (
                 key              TEXT PRIMARY KEY,

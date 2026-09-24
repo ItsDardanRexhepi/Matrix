@@ -10,15 +10,32 @@ of the snapshot, after the lease has run out, and recovers; a second fresh
 engine recovers a second copy; and the first continues — the loop delivers
 what it owes, and for X1 the client replays its request with the same key.
 
-Each injection must satisfy the packet's four proofs:
+Each injection must satisfy the packet's four proofs, as this phase can hold
+them:
 
 * L — no lost workflow: every run the old process recorded is still there, and
   a request whose effect happened has a run that says its call began;
 * U — no unauthorized continuation: recovery itself performs no effect, and the
-  replay that continues an X1 request goes through the gate again;
+  replay that continues an X1 request goes through the gate again. NARROWER
+  THAN THE PACKET'S U (14 §1.5: "recovery re-checks the authorization fact and
+  Morpheus invariants before any further effect; a run whose decision has
+  expired stops"). In this phase no decision carries an expiry to re-check —
+  the gate's decision is an id on the run (``decision_ref``), and a decision
+  row with ``expires_at`` is Phase 4's (14 §1.5 X3, X10) — and the one further
+  effect a recovered engine makes, the attestation of a run that completed, is
+  sent without asking the gate again, as the dispatcher's legacy path sends it;
 * D — no duplicate effect: the service's effect, the attestation and the feed
   entry each happened at most once for the request;
 * R — deterministic recovery: the two recoveries reach the same state.
+
+X6.W3 holds an attestation whose sending was cut off after the chain accepted
+it, for a person; the packet's rule there — a reconciler reads the attestation
+back by its UID — needs the evidence side's chain reader, which this phase does
+not build. It never sends one twice either way.
+
+X1 is measured on ``POST /bridge/v1/action`` only: the ``/api/v1`` service
+routes read no Idempotency-Key and are not journaled (the README's "Not covered
+yet").
 
 ``SEEDS_PER_CELL`` seeded injections per cell (100, the packet's G7 minimum)
 run in-process at every commit. ``test_a_real_kill_leaves_what_the_model_says``
@@ -177,8 +194,9 @@ def _check(cell: str, case: dict, world: World, effects_at_kill: int, snap: Path
                         "on replay")
     if cell == "X1.W4" and services != 1:
         failures.append("a completed request did not act exactly once")
-    if (cell == "X1.W4" and point == "after_answer_recorded"
-            and not extra.get("replayed_the_first_answer")):
+    # The packet's X1.W4: "response lost after commit: replay returns recorded
+    # outcome" — at both points, because the run's end records the answer.
+    if cell == "X1.W4" and not extra.get("replayed_the_first_answer"):
         failures.append("the recorded answer was not returned")
     before._conn.close()
     return failures
@@ -352,7 +370,15 @@ async def test_every_injection_in_the_cell_keeps_the_four_proofs(cell, tmp_path,
 
 _ARTEFACT_HEADER = {
     "gate": "G7",
-    "rule": "100% of at least 100 seeded injections per cell keep the four proofs L, U, D, R",
+    "rule": ("100% of at least 100 seeded injections per cell keep the four proofs L, U, D, R "
+             "as tests/test_durable_crash_matrix.py states them: U is narrower than the "
+             "packet's (recovery performs no effect of its own and a continued X1 request is "
+             "gated again; no decision in this phase carries an expiry to re-check, and the "
+             "recovered engine's attestation is sent without asking the gate again, as the "
+             "legacy path sends it)"),
+    "scope": ("X1 is POST /bridge/v1/action only: the /api/v1 service routes read no "
+              "Idempotency-Key and are not journaled. X6.W3 holds the attestation for a "
+              "person; the packet's read-back by attestation UID is the evidence side's"),
     "instrument": ("tests/test_durable_crash_matrix.py: the committed state of the platform "
                    "database copied at the kill point, recovered twice by fresh engines past "
                    "every lease, then continued (outbox loop; for X1 the client's replay "
@@ -362,8 +388,9 @@ _ARTEFACT_HEADER = {
     "cells_meaning": {
         "X1.W2": "the gateway dies mid-handler: before the key is claimed, after the claim "
                  "before the service, or inside the service before or after its effect",
-        "X1.W4": "the answer is lost: after the run's terminal commit before the answer is "
-                 "recorded, or after it is recorded",
+        "X1.W4": "the answer is lost: after the run's terminal commit (which records the "
+                 "answer computed then) before the request records the answer it sent, or "
+                 "after; the replay must get the recorded answer, with the first status",
         "X2.W1": "the run is recorded and the service has not acted",
         "X2.W2": "the service acted and has not answered",
         "X2.W4": "the terminal state and the outbox rows are committed, nothing delivered",
@@ -379,6 +406,9 @@ _ARTEFACT_HEADER = {
 def test_the_artefact_says_every_cell_passed_all_its_injections():
     record = json.loads(ARTEFACT.read_text(encoding="utf-8"))
     assert record["gate"] == "G7" and set(record["cells"]) == set(CELLS)
+    # It says what it does not prove, next to what it does.
+    assert record["rule"] == _ARTEFACT_HEADER["rule"] and "narrower" in record["rule"]
+    assert record["scope"] == _ARTEFACT_HEADER["scope"] and "/api/v1" in record["scope"]
     for cell, result in record["cells"].items():
         assert result["injections"] >= 100 and result["passed"] == result["injections"], cell
     kills = record["real_kills"]

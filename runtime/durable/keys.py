@@ -16,11 +16,14 @@ THE FOUR ANSWERS a claim can give, besides binding a fresh key:
 * ``conflict`` — the key was used for a DIFFERENT request (another action or
   other parameters): refuse, run nothing.
 * ``in_flight`` — same request, and no answer is recorded: it is still running,
-  or the process running it died after its effect call began. Run nothing; the
+  or it stopped at a point where it may have acted (its effect call began, or
+  an engine that did not own it could not say whether it did). Run nothing; the
   run's own state says which.
 * ``expired`` — same request, answered more than 24 hours ago: the answer is no
-  longer held (it may name addresses, so it is not kept), and the request is
-  still not run a second time.
+  longer given (it may name addresses, so it is not kept: the engine's loop
+  clears it, in shadow and in on — with the mode back at off nothing runs to
+  clear it until an engine runs again), and the request is still not run a
+  second time.
 
 A request that ended before its effect call began (a gate that refused it, an
 action that does not exist, parameters that do not bind, a journal that could
@@ -42,7 +45,8 @@ from typing import Any
 #: The caller-supplied key: 8-64 characters of A-Z a-z 0-9 _ . : - (a UUID fits).
 KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{8,64}$")
 
-#: How long a recorded answer is kept for replay. The key itself is kept.
+#: How long a recorded answer is given to a replay; the engine's loop then clears
+#: it (only while an engine runs: shadow or on). The key itself is kept.
 ANSWER_KEPT_S = 24 * 3600.0
 
 MISS = "miss"
@@ -111,15 +115,23 @@ def claim(conn: sqlite3.Connection, *, key: str, request_digest: str, run_id: st
 
 
 def record_response(conn: sqlite3.Connection, *, key: str, run_id: str, status: int,
-                    body: str) -> bool:
+                    body: str, replace: bool = False) -> bool:
     """Record the answer the first request got. Only the request that bound the
-    key can record it, and only once."""
+    key can record it, and only once — unless *replace*: the run's end records
+    the answer as it stands then, in the same transaction as the run's terminal
+    state, so an answer lost after that commit is still there for a replay; the
+    request then replaces it with the answer it actually sent."""
+    sql = (_REPLACE_RESPONSE if replace else _RECORD_RESPONSE)
     cur = conn.execute(
-        "UPDATE idempotency_keys SET status = ?, response = ?, response_digest = ? "
-        "WHERE key = ? AND run_id = ? AND status IS NULL",
-        (int(status), body, hashlib.sha256(body.encode("utf-8", "surrogatepass")).hexdigest(),
-         key, run_id))
+        sql, (int(status), body,
+              hashlib.sha256(body.encode("utf-8", "surrogatepass")).hexdigest(), key, run_id))
     return cur.rowcount == 1
+
+
+_RECORD_RESPONSE = ("UPDATE idempotency_keys SET status = ?, response = ?, response_digest = ? "
+                    "WHERE key = ? AND run_id = ? AND status IS NULL")
+_REPLACE_RESPONSE = ("UPDATE idempotency_keys SET status = ?, response = ?, response_digest = ? "
+                     "WHERE key = ? AND run_id = ?")
 
 
 def release(conn: sqlite3.Connection, *, key: str, run_id: str) -> bool:

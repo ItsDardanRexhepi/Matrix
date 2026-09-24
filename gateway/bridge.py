@@ -1006,9 +1006,9 @@ class BridgeRoutes:
         # before anything runs. In mode on, with the canary covering the
         # state-modifying names, a key already bound answers from its record and
         # runs nothing: the first answer (a replay), or a 409 when the key was
-        # used for another request or its request has not answered. In shadow
-        # the claim is recorded and the request runs as it would with the mode
-        # off.
+        # used for another request or its request has not answered. In shadow,
+        # and in on with the canary at twins, the claim and the answer are
+        # recorded and the request runs as it would with the mode off.
         from runtime.durable import wiring as _durable_wiring
         durable = _durable_wiring.current()
         claim = None
@@ -1081,7 +1081,13 @@ class BridgeRoutes:
                     caller_identity=identity,
                 )
             else:
-                with durable.bound(claim):
+                # The run's end records this route's answer on the key in its
+                # own transaction, built here from the dispatcher's answer, so a
+                # response lost after that commit still reaches the replay.
+                def answer_of(envelope, _action=action):
+                    built = self._action_response(_action, envelope)
+                    return built.status, built.body
+                with durable.bound(claim, answer_of=answer_of):
                     result = await dispatcher.execute(
                         action,
                         params=params,
@@ -1109,11 +1115,15 @@ class BridgeRoutes:
         on). Nothing is run for it.
 
         * the first answer, when it is recorded — its status and body, with
-          ``replayed: true`` added and an ``Idempotent-Replayed`` header;
+          ``replayed: true`` added and an ``Idempotent-Replayed`` header. It is
+          recorded in the transaction that ends the first request's run, so a
+          first request whose process died after that commit, before it could
+          answer, is answered here all the same;
         * 409 ``idempotency_conflict`` when the key was used for a different
-          request, when its request has not answered (still running, or its
-          process died after the action began — the run's state is included),
-          or when its answer is older than the 24 hours answers are kept;
+          request, when its request has not answered (still running, or it
+          stopped at a point where it may have acted — the run's state is
+          included), or when its answer is older than the 24 hours answers
+          are kept;
         * 400 for a key that is not 8-64 of ``A-Z a-z 0-9 _ . : -``;
         * 503 when the key could not be recorded, so the request was not run.
         """
@@ -1148,8 +1158,8 @@ class BridgeRoutes:
             _keys.CONFLICT: ("This Idempotency-Key was already used for a different request; "
                              "this one was not run."),
             _keys.IN_FLIGHT: ("The first request with this Idempotency-Key has not answered — it "
-                              "is still running, or it stopped after the action began — so this "
-                              "one was not run. Its run's state is included."),
+                              "is still running, or it stopped at a point where it may have "
+                              "acted — so this one was not run. Its run's state is included."),
             _keys.EXPIRED: ("The answer to the first request with this Idempotency-Key is no "
                             "longer kept (answers are kept for 24 hours); this one was not run."),
         }

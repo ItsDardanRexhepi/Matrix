@@ -78,7 +78,7 @@
  },
  "cells_meaning": {
   "X1.W2": "the gateway dies mid-handler: before the key is claimed, after the claim before the service, or inside the service before or after its effect",
-  "X1.W4": "the answer is lost: after the run's terminal commit before the answer is recorded, or after it is recorded",
+  "X1.W4": "the answer is lost: after the run's terminal commit (which records the answer computed then) before the request records the answer it sent, or after; the replay must get the recorded answer, with the first status",
   "X2.W1": "the run is recorded and the service has not acted",
   "X2.W2": "the service acted and has not answered",
   "X2.W4": "the terminal state and the outbox rows are committed, nothing delivered",
@@ -91,7 +91,7 @@
  "gate": "G7",
  "instrument": "tests/test_durable_crash_matrix.py: the committed state of the platform database copied at the kill point, recovered twice by fresh engines past every lease, then continued (outbox loop; for X1 the client's replay under the same Idempotency-Key through POST /bridge/v1/action); a real os._exit kill of a child process at the X2, X6 and X7 points is checked the same way (real_kills)",
  "measured": {
-  "on_top_of": "aba8211",
+  "on_top_of": "d79ba40",
   "with_uncommitted_changes": true
  },
  "real_kills": {
@@ -124,5 +124,6 @@
   },
   "instrument": "a child process runs the dispatch and the outbox loop over the platform database and calls os._exit(137) at the point; the parent recovers what the file holds (with its write-ahead log) twice and continues, and applies the same four proofs"
  },
- "rule": "100% of at least 100 seeded injections per cell keep the four proofs L, U, D, R"
+ "rule": "100% of at least 100 seeded injections per cell keep the four proofs L, U, D, R as tests/test_durable_crash_matrix.py states them: U is narrower than the packet's (recovery performs no effect of its own and a continued X1 request is gated again; no decision in this phase carries an expiry to re-check, and the recovered engine's attestation is sent without asking the gate again, as the legacy path sends it)",
+ "scope": "X1 is POST /bridge/v1/action only: the /api/v1 service routes read no Idempotency-Key and are not journaled. X6.W3 holds the attestation for a person; the packet's read-back by attestation UID is the evidence side's"
 }

@@ -4,27 +4,27 @@
  "host": {
   "cpus": 10,
   "load_average_after": [
-   3.28,
-   7.65,
-   14.4
+   3.92,
+   22.61,
+   22.68
   ],
   "load_average_before": [
-   3.85,
-   9.31,
-   15.75
+   6.28,
+   27.41,
+   24.25
   ],
   "machine": "arm64",
   "one_minute_load_at_each_round": [
-   3.85,
-   4.32,
-   4.16,
-   4.05,
-   4.06,
-   4.04,
-   3.88,
-   3.74,
-   3.54,
-   3.3
+   6.28,
+   5.93,
+   6.34,
+   5.66,
+   5.37,
+   4.78,
+   4.64,
+   4.42,
+   4.27,
+   4.17
   ],
   "python": "3.11.15",
   "rounds_started_quiet_below": 8.0,
@@ -34,154 +34,386 @@
  "judged_on": "p95_ratio_to_main: the median over the rounds of the round's p95 for the mode over the same round's main p95. Off is measured in a process that runs only off, as main's does; shadow and on in a process that interleaves them with off in blocks, whose own off is kept for the same-process ratio. Pooled p95s over all rounds are kept beside and are not what is judged: on a shared host one loaded round moves them",
  "main": "main@58b8b4d",
  "measured": {
-  "on_top_of": "aff9455",
-  "with_uncommitted_changes": false
+  "on_top_of": "d79ba40",
+  "with_uncommitted_changes": true
  },
  "n_per_cell": 20000,
  "noise": "pre_action runs no line this phase changed; its off ratio is how far apart two measurements of the same code land on this host",
  "not_measured": "the outbox loop's own delivery work, which runs after the answer; a real service call, a chain or a network; the locust scenario against a live gateway, which needs a model provider and a chain",
+ "per_round": [
+  {
+   "bridge_action": {
+    "off": 1.0383,
+    "on": 2.4679,
+    "on_over_off_same_process": 2.2667,
+    "shadow": 2.2776,
+    "shadow_over_off_same_process": 2.0919
+   },
+   "execute": {
+    "off": 1.1266,
+    "on": 7.27,
+    "on_over_off_same_process": 6.6783,
+    "shadow": 7.211,
+    "shadow_over_off_same_process": 6.624
+   },
+   "pre_action": {
+    "off": 1.0806,
+    "on": 1.3279,
+    "on_over_off_same_process": 1.0554,
+    "shadow": 1.2978,
+    "shadow_over_off_same_process": 1.0315
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0356,
+    "on": 2.1723,
+    "on_over_off_same_process": 2.0359,
+    "shadow": 2.1768,
+    "shadow_over_off_same_process": 2.0401
+   },
+   "execute": {
+    "off": 1.0653,
+    "on": 6.7184,
+    "on_over_off_same_process": 6.4047,
+    "shadow": 7.0163,
+    "shadow_over_off_same_process": 6.6887
+   },
+   "pre_action": {
+    "off": 1.0242,
+    "on": 1.2746,
+    "on_over_off_same_process": 1.0205,
+    "shadow": 1.2705,
+    "shadow_over_off_same_process": 1.0172
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0007,
+    "on": 2.758,
+    "on_over_off_same_process": 2.3719,
+    "shadow": 2.4168,
+    "shadow_over_off_same_process": 2.0785
+   },
+   "execute": {
+    "off": 1.0338,
+    "on": 7.7553,
+    "on_over_off_same_process": 6.7574,
+    "shadow": 7.5823,
+    "shadow_over_off_same_process": 6.6066
+   },
+   "pre_action": {
+    "off": 1.0193,
+    "on": 1.4848,
+    "on_over_off_same_process": 1.14,
+    "shadow": 1.3674,
+    "shadow_over_off_same_process": 1.0498
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0077,
+    "on": 1.9726,
+    "on_over_off_same_process": 1.9019,
+    "shadow": 2.0267,
+    "shadow_over_off_same_process": 1.954
+   },
+   "execute": {
+    "off": 1.0418,
+    "on": 6.8159,
+    "on_over_off_same_process": 6.516,
+    "shadow": 6.9163,
+    "shadow_over_off_same_process": 6.612
+   },
+   "pre_action": {
+    "off": 1.0151,
+    "on": 1.2834,
+    "on_over_off_same_process": 1.0321,
+    "shadow": 1.2641,
+    "shadow_over_off_same_process": 1.0166
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 0.9793,
+    "on": 1.9606,
+    "on_over_off_same_process": 1.8901,
+    "shadow": 2.0352,
+    "shadow_over_off_same_process": 1.962
+   },
+   "execute": {
+    "off": 1.0333,
+    "on": 6.6792,
+    "on_over_off_same_process": 6.311,
+    "shadow": 6.975,
+    "shadow_over_off_same_process": 6.5906
+   },
+   "pre_action": {
+    "off": 1.0041,
+    "on": 1.2731,
+    "on_over_off_same_process": 1.0108,
+    "shadow": 1.2785,
+    "shadow_over_off_same_process": 1.0151
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0231,
+    "on": 2.1145,
+    "on_over_off_same_process": 1.9469,
+    "shadow": 2.1764,
+    "shadow_over_off_same_process": 2.0039
+   },
+   "execute": {
+    "off": 1.0641,
+    "on": 6.9744,
+    "on_over_off_same_process": 6.3502,
+    "shadow": 7.1923,
+    "shadow_over_off_same_process": 6.5486
+   },
+   "pre_action": {
+    "off": 1.029,
+    "on": 1.279,
+    "on_over_off_same_process": 0.9904,
+    "shadow": 1.268,
+    "shadow_over_off_same_process": 0.9818
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0126,
+    "on": 2.3787,
+    "on_over_off_same_process": 2.1744,
+    "shadow": 2.2935,
+    "shadow_over_off_same_process": 2.0965
+   },
+   "execute": {
+    "off": 1.0542,
+    "on": 7.1708,
+    "on_over_off_same_process": 6.5437,
+    "shadow": 7.2958,
+    "shadow_over_off_same_process": 6.6578
+   },
+   "pre_action": {
+    "off": 1.0122,
+    "on": 1.3533,
+    "on_over_off_same_process": 1.0641,
+    "shadow": 1.3179,
+    "shadow_over_off_same_process": 1.0363
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0542,
+    "on": 2.1202,
+    "on_over_off_same_process": 1.9897,
+    "shadow": 2.111,
+    "shadow_over_off_same_process": 1.981
+   },
+   "execute": {
+    "off": 1.1116,
+    "on": 7.1416,
+    "on_over_off_same_process": 6.7097,
+    "shadow": 7.3906,
+    "shadow_over_off_same_process": 6.9435
+   },
+   "pre_action": {
+    "off": 1.0625,
+    "on": 1.3069,
+    "on_over_off_same_process": 1.0398,
+    "shadow": 1.2792,
+    "shadow_over_off_same_process": 1.0177
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 1.0802,
+    "on": 2.0312,
+    "on_over_off_same_process": 1.8972,
+    "shadow": 2.0466,
+    "shadow_over_off_same_process": 1.9116
+   },
+   "execute": {
+    "off": 1.1,
+    "on": 6.568,
+    "on_over_off_same_process": 6.3643,
+    "shadow": 6.756,
+    "shadow_over_off_same_process": 6.5465
+   },
+   "pre_action": {
+    "off": 1.043,
+    "on": 1.2203,
+    "on_over_off_same_process": 1.0288,
+    "shadow": 1.1633,
+    "shadow_over_off_same_process": 0.9808
+   }
+  },
+  {
+   "bridge_action": {
+    "off": 0.9344,
+    "on": 1.9474,
+    "on_over_off_same_process": 2.0349,
+    "shadow": 1.9223,
+    "shadow_over_off_same_process": 2.0087
+   },
+   "execute": {
+    "off": 0.9059,
+    "on": 5.8084,
+    "on_over_off_same_process": 6.5117,
+    "shadow": 6.0697,
+    "shadow_over_off_same_process": 6.8047
+   },
+   "pre_action": {
+    "off": 0.8797,
+    "on": 1.0468,
+    "on_over_off_same_process": 1.0251,
+    "shadow": 1.0223,
+    "shadow_over_off_same_process": 1.0011
+   }
+  }
+ ],
  "rounds": 10,
  "summary": {
   "bridge_action": {
    "branch_off": {
     "measured_in": "branch_off_only",
     "n": 20000,
-    "p50_us": 368.8,
-    "p95_added_us": 91.6,
-    "p95_ratio_to_main": 1.027,
-    "p95_us": 520.9,
-    "pooled_p95_ratio_to_main": 1.213,
+    "p50_us": 259.1,
+    "p95_added_us": 1.1,
+    "p95_ratio_to_main": 1.018,
+    "p95_us": 293.2,
+    "pooled_p95_ratio_to_main": 1.004,
     "within_budget": true
    },
    "branch_on": {
     "measured_in": "branch_interleaved",
     "n": 20000,
-    "p50_us": 655.2,
-    "p95_added_us": 915.1,
-    "p95_ratio_to_main": 2.422,
-    "p95_ratio_to_off_in_the_same_process": 2.037,
-    "p95_us": 1344.4,
-    "pooled_p95_ratio_to_main": 3.132,
+    "p50_us": 504.8,
+    "p95_added_us": 338.9,
+    "p95_ratio_to_main": 2.117,
+    "p95_ratio_to_off_in_the_same_process": 2.012,
+    "p95_us": 631.0,
+    "pooled_p95_ratio_to_main": 2.16,
     "within_budget": false
    },
    "branch_shadow": {
     "measured_in": "branch_interleaved",
     "n": 20000,
-    "p50_us": 688.6,
-    "p95_added_us": 929.6,
-    "p95_ratio_to_main": 2.578,
-    "p95_ratio_to_off_in_the_same_process": 2.106,
-    "p95_us": 1358.9,
-    "pooled_p95_ratio_to_main": 3.165,
+    "p50_us": 519.0,
+    "p95_added_us": 333.2,
+    "p95_ratio_to_main": 2.144,
+    "p95_ratio_to_off_in_the_same_process": 2.006,
+    "p95_us": 625.3,
+    "pooled_p95_ratio_to_main": 2.141,
     "within_budget": false
    },
    "main_off": {
     "n": 20000,
-    "p50_us": 347.9,
-    "p95_us": 429.3
+    "p50_us": 258.0,
+    "p95_us": 292.1
    }
   },
   "execute": {
    "branch_off": {
     "measured_in": "branch_off_only",
     "n": 20000,
-    "p50_us": 33.0,
-    "p95_added_us": 14.1,
-    "p95_ratio_to_main": 1.016,
-    "p95_us": 53.0,
-    "pooled_p95_ratio_to_main": 1.362,
+    "p50_us": 23.3,
+    "p95_added_us": 1.0,
+    "p95_ratio_to_main": 1.059,
+    "p95_us": 25.8,
+    "pooled_p95_ratio_to_main": 1.04,
     "within_budget": true
    },
    "branch_on": {
     "measured_in": "branch_interleaved",
     "n": 20000,
-    "p50_us": 173.0,
-    "p95_added_us": 319.4,
-    "p95_ratio_to_main": 8.731,
-    "p95_ratio_to_off_in_the_same_process": 6.182,
-    "p95_us": 358.3,
-    "pooled_p95_ratio_to_main": 9.211,
+    "p50_us": 126.7,
+    "p95_added_us": 143.0,
+    "p95_ratio_to_main": 6.895,
+    "p95_ratio_to_off_in_the_same_process": 6.514,
+    "p95_us": 167.8,
+    "pooled_p95_ratio_to_main": 6.766,
     "within_budget": false
    },
    "branch_shadow": {
     "measured_in": "branch_interleaved",
     "n": 20000,
-    "p50_us": 188.6,
-    "p95_added_us": 335.5,
-    "p95_ratio_to_main": 8.207,
-    "p95_ratio_to_off_in_the_same_process": 6.655,
-    "p95_us": 374.4,
-    "pooled_p95_ratio_to_main": 9.625,
+    "p50_us": 135.1,
+    "p95_added_us": 146.9,
+    "p95_ratio_to_main": 7.104,
+    "p95_ratio_to_off_in_the_same_process": 6.618,
+    "p95_us": 171.7,
+    "pooled_p95_ratio_to_main": 6.923,
     "within_budget": false
    },
    "main_off": {
     "n": 20000,
-    "p50_us": 29.1,
-    "p95_us": 38.9
+    "p50_us": 22.0,
+    "p95_us": 24.8
    }
   },
   "pre_action": {
    "branch_off": {
     "measured_in": "branch_off_only",
     "n": 20000,
-    "p50_us": 99.7,
-    "p95_added_us": 36.7,
-    "p95_ratio_to_main": 0.982,
-    "p95_us": 158.6,
-    "pooled_p95_ratio_to_main": 1.301,
+    "p50_us": 69.2,
+    "p95_added_us": 0.0,
+    "p95_ratio_to_main": 1.022,
+    "p95_us": 76.3,
+    "pooled_p95_ratio_to_main": 1.0,
     "within_budget": true
    },
    "branch_on": {
     "measured_in": "branch_interleaved",
     "n": 20000,
-    "p50_us": 107.2,
-    "p95_added_us": 82.8,
-    "p95_ratio_to_main": 1.479,
-    "p95_ratio_to_off_in_the_same_process": 1.103,
-    "p95_us": 204.7,
-    "pooled_p95_ratio_to_main": 1.679,
+    "p50_us": 70.9,
+    "p95_added_us": 19.5,
+    "p95_ratio_to_main": 1.281,
+    "p95_ratio_to_off_in_the_same_process": 1.03,
+    "p95_us": 95.8,
+    "pooled_p95_ratio_to_main": 1.256,
     "within_budget": false
    },
    "branch_shadow": {
     "measured_in": "branch_interleaved",
     "n": 20000,
-    "p50_us": 107.9,
-    "p95_added_us": 76.6,
-    "p95_ratio_to_main": 1.446,
-    "p95_ratio_to_off_in_the_same_process": 1.08,
-    "p95_us": 198.5,
-    "pooled_p95_ratio_to_main": 1.628,
+    "p50_us": 71.1,
+    "p95_added_us": 17.5,
+    "p95_ratio_to_main": 1.274,
+    "p95_ratio_to_off_in_the_same_process": 1.017,
+    "p95_us": 93.8,
+    "pooled_p95_ratio_to_main": 1.229,
     "within_budget": false
    },
    "main_off": {
     "n": 20000,
-    "p50_us": 93.8,
-    "p95_us": 121.9
+    "p50_us": 68.5,
+    "p95_us": 76.3
    }
   }
  },
  "verdict": {
   "off": {
    "p95_ratio_to_main": {
-    "bridge_action": 1.027,
-    "execute": 1.016,
-    "pre_action": 0.982
+    "bridge_action": 1.018,
+    "execute": 1.059,
+    "pre_action": 1.022
    },
    "within_budget": true
   },
   "on": {
    "p95_ratio_to_main": {
-    "bridge_action": 2.422,
-    "execute": 8.731,
-    "pre_action": 1.479
+    "bridge_action": 2.117,
+    "execute": 6.895,
+    "pre_action": 1.281
    },
    "within_budget": false
   },
   "shadow": {
    "p95_ratio_to_main": {
-    "bridge_action": 2.578,
-    "execute": 8.207,
-    "pre_action": 1.446
+    "bridge_action": 2.144,
+    "execute": 7.104,
+    "pre_action": 1.274
    },
    "within_budget": false
   }

@@ -1,9 +1,9 @@
 {
  "gate": "G8",
- "instrument": "tests/test_durable_replay_corpus.py: 1,000 distinct POST /bridge/v1/action bodies over every state-modifying action name, each under its own Idempotency-Key, each replayed (every seventh twice more; every fifth sent as two requests at once), through the aiohttp test client with engines.durable in mode on (canary state_modifying); the service records a per-body marker, and the outbox loop drains before counting",
+ "instrument": "tests/test_durable_replay_corpus.py: 1,000 distinct POST /bridge/v1/action bodies over every state-modifying action name, each under its own Idempotency-Key, each replayed once (every seventh body twice; every fifth sent first as two requests at once), through the aiohttp test client with engines.durable in mode on (canary state_modifying); the service records a per-body marker, and the outbox loop drains before counting",
  "measured": {
-  "on_top_of": "348dc1c",
-  "with_uncommitted_changes": false
+  "on_top_of": "d79ba40",
+  "with_uncommitted_changes": true
  },
  "on": {
   "answers": {

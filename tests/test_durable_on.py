@@ -449,3 +449,197 @@ async def test_ready_fails_when_the_outbox_loop_is_not_running(tmp_path, monkeyp
         body = await resp.json()
     assert resp.status == 503 and body["ready"] is False and set(body) == {"ready", "ref"}
     assert wiring.current() is None
+
+
+# ── a write that is dropped never makes another record false ────────────────
+
+def _drop(db, calls):
+    """Make the durable transactions numbered in *calls* (1-based, in the order
+    the engine writes them) fail the way a database another writer holds does.
+    For a keyed bridge request they are: 1 the key's claim, 2 the run's RUNNING
+    mark, 3 its answer and terminal state, 4 the answer the request sent."""
+    real = db.transaction_sync
+    seen = {"n": 0}
+
+    def flaky(work, *, wait=True):
+        seen["n"] += 1
+        if seen["n"] in calls:
+            raise sqlite3.OperationalError("database is locked (injected)")
+        return real(work, wait=wait)
+    db.transaction_sync = flaky
+    return lambda: setattr(db, "transaction_sync", real)
+
+
+def _steps_of(db, run_id):
+    return [(s["kind"], s["state"]) for s in journal.get_steps(db, run_id)]
+
+
+NOT_OWNING = [{"mode": "shadow", "canary": "state_modifying"}, {"mode": "on", "canary": "twins"}]
+
+
+@pytest.mark.parametrize("durable", NOT_OWNING, ids=["shadow", "on-twins"])
+@pytest.mark.parametrize("dropped,state,steps,answer_kept", [
+    # the RUNNING mark only: written late, with the answer, saying so
+    ({2}, journal.COMPLETE,
+     [("start", "observed"), ("call", "began_before_recorded"), ("return", "settled")], True),
+    # the mark and the run's end: the request's own answer marks it late
+    ({2, 3}, journal.RUNNING,
+     [("start", "observed"), ("call", "began_before_recorded"),
+      ("unknown_effect", "no_answer_recorded")], True),
+    # everything after the claim: recovery leaves it START, and keeps the key
+    ({2, 3, 4}, journal.START, [("start", "observed"), ("unknown_effect", "not_known_if_called")],
+     False),
+], ids=["mark", "mark+end", "mark+end+answer"])
+async def test_a_run_whose_mark_was_dropped_is_never_journaled_not_attempted(
+        durable, dropped, state, steps, answer_kept, tmp_path, monkeypatch):
+    """An engine that does not own a keyed request's run (shadow; on with the
+    twins canary) drops a write it cannot make at once, and the action runs, as
+    it does with the mode off. The journal then says the call began — never
+    ABORT/not_attempted — and the key stays bound, so when the canary later
+    moves to state_modifying a replay under the same key does not act again."""
+    import time
+    world = World()
+    from runtime.blockchain.services.attestation import batch_processor as bp
+    monkeypatch.setattr(bp, "_eas_client_for", lambda _cfg: FakeEAS(world), raising=False)
+    server = gateway(tmp_path, durable)
+    async with TestClient(TestServer(server.create_app())) as client:
+        eng = wiring.current()
+        await eng.loop.stop()
+        db = server.react_loop.memory.db
+        server.service_dispatcher = stub_dispatcher(world, SETTLED)
+        restore = _drop(db, dropped)
+        try:
+            first, _ = await _post(client, body_for(ACTION), key="drop-key-0001")
+        finally:
+            restore()
+        assert first.status == 200 and world.count("service") == 1
+        # A later process, past every window, recovers the file.
+        later = engine(db, world=world, monkeypatch=monkeypatch,
+                       clock=Clock(time.time() + journal.ABANDONED_AFTER_S + 60))
+        later.maintain()
+        (run,) = _runs(db)
+        assert run["state"] == state and run["state"] != journal.ABORT
+        assert _steps_of(db, run["run_id"]) == steps
+        (key,) = db.fetchall_sync("SELECT run_id, status FROM idempotency_keys")
+        assert key[0] == run["run_id"] and (key[1] == 200) is answer_kept
+        # The operator moves the canary to state_modifying; the client replays.
+        previous = wiring.install(engine(db, world=world, monkeypatch=monkeypatch))
+        try:
+            replay, body = await _post(client, body_for(ACTION), key="drop-key-0001")
+        finally:
+            wiring.install(previous)
+    assert world.count("service") == 1, "the replay acted again"
+    if answer_kept:
+        assert replay.status == 200 and replay.headers.get("Idempotent-Replayed") == "true"
+    else:
+        assert replay.status == 409 and body["run"] == {"run_id": run["run_id"],
+                                                         "state": journal.START}
+
+
+async def test_an_owned_run_whose_mark_is_dropped_is_not_run_and_gives_its_key_back(tmp_path,
+                                                                                    monkeypatch):
+    """The contrast: an engine that owns the run does not call what it could
+    not mark, so there — and only there — START means not attempted."""
+    world = World()
+    server = await _on_gateway(tmp_path, monkeypatch, world)
+    async with TestClient(TestServer(server.create_app())) as client:
+        await wiring.current().loop.stop()
+        db = server.react_loop.memory.db
+        server.service_dispatcher = stub_dispatcher(world, SETTLED)
+        restore = _drop(db, {2})
+        try:
+            first, _ = await _post(client, body_for(ACTION), key="drop-key-0002")
+        finally:
+            restore()
+        (run,) = _runs(db)
+        steps = _steps_of(db, run["run_id"])
+        keys_left = db.fetchall_sync("SELECT COUNT(*) FROM idempotency_keys")[0][0]
+        again, _ = await _post(client, body_for(ACTION), key="drop-key-0002")
+    assert first.status == 503 and world.count("service") == 1
+    assert run["state"] == journal.ABORT and steps == [("start", "recorded"),
+                                                       ("abort", "not_attempted")]
+    assert keys_left == 0 and again.status == 200 and "Idempotent-Replayed" not in again.headers
+
+
+@pytest.mark.parametrize("result", [SETTLED, REFUSED, BROADCAST], ids=["settled", "refused",
+                                                                       "broadcast"])
+async def test_an_answer_lost_after_the_run_ended_is_still_the_replays(result, tmp_path, monkeypatch):
+    """The packet's X1.W4: the process dies after the run's terminal commit and
+    before the request records what it sent. The run's end recorded the answer
+    in its own transaction, so the replay gets it — the same status, marked
+    replayed — and nothing runs twice."""
+    world = World()
+    server = await _on_gateway(tmp_path, monkeypatch, world)
+    async with TestClient(TestServer(server.create_app())) as client:
+        eng = wiring.current()
+        server.service_dispatcher = stub_dispatcher(world, result)
+        sent = eng.bridge_finish
+        eng.bridge_finish = lambda claim, *, status, body: None
+        try:
+            first, first_body = await _post(client, body_for(ACTION), key="lost-key-0001")
+        finally:
+            eng.bridge_finish = sent
+        replay, replay_body = await _post(client, body_for(ACTION), key="lost-key-0001")
+    assert replay.status == first.status and replay.headers["Idempotent-Replayed"] == "true"
+    assert replay_body["ok"] == first_body["ok"] and replay_body["replayed"] is True
+    assert world.count("service") == 1
+
+
+async def test_a_twin_run_names_a_declared_verb_or_undeclared_never_the_models_string(
+        tmp_path, monkeypatch, installed):
+    """The verb of a twin call is the model's own arguments["action"], unbounded,
+    and an undeclared one is treated as signing. The run is named by the verb
+    the tool declares, or ``undeclared``; the string itself is only inside the
+    parameters' digest."""
+    from runtime.tools.dispatcher import ToolDispatcher
+    world = World()
+    db = database(tmp_path / "a.db")
+    installed(engine(db, mode="shadow", canary="twins", world=world, monkeypatch=monkeypatch))
+    tools = ToolDispatcher({})
+
+    async def payment(**kwargs):
+        world.effects.append(("twin", kwargs.get("action")))
+        return {"status": "success"}
+    tools._tools["payment"] = payment
+    free_text = "send to jane.doe@example.com phone 555-0100 " + "x" * 300
+    await tools.dispatch("payment", {"action": free_text, "to": WALLET}, agent_name="neo")
+    await tools.dispatch("payment", {"action": "send_eth", "to": WALLET}, agent_name="neo")
+    assert sorted(r["action"] for r in _runs(db)) == ["payment.send_eth", "payment.undeclared"]
+    dump = "\n".join(str(tuple(r)) for table in ("workflow_runs", "workflow_steps", "outbox",
+                                                  "idempotency_keys")
+                     for r in db.fetchall_sync(f"SELECT * FROM {table}"))
+    assert "jane.doe" not in dump and "555-0100" not in dump
+    undeclared = [r for r in _runs(db) if r["action"] == "payment.undeclared"][0]
+    assert undeclared["params_digest"] == journal.digest({"action": free_text, "to": WALLET})
+
+
+async def test_a_request_whose_engine_left_mid_request_is_never_read_as_not_attempted(
+        tmp_path, monkeypatch):
+    """The CallMark is set by the engine the dispatcher consults. If the engine
+    is taken out while a keyed request is between its claim and its dispatch
+    (a stopping gateway), the dispatcher finds none and calls the service
+    unmarked — so the bridge, finding its run still START, cannot tell, and
+    does not close it as not attempted or give its key back."""
+    world = World()
+    server = await _on_gateway(tmp_path, monkeypatch, world)
+    async with TestClient(TestServer(server.create_app())) as client:
+        eng = wiring.current()
+        await eng.loop.stop()
+        db = server.react_loop.memory.db
+
+        def leave(name):
+            if name != "attestation":
+                wiring.install(None)
+        server.service_dispatcher = stub_dispatcher(world, SETTLED, get_hook=leave)
+        try:
+            first, _ = await _post(client, body_for(ACTION), key="leave-key-01")
+        finally:
+            wiring.install(eng)
+        (run,) = _runs(db)
+        steps = _steps_of(db, run["run_id"])
+        server.service_dispatcher = stub_dispatcher(world, SETTLED)
+        replay, _ = await _post(client, body_for(ACTION), key="leave-key-01")
+    assert first.status == 200 and world.count("service") == 1
+    assert run["state"] == journal.START and steps == [
+        ("start", "recorded"), ("unknown_effect", "not_known_if_called")]
+    assert replay.status == 200 and replay.headers.get("Idempotent-Replayed") == "true"

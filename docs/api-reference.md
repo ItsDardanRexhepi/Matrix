@@ -261,20 +261,26 @@ message, a service's exception text) the body is the redacted
 `{error, code, ref}` shape instead. `POST /bridge/v1/action` relays the
 dispatcher the same way.
 
-`POST /bridge/v1/action` reads an `Idempotency-Key` header only with
+`POST /bridge/v1/action` answers from an `Idempotency-Key` header only with
 `engines.durable.mode` set to `on` and `engines.durable.canary` to
-`state_modifying`, and only for a state-modifying action; with the default
-configuration the header is ignored. When it reads one — 8 to 64 characters of
+`state_modifying`, and only for a state-modifying action. With the default
+configuration (mode `off`) the header is not read at all. In `shadow`, and in
+`on` with the canary at `twins`, a well-formed key on a state-modifying action
+is read and recorded — scoped to the caller and hashed, with the answer the
+request got — and the request runs and answers exactly as it would with the
+mode off. When the header is honoured — 8 to 64 characters of
 `A-Z a-z 0-9 _ . : -`, or **400** `invalid_request` — the key is claimed after
 the security gate has allowed the request, for the caller the gate saw. A key
 already bound answers without running anything: the first request's recorded
 answer, with its status, `replayed: true` and an `Idempotent-Replayed: true`
-header; or **409** `idempotency_conflict` when the key was used for a different
-request, when its first request has not answered (the body's `run` gives that
-run's id and state), or when that answer is older than the 24 hours answers are
-kept. A key whose claim could not be written answers **503** with
-`Retry-After`, and nothing runs. A request that ended before its action was
-called leaves its key unused. The README's "Durable execution" has the rest.
+header — recorded in the transaction that ends the first request's run, so
+also when that request's own reply was lost; or **409**
+`idempotency_conflict` when the key was used for a different request, when its
+first request has not answered (the body's `run` gives that run's id and
+state), or when that answer is older than the 24 hours answers are kept. A key
+whose claim could not be written answers **503** with `Retry-After`, and
+nothing runs. A request that ended before its action was called leaves its key
+unused. The README's "Durable execution" has the rest.
 
 A refusal the service RETURNS — `not_deployed` above all — is not one of those
 statuses, and this route answered `200 {"status": "ok"}` over it while the

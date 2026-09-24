@@ -9,17 +9,25 @@ aiohttp test client.
 
 A LOADED HOST IS NOISY, SO NOTHING IS COMPARED ACROSS TIME. ``measure_g6``
 interleaves the durable modes in small blocks inside one process, rotating
-their order, so off, shadow and on meet the same machine; and ``build`` runs
-main — the Phase 1 tree, where the modes do not exist and every mode is main's
-own path — and this branch alternately, a fresh interpreter for each, many
-short rounds, and pools each cell's samples over the rounds. Each cell's
-p50/p95 is over the pooled samples; each ratio is the branch cell's pooled p95
-over main's pooled p95 (and, for shadow and on, over the branch's own off,
-measured in the same blocks).
+their order, so off, shadow and on meet the same machine. ``build`` runs many
+short rounds; each round runs three fresh interpreters back to back, in a
+rotating order: main (the Phase 1 tree, where the modes do not exist and every
+mode is main's own path), this branch with only off (the work main does), and
+this branch with off, shadow and on interleaved.
+
+WHAT IS JUDGED is, per mode and instrument, the MEDIAN OVER THE ROUNDS of that
+round's p95 over the same round's main p95 (``p95_ratio_to_main``); every
+round's ratios are kept in the artefact (``per_round``), so the median can be
+recomputed from it. For shadow and on the same-process ratio to the branch's
+own off, measured in the same blocks, is kept beside it. Each cell's p50/p95
+and ``pooled_p95_ratio_to_main`` are over the samples pooled across all
+rounds; they are kept, and are NOT what is judged: one loaded round moves a
+pooled p95, which is why pre_action — code this phase does not touch — can
+land well over 1.0 pooled.
 
 ``tests/baseline/durable_latency.json`` holds the result. The suite checks it is
-well formed and that it states — rather than hides — which modes are within
-the budget.
+well formed, that the judged ratio is the median of the kept rounds, and that
+it states — rather than hides — which modes are within the budget.
 """
 
 from __future__ import annotations
@@ -229,7 +237,9 @@ def build(main_root: str, branch_root: str, rounds: int = 10, n_per_round: int =
         } for op in INSTRUMENTS})
 
     def median(op, key):
-        return round(statistics.median(r[op][key] for r in per_round), 3)
+        # Over the ratios as the artefact keeps them (4 places), so the judged
+        # figure is recomputable from the artefact alone.
+        return round(statistics.median(round(r[op][key], 4) for r in per_round), 3)
 
     summary: dict = {}
     for op in INSTRUMENTS:
@@ -279,6 +289,8 @@ def build(main_root: str, branch_root: str, rounds: int = 10, n_per_round: int =
             "noise": ("pre_action runs no line this phase changed; its off ratio is how far "
                       "apart two measurements of the same code land on this host"),
             "rounds": rounds, "n_per_cell": rounds * n_per_round,
+            "per_round": [{op: {k: round(v, 4) for k, v in cells.items()}
+                           for op, cells in r.items()} for r in per_round],
             "summary": summary, "verdict": verdict}
 
 
@@ -297,6 +309,16 @@ def test_g6_the_measurement_is_there_and_says_which_modes_are_within_budget():
     for mode in MODES:
         assert record["verdict"][mode]["within_budget"] == all(
             record["summary"][op][f"branch_{mode}"]["within_budget"] for op in INSTRUMENTS)
+    # The judged ratio is the median of the rounds the artefact keeps.
+    assert len(record["per_round"]) == record["rounds"]
+    for op in INSTRUMENTS:
+        for mode in MODES:
+            cell = record["summary"][op][f"branch_{mode}"]
+            assert cell["p95_ratio_to_main"] == round(statistics.median(
+                r[op][mode] for r in record["per_round"]), 3)
+            if mode != "off":
+                assert cell["p95_ratio_to_off_in_the_same_process"] == round(statistics.median(
+                    r[op][f"{mode}_over_off_same_process"] for r in record["per_round"]), 3)
     # The budget is the packet's; mode off must meet it — it is main's path.
     assert record["verdict"]["off"]["within_budget"] is True
 
