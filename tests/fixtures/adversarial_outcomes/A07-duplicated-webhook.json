@@ -1,0 +1,31 @@
+{
+  "id": "A7",
+  "case": "Duplicated webhook",
+  "false_signal": "a second identical signed notification",
+  "producer": {
+    "kind": "apple_notification",
+    "payload": {
+      "notificationType": "DID_RENEW",
+      "notificationUUID": "notification-1",
+      "transactionId": "transaction-1",
+      "delivered": 2
+    }
+  },
+  "fact_source": {
+    "kind": "idempotency_key",
+    "payload": {
+      "keys": [
+        "transaction-1",
+        "notification-1"
+      ]
+    },
+    "outranks_because": "every write is gated on the key the first delivery recorded"
+  },
+  "expected": {
+    "verdict": "VERIFIED",
+    "run_state": "COMPLETE",
+    "replay": "no state change"
+  },
+  "legacy": null,
+  "head_behaviour": "The transaction ledger is idempotent on the transaction id. How a replay treats the entitlement row beside it is measured by the phase that consumes this case."
+}

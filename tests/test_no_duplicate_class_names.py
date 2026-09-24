@@ -1,6 +1,6 @@
 """No two shipping classes share a name.
 
-499aef9 found two unrelated classes both called DataAggregator, with different
+65e09e6 found two unrelated classes both called DataAggregator, with different
 methods, and three GET routes calling methods that existed on neither: an
 importer that reaches for a name gets whichever class its import path happens
 to name, and nothing at the call site says which. The dashboard one was renamed

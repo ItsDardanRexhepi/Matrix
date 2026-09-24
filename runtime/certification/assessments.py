@@ -109,7 +109,7 @@ SAMPLE_QUESTIONS: dict[str, list[dict]] = {
             "question": "What does an EAS attestation UID represent in the context of a certified contract deployment?",
             "options": [
                 "The hash of the deployer's wallet address",
-                "A unique on-chain reference linking the contract to its audit report",
+                "A unique on-chain reference to a record that the deployment happened (platform, action, agent, time)",
                 "The block number where the contract was deployed",
                 "An off-chain identifier stored only in the gateway database",
             ],

@@ -725,7 +725,7 @@ def test_setup_gitignore_warns_about_a_secret_tracked_under_another_case(
 @pytest.mark.parametrize("scenario", ["tracked", "unlisted"])
 def test_git_verdict_is_not_blinded_by_a_pathspec_switch_in_the_environment(
         sandbox, monkeypatch, pathspec_env, scenario):
-    """8a232c7 dropped GIT_LITERAL_PATHSPECS from git's environment and left the
+    """aa255f4 dropped GIT_LITERAL_PATHSPECS from git's environment and left the
     other three switches. Under each of the four alike, check-ignore refused to
     run, and git's whole verdict — a tracked secret, or one no rule ignores —
     became a single "Could not ask git" line (the test below pins that).
@@ -758,8 +758,8 @@ def test_without_the_scrub_every_pathspec_switch_stops_the_first_git_call(
     """The mechanism, pinned. With the switch put back into git's environment
     after git_verdict's scrub, git_verdict makes ONE call, check-ignore, which
     dies naming the magic; it returns no verdict, says so once, and never
-    reaches ls-files and its `:(glob)*`. All four switches alike: 8a232c7 and
-    3dd476b said GIT_LITERAL_PATHSPECS differed — `:(glob)*` "matching nothing",
+    reaches ls-files and its `:(glob)*`. All four switches alike: aa255f4 and
+    779a17e said GIT_LITERAL_PATHSPECS differed — `:(glob)*` "matching nothing",
     the tracked secret "passing unseen" — which would show here as two calls,
     an empty verdict and no info line."""
     repo = sandbox.parent
@@ -1034,7 +1034,7 @@ def test_only_the_guarded_writer_puts_a_secret_file_on_disk():
     a bare name, an attribute (`_shared._atomic_write_text`, which is how
     setup.py reaches _shared), an import under any alias, a copy bound to
     another name, or the name inside a string (getattr), at module level as
-    much as inside a function. 1590d86's control saw one form of six, a
+    much as inside a function. 648ecf4's control saw one form of six, a
     bare-name call inside a function, and passed the rest. The exemption is
     by file: the write_secret_file() in setup/_shared.py, not any function of
     that name. What this still cannot see: a writer that reaches disk some

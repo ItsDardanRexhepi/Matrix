@@ -78,9 +78,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ItsDardanRexhepi/TheMatrix"
-Issues = "https://github.com/ItsDardanRexhepi/TheMatrix/issues"
-Changelog = "https://github.com/ItsDardanRexhepi/TheMatrix/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/ItsDardanRexhepi/Matrix"
+Issues = "https://github.com/ItsDardanRexhepi/Matrix/issues"
+Changelog = "https://github.com/ItsDardanRexhepi/Matrix/blob/main/CHANGELOG.md"
 
 [project.scripts]
 matrix = "cli:main"

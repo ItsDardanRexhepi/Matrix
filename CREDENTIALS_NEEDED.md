@@ -43,7 +43,7 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 | **Base Sepolia RPC URL** | gateway: `blockchain.rpc_url` (env `BASE_RPC_URL`) · deploy scripts: env `MATRIX_RPC_URL` | Every on-chain read/write, chain-id validation, balance reads. Get from Alchemy/Infura/QuickNode. |
 | **Chain ID = 84532** | gateway: `blockchain.chain_id` · deploy scripts: env `MATRIX_CHAIN_ID`; both default to 84532 | Chain validation; must match the RPC. (8453 = Base mainnet — leave on 84532 for testnet.) |
 | **Deploy wallet private key** (funded with Sepolia ETH) | deploy scripts: env `MATRIX_PRIVATE_KEY`; the gateway never reads it | `scripts/deploy_all.py` — deploying the platform contracts. |
-| **Platform / NeoSafe wallet address** | gateway: `blockchain.platform_wallet` · deploy scripts: env `MATRIX_NEOSAFE_ADDRESS` (required to deploy) | Fee routing, and the address the platform's own transactions, attestations included, are sent from. |
+| **Platform / NeoSafe wallet address** | gateway: `blockchain.platform_wallet` · deploy scripts: env `MATRIX_NEOSAFE_ADDRESS` (required to deploy) | The wallet fees are recorded against, and the address the platform's own transactions, attestations included, are sent from. |
 | EAS contract | already defaulted to `0x4200000000000000000000000000000000000021` (Base predeploy) | On-chain attestations. No action unless you use a custom registry. |
 | EAS schema UID | gateway: `blockchain.eas_schema` · `scripts/deploy_all.py`: env `MATRIX_EAS_SCHEMA_UID` | The attestation schema. Register once on Base Sepolia. |
 
@@ -58,7 +58,7 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 | **Paymaster signer key** | platform `blockchain.paymaster.signer_key` (env `MATRIX_PAYMASTER_SIGNER_KEY`); when that is absent, the flat `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | `POST /api/v1/paymaster/sign`, the server half of the verifying paymaster. The sponsorship signature covers gas only, never anything the user's account does. |
 | **Platform signer key** | platform `blockchain.paymaster_private_key` (env `MATRIX_PAYMASTER_KEY`) | Required under `MATRIX_ENV=production`: the gateway refuses to start without it. The platform's own on-chain calls — EAS attestations and the transactions the blockchain services send — are signed with it, and it is the paymaster signer's fallback. |
 | **Paymaster address** | platform `blockchain.paymaster.address` | The deployed verifying paymaster the signature is for. Without it, or without the signer key, the sign route answers 503. |
-| Sponsorship policy | platform `blockchain.paymaster.policy.allowed_actions` + `.daily_cap_usd` | Which actions, decoded from the call data being signed, are sponsored, and the per-identity daily cap enforced before signing. Unset → no allowlist and no cap. |
+| Sponsorship policy | platform `blockchain.paymaster.policy.allowed_actions` + `.daily_cap_usd` | Which actions, decoded from the call data being signed, are sponsored, and the per-identity daily cap enforced before signing. Unset → no allowlist and no cap. Some EAS attestation and revocation paths are signed with the platform signer key outside the policy, whatever it says; `docs/blockchain.md` lists each of them. |
 
 ## 3. Platform gateway + AI
 
@@ -79,7 +79,7 @@ Set under `services.<name>.*` in `matrix.config.json`. Each service returns a
 | mpc | `services.mpc.module_address` or `.endpoint` | Threshold sign / recovery / session keys |
 | social_protocols | `services.social_protocols.{lens,farcaster,push}_*` keys | Lens/Farcaster/Push + token launches |
 | advanced_governance | `services.advanced_governance.*_address` + Snapshot hub | veToken, quadratic vote, RetroPGF, bribes, delegation |
-| oracles_plus | `services.oracles_plus.pyth_contract` (Base `0x8250f4aF4B972684F7b336503E2D6dFeDeB1487a`) + hermes endpoint; RedStone/API3 keys | Pyth/RedStone/API3 feeds, Keeper jobs |
+| oracles_plus | `services.oracles_plus.pyth_contract_address` (Base `0x8250f4aF4B972684F7b336503E2D6dFeDeB1487a`) + hermes endpoint; RedStone/API3 keys | Pyth/RedStone/API3 feeds, Keeper jobs |
 | tba | `services.tba.account_implementation` (registry is canonical `0x000000006551c19487814612e58FE06813775758`) | ERC-6551 token-bound accounts |
 | storage | `services.storage.api_key` + `.endpoint` (Lighthouse/Ceramic) | Filecoin/Ceramic/OrbitDB |
 | creator_platforms | `services.creator_platforms.{sound,mirror,paragraph}_api_key` | Sound/Mirror/Paragraph |

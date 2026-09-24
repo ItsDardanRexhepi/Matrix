@@ -1,0 +1,1595 @@
+{
+ "bare-string": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "broadcast:claim_submitted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "broadcast"
+ },
+ "broadcast:submitted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "broadcast"
+ },
+ "broadcast:verification_submitted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "broadcast"
+ },
+ "created-pending": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "empty": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "no-status": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "non:already_released": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:blocked": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:calculated_unpaid": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:chain_error": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:checked": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:compliance_hold": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:declined": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:degraded": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:denied": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:error": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:expired": {
+  "bare_read": "unknown",
+  "bare_state": "failure",
+  "consumer_read": "unknown",
+  "consumer_state": "failure",
+  "envelope_read": "unknown",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:failed": {
+  "bare_read": "unknown",
+  "bare_state": "failure",
+  "consumer_read": "unknown",
+  "consumer_state": "failure",
+  "envelope_read": "unknown",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:failure": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:found": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:grace_period": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:in_progress": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:invalid": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:invalid_request": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:known": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:liquidation_due_unsettled": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:matched_unsettled": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:metadata_only": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:needs_changes": {
+  "bare_read": "unknown",
+  "bare_state": "failure",
+  "consumer_read": "unknown",
+  "consumer_state": "failure",
+  "envelope_read": "unknown",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:no_op": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:no_position": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:no_rewards": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:no_rights_supplied": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:no_submission": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:none": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:noop": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:not_available": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_configured": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_deployed": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_found": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_implemented": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_qualified": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_ready": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_registered": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_settlement": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:not_started": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:not_verified": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:nothing_to_claim": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:pending": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:pending_verification": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:prepared": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:prepared_unsigned": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:provider_error": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:provider_unsupported": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:queried": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:queued": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:recorded_unqueued": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:recorded_unsettled": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:refused": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:rejected": {
+  "bare_read": "unknown",
+  "bare_state": "failure",
+  "consumer_read": "unknown",
+  "consumer_state": "failure",
+  "envelope_read": "unknown",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:reviewed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:skipped": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:suspicious": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "non:unavailable": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:unknown": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:unresolved": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "non:unsupported": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ },
+ "non:valid": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "none": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "refused"
+ },
+ "real:accepted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:active": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:appealed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:applied": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:approved": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:assessed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:attested": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:authorized": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:borrowed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:bridged": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:cancelled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:claim_submitted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "broadcast"
+ },
+ "real:claimed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:compiled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:completed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:configured": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:confirmed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:converted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:countered": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:created": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:deactivated": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:deployed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:deposited": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:deregistered": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:done": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:entered": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:escalated": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:executed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:filed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:filled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:finalized": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:flagged": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:following": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:fractionalized": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:frozen": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:funded": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:generated": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:granted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:invested": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:issued": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:listed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:logged": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:manufactured": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:minted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:ok": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:open": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:paid": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:passed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:payment_attested": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:pending_review": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:placed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:processed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:processing": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:proposed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:published": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:purchased": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:qualified": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:recorded": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:refunded": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:refunding": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:registered": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:released": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:renewed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:rented": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:repaid": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:requested": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:reserved": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:reset": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:resolved": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:resolved_cancelled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:resolved_paid": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:responded": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:retired": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:revoked": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:rights_set": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:rolled_back": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:routed": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:scheduled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:sent": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:settled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:sold": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:source_generated": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:staked": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:started": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:stored": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:submitted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "broadcast"
+ },
+ "real:succeeded": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:success": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:supplied": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:tracked": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:traded": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:transferred": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:triggered": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:under_escrow": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:unstaked": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:updated": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:validated": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:verification_submitted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "broadcast"
+ },
+ "real:verified": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:voted": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:withdrawn": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "real:written": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "refusal-envelope": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "settled"
+ },
+ "settle:pending": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "broadcast"
+ },
+ "settle:reverted": {
+  "bare_read": "unknown",
+  "bare_state": "unknown",
+  "consumer_read": "unknown",
+  "consumer_state": "unknown",
+  "envelope_read": "unknown",
+  "envelope_state": "unknown",
+  "record_verdict": "refused"
+ },
+ "settle:settled": {
+  "bare_read": "success",
+  "bare_state": "success",
+  "consumer_read": "success",
+  "consumer_state": "success",
+  "envelope_read": "success",
+  "envelope_state": "success",
+  "record_verdict": "settled"
+ },
+ "unrecognised-status": {
+  "bare_read": "failure",
+  "bare_state": "failure",
+  "consumer_read": "failure",
+  "consumer_state": "failure",
+  "envelope_read": "failure",
+  "envelope_state": "failure",
+  "record_verdict": "refused"
+ }
+}

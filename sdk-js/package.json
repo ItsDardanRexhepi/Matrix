@@ -5,15 +5,14 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "test": "jest"
+    "build": "tsc"
   },
   "keywords": ["the-matrix", "ai", "blockchain", "agents", "web3"],
   "author": "Dardan Rexhepi",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ItsDardanRexhepi/TheMatrix"
+    "url": "https://github.com/ItsDardanRexhepi/Matrix"
   },
   "dependencies": {},
   "devDependencies": {

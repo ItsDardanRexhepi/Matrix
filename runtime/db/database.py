@@ -277,6 +277,96 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ),
     (
         8,
+        ("urf_decision_log — URF §14.3 decision records, written only in engines.evidence "
+         "shadow mode, and not every decision"),
+        [
+            # One row per URFReasoningLoop decision, written only while
+            # engines.evidence.mode is "shadow" (runtime/protocols/urf.py,
+            # durable_decision_sink), and dropped rather than waited for when
+            # another writer holds the database. The fifteen §14.3 fields of
+            # URFDecision.to_log_entry with the seven scores expanded, plus where
+            # the decision was made: stack_key is the deciding agent and a sha256
+            # of the caller's memory scope (never the scope itself); action is
+            # the label the decision was about and task the label it was
+            # described by — each verbatim only when the code defines it (an
+            # ACTION_MAP name, a twin tool or verb), otherwise "sha256:" and its
+            # digest, because the model chooses platform_action's action name;
+            # service is the ACTION_MAP service of an ACTION_MAP name, else "".
+            # Nothing reads this table to decide anything.
+            """
+            CREATE TABLE IF NOT EXISTS urf_decision_log (
+                id                   TEXT PRIMARY KEY,
+                date                 TEXT NOT NULL,
+                task                 TEXT NOT NULL DEFAULT '',
+                clarity              INTEGER NOT NULL,
+                feasibility          INTEGER NOT NULL,
+                risk                 INTEGER NOT NULL,
+                uncertainty          INTEGER NOT NULL,
+                value                INTEGER NOT NULL,
+                capability_expansion INTEGER NOT NULL,
+                time_sensitivity     TEXT NOT NULL,
+                outcome              TEXT NOT NULL,
+                rationale            TEXT NOT NULL DEFAULT '',
+                evidence             TEXT NOT NULL DEFAULT '[]',
+                hard_rule_check      TEXT NOT NULL DEFAULT '',
+                artifact             TEXT NOT NULL DEFAULT '',
+                verification_method  TEXT NOT NULL DEFAULT '',
+                stop_condition       TEXT NOT NULL DEFAULT '',
+                owner                TEXT NOT NULL DEFAULT '',
+                reviewer             TEXT NOT NULL DEFAULT '',
+                status               TEXT NOT NULL DEFAULT '',
+                revisit_date         TEXT NOT NULL DEFAULT '',
+                stack_key            TEXT NOT NULL DEFAULT '',
+                action               TEXT NOT NULL DEFAULT '',
+                service              TEXT NOT NULL DEFAULT ''
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_urf_decision_log_date
+                ON urf_decision_log (date)
+            """,
+        ],
+    ),
+    (
+        9,
+        ("evidence_shadow — the dispatcher's own verdict on state changes whose service "
+         "answered, written only in engines.evidence shadow mode, and not every state change"),
+        [
+            # One row per state-modifying ServiceDispatcher.execute whose
+            # service returned an answer, written only while
+            # engines.evidence.mode is "shadow"
+            # (runtime/blockchain/services/service_dispatcher.py,
+            # evidence_shadow_sink) and dropped rather than waited for when
+            # another writer holds the database. A dispatch that fails before
+            # the service answers or whose service raises writes no row, and
+            # neither does the /api/v1 funnel, which calls services without the
+            # dispatcher. legacy_verdict is _record_verdict's answer (settled /
+            # broadcast / refused), the one the attestation and the feed are
+            # decided by today. The caller is stored as a sha256 and the
+            # parameters as a sha256 of their canonical JSON: no raw address and
+            # no raw parameter reaches this table. Nothing reads it to decide
+            # anything; a later phase compares its own verdict against it.
+            """
+            CREATE TABLE IF NOT EXISTS evidence_shadow (
+                run_id           TEXT PRIMARY KEY,
+                action           TEXT NOT NULL,
+                service          TEXT NOT NULL,
+                actor_hash       TEXT NOT NULL DEFAULT '',
+                params_digest    TEXT NOT NULL,
+                legacy_verdict   TEXT NOT NULL,
+                reported_status  TEXT NOT NULL DEFAULT '',
+                tx_hash          TEXT NOT NULL DEFAULT '',
+                observed_at      REAL NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_evidence_shadow_observed_at
+                ON evidence_shadow (observed_at)
+            """,
+        ],
+    ),
+    (
+        10,
         "a caller stored in one spelling: every identity this database holds, rewritten once",
         [
             lambda conn: _one_spelling_for_stored_callers(conn),
@@ -284,7 +374,7 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ),
 ]
 
-# ── Migration 8: a caller stored in one spelling ─────────────────────
+# ── Migration 10: a caller stored in one spelling ────────────────────
 #
 # The platform names a wallet in one spelling, ``0x`` and its digits in lower
 # case (runtime/auth/identity.py). Before that rule a SIWE session was stored
@@ -296,6 +386,8 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
 # them up in the new spelling. This rewrites, once, every identity the platform
 # keeps in this database in the one spelling. It never touches a value that is
 # not a hex address (``apple:<sub>``, a label, an anonymous conversation id).
+# The shadow logs of migrations 8 and 9 keep a caller only as a sha256 digest,
+# which this cannot reach; nothing reads them to decide anything.
 
 _HEX_ADDRESS_GLOB = "0[xX]" + "[0-9a-fA-F]" * 40
 

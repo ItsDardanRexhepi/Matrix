@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-The platform pays gas for everything. Paymaster sponsorship is the default for every state-modifying capability below, so end users never hold or spend native tokens to transact. Read-only capabilities don't touch a chain and are free to call.
+Gas for the state-modifying capabilities below is sponsored by the platform paymaster within the policy the operator configures: an allowlist of actions and a per-identity daily cap (`runtime/blockchain/sponsorship.py`). Inside that policy a user spends no native token on gas, and an operator who configures no policy sponsors everything. When a daily cap is set, a platform signature past it, or for an action outside the allowlist, is refused; with no cap, the platform signs a capability's transaction without reading the allowlist. A few signing paths are exempt from the policy; they are listed by name in `UNMETERED_PLATFORM_OPERATIONS` in the same file. Three of them, an EAS attestation, a time-critical one and a revocation, are signed with the platform key whatever the allowlist and the cap say, and these reach them: the `create_attestation`, `batch_attest` and `revoke_attestation` capabilities; the service dispatcher's own record of each state-modifying action it completes, queued and signed once 50 have gathered; `convert_contract`'s attestation of a contract it deployed, with `conversion.auto_deploy` on; the real-estate routes' attestations, with `services.real_estate.enabled` set; and 13 actions of Neo's blockchain tools `eas`, `agent_identity`, `identity`, `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain`, each signed when it is called. [`docs/blockchain.md`](blockchain.md#signed-with-the-platform-key-with-no-policy-check) lists every path by file and function. Read-only capabilities don't touch a chain and are free to call.
 
 ---
 
@@ -10,7 +10,7 @@ The platform pays gas for everything. Paymaster sponsorship is the default for e
 
 The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/capabilities/catalog.py). It is the single source of truth that backs Trinity's `platform_action` tool, the gateway REST endpoints, the iOS extensions registry, and this document.
 
-- **221 capabilities** across **21 categories**, backed by **44 services** in `runtime/blockchain/services/`.
+- **195 capabilities** across **21 categories** (Security & Wallets has none yet), backed by **43 services** in `runtime/blockchain/services/`.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (`free` / `pro` / `enterprise`), `uses_paymaster` flag, `protocol` tag, and `available` flag.
 - Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them.
 

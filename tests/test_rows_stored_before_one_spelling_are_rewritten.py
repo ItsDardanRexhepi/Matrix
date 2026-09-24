@@ -14,7 +14,7 @@ conversation (403 "this conversation belongs to another account"), and deleting
 the account answered 200 while its conversation claim, its memory and its
 devices stayed stored, because the deletion looked them up in the new spelling.
 
-THE RULE. Schema migration 8 rewrites every identity the platform stored in its
+THE RULE. Schema migration 10 rewrites every identity the platform stored in its
 own database in the one spelling, once, when the gateway opens it:
   (a) columns that hold a caller: wallet_sessions.address,
       apple_users.wallet_address, conversation_owners.owner,
@@ -65,6 +65,18 @@ not open such a database at all; and a migration step raising something other
 than a database error was raised without the rollback being logged. With the
 seq fix alone, the same erasure recorded under both spellings stayed two rows.
 After the change, 10 passed.
+
+§CC, third round: main's engines Phase 1 numbered its two shadow logs 8 and 9,
+and this rule was numbered 8 as well. Measured on the tree merged with main,
+with the rule still numbered 8 and the two cases of the test that opens a
+database left at schema 7 and one left at schema 9 added: 10 of this file's 12
+failed, and tests/test_db_migrations.py failed 4 and errored 3 of its 8. A
+database left at schema 7 could not be opened (the rule and the first shadow
+log were both recorded as version 8: UNIQUE constraint failed); one left at
+schema 9 opened with nothing rewritten, because a version 8 was already
+recorded and the rule was skipped. The two that passed are the scope pin and
+the sponsorship ledger, which is a database of its own. Numbered 10, all 20
+pass.
 """
 
 from __future__ import annotations
@@ -86,16 +98,32 @@ OTHER = OTHER_CHK.lower()
 ANON_SID = "conv-" + CHK      # an anonymous id the caller chose; its case is its own
 
 
-def _database_before_the_rule(path, monkeypatch):
-    """A database at schema 7, the last schema before the rule, as the gateway
-    left it."""
+#: The migration that applies the rule. It is numbered after every migration
+#: a gateway could have applied before it: 8 and 9 are the engines' shadow logs.
+RULE_VERSION = 10
+
+
+def _is_the_rule(migration) -> bool:
+    return migration[1].startswith("a caller stored in one spelling")
+
+
+def _database_at(path, monkeypatch, version):
+    """A database as a gateway without the rule left it: every migration up to
+    *version* applied, the rule's not."""
     import runtime.db.database as database
 
     with monkeypatch.context() as m:
-        m.setattr(database, "MIGRATIONS", [x for x in database.MIGRATIONS if x[0] <= 7])
+        m.setattr(database, "MIGRATIONS", [x for x in database.MIGRATIONS
+                                           if x[0] <= version and not _is_the_rule(x)])
         db = database.Database({"database": {"path": str(path)}})
-        assert db.schema_version == 7
+        assert db.schema_version == version
         db._conn.close()
+
+
+def _database_before_the_rule(path, monkeypatch):
+    """A database at schema 9, the last schema before the rule, as the gateway
+    left it."""
+    _database_at(path, monkeypatch, RULE_VERSION - 1)
 
 
 def _seed(path, rows):
@@ -161,7 +189,7 @@ def test_every_identity_the_platform_stored_is_rewritten_in_the_one_spelling(tmp
     _seed(path, _account_rows(CHK))
 
     db = _open(path)
-    assert db.schema_version >= 8
+    assert db.schema_version >= RULE_VERSION
     uid = f"user:{LOW}"
     assert _all(db, "SELECT address FROM wallet_sessions") == [(LOW,)]
     assert _all(db, "SELECT wallet_address FROM apple_users") == [(LOW,)]
@@ -177,6 +205,31 @@ def test_every_identity_the_platform_stored_is_rewritten_in_the_one_spelling(tmp
     assert _all(db, "SELECT follower, followee FROM social_follows") == [(LOW, OTHER)]
     assert _all(db, "SELECT wallet_address FROM plugin_purchases") == [(LOW,)]
     assert _all(db, "SELECT user_key FROM iap_entitlements") == [(LOW,)]
+
+
+@pytest.mark.parametrize("left_at", [7, RULE_VERSION - 1])
+def test_a_database_left_at_either_schema_before_the_rule_is_rewritten_when_opened(
+        tmp_path, monkeypatch, left_at):
+    """The rule's migration is numbered after the engines' two, so a database a
+    gateway left at schema 7 takes all three in order and one left at schema 9
+    takes the rule's. Numbered 8, beside the engines' own 8, the first could
+    not be opened (two migrations recorded under one version) and the second
+    was never rewritten (a version 8 was already recorded)."""
+    import runtime.db.database as database
+
+    path = tmp_path / "m.db"
+    _database_at(path, monkeypatch, left_at)
+    _seed(path, _account_rows(CHK))
+
+    db = _open(path)
+    assert {r[0] for r in db._conn.execute("SELECT version FROM schema_version")} == {
+        v for v, _, _ in database.MIGRATIONS}
+    assert _all(db, "SELECT address FROM wallet_sessions") == [(LOW,)]
+    assert sorted(_all(db, "SELECT session_id, owner FROM conversation_owners")) == [
+        ("conv-probe", LOW), (f"user:{LOW}", LOW)]
+    assert _all(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+                    "('urf_decision_log', 'evidence_shadow') ORDER BY name") == [
+        ("evidence_shadow",), ("urf_decision_log",)]
 
 
 def test_one_wallet_stored_under_two_spellings_merges_into_one(tmp_path, monkeypatch):
@@ -366,7 +419,7 @@ def test_turns_numbered_as_the_platform_numbers_them_merge_in_order_under_both_s
     ])
 
     db = _open(path)
-    assert db.schema_version >= 8
+    assert db.schema_version >= RULE_VERSION
     assert _all(db, "SELECT seq, content FROM conversation_turns ORDER BY seq") == [
         (0, "l0"), (1, "l1"), (2, "l2"), (3, "c0"), (4, "c1")]
     assert _all(db, "SELECT DISTINCT session_id FROM conversation_turns") == [(uid_low,)]
@@ -413,7 +466,7 @@ async def test_the_gateway_opens_a_database_holding_one_wallet_under_two_spellin
     ])
 
     server = _gateway(tmp_path, path)          # raised before the fix: the migration aborted
-    assert server.react_loop.memory.db.schema_version >= 8
+    assert server.react_loop.memory.db.schema_version >= RULE_VERSION
     async with TestClient(TestServer(server.create_app())) as client:
         r = await client.post("/chat", json={"message": "still mine", "session_id": uid_chk},
                               headers={"X-Wallet-Session": "tok-chk"})

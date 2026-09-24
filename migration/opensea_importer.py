@@ -4,7 +4,8 @@ from __future__ import annotations
 OpenSea Importer — imports NFT collection data from OpenSea.
 
 Fetches NFT ownership records for a given address using the
-OpenSea API and creates local records in The Matrix.
+OpenSea API and writes them as JSON under imported/opensea/ (--output
+changes it). Nothing is written into the gateway's database.
 """
 
 import argparse
@@ -74,10 +75,14 @@ async def fetch_nfts(address: str, api_key: str | None = None) -> list[dict]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import NFT data from OpenSea into The Matrix")
+    parser = argparse.ArgumentParser(description=(
+        "Fetch the NFTs an address holds from the OpenSea API and write them as "
+        "a JSON file under imported/opensea/ (--output changes the directory). "
+        "Nothing is written into the gateway's database."))
     parser.add_argument("--address", required=True, help="Ethereum address to import NFTs for")
     parser.add_argument("--api-key", default=None, help="OpenSea API key (optional)")
-    parser.add_argument("--output", default="imported/opensea", help="Output directory")
+    parser.add_argument("--output", default="imported/opensea",
+                        help="Directory the JSON file is written to (default: imported/opensea)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)

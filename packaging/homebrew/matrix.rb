@@ -2,7 +2,7 @@ class Matrix < Formula
   include Language::Python::Virtualenv
 
   desc "The Matrix — multi-agent, crypto-native AI platform (Trinity, Neo, Morpheus)"
-  homepage "https://github.com/ItsDardanRexhepi/TheMatrix"
+  homepage "https://github.com/ItsDardanRexhepi/Matrix"
   url "https://github.com/ItsDardanRexhepi/TheMatrix/archive/a8d6ab43d9c38676a99422bec90d2bebe9f36038.tar.gz"
   version "1.1.0"
   sha256 "e25f47e3d7b38d2692dbe2a17c3fb684f07df3fe3d857195ab44204c8442ddf1"

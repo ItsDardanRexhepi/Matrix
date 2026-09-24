@@ -38,35 +38,48 @@ async def execute(source_code: str = "", contract_name: str = "Unknown", **kwarg
 
         config = kwargs.get("config", {})
         auditor = ContractAuditor(config)
-        report = auditor.audit(source_code)
-
-        lines = [f"## Glasswing Security Audit: {contract_name}\n"]
-        lines.append(f"**Status**: {'BLOCKED' if not report.passed else 'PASSED'}")
-        lines.append(f"**Findings**: {len(report.findings)}\n")
-
-        if not report.findings:
-            lines.append("No vulnerabilities detected. Contract is clean.")
-        else:
-            for f in report.findings:
-                severity_icon = {
-                    "CRITICAL": "🔴",
-                    "HIGH": "🟠",
-                    "MEDIUM": "🟡",
-                    "LOW": "🔵",
-                    "INFO": "⚪",
-                }.get(f.severity.name, "⚪")
-                lines.append(
-                    f"- {severity_icon} **{f.severity.name}** [{f.check_id}]: "
-                    f"{f.title} (line {f.line})"
-                )
-                lines.append(f"  {f.description}")
-
-        if not report.passed:
-            lines.append(
-                "\n**Deployment blocked.** Critical vulnerabilities must be "
-                "resolved before this contract can be deployed."
-            )
-
-        return "\n".join(lines)
+        report = auditor.audit(source_code, contract_name)
     except Exception as e:
         return f"Audit failed: {e}"
+
+    # The report's own three-way verdict, not `passed` alone: a source with no
+    # function body comes back `passed: False` with no findings, and reading
+    # only the bool printed "Contract is clean" under a BLOCKED status.
+    verdict = report.to_dict()["verdict"]
+    status = {"passed": "PASSED", "failed": "BLOCKED",
+              "not_auditable": "NOT AUDITABLE"}[verdict]
+
+    lines = [f"## Glasswing Security Audit: {contract_name}\n"]
+    lines.append(f"**Status**: {status}")
+    lines.append(f"**Findings**: {len(report.findings)}\n")
+
+    for f in report.findings:
+        severity_icon = {
+            "CRITICAL": "🔴",
+            "HIGH": "🟠",
+            "MEDIUM": "🟡",
+            "LOW": "🔵",
+            "INFO": "⚪",
+        }.get(f.severity.name, "⚪")
+        # `rule_id` is the Finding's field. This read `check_id`, which Finding
+        # has never had, so every contract with a finding came back as
+        # "Audit failed: 'Finding' object has no attribute 'check_id'".
+        where = f" (line {f.line})" if f.line is not None else ""
+        lines.append(
+            f"- {severity_icon} **{f.severity.name}** [{f.rule_id}]: {f.title}{where}"
+        )
+        lines.append(f"  {f.description}")
+
+    # The auditor's summary says which it was: clean, findings, or nothing
+    # that could be judged.
+    lines.append(("\n" if report.findings else "") + report.summary)
+
+    if not report.passed:
+        # The agent's deploy tool is not implemented and nothing deploys the
+        # source audited here, so this is advice to whoever will.
+        lines.append(
+            "\n**Do not deploy this contract yet.** It has not passed the audit; "
+            "the summary above says why."
+        )
+
+    return "\n".join(lines)
