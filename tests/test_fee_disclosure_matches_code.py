@@ -421,6 +421,45 @@ def test_no_public_surface_says_there_are_no_fees():
     assert not offenders, "\n".join(offenders)
 
 
+# A sentence saying the Fees table has no fee of some kind goes stale as the
+# table changes, and one already had: examples/README.md said the table had "no
+# DeFi origination fee" while it lists the P2P loan fee, 0.5% of the principal
+# added to the repayment of a DeFi loan. The same sentence narrated the example
+# list that used to stand in its place, which tells a reader nothing about the
+# code. The table says what is charged; nothing else lists what is not.
+_ABSENT_FEE_CLAIMS = [
+    r"(?:table|list) has no [^.]*?\bfees?\b",
+    r"\bno (?:defi|loan|lending)(?: origination)? fees?\b",
+    r"(?:list|table|text) that used to (?:stand|be) here",
+]
+
+
+def test_the_absent_fee_scan_catches_the_old_sentence():
+    old = ("the full list is under fees in docs/blockchain.md. that table has no insurance "
+           "premium fee and no defi origination fee; the example list that used to stand "
+           "here named both.")
+    assert sum(bool(re.search(p, old)) for p in _ABSENT_FEE_CLAIMS) == 3
+    assert not any(re.search(p, "every fee the code takes is listed under fees, with its "
+                                "rate and where it goes.") for p in _ABSENT_FEE_CLAIMS)
+
+
+def test_no_text_says_what_the_fee_table_lacks():
+    # The measured premise: the code takes a fee on a DeFi loan, and the table lists it.
+    loan = "runtime/blockchain/services/defi/p2p_lending.py"
+    assert FEE_SOURCES[loan](), "precondition: the P2P loan takes a platform fee"
+    assert any(f"`{loan}`" in row for row in _fees_rows()), (
+        "precondition: the Fees table lists the P2P loan fee")
+    offenders = []
+    for rel, raw in _public_surfaces():
+        if not rel.endswith((".md", ".html")):
+            continue
+        flat = _flat(raw)
+        for pattern in _ABSENT_FEE_CLAIMS:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 30]}...")
+    assert not offenders, "\n".join(offenders)
+
+
 def _eth(amount: float) -> str:
     return f"{amount:g} ETH"
 
