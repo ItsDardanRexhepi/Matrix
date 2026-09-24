@@ -346,52 +346,67 @@ class Web3Manager:
             raise RuntimeError("Web3Manager not available — cannot send transaction")
 
         account = await self.signer(action)
-        async with self._get_nonce_lock():
-            try:
-                tx_to_sign = dict(tx)
-                tx_to_sign.setdefault("from", account.address)
-                tx_to_sign.setdefault("chainId", self.chain_id)
-                if "nonce" not in tx_to_sign:
-                    tx_to_sign["nonce"] = self.w3.eth.get_transaction_count(account.address)
-                if "gasPrice" not in tx_to_sign and "maxFeePerGas" not in tx_to_sign:
-                    tx_to_sign["gasPrice"] = self.w3.eth.gas_price
-                if "gas" not in tx_to_sign:
-                    try:
-                        tx_to_sign["gas"] = int(self.w3.eth.estimate_gas(tx_to_sign) * 1.2)
-                    except Exception:
-                        tx_to_sign["gas"] = 500_000
-
-                signed = account.sign_transaction(tx_to_sign)
-                raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+        # A signature the node refused, to be given back once the node says it
+        # holds no copy. That question is asked after the nonce lock is let go:
+        # it is a read the provider may retry, and no other sender should wait
+        # on it.
+        refused_hash = None
+        try:
+            async with self._get_nonce_lock():
                 try:
-                    tx_hash = self.w3.eth.send_raw_transaction(raw)
-                except Exception as send_exc:
-                    # THE NODE SAID NO: nothing will be mined and no gas is
-                    # paid, so the sponsorship budget this signature holds goes
-                    # back. Only when both hold: the answer to the one delivery
-                    # (this provider does not re-send the bytes) is a refusal on
-                    # the node's admission list, and the node, asked right
-                    # after, holds no transaction under this hash, pending or
-                    # mined. Everything else keeps the row SIGNED: a transport
-                    # fault or a timeout, which may have delivered the bytes;
-                    # "nonce too low" and "already known"; a relayed internal
-                    # error; a lookup that finds the transaction or fails.
-                    signed_hash = getattr(signed, "hash", None)
+                    tx_to_sign = dict(tx)
+                    tx_to_sign.setdefault("from", account.address)
+                    tx_to_sign.setdefault("chainId", self.chain_id)
+                    if "nonce" not in tx_to_sign:
+                        tx_to_sign["nonce"] = self.w3.eth.get_transaction_count(account.address)
+                    if "gasPrice" not in tx_to_sign and "maxFeePerGas" not in tx_to_sign:
+                        tx_to_sign["gasPrice"] = self.w3.eth.gas_price
+                    if "gas" not in tx_to_sign:
+                        try:
+                            tx_to_sign["gas"] = int(self.w3.eth.estimate_gas(tx_to_sign) * 1.2)
+                        except Exception:
+                            tx_to_sign["gas"] = 500_000
+
+                    signed = account.sign_transaction(tx_to_sign)
+                    raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
                     try:
-                        from runtime.blockchain.sponsorship import (
-                            abandon_signature, node_holds_no_copy, node_refused,
-                        )
-                        if signed_hash is not None and node_refused(send_exc) \
-                                and node_holds_no_copy(self.w3, signed_hash):
-                            abandon_signature(signed_hash)
-                    except Exception as ledger_exc:  # noqa: BLE001
-                        logger.warning("sponsorship ledger: could not release a "
-                                       "refused signature: %s", ledger_exc)
+                        tx_hash = self.w3.eth.send_raw_transaction(raw)
+                    except Exception as send_exc:
+                        # THE NODE SAID NO: nothing will be mined and no gas is
+                        # paid, so the sponsorship budget this signature holds
+                        # goes back. Only when both hold: the answer to the one
+                        # delivery (this provider does not re-send the bytes) is
+                        # a refusal on the node's admission list, and the node,
+                        # asked afterwards, holds no transaction under this
+                        # hash, pending or mined. Everything else keeps the row
+                        # SIGNED: a transport fault or a timeout, which may have
+                        # delivered the bytes; "nonce too low" and "already
+                        # known"; a relayed internal error; a lookup that finds
+                        # the transaction or fails.
+                        signed_hash = getattr(signed, "hash", None)
+                        try:
+                            from runtime.blockchain.sponsorship import node_refused
+                            if signed_hash is not None and node_refused(send_exc):
+                                refused_hash = signed_hash
+                        except Exception as ledger_exc:  # noqa: BLE001
+                            logger.warning("sponsorship ledger: could not read a "
+                                           "refusal: %s", ledger_exc)
+                        raise
+                    return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+                except Exception as exc:
+                    logger.error("Web3Manager.send_transaction failed: %s", exc)
                     raise
-                return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
-            except Exception as exc:
-                logger.error("Web3Manager.send_transaction failed: %s", exc)
-                raise
+        finally:
+            if refused_hash is not None:
+                try:
+                    from runtime.blockchain.sponsorship import (
+                        abandon_signature, node_holds_no_copy,
+                    )
+                    if node_holds_no_copy(self.w3, refused_hash):
+                        abandon_signature(refused_hash)
+                except Exception as ledger_exc:  # noqa: BLE001
+                    logger.warning("sponsorship ledger: could not release a "
+                                   "refused signature: %s", ledger_exc)
 
     async def wait_for_receipt(self, tx_hash: str, timeout: int = 120):
         """Wait for a transaction receipt. Returns the receipt or raises.

@@ -683,3 +683,28 @@ async def test_a_listed_refusal_about_a_hash_the_node_does_not_hold_gives_the_bu
     assert "eth_getTransactionByHash" in node.methods, (
         "the budget came back without the node being asked whether it holds the transaction"
     )
+
+
+async def test_the_node_is_asked_about_a_refused_hash_after_the_nonce_lock_is_let_go(tmp_path):
+    """The lookup is a read the provider retries on a timeout, so on a slow
+    node it can take the better part of a minute. Every other sender waits on
+    the nonce lock; the question is asked once the lock is released."""
+    from web3.exceptions import Web3RPCError
+
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    held_during_lookup: list[bool] = []
+
+    class _Asking(_Eth):
+        def get_transaction(self, tx_hash):
+            held_during_lookup.append(mgr._get_nonce_lock().locked())
+            return super().get_transaction(tx_hash)
+
+    mgr = _manager(_W3(_Asking(send_raises=Web3RPCError(repr(_INSUFFICIENT)))), signer)
+
+    with pytest.raises(Web3RPCError):
+        await mgr.send_transaction(dict(_TX))
+
+    assert held_during_lookup == [False], (
+        f"the node was asked with the nonce lock held: {held_during_lookup}")
+    assert policy.state_of(signer.last_reservation_id) is None
