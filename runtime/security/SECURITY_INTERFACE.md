@@ -19,9 +19,14 @@ owners, or sanitizes — are **not in this repository** and never will be.
   `agent_access_allowed` refuses every tool call, the HTTP gate
   (`gateway/security_gate.py`) refuses every gated action, reads included, and
   `ProtocolStack.pre_action` refuses every tool call, each without asking any
-  other policy. A gate that is up and faults on one call keeps the platform's
-  fail direction for that call: an action that could move value is refused, a
-  plain read proceeds. With no gateway running (a script, the CLI) the
+  other policy. A gate that is up and faults on one call is a different case.
+  When the gate answers for the fault, the seam applies its answer as it
+  applies every deny: under ENFORCE the installed core refuses that call,
+  reads included, and under OBSERVE it refuses a call that could move value
+  or change state and lets a plain read proceed. When the gate raises instead
+  of answering, the seam's own fail direction decides, in either mode: an
+  action that could move value is refused, a plain read proceeds. With no
+  gateway running (a script, the CLI) the
   accessor builds the gate on first use, and the tool boundary asks the
   policy, as before.
 - A security gate is obtained via `from runtime.security import get_morpheus_security`
