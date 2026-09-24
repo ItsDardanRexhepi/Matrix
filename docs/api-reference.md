@@ -14,19 +14,24 @@ structured JSON logs — quote it when filing issues.
 
 Every request passes through this chain (outer → inner):
 
-1. `request_id` — generates (or accepts) an `X-Request-Id` header and
-   publishes it through an async context variable so every log line
-   emitted for the request carries the same ID.
-2. `cors` — permissive CORS for `*` (lock down behind Caddy / Ingress
-   in production).
-3. `auth` — enforces an API key on protected routes; accepts
-   `Authorization: Bearer <key>` or `X-API-Key: <key>`.
-4. `rate_limit` — token-bucket limiter keyed by authenticated wallet,
-   then by API key, then by client IP.
-5. `timeout` — per-request deadline from `gateway.request_timeout_seconds`
-   (default 30s). Exceeding it returns `504 Gateway Timeout`.
-6. `logging` — structured JSON access log with method, path, status,
-   duration, and `request_id`.
+1. `request_id` — takes the caller's `X-Request-ID` or generates one,
+   returns it on the response, and publishes it through an async context
+   variable so every log line emitted for the request carries the same ID.
+2. `cors` — answers preflights and sets `Access-Control-Allow-Origin` only
+   for the origins in `gateway.cors_origins` (empty by default, which
+   allows no cross-origin caller; `["*"]` allows every origin).
+3. `auth` — enforces a credential on protected routes: the operator key as
+   `Authorization: Bearer <key>` or `?api_key=<key>`, or a wallet session
+   (see [Authentication](#authentication)). No other header carries the key.
+4. `security_context` — carries the caller's identity to the security gate
+   for `/api/v1/*` POSTs; it makes no decision.
+5. `rate_limit` — token-bucket limiter keyed by wallet session
+   (`X-Wallet-Session`), then by the operator key, then by client IP.
+6. `timeout` — per-request deadline from `gateway.request_timeout_seconds`
+   (default 120s). Exceeding it returns `504 Gateway Timeout`. `/ws` is not
+   timed out.
+7. `logging` — access log line with method, path, status and duration,
+   carrying the `request_id`.
 
 ---
 
