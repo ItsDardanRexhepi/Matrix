@@ -123,10 +123,16 @@ def test_no_file_spells_the_old_name_with_a_zero():
 def test_a_page_held_apart_still_needs_to_be():
     # An exemption that exempts nothing is a door left open: once a page is
     # renamed, it leaves the list and the sweep covers it like any other file.
-    renamed = [rel for rel in _LEGAL_PAGES_NOT_YET_RENAMED
-               if (REPO / rel).exists()
-               and _ZERO_SPELLING not in (REPO / rel).read_text(
-                   encoding="utf-8").lower()]
-    assert not renamed, (
-        f"{renamed} no longer carry the old name; remove them from "
-        "_LEGAL_PAGES_NOT_YET_RENAMED so the sweep covers them")
+    # So does a page that is gone. This checked only pages that exist, so a
+    # deleted page stayed on the list, and a new file later written at that
+    # path would have been exempt without anyone deciding it should be.
+    stale = []
+    for rel in _LEGAL_PAGES_NOT_YET_RENAMED:
+        page = REPO / rel
+        if not page.is_file():
+            stale.append(f"{rel} (no such file)")
+        elif _ZERO_SPELLING not in page.read_text(encoding="utf-8").lower():
+            stale.append(f"{rel} (no longer carries the old name)")
+    assert not stale, (
+        f"{stale}: remove them from _LEGAL_PAGES_NOT_YET_RENAMED so the sweep "
+        "covers whatever is at that path")
