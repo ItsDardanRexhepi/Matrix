@@ -276,7 +276,9 @@ def test_no_audit_surface_offers_review_no_service_performs():
 # checks audit() runs, returned as a report; the converter writes no tests;
 # no route takes an order for either, and nothing in the code produces the
 # rest. A banner that says a tier cannot be ordered does not say its features
-# do not exist.
+# do not exist. The list also names the tiers' own wording that its first
+# patterns let through: "re-audit, and deployment certification", "priority
+# re-audit after fixes", a price per audit and a badge included in one.
 
 _DELIVERABLE_CLAIMS = [
     r"\bpdf\b",
@@ -293,6 +295,12 @@ _DELIVERABLE_CLAIMS = [
     r"turnaround",
     r"delivered within",
     r"(?:free|priority) re-audit",
+    r"re-audits? after fix",
+    r"deployment (?:readiness )?certification",
+    r"within \d+ (?:business )?(?:hours?|days?|weeks?)",
+    r"dedicated support",
+    r"\$\s?\d[\d,.]* per audit",
+    r"badge included",
     r"revision requests?",
     r"priority (?:queue|processing)",
     r"custom template",
@@ -348,7 +356,13 @@ def test_the_deliverable_scan_catches_the_old_copy():
            "<li>Priority queue</li><li>Custom template creation</li>"
            "<li>Direct engineering support</li> a fully audited, gas-optimised contract with comprehensive "
            "test coverage. Types of contracts we have generated for clients: "
-           "<strong>A+</strong> quality")
+           "<strong>A+</strong> quality"
+           # The tiers as web/audit.html and web/glasswing.html last listed them.
+           "<li>PDF-ready structured output</li><div>$299 per audit</div>"
+           "<p>Full audit with remediation, re-audit, and deployment certification</p>"
+           "<li>Priority re-audit after fixes</li><li>Delivered within 1 week</li>"
+           "<p>Automated 12-point scan with full PDF report</p>"
+           "<li>First-year Glasswing Verified badge included</li>")
     flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", old)).lower()
     hits = {p for p in _DELIVERABLE_CLAIMS if re.search(p, flat)}
     assert hits == set(_DELIVERABLE_CLAIMS), set(_DELIVERABLE_CLAIMS) - hits
