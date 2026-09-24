@@ -1,9 +1,10 @@
 """
-Smart Contracts — deploy, interact with, and verify smart contracts on Base L2.
+Smart Contracts — compile, read and verify smart contracts on Base L2.
 
-Supports Solidity compilation via solcx, deployment with gas sponsorship,
-contract interaction (read/write), and source verification.
-All gas is covered by the platform.
+Supports Solidity compilation via solcx, contract reads, and source
+verification. It signs nothing: a write (``send``) and a deployment
+(``deploy``) are answered with a refusal, because the platform's key would be
+signing a call or a contract the request composed.
 """
 
 import json
@@ -26,8 +27,9 @@ class SmartContracts(BlockchainInterface):
     @property
     def description(self) -> str:
         return (
-            "Compile, read, write and verify smart contracts on Base L2. Gas for writes is covered by the platform, within the configured sponsorship policy. "
-            "This tool does NOT deploy contracts — compile here, deploy with your own signer."
+            "Compile, read and verify smart contracts on Base L2. "
+            "This tool signs nothing: it does NOT write to or deploy a contract — compile and read here, "
+            "then send or deploy with your own signer."
         )
 
     @property
@@ -37,15 +39,14 @@ class SmartContracts(BlockchainInterface):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["call", "send", "verify", "compile"],
+                    "enum": ["call", "verify", "compile"],
                     "description": "The action to perform",
                 },
                 "source_code": {"type": "string", "description": "Solidity source code (for compile)"},
-                "contract_address": {"type": "string", "description": "Contract address (for call/send)"},
+                "contract_address": {"type": "string", "description": "Contract address (for call)"},
                 "function_name": {"type": "string", "description": "Function to call"},
                 "args": {"type": "array", "description": "Function arguments", "items": {}},
                 "abi": {"type": "array", "description": "Contract ABI", "items": {}},
-                "value": {"type": "string", "description": "ETH value to send (in wei)", "default": "0"},
             },
             "required": ["action"],
         }
@@ -61,7 +62,9 @@ class SmartContracts(BlockchainInterface):
         elif action == "call":
             return await self._call(kwargs)
         elif action == "send":
-            return await self._send(kwargs)
+            # Not in the enum any more; answered, like "deploy", so a request
+            # that asks for it hears why rather than matching nothing.
+            return self._send_refused()
         elif action == "verify":
             return await self._verify(kwargs)
         return refusal(
@@ -217,50 +220,31 @@ class SmartContracts(BlockchainInterface):
                 f"Call failed: {e}",
                 code="capability_error")
 
-    async def _send(self, params: dict) -> str:
-        """Write to a contract. Gas covered by platform."""
-        try:
-            from web3 import Web3
+    def _send_refused(self) -> str:
+        """REFUSED. ``send`` built ``contract.functions[function_name](*args)``
+        against the ``contract_address`` and ``abi`` the request wrote, with the
+        request's ``value``, and signed it with the platform's key from the
+        platform wallet: the platform became the sender of whatever call the
+        request composed. Aimed at the EAS contract it signed an ``attest``
+        with the request's schema, recipient and data, or a ``revoke`` of any
+        uid; aimed at an NFT contract, ``transferFrom`` out of somebody else's
+        account. Each of those is refused where it has a name (``eas``,
+        ``nft.transfer``'s ``from_address``); this made them all again, under a
+        verb the seam has no field to check.
 
-            self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
-            bc = self.config["blockchain"]
-
-            address = params.get("contract_address", "")
-            abi = params.get("abi", [])
-            fn = params.get("function_name", "")
-            args = params.get("args", [])
-            value = int(params.get("value", "0"))
-
-            contract = self.web3.eth.contract(
-                address=Web3.to_checksum_address(address), abi=abi
-            )
-            account = await self._platform_signer("smart_contracts.send")
-
-            tx = contract.functions[fn](*args).build_transaction({
-                "from": bc["platform_wallet"],
-                "chainId": self.chain_id,
-                "gas": 500000,
-                "gasPrice": self.web3.eth.gas_price,
-                "nonce": self.web3.eth.get_transaction_count(bc["platform_wallet"]),
-                "value": value,
-            })
-
-            signed = account.sign_transaction(tx)
-            tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = await self._receipt(tx_hash, "smart_contracts.send")
-            if receipt is None:
-                return self._unconfirmed(tx_hash, **{"contract_address": address, "function_name": fn})
-
-            return json.dumps({
-                "status": "success" if receipt["status"] == 1 else "failed",
-                "tx_hash": tx_hash.hex(),
-                "gas_used": receipt["gasUsed"],
-                "gas_paid_by": "platform (The Matrix)",
-            }, indent=2)
-        except Exception as e:
-            return refusal(
-                f"Send failed: {e}",
-                code="capability_error")
+        Nothing here can make that safe: which contract, which function, its
+        arguments and the value are the whole of the call, and all of them came
+        from the request. A write is the caller's, with the caller's signer.
+        tests/test_no_request_chooses_the_call_the_platform_key_signs.py holds
+        the class: every call the platform key signs names its function in the
+        source.
+        """
+        return refusal(
+            "The platform's key signs no contract call a request composes: the "
+            "contract, the function, its arguments and the value would all be the "
+            "request's, sent from the platform wallet. Read with action 'call', and "
+            "write with your own signer. Nothing was signed.",
+            code="denied")
 
     async def _verify(self, params: dict) -> str:
         """Verify a contract's source code on the block explorer."""

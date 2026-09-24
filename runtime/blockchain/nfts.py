@@ -251,5 +251,5 @@ contract {symbol}NFT is ERC721URIStorage, Ownable {{
             "name": name,
             "symbol": symbol,
             "source": source,
-            "note": "Use smart_contract deploy action to deploy this contract. Gas covered by platform.",
+            "note": "Nothing was deployed. The platform does not deploy contracts: compile this with smart_contract's compile action and deploy it with your own signer.",
         }, indent=2)

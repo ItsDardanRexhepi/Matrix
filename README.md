@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,267 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,285 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -287,12 +287,29 @@ check behind it:
   the same holds for a DeFi supply or borrow made for you, and for the
   account an NFT or game-item transfer moves from. A cross-border
   payment's compliance record names no address at all, since that call
-  pays nobody. Tests walk every attestation these tools make, and drive
-  every one of those doors. Two limits, stated: a record about your own
+  pays nobody. Tests walk every attestation these tools make and every
+  call the platform's key signs (next point), and drive every one of those
+  doors. Two limits, stated: a record about your own
   address is still your word (the platform checks no achievement and no
   investor's eligibility), and the records the services layer writes about
   operations it ran (a cross-border payment, an insurance claim, a
   royalty) carry what that operation was asked; no test walks those yet
+- **No request chooses the call the platform's key signs.** Every
+  transaction the platform signs calls a function named in its own code
+  (or, with `conversion.auto_deploy` on, deploys a contract the conversion
+  pipeline generated and its audit passed); a request may supply that
+  function's arguments, and the ones that must be your own address are
+  checked, as above. The `smart_contract` tool
+  compiles, reads and verifies and signs nothing: its `send` let a request
+  pick the contract, the function, the arguments and the value, and so
+  make the platform sign an attestation, a revocation or a transfer out of
+  somebody else's account that every other tool refuses. And a configured
+  sponsorship allowlist now binds with or without a daily cap. A test
+  walks every signing call in `runtime/` and `gateway/`. The limit, stated:
+  `governance`'s timelock schedule and execute and a `dao` proposal carry
+  an inner call the request wrote, for that timelock or governor to make
+  under whatever role the platform holds there, which this repository
+  cannot see
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
@@ -424,9 +441,9 @@ signs:
   silently granted;
 - a transaction the platform signs itself for a capability, including
   the ones the services send through the shared web3 manager, is checked
-  against the allowlist and the cap only when a daily cap is set. With no
-  cap it is signed whatever the allowlist says. With a cap and an
-  allowlist, list `web3.send_transaction` or those will be refused;
+  against the allowlist whenever one is configured, and against the cap
+  when one is set. With an allowlist, list `web3.send_transaction` or
+  those will be refused;
 - a few signing paths are exempt from the policy altogether. They are
   listed by name in `UNMETERED_PLATFORM_OPERATIONS`
   (`runtime/blockchain/sponsorship.py`), so the exemptions can be read

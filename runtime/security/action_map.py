@@ -34,7 +34,11 @@ SIGNING_ACTIONS: dict[str, dict[str, str]] = {
     # last place that still offered it. Left out rather than kept as a dead _TX
     # entry, because tests/test_twins_seam.py treats a classification for an
     # action nobody declares as staleness to be removed, not as harmless.
-    "smart_contract": {"send": _TX, "call": READ, "verify": READ, "compile": READ},
+    # "send" left the enum for the same reason: it signed, with the platform
+    # key, whatever call the request composed (contract, function, arguments,
+    # value). The tool still answers it, with a refusal; an undeclared verb is
+    # classified as a signing one below, so the gate still sees it as such.
+    "smart_contract": {"call": READ, "verify": READ, "compile": READ},
     "defi": {"supply": "deposit", "borrow": "borrow", "withdraw": "withdraw", "repay": "repay",
              "get_rates": READ, "get_positions": READ},
     "nft": {"mint": "mint", "transfer": "transfer", "deploy_collection": _TX,

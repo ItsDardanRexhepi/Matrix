@@ -873,7 +873,15 @@ class MeteredSigner:
         return (gas * price / 1e18) * float(self._eth_usd)
 
     def sign_transaction(self, tx):
-        if not self._metered or self._policy is None or not self._policy.enforces_a_cap:
+        # THE ALLOWLIST IS READ WITH OR WITHOUT A CAP. This returned early
+        # whenever no daily cap was set, before the policy was consulted at
+        # all, so an operator who configured `allowed_actions` and no cap had
+        # every capability signature signed whatever the list said. With no
+        # cap and no allowlist `authorize_and_reserve` allows without touching
+        # the ledger, so an operator who configured nothing sees no change.
+        if not self._metered or self._policy is None:
+            return self._account.sign_transaction(tx)
+        if not self._policy.enforces_a_cap and self._policy.allowed_actions is None:
             return self._account.sign_transaction(tx)
 
         decision = self._policy.authorize_and_reserve(

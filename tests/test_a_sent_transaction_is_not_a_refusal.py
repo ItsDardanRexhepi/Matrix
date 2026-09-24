@@ -277,8 +277,6 @@ _DRIVEN = {
     ("payments.py", "Payments", "_send_token"): {"to": ADDR, "amount": "1", "token_address": ADDR},
     ("securities.py", "Securities", "_transfer"): {"contract_address": ADDR, "to": ADDR, "amount": "1"},
     ("securities.py", "Securities", "_freeze"): {"contract_address": ADDR, "investor_address": ADDR},
-    ("smart_contracts.py", "SmartContracts", "_send"): {
-        "contract_address": ADDR, "abi": [], "function_name": "set", "args": []},
     ("smart_contracts.py", "SmartContracts", "_deploy_disabled_implementation"): {
         "source_code": "contract C {}"},
     ("stablecoins.py", "Stablecoins", "_transfer"): {"token": "USDC", "amount": "1", "to": ADDR},
