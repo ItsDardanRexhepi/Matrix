@@ -110,7 +110,7 @@ Every example works on mainnet with zero code changes — just update your confi
 
 ## EAS Attestations
 
-`ServiceDispatcher.execute()` queues an EAS (Ethereum Attestation Service) attestation for a state-modifying action it completes; a refusal or an unconfirmed broadcast is not queued as done. The queue is written to the chain once 50 have gathered in the same process. Nothing drains it on a timer, and what is queued is lost if the process exits first.
+`ServiceDispatcher.execute()` queues an EAS (Ethereum Attestation Service) attestation for a state-modifying action it completes; a refusal or an unconfirmed broadcast is not queued as done. The queue is written to the chain once 50 have gathered in the same process. Nothing drains it on a timer, and what is queued is lost if the process exits first. With `engines.durable.mode` on and its canary covering the state-modifying actions, the attestation is instead a row in the platform database, written when the action's run ends and sent by the durable engine's outbox loop (see the README's "Durable execution").
 
 The dispatcher's record carries the action, the service, the caller it resolved and a hash of the parameters. What reaches the chain is narrower: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
 

@@ -4,7 +4,9 @@ Blockchain Module — on-chain capabilities for The Matrix.
 Gas is sponsored by the platform within the operator's sponsorship policy
 (sponsorship.py), with the exemptions listed there. ServiceDispatcher queues
 an EAS attestation, best effort, for a state-changing action that completed,
-written to the chain once 50 have gathered in the same process;
+written to the chain once 50 have gathered in the same process (with
+engines.durable on for the action, an outbox row the durable loop sends as
+soon as the run ends: runtime/durable/outbox.py);
 a refusal or an unconfirmed broadcast is not attested as done.
 
 This package exposes ``Web3Manager`` (and the ``not_deployed_response``

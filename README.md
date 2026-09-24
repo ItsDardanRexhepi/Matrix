@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,152 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,217 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -350,6 +350,29 @@ Every tool call an agent makes passes through the Unified Rexhepi Framework befo
 
 ---
 
+## Durable execution
+
+A button pressed twice should act once, and an action cut off halfway should leave a record that says so rather than nothing. Durable execution is the part of the platform that owns that: when an action's run starts, what is written down about it, who delivers its attestation and its feed entry, and what a repeated request is told. It owns nothing else. Whether an action is allowed is decided by the security gate before any of this runs, and a repeated request goes through the gate again like any other; what an action's outcome was is not decided here at all.
+
+It is off by default. `engines.durable.mode` in `matrix.config.json` (`MATRIX_DURABLE_MODE` wins) is read once at startup:
+
+- **`off`** — no engine runs and the `Idempotency-Key` header is not read. Every answer is the one the platform gave before this existed: `tests/test_durable_off_and_shadow.py` measures what every state-modifying action answers and does on `/bridge/v1/action` and through the service dispatcher, and what every twin tool action answers, and holds it to the same measurement taken on the commit before the engine was added. The four tables below exist, empty.
+- **`shadow`** — everything is written down and nothing is answered from it. Each state-modifying action gets a run in the journal before it is called and its answer after; its attestation and feed entry are written to the outbox as bookkeeping while the existing path still delivers them; and a `/bridge/v1/action` request carrying an `Idempotency-Key` has the key recorded with the answer it got. The answers are those of `off`, measured the same way. A row that cannot be written at once is dropped, never waited for.
+- **`on`** — for the actions `engines.durable.canary` names, the engine owns their lifecycle. `twins`, the default, is the twin tools' platform-key signing calls: the 49 signing actions the 20 twin tools declare (`runtime/security/action_map.py`), and any action on one of them the table does not declare, which the seam already treats as signing. `state_modifying` is those and the 184 state-modifying action names the service dispatcher serves. For those:
+  - a run is recorded before the action is called, and an action whose run cannot be recorded is not called — its answer says nothing ran and that it is safe to try again;
+  - for an action the service dispatcher serves, its attestation and its public feed entry are written in the same transaction as the run's end, and one background loop delivers them. That loop replaces the attestation queue's interval timer, which nothing ever started, and the fire-and-forget feed publish;
+  - on `/bridge/v1/action`, a repeated `Idempotency-Key` gets the first answer back with `replayed: true` and an `Idempotent-Replayed` header, and a key used for a different request, or whose first request has not answered, gets `409 idempotency_conflict`. None of them runs anything. A request that ended before its action was called — refused by the gate, an action that does not exist, a service that is down — does not use up its key.
+
+Actions outside the canary are recorded as in `shadow`.
+
+A run's state is its lifecycle, never a verdict: `START` (recorded, not yet called), `RUNNING` (called — it may have acted), then `COMPLETE` (it answered with something the dispatcher did not read as a refusal), `FAIL` (it refused or raised) or `ABORT` (it ended before it was called). `COMPLETE` does not mean the world changed; which answer it was — settled, broadcast — is on the run's steps, and whether the chain agrees is a question for the evidence engine, a later phase. Nothing is ever run twice. A run whose call never answered — the process died, the call timed out — stays `RUNNING` for a person to look at, and a key bound to it keeps answering 409. An attestation whose send may have left without a receipt is held, not sent again; one whose answer proves nothing was sent (the chain is not configured, a revert the chain mined) is tried again, five times, then kept as a dead letter. In `on`, `/ready` answers 503 if the loop is not running; its dead letters and held rows are logged at ERROR.
+
+The tables, created by migration 10: `workflow_runs`, `workflow_steps`, `outbox`, `idempotency_keys`. Callers and parameters are stored as sha256 digests. A recorded answer is kept for 24 hours, with secret-named fields withheld, and then dropped; its key stays bound, so it never runs twice. Going back from `on` to `shadow` or `off` takes a restart and leaves any undelivered outbox rows undelivered until `on` returns.
+
+Not covered yet: the `/api/v1/*` routes and the capability-invoke route do not read `Idempotency-Key` (the capability route's dispatches are journaled; the `/api/v1` service routes call services without the dispatcher and are not), and a model's tool calls carry no key.
+
+---
+
 ## Web3 Capability Surface
 
 **195 capabilities across 21 categories** — smart contracts, DeFi,
@@ -402,7 +425,8 @@ signs:
   `create_attestation`, `batch_attest` and `revoke_attestation`
   capabilities; the service dispatcher's own record of each
   state-modifying action it completes, queued and signed once 50 have
-  gathered; `convert_contract`'s attestation of a contract it deployed,
+  gathered (with durable execution on for those actions, signed by the
+  outbox loop as soon as the action's run ends); `convert_contract`'s attestation of a contract it deployed,
   with `conversion.auto_deploy` on; the real-estate routes' attestations,
   with `services.real_estate.enabled` set; and 13 actions of Neo's
   blockchain tools `eas`, `agent_identity`, `identity`,

@@ -284,6 +284,27 @@ class BatchProcessor:
         )
         return results
 
+    async def submit_now(self, attestations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Submit *attestations* at once, outside the queue, and return one
+        result per attestation, in order — the same submission path and the
+        same per-attestation results a flush produces, with nothing queued,
+        re-queued or abandoned here.
+
+        The caller keeps what the queue would have kept. The durable outbox loop
+        (runtime/durable/outbox.py) is that caller in engines.durable mode
+        "on": each attestation it drains is a row in the platform database, and
+        the row — marked before the submission and settled from the result —
+        is what remembers whether it still owes one. That is the interval flush
+        ``start()`` was written to provide and never did, because nothing ever
+        called it.
+        """
+        batch = [
+            {**att, "id": str(att.get("id") or uuid.uuid4()),
+             "queued_at": att.get("queued_at", time.time())}
+            for att in attestations
+        ]
+        return await self._submit_batch(batch)
+
     async def _submit_batch(self, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Submit a batch of attestations to the EAS contract.

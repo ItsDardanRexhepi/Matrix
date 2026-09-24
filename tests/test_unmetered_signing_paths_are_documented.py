@@ -40,10 +40,13 @@ SCHEMA = "0x" + "cd" * 32
 
 # The methods through which a call reaches an exempt signer: EASClient.attest
 # ("eas.attest"), TimeCriticalHandler.attest_now ("eas.attest_time_critical"),
-# AttestationService.attest, .batch_attest and .revoke ("eas.revoke"), and
-# GasSponsor.sponsor_transaction ("gas_sponsor.sponsor"). A contract's
-# `functions.attest(...)` builds a transaction and is not one of them.
-_EXEMPT_METHODS = {"attest", "batch_attest", "revoke", "attest_now", "sponsor_transaction"}
+# AttestationService.attest, .batch_attest and .revoke ("eas.revoke"),
+# BatchProcessor.submit_now (EASClient.attest, for each attestation it is
+# handed: the durable outbox loop's path), and GasSponsor.sponsor_transaction
+# ("gas_sponsor.sponsor"). A contract's `functions.attest(...)` builds a
+# transaction and is not one of them.
+_EXEMPT_METHODS = {"attest", "batch_attest", "revoke", "attest_now", "submit_now",
+                   "sponsor_transaction"}
 
 
 def _call_sites() -> set[tuple[str, str]]:

@@ -14,8 +14,8 @@ committed so each later phase diffs against them rather than against memory:
       them the separately installed core classifies is measured where the core
       is installed and is not pinned in this repository (packet OD-7).
   B3  replay_duplicate.json — the same /bridge/v1/action body sent twice. It
-      runs twice; a replay under one Idempotency-Key running once is a strict
-      expected failure until the phase that honours the key.
+      runs twice, as it does with engines.durable off (the default); under one
+      Idempotency-Key with the durable mode on it runs once (Phase 2).
   B4  latency.json — p50/p95 of ProtocolStack.pre_action and
       ServiceDispatcher.execute, with the evidence mode off and in shadow.
   B9  collection.json — how many tests this suite collects.
@@ -328,7 +328,8 @@ def test_b2_privileged_vocabulary_coverage():
 
 # ── B3: a replayed bridge action ────────────────────────────────────────────
 
-async def measure_b3(scratch: Path, headers: dict | None = None) -> dict:
+async def measure_b3(scratch: Path, headers: dict | None = None,
+                     durable: dict | None = None) -> dict:
     from aiohttp.test_utils import TestClient, TestServer
     from gateway.server import GatewayServer
     from test_route_sweep import SWEEP_CONFIG
@@ -348,8 +349,10 @@ async def measure_b3(scratch: Path, headers: dict | None = None) -> dict:
     svc, attestation = SimpleNamespace(**{method_name: method}), SimpleNamespace(attest=attest)
     d._get_registry = lambda: SimpleNamespace(get=lambda n: svc if n == service else attestation)
 
-    server = GatewayServer({**SWEEP_CONFIG, "memory_dir": str(scratch),
-                            "database": {"path": f"{scratch}/a.db"}})
+    config = {**SWEEP_CONFIG, "memory_dir": str(scratch), "database": {"path": f"{scratch}/a.db"}}
+    if durable is not None:
+        config["engines"] = {"durable": durable}
+    server = GatewayServer(config)
     body = {"action": action, "params": {"to": WALLET, "amount": 5}, "session_id": "b3"}
     statuses = []
     async with TestClient(TestServer(server.create_app())) as client:
@@ -375,16 +378,19 @@ async def test_b3_a_replayed_body(tmp_path):
     _check_or_write("replay_duplicate.json", await measure_b3(tmp_path))
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "Phase 2 (Durable Execution): gateway/bridge.py execute_action reads no Idempotency-Key; "
-    "the phase records the outcome under the key and returns it on a replay"))
-async def test_a_replay_under_one_idempotency_key_runs_once(tmp_path):
-    measured = await measure_b3(tmp_path, headers={"Idempotency-Key": "b3-replay"})
+async def test_a_replay_under_one_idempotency_key_runs_once(tmp_path, monkeypatch):
+    """Phase 2 (Durable Execution) honours the key in engines.durable mode on,
+    with the canary covering the state-modifying names; with the mode off (the
+    default) B3 above still runs the replay twice, as it did at the base."""
+    monkeypatch.delenv("MATRIX_DURABLE_MODE", raising=False)
+    measured = await measure_b3(tmp_path, headers={"Idempotency-Key": "b3-replay"},
+                                durable={"mode": "on", "canary": "state_modifying"})
     if measured["statuses"][0] != 200 or measured["service_calls"] < 1:
         # Not the property: the first request did not run at all.
         raise RuntimeError(f"the first request did not execute: {measured}")
     assert measured["service_calls"] == 1, (
         f"one request under one key ran {measured['service_calls']} times")
+    assert measured["statuses"] == [200, 200]
 
 
 # ── B4: latency ─────────────────────────────────────────────────────────────

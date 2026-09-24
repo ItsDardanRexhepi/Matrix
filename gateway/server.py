@@ -751,6 +751,17 @@ class GatewayServer:
         if production and backend == "noop":
             failed.append("security_backend")
 
+        # Engines, Phase 2: in mode on the outbox loop is what delivers the
+        # canary's attestations and feed entries, so an instance whose loop is
+        # not running must not take traffic. Its dead letters and held rows are
+        # logged by the loop when they happen; they do not fail readiness.
+        durable_engine = getattr(self, "_durable_engine", None)
+        durable_health = None
+        if durable_engine is not None and durable_engine.mode == "on":
+            durable_health = durable_engine.health()
+            if not durable_health["loop_alive"]:
+                failed.append("durable_outbox_loop")
+
         ready = not failed
         ref = get_request_id() or "-"
         if not ready:
@@ -761,6 +772,8 @@ class GatewayServer:
                 "probed=%s | security_backend=%s production=%s",
                 ref, failed, providers_up, sorted(model_health), backend, production,
             )
+            if durable_health is not None:
+                logger.error("Readiness [ref=%s] durable engine: %s", ref, durable_health)
 
         return web.json_response(
             {"ready": ready, "ref": ref},
@@ -2365,6 +2378,60 @@ class GatewayServer:
         except Exception as exc:
             logger.warning("Push token store init skipped: %s", exc)
 
+        # Engines, Phase 2: durable execution (off by default). Last, because
+        # its outbox loop delivers feed entries to the feed engine built above.
+        self._install_durable_engine()
+
+    def _install_durable_engine(self) -> None:
+        """Engines, Phase 2 — durable execution. Read engines.durable.mode once
+        and, in "shadow" or "on", build the engine over the platform database,
+        install it process-wide, close what a previous process left behind, and
+        start its one loop; then say so at boot. Under "off" this installs
+        nothing, starts nothing and logs nothing. An engine that cannot be
+        built leaves the gateway as it is with the mode off, and says so."""
+        from runtime.durable import wiring as durable
+        self._durable_engine = None
+        self._durable_mode = durable.durable_mode(self.config)
+        if self._durable_mode == "off":
+            return
+        try:
+            engine = durable.build_engine(self.config, self.react_loop.memory.db,
+                                          feed_engine=self.social_feed_engine)
+            engine.maintain()
+        except Exception:
+            logger.exception("Engines: the durable engine could not be built; durable "
+                             "execution is off")
+            self._durable_mode = "off"
+            return
+        durable.install(engine)
+        engine.start()
+        self._durable_engine = engine
+        health = engine.health()
+        logger.info("Engines: durable mode=%s canary=%s: %s; outbox %s",
+                    engine.mode, engine.canary,
+                    ("the run journal, the outbox and replay keys record; the legacy path "
+                     "still delivers and nothing is answered from them"
+                     if engine.mode == "shadow" else
+                     "runs in the canary are journaled before they act, their attestation "
+                     "and feed entry are delivered by the outbox loop, and a replayed "
+                     "Idempotency-Key answers from its record"),
+                    health["outbox"] or "empty")
+        pending = health["outbox"].get("pending", 0)
+        if engine.mode == "shadow" and pending:
+            logger.warning("Engines: %d outbox row(s) written in mode on are not delivered in "
+                           "shadow; they are delivered when the mode is on again", pending)
+
+    async def _remove_durable_engine(self) -> None:
+        """Stop this gateway's loop and uninstall its engine — only its own."""
+        engine = getattr(self, "_durable_engine", None)
+        if engine is None:
+            return
+        from runtime.durable import wiring as durable
+        await engine.stop()
+        if durable.current() is engine:
+            durable.install(None)
+        self._durable_engine = None
+
     def _rate_limiters(self) -> list:
         """Every RateLimiter the server keys buckets in."""
         return [v for v in vars(self).values() if isinstance(v, RateLimiter)]
@@ -2534,6 +2601,10 @@ class GatewayServer:
             logger.debug("OTel bridge shutdown raised: %s", exc)
         # Before the database closes: nothing may write through a closed handle.
         self._remove_engine_sinks()
+        try:
+            await self._remove_durable_engine()
+        except Exception as exc:
+            logger.warning("Durable engine shutdown raised: %s", exc)
         try:
             await self.react_loop.memory.close()
         except Exception as exc:

@@ -26,6 +26,11 @@ from typing import Any, Callable
 # module first in a bare interpreter.
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
 
+# Engines Phase 2. `runtime.durable` imports nothing from this module at load
+# time (the twin classification and the outcome reader it uses are imported
+# inside functions), so this closes no cycle.
+from runtime.durable import wiring as _durable_wiring
+
 logger = logging.getLogger(__name__)
 
 # 17-D. The parameter name a service method declares to receive, from the
@@ -918,16 +923,20 @@ def evidence_shadow_row(
     params: Any,
     result: Any,
     verdict: str,
+    *,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """One evidence_shadow row. The actor is a sha256 of the resolved identity
     ("" when the entry point resolved none) and the parameters a digest; the
     status is the service's own word, normalised the way the verdict reads it.
-    ``run_id`` is minted here because no run journal exists yet."""
+    ``run_id`` is the durable run journal's id for this dispatch when the
+    journal has one (engines.durable in shadow or on), so the row joins its
+    run; otherwise one is minted here."""
     status = result.get("status") if isinstance(result, dict) else None
     tx = (result.get("tx_hash") or result.get("transaction_hash")
           if isinstance(result, dict) else None)
     return {
-        "run_id": "run_" + uuid.uuid4().hex,
+        "run_id": run_id or ("run_" + uuid.uuid4().hex),
         "action": action,
         "service": service,
         "actor_hash": hashlib.sha256(actor.encode("utf-8")).hexdigest() if actor else "",
@@ -977,7 +986,7 @@ def evidence_shadow_sink(db: Any) -> EvidenceShadowSink:
 
 
 def _shadow_the_verdict(action: str, service: str, actor: str, params: Any,
-                        result: Any, verdict: str) -> None:
+                        result: Any, verdict: str, *, run_id: str | None = None) -> None:
     """Write the shadow row when a sink is installed; a failing sink is logged
     and the dispatch carries on exactly as it would have without one.
 
@@ -992,7 +1001,8 @@ def _shadow_the_verdict(action: str, service: str, actor: str, params: Any,
     if sink is None:
         return
     try:
-        sink(evidence_shadow_row(action, service, actor, params, result, verdict))
+        sink(evidence_shadow_row(action, service, actor, params, result, verdict,
+                                 run_id=run_id))
     except sqlite3.Error as exc:
         # Expected when another writer holds the database, and already logged
         # with its statement by Database.execute_sync: no trace here.
@@ -1680,7 +1690,37 @@ class ServiceDispatcher:
             except ValueError:
                 pass  # no introspectable signature; the call decides
 
-            result = await method(**params)
+            # ENGINES PHASE 2 — DURABLE EXECUTION. With engines.durable.mode
+            # off (the default) no engine is installed, `_run` stays None and
+            # the service is called exactly as it always was. In shadow and on,
+            # a state-modifying dispatch is written to the run journal as
+            # RUNNING before the service is called, so a process that dies
+            # mid-call leaves a run that says its call began. In mode on, for
+            # the canary's actions, a dispatch whose run cannot be recorded is
+            # not made: the answer says nothing ran and it is safe to retry.
+            _durable = _durable_wiring.current()
+            _run = None
+            if _durable is not None and action in _STATE_MODIFYING_ACTIONS:
+                _run = _durable.begin_dispatch(action, target_service, caller_identity or "",
+                                               params)
+                if _run is not None and _run.refused:
+                    return json.dumps({
+                        "status": "error",
+                        OUTCOME_FIELD: FAILURE,
+                        "error_category": "service_unavailable",
+                        "degraded": True,
+                        "service": target_service,
+                        "error": (
+                            f"Action '{action}' was not run: the platform could not record "
+                            "it before running it. Nothing was executed; it is safe to try "
+                            "again."
+                        ),
+                    })
+
+            if _run is None:
+                result = await method(**params)
+            else:
+                result = await _durable.call(_run, lambda: method(**params))
 
             # 17-D (evidence half). WHO the record says acted.
             #
@@ -1780,13 +1820,38 @@ class ServiceDispatcher:
             if action in _STATE_MODIFYING_ACTIONS:
                 _verdict = _record_verdict(result)
                 _happened = _verdict == RECORD_SETTLED
-                _shadow_the_verdict(action, target_service, _actor, params, result, _verdict)
+                _shadow_the_verdict(action, target_service, _actor, params, result, _verdict,
+                                    run_id=_run.run_id if _run is not None else None)
+
+                # The run's answer and terminal state. In mode on, for the
+                # canary's actions, the attestation and the feed entry below are
+                # written as outbox rows in the same transaction and the outbox
+                # loop delivers them: `_owned` is then True and this dispatch
+                # delivers neither itself. In shadow the rows are bookkeeping and
+                # `_owned` is False; with no run it is False; and when mode on
+                # could not write them it is False too, so the attestation and
+                # the feed entry are delivered exactly once whichever way.
+                _owned = False
+                if _run is not None:
+                    _owned = _durable.finish_dispatch(
+                        _run, answer=_verdict, refused=_verdict == RECORD_REFUSED,
+                        result=result,
+                        attestation=(lambda: self._attestation_request(
+                            action, target_service, params, actor=_actor,
+                            actor_source=_actor_source, actor_claimed=_claimed_actor,
+                        )) if _happened else None,
+                        feed=(lambda: self._feed_publication(
+                            action, target_service, params, result, actor=_actor,
+                            actor_claimed=_claimed_actor,
+                        )) if _happened and self._feed_engine is not None else None,
+                    )
 
                 if _happened:
-                    await self._attest_action(
-                        action, target_service, params, result, actor=_actor,
-                        actor_source=_actor_source, actor_claimed=_claimed_actor,
-                    )
+                    if not _owned:
+                        await self._attest_action(
+                            action, target_service, params, result, actor=_actor,
+                            actor_source=_actor_source, actor_claimed=_claimed_actor,
+                        )
                 elif _verdict == RECORD_BROADCAST:
                     await self._record_broadcast(
                         action, target_service, params, result, actor=_actor,
@@ -1815,45 +1880,12 @@ class ServiceDispatcher:
                 # them, so it is enforced here rather than maintained by hand in
                 # ACTION_TO_FEED_EVENT — `_happened` is now settlement, not
                 # submission.
-                if _happened and self._feed_engine is not None:
-                    # No component number. The feed's `component` is an integer
-                    # column, and nothing in this tree maps a service to one:
-                    # this used to import `extensions.registry` for
-                    # `service_to_component`, a module that has never existed
-                    # (extensions/ holds registry.json, whose component ids are
-                    # strings), inside a bare `except: pass`. It always failed,
-                    # silently, and every event was stored with component NULL.
-                    # It still is, now without pretending otherwise.
-                    _component_id = None
-                    _tx = None
-                    if isinstance(result, dict):
-                        _tx = result.get("tx_hash") or result.get("transaction_hash")
-                    _value = _feed_value_of(result)
-                    # The claim rides in `detail` rather than in `actor`. The
-                    # feed's `actor` column is what get_feed(actor=…) filters on
-                    # and what the summary line names, so putting an unresolved
-                    # address there is the publication this change stops. It is
-                    # added only when there IS a disagreement, because `detail`
-                    # is a rendered surface and an always-empty key reads as a
-                    # missing value rather than as "nobody claimed anything".
-                    _detail: dict[str, Any] = {
-                        "service": target_service,
-                        "params": {
-                            k: v for k, v in params.items()
-                            if k not in ("private_key", "seed_phrase", "mnemonic")
-                        },
-                    }
-                    if _claimed_actor:
-                        _detail["actor_claimed"] = _claimed_actor
+                if _happened and self._feed_engine is not None and not _owned:
                     asyncio.create_task(
-                        self._feed_engine.ingest(
-                            action=action,
-                            actor=_actor,
-                            detail=_detail,
-                            component=_component_id,
-                            tx_hash=_tx,
-                            value_usd=_value,
-                        )
+                        self._feed_engine.ingest(**self._feed_publication(
+                            action, target_service, params, result, actor=_actor,
+                            actor_claimed=_claimed_actor,
+                        ))
                     )
 
             # THE ENVELOPE SAYS WHAT IT IS CARRYING.
@@ -1912,6 +1944,58 @@ class ServiceDispatcher:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _feed_publication(
+        action: str,
+        service_name: str,
+        params: dict,
+        result: Any,
+        *,
+        actor: str = "",
+        actor_claimed: str = "",
+    ) -> dict[str, Any]:
+        """The public feed entry for a settled state-modifying action, as the
+        keyword arguments of ``SocialFeedEngine.ingest``. One builder for both
+        deliveries: the fire-and-forget publish, and the durable outbox row the
+        outbox loop delivers in engines.durable mode on."""
+        # No component number. The feed's `component` is an integer
+        # column, and nothing in this tree maps a service to one:
+        # this used to import `extensions.registry` for
+        # `service_to_component`, a module that has never existed
+        # (extensions/ holds registry.json, whose component ids are
+        # strings), inside a bare `except: pass`. It always failed,
+        # silently, and every event was stored with component NULL.
+        # It still is, now without pretending otherwise.
+        _component_id = None
+        _tx = None
+        if isinstance(result, dict):
+            _tx = result.get("tx_hash") or result.get("transaction_hash")
+        _value = _feed_value_of(result)
+        # The claim rides in `detail` rather than in `actor`. The
+        # feed's `actor` column is what get_feed(actor=…) filters on
+        # and what the summary line names, so putting an unresolved
+        # address there is the publication this change stops. It is
+        # added only when there IS a disagreement, because `detail`
+        # is a rendered surface and an always-empty key reads as a
+        # missing value rather than as "nobody claimed anything".
+        _detail: dict[str, Any] = {
+            "service": service_name,
+            "params": {
+                k: v for k, v in params.items()
+                if k not in ("private_key", "seed_phrase", "mnemonic")
+            },
+        }
+        if actor_claimed:
+            _detail["actor_claimed"] = actor_claimed
+        return {
+            "action": action,
+            "actor": actor,
+            "detail": _detail,
+            "component": _component_id,
+            "tx_hash": _tx,
+            "value_usd": _value,
+        }
 
     async def _attest_refusal(
         self,
@@ -2062,26 +2146,50 @@ class ServiceDispatcher:
             # assert to third parties, which is a product decision and a
             # separate change. The actor is carried in the payload, where the
             # authorship claim belongs.
+            request = self._attestation_request(
+                action, service_name, params, actor=actor,
+                actor_source=actor_source, actor_claimed=actor_claimed,
+            )
             await attestation_svc.attest(
-                schema_uid="",
-                data={
-                    "action": action,
-                    "service": service_name,
-                    "actor": actor or "",
-                    "actor_source": actor_source or "unauthenticated",
-                    # ALWAYS PRESENT, unlike the feed's copy. This is the audit
-                    # record: "" here is the positive fact that the request made
-                    # no claim the resolved identity contradicts, where an
-                    # omitted key would read as "this build did not look".
-                    "actor_claimed": actor_claimed or "",
-                    "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
-                    "timestamp": int(time.time()),
-                },
-                recipient=self._platform_wallet or "0x0",
+                schema_uid=request["schema_uid"],
+                data=request["data"],
+                recipient=request["recipient"],
             )
         except Exception:
             # Attestation failure must not break the primary action
             logger.warning("Attestation failed for action=%s", action, exc_info=True)
+
+    def _attestation_request(
+        self,
+        action: str,
+        service_name: str,
+        params: dict,
+        *,
+        actor: str = "",
+        actor_source: str = "",
+        actor_claimed: str = "",
+    ) -> dict[str, Any]:
+        """The arguments of ``AttestationService.attest`` for one settled
+        state-modifying action. One builder for both deliveries: the attestation
+        ``_attest_action`` hands the attestation service, and the durable outbox
+        row the outbox loop delivers in engines.durable mode on."""
+        return {
+            "schema_uid": "",
+            "data": {
+                "action": action,
+                "service": service_name,
+                "actor": actor or "",
+                "actor_source": actor_source or "unauthenticated",
+                # ALWAYS PRESENT, unlike the feed's copy. This is the audit
+                # record: "" here is the positive fact that the request made
+                # no claim the resolved identity contradicts, where an
+                # omitted key would read as "this build did not look".
+                "actor_claimed": actor_claimed or "",
+                "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
+                "timestamp": int(time.time()),
+            },
+            "recipient": self._platform_wallet or "0x0",
+        }
 
     @staticmethod
     def _serialise(obj: Any) -> Any:

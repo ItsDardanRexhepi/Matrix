@@ -5,7 +5,10 @@ Writes an EAS attestation with the platform key, one transaction per
 call, recording the platform, the action, the agent and a timestamp. The
 service dispatcher's record of an action it completes does not come here
 directly: it is queued by AttestationService, whose batch calls this
-client when 50 have gathered. Attestation gas is paid by the platform.
+client when 50 have gathered — or, with engines.durable on for the action,
+it is an outbox row the durable loop hands to the batch processor's
+``submit_now``, which calls this client at once. Attestation gas is paid by
+the platform.
 """
 
 import json
