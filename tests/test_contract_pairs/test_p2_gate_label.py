@@ -316,6 +316,24 @@ def _gate_references(tree: ast.AST) -> list[tuple[ast.AST, str]]:
     return found
 
 
+_NOT_SOURCE = {"build", "dist", "venv", ".venv", "node_modules"}
+
+
+def _source_files(root):
+    """The repository's own .py files: what git tracks when the tree is a
+    checkout, or every .py outside build output and environments when it is
+    an export. A stale build/lib copy of the package doubled every site."""
+    import subprocess
+    try:
+        listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "*.py"],
+                                capture_output=True, check=True).stdout.decode().split("\0")
+        return sorted(root / f for f in listed if f)
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(p for p in root.rglob("*.py")
+                      if not (set(p.relative_to(root).parts) & _NOT_SOURCE)
+                      and not any(part.endswith(".egg-info") for part in p.relative_to(root).parts))
+
+
 def gate_call_sites(root: Path = ROOT) -> set[tuple[str, str]]:
     """Every function outside tests/ (or ``<module>`` for module level) that
     reaches for the security gate in a form the source shows: it names the
@@ -326,7 +344,7 @@ def gate_call_sites(root: Path = ROOT) -> set[tuple[str, str]]:
     method called ``evaluate`` (called, passed or named in a string). The seam
     itself is left out."""
     sites = set()
-    for path in sorted(root.rglob("*.py")):
+    for path in _source_files(root):
         rel = path.relative_to(root)
         if rel.parts[0] == "tests" or rel.parts[0].startswith(".") or str(rel) == SEAM:
             continue
