@@ -21,7 +21,7 @@ caller would leave only freezing yourself or granting yourself the role. They
 are Neo's tools, and a chat caller without the operator key never holds them —
 driven below through the tool dispatcher.
 
-CONTROL. At fix/oldq-census 083ed72 the tests marked [control] fail; the tests
+CONTROL. At fix/oldq-census 67f3ad6 the tests marked [control] fail; the tests
 marked [guard] pass before and after.
 """
 

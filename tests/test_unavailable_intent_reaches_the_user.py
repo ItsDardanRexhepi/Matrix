@@ -364,7 +364,7 @@ async def test_the_rendered_text_carries_no_unscoped_negative(action):
 # path jumps its queue: the other eleven cost embarrassment, these two cost a
 # user a working recipe.
 #
-# NOT INTRODUCED BY THE REPAIR. All sixteen strings predate it. What 9eb5c06 did
+# NOT INTRODUCED BY THE REPAIR. All sixteen strings predate it. What 31edf9c did
 # was make them REACHABLE — the purest form of the pre-repoint hazard: the text
 # was wrong for as long as it existed, and arming the path turned latent
 # wrongness into live disclosure without a single character of it changing.

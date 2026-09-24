@@ -581,10 +581,10 @@ def test_the_census_reads_what_the_client_writes_on_chain():
 # ── what a review planted that the walk above did not see ────────────────
 #
 # Three shapes re-opened the class and passed the census at fix/oldq-census
-# 083ed72: execute rewriting the field before the method reads it, ``attest``
+# 67f3ad6: execute rewriting the field before the method reads it, ``attest``
 # reached through an alias, and a recipient carried on ``self`` from one method
 # to another. An attestation outside any tool method was not seen either. Each
-# test below plants one; at 083ed72 each fails [control], because the walk
+# test below plants one; at 67f3ad6 each fails [control], because the walk
 # reports no problem.
 
 _PLANTED_HEAD = (

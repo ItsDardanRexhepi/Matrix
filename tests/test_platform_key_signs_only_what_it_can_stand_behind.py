@@ -27,7 +27,7 @@ statement the caller composed. ``register`` names only an agent the platform
 runs. And the seam binds each action's own beneficiary field to the caller's
 identity, the rule it already applied to the generic names.
 
-CONTROL, measured at The Matrix ``main`` b478b51: 12 of the 16 tests fail
+CONTROL, measured at The Matrix ``main`` 91a89fb: 12 of the 16 tests fail
 there and all 16 pass after. The other 4 — the four cases of
 ``test_the_callers_own_address_and_reads_still_pass`` — are guards: they pass
 before and after, and pin that the caller's own address, an absent field and a

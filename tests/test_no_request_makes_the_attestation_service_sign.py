@@ -32,7 +32,7 @@ key, an anonymous chat, a caller with no HTTP request behind it. The platform
 still attests what it EXECUTES (the dispatcher's own record of an action, each
 service's record of an operation it ran); those never enter through a door.
 
-CONTROL. At fix/oldq-census 083ed72 the tests marked [control] fail: every
+CONTROL. At fix/oldq-census 67f3ad6 the tests marked [control] fail: every
 door runs the dispatcher. The tests marked [guard] pass before and after: a
 read through the same doors still runs, and the platform's own in-process code
 still reaches the service.
