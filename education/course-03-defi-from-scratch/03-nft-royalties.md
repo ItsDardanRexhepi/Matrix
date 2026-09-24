@@ -38,7 +38,7 @@ When a marketplace sells an NFT, it calls this function to determine how much ro
 
 ## Creating an NFT with Automatic Royalties on The Matrix
 
-Through The Matrix, creating an NFT with royalties is meant to be a conversation. The exchange below is that intended flow. Today the NFT service's collection factory is not wired in, so asking for a collection answers `not_deployed` and nothing below the confirmation happens yet:
+Through The Matrix, creating an NFT with royalties is meant to be a conversation. The exchange below is that intended flow. Today the NFT service's collection factory is not wired in, so asking for a collection answers `not_deployed` and nothing in this exchange happens yet:
 
 ```
 You: Create an NFT collection called "Cityscapes" with a 7.5% 
@@ -51,7 +51,7 @@ Trinity: I'll create a Cityscapes NFT collection with these parameters:
   - Royalty: 7.5% on all secondary sales, paid to your wallet
   - First mint: 100 editions
   
-  [Morpheus confirms the deployment]
+  (If Morpheus has a note for this action, it arrives with the result. Nothing waits for an answer to it.)
   
   Collection deployed. Your first 100 NFTs have been minted.
   Contract address: 0x...

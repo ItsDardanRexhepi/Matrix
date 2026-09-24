@@ -31,7 +31,7 @@ State-changing capabilities are signed by the platform, which pays their gas wit
 
 ## How It Works
 
-Users describe what they want to Trinity in plain language. Trinity translates the request into the appropriate blockchain operation. Neo executes it. If it's a first-time use or irreversible action, Morpheus explains what's happening first.
+Users describe what they want to Trinity in plain language. Trinity translates the request into the appropriate blockchain operation. Neo executes it. If it's a first-time use or an irreversible action, Morpheus adds a note saying what it does; the note reaches the user with the result, and nothing waits for an answer to it.
 
 ## Networks
 

@@ -49,6 +49,18 @@ _OVERCLAIMS = [
     r"every agent response is evaluated",
     r"every decision made by every agent passes through",
     r"nothing irreversible executes without",
+    # Morpheus as a confirmation step (courses 02 and 03, the agents' prompts,
+    # the README and docs/blockchain.md): his note reaches the user with the
+    # tool's result, and nothing waits for an answer to it.
+    r"\[?morpheus confirms the (?:transaction|deployment)",
+    r"through morpheus before approving",
+    r"morpheus (?:will )?appears? for confirmation",
+    r"morpheus (?:handles|presents)[^.]{0,60}\bconfirmation",
+    r"user confirms\. then it executes",
+    r"(?:clearly and|then) waits\b",
+    r"waits for the user to fix",
+    r"nothing below the confirmation",
+    r"morpheus explains what's happening first",
 ]
 
 
@@ -62,12 +74,20 @@ def test_the_overclaim_scan_catches_the_old_copy():
            "It governs all attempts to reach Neo. Governed entirely by the Unified Rexhepi "
            "Framework. Every decision made by every agent passes through the Unified Rexhepi "
            "Framework before execution. This is not optional. It cannot be bypassed. Every "
-           "agent response is evaluated consistently.")
+           "agent response is evaluated consistently. [Morpheus confirms the transaction] "
+           "[Morpheus confirms the deployment] Each signer sees the exact transaction details "
+           "through Morpheus before approving. Morpheus will appear for confirmation before the "
+           "deposit. Morpheus presents the deployment details for confirmation. User confirms. Then "
+           "it executes. He tells the truth clearly and waits. Morpheus explains what was found and "
+           "waits for the user to fix the code. Nothing below the confirmation happens yet. If it's "
+           "a first-time use, Morpheus explains what's happening first.")
     hits = {p for p in _OVERCLAIMS if re.search(p, _flat(old))}
     assert hits == set(_OVERCLAIMS), set(_OVERCLAIMS) - hits
     assert not [p for p in _OVERCLAIMS
                 if re.search(p, _flat("Every tool call passes through the framework; a fork "
-                                      "can change it or take it out."))]
+                                      "can change it or take it out. If Morpheus has a note for "
+                                      "this action, it arrives with the result. Nothing waits for "
+                                      "an answer to it."))]
 
 
 def _framework_gate_callers() -> set[str]:

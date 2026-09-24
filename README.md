@@ -78,7 +78,7 @@ If you ever catch this repository claiming something it cannot do, that is a bug
 
 **Trinity** faces the world. She is the primary interface for every user. Warm, capable, present. She speaks your language and handles everything you need in plain conversation.
 
-**Morpheus** appears at the moments that matter. Never in casual conversation. Before every irreversible action. When something significant happens to you. He tells the truth clearly and waits.
+**Morpheus** appears at the moments that matter. Never in casual conversation. Before every irreversible action. When something significant happens to you. He tells the truth clearly and stops: his note reaches you with the result, and nothing waits for an answer to it.
 
 ---
 

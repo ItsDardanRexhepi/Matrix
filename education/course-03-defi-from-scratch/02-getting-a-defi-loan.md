@@ -6,7 +6,7 @@ Getting a loan in DeFi is faster than getting a bank loan, but it carries differ
 
 ## Step 1: Using The Matrix to Borrow
 
-Instead of navigating a DeFi protocol's website, connecting a wallet, and approving multiple transactions, you chat with Trinity:
+Instead of navigating a DeFi protocol's website, connecting a wallet, and approving multiple transactions, you chat with Trinity. The conversations in this module are the intended flow, written for the course rather than recorded, and their numbers are examples. Today a loan request answers `not_deployed` on a gateway where the platform's lending contract is not deployed (`defi.lending_pool_address` unset), and then nothing in these exchanges happens:
 
 ```
 You: I want to borrow 500 USDC using ETH as collateral. What do I need to deposit?
@@ -22,7 +22,7 @@ a safety margin against price drops.
 Would you like to proceed with 0.4 ETH as collateral to borrow 500 USDC?
 ```
 
-Trinity calculates the requirements, checks current prices, and recommends a safe deposit amount. Morpheus will appear for confirmation before the actual deposit, since depositing collateral and taking a loan are financial operations that commit real assets.
+Trinity calculates the requirements, checks current prices, and recommends a safe deposit amount. If Morpheus has a note for the loan -- he speaks the first time you use a kind of capability and before an action that cannot be undone -- it arrives with the result. He informs; he does not hold the action for a confirmation.
 
 ## Step 2: Understanding Collateral Ratios
 
@@ -71,7 +71,7 @@ If your collateral ratio drops too low, you have two options:
 You: Add 0.1 ETH to my collateral
 
 Trinity: Adding 0.1 ETH to your position...
-  [Morpheus confirms the transaction]
+  (If Morpheus has a note for this action, it arrives with the result. Nothing waits for an answer to it.)
   
   Updated position:
   Collateral: 0.5 ETH ($1,225 at current price)
@@ -95,7 +95,7 @@ Trinity: Your total repayment amount:
   returned to your wallet. Shall I proceed?
 ```
 
-After repaying, Morpheus confirms the transaction, the USDC is returned to the lending pool, and your ETH collateral is released back to your wallet.
+After repaying, the USDC is returned to the lending pool, and your ETH collateral is released back to your wallet.
 
 You can also make partial repayments. Paying back 250 USDC would reduce your loan to approximately 253 USDC (plus remaining interest), lowering your risk while keeping the position open.
 
