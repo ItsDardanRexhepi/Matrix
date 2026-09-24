@@ -855,6 +855,20 @@ def _record_verdict(result: Any) -> str:
     return RECORD_SETTLED
 
 
+def is_replay(result: Any) -> bool:
+    """True when *result* answers a retry with a record made earlier.
+
+    An idempotent method answers its second call with what the first one
+    recorded, marked ``replay: True`` (``DisputeResolution.claim`` does). That
+    answer is true and it is not a new event: nothing was done this time. So
+    it is not attested, not published to the feed and not rippled, on either
+    surface, and it is not recorded as a decline. The dispute claim became
+    idempotent without this, and the HTTP ripple announced one recorded claim
+    as two.
+    """
+    return isinstance(result, dict) and result.get("replay") is True
+
+
 def declares_non_public(*sources: Any) -> bool:
     """True when any of *sources* says its content is not for everyone.
 
@@ -1814,10 +1828,21 @@ class ServiceDispatcher:
             # for three answers — `_record_verdict` holds the argument.
             if action in _STATE_MODIFYING_ACTIONS:
                 _verdict = _record_verdict(result)
-                _happened = _verdict == RECORD_SETTLED
+                # A REPLAY HAPPENED ONCE, THE FIRST TIME. The answer to a
+                # retried idempotent call is the earlier record, and recording
+                # or announcing it again would say it happened twice.
+                _replayed = is_replay(result)
+                _happened = _verdict == RECORD_SETTLED and not _replayed
                 _shadow_the_verdict(action, target_service, _actor, params, result, _verdict)
 
-                if _happened:
+                if _replayed:
+                    logger.info(
+                        "ACTION REPLAYED (not attested again, not published "
+                        "again): action=%s service=%s actor=%s — the result "
+                        "is the record of an earlier call",
+                        action, target_service, _actor or "<unknown>",
+                    )
+                elif _happened:
                     await self._attest_action(
                         action, target_service, params, result, actor=_actor,
                         actor_source=_actor_source, actor_claimed=_claimed_actor,

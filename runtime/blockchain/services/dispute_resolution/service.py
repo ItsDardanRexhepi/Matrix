@@ -283,7 +283,9 @@ class DisputeResolution:
         idempotency exists for. The retry is answered with what was recorded,
         marked ``replay: True``. The no-double-record guarantee is unchanged:
         the stored claim is never overwritten and `claimed_at` still says when
-        the first one landed.
+        the first one landed. Nor is it announced twice: the HTTP ripple and
+        the dispatcher read ``replay`` and publish, attest and record nothing
+        for it (`service_dispatcher.is_replay`).
 
         Raises:
             KeyError: If the dispute does not exist.

@@ -979,6 +979,10 @@ class ServiceRoutes:
         announced, because a feed entry for a bridge or a liquidation may be
         restored only when it is derived from a settlement, never from the fact
         that a node accepted the bytes.
+
+        AND A REPLAY IS NOT A SECOND EVENT. A retried idempotent call answers
+        with the first call's record, marked ``replay: True``; it is logged and
+        not announced (`service_dispatcher.is_replay`).
         """
         refused = report_of(result) == FAILURE
         if service_name == "privacy":
@@ -1005,6 +1009,17 @@ class ServiceRoutes:
             return
         # create_post already emits a richer ``social.post`` event — don't double.
         if service_name == "social" and method_name == "create_post":
+            return
+        # A REPLAY IS NOT A NEW EVENT. An idempotent method answers a retry
+        # with the record the first call made (`replay: True`), and announcing
+        # that told every subscriber one dispute claim had happened twice. The
+        # dispatcher's rule, by the dispatcher's own predicate.
+        from runtime.blockchain.services.service_dispatcher import is_replay
+        if is_replay(result):
+            logger.info(
+                "ACTION REPLAYED (not announced again): service=%s method=%s — "
+                "the result is the record of an earlier call",
+                service_name, method_name)
             return
         # WHO THE LIVE FEED SAYS ACTED.
         #
