@@ -509,7 +509,7 @@ class ProtocolStack:
                     # `.get("reason", default)` applies the default only to a
                     # MISSING key: `reason: None` came through as None, and a
                     # caller that read the reason instead of the verdict ran the
-                    # denied call (be88818's ReActLoop). A deny always states one.
+                    # denied call (42551fe's ReActLoop). A deny always states one.
                     reason = decision.get("reason")
                     result["denial_reason"] = (
                         reason if isinstance(reason, str) and reason.strip()

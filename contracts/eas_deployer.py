@@ -1,5 +1,8 @@
 """
-EAS Deployment Attestor — creates attestations for every deployment and action.
+EAS Deployment Attestor — writes an EAS attestation for the deployment or
+action it is called with, signed with the key in the deploy config.
+scripts/deploy_all.py calls it, best effort, for each contract it deploys
+(through ContractDeployer) and once for the deployment as a whole.
 Uses EAS contract on Base Sepolia/Mainnet.
 """
 

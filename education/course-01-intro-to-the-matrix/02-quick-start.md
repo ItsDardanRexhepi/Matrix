@@ -31,7 +31,7 @@ This will:
 - Install all Python dependencies from `requirements.txt`
 - Create a default configuration file if one does not exist
 - Generate a local API key for development
-- Verify that Python 3.11+ is available
+- Verify that Python 3.10+ is available
 
 If you encounter version errors, confirm your Python version:
 
@@ -39,7 +39,7 @@ If you encounter version errors, confirm your Python version:
 python3 --version
 ```
 
-You need Python 3.11 or higher. If you have multiple versions installed, you may need to use `python3.11` or `python3` explicitly.
+You need Python 3.10 or newer; setup refuses anything older. On macOS the command is `python3` — there is no `python`.
 
 ## Step 3: Start the Gateway
 
@@ -69,8 +69,7 @@ In your new terminal, verify the gateway is responding:
 curl http://localhost:18790/health
 ```
 
-The response has this shape (`agents` lists the agents enabled in your
-config, and `models` is the model router's own health check):
+The response has this shape:
 
 ```json
 {
@@ -81,14 +80,14 @@ config, and `models` is the model router's own health check):
 }
 ```
 
-The `/health` endpoint is unauthenticated -- it is designed for load balancers and monitoring systems to check that the server is running.
+`agents` lists the agents enabled in your config, and `models` says whether each configured model provider answered. The `/health` endpoint is unauthenticated and answers "is the process up?" for load balancers and monitoring. Whether the instance should take traffic is `/ready`, which fails when no model provider is reachable.
 
 ## Step 5: Check Status
 
-The `/status` endpoint provides more detail about the running system:
+The `/status` endpoint provides more detail about the running system. It needs the API key setup generated:
 
 ```bash
-curl http://localhost:18790/status
+curl http://localhost:18790/status -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 The response has this shape (values vary with your config and how long the
@@ -109,7 +108,8 @@ gateway has been up):
 }
 ```
 
-The capability catalog is not part of `/status`: `GET /api/v1/capabilities`
+The capability catalog is not part of `/status`:
+`curl http://localhost:18790/api/v1/capabilities -H "Authorization: Bearer YOUR_API_KEY"`
 lists all 195 capabilities, and `GET /api/v1/capabilities/categories` the
 categories: twenty-one are declared, and one (Security & Wallets) holds none. Capabilities for protocols you haven't configured return a clean
 not_deployed response rather than failing.

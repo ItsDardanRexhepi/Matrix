@@ -2,7 +2,7 @@
 
 ## 195 Capabilities Across 20 Categories
 
-The Matrix provides 195 discrete Web3 capabilities organised into 20 categories, all accessible through conversation:
+The Matrix catalogues 195 discrete Web3 capabilities in 20 categories (`runtime/capabilities/catalog.py`), all accessible through conversation:
 
 1. **Smart Contracts** (3) — Convert to Solidity, Quote Conversion Fee, List Contract Templates
 2. **DeFi** (4) — Borrow Against Collateral, Repay Loan, Get Loan Details, Swap Tokens
@@ -35,20 +35,62 @@ Users describe what they want to Trinity in plain language. Trinity translates t
 
 ## Networks
 
-Everything runs on the one chain the operator configures (`blockchain.rpc_url`, `blockchain.chain_id`): the example config and the examples use Base Sepolia, and Base (Ethereum L2) is the intended mainnet. Nothing sends an operation to another network because of its value. The cross-chain capabilities are all catalogued with `available: false`.
+Everything runs on the one chain the operator configures (`blockchain.rpc_url`, `blockchain.chain_id`): the example config and the examples use Base Sepolia, and Base (Ethereum L2) is the intended mainnet. Nothing sends an operation, or an attestation, to another network because of its value. The cross-chain capabilities are all catalogued with `available: false`.
 
 ## Gas
 
 When an operator configures the platform paymaster, the platform pays gas for users' operations — within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`):
 
 - **Per-identity daily cap.** A USD amount per identity over a rolling 24 hours (`paymaster.policy.daily_cap_usd`; the example config sets 50). Past it, the platform stops sponsoring: an operation the platform would sign is refused with the reason rather than charged to the user, and a user-operation sponsorship request to `/api/v1/paymaster/sign` is declined with `403`. A deployment that sets no cap sponsors without a daily limit.
-- **Action allowlist.** `paymaster.policy.allowed_actions` limits which action types are sponsored. It is checked on every `/api/v1/paymaster/sign` request (against the actions decoded from the user operation's call data), and on platform-signed operations only when a daily cap is also set. A platform-signed operation is matched by its `<capability>.<method>` name (for example `daos.vote`, `stablecoins.transfer`; registry services that sign through `Web3Manager.send_transaction` use `web3.send_transaction` unless the call site names its own action). The example config's list (`transfer`, `swap`) names none of those, so under the example policy every platform-signed operation is refused.
+- **Action allowlist.** `paymaster.policy.allowed_actions` limits which action types are sponsored. It is checked on every `/api/v1/paymaster/sign` request (against the actions decoded from the user operation's call data), and on platform-signed operations only when a daily cap is set: with no cap, the platform signs a capability's transaction without reading the allowlist. A platform-signed operation is matched by its `<capability>.<method>` name (for example `daos.vote`, `stablecoins.transfer`; registry services that sign through `Web3Manager.send_transaction` use `web3.send_transaction` unless the call site names its own action). The example config's list (`transfer`, `swap`) names none of those, so under the example policy every platform-signed operation is refused.
 - **Identity.** With a cap set, an operation that cannot be attributed to a signed-in identity is refused: a per-identity cap cannot meter spend it cannot attribute.
-- **Attestations.** An attestation written because a user asked for it is metered like any platform-signed operation, under its `<capability>.<method>` name: the `eas` tool's `attest` and `batch_attest` and the tool-layer records (agent identity, identity, insurance, gaming, cross-border, IP, securities, supply chain) under names such as `eas_manager.attest`, and the `create_attestation`, `batch_attest` and `revoke_attestation` capabilities under `attestation.attest`, `attestation.batch_attest` and `attestation.revoke`. For a capability attestation that is queued rather than time-critical, the allowlist, the identity requirement and whether the caller has any cap left are checked when it is queued, and a write that fails one of them is refused then; the whole policy, including the cap at the write's real price, is applied for the identity it was queued under when its batch signs, and a refusal at that later point is logged and the attestation is dropped. A single batch request may hold at most 20 attestations.
-- **Not metered.** Writes listed in `UNMETERED_PLATFORM_OPERATIONS` are signed and paid by the platform without counting against any cap: the platform's own records (the dispatcher's record of each capability call, and records a service writes after another operation — a conversion deploy, a claim outcome, a royalty) and the sponsorship accounting path itself. No attestation a caller composes is on that list.
+- **Attestations.** An attestation written because a user asked for it is metered like any platform-signed operation, under its `<capability>.<method>` name: 13 actions of Neo's blockchain tools `eas`, `agent_identity`, `identity`, `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain`, each under the name the table below gives it, and the `create_attestation`, `batch_attest` and `revoke_attestation` capabilities under `attestation.attest`, `attestation.batch_attest` and `attestation.revoke`. For a capability attestation that is queued rather than time-critical, the allowlist, the identity requirement and whether the caller has any cap left are checked when it is queued, and a write that fails one of them is refused then; the whole policy, including the cap at the write's real price, is applied for the identity it was queued under when its batch signs, and a refusal at that later point is logged and the attestation is dropped. A single batch request may hold at most 20 attestations.
+- **Not metered.** The writes listed in `UNMETERED_PLATFORM_OPERATIONS` are signed with the platform key with no policy check (no allowlist and no daily cap) and are not counted against any cap. They are the platform's own records: the service dispatcher's record of each state-modifying action it completes; `convert_contract`'s record of a contract it deployed, with `conversion.auto_deploy` on; and the real-estate routes' records, with `services.real_estate.enabled` set. The list also holds `gas_sponsor.sponsor`, `GasSponsor.sponsor_transaction`, which signs whatever transaction it is handed; nothing calls it. No attestation a caller asks for is on the list. The tables below give every path.
 - **No paymaster configured, no sponsorship.** The platform pays no gas there; an app-signed user operation pays its own.
 
 What a particular deployment provides is returned by the dashboard, payments and cross-border tools as `gas_policy`, derived from the same configuration the signer reads.
+
+### Signed with the platform key, with no policy check
+
+Every call into an EAS signer or `GasSponsor.sponsor_transaction` in `runtime/` and `gateway/` is listed in this section or the next, found from the code; `tests/test_unmetered_signing_paths_are_documented.py` fails if one is missing. Under a policy that allows nothing and caps at zero, it drives the service dispatcher's record and the real-estate queue and sees them signed, drives Neo's tool actions and sees none of them signed, and checks the other rows by reading the code; `tests/test_gas_sponsorship_is_described_as_it_signs.py` drives `revoke_attestation` and a time-critical `create_attestation` and sees both refused.
+
+| Path | When it signs | Exemption | Code |
+|---|---|---|---|
+| The service dispatcher's record of a state-modifying action it completes | Queued on the attestation service of the dispatcher's service registry, as a platform record (`AttestationService.attest`). When 50 have gathered, each is signed and sent as its own transaction. Nothing sends a shorter queue, and what is queued is lost if the process exits first. | `eas.attest` | `runtime/blockchain/services/service_dispatcher.py` `_attest_action`; `runtime/blockchain/services/attestation/service.py` `_attest`; `runtime/blockchain/services/attestation/batch_processor.py` `_submit_batch` |
+| `convert_contract`, with `conversion.auto_deploy` on | Once the chain confirms a contract the pipeline deployed. The deployment itself is signed under the policy (`contract_conversion.deploy`), so a policy that refuses it leaves nothing to attest. | `eas.attest` | `runtime/blockchain/services/contract_conversion/service.py` `convert` |
+| The real-estate routes (`/api/v1/realestate/…`), with `services.real_estate.enabled` set and a `document_verification` schema registered | A document upload, a buyer verification that passes, a purchase and a confirmed settlement each queue an attestation, with the seller's or the buyer's wallet as recipient, on the real-estate service's own queue. When 50 have gathered, each is signed and sent as its own transaction. | `eas.attest` | `runtime/blockchain/services/real_estate/service.py` `_attest` |
+
+These call the same code and sign nothing today:
+
+- `gas_sponsor.sponsor` is `GasSponsor.sponsor_transaction` (`runtime/blockchain/gas_sponsor.py`), which signs and sends whatever transaction it is handed. 14 services construct a `GasSponsor`; nothing calls the method.
+- `NeoSafeRouter` queues an attestation for a fee it records, on an attestation service of its own, and attests revenue it sends once the transfer is mined (`runtime/blockchain/services/neosafe.py` `_attest_fee`, `route_revenue`); nothing in the gateway calls the router.
+- A cross-border payment's attestation (`runtime/blockchain/services/cross_border/service.py` `_attest_payment`) is queued on a new attestation service made for that one call, whose queue never reaches 50, so it is dropped unsigned.
+- An insurance claim's attestation (`runtime/blockchain/services/insurance/claims_processor.py` `_attest_claim`) is queued the same way and dropped the same way.
+- An x402 limit change's attestation (`runtime/blockchain/services/x402_payments/limit_updater.py` `_attest_limit_change`) is queued the same way and dropped the same way.
+- An IP rights reversion (`runtime/blockchain/services/ip_royalties/royalty_enforcement.py` `_attest_rights_reversion`) would be signed at once as time-critical, but it is reached only from `IPRoyaltyEnforcement.process_usage`, which nothing calls.
+- An NFT royalty sale (`runtime/blockchain/services/nft_services/royalty_enforcement.py` `process_sale`) is attested only when the NFT service is given an attestation service, and the service registry builds it without one.
+
+Outside the gateway, `contracts/deploy.py`, run by hand, deploys `MatrixAttestation` with `blockchain.paymaster_private_key`; the policy does not apply to it.
+
+### Attestations a caller asks for, metered by the policy
+
+Each of these is signed with the platform key through the sponsorship policy under the name in the second column, so the allowlist, the per-identity cap and the identity requirement apply, and a refusal comes back before anything is signed.
+
+| Path | Metered as | When it signs | Code |
+|---|---|---|---|
+| `create_attestation`, `batch_attest` | `attestation.attest`, `attestation.batch_attest` | An attestation marked time-critical (`time_critical`, or a `category` of `dispute_filing`, `rights_reversion`, `ban_record` or `emergency_freeze`) is signed at once, inside the request. Any other is queued on the dispatcher's attestation queue with the identity it was asked under, and signed, metered against that identity, when 50 have gathered. | `runtime/blockchain/services/attestation/service.py` `attest_for_caller`, `batch_attest`, `_attest`; `runtime/blockchain/services/attestation/time_critical.py` `attest_now` |
+| `revoke_attestation` | `attestation.revoke` | At once, revoking the uid under the schema the caller names. | `runtime/blockchain/services/attestation/service.py` `revoke` |
+| Neo's tool `eas`: `attest`, `batch_attest` | `eas_manager.attest`, `eas_manager.batch_attest` | At once: `attest` with the recipient and data the call supplies, and `batch_attest` one transaction for each attestation it is given, at most 20. | `runtime/blockchain/eas_manager.py` `_attest`, `_batch_attest` |
+| Neo's tool `agent_identity`: `register`, `attest_action` | `agent_identity.register`, `agent_identity.attest_action` | At once. | `runtime/blockchain/agent_identity.py` `_register`, `_attest_action` |
+| Neo's tool `identity`: `register` | `identity.register` | At once, with the address the call names as recipient. | `runtime/blockchain/identity.py` `_register` |
+| Neo's tool `crossborder_payment`: `send` | `crossborder.send` | At once, with the payee as recipient; no transfer is made. | `runtime/blockchain/crossborder.py` `_send` |
+| Neo's tool `gaming`: `record_achievement` | `gaming.record_achievement` | At once, with the player as recipient. | `runtime/blockchain/gaming.py` `_record_achievement` |
+| Neo's tool `insurance`: `create_policy`, `file_claim` | `insurance.create_policy`, `insurance.file_claim` | At once. | `runtime/blockchain/insurance.py` `_create_policy`, `_file_claim` |
+| Neo's tool `ip_royalties`: `register_ip` | `ip_royalties.register_ip` | At once. | `runtime/blockchain/ip_royalties.py` `_register_ip` |
+| Neo's tool `securities`: `whitelist_investor` | `securities.whitelist` | At once, with the investor as recipient. | `runtime/blockchain/securities.py` `_whitelist` |
+| Neo's tool `supply_chain`: `create_record`, `update_status` | `supply_chain.create_record`, `supply_chain.update_status` | At once. | `runtime/blockchain/supply_chain.py` `_create_record`, `_update_status` |
+
+The README's section on the Web3 capability surface says the same.
 
 ## Fees
 

@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 """
-NeoSafe Revenue Verifier — confirms all platform fees reach NeoSafe wallet.
+NeoSafe wallet helpers for the deploy scripts: read what the NeoSafe wallet
+holds, and send it a fee from the key in the config.
 Address: config-driven (0x46fF491D7054A6F500026B3E81f358190f8d8Ec5 in production).
+
+Nothing here checks where platform fees go. A balance is what the wallet
+holds now, whoever sent it. The nonce (eth_getTransactionCount) counts the
+transactions the address has sent, or for a contract account such as a Safe
+the contracts it has created; it says nothing about what the wallet received.
 """
 
 import asyncio
@@ -93,12 +99,15 @@ async def _wait_for_receipt(
 
 
 # ---------------------------------------------------------------------------
-# verify_revenue_route
+# read_neosafe_balance
 # ---------------------------------------------------------------------------
 
-async def verify_revenue_route(config: dict) -> dict:
+async def read_neosafe_balance(config: dict) -> dict:
     """
-    Check NeoSafe balance and recent incoming transactions.
+    Read the NeoSafe wallet's ETH balance and nonce at the latest block.
+
+    It verifies no route: see the module docstring for what the two numbers
+    do and do not say.
 
     Returns
     -------
@@ -107,8 +116,7 @@ async def verify_revenue_route(config: dict) -> dict:
         "eth_balance_wei": int,
         "eth_balance_ether": str,
         "block_number": int,
-        "is_receiving": bool,
-        "recent_tx_count": int,
+        "nonce": int,
     }
     """
     w3, _ = await _build_web3(config)
@@ -116,22 +124,21 @@ async def verify_revenue_route(config: dict) -> dict:
 
     balance = await w3.eth.get_balance(neosafe)
     block = await w3.eth.get_block("latest")
-    tx_count = await w3.eth.get_transaction_count(neosafe)
+    nonce = await w3.eth.get_transaction_count(neosafe)
 
     result = {
         "neosafe_address": neosafe,
         "eth_balance_wei": balance,
         "eth_balance_ether": str(w3.from_wei(balance, "ether")),
         "block_number": block["number"],
-        "is_receiving": balance > 0 or tx_count > 0,
-        "recent_tx_count": tx_count,
+        "nonce": nonce,
     }
 
     logger.info(
-        "NeoSafe %s — balance %s ETH, tx_count %d",
+        "NeoSafe %s — balance %s ETH, nonce %d",
         neosafe,
         result["eth_balance_ether"],
-        tx_count,
+        nonce,
     )
     return result
 
@@ -238,12 +245,16 @@ async def send_platform_fee(
 
 
 # ---------------------------------------------------------------------------
-# get_revenue_summary
+# read_neosafe_holdings
 # ---------------------------------------------------------------------------
 
-async def get_revenue_summary(config: dict) -> dict:
+async def read_neosafe_holdings(config: dict) -> dict:
     """
-    Build a summary of revenue received by NeoSafe.
+    Read what the NeoSafe wallet holds: its ETH balance, its balance of each
+    token in config's ``tracked_tokens``, and its nonce.
+
+    These are holdings, not a record of fees: a balance counts whatever was
+    sent to the wallet, less whatever it has sent on.
 
     Returns
     -------
@@ -252,7 +263,7 @@ async def get_revenue_summary(config: dict) -> dict:
         "eth_balance_wei": int,
         "eth_balance_ether": str,
         "token_balances": list[dict],    # checked tokens from config
-        "total_tx_count": int,
+        "nonce": int,
         "summary_block": int,
         "timestamp": int,
     }
@@ -261,7 +272,7 @@ async def get_revenue_summary(config: dict) -> dict:
     neosafe = _get_neosafe_address(config)
 
     balance = await w3.eth.get_balance(neosafe)
-    tx_count = await w3.eth.get_transaction_count(neosafe)
+    nonce = await w3.eth.get_transaction_count(neosafe)
     block = await w3.eth.get_block("latest")
 
     # Check ERC-20 balances for tokens listed in config
@@ -293,16 +304,16 @@ async def get_revenue_summary(config: dict) -> dict:
         "eth_balance_wei": balance,
         "eth_balance_ether": str(w3.from_wei(balance, "ether")),
         "token_balances": token_balances,
-        "total_tx_count": tx_count,
+        "nonce": nonce,
         "summary_block": block["number"],
         "timestamp": int(time.time()),
     }
 
     logger.info(
-        "Revenue summary for %s — %s ETH, %d tokens tracked, %d txs",
+        "NeoSafe holdings for %s — %s ETH, %d tokens tracked, nonce %d",
         neosafe,
         result["eth_balance_ether"],
         len(token_balances),
-        tx_count,
+        nonce,
     )
     return result

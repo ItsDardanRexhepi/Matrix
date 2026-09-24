@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ops.sh — The Matrix operator kit.
 #
-# One entrypoint for the read-only checks an operator runs before and during a
-# deploy. Nothing here signs, spends gas, sends a push, or mutates state — the
-# side-effectful actions (deploy up/down, backup) are thin wrappers around
-# docker compose and are clearly labelled.
+# One entrypoint for the checks an operator runs before and during a deploy.
+# Nothing here signs, spends gas, sends a push, or changes the gateway's state.
+# The one command that writes anything is `routes`, which rewrites
+# docs/ROUTES.md. There is no deploy or backup command here: deploying is
+# docker compose or kubectl, run deliberately (docs/OPS.md, "Deploy").
 #
 #   ./scripts/ops.sh preflight     # doctor + routes-fresh + abi-audit (read-only)
 #   ./scripts/ops.sh doctor        # gateway posture (read-only)

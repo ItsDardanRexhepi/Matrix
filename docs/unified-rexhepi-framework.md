@@ -14,16 +14,14 @@ The Unified Rexhepi Framework provides that cross-domain organizing principle. A
 
 ## How It Governs The Matrix
 
-Every decision made by every agent on The Matrix passes through the Unified Rexhepi Framework before execution. This is not optional and cannot be bypassed.
+In this repository the framework's operational layer is code you can read. `runtime/protocols/urf.py` scores six gates in a fixed order — Clarity, Feasibility, Risk, Uncertainty, Value, Capability Expansion — applies the hard rules, which remove a decision from the feasible set whatever it scored, and resolves exactly one canonical outcome: EXECUTE, PROBE, ASK, DEFER or ABORT. It writes an auditable record of each decision.
 
-The framework operates through a defined governance structure. Decisions are evaluated across multiple scored dimensions that assess different aspects of the decision problem. Based on these scores, the framework produces one of a fixed set of canonical outcomes that determine whether and how the decision proceeds. Hard rules function as inviolable constraints — decisions that violate them are rejected regardless of how they score on other dimensions.
+`RexhepiGate` (`runtime/protocols/rexhepi_gate.py`) runs that loop, with the platform's own safety checks — sanctions, authorization, rate limits, fee validation, address screening — feeding its hard rules and its Risk and Feasibility gates. It runs on every tool call the agents' reasoning loop makes, before the call is dispatched (`ProtocolStack.pre_action` in `runtime/protocols/integration.py`), after the closed security layer's gate when that layer is installed.
 
-This structure ensures that every operation on the platform — every smart contract execution, every blockchain transaction, every tool call, every agent response — is evaluated consistently, transparently, and with full awareness of its constraints, risks, and value.
+It is this runtime's own code, so a fork can change it or take it out. What keeps it in place here is that this repository runs it, and its tests pin how it decides.
 
 ## What Is Public and What Is Not
 
-This document is a public-facing overview only. The full framework — including the specific evaluation dimensions, their scoring criteria, the canonical outcome definitions, the threshold logic, and the hard rules — is proprietary and closed source. The implementation is part of the closed-source security layer described in `SECURITY_STUB.md`.
+The operational layer is public: the gates and how they are scored, the hard rules, the canonical outcomes and the logic that chooses between them are all in `runtime/protocols/urf.py`. It is not part of the closed-source security layer described in `SECURITY_STUB.md`, which runs its own checks ahead of it.
 
-The framework's theoretical foundations, formal mathematical structure, cross-domain applications, and empirical predictions are detailed in the full manuscript authored by Dardan Rexhepi. That manuscript is not reproduced here.
-
-What is published here is the principle: every agent decision on The Matrix is governed by a rigorous, scored, auditable decision protocol with defined outputs and inviolable constraints. The protocol is the same for every decision, every agent, every time.
+What is not reproduced here is the full manuscript authored by Dardan Rexhepi: the framework's theoretical foundations, formal mathematical structure, cross-domain applications, and empirical predictions.

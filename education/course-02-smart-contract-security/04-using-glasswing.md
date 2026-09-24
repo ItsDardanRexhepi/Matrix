@@ -74,12 +74,14 @@ carries source code, and a deployment whose source fails it is refused.
 
 ## Getting a Glasswing Security Badge
 
-A contract whose source passes the platform's own Glasswing audit can be issued a **Glasswing Security Badge** with `POST /badge/issue` (the gateway's API key is required where one is set). The gateway audits the source itself; a request cannot supply the verdict. The badge is:
+A contract whose source passes the platform's own Glasswing audit (no Critical finding, and no High finding when `security.block_on_high` is on) can be issued a **Glasswing Security Badge** with `POST /badge/issue` (the gateway's API key is required where one is set). The gateway takes the source and audits it itself; a request cannot supply the verdict. The badge is:
 
 - A record in the gateway's database, not an on-chain attestation
-- Stored with a hash of the audit report it was issued on
-- Looked up by badge id at `GET /badge/{badge_id}/status`, and listed at `GET /badges`
-- Valid for one year
+- Stored with a hash of the audit report it was issued on, and valid for one year
+- Shown at `/badge/{badge_id}`, with a status endpoint at `/badge/{badge_id}/status` and an embed snippet for your project's site
+- Listed in the public registry at `/badges`
+
+No EAS attestation is written for a badge yet, so the gateway that issued it is the only place to check one. Only the `/badges` registry is public: with an API key set, the badge page, its status, its embed and the widget script answer 401 to a visitor without the key.
 
 The badge does not guarantee the contract is bug-free -- no audit can promise that. It certifies that the contract passed automated screening for the most common vulnerability patterns.
 

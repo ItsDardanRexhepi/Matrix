@@ -1,16 +1,18 @@
-"""Protocol Referral Fees -- automated DeFi integrator revenue collection.
+"""Protocol Referral Fees -- the DeFi referral programmes and their parameters.
 
 Many DeFi protocols (Uniswap, Aave, 1inch, etc.) pay a percentage of
 transaction fees to integrators who route volume through them.  This is
 a standard incentive mechanism: protocols want distribution, and
 integrators earn a cut for delivering users.
 
-Nothing in the tree calls the helpers below, so no referral fee is
-collected today: the configs name the NeoSafe multisig as the fee recipient
-and referrer, and a caller that put these parameters on a swap, supply or
-borrow would send the protocol's referral share there. That caller does not
-exist (tests/test_fee_disclosure_matches_code.py lists this file as not
-charged for that reason).
+Nothing in the platform collects these fees yet. The gateway constructs
+ProtocolReferralCollector at start-up, but no swap or lending path reads
+its parameters or records a referral event, so no referral fee is
+requested or received. The configs name the NeoSafe multisig as the fee
+recipient and referrer, so a caller that put these parameters on a swap,
+supply or borrow would send the protocol's referral share there. That
+caller does not exist (tests/test_fee_disclosure_matches_code.py lists this
+file as not charged for that reason).
 
 Supported programmes
 --------------------
@@ -36,7 +38,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# NeoSafe multisig — all referral fees route here
+# NeoSafe multisig — the recipient these configurations name
 # ---------------------------------------------------------------------------
 
 NEOSAFE_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"

@@ -65,12 +65,13 @@ class NeoSafeRouter:
 
         if not self._platform_wallet:
             logger.warning(
-                "NeoSafeRouter: no platform_wallet configured — "
-                "fees will be logged but not routed on-chain."
+                "NeoSafeRouter: no NeoSafe wallet configured; fees are recorded "
+                "in the ledger and route_revenue has nowhere to send."
             )
         else:
             logger.info(
-                "NeoSafeRouter initialised. Fees route to %s on chain %d.",
+                "NeoSafeRouter initialised: fees are recorded against %s, and "
+                "route_revenue sends to it, on chain %d.",
                 self._platform_wallet,
                 self._chain_id,
             )
@@ -121,7 +122,7 @@ class NeoSafeRouter:
         self._total_by_token[token] = self._total_by_token.get(token, 0.0) + amount
 
         logger.info(
-            "Fee routed: %.6f %s from %s -> %s (%s)",
+            "Fee recorded: %.6f %s from %s against %s (%s); no funds moved",
             amount, token, source, self._platform_wallet, description,
         )
 

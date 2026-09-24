@@ -2,8 +2,9 @@ from __future__ import annotations
 
 """
 Universal Contract Deployer — deploys any Solidity contract to Base.
-Every deployment is attested via EAS schema 348.
-Revenue routing verified to NeoSafe wallet.
+Each deployment is attested via EAS schema 348, best effort: a failed
+attestation is logged and the deployment stands. It does not check where
+revenue goes: the neosafe_address key below is not read.
 """
 
 import asyncio

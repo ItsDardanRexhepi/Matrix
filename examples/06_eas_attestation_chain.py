@@ -14,9 +14,11 @@ with sample records this example composes:
 
 Nothing here deploys, transfers or insures anything; the records are sample
 data. An attestation that is not time-critical is queued in memory and written
-on-chain only when a batch of 50 fills in the same process, so a run of this
-example usually gets queue receipts rather than transaction hashes. The
-dispatcher also records each state-modifying action that settles, the same way.
+on-chain only when a batch of 50 fills in the same process: nothing drains the
+queue on a timer, and what is queued is lost if the process exits first. So a
+run of this example usually gets queue receipts rather than transaction hashes.
+The dispatcher also records each state-modifying action that settles, the same
+way.
 
 Usage:
     python examples/06_eas_attestation_chain.py

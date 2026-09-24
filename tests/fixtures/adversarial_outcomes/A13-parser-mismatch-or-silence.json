@@ -1,0 +1,33 @@
+{
+  "id": "A13",
+  "case": "Parser mismatch or silence",
+  "false_signal": "an empty result, a status word outside the vocabularies, or a bare string",
+  "producer": {
+    "kind": "service_result",
+    "payload": {}
+  },
+  "fact_source": {
+    "kind": "parser_table",
+    "payload": {
+      "recognised": false,
+      "variants": [
+        {},
+        {
+          "status": "frobnicated"
+        },
+        "done"
+      ]
+    },
+    "outranks_because": "a result that states nothing is not evidence of anything"
+  },
+  "expected": {
+    "verdict": "UNKNOWN",
+    "run_state": "RUNNING",
+    "rule": "never VERIFIED; silence is unstated"
+  },
+  "legacy": {
+    "record_verdict": "settled",
+    "report": "success"
+  },
+  "head_behaviour": "Silence reads as success: an empty result is reported a success and recorded settled. An unrecognised status word reads as unknown and is recorded refused, which is right."
+}

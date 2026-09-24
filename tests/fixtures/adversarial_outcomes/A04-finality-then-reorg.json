@@ -1,0 +1,41 @@
+{
+  "id": "A4",
+  "case": "Finality then reorg",
+  "false_signal": "a verdict already written from a receipt that a reorg then removed",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "broadcast": true,
+      "status": "submitted",
+      "settled": true,
+      "value_moved": true,
+      "block_number": 100,
+      "gas_used": 21000
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "receipt_before": {
+        "status": 1,
+        "blockNumber": 100,
+        "blockHash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "receipt_after": null,
+      "reorg_depth": 3
+    },
+    "outranks_because": "the chain no longer holds the receipt"
+  },
+  "expected": {
+    "verdict": "UNKNOWN",
+    "run_state": "HELD",
+    "reason": "reorg_incident",
+    "rule": "VERIFIED is written only at the required depth; a reorg after it opens an incident and never flips a verdict silently"
+  },
+  "legacy": {
+    "record_verdict": "settled",
+    "report": "success"
+  },
+  "head_behaviour": "Nothing reads the receipt again; the attestation and the feed event are already written."
+}

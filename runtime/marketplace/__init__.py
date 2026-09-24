@@ -6,9 +6,11 @@ and places no code. Nothing in the gateway loads a plugin either:
 ``runtime/plugins/loader.py`` can import a package from ``plugins/installed/``,
 and no code in the gateway calls it. Paid plugin
 sales are not built: the purchase route answers 501 for a paid plugin, and no
-server path records a paid purchase or pays out revenue. The commission that
-would apply is configuration (``plugin_marketplace.commission_rate``), not a
-number in this package.
+server path takes a payment, records a paid purchase or pays a developer. The
+commission that would apply is configuration
+(``plugin_marketplace.commission_rate``), not a number in this package. A
+submitted listing is stored as pending, and nothing here reviews or approves
+one.
 """
 
 from runtime.marketplace.plugin_store import PluginMarketplace, PluginListing

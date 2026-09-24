@@ -289,6 +289,29 @@ def attach_social_feed(react_loop, engine):
     return sd
 
 
+#: engines.evidence.mode values. "off" records nothing new; "shadow" writes the
+#: URF decision log and the evidence shadow rows and reads neither back to decide.
+EVIDENCE_MODES = ("off", "shadow")
+
+
+def evidence_mode(config: dict) -> str:
+    """The engines.evidence.mode this gateway runs in.
+
+    ``MATRIX_EVIDENCE_MODE`` wins, then ``engines.evidence.mode`` in the config,
+    then "off". A value that is not one of EVIDENCE_MODES is logged and read as
+    "off": an unrecognised switch never turns recording on.
+    """
+    engines = config.get("engines") if isinstance(config, dict) else None
+    evidence = engines.get("evidence") if isinstance(engines, dict) else None
+    configured = evidence.get("mode") if isinstance(evidence, dict) else None
+    raw = os.environ.get("MATRIX_EVIDENCE_MODE") or configured or "off"
+    mode = str(raw).strip().lower()
+    if mode not in EVIDENCE_MODES:
+        logger.warning("Unknown engines.evidence.mode %r; recording stays off.", raw)
+        return "off"
+    return mode
+
+
 class GatewayServer:
     """
     The main HTTP server for The Matrix.
@@ -347,7 +370,7 @@ class GatewayServer:
             "/services/conversion",
             "/extensions/registry",
             "/a2a/services",
-            "/sponsor", "/glasswing", "/learn",
+            "/glasswing", "/learn",
             "/badges", "/privacy", "/terms",
             "/social", "/social/feed", "/social/feed/stream",
             "/social/trending", "/social/stats",
@@ -1994,12 +2017,6 @@ class GatewayServer:
         plugins = await self.plugin_marketplace.get_purchased(wallet)
         return web.json_response({"plugins": plugins})
 
-    # ─── Sponsor Redirect ────────────────────────────────────────
-
-    async def handle_sponsor_redirect(self, request: web.Request) -> web.Response:
-        """GET /sponsor — redirect to GitHub Sponsors."""
-        raise web.HTTPFound("https://github.com/sponsors/ItsDardanRexhepi")
-
     # ─── Glasswing & Badge Endpoints ─────────────────────────────
 
     async def handle_glasswing_page(self, request: web.Request) -> web.Response:
@@ -2195,6 +2212,54 @@ class GatewayServer:
             except Exception:
                 logger.exception("Security flush loop iteration failed")
 
+    def _install_engine_sinks(self) -> None:
+        """Engines, Phase 1 — measurement only. Read engines.evidence.mode once
+        and, under "shadow", install the two process-wide sinks over the
+        platform database — URF decisions to urf_decision_log, and the
+        dispatcher's verdict on each state-modifying ServiceDispatcher.execute
+        whose service returned an answer to evidence_shadow — then say so at
+        boot beside the security backend. A row that cannot be written at once
+        (another writer holds the database) is dropped, never waited for.
+        Under "off" this installs nothing, writes nothing and logs nothing; the
+        two tables still exist, empty, because the database's migrations create
+        them whatever the mode. Neither sink is consulted by any gate."""
+        mode = evidence_mode(self.config)
+        self._evidence_mode = mode
+        self._engine_sinks = None
+        if mode != "shadow":
+            return
+        try:
+            from runtime.protocols import urf
+            from runtime.blockchain.services import service_dispatcher as dispatch
+            db = self.react_loop.memory.db
+            sinks = (urf.durable_decision_sink(db), dispatch.evidence_shadow_sink(db))
+        except Exception:
+            # Recording is optional; serving is not. The gateway runs as it
+            # would with the mode off, and says so.
+            logger.exception("Engines: shadow sinks could not be built; recording nothing")
+            self._evidence_mode = "off"
+            return
+        urf.set_decision_sink(sinks[0])
+        dispatch.set_evidence_shadow_sink(sinks[1])
+        self._engine_sinks = sinks
+        logger.info("Engines: evidence mode=shadow (security backend=%s): recording URF "
+                    "decisions and dispatcher verdicts; nothing reads them to decide",
+                    getattr(self, "_security_backend", "unknown"))
+
+    def _remove_engine_sinks(self) -> None:
+        """Take this gateway's sinks out again at shutdown — only its own, so a
+        second gateway in the same process keeps whatever it installed."""
+        sinks = getattr(self, "_engine_sinks", None)
+        if not sinks:
+            return
+        from runtime.protocols import urf
+        from runtime.blockchain.services import service_dispatcher as dispatch
+        if urf.current_decision_sink() is sinks[0]:
+            urf.set_decision_sink(None)
+        if dispatch.current_evidence_shadow_sink() is sinks[1]:
+            dispatch.set_evidence_shadow_sink(None)
+        self._engine_sinks = None
+
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
@@ -2215,6 +2280,8 @@ class GatewayServer:
             logger.info("Morpheus security layer initialised (mode=%s)", self._morpheus.mode.value)
         except Exception:
             logger.exception("Failed to initialise the Morpheus security layer")
+        # Engines, Phase 1: the shadow decision/evidence log (off by default).
+        self._install_engine_sinks()
         # Optional OTel push exporter (no-op unless configured + installed)
         try:
             self.otel_bridge.start()
@@ -2476,6 +2543,8 @@ class GatewayServer:
                 bridge.shutdown()
         except Exception as exc:
             logger.debug("OTel bridge shutdown raised: %s", exc)
+        # Before the database closes: nothing may write through a closed handle.
+        self._remove_engine_sinks()
         try:
             await self.react_loop.memory.close()
         except Exception as exc:
@@ -2564,9 +2633,6 @@ class GatewayServer:
         app.router.add_post("/marketplace/plugins/submit", self.handle_marketplace_submit)
         app.router.add_get("/marketplace/purchased", self.handle_marketplace_purchased)
 
-        # ── Sponsor redirect ─────────────────────────────────────────
-        app.router.add_get("/sponsor", self.handle_sponsor_redirect)
-
         # ── Glasswing & badges ────────────────────────────────────────
         app.router.add_get("/glasswing", self.handle_glasswing_page)
         app.router.add_get("/badge/widget.js", self.handle_badge_widget_js)
@@ -2583,7 +2649,7 @@ class GatewayServer:
         app.router.add_post("/certification/submit", self.handle_cert_submit)
         app.router.add_get("/certification/{cert_id}", self.handle_cert_verify)
 
-        # Register all blockchain service REST endpoints (43 services, 195 capabilities)
+        # Register the blockchain service REST endpoints (gateway/service_routes.py)
         service_routes = None
         try:
             from gateway.service_routes import ServiceRoutes

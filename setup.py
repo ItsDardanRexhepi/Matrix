@@ -159,11 +159,21 @@ def ask(prompt, default="", secret=False, required=False, options=None):
         suffix = f" [{default}]"
 
     while True:
-        if secret:
-            import getpass
-            value = getpass.getpass(f"  {YELLOW}>{RESET} {prompt}{suffix}: ")
-        else:
-            value = input(f"  {YELLOW}>{RESET} {prompt}{suffix}: ").strip()
+        try:
+            if secret:
+                import getpass
+                value = getpass.getpass(f"  {YELLOW}>{RESET} {prompt}{suffix}: ")
+            else:
+                value = input(f"  {YELLOW}>{RESET} {prompt}{suffix}: ").strip()
+        except EOFError:
+            # Input ended with the question unanswered: stdin was a pipe, a
+            # file, or closed. The configuration is written only at the end
+            # (commit_setup), so none of it is saved; stop here and say how to
+            # run it, rather than end in a traceback.
+            print()
+            fail("Setup asks questions, and its input ended before this one was answered.")
+            info("Run it from a terminal:  python3 setup.py")
+            sys.exit(1)
 
         if not value and default:
             return default

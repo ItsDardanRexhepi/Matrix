@@ -1,6 +1,6 @@
 # The Matrix End-to-End Examples
 
-Runnable scripts that prove the platform works on-chain (Base Sepolia).
+Runnable scripts that walk the platform's services. A step reaches the chain (Base Sepolia) only through the RPC and keys in `matrix.config.json`; example 05 completes with no chain configured.
 
 ## Prerequisites
 
@@ -56,7 +56,7 @@ will print a warning and continue with the remaining steps.
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
-| 05 | `05_marketplace_flow.py` | List item, search, buy via atomic escrow, fee routing | 24 |
+| 05 | `05_marketplace_flow.py` | List, search, view and buy; the sale is recorded with its fee split (no escrow, nothing moves on chain) | 24 |
 | 06 | `06_eas_attestation_chain.py` | Attest sample records (queued unless time-critical); batch attest; verify | 8 |
 | 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording (in memory, nothing moves) | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |
@@ -112,13 +112,15 @@ Every example works on mainnet with zero code changes — just update your confi
 
 When an action on the dispatcher's state-modifying list settles, `ServiceDispatcher.execute()` hands the attestation service a record of it. The record holds the action, the service, the actor the request was bound to, a hash of the parameters and a timestamp; it carries no amounts, addresses or transaction hashes. It is not written on-chain straight away: it joins an in-memory batch that is submitted when 50 records have queued in the same process. There is no timer, so a batch that has not filled is lost when the process exits. A refusal, and a transaction that was broadcast and not yet confirmed, are logged, not attested. Contract deployment is not among the actions: `/api/v1/contracts/deploy` answers `501`.
 
+What reaches the chain is narrower than that record: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
+
 See `examples/06_eas_attestation_chain.py` for the attestation flow.
 
 ## Where Fees Go, and What NeoSafe Receives
 
 The platform contracts pay their on-chain fees (marketplace 5%, staking 5% of rewards, DAO withdrawal tiers, NFT mint proceeds, insurance excess) to each contract's `platformFeeRecipient`, and `scripts/deploy_all.py` — the deployment `CREDENTIALS_NEEDED.md` describes — sets that to the configured NeoSafe address (`MATRIX_NEOSAFE_ADDRESS`) for every platform contract, so on a deployment built that way those fees are paid to NeoSafe by the contracts themselves. `RevenueEnforcer` injects fee logic into generated contracts, paying that contract's fee to `blockchain.platform_wallet`, which the same setup calls the NeoSafe wallet.
 
-`NeoSafeRouter` (`runtime/blockchain/services/neosafe.py`) is not on that path, and no service calls it. It can record a fee on an in-memory ledger (`route_fee`), which only `examples/07_revenue_to_neosafe.py` calls. It can also send ETH to the multisig when a chain is configured (`route_revenue`); nothing outside the tests calls `route_revenue`. Service fees (stablecoin transfers, cross-border payments, the service-ledger staking commission and others) are computed on the service's own ledger, some recorded and not settled; nothing moves them anywhere.
+`NeoSafeRouter` (`runtime/blockchain/services/neosafe.py`) is not on that path, and no service calls it. It can record a fee on an in-memory ledger (`route_fee`), which only `examples/07_revenue_to_neosafe.py` calls. It can also send ETH to the multisig when a chain is configured (`route_revenue`); nothing outside the tests calls `route_revenue`. Service fees (stablecoin transfers, cross-border payments, the service-ledger staking commission and others) are computed on the service's own ledger, some recorded and not settled; nothing moves them anywhere. Protocol referral fees name the NeoSafe address as their recipient, and nothing collects them (`runtime/blockchain/protocol_referrals.py`).
 
 The full list is under **Fees** in `docs/blockchain.md`. That table has no insurance premium fee and no DeFi origination fee; the example list that used to stand here named both.
 

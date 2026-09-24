@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-07 — Revenue to NeoSafe: Platform Fee Routing and Tracking
+07 — Revenue to NeoSafe: Platform Fee Recording and Tracking
 
 Demonstrates the NeoSafe router, called directly by this example:
 
@@ -156,7 +156,7 @@ contract SimpleToken {
                 ok(f"{amount:8.4f} {token:4s} from {source:25s} "
                    f"(attestation tx: {attestation or 'none; queued, not submitted'})")
             else:
-                warn(f"Fee routing: {receipt.get('reason', 'N/A')}")
+                warn(f"Fee not recorded: {receipt.get('reason', 'N/A')}")
 
     except Exception as e:
         warn(f"NeoSafeRouter: {e}")

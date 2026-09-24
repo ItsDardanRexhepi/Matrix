@@ -10,7 +10,7 @@ The Matrix (read as "Matrix") exists to remove those barriers entirely.
 
 The Matrix is a free, open-source AI agent platform that provides blockchain infrastructure through natural conversation. Instead of writing Solidity code, you describe what you want in plain English. Instead of navigating DeFi interfaces, you chat with an AI agent that handles the complexity for you.
 
-The platform runs on **Base**, an Ethereum Layer 2 network, which means lower gas fees and faster transactions while inheriting Ethereum's security. It provides **195 blockchain capabilities** across 20 categories (smart contracts, DeFi, NFTs, identity, governance, social, creator economy, payments, cross-chain, staking & restaking, privacy & ZK, oracles, storage, compute & DePIN, real-world assets, markets, gaming, and more) -- from contract conversion to DAO governance to NFT minting -- all accessible through conversation or API calls. Some are catalogued as not yet available; `docs/blockchain.md` lists which.
+The platform runs on **Base**, an Ethereum Layer 2 network, which means lower gas fees and faster transactions while inheriting Ethereum's security. It catalogues **195 blockchain capabilities** across 20 categories (smart contracts, DeFi, NFTs, identity, governance, social, creator economy, payments, cross-chain, staking & restaking, privacy & ZK, oracles, storage, compute & DePIN, real-world assets, markets, gaming, and more) -- from contract conversion to DAO governance to NFT minting -- all accessible through conversation or API calls. Some are catalogued as not yet available; `docs/blockchain.md` lists which.
 
 ## The Three Agents
 
@@ -69,7 +69,7 @@ The **195 Capabilities** are the blockchain operations the catalog lists: contra
 
 The gap between "I want to create a token" and actually creating one has historically been weeks of learning, thousands of dollars in developer costs, and significant risk of security vulnerabilities. The Matrix collapses that gap to a single conversation.
 
-This is not about dumbing down blockchain. The contracts The Matrix generates are real Solidity, scanned by the Glasswing auditor as part of the conversion. Deploying one is yours to do with your own wallet: the gateway's deploy route answers 501, and conversion deploys only when an operator turns on `conversion.auto_deploy`. The technical rigor is preserved -- the complexity is just handled for you.
+This is not about dumbing down blockchain. The contracts The Matrix generates are real Solidity, scanned by the Glasswing auditor as part of the conversion. Deploying one is yours to do with your own wallet: the gateway's deploy route answers 501, and conversion deploys only when an operator turns on `conversion.auto_deploy`, in which case a deployment the chain confirms is recorded with an EAS (Ethereum Attestation Service) attestation when EAS is configured. The technical rigor is preserved -- the complexity is just handled for you.
 
 For developers, The Matrix provides a plugin interface and SDK that let you build on top of the platform, and a marketplace where you can list your tools. The marketplace lists plugins and does not install them, and nothing in the gateway loads one (the plugin loader exists, and no code in the gateway calls it); paid plugin sales are not live yet, and their platform commission is an operator setting (the published Terms state 10%).
 

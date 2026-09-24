@@ -808,15 +808,16 @@ def resolve_caller_identity() -> str:
 # Every platform signature in runtime/blockchain/ is produced here, and
 # tests/test_sponsorship_policy_is_enforced.py fails if a new one is not.
 #
-# The exemptions below are writes the platform signs without metering: its own
-# record-keeping, not sponsorship of a caller's operation. Metering them against
-# a per-CALLER daily cap would charge one user's budget for another's record
-# and would stop the audit trail at the cap. They are listed rather than simply
-# absent so the set is reviewable — an unlisted unmetered site fails the test.
+# The exemptions below are writes the platform signs with no policy check (no
+# allowlist and no daily cap): its own record-keeping, not sponsorship of a
+# caller's operation. Metering them against a per-CALLER daily cap would
+# charge one user's budget for another's record and would stop the audit trail
+# at the cap. They are listed rather than simply absent so the set is
+# reviewable — an unlisted unmetered site fails the test.
 #
 # WHAT THEY COVER IS DECIDED BY THE ENTRY POINT, NOT BY THE CALL DATA. This
-# comment used to rest on "fixed call data the model never composes". That was
-# false: the model-facing `eas` tool passed model-chosen action, agent and
+# comment used to rest on the exempt writes carrying fixed call data the model
+# does not choose. That was false: the model-facing `eas` tool passed model-chosen action, agent and
 # recipient, over an unbounded batch, through `eas.attest`; eight more tools
 # (agent identity, cross-border, gaming, identity, insurance, IP, securities,
 # supply chain) attested the same way; and the attestation capabilities a caller composes
@@ -830,8 +831,12 @@ def resolve_caller_identity() -> str:
 #
 # What remains: `eas.attest` / `eas.attest_time_critical` as reached from
 # EASClient.attest with no `operation` and AttestationService.attest — the
-# dispatcher's record of each capability call and records other services write
-# after an operation — and the sponsorship accounting path.
+# service dispatcher's record of each state-modifying action it completes, the
+# conversion pipeline's record of a contract it deployed, and the real-estate
+# service's records on its own queue — and `gas_sponsor.sponsor`, which is
+# GasSponsor.sponsor_transaction: it signs and sends whatever transaction it is
+# handed, and nothing in this tree calls it. docs/blockchain.md lists every
+# path by file and function.
 #
 # AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
 # was listed as "shared account handle; every USE of it is a call site metered on
@@ -854,7 +859,8 @@ UNMETERED_PLATFORM_OPERATIONS = {
                   "a record a service writes after another operation; a "
                   "caller's own attestation is metered instead",
     "eas.attest_time_critical": "the same platform record on the time-critical path",
-    "gas_sponsor.sponsor": "the gas-sponsorship accounting path itself",
+    "gas_sponsor.sponsor": "GasSponsor.sponsor_transaction: signs and sends the transaction it "
+                           "is handed; nothing in this tree calls it",
 }
 
 

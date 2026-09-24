@@ -1,12 +1,15 @@
 """
 EAS Client — Ethereum Attestation Service integration.
 
-Attestations provide a permanent, verifiable record of what was done, by
-whom, and when. The platform key signs them. An attestation a user's tool call
-asks for (`operation` given) is metered by the sponsorship policy like any
-other platform-signed operation; one the platform writes as its own record
-(`operation` omitted) is listed in UNMETERED_PLATFORM_OPERATIONS and is not
-counted against any user's cap.
+Writes an EAS attestation with the platform key, one transaction per
+call, recording the platform, the action, the agent and a timestamp. The
+service dispatcher's record of an action it completes does not come here
+directly: it is queued by AttestationService, whose batch calls this
+client when 50 have gathered. The platform pays the gas. An attestation a
+user's tool call asks for (`operation` given) is metered by the sponsorship
+policy like any other platform-signed operation; one the platform writes as
+its own record (`operation` omitted) is listed in
+UNMETERED_PLATFORM_OPERATIONS and is not counted against any user's cap.
 """
 
 import json
