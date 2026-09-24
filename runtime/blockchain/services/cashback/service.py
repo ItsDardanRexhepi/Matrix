@@ -163,9 +163,8 @@ class CashbackService:
         The balance is now left standing until something settles the claim, and
         the response says plainly that nothing was sent.
 
-        EACH CLAIM COVERS ITS OWN TRANCHE. Open claims together cover exactly
-        the balance that has been claimed and not paid; nothing is claimed
-        twice and nothing is left without a claim:
+        EACH CLAIM COVERS ITS OWN TRANCHE. No dollar is covered by two open
+        claims, so open claims never add up to more than the balance:
 
           * a second press with nothing new accrued returns the SAME open claim
             rather than minting another id for the same money — a settlement
@@ -176,9 +175,15 @@ class CashbackService:
             $500 was answered with the old claim's $200, and that $500 never
             got a claim record at all.
 
+        NOT EVERY DOLLAR HAS A CLAIM. Cashback nobody has pressed claim for has
+        none, and a remainder under ``min_claim_amount`` earned since the last
+        claim gets none until more accrues: the press returns the open claim
+        instead. Right after a press, open claims fall short of the balance by
+        less than the minimum claim.
+
         ``cashback_remaining`` on a returned claim is the balance outstanding
-        NOW — every open claim together — not a figure frozen when the claim was
-        first written.
+        NOW — every open claim together plus any remainder no claim covers yet
+        — not a figure frozen when the claim was first written.
         """
         if not user:
             raise ValueError("user is required")
