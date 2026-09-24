@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
 """
 08 — Oracle Gateway: Multi-Source Oracle Routing on Base Sepolia
 
@@ -7,15 +6,21 @@ Demonstrates the Oracle Gateway (Component 11):
 
   1. Requests a price feed from Chainlink (ETH/USD)
   2. Requests weather data for insurance trigger evaluation
-  3. Requests a VRF random number for gaming
+  3. Asks for a VRF random number, and shows the answer: there is none yet
   4. Shows how oracle data flows into other services
 
-The Oracle Gateway unifies access to Chainlink price feeds, weather APIs,
-VRF randomness, and custom oracle sources behind a single dispatch API.
+The Oracle Gateway unifies access to Chainlink price feeds, weather APIs and
+custom oracle sources behind a single dispatch API. It also accepts a VRF
+request, and answers that no VRF randomness exists: the VRF provider builds
+the coordinator's request and does not send it (no signer and no funded
+subscription is wired, and nothing reads a fulfilment back). This example
+used to present it as working, verifiable randomness.
 
 Usage:
     python examples/08_oracle_routing.py
 """
+
+from __future__ import annotations
 
 import asyncio
 import json
@@ -51,7 +56,7 @@ async def main():
   The Matrix Example 08: Oracle Gateway Routing
 {'=' * 60}{RESET}
 
-  Unified oracle access: price feeds, weather data, VRF randomness.
+  Unified oracle access: price feeds and weather data. (VRF: not yet.)
   One API for all external data needs across the platform.
 """)
 
@@ -130,7 +135,7 @@ async def main():
             action="oracle_request",
             params={
                 "oracle_type": "weather",
-                "request": {
+                "params": {
                     "metric": "rainfall_mm",
                     "location": {
                         "lat": 36.7378,
@@ -169,7 +174,7 @@ async def main():
             action="oracle_request",
             params={
                 "oracle_type": "weather",
-                "request": {
+                "params": {
                     "metric": "temperature_celsius",
                     "location": {"lat": 36.7378, "lon": -119.7871},
                     "period": "current",
@@ -187,15 +192,15 @@ async def main():
         warn(f"Temperature oracle: {e}")
 
     # ── Step 5: VRF random number for gaming ────────────────────────
-    step(5, "Requesting VRF random number for gaming...")
-    print(f"  {DIM}Chainlink VRF provides verifiable on-chain randomness{RESET}")
+    step(5, "Asking for a VRF random number...")
+    print(f"  {DIM}The platform answers that no VRF request is sent yet{RESET}")
 
     try:
         result = await dispatcher.execute(
             action="oracle_request",
             params={
-                "oracle_type": "vrf",
-                "request": {
+                "oracle_type": "random_vrf",
+                "params": {
                     "num_words": 3,
                     "callback_gas_limit": 200000,
                     "purpose": "gaming_loot_drop",
@@ -203,18 +208,19 @@ async def main():
             },
         )
         data = json.loads(result)
-        if data.get("status") == "ok":
-            vrf = data["result"]
-            ok(f"Request ID: {vrf.get('request_id', 'N/A')}")
-            ok(f"Random words requested: 3")
-            ok(f"Callback gas: 200,000")
-            if vrf.get("random_words"):
-                for i, word in enumerate(vrf["random_words"]):
-                    ok(f"  Word {i+1}: {word}")
-            ok(f"Source: Chainlink VRF v2")
+        vrf = data.get("result") if isinstance(data.get("result"), dict) else {}
+        if data.get("status") == "ok" and vrf.get("random_words"):
+            for i, word in enumerate(vrf["random_words"]):
+                ok(f"  Word {i+1}: {word}")
         else:
-            warn(f"VRF: {data.get('error', 'N/A')}")
-            print(f"  {DIM}Ensure VRF coordinator and subscription are configured{RESET}")
+            # What the platform answers today: the provider builds the
+            # request and sends nothing, so there is no random number and
+            # nothing to wait for. Configuring a coordinator does not change
+            # that; it only changes which refusal you read.
+            answer = vrf.get("reason") or data.get("error") or vrf.get("status") or "N/A"
+            warn(f"VRF: no random number. {answer}")
+            print(f"  {DIM}Configuring oracle.vrf changes which refusal this is, "
+                  f"not whether a number arrives{RESET}")
     except Exception as e:
         warn(f"VRF oracle: {e}")
 
@@ -237,16 +243,16 @@ async def main():
   +-----------------+            |               |         | - Auto payout   |
                                  |               |         +-----------------+
   +-----------------+            |               |
-  | Chainlink VRF   |---random-->|               |--rand-->| Gaming (14)     |
-  | v2              |   numbers  |               |  nums   | - Loot drops    |
-  +-----------------+            +---------------+         | - Fair outcomes |
-                                                           +-----------------+
+                                 +---------------+
+  (A Chainlink VRF source is not wired: the gateway accepts a
+   VRF request and answers that none was sent.)
   {RESET}
 
   {BOLD}Oracle types supported:{RESET}
     - {GREEN}chainlink{RESET}  - Price feeds (ETH/USD, BTC/USD, LINK/USD, etc.)
     - {GREEN}weather{RESET}    - Rainfall, temperature, humidity, wind
-    - {GREEN}vrf{RESET}        - Verifiable random functions (Chainlink VRF v2)
+    - {GREEN}random_vrf{RESET} - accepted, and answered "not_implemented": no
+                   VRF request is sent (see vrf_provider.py)
     - {GREEN}custom{RESET}     - User-defined oracle sources
 """)
 
@@ -260,7 +266,7 @@ async def main():
     2. get_price       - Multiple price feeds (BTC, LINK)
     3. oracle_request  - Weather data (rainfall)
     4. oracle_request  - Temperature data
-    5. oracle_request  - VRF random number
+    5. oracle_request  - VRF request, answered "none sent"
     6. (architecture)  - Data flow to services
 
   {BOLD}Key feature:{RESET}

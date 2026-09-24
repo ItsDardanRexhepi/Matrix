@@ -112,7 +112,12 @@ class VRFProvider:
         num_words: int = 1,
         callback_gas_limit: int = 200_000,
     ) -> dict[str, Any]:
-        """Submit a VRF randomness request on-chain.
+        """Answer a VRF randomness request: NONE IS SENT.
+
+        Validates the request and returns ``status: "not_implemented"`` with
+        the reason. This said "Submit a VRF randomness request on-chain"; the
+        send below is unreachable, kept for its shape (see the module
+        docstring). A missing coordinator is still refused first, as it was.
 
         Parameters
         ----------
@@ -124,7 +129,7 @@ class VRFProvider:
         Returns
         -------
         dict
-            ``request_id``, ``num_words``, ``status``, ``requested_at``.
+            ``status`` ("not_implemented"), ``num_words`` and ``reason``.
         """
         if not self._coordinator_address:
             raise ValueError(
