@@ -484,8 +484,10 @@ Get details for a single plugin.
 ### `POST /marketplace/plugins/{plugin_id}/purchase`
 
 Answer a purchase request for a plugin. It installs nothing. No body: the plugin
-comes from the path, and the buyer is the caller's session identity (or, on the
-operator's key, the `X-Wallet-Address` header). A free listing returns `200` with
+comes from the path. The route needs the operator's key: it is not one a wallet
+session reaches (`gateway/session_routes.py`), so a session is answered `403`.
+The buyer is the `X-Wallet-Address` header the operator sends, and `anonymous`
+without one. A free listing returns `200` with
 `status: "already_purchased"` and `installed: false`: free listings count as
 owned by every caller, and nothing is recorded. Nothing in the gateway loads a
 plugin either: `runtime/plugins/loader.py` can import a package from

@@ -536,3 +536,52 @@ def test_every_capability_map_registry_row_names_a_registry_capability():
     missing = _registry_rows_without_a_capability(text, _registry_capabilities())
     assert not missing, ("capability map rows point at the registry for capabilities it does "
                          "not have (invoke answers 404):\n" + "\n".join(missing))
+
+
+# ── Reachable by whom ───────────────────────────────────────────────────────
+#
+# docs/api-reference.md said the buyer of POST
+# /marketplace/plugins/{plugin_id}/purchase is "the caller's session identity".
+# The route is not in gateway/session_routes.py, so with the gateway's key set a
+# wallet session is answered 403 there and only the operator's key reaches it,
+# with the buyer taken from its X-Wallet-Address header. A section that names a
+# session as the caller has to document a route a session reaches.
+
+_SESSION_ACTOR = re.compile(
+    r"(?:the caller's|a caller's|the) (?:wallet |user )?session(?:'s)? identity"
+    r"|identity of the (?:caller's )?(?:wallet |user )?session", re.I)
+_REFERENCE_SECTION = re.compile(r"^#{2,4} `(GET|POST|PUT|DELETE|PATCH) (/[^`\s]*)`", re.M)
+
+
+def _reference_sections() -> list[tuple[str, str, str]]:
+    text = (ROOT / "docs" / "api-reference.md").read_text(encoding="utf-8")
+    heads = list(_REFERENCE_SECTION.finditer(text))
+    out = []
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        body = text[m.end():end]
+        body = body[:re.search(r"^#{1,4} ", body, re.M).start()] if re.search(
+            r"^#{1,4} ", body, re.M) else body
+        out.append((m.group(1), m.group(2).split("?")[0], " ".join(body.split())))
+    return out
+
+
+def test_the_session_actor_scan_sees_the_old_sentence():
+    old = ("No body: the plugin comes from the path, and the buyer is the caller's "
+           "session identity (or, on the operator's key, the X-Wallet-Address header).")
+    assert _SESSION_ACTOR.search(old)
+    assert not _SESSION_ACTOR.search("A wallet session is answered 403 here; the buyer is "
+                                     "the X-Wallet-Address header the operator sends.")
+    assert any(path == "/marketplace/plugins/{plugin_id}/purchase"
+               for _m, path, _b in _reference_sections()), "the reference was not read"
+
+
+def test_a_route_documented_as_used_by_a_session_is_one_a_session_reaches():
+    from gateway.session_routes import session_may_reach
+
+    assert session_may_reach("/api/v1/marketplace/buy"), "precondition: the session table is read"
+    offenders = [f"{method} {path}" for method, path, body in _reference_sections()
+                 if _SESSION_ACTOR.search(body) and not session_may_reach(path)]
+    assert not offenders, (
+        "docs/api-reference.md names a wallet session as the caller of routes a session "
+        "is answered 403 on (gateway/session_routes.py): " + ", ".join(offenders))
