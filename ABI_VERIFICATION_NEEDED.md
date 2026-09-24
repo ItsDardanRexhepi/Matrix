@@ -40,8 +40,8 @@ Default network: **Base Sepolia (84532)**. Non-custodial invariant preserved
 - **Verify ABI:** `LensHub.createProfile(createProfileParams)` — **UNVERIFIED** against the exact deployed LensHub (v1 vs v2 param struct differs); token-launch factory selector **UNVERIFIED**.
 - **Verify API:** Farcaster via Neynar `https://api.neynar.com`, Push `https://backend.epns.io` — confirm endpoints/keys.
 
-### 5. advanced_governance (veToken / Snapshot / RetroPGF / bribes)
-- **Config:** `services.advanced_governance.ve_token_address`, `.snapshot_hub`/`.snapshot_space`, `.bribe_market_address`, `.delegate_registry_address`, `.eas_address`/`.eas_schema`.
+### 5. advanced_governance (veToken / Snapshot / bribes)
+- **Config:** `services.advanced_governance.ve_token_address`, `.snapshot_hub`/`.snapshot_space`, `.bribe_market_address`, `.delegate_registry_address`. (RetroPGF is refused: it attested an application the request wrote with the platform's key.)
 - **Verify ABI:** Curve `VotingEscrow.create_lock(uint256,uint256)`, `balanceOf(address)`, `locked(address)`. **UNVERIFIED:** bribe-market selector (Votium-style varies); **assumes an 18-decimal lock/reward token** (line ~180/442) — confirm decimals.
 - **Verify API:** Snapshot hub `https://hub.snapshot.org` (message/typed-data shape).
 
@@ -52,7 +52,7 @@ Default network: **Base Sepolia (84532)**. Non-custodial invariant preserved
 
 ### 7. tba (ERC-6551 token-bound accounts)
 - **Config:** `services.tba.account_implementation` (registry is canonical `0x000000006551c19487814612e58FE06813775758`).
-- **Verify ABI:** `ERC6551Registry.createAccount(implementation,salt,chainId,tokenContract,tokenId)` + `IERC6551Account.execute(...)`. Lowest-risk (the registry is standardized) — **verify the account-implementation address + that your registry is the canonical one**.
+- **Verify ABI:** `ERC6551Registry.createAccount(implementation,salt,chainId,tokenContract,tokenId)`. (`IERC6551Account.execute` is no longer called: executing as an account is refused, because it signed the request's call with the platform's key and ETH.) Lowest-risk (the registry is standardized) — **verify the account-implementation address + that your registry is the canonical one**.
 
 ### 8. storage (Filecoin / Ceramic / OrbitDB)
 - **Config:** `services.storage.filecoin_api_key`/`.filecoin_endpoint`/`.filecoin_provider`, `.ceramic_endpoint`/`.ceramic_controller`, `.orbitdb_endpoint`/`.orbitdb_api_key`.
@@ -77,9 +77,9 @@ Default network: **Base Sepolia (84532)**. Non-custodial invariant preserved
 - **Config:** `services.nft_lending.pool_address` (per protocol).
 - **Verify ABI:** lending-pool borrow/liquidate signatures differ substantially across BendDAO vs NFTfi vs Arcade `LoanCore` — **verify against the specific protocol + pool address** you target.
 
-### 13. ccip (Chainlink CCIP / Hyperlane / Wormhole / Axelar / Stargate)
-- **Config:** `services.ccip.router_address` (+ per-bridge addresses).
-- **Verify ABI:** Chainlink `Router.ccipSend(destChainSelector, EVM2AnyMessage)` — the **`EVM2AnyMessage` tuple encoding** is intricate; verify against the live router. Base Sepolia CCIP router address must be confirmed (defaulted + marked UNVERIFIED). Hyperlane `Mailbox.dispatch`, Wormhole core, Axelar gateway, Stargate router each need their real addresses + signatures.
+### 13. ccip (Chainlink CCIP / Stargate token bridges)
+- **Config:** `services.ccip.router_address`, `.stargate_router`.
+- **Verify ABI:** Chainlink `Router.ccipSend(destChainSelector, EVM2AnyMessage)` — the **`EVM2AnyMessage` tuple encoding** is intricate; verify against the live router. Base Sepolia CCIP router address must be confirmed (defaulted + marked UNVERIFIED). The Stargate router needs its real address + signature. (The message sends over CCIP, Hyperlane, Wormhole and Axelar are refused: the receiving chain reads the platform's wallet as the sender of words the request wrote.)
 
 ### 14. auctions (Dutch / English / sealed-bid + orderbook DEX)
 - **Config:** `services.auctions.auction_address`, `.orderbook_address`.

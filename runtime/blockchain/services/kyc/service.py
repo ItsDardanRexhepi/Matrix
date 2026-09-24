@@ -547,6 +547,17 @@ class KYCService:
         Config keys used:
           - ``blockchain.eas_contract`` — EAS contract address (chain-level)
           - ``blockchain.eas_schema``   — registered KYC schema UID
+
+        NO REQUEST REACHES THIS. The verification gate below reads
+        ``verification_result`` from ``params``: from whoever sent the request,
+        not from the provider, so a caller who wrote
+        ``{"sanctions_screened": true, "review_answer": "GREEN"}`` had the
+        platform's key attest that any address passed KYC at any level they
+        named. Every door refuses the action, whoever asks
+        (runtime/access_policy.py REFUSED_ON_REQUEST). It stays callable in
+        process, where nothing calls it, for the day the service fetches the
+        provider's own result by the applicant's id; that is the lifting
+        condition for the door refusal.
         """
         _gate = self.require_kyc_enabled("issue_kyc_credential")
         if _gate is not None:

@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,287 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,329 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -277,7 +277,10 @@ check behind it:
   `batch_attest`, `revoke_attestation`) are refused the same way at every
   door that dispatches them — capability invoke, `/bridge/v1/action`,
   Trinity's escalation to Neo and Neo's `platform_action` — whoever is
-  asking, the operator key included. A registration names one of the
+  asking, the operator key included; so are two more that signed a
+  statement the request wrote: `submit_retropgf`, an application attested
+  under the platform's own schema by default, and `issue_kyc_credential`,
+  which read the verification it attested from the request itself. A registration names one of the
   platform's own three agents, and verifying one checks that the
   attestation is the platform's own registration of that agent, not merely
   one that exists. Every other attestation a blockchain tool signs has a
@@ -294,22 +297,39 @@ check behind it:
   investor's eligibility), and the records the services layer writes about
   operations it ran (a cross-border payment, an insurance claim, a
   royalty) carry what that operation was asked; no test walks those yet
-- **No request chooses the call the platform's key signs.** Every
-  transaction the platform signs calls a function named in its own code
-  (or, with `conversion.auto_deploy` on, deploys a contract the conversion
-  pipeline generated and its audit passed); a request may supply that
-  function's arguments, and the ones that must be your own address are
-  checked, as above. The `smart_contract` tool
-  compiles, reads and verifies and signs nothing: its `send` let a request
-  pick the contract, the function, the arguments and the value, and so
-  make the platform sign an attestation, a revocation or a transfer out of
-  somebody else's account that every other tool refuses. And a configured
-  sponsorship allowlist now binds with or without a daily cap. A test
-  walks every signing call in `runtime/` and `gateway/`. The limit, stated:
-  `governance`'s timelock schedule and execute and a `dao` proposal carry
-  an inner call the request wrote, for that timelock or governor to make
-  under whatever role the platform holds there, which this repository
-  cannot see
+- **No request composes a call or a message the platform's key signs.**
+  Every transaction the platform signs calls a function named in its own
+  code (or, with `conversion.auto_deploy` on, deploys a contract the
+  conversion pipeline generated and its audit passed), and none carries
+  a call or a message the request wrote — calldata for another call, a
+  cross-chain message — except the limit named below (an attestation's
+  statement is the point above). The few request-written bytes a signed
+  call does carry are listed in the test by name, each with the reason
+  it is neither (an address encoded as bytes, the input an automation
+  job hands the request's own contract). A request may supply other
+  arguments; which of them must be your own address is checked at the
+  blockchain tools, as above, and not everywhere in the services layer
+  (its `nft_lending` borrow still takes the account it borrows for from
+  the request). The `smart_contract` tool compiles, reads and verifies
+  and signs nothing: its `send` let a request pick the contract, the
+  function, the arguments and the value. A token-bound account's
+  `execute_as_tba` is refused: it signed the request's call, a
+  delegatecall if asked, from the platform's wallet and with the
+  platform's ETH, to whatever contract the request named as the account.
+  The four cross-chain message sends (`send_cross_chain_message`,
+  `bridge_hyperlane`, `bridge_wormhole`, `bridge_axelar`) are refused,
+  because the receiving chain reads the platform's wallet as their
+  sender, and a CCIP token bridge carries no message: it refuses a
+  request that brings one. `execute_as_tba` and the four sends are each
+  refused in the service and at every door, whoever asks. A configured
+  sponsorship allowlist binds with or without a daily cap. A test walks
+  every signing call in `runtime/` and `gateway/` and every bytes input
+  each one carries. The limit, stated: `governance`'s timelock schedule
+  and execute and a `dao` proposal carry an inner call the request
+  wrote, which the timelock or governor makes as itself under whatever
+  role the platform holds there, a deployment fact this repository
+  cannot see; those are Neo's tools, which no chat without the operator
+  key reaches
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
@@ -405,11 +425,12 @@ Every tool call an agent makes passes through the Unified Rexhepi Framework befo
 
 **195 capabilities across 21 categories** — smart contracts, DeFi,
 DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
-finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
-governance (DAOs, veTokens, quadratic voting, RetroPGF), social
+finance (lending, fractionalization, ERC-6551 account creation),
+identity (DID, KYC screening), governance (DAOs, veTokens, quadratic
+voting), social
 (Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
 Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
-(CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
+token bridges (CCIP, Stargate), staking & restaking
 (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK
 (including MPC signing, session keys and social recovery, all three
 catalogued as not yet available), oracles (Chainlink, Pyth,

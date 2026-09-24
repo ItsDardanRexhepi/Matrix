@@ -159,11 +159,18 @@
   "catalog_action_is_an_action_map_name": 195,
   "exceptions": {
    "batch_attest": null,
+   "bridge_axelar": null,
+   "bridge_hyperlane": null,
+   "bridge_wormhole": null,
    "create_attestation": null,
-   "revoke_attestation": null
+   "execute_as_tba": null,
+   "issue_kyc_credential": null,
+   "revoke_attestation": null,
+   "send_cross_chain_message": null,
+   "submit_retropgf": null
   },
-  "label_is_the_catalog_action": 192,
-  "reaches_gate": 192
+  "label_is_the_catalog_action": 185,
+  "reaches_gate": 185
  },
  "funnel": {
   "agent_identity.register_agent": "register_agent",
@@ -262,20 +269,34 @@
   "bridge": {
    "exceptions": {
     "batch_attest": null,
+    "bridge_axelar": null,
+    "bridge_hyperlane": null,
+    "bridge_wormhole": null,
     "create_attestation": null,
-    "revoke_attestation": null
+    "execute_as_tba": null,
+    "issue_kyc_credential": null,
+    "revoke_attestation": null,
+    "send_cross_chain_message": null,
+    "submit_retropgf": null
    },
-   "label_is_the_name": 250,
-   "reaches_gate": 250
+   "label_is_the_name": 243,
+   "reaches_gate": 243
   },
   "handoff": {
    "exceptions": {
     "batch_attest": null,
+    "bridge_axelar": null,
+    "bridge_hyperlane": null,
+    "bridge_wormhole": null,
     "create_attestation": null,
-    "revoke_attestation": null
+    "execute_as_tba": null,
+    "issue_kyc_credential": null,
+    "revoke_attestation": null,
+    "send_cross_chain_message": null,
+    "submit_retropgf": null
    },
-   "label_is_the_name": 250,
-   "reaches_gate": 250
+   "label_is_the_name": 243,
+   "reaches_gate": 243
   },
   "react": {
    "exceptions": {},

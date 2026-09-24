@@ -77,11 +77,11 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Bridge Quote | Get a cross-chain bridge quote | Free | POST /api/v1/defi/bridge/quote | Stargate, Hop, Across |
 | Bridge Execute | Execute a cross-chain bridge transfer | Free | POST /api/v1/defi/bridge/execute | Stargate, Hop, Across |
-| Bridge via CCIP | Transfer tokens using Chainlink CCIP | Free | via capability registry | Chainlink CCIP |
-| Cross-chain Message | Send an arbitrary message across chains | Free | via capability registry | CCIP, Hyperlane |
-| Bridge via Hyperlane | Transfer using Hyperlane | Free | via capability registry | Hyperlane |
-| Bridge via Wormhole | Transfer using Wormhole | Free | via capability registry | Wormhole |
-| Bridge via Axelar | Transfer using Axelar GMP | Free | via capability registry | Axelar |
+| Bridge via CCIP | Transfer the platform's own tokens using Chainlink CCIP; it carries no message, and a request that brings one is refused | Free | via capability registry | Chainlink CCIP |
+| ~~Cross-chain Message~~ **REFUSED** | The receiving chain reads the platform's wallet as the sender of a message the request wrote. Refused in the service and at every door. | — | via capability registry → refused | CCIP |
+| ~~Bridge via Hyperlane~~ **REFUSED** | A Mailbox.dispatch of the request's message body from the platform's wallet; it moved no token. Refused in the service and at every door. | — | via capability registry → refused | Hyperlane |
+| ~~Bridge via Wormhole~~ **REFUSED** | A publishMessage of the request's payload with the platform as emitter; it moved no token. Refused in the service and at every door. | — | via capability registry → refused | Wormhole |
+| ~~Bridge via Axelar~~ **REFUSED** | A callContract with the request's payload to the request's contract, from the platform's wallet; it moved no token. Refused in the service and at every door. | — | via capability registry → refused | Axelar |
 | Bridge via Stargate | Transfer stablecoins using Stargate | Free | via capability registry | Stargate |
 | Query Remote Chain | Read state from a foreign chain | Free | via capability registry | CCIP |
 
@@ -137,7 +137,7 @@ The sections below organise every capability by its high-level category. Older c
 | Liquidate NFT Loan | Liquidate a defaulted NFT loan | Pro | via capability registry | BendDAO, NFTfi |
 | Breed NFT | Breed two NFTs to produce a new one | Free | via capability registry | custom |
 | Create Token-bound Account | Deploy an ERC-6551 account for a token | Free | via capability registry | ERC-6551 |
-| Execute As TBA | Execute a transaction from a token-bound account | Free | via capability registry | ERC-6551 |
+| ~~Execute As TBA~~ **REFUSED** | Signed the request's call (a delegatecall if asked) from the platform's wallet, with the platform's ETH, to whatever contract the request named. Refused in the service and at every door. | — | via capability registry → refused | ERC-6551 |
 
 ---
 
@@ -154,9 +154,9 @@ The sections below organise every capability by its high-level category. Older c
 | Reputation Query | Query aggregated on-chain reputation for an agent | Free | via capability registry | custom |
 | Start KYC | Start a KYC session with the configured provider | Free | via capability registry | Sumsub, Persona |
 | Check AML Risk | Screen an address for AML risk | Free | via capability registry | Sumsub, Persona |
-| Issue KYC Credential | Issue a KYC-verified credential after approval | Free | via capability registry | W3C VC |
+| ~~Issue KYC Credential~~ **REFUSED** | The verification it attested was read from the request. Refused at every door until the service fetches the provider's own result. | — | via capability registry → refused | W3C VC |
 | Register / Update / Deregister Agent | Manage an AI agent identity | Free | via capability registry | custom |
-| Create / Revoke / Batch Attest | On-chain attestations | Free | via capability registry | EAS |
+| ~~Create / Revoke / Batch Attest~~ **REFUSED** | The platform's key signs no attestation a request composes and revokes none a request names; it attests an action when it executes it. Refused at every door. | — | via capability registry → refused | EAS |
 | Attestation Verify | Verify an on-chain attestation by UID | Free | GET /api/v1/attestation/verify/{uid} | EAS |
 | ZK Proof | Generate a zero-knowledge proof for a claim | Pro | POST /api/v1/identity/zk-proof/generate | Semaphore, zkSNARK |
 
@@ -180,7 +180,7 @@ The sections below organise every capability by its high-level category. Older c
 | Parameter Change | Mutate a governed protocol parameter | Pro | via capability registry | Governor |
 | Vote-Escrow Lock | Lock tokens in a veToken gauge | Pro | via capability registry | Curve, Balancer |
 | Quadratic Vote | Cast a quadratic vote | Free | via capability registry | Gitcoin, custom |
-| Submit RetroPGF | Submit a retroactive public-goods funding claim | Pro | via capability registry | Optimism RetroPGF |
+| ~~Submit RetroPGF~~ **REFUSED** | Attested, with the platform's key, an application and recipient the request wrote. Refused in the service and at every door. | — | via capability registry → refused | Optimism RetroPGF |
 | Place Gauge Bribe | Bribe a gauge for vote weight | Pro | via capability registry | Convex, Hidden Hand |
 | Delegate Voting Power | Delegate voting to another address | Free | via capability registry | Governor |
 | File / Submit Evidence / Resolve / Appeal Dispute | Dispute resolution lifecycle | Free | POST /api/v1/dispute/file | custom |

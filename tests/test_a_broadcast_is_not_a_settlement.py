@@ -124,8 +124,14 @@ def dispatcher_with_spies():
 #: helper `social_protocols._launch_token`, whose two public wrappers no action
 #: names) in 10 service directories, reachable
 #: under 27 action names (`submit_compute_job` has two).
-_BARE_BROADCAST_METHODS_MEASURED = 27
-_BARE_BROADCAST_ACTIONS_MEASURED = 27
+#: Re-derived when six of them stopped broadcasting at all: `tba.execute_as_tba`,
+#: `ccip`'s four message sends and `advanced_governance.submit_retropgf` now
+#: refuse before anything is built or signed, because the platform's key signed
+#: a call or a message the request composed
+#: (tests/test_no_request_chooses_the_call_the_platform_key_signs.py). 21
+#: functions, 21 action names; the rest of the surface is unchanged.
+_BARE_BROADCAST_METHODS_MEASURED = 21
+_BARE_BROADCAST_ACTIONS_MEASURED = 21
 
 
 def _bare_broadcast_methods() -> set[tuple[str, str]]:
@@ -533,8 +539,9 @@ _RECEIPT_WAITS = frozenset({
 
 #: Measured at the commit that wrote this line, by `_no_wait_broadcasters`
 #: itself: 26 functions in 10 service directories. Pinned exactly, so the
-#: surface cannot grow or shrink without someone re-reading it.
-_NO_WAIT_BROADCASTERS_MEASURED = 26
+#: surface cannot grow or shrink without someone re-reading it. Re-read at 20
+#: when the same six senders stopped sending (see _BARE_BROADCAST_METHODS_MEASURED).
+_NO_WAIT_BROADCASTERS_MEASURED = 20
 
 
 

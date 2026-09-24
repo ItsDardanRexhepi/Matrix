@@ -164,11 +164,52 @@ _PLATFORM_KEY_STATEMENT = (
     "The platform's key signs no attestation a request composes and revokes none "
     "a request names; the platform attests an action when it executes it. "
     "Nothing was signed.")
+#
+# The same answer, for the same reason, where the services layer signs, with
+# the platform's key, a call or a statement the request composed. Each of these
+# is also refused inside the service itself, before anything is built, so a
+# door this table does not reach still signs nothing; the KYC credential is the
+# one kept callable in process (its lifting condition is in the service).
+# tests/test_no_request_chooses_the_call_the_platform_key_signs.py walks every
+# signing call and fails on one that carries bytes the request wrote.
+_COMPOSED_CALL_STATEMENT = (
+    "The platform's key makes no call a request composes: a token-bound "
+    "account's execute carries the request's target, value and calldata, and "
+    "would pay the platform's own ETH to the account the request names. "
+    "Nothing was signed.")
+_COMPOSED_MESSAGE_STATEMENT = (
+    "The platform's key sends no cross-chain message a request writes: the "
+    "receiving chain reads the platform's wallet as the message's sender. "
+    "Nothing was signed.")
+_KYC_STATEMENT = (
+    "The platform's key attests no KYC credential on a request: the "
+    "verification it would attest arrives in the request, and the platform "
+    "holds no provider result of its own to check it against. Nothing was signed.")
 REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
     ("attestation", "attest"): _PLATFORM_KEY_STATEMENT,
     ("attestation", "batch_attest"): _PLATFORM_KEY_STATEMENT,
     ("attestation", "revoke"): _PLATFORM_KEY_STATEMENT,
+    ("advanced_governance", "submit_retropgf"): _PLATFORM_KEY_STATEMENT,
+    ("kyc", "issue_kyc_credential"): _KYC_STATEMENT,
+    ("tba", "execute_as_tba"): _COMPOSED_CALL_STATEMENT,
+    ("ccip", "send_cross_chain_message"): _COMPOSED_MESSAGE_STATEMENT,
+    ("ccip", "bridge_hyperlane"): _COMPOSED_MESSAGE_STATEMENT,
+    ("ccip", "bridge_wormhole"): _COMPOSED_MESSAGE_STATEMENT,
+    ("ccip", "bridge_axelar"): _COMPOSED_MESSAGE_STATEMENT,
 }
+
+
+def refused_by_the_service(service: str, method: str) -> dict:
+    """What a service method in REFUSED_ON_REQUEST returns when it is reached
+    anyway: a refusal, before anything is built or signed."""
+    return {
+        "status": "refused",
+        "refused": True,
+        "service": service,
+        "method": method,
+        "error": REFUSED_ON_REQUEST[(service, method)],
+        "signed": False,
+    }
 
 
 def refused_on_request(action: object, service: object = None) -> str | None:

@@ -8,13 +8,13 @@ The Matrix catalogues 195 discrete Web3 capabilities in 21 categories (`runtime/
 2. **DeFi** — swaps, lending, yield, LP, vaults, flash loans
 3. **DeFi Advanced** — perpetuals, options, synthetics, orderbook, Pyth feeds
 4. **NFTs** — mint, transfer, collections, royalties, fractionalization, rentals, dynamic, soulbound
-5. **NFT Finance** — NFT-backed lending, ERC-6551 token-bound accounts, breeding
-6. **Identity** — DIDs, verifiable credentials, reputation, KYC/AML, agent identity, attestations
-7. **Governance** — DAOs, proposals, voting, Snapshot, timelock, multisig, veToken, quadratic, RetroPGF, bribes, delegation
+5. **NFT Finance** — NFT-backed lending, ERC-6551 token-bound account creation (executing as one is refused: it signed the request's call with the platform's key and ETH), breeding
+6. **Identity** — DIDs, verifiable credentials, reputation, KYC/AML screening, agent identity, attestations (the KYC credential is refused at every door: the verification it attested came from the request)
+7. **Governance** — DAOs, proposals, voting, Snapshot, timelock, multisig, veToken, quadratic, bribes, delegation (RetroPGF is refused: it attested an application the request wrote with the platform's key)
 8. **Social** — profiles, gating, communities, XMTP messaging, Lens, Farcaster, Push Protocol
 9. **Creator Economy** — monetization, Sound.xyz, Mirror, Paragraph, IP registry, creator coins
 10. **Payments** — streaming, escrow, recurring, splits, invoicing, payroll, state channels, cross-border
-11. **Cross-chain** — CCIP, Hyperlane, Wormhole, Axelar, Stargate, remote chain queries
+11. **Cross-chain** — CCIP and Stargate token bridges, remote chain queries. Message sends over CCIP, Hyperlane, Wormhole and Axelar are refused: the receiving chain reads the platform's wallet as the sender of words the request wrote
 12. **Staking & Restaking** — staking, unstaking, liquid staking (Lido, Rocket Pool), restaking (EigenLayer, Symbiotic, Karak), delegation
 13. **Privacy & ZK** — private transfers, stealth addresses, ZK proofs, MPC, threshold sigs, social recovery, session keys
 14. **Oracles** — Chainlink price feeds, VRF randomness, Pyth, RedStone, API3, Keepers automation
