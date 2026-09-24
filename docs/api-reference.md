@@ -261,6 +261,21 @@ message, a service's exception text) the body is the redacted
 `{error, code, ref}` shape instead. `POST /bridge/v1/action` relays the
 dispatcher the same way.
 
+`POST /bridge/v1/action` reads an `Idempotency-Key` header only with
+`engines.durable.mode` set to `on` and `engines.durable.canary` to
+`state_modifying`, and only for a state-modifying action; with the default
+configuration the header is ignored. When it reads one — 8 to 64 characters of
+`A-Z a-z 0-9 _ . : -`, or **400** `invalid_request` — the key is claimed after
+the security gate has allowed the request, for the caller the gate saw. A key
+already bound answers without running anything: the first request's recorded
+answer, with its status, `replayed: true` and an `Idempotent-Replayed: true`
+header; or **409** `idempotency_conflict` when the key was used for a different
+request, when its first request has not answered (the body's `run` gives that
+run's id and state), or when that answer is older than the 24 hours answers are
+kept. A key whose claim could not be written answers **503** with
+`Retry-After`, and nothing runs. A request that ended before its action was
+called leaves its key unused. The README's "Durable execution" has the rest.
+
 A refusal the service RETURNS — `not_deployed` above all — is not one of those
 statuses, and this route answered `200 {"status": "ok"}` over it while the
 dedicated `/api/v1` route for the same service answered `503`. The envelope
