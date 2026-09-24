@@ -222,8 +222,10 @@ gate → tool → chain**. To exercise it end-to-end on Base Sepolia:
      verify it on `sepolia.basescan.org`.
    - *Agent-routed:* `POST /chat` as Trinity with a read request → returns data.
      Ask for an execution → Trinity calls `request_execution` → the Morpheus gate
-     evaluates (OBSERVE: logs, allows) → Neo executes via the service dispatcher →
-     EAS attestation is written. Inspect the gateway logs for the
+     evaluates (under OBSERVE it logs its verdict and lets the call through,
+     except that a gate fault on a call that could move value, or App Attest
+     when it is enforced, still refuses it) → Neo executes via the service
+     dispatcher → EAS attestation is written. Inspect the gateway logs for the
      `trinity->morpheus->neo` hand-off and the attestation tx.
 6. **Confirm the boundary:** a `/chat` as Trinity asking to run a state-changing
    `platform_action` directly returns `[DENIED]` (she must use the hand-off) — proof

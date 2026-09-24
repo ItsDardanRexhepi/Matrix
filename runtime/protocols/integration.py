@@ -503,9 +503,14 @@ class ProtocolStack:
                 return result
 
         # Morpheus — the security spine. Runs FIRST, so every execution path
-        # passes him. Authoritative server-side allow/deny (binding only in
-        # ENFORCE mode; OBSERVE logs without blocking while the layer is
-        # unverified). App-side Morpheus is UX only; THIS is the boundary.
+        # passes him. Authoritative server-side allow/deny, and every deny he
+        # answers is applied here, whichever mode he reports. The mode is his:
+        # OBSERVE, the default while the layer is unverified, does not apply a
+        # verdict's deny, but a fault on a call that could move value and App
+        # Attest, when it is enforced, still deny; ENFORCE applies the verdict
+        # too. A fault this frame catches takes the same fail direction
+        # (_deny_on_gate_fault). App-side Morpheus is UX only; THIS is the
+        # boundary.
         if self._morpheus_security is None and self._morpheus_init_failed:
             # The gate could not be CONSTRUCTED. That is a fault, not a posture,
             # and it gets the same fail-direction the evaluate-time fault gets:

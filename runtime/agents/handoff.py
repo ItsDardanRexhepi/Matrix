@@ -16,10 +16,12 @@ Trinity never gains Neo's tools — she only ever holds this single, gated chann
 A denied request comes back as a controlled refusal, never an execution.
 
 This is the public wiring of the hand-off; the Morpheus gate's decision logic is
-the closed-source security layer (consulted through the seam). Default OBSERVE
-(the gate logs/classifies but does not hard-block until human review enables
-ENFORCE); the hand-off STRUCTURE — escalate, gate, route-to-Neo — is enforced
-here regardless of mode.
+the closed-source security layer (consulted through the seam). The gate runs in
+OBSERVE until human review enables ENFORCE. Under OBSERVE a verdict's deny is
+not applied, but a fault on a call that could move value and App Attest, when
+it is enforced, still deny; the hand-off refuses on every deny it is handed,
+and on a gate it cannot reach, in either mode. The hand-off STRUCTURE —
+escalate, gate, route-to-Neo — is enforced here regardless of mode.
 """
 
 from __future__ import annotations
@@ -74,8 +76,10 @@ class AgentHandoff:
         params = params or {}
         ctx = {**(context or {}), "via_agent_flow": True, "origin_agent": "trinity"}
 
-        # 1. Morpheus security gate (authoritative server-side). OBSERVE by default:
-        #    it logs/classifies and (in ENFORCE) can deny. We honour an explicit deny.
+        # 1. Morpheus security gate (authoritative server-side). OBSERVE by
+        #    default, where a fault on a call that could move value and App
+        #    Attest, when it is enforced, still deny; ENFORCE denies on its
+        #    verdict too. We honour every deny, whichever the mode.
         decision: dict[str, Any] = {}
         try:
             from runtime.security import get_morpheus_security
