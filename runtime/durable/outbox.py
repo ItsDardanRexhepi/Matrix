@@ -70,6 +70,11 @@ RETRY_CAP_S = 3600.0
 #: slowest delivery is an attestation waiting up to 120 s for its receipt.
 LEASE_S = 300.0
 TICK_S = 5.0
+#: How long a stopping gateway waits for a delivery already under way to
+#: answer before cancelling it. A delivery cut off is not lost — its row is
+#: `attempting` — but an attestation cut off is then held for a person, so a
+#: restart lets the one in hand finish first.
+STOP_GRACE_S = 20.0
 
 
 @dataclass(frozen=True)
@@ -237,18 +242,31 @@ class OutboxLoop:
         self._write_wait = write_wait
         self._task: asyncio.Task | None = None
         self._event: asyncio.Event | None = None
+        self._stopping = False
         self.last_tick_at: float | None = None
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
     def start(self) -> None:
         if self._task is None or self._task.done():
+            self._stopping = False
             self._event = asyncio.Event()
             self._task = asyncio.create_task(self._run())
 
-    async def stop(self) -> None:
+    async def stop(self, grace_s: float = STOP_GRACE_S) -> None:
+        """Stop the loop: no new delivery is begun, the one under way (if any)
+        gets *grace_s* to answer, and then the task is cancelled."""
         task, self._task = self._task, None
-        if task is not None:
+        if task is None:
+            return
+        self._stopping = True
+        if self._event is not None:
+            self._event.set()
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=grace_s)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+        if not task.done():
             task.cancel()
             try:
                 await task
@@ -264,7 +282,7 @@ class OutboxLoop:
             self._event.set()
 
     async def _run(self) -> None:
-        while True:
+        while not self._stopping:
             try:
                 await self.tick()
             except asyncio.CancelledError:
@@ -311,6 +329,8 @@ class OutboxLoop:
             (PENDING, now, int(limit or self.batch_size)))
         tried = 0
         for (row_id,) in [tuple(r) for r in rows]:
+            if self._stopping:
+                break
             claimed = self._claim(int(row_id))
             if claimed is None:
                 continue

@@ -757,10 +757,10 @@ class GatewayServer:
         # logged by the loop when they happen; they do not fail readiness.
         durable_engine = getattr(self, "_durable_engine", None)
         durable_health = None
-        if durable_engine is not None and durable_engine.mode == "on":
+        if (durable_engine is not None and durable_engine.mode == "on"
+                and not durable_engine.loop.alive):
+            failed.append("durable_outbox_loop")
             durable_health = durable_engine.health()
-            if not durable_health["loop_alive"]:
-                failed.append("durable_outbox_loop")
 
         ready = not failed
         ref = get_request_id() or "-"

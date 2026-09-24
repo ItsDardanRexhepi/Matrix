@@ -266,6 +266,34 @@ async def test_a_dispatch_wakes_the_running_loop(tmp_path, monkeypatch, installe
     assert not eng.loop.alive
 
 
+@pytest.mark.parametrize("grace,landed", [(5.0, True), (0.05, False)])
+async def test_a_stopping_loop_lets_the_delivery_in_hand_finish_within_its_grace(
+        grace, landed, tmp_path, monkeypatch, installed):
+    """A restart should not turn every attestation in flight into a held row:
+    the one in hand gets its grace. One cut off by the grace is left
+    `attempting` — never marked done, never sent twice."""
+    world = World()
+    db = database(tmp_path / "a.db")
+    started = asyncio.Event()
+
+    async def slow(_kwargs):
+        started.set()
+        await asyncio.sleep(0.3)
+    eng = installed(engine(db, world=world, eas=FakeEAS(world, on_call=slow),
+                           monkeypatch=monkeypatch))
+    eng.loop.tick_s = 3600
+    eng.start()
+    await stub_dispatcher(world, SETTLED).execute(ACTION, params={"to": WALLET})
+    await asyncio.wait_for(started.wait(), 5)
+    await eng.loop.stop(grace_s=grace)
+    (row,) = _rows(db)
+    assert not eng.loop.alive
+    if landed:
+        assert row["state"] == outbox.DONE and world.count("attest") == 1
+    else:
+        assert row["state"] == outbox.ATTEMPTING and world.count("attest") == 0
+
+
 async def test_a_tick_that_fails_does_not_stop_the_loop(tmp_path, installed):
     db = database(tmp_path / "a.db")
     eng = installed(wiring.DurableEngine(db, mode="on", tick_s=0.01))
