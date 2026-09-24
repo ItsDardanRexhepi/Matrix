@@ -3,7 +3,7 @@
 /bridge/v1/* is reachable directly on the HTTP router and, for an operator,
 through POST /api/v1/batch. The two lists were written separately:
 BridgeRoutes.register_routes had its add_* calls and
-ServiceRoutes._build_batch_route_map had its own copy. e1232ca removed
+ServiceRoutes._build_batch_route_map had its own copy. a5a21fb removed
 /bridge/v1/push/register from the batch copy when its handler was deleted; P1-6
 brought the handler back on the router and nobody re-added it to the copy, so
 the same call succeeded direct and answered 404 "No route" through batch.

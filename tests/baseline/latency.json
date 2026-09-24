@@ -1,6 +1,6 @@
 {
  "baseline": "B4",
- "describes": "off: this branch's code with the evidence mode off \u2014 the paths of 73f5441 plus one check for an unset sink per decision and per dispatch. shadow: this branch's sinks, which do not exist at 73f5441. Each shadow row is one INSERT on the platform connection with a zero busy timeout.",
+ "describes": "off: this branch's code with the evidence mode off \u2014 the paths of c637715 plus one check for an unset sink per decision and per dispatch. shadow: this branch's sinks, which do not exist at c637715. Each shadow row is one INSERT on the platform connection with a zero busy timeout.",
  "execute": {
   "off": {
    "n": 5000,
@@ -20,7 +20,7 @@
  },
  "instrument": "in-process time.perf_counter around ProtocolStack.pre_action (platform_action, every ACTION_MAP name in turn, the no-op security backend) and ServiceDispatcher.execute (a stub service that returns at once: the dispatcher's own cost, no chain, no network), n calls each, with the evidence mode off and in shadow over a scratch SQLite file. Not the locust scenario against a live gateway: no model provider or chain is reachable where this was measured. Host-dependent.",
  "measured": {
-  "on_top_of": "73f5441",
+  "on_top_of": "c637715",
   "with_uncommitted_changes": true
  },
  "pre_action": {

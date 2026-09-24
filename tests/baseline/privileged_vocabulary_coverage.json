@@ -9,7 +9,7 @@
   "state_modifying_literal": 132,
   "state_modifying_runtime": 184
  },
- "describes": "the dispatcher's and the funnel's tables at 73f5441, which this branch does not change",
+ "describes": "the dispatcher's and the funnel's tables at c637715, which this branch does not change",
  "instrument": "tests/test_privileged_vocabulary_coverage.py measure(): AST over the dispatcher and funnel literals",
  "numerators": "how many of these reach the security gate under a label the separately installed core classifies (funnel_classified, react_classified_literal, react_classified_runtime, vocabulary_classified_runtime) are counts of the core's answers: measured where the core is installed, and not written into this repository (packet OD-7)"
 }

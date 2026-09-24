@@ -76,7 +76,7 @@ SERVICE_ROUTES = ROOT / "gateway" / "service_routes.py"
 SECURITY_GATE = ROOT / "gateway" / "security_gate.py"
 VOCABULARY = ROOT / "runtime" / "security" / "vocabulary.py"
 
-#: The public denominators, measured at The Matrix 73f5441 (the tables this
+#: The public denominators, measured at The Matrix c637715 (the tables this
 #: branch leaves as they were).
 MEASURED = {
     "action_map_literal": 193,

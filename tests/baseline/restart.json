@@ -1,6 +1,6 @@
 {
  "baseline": "B10",
- "describes": "off: this branch's gateway with the evidence mode off. shadow: the same with the two sinks installed, which does not exist at 73f5441.",
+ "describes": "off: this branch's gateway with the evidence mode off. shadow: the same with the two sinks installed, which does not exist at c637715.",
  "host": {
   "machine": "arm64",
   "python": "3.11.15",
@@ -8,7 +8,7 @@
  },
  "instrument": "wall clock from starting `python -m gateway.server` in a scratch directory to GET /ready answering 200, polled every 50 ms; the model provider is a local stub that answers its health probe, because /ready requires a reachable provider. A mode change is a restart, so each run is how long a rollback of engines.evidence.mode took on this host: three samples per mode and their median, not a bound.",
  "measured": {
-  "on_top_of": "73f5441",
+  "on_top_of": "c637715",
   "with_uncommitted_changes": true
  },
  "median_ready_200_s": {
