@@ -29,9 +29,10 @@ request, and fails if a request field reaches the action or the agent, or reache
 the recipient through a field the seam does not bind for that tool and verb. It
 also fails wherever it cannot follow the request: ``attest`` taken as a value,
 an attestation outside a tool method, a method ``execute`` hands a rewritten
-request, a request rewritten before it is read, and a request carried on
-``self`` from one method to another. Planted violations prove the walk sees
-each of those. A guard keeps the walk honest about what ``EASClient`` actually
+request, a request rewritten before it is read, a request carried on ``self``
+from one method to another, arguments passed through a ``**`` splat, and an
+attestation inside a def or lambda nested in a tool method. Planted violations
+prove the walk sees each of those. A guard keeps the walk honest about what ``EASClient`` actually
 writes on-chain: if it ever encodes ``details``, the census has to learn to
 read them.
 
@@ -42,16 +43,22 @@ request-facing actions are refused at every door that dispatches them
 the services write about operations they ran are not walked here. A bound
 subject is not a verified statement: an achievement, an IP claim or an
 investor's whitelisting recorded for the caller's own address is still the
-caller's word. And the walk follows the request through local names, ``self``
-attributes and ``execute``'s hand-off; through another object's state, a module
-global or what another method returns, it does not follow it.
+caller's word. The walk follows the request through local names, ``self``
+attributes and ``execute``'s hand-off; through another object's state or a
+module global it does not follow it, and what another method returns counts
+as the request only when that method is handed the request. An attestation
+signed through a contract call whose function the request chose never reaches
+``EASClient.attest``, so this walk cannot see one; the census of every signing
+call (tests/test_no_request_chooses_the_call_the_platform_key_signs.py) is
+what rules that out.
 
-CONTROL. At The Matrix ``main`` b478b51, and on the first repair (fix/oldq-census
-9102bde), the 12 tests marked [control] before the planted-shape section fail;
+CONTROL. At The Matrix ``main`` 91a89fb, and on the first repair (fix/oldq-census
+faad66f), the 12 tests marked [control] before the planted-shape section fail;
 the 9 marked [guard] pass before and after — they pin what must keep working
 (the caller's own address, an absent field, a payment to somebody else) and
-that the census can see what it looks for. At 083ed72 the four [control] tests
-in the planted-shape section fail and its [guard] passes.
+that the census can see what it looks for. At 67f3ad6 the four [control] tests
+in the planted-shape section's first part fail and its [guard] passes; at
+7abfa21 the two in its second part fail.
 """
 
 from __future__ import annotations
@@ -418,15 +425,27 @@ def _carried(cls: ast.ClassDef) -> frozenset[str]:
     return frozenset(carried)
 
 
+def _nested(fn) -> set[int]:
+    """The nodes inside a def or lambda nested in *fn*. Its parameters are
+    bound by whatever calls it, so a field read through them is the request's
+    under a name the walk does not know."""
+    inner = set()
+    for n in ast.walk(fn):
+        if n is not fn and isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            inner |= {id(sub) for sub in ast.walk(n)}
+    return inner
+
+
 def _census(source: str, filename: str, binds=_seam_binds):
     """Every ``.attest(`` call in the source: (tool, verb, method, line, problems).
 
     Beyond the calls it can read, it reports as a problem every place it could
     NOT follow the request to an attestation: ``attest`` taken as a value
     (``sign = client.attest``, ``getattr(client, "attest")``), an attestation
-    outside a tool method, a method ``execute`` hands a rewritten request, and a
-    request carried on ``self`` between methods. A census that cannot see a
-    site must not pass it."""
+    outside a tool method, a method ``execute`` hands a rewritten request, a
+    request carried on ``self`` between methods, arguments passed through a
+    ``**`` splat, and an attestation inside a def or lambda nested in a tool
+    method. A census that cannot see a site must not pass it."""
     tree = ast.parse(source, filename=filename)
     accounted: set[int] = set()
     for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
@@ -437,6 +456,7 @@ def _census(source: str, filename: str, binds=_seam_binds):
                 continue
             roots = _roots(fn)
             tainted = _taint(fn, roots, carried)
+            nested = _nested(fn)
             called = {id(c.func) for c in ast.walk(fn) if isinstance(c, ast.Call)}
             for ref in ast.walk(fn):
                 aliased = (isinstance(ref, ast.Attribute) and ref.attr == "attest"
@@ -455,8 +475,14 @@ def _census(source: str, filename: str, binds=_seam_binds):
                     continue
                 accounted.add(id(call.func))
                 verb = verbs.get(fn.name)
-                kw = {k.arg: k.value for k in call.keywords}
+                kw = {k.arg: k.value for k in call.keywords if k.arg is not None}
                 problems = list(handoffs.get(fn.name, []))
+                if any(k.arg is None for k in call.keywords):
+                    problems.append("arguments passed through ** splat; the census cannot "
+                                    "read which of them is the recipient")
+                if id(call) in nested:
+                    problems.append("attest is called inside a function nested in a tool "
+                                    "method; the census cannot follow the request into it")
                 rewritten = _rewrites(fn, roots)
                 if rewritten:
                     problems.append(rewritten)
@@ -658,3 +684,42 @@ def test_the_hardened_census_still_passes_a_clean_site():
         "                            recipient=who)\n"
     )
     assert _problems(clean) == []
+
+
+# ── two more shapes a later review planted past the walk ─────────────────
+#
+# At fix/oldq-census 7abfa21 both of these passed the census with no problem
+# reported, although the commit before it said the walk reported every place
+# it could not follow the request.
+
+def test_the_census_sees_a_recipient_passed_through_a_keyword_splat():
+    """[control]"""
+    planted = (
+        "    async def execute(self, **kwargs):\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(kwargs)\n"
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='achievement', agent='neo', details={},\n"
+        "                            **{'recipient': params.get('to')})\n"
+    )
+    assert any("splat" in p for p in _problems(planted)), _problems(planted)
+
+
+def test_the_census_sees_an_attestation_inside_a_nested_function():
+    """[control] The nested function's parameter is the request under a name the
+    walk does not know."""
+    for inner in (
+        "        async def sign(p):\n"
+        "            await client.attest(action='achievement', agent='neo', details={},\n"
+        "                                recipient=p.get('to'))\n"
+        "        await sign(params)\n",
+        "        sign = lambda p: client.attest(action='achievement', agent='neo',\n"
+        "                                       details={}, recipient=p.get('to'))\n"
+        "        await sign(params)\n",
+    ):
+        planted = (
+            "    async def execute(self, **kwargs):\n"
+            "        if kwargs.get('action') == 'record_achievement':\n"
+            "            return await self._record(kwargs)\n"
+            "    async def _record(self, params):\n" + inner)
+        assert any("nested" in p for p in _problems(planted)), (inner, _problems(planted))
