@@ -5,9 +5,10 @@ Three statements had outlived the code they describe:
 
   * the inert gate the seam binds when the closed-source security core is not
     installed (runtime/security/__init__.py, `_NoopMorpheus`) said it "Logs
-    that it ran so the invocation is observable". Its `evaluate()` returns an
-    allow and logs nothing; the seam logs once, at import, that the backend is
-    the no-op;
+    that it ran so the invocation is observable", and the seam's module
+    docstring and runtime/security/SECURITY_INTERFACE.md that under it "every
+    action is allowed and logged". Its `evaluate()` returns an allow and logs
+    nothing; the seam logs once, at import, that the backend is the no-op;
   * Neo's system prompt and docs/agents.md said a closed-source access
     protection protocol "governs all interactions with Neo". That protocol is
     part of the closed core, so it governs nothing in a deployment that does
@@ -179,8 +180,37 @@ def test_the_noop_gate_says_what_it_does_when_it_is_asked(caplog):
     assert verdict["allow"] is True and verdict["backend"] == "noop"
     # The platform's own loggers only: asyncio.run logs its selector at DEBUG.
     logged = [r for r in caplog.records if r.name.startswith(("runtime", "gateway"))]
-    doc = " ".join((inspect.getdoc(type(gate)) or "").split()).lower()
+    # The gate's own docstring, the seam's module docstring and the interface
+    # document all describe this gate. The module docstring and the document
+    # said "every action is allowed and logged" while the class said it logs
+    # nothing, and evaluate() logs nothing.
+    texts = {
+        "_NoopMorpheus": inspect.getdoc(type(gate)) or "",
+        "runtime/security/__init__.py": inspect.getdoc(seam) or "",
+        "runtime/security/SECURITY_INTERFACE.md":
+            (ROOT / "runtime" / "security" / "SECURITY_INTERFACE.md").read_text(encoding="utf-8"),
+    }
     if not logged:
-        assert not re.search(r"logs that it ran|invocation is observable|"
-                             r"logs (?:each|every) (?:call|evaluation|invocation)", doc), (
-            f"the no-op gate logged nothing when asked, and its docstring says: {doc!r}")
+        for where, text in texts.items():
+            doc = " ".join(text.split()).lower()
+            m = _SAYS_IT_LOGS_EACH_CALL.search(doc)
+            assert not m, (f"the no-op gate logged nothing when asked, and {where} says: "
+                           f"...{doc[max(0, m.start() - 60):m.end() + 30]}...")
+
+
+_SAYS_IT_LOGS_EACH_CALL = re.compile(
+    r"logs that it ran|invocation is observable"
+    r"|logs (?:each|every) (?:call|evaluation|invocation|action)"
+    r"|(?:every|each) (?:action|call) is (?:allowed and )?logged"
+    r"|allowed and logged")
+
+
+def test_the_logging_scan_sees_the_old_sentences():
+    for old in ("Logs that it ran so the invocation is observable.",
+                "falls back to an inert OBSERVE no-op: every action is allowed and logged, "
+                "nothing is enforced.",
+                "an inert OBSERVE no-op: every action is allowed and logged, nothing is enforced."):
+        assert _SAYS_IT_LOGS_EACH_CALL.search(" ".join(old.split()).lower()), old
+    assert not _SAYS_IT_LOGS_EACH_CALL.search(
+        "every action is allowed, nothing is enforced, and nothing is logged per action; "
+        "the seam logs once, at import, that the backend is the no-op.")

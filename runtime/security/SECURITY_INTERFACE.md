@@ -23,8 +23,9 @@ owners, or sanitizes — are **not in this repository** and never will be.
 - **`morpheus_security` installed** → real enforcement (the private package,
   co-installed at deploy).
 - **not installed** (open-source clone, local dev) → an inert **OBSERVE no-op**:
-  every action is allowed and logged, nothing is enforced. The platform boots
-  and runs normally; it simply has no real security layer.
+  every action is allowed, nothing is enforced, and nothing is logged per
+  action; the seam logs once, at import, that the backend is the no-op. The
+  platform boots and runs normally; it simply has no real security layer.
 
 `SECURITY_BACKEND` (`"morpheus_security"` or `"noop"`) reports which is active.
 
