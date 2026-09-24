@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,362 tests, run against the versions
+automated suite of 5,382 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -508,15 +508,15 @@ All examples live in `examples/`. Each calls the platform's services, through th
 
 | Script | Description |
 |---|---|
-| `01_contract_conversion.py` | A rental agreement written as pseudocode, converted to audited Solidity for you to deploy with your own wallet |
-| `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
-| `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
-| `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
+| `01_contract_conversion.py` | A rental agreement written as pseudocode, converted to a Solidity draft with its Glasswing report, for you to compile and deploy with your own wallet |
+| `02_defi_loan.py` | Collateralised DeFi lending: create a loan, read it back, repay it |
+| `03_nft_with_royalties.py` | An ERC-721 collection with an EIP-2981 royalty: create it, mint, list and sell a token |
+| `04_parametric_insurance.py` | Crop insurance: a policy, the weather oracle's reading, and a claim the service judges against oracle data it fetches itself |
 | `05_marketplace_flow.py` | List, search and buy: the sale is recorded with its fee split; no escrow, and nothing moves on chain |
 | `06_eas_attestation_chain.py` | Attest sample records through the attestation capabilities (queued unless time-critical), batch them, verify one |
 | `07_revenue_to_neosafe.py` | Inject a fee into a generated contract, record sample fees with the NeoSafe router (in memory, nothing moves), and where the platform's fees actually go |
-| `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
-| `09_full_user_journey.py` | One user through seven services (DID, DAO, tokenization, NFT, governance, fundraising, staking), each step reporting whether it happened |
+| `08_oracle_routing.py` | The oracle gateway: price feeds, a weather reading and a VRF request |
+| `09_full_user_journey.py` | One user through seven services (DID, DAO, tokenization, NFT, governance, fundraising, staking) |
 
 ---
 

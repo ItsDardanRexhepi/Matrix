@@ -7,7 +7,8 @@ Demonstrates the NeoSafe router, called directly by this example:
 
   1. The RevenueEnforcer injects fee logic into a sample contract
   2. NeoSafeRouter.route_fee records sample fees on its in-memory ledger and
-     hands each one to the attestation service, which queues it
+     hands each one to the attestation service, which queues it when
+     blockchain.eas_schema is a registered schema UID and refuses it otherwise
   3. Revenue totals are read back from that ledger
   4. Where the platform's fees actually go
   5. What the injected fee logic does on-chain
@@ -99,7 +100,7 @@ contract SimpleToken {
     }
 }"""
 
-        ok("Original contract: 13 lines, no fee logic")
+        ok(f"Original contract: {len(sample_contract.splitlines())} lines, no fee logic")
 
         # Check if platform_wallet is configured
         if platform_wallet and not platform_wallet.startswith("YOUR_"):
@@ -109,13 +110,10 @@ contract SimpleToken {
             ok(f"Fee recipient: {platform_wallet}")
             ok(f"Fee bps: {fee_bps}")
 
-            print(f"\n  {DIM}Injected elements:{RESET}")
-            print(f"    - platformFeeRecipient state variable")
-            print(f"    - platformFeeBps state variable")
-            print(f"    - collectPlatformFee modifier")
-            print(f"    - _collectERC20Fee internal helper")
-            print(f"    - setPlatformFeeRecipient (owner-only)")
-            print(f"    - Constructor initialisation")
+            print(f"\n  {DIM}Injected elements, as found in the result:{RESET}")
+            for element in ("platformFeeRecipient", "platformFeeBps", "collectPlatformFee",
+                            "_collectERC20Fee", "setPlatformFeeRecipient"):
+                print(f"    - {element}: {'present' if element in injected else 'not present'}")
         else:
             warn("platform_wallet not configured — showing injection pattern only")
             print(f"\n  {DIM}The RevenueEnforcer would inject:{RESET}")
@@ -154,7 +152,7 @@ contract SimpleToken {
                 fee = receipt["fee"]
                 attestation = fee.get("attestation_uid")
                 ok(f"{amount:8.4f} {token:4s} from {source:25s} "
-                   f"(attestation tx: {attestation or 'none; queued, not submitted'})")
+                   f"(attestation tx: {attestation or 'none; not submitted on-chain'})")
             else:
                 warn(f"Fee not recorded: {receipt.get('reason', 'N/A')}")
 
@@ -201,7 +199,8 @@ contract SimpleToken {
        computed and recorded on the service's own ledger; nothing moves them
 
   {BOLD}NeoSafeRouter.route_fee{RESET} (this example only)
-       records a fee in memory and queues its attestation; moves no value
+       records a fee in memory and hands its attestation to the attestation
+       service; moves no value
 """)
 
     # ── Step 5: Show contract-level fee collection ──────────────────
@@ -230,12 +229,12 @@ contract SimpleToken {
 
     print(f"""
 {GREEN}{BOLD}{'=' * 60}
-  EXAMPLE 07 COMPLETE
+  Example 07 summary
 {'=' * 60}{RESET}
 
-  {BOLD}Components demonstrated:{RESET}
+  {BOLD}Components this example called:{RESET}
     1. RevenueEnforcer  - Injects fee logic into a generated contract
-    2. NeoSafeRouter    - Records a fee in memory and queues its attestation,
+    2. NeoSafeRouter    - Records a fee in memory and hands its attestation on,
                           when called directly, as here; it moves no value
 
   {BOLD}The fees the code is known to take:{RESET} docs/blockchain.md, under Fees

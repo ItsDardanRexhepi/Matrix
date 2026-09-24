@@ -67,7 +67,8 @@ class _RecordingDispatcher:
 
 
 class _RefusingDispatcher(_RecordingDispatcher):
-    """Refuses every action, as a gateway with no contracts deployed does."""
+    """Refuses every action at the envelope (status "error"), the shape the
+    dispatcher gives an exception or parameters the method does not take."""
 
     async def execute(self, action, service=None, params=None, **kwargs):
         self._actions.append(action)
@@ -203,4 +204,110 @@ def test_an_example_does_not_report_a_refused_action_as_done(path, monkeypatch, 
                  if any(re.search(p, line) for p in _REFUSED_BUT_REPORTED)]
     assert not offenders, (
         f"{path.name}, with every one of its {len(actions)} actions refused, printed: "
+        + "; ".join(offenders[:8]))
+
+
+
+# ── An example judges a step by what the dispatcher says happened ────────────
+#
+# The refusing dispatcher above answers at the envelope. The real dispatcher
+# does that only for an exception or bad parameters: a service that answers
+# {"status": "not_deployed"} comes back in an envelope whose "status" is "ok"
+# (it is about the dispatch) and whose call_outcome is "failure". Example 09
+# read envelope "ok" as done and printed "stake: done" and "3 of 12 steps
+# happened" for a stake that answered not_deployed. And examples 02, 03, 04,
+# 06, 08 and 09 passed parameters their services do not take (create_loan's
+# ltv_ratio, create_dao without config, tokenize_asset without metadata,
+# create_nft_collection without collection_type, create_attestation without
+# schema_uid, get_price without pair, oracle_request without params), so the
+# real dispatcher refused them as invalid before any service ran, and deploying
+# the contracts would not have changed that.
+#
+# This dispatcher binds each call's parameters to the real service method's
+# signature, answering a binding failure as the real dispatcher does, and
+# answers every call that binds with the real envelope shape around a
+# not_deployed result, its call_outcome computed by the platform's own
+# report_of.
+
+class _NotDeployedDispatcher(_RecordingDispatcher):
+    problems: list = []
+
+    async def execute(self, action, service=None, params=None, **kwargs):
+        import importlib
+        import inspect
+        from runtime.blockchain.services.registry import _SERVICE_MAP
+        from runtime.blockchain.services.service_dispatcher import (
+            ACTION_MAP, _STATE_MODIFYING_ACTIONS)
+        from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+
+        self._actions.append(action)
+        params = params or {}
+        target, method_name = ACTION_MAP[action][:2]
+        module_path, class_name = _SERVICE_MAP[target]
+        cls = getattr(importlib.import_module(module_path, "runtime.blockchain.services"), class_name)
+        try:
+            inspect.signature(getattr(cls, method_name)).bind(None, **params)
+        except TypeError as exc:
+            _NotDeployedDispatcher.problems.append(f"{action}: {exc}")
+            return json.dumps({"status": "error", OUTCOME_FIELD: FAILURE,
+                               "error_category": "validation",
+                               "error": f"Invalid parameters for {action}: {exc}"})
+        result = {"status": "not_deployed",
+                  "message": "This service requires a deployed contract."}
+        return json.dumps({
+            "status": "ok",
+            OUTCOME_FIELD: report_of(result, status_describes_the_call=action in _STATE_MODIFYING_ACTIONS),
+            "action": action,
+            "service": target,
+            "result": result,
+        })
+
+
+def test_the_not_deployed_envelope_is_the_real_one():
+    """Not vacuous: report_of reads a not_deployed answer as a failure for a
+    write and for a read, so the envelope carries what the real one carries."""
+    from runtime.protocols.outcome_truth import report_of
+    assert report_of({"status": "not_deployed"}, status_describes_the_call=True) == "failure"
+    assert report_of({"status": "not_deployed"}, status_describes_the_call=False) == "failure"
+
+
+@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)
+def test_every_example_passes_parameters_its_services_take(path, monkeypatch):
+    _NotDeployedDispatcher.problems = []
+    _run_example(path, monkeypatch, dispatcher=_NotDeployedDispatcher)
+    assert not _NotDeployedDispatcher.problems, (
+        f"{path.name} passes parameters the service method does not take:\n  "
+        + "\n  ".join(_NotDeployedDispatcher.problems))
+
+
+_REPORTED_AS_DONE = [
+    r":\s*done\s*$",
+    r"\b[1-9]\d* of \d+ steps happened",
+    r"\bcomplete\s*$",
+    r"\(fallback\)|fallback id",
+    r"(?:royalty distribution|payout) breakdown",
+]
+
+
+def test_the_done_scan_sees_the_old_output():
+    old = ["+ stake: done", "Journey summary: 3 of 12 steps happened", "NFT WITH ROYALTIES COMPLETE",
+           "Staked: 100.0 (fallback)", "Royalty Distribution Breakdown:", "Payout Breakdown:"]
+    for line in old:
+        assert any(re.search(p, line.lower()) for p in _REPORTED_AS_DONE), line
+    fine = ["! stake: not done (not_deployed: ...)", "Journey summary: 0 of 12 steps happened",
+            "! stake: not confirmed (recorded, not settled)", "Example 07 summary"]
+    for line in fine:
+        assert not any(re.search(p, line.lower()) for p in _REPORTED_AS_DONE), line
+
+
+@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)
+def test_an_example_does_not_report_a_not_deployed_action_as_done(path, monkeypatch, capsys):
+    capsys.readouterr()
+    _NotDeployedDispatcher.problems = []
+    _, actions = _run_example(path, monkeypatch, dispatcher=_NotDeployedDispatcher)
+    out = _ANSI.sub("", capsys.readouterr().out).lower()
+    offenders = [line.strip() for line in out.splitlines()
+                 if any(re.search(p, line) for p in _REPORTED_AS_DONE)]
+    assert not offenders, (
+        f"{path.name}, with every one of its {len(actions)} actions answered not_deployed, printed: "
         + "; ".join(offenders[:8]))
