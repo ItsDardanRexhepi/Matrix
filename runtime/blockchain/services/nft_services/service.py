@@ -245,16 +245,27 @@ class NFTService:
             # capability appeared. A caller that discards a refusal reports a
             # success the refusal never authorised.
             #
-            # These two sites each write a FRESH key so the 22-A authority
-            # check cannot refuse them — but `configure_royalty` also rejects a
-            # malformed recipient or an out-of-range bps, and THOSE were always
-            # possible. The discard was latent before and is closed now.
-            _royalty_result = await self._royalty.configure_royalty(
-                collection=collection_address,
-                token_id=-1,  # collection-wide
-                recipient=creator,
-                bps=royalty_bps,
-            )
+            # This site and `mint`'s write a key that is fresh UNLESS someone
+            # got there first. This one is the collection-wide default for
+            # the new contract's address, and `configure_nft_royalty` accepts
+            # any collection and token id -1, so a stranger who predicts the
+            # address (a factory's next deployment address follows from its
+            # nonce) can register it before it exists; the 22-A check then
+            # refuses this write. This said the key was fresh and the check
+            # could not refuse it, and the refusal escaped as a PermissionError
+            # AFTER the collection was deployed, reporting a deployed contract
+            # as a failed call. It is caught and recorded, as `mint`'s is.
+            # `configure_royalty` also rejects a malformed recipient or an
+            # out-of-range bps, as it always could.
+            try:
+                _royalty_result = await self._royalty.configure_royalty(
+                    collection=collection_address,
+                    token_id=-1,  # collection-wide
+                    recipient=creator,
+                    bps=royalty_bps,
+                )
+            except PermissionError as exc:
+                _royalty_result = {"refused": True, "reason": str(exc)}
             if isinstance(_royalty_result, dict) and _royalty_result.get("refused"):
                 result["royalty_configured"] = False
                 result["disclosure"] = (
@@ -363,7 +374,9 @@ class NFTService:
             # own write — which this used to say they could not. The inner
             # methods RAISE their refusal, so it is caught here and recorded
             # on the result: an escaping PermissionError after the on-chain
-            # mint reported a minted token as a failed call.
+            # mint reported a minted token as a failed call. (`create_collection`
+            # has the same site, for the collection default, and catches it
+            # the same way.)
             try:
                 _royalty_result = await self._royalty.configure_royalty(
                     collection=collection,

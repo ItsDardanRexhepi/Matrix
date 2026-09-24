@@ -178,12 +178,18 @@ class RoyaltyEnforcement:
         # would protect nothing in the deployment we actually ship.
         #
         # CHECKED, not assumed, that this breaks no legitimate flow (§AQ
-        # class 3): the two in-package writers each create a FRESH key —
-        # `create_collection` writes the collection default once
-        # (service.py:188) and `mint` writes a per-token entry
-        # (service.py:242). Neither overwrites an existing entry, so neither
-        # is refused. What is refused is precisely the external re-write,
-        # which is the attack.
+        # class 3): the two in-package writers, `create_collection` (the
+        # collection default) and `mint` (a per-token entry), each write a key
+        # for something that did not exist a moment before, so neither
+        # overwrites its own earlier entry. That is not the same as a FRESH
+        # key, which this said it was: this method accepts any collection and
+        # token id from a caller, so a stranger can register an entry for a
+        # collection or token before it is created, and the in-package write
+        # is then refused like any other re-write. Both sites catch that
+        # refusal and record the royalty as not configured, after the
+        # on-chain deploy or mint has happened. What is refused is the
+        # external re-write, which is the attack, and in that race the
+        # stranger's entry stands.
         #
         # The honest residue, stated rather than hidden: with no identity
         # available, re-configuring a royalty legitimately now requires a
