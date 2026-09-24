@@ -490,9 +490,12 @@ Get details for a single plugin.
 
 Answer a purchase request for a plugin. It installs nothing. No body: the plugin
 comes from the path. The route needs the operator's key: it is not one a wallet
-session reaches (`gateway/session_routes.py`), so a session is answered `403`.
-The buyer is the `X-Wallet-Address` header the operator sends, and `anonymous`
-without one. A free listing returns `200` with
+session reaches (`gateway/session_routes.py`), so a session alone is answered
+`403`. The buyer is the address of a wallet session the operator's request also
+carries in `X-Wallet-Session`, when it carries one; otherwise the
+`X-Wallet-Address` header the operator sends, and `anonymous` without either.
+With no key set (development) every request counts as the operator's, by the
+same rule. A free listing returns `200` with
 `status: "already_purchased"` and `installed: false`: free listings count as
 owned by every caller, and nothing is recorded. Nothing in the gateway loads a
 plugin either: `runtime/plugins/loader.py` can import a package from

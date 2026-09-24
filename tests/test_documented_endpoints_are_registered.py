@@ -612,3 +612,23 @@ def test_every_route_a_certification_answer_names_is_registered():
                                     "which the gateway does not register")
     assert seen, "no certification answer names a route; the reader sees nothing"
     assert not problems, "\n".join(problems)
+
+
+def test_the_purchase_section_names_the_session_the_buyer_rule_prefers():
+    """_caller_identity takes a presented session's identity before the
+    X-Wallet-Address header, so an operator request that also carries
+    X-Wallet-Session buys as that session. The reference named only the
+    header."""
+    import ast as _ast
+
+    source = (ROOT / "gateway" / "server.py").read_text(encoding="utf-8")
+    fn = next(n for n in _ast.walk(_ast.parse(source))
+              if isinstance(n, _ast.FunctionDef) and n.name == "_caller_identity")
+    session_line = min(n.lineno for n in _ast.walk(fn) if isinstance(n, _ast.Call)
+                       and getattr(n.func, "attr", "") == "_session_identity")
+    header_line = min(n.lineno for n in _ast.walk(fn) if isinstance(n, _ast.Constant)
+                      and n.value == "X-Wallet-Address")
+    assert session_line < header_line, "precondition: the session is consulted before the header"
+    section = next(body for _m, path, body in _reference_sections()
+                   if path == "/marketplace/plugins/{plugin_id}/purchase")
+    assert "X-Wallet-Session" in section and "X-Wallet-Address" in section, section

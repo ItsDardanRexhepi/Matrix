@@ -254,10 +254,26 @@ def test_the_capabilities_are_metered_and_only_the_platforms_records_are_exempt(
         "sponsorship.py still says the exempt call data is never composed by the model")
     assert "accounting path" not in listing, (
         "sponsorship.py still calls gas_sponsor.sponsor an accounting path")
-    listed = [name for name in refused if name in entries]
+    # The two capabilities sign under operation names, and it is those names an
+    # exemption would list. Comparing the capability names with the entries, as
+    # this did, could never fail: the entries are operation names.
+    import ast as _ast
+    from runtime.blockchain.sponsorship import UNMETERED_PLATFORM_OPERATIONS
+    svc_source = (REPO / "runtime/blockchain/services/attestation/service.py").read_text()
+    svc_tree = _ast.parse(svc_source)
+    bodies = {n.name: _ast.get_source_segment(svc_source, n) for n in _ast.walk(svc_tree)
+              if isinstance(n, _ast.AsyncFunctionDef)}
+    operations = {
+        "create_attestation": re.findall(r'operation="([\w.]+)"', bodies["attest_for_caller"]),
+        "revoke_attestation": re.findall(r'platform_signer\(\s*self\.config,\s*"([\w.]+)"',
+                                         bodies["revoke"]),
+    }
+    assert all(len(names) == 1 for names in operations.values()), operations
+    assert "eas.attest" in UNMETERED_PLATFORM_OPERATIONS, "precondition: the exemption keys are operations"
+    listed = [f"{cap} ({names[0]})" for cap, names in operations.items()
+              if cap in refused and names[0] in UNMETERED_PLATFORM_OPERATIONS]
     assert not listed, (
-        f"UNMETERED_PLATFORM_OPERATIONS describes {listed} as reaching an exemption; "
-        "they are metered")
+        f"UNMETERED_PLATFORM_OPERATIONS exempts {listed}; they are metered")
     unsaid = []
     for rel in POLICY_DOCS:
         text = " ".join((REPO / rel).read_text().split())

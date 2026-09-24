@@ -119,17 +119,38 @@ def _morpheus_trigger_branch_only_adds_a_message() -> bool:
     return "morpheus_message" in body and not stops and "allowed" not in body
 
 
-def test_no_public_text_says_a_layer_governs_everything_or_cannot_be_bypassed():
+def _seam_binds_the_noop_gate() -> bool:
+    """The gate this process gets is the seam's inert no-op. Read from the
+    gate, not from SECURITY_BACKEND: tests/conftest.py pins that label to
+    "noop" for every test, so where the closed core is importable the label
+    says noop while the seam hands out the real gate."""
+    import runtime.security as seam
+    noop = getattr(seam, "_NoopMorpheus", None)
+    return noop is not None and isinstance(seam.get_morpheus_security(), noop)
+
+
+def test_the_premise_reads_the_gate_not_the_label(monkeypatch):
     import runtime.security as seam
 
+    class _RealGate:
+        async def evaluate(self, *_a, **_k):
+            return {"allow": True, "backend": "morpheus_security"}
+
+    monkeypatch.setattr(seam, "SECURITY_BACKEND", "noop")
+    monkeypatch.setattr(seam, "get_morpheus_security", lambda config=None: _RealGate())
+    assert not _seam_binds_the_noop_gate()
+
+
+def test_no_public_text_says_a_layer_governs_everything_or_cannot_be_bypassed():
     assert _morpheus_trigger_branch_only_adds_a_message(), (
         "the Morpheus trigger can stop a call now; re-derive this check")
 
-    # The measured premises: this clone runs without the closed core, and the
-    # framework's gate is built only by the tool-call pre-action stack (and by
-    # Omega, which nothing calls).
-    assert seam.SECURITY_BACKEND == "noop", (
-        "the closed security core is installed here; this check reads a clone without it")
+    # The measured premise: the framework's gate is built only by the tool-call
+    # pre-action stack (and by Omega, which nothing calls). The text is read
+    # whichever gate this process binds: a clone of this repository does not
+    # have the closed core, and the text is written for that clone. (This
+    # asserted SECURITY_BACKEND == "noop", which tests/conftest.py pins for
+    # every test, so it could not fail.)
     assert _framework_gate_callers() <= {"runtime/protocols/integration.py",
                                          "runtime/protocols/omega.py"}, (
         f"the framework's gate is built elsewhere now: {_framework_gate_callers()}")
@@ -149,7 +170,7 @@ def test_no_public_text_says_a_layer_governs_everything_or_cannot_be_bypassed():
 def test_the_noop_gate_says_what_it_does_when_it_is_asked(caplog):
     import runtime.security as seam
 
-    if seam.SECURITY_BACKEND != "noop":
+    if not _seam_binds_the_noop_gate():
         pytest.skip("the closed security core is installed; there is no no-op gate here")
     gate = seam.get_morpheus_security()
     caplog.set_level(logging.DEBUG)
