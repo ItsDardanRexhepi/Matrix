@@ -55,8 +55,11 @@ class DisputeResolution:
     Args:
         config: Platform configuration dict.  Relevant keys live under
             ``config["dispute_resolution"]``.
-        oracle_gateway: Optional Component 11 Oracle Gateway instance
-            used by :class:`JurorPool` for Chainlink VRF.
+        oracle_gateway: Optional Component 11 Oracle Gateway instance,
+            passed to :class:`JurorPool`, which asks it for a selection seed.
+            The service registry passes none, so the seed is local and not
+            verifiable (see juror_pool's module docstring). This said the
+            gateway was used "for Chainlink VRF".
     """
 
     def __init__(

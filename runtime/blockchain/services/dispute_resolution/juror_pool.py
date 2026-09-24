@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 JurorPool — random juror selection for dispute resolution.
 
@@ -19,8 +17,12 @@ party is unable to fill. Jurors are weighted by expertise relevant to the
 dispute category.
 
 This used to promise Chainlink VRF, provable fairness, selection that cannot
-be manipulated by either party, and staked tokens.
+be manipulated by either party, and staked tokens. (It also sat below the
+``from __future__`` import, which made it a string statement rather than the
+module's docstring: ``__doc__`` was None.)
 """
+
+from __future__ import annotations
 
 import hashlib
 import logging
@@ -123,7 +125,13 @@ class JurorPool:
         self, dispute_id: str, count: int = 5, category: str | None = None,
         exclude: set[str] | None = None,
     ) -> list[dict]:
-        """Select *count* jurors for a dispute using Chainlink VRF.
+        """Select *count* jurors for a dispute, at random from one seed.
+
+        The seed is whatever `_request_vrf_seed` returns: an oracle gateway's
+        answer when one was passed in, which the service registry never does,
+        and otherwise a hash of the dispute id and a fresh uuid4, which nobody
+        can verify or reproduce. It is not Chainlink VRF, which this said it
+        was; ``last_seed_source`` names the source each time.
 
         Jurors with matching expertise for *category* are given higher
         weight so they are more likely to be selected, but any eligible
@@ -153,7 +161,7 @@ class JurorPool:
                 f"Not enough eligible jurors: need {count}, have {len(eligible)}"
             )
 
-        # ---- Obtain randomness from VRF (Component 11) ----
+        # ---- The seed (not verifiable as the platform runs: see above) ----
         vrf_seed = await self._request_vrf_seed(dispute_id)
 
         # Build weighted pool: jurors with matching expertise get 3x weight.
@@ -164,7 +172,7 @@ class JurorPool:
             weight = int(weight * juror["reputation_score"])
             weighted_pool.extend([juror] * max(weight, 1))
 
-        # Deterministic shuffle using VRF seed
+        # A shuffle that is deterministic GIVEN the seed; the seed is not
         selected: list[dict] = []
         seen_addresses: set[str] = set()
         idx = 0
@@ -194,10 +202,11 @@ class JurorPool:
             juror["disputes_served"] += 1
 
         logger.info(
-            "Selected %d jurors for dispute=%s (vrf_seed=%s)",
+            "Selected %d jurors for dispute=%s (seed=%s, source=%s)",
             count,
             dispute_id,
             vrf_seed[:16],
+            self.last_seed_source,
         )
         return selected
 
@@ -206,11 +215,14 @@ class JurorPool:
     # ------------------------------------------------------------------
 
     async def _request_vrf_seed(self, dispute_id: str) -> str:
-        """Request verifiable randomness from the Oracle Gateway.
+        """A seed for juror selection, and where it came from.
 
-        Falls back to a deterministic hash when the oracle is unavailable
-        (e.g. in tests), but logs a warning since this is NOT
-        cryptographically secure.
+        From the oracle gateway when one was passed in (the service registry
+        passes none, and the gateway's VRF provider sends no request on-chain,
+        so even that answer is not verifiable randomness). Otherwise a hash of
+        the dispute id and a fresh uuid4: neither deterministic nor verifiable,
+        logged with a warning. This said "verifiable randomness" and "a
+        deterministic hash"; ``last_seed_source`` records which one ran.
         """
         if self._oracle_gateway is not None:
             try:

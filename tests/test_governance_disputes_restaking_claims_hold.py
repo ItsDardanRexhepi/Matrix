@@ -90,8 +90,9 @@ async def test_a_selection_says_its_seed_is_not_verifiable():
 def test_the_juror_pool_does_not_promise_verifiable_or_staked_selection():
     from runtime.blockchain.services.dispute_resolution import juror_pool
 
-    # The module's docstring follows its `from __future__` import, so it is
-    # not `__doc__` (which is None): read the source.
+    # Read the source: the docstring and the comments beside the code are
+    # both claims. (The docstring used to follow the `from __future__`
+    # import, which left `__doc__` None; it now precedes it.)
     doc = _prose(inspect.getsource(juror_pool))
     for phrase in ("Uses Chainlink VRF (via Component 11 Oracle Gateway) to ensure",
                    "Jurors must stake tokens to participate"):

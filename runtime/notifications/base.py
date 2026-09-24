@@ -8,7 +8,8 @@ read their credentials from a per-channel subtree of
 ``send(message, level, metadata)`` coroutine.
 
 Design rules:
-    * `available` is True iff credentials are present AND non-placeholder.
+    * `available` is True iff credentials are present AND non-placeholder
+      (web chat, which has none, iff the gateway attached its broadcaster).
     * `send()` never raises on transport errors — returns a status dict.
     * Adapters are cheap to instantiate; the dispatcher may recreate them.
 """
@@ -99,8 +100,13 @@ class Channel:
 
     @property
     def available(self) -> bool:
-        """Return True only if required credentials are present and valid.
+        """Return True only if the channel's required credentials are present
+        and none of them is a placeholder.
 
+        Present, not valid: nothing here checks a credential against the
+        provider, so a wrong token still answers True and the first send is
+        what finds out. This said "present and valid". A channel with no
+        credential at all (web chat) answers on what it does need.
         Subclasses override with channel-specific checks.
         """
         return False

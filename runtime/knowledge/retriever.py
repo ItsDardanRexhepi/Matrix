@@ -1,9 +1,11 @@
 """Real-time knowledge retriever for agent context enrichment.
 
-Fetches live market data, network status, and user on-chain history
-to inject into agent prompts.  Every source is optional, has a strict
-2-second timeout, and fails silently.  Results are cached for 30 seconds
-to avoid hammering external APIs.
+Fetches live market data (the ETH price), network status (Base) and this
+process's own request count, to inject into agent prompts. No user's
+on-chain history is read, which this used to list: there is no such source.
+Every source is optional, each network source has a strict 2-second timeout,
+and every source fails silently. Results are cached for 30 seconds to avoid
+hammering external APIs.
 
 This module is completely non-blocking: a knowledge fetch must never
 delay or break a response.
