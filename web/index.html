@@ -479,14 +479,13 @@ body{
 
 I'm **Trinity** -- your blockchain operations agent. I can help you with:
 
-- **Smart contract** deployment, conversion, and analysis
-- **DeFi** operations: swaps, liquidity, yield farming
+- **Smart contract** conversion (pseudocode, Solidity or Vyper to a Solidity draft) and a Glasswing scan; you deploy the result yourself
+- **DeFi** operations: swaps, liquidity, loans and staking
 - **NFT** minting, marketplace listings, and metadata
 - **DAO** creation, governance, and proposal management
-- **Token** launches, airdrops, and vesting schedules
-- **Cross-chain** bridges, portfolio tracking, and more
+- **Payments**: stablecoin transfers and cross-border sends
 
-Type a question or describe what you want to build. I'll handle the rest.`;
+A service whose contract is not deployed on this gateway answers \`not_deployed\`, and nothing happens on-chain.`;
     addMessage("agent", welcomeText);
   })();
 
