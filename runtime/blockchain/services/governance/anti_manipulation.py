@@ -128,12 +128,20 @@ class AntiManipulation:
             }
 
         # 2. Flash loan detection: compare current weight to snapshot
-        snapshot = self._snapshots.get(proposal_id, {})
+        #
+        # A snapshot that was TAKEN decides, even an empty one. This read
+        # `if snapshot`, and an empty dict is falsy, so a snapshot that found
+        # no holders at all skipped the check and every voter kept the weight
+        # they declared: balances that did not exist at snapshot time counted,
+        # which is what `take_snapshot` says cannot happen. (No snapshot is
+        # planted when nothing supplied balances — `create_proposal` stopped
+        # writing an empty one — so an empty snapshot here is a real reading.)
+        snapshot = self._snapshots.get(proposal_id)
         # Absent from a snapshot that exists means zero at snapshot time.
-        snapshot_balance = snapshot.get(voter, 0.0) if snapshot else None
+        snapshot_balance = snapshot.get(voter, 0.0) if snapshot is not None else None
 
-        if snapshot and snapshot_balance is not None:
-            # Snapshot exists and has data for this voter
+        if snapshot_balance is not None:
+            # A snapshot exists; the voter's entry, or its absence, decides.
             if weight > snapshot_balance > 0:
                 flags.append("flash_loan_suspected")
                 adjusted_weight = snapshot_balance
@@ -141,8 +149,9 @@ class AntiManipulation:
                     "Flash loan suspected: voter=%s claimed_weight=%.2f snapshot=%.2f",
                     voter, weight, snapshot_balance,
                 )
-            elif snapshot_balance == 0.0 and len(snapshot) > 0:
-                # Voter had no tokens at snapshot time (snapshot has real data)
+            elif not snapshot_balance > 0:
+                # Voter had no tokens at snapshot time (or a balance that is
+                # not a positive number, which is not a holding either)
                 flags.append("no_snapshot_balance")
                 adjusted_weight = 0.0
                 allowed = False
