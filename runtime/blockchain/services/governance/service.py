@@ -51,8 +51,10 @@ class AlreadyVoted(ValueError):
     the caller's 400 keeps doing so. It adds `code`, which the /api/v1 route
     carries as `error_code`: a client that must tell "you already voted" (a
     vote IS on record) from any other refusal (none is) reads the code, not
-    the sentence — the MTRX app used to search the message for "already
-    voted", so rewording it would have changed what the app claimed.
+    the sentence. The MTRX app has told this refusal apart by searching the
+    message for "already voted", so the sentence is kept word for word:
+    rewording it would change what a build that still searches it tells the
+    user.
     """
 
     code = "already_voted"
