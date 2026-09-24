@@ -29,7 +29,15 @@ owners, or sanitizes — are **not in this repository** and never will be.
   `runtime/protocols/integration.py::ProtocolStack.pre_action`, ahead of
   `RexhepiGate`, so every execution path passes it before any privileged action.
 - `gate.evaluate(action, context)` returns an allow/deny decision. The gate is
-  **authoritative server-side** — app-side checks are UX only.
+  **authoritative server-side** — app-side checks are UX only. The decision
+  says in `route` whether the gate evaluated the call at all: `pass_through`
+  is a call it did not; any other value is a route it took. Every label the
+  seam produces for a platform-key-signed twin action
+  (`runtime/security/action_map.py`) is one the installed gate evaluates;
+  `tests/test_twins_seam.py` asks the gate that through `evaluate` where the
+  package is installed, and this repository keeps no copy of what the gate
+  evaluates, nor names anything of the core's beyond what the seam imports
+  (`tests/test_public_tree_keeps_no_core_copy.py`).
 - The per-agent tool boundary, `agent_access_allowed(agent, tool, action, context)`,
   is asked on every tool call by `runtime/tools/dispatcher.py`. Its `context`
   carries the caller identity the entry point bound, under

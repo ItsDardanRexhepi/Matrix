@@ -4,22 +4,24 @@ entry::B3-TWIN-SUPPLY-ONBEHALF, standing rule §DL.4).
 Measured at the pin (D-017 drive, register entry::TWINS-CRITICAL): the seam
 handed the security gate ``action_type = tool_name``, a label that names the
 tool that was called and not what the call does, so most twin tools reached the
-gate under a label it did not require evaluation for, ``smart_contract``
-deploying caller-supplied Solidity with the platform key included.
-``onBehalfOf`` and ``spender`` were whatever the caller wrote.
+gate under a label it passed through, ``smart_contract`` deploying
+caller-supplied Solidity with the platform key included. ``onBehalfOf`` and
+``spender`` were whatever the caller wrote.
 
 Now the seam maps every declared (tool, action) to what it DOES. These tests
 pin the table's completeness against the registry's own schemas, the refusals,
-and — when the private package is importable — the control: every signing
-action is one the gate requires evaluation for. The gate's own vocabulary is
-the private package's and is not restated here; without the package those
-checks are skipped, not run against a copy.
+and — when the private package is installed — the control, asked of the gate
+itself through the seam: every signing label is one the gate evaluates rather
+than passes through. What the gate evaluates is the private package's own and
+is not restated here; without the package those checks are skipped, not run
+against a copy.
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import secrets
 from pathlib import Path
 
 import pytest
@@ -94,35 +96,105 @@ def test_reads_keep_their_verb_and_do_not_sign():
     assert canonical_action("dashboard", {"action": "gas_price"}) == ("gas_price", False)
 
 
-def test_signing_actions_map_to_the_gates_vocabulary():
-    """Every signing entry is a verb the gate treats as fund-moving. The
-    vocabulary is the private package's own, read from it where it is
-    installed; this repository keeps no copy of it."""
-    core = pytest.importorskip("morpheus_security.morpheus")
-    vocab = core.FUND_MOVING_ACTIONS
-    bad = [(t, a, v) for t, acts in SIGNING_ACTIONS.items() for a, v in acts.items()
-           if v != READ and v not in vocab]
-    assert not bad, bad
-
-
 def test_platform_action_is_classified_on_its_inner_action():
     assert canonical_action("platform_action", {"action": "swap", "params": {}}) == ("swap", None)
     assert canonical_action("web_search", {"query": "x"}) == ("web_search", None)
 
 
+# ── against the installed gate, asked through the seam ───────────────────────
+#
+# These checks ask the gate itself, built through the seam with no host the way
+# a script builds it, and skip where the private package is not installed: they
+# never run against a copy of anything the gate holds. A decision says in
+# ``route`` whether the gate evaluated the call at all; ``pass_through`` is a
+# call it did not (runtime/security/SECURITY_INTERFACE.md).
+
+PASSED_THROUGH = "pass_through"
+
+
+def _installed_gate(tmp_path):
+    pytest.importorskip("morpheus_security")
+    import runtime.security as seam
+
+    if seam.MorpheusSecurity.__module__.split(".")[0] == "runtime":
+        pytest.skip("the seam is not bound to the private package")
+    seam.reset_morpheus_security()
+    gate = seam.get_morpheus_security({"memory_dir": str(tmp_path),
+                                       "database": {"path": str(tmp_path / "gate.db")}})
+    return seam, gate
+
+
+async def _route(gate, action_type: str, caller: str, **fields) -> str | None:
+    decision = await gate.evaluate({"action_type": action_type, **fields}, {"wallet_address": caller})
+    return decision.get("route")
+
+
+async def _gate_lets_a_read_through(gate, caller: str) -> bool:
+    """A gate that refuses everything for this caller (or for everyone) would
+    make the measurements below say nothing: every route would read as taken."""
+    decision = await gate.evaluate(
+        {"action_type": "balance", "tool": "stablecoin", "tool_action": "balance"},
+        {"wallet_address": caller})
+    return decision.get("allow") is True and not decision.get("would_block")
+
+
+async def test_every_signing_label_is_one_the_installed_gate_evaluates(tmp_path):
+    """Every label the seam produces for a platform-key-signed twin action is
+    one the installed gate evaluates rather than passes through. What the gate
+    evaluates is the private package's own, asked of the gate where it is
+    installed; this repository keeps no copy of it."""
+    seam, gate = _installed_gate(tmp_path)
+    caller = "0x" + secrets.token_hex(20)
+    try:
+        await gate.initialize()
+        assert await _gate_lets_a_read_through(gate, caller), "the gate refuses a read for a fresh caller"
+        passed_through = []
+        for tool, acts in SIGNING_ACTIONS.items():
+            for verb, mapped in acts.items():
+                if mapped == READ:
+                    continue
+                label, signs = canonical_action(tool, {"action": verb})
+                route = await _route(gate, label, caller, tool=tool, tool_action=verb,
+                                     signs_with_platform_key=signs)
+                if route == PASSED_THROUGH:
+                    passed_through.append((tool, verb, label))
+        assert not passed_through, passed_through
+    finally:
+        seam.reset_morpheus_security()
+
+
 # ── THE CONTROL: the D-017 drive through the seam ────────────────────────────
 
-def test_control_every_signing_action_now_requires_the_gate():
-    morpheus = pytest.importorskip("morpheus_security.morpheus")
-    requires = morpheus.MorpheusSecurity._requires_morpheus
-    by_name_before = [t for t in TWIN_TOOLS if requires(t)]
-    assert len(by_name_before) < len(TWIN_TOOLS), (
-        "the pin's measurement: labelled by tool name, twin tools reached the "
-        "gate unevaluated")
-    signing = [(t, a) for t, acts in SIGNING_ACTIONS.items() for a, v in acts.items() if v != READ]
-    not_required = [(t, a) for t, a in signing if not requires(canonical_action(t, {"action": a})[0])]
-    assert not not_required, not_required
-    assert len(signing) >= 50
+async def test_control_every_signing_action_now_requires_the_gate(tmp_path):
+    """Labelled by the tool's name, twin tools were passed through (the pin's
+    measurement); labelled by what the call does, every signing action is
+    evaluated."""
+    seam, gate = _installed_gate(tmp_path)
+    caller = "0x" + secrets.token_hex(20)
+    try:
+        await gate.initialize()
+        assert await _gate_lets_a_read_through(gate, caller), "the gate refuses a read for a fresh caller"
+        by_name_passed_through = 0
+        for tool in sorted(TWIN_TOOLS):
+            if await _route(gate, tool, caller, tool=tool) == PASSED_THROUGH:
+                by_name_passed_through += 1
+        assert by_name_passed_through, (
+            "the pin's measurement no longer reproduces: labelled by tool name, no "
+            "twin tool is passed through")
+        signing = [(t, a) for t, acts in SIGNING_ACTIONS.items() for a, v in acts.items() if v != READ]
+        passed_through = []
+        for tool, verb in signing:
+            label, signs = canonical_action(tool, {"action": verb})
+            if await _route(gate, label, caller, tool=tool, tool_action=verb,
+                            signs_with_platform_key=signs) == PASSED_THROUGH:
+                passed_through.append((tool, verb))
+        assert not passed_through, passed_through
+        # 49 declared signing actions at this commit. The floor read 50 until
+        # D-045 took ``deploy`` out of smart_contract's declared actions, and
+        # failed with the core installed from then on, on the base tree too.
+        assert len(signing) >= 49, len(signing)
+    finally:
+        seam.reset_morpheus_security()
 
 
 # ── the refusals ─────────────────────────────────────────────────────────────

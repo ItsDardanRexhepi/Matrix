@@ -14,6 +14,13 @@ from. These checks keep either from coming back:
      set the core's gate module defines; the sets are read from the installed
      core, found without naming any of them (the module is the one the seam
      imports the gate class from), and never written here
+  3. no tracked file names anything of the core's beyond what the seam
+     imports: a dotted name under the core's package (a module of the core,
+     or a name reached through the package) and a private attribute of the
+     gate class the seam exports, checked on every backend; and, with the
+     core installed, any name the core's gate module or its gate class
+     defines that the core's package root does not export, the seam does not
+     import and this tree does not define itself
 
 §CC, measured against 2f503dd (the tree before the copy was removed): with the
 core installed both failed, each naming tests/test_twins_seam.py and nothing
@@ -27,6 +34,14 @@ set the gate module defines. Measured in a scratch copy of the tree with a
 restatement of another of the gate's word sets planted in a tracked file: the
 check as it was passed, the check as it is failed and named the planted file.
 Against this tree, both pass.
+
+§CC for check 3, measured against 6769ed3 (the tree before it was added): with
+the core installed it failed naming tests/test_twins_seam.py at four lines (the
+core's gate module by its dotted name, twice; one of the gate module's word
+sets by its name; a private attribute of the gate class) and
+runtime/access_policy.py at one (a module of the core by its dotted name); on
+the no-op backend it failed naming the same lines but the word set's. After
+those two files were changed, it passes on both backends.
 """
 
 from __future__ import annotations
@@ -150,3 +165,88 @@ def test_no_file_restates_the_cores_vocabulary():
     files = _tracked_text_files()
     copies = sorted({c for vocab in sets for c in _restatements(vocab, files)})
     assert not copies, f"the security core's vocabulary is restated at: {copies}"
+
+
+# ── 3. nothing of the core's is named here beyond what the seam imports ──────
+#
+# The seam imports what it needs from the core's package root; nothing else in
+# this tree reaches into the core. A dunder attribute of the package (its file,
+# its version) is not a reach into it.
+_DOTTED_CORE_NAME = re.compile(r"(?<![A-Za-z0-9_.])morpheus_security\.(?!__)[A-Za-z_]")
+_GATE_PRIVATE_ATTRIBUTE = re.compile(r"(?<![A-Za-z0-9_])MorpheusSecurity\._(?!_)")
+
+
+def _names_this_tree_defines(files: list[Path]) -> set[str]:
+    """Every name a tracked Python file defines: a module-level binding, a
+    function or class anywhere, an attribute assigned on ``self``. A name this
+    tree defines is its own (or a copy, which check 2 catches), not a reach
+    into the core."""
+    names: set[str] = set()
+    for path in files:
+        if path.suffix != ".py":
+            continue
+        try:
+            tree = ast.parse(_read(path))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
+                    and isinstance(node.value, ast.Name) and node.value.id == "self"):
+                names.add(node.attr)
+    return names
+
+
+def _names_the_seam_imports() -> set[str]:
+    tree = ast.parse(_read(ROOT / "runtime" / "security" / "__init__.py"))
+    return {alias.name for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "morpheus_security"
+            for alias in node.names}
+
+
+def _core_names_that_are_not_the_seams() -> set[str]:
+    """Names the installed core's gate module defines at its top level, and
+    private attributes of its gate class, that the core's package root does
+    not export and the seam does not import. Found through the class the
+    seam imports; none of them is written here."""
+    import importlib
+
+    import morpheus_security
+    import runtime.security as seam
+
+    module = importlib.import_module(seam.MorpheusSecurity.__module__)
+    assert module.__name__.split(".")[0] != "runtime", "the seam is not bound to the core"
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    names.update(a for a in vars(seam.MorpheusSecurity) if a.startswith("_"))
+    exported = set(getattr(morpheus_security, "__all__", ())) | _names_the_seam_imports()
+    return {n for n in names if not n.startswith("__") and n not in exported}
+
+
+def test_no_file_names_anything_of_the_core_beyond_what_the_seam_imports():
+    files = _tracked_text_files()
+    this_file = Path(__file__).resolve()
+    patterns = [_DOTTED_CORE_NAME, _GATE_PRIVATE_ATTRIBUTE]
+    if _core_package_dir() is not None:
+        names = _core_names_that_are_not_the_seams() - _names_this_tree_defines(files)
+        assert names, "the core's own names could not be read"
+        patterns.append(re.compile(r"(?<![A-Za-z0-9_])(?:%s)(?![A-Za-z0-9_])"
+                                   % "|".join(sorted(map(re.escape, names)))))
+    named = sorted({f"{p.relative_to(ROOT)}:{n}"
+                    for p in files if p.resolve() != this_file
+                    for n, line in enumerate(_read(p).splitlines(), 1)
+                    if any(pat.search(line) for pat in patterns)})
+    assert not named, f"a file names something of the core's beyond what the seam imports: {named}"
