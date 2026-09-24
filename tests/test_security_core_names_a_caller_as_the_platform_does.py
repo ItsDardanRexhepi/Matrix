@@ -36,6 +36,9 @@ THE CLASS, AND THE AXES CLOSED HERE
   (f) SCOPE PIN: a backend that exports the platform's rule starts, and the
       no-op backend, which records nothing about any caller, uses the
       platform's rule
+  (g) JOINT START: with the security core installed on the same path as this
+      tree, nothing stands in for it: the rule it exports passes the host's
+      check and the gateway starts its gate (skipped on the no-op backend)
 
 §CC, measured: against the tree at the commit "While the security gate is not
 up, nothing decides a request in its place", the tree before this rule, with
@@ -47,6 +50,13 @@ on the behaviour: every stand-in backend was started whatever rule it exported,
 /ready answered 200, production started, the doctor check called each of them
 READY, and the no-op backend exported no rule. After the change, 14 passed on
 the no-op backend, and 13 passed and 1 skipped with the core installed.
+
+(g), measured against the tree at the commit "What still denies under OBSERVE is
+said as it is", with the test added: with a core that exports no rule on the
+path (the core's main at the time) it failed, the gateway's start failing at
+stage "identity" and the state "failed"; with a core that exports the
+platform's rule, it passed, and so did the other 13 here; on the no-op
+backend it is skipped.
 
 An installed core that does not export the rule is refused like the stand-ins
 above, so with such a core every test that starts a gateway and needs its gate
@@ -227,6 +237,38 @@ async def test_a_backend_that_exports_the_platforms_rule_starts(monkeypatch):
         assert (await client.get("/ready")).status == 200
         assert seam.get_morpheus_security() is server._morpheus
     assert len(backend.builds) == 1
+
+
+def _bound_to_the_installed_core() -> bool:
+    import importlib.util
+
+    return (importlib.util.find_spec("morpheus_security") is not None
+            and seam.MorpheusSecurity.__module__.split(".")[0] != "runtime")
+
+
+async def test_the_installed_core_names_a_caller_the_platforms_way_and_its_gate_starts(
+        tmp_path, monkeypatch):
+    """(g) JOINT START: nothing stands in for the core. With the security core
+    installed on the same path as this tree, the rule the core exports passes
+    the host's check, and the gateway starts the core's own gate."""
+    if not _bound_to_the_installed_core():
+        pytest.skip("the security core is not installed; the no-op backend is in use")
+    monkeypatch.delenv("MATRIX_ENV", raising=False)
+    config = {**SWEEP_CONFIG, "memory_dir": str(tmp_path),
+              "database": {"path": str(tmp_path / "gateway.db")}}
+    server = _server(config)
+    try:
+        async with TestClient(TestServer(server.create_app())) as client:
+            assert seam.security_gate_state() == "up", server._security_gate_cause
+            assert server._security_gate_cause is None
+            assert (await client.get("/ready")).status == 200
+            gate = seam.get_morpheus_security()
+            assert gate is server._morpheus
+            assert type(gate).__module__.split(".")[0] != "runtime", (
+                "the gate that came up is not the installed core's")
+    finally:
+        seam.reset_morpheus_security()
+    assert seam.backend_names_callers_as_the_platform_does()
 
 
 def test_the_no_op_backend_names_a_caller_the_platforms_way():
