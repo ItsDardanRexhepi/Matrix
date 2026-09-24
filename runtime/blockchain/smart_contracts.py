@@ -239,12 +239,8 @@ class SmartContracts(BlockchainInterface):
         the class: every call the platform key signs names its function in the
         source.
         """
-        return refusal(
-            "The platform's key signs no contract call a request composes: the "
-            "contract, the function, its arguments and the value would all be the "
-            "request's, sent from the platform wallet. Read with action 'call', and "
-            "write with your own signer. Nothing was signed.",
-            code="denied")
+        from runtime.access_policy import COMPOSED_CONTRACT_CALL_STATEMENT
+        return refusal(COMPOSED_CONTRACT_CALL_STATEMENT, code="denied")
 
     async def _verify(self, params: dict) -> str:
         """Verify a contract's source code on the block explorer."""

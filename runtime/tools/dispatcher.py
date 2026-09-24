@@ -356,6 +356,17 @@ class ToolDispatcher:
                                agent_name, reason)
                 return ToolOutcome.failure(f"[DENIED] {reason}", code="denied", ref=ref)
 
+        # What no caller may have a tool run, the operator key included:
+        # smart_contract's send had the platform's key sign a contract call the
+        # request composed (runtime/access_policy.py REFUSED_TOOL_CALLS). The tool
+        # refuses it too; this answers before the handler is entered.
+        from runtime.access_policy import refused_tool_call
+        refused = refused_tool_call(tool_name, arguments)
+        if refused:
+            logger.warning("DENIED tool '%s' action '%s' for every caller: %s",
+                           tool_name, arguments.get("action"), refused)
+            return ToolOutcome.failure(f"[DENIED] {refused}", code="denied", ref=ref)
+
         # What no caller may have dispatched, the operator key and a caller-less
         # dispatch included: the attestation service's attest, batch_attest and
         # revoke sign what the request composes with the platform's key

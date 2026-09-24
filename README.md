@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,329 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,356 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -280,7 +280,15 @@ check behind it:
   asking, the operator key included; so are two more that signed a
   statement the request wrote: `submit_retropgf`, an application attested
   under the platform's own schema by default, and `issue_kyc_credential`,
-  which read the verification it attested from the request itself. A registration names one of the
+  which read the verification it attested from the request itself. Nor
+  can a request aim the platform's key at the EAS contract directly:
+  `smart_contract`'s `send`, which signed any call the request composed,
+  the EAS contract's own `attest` and `revoke` included, is refused by the
+  tool and, before the tool runs, by the tool dispatcher, whoever asks. A
+  test drives that call through the tool, the dispatcher, all four chat
+  entrances with the operator key, capability invoke, `/bridge/v1/action`
+  and both hand-offs, under the default sponsorship policy, and reads what
+  reaches the chain. A registration names one of the
   platform's own three agents, and verifying one checks that the
   attestation is the platform's own registration of that agent, not merely
   one that exists. Every other attestation a blockchain tool signs has a
@@ -292,7 +300,9 @@ check behind it:
   payment's compliance record names no address at all, since that call
   pays nobody. Tests walk every attestation these tools make and every
   call the platform's key signs (next point), and drive every one of those
-  doors. Two limits, stated: a record about your own
+  doors. Three limits, stated: the next
+  point's (a timelock's or a governor's inner call, which that contract
+  makes as itself); a record about your own
   address is still your word (the platform checks no achievement and no
   investor's eligibility), and the records the services layer writes about
   operations it ran (a cross-border payment, an insurance claim, a
@@ -312,7 +322,8 @@ check behind it:
   (its `nft_lending` borrow still takes the account it borrows for from
   the request). The `smart_contract` tool compiles, reads and verifies
   and signs nothing: its `send` let a request pick the contract, the
-  function, the arguments and the value. A token-bound account's
+  function, the arguments and the value, and the tool dispatcher now
+  refuses it before the tool runs, for every caller. A token-bound account's
   `execute_as_tba` is refused: it signed the request's call, a
   delegatecall if asked, from the platform's wallet and with the
   platform's ETH, to whatever contract the request named as the account.

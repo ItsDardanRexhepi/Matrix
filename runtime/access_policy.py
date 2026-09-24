@@ -199,6 +199,35 @@ REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
 }
 
 
+# The same answer for a TOOL call, where a tool has the platform's key sign a
+# call the request composed. ``smart_contract``'s ``send`` built
+# ``contract.functions[function_name](*args)`` on the contract, ABI, arguments
+# and value the request wrote and signed it from the platform wallet: aimed at
+# the EAS contract, an ``attest`` or a ``revoke`` of the request's making. The
+# tool refuses it before anything is built (runtime/blockchain/smart_contracts
+# .py); the tool dispatcher refuses it before the handler runs, whoever asks,
+# so a tool that lost its own refusal still signs nothing. Keyed on the tool
+# and its ``action``; the doors that dispatch an action by name cannot reach a
+# tool at all. tests/test_no_door_has_the_platform_key_sign_a_call_it_composed
+# .py drives every door with the EAS contract's attest and revoke.
+COMPOSED_CONTRACT_CALL_STATEMENT = (
+    "The platform's key signs no contract call a request composes: the "
+    "contract, the function, its arguments and the value would all be the "
+    "request's, sent from the platform wallet. Read with action 'call', and "
+    "write with your own signer. Nothing was signed.")
+REFUSED_TOOL_CALLS: dict[tuple[str, str], str] = {
+    ("smart_contract", "send"): COMPOSED_CONTRACT_CALL_STATEMENT,
+}
+
+
+def refused_tool_call(tool_name: object, arguments: object) -> str | None:
+    """Why no request may have *tool_name* run with *arguments*, or None."""
+    action = arguments.get("action") if isinstance(arguments, dict) else None
+    if not isinstance(tool_name, str) or not isinstance(action, str):
+        return None
+    return REFUSED_TOOL_CALLS.get((tool_name, action.strip().lower()))
+
+
 def refused_by_the_service(service: str, method: str) -> dict:
     """What a service method in REFUSED_ON_REQUEST returns when it is reached
     anyway: a refusal, before anything is built or signed."""
