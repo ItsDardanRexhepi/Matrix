@@ -15,6 +15,7 @@ from typing import Any
 from .messaging import XMTPMessaging
 from .content_moderation import ContentModeration
 from .proof_sharing import ProofSharing
+from .visibility import is_public
 
 logger = logging.getLogger(__name__)
 
@@ -211,14 +212,18 @@ class SocialService:
             "comments": [],
         }
 
-        self._feed_items.append(feed_item)
-        profile["shared_proofs"].append(feed_item_id)
-
-        # Create a share record in proof_sharing
+        # The share record FIRST, because it is the half that can refuse:
+        # `create_share` rejects a visibility outside its three words and a
+        # `specific_addresses` share with no list (which this method never
+        # passes). It ran after the feed item was stored, so a share the
+        # caller was told had failed stayed in the feed anyway.
         attestation_uid = proof_data.get("attestation_uid", "")
         if attestation_uid:
             visibility = proof_data.get("visibility", "public")
             await self.proof_sharing.create_share(sharer, proof_type, attestation_uid, visibility)
+
+        self._feed_items.append(feed_item)
+        profile["shared_proofs"].append(feed_item_id)
 
         logger.info("Proof shared by %s (type=%s, id=%s)", sharer, proof_type, feed_item_id)
         return feed_item
@@ -266,13 +271,16 @@ class SocialService:
         "ANY feed" covers the platform's other one too. The dispatcher publishes
         every settled state-modifying action to the public social feed, and
         `send_message` is `share_proof`, so a followers-only share used to be
-        written there with its proof_data. That path now applies this same
-        reading (`service_dispatcher.declares_non_public`) and carries no
-        caller params at all, and the HTTP ripple applies it too."""
-        vis = item.get("visibility")
-        if vis is None:
-            vis = (item.get("proof_data") or {}).get("visibility", "public")
-        return str(vis).lower() == "public"
+        written there with its proof_data. That path carries no caller params
+        at all now, and it and the HTTP ripple decide with THIS function's
+        reading, because it is one function: ``visibility.is_public``, which
+        the dispatcher's `declares_non_public` calls too. They were two copies
+        that disagreed — this one did not strip spaces and read a null as the
+        word "none", the other stripped and skipped the null — so a share
+        with ``" public"`` or ``None`` went out to the public feed while this
+        one hid it. A visibility at the top of an item no longer outranks the
+        one in its ``proof_data`` either: both must say public."""
+        return is_public(item)
 
     async def get_feed(self, address: str, limit: int = 50, mode: str = "latest") -> list:
         """Get the social feed for a user.

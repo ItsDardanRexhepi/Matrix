@@ -868,23 +868,16 @@ def declares_non_public(*sources: Any) -> bool:
     action, and its whole params dict, a followers-only ``proof_data``
     included, was written into the public feed row.
 
-    This is SocialService's reading, applied platform-wide: a ``visibility``
-    that is present and is not "public", at the top of a payload or inside its
-    ``proof_data``, makes the item non-public, and so does an explicit
-    ``private``/``is_private`` flag. Absence of both is public, as it is there.
+    This is SocialService's reading because it is SocialService's function:
+    ``social.visibility.is_public``, which `SocialService._is_public_item`
+    also calls. It used to be a second copy that said it was the same reading
+    and was not — it stripped spaces and skipped an explicit null, so
+    ``" public"`` and ``None`` were published here and hidden there. The rules
+    are in that module.
     """
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
-        for node in (source, source.get("proof_data")):
-            if not isinstance(node, dict):
-                continue
-            visibility = node.get("visibility")
-            if visibility is not None and str(visibility).strip().lower() != "public":
-                return True
-            if node.get("private") is True or node.get("is_private") is True:
-                return True
-    return False
+    from runtime.blockchain.services.social.visibility import is_public
+
+    return not is_public(*sources)
 
 
 # ---------------------------------------------------------------------------
