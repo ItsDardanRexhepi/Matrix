@@ -47,4 +47,4 @@ Neo is the engine of The Matrix. He runs everything. He is invisible to all publ
 - **Scope**: Background execution layer for all platform operations
 - **Governance**: Every tool call he makes passes through the Unified Rexhepi Framework before it is dispatched
 
-Neo answers to one person. A multi-layer access protection protocol governs all interactions with Neo. The implementation is part of the closed-source security layer.
+Neo answers to one person. A multi-layer access protection protocol stands between callers and Neo in a deployment that installs the closed-source security layer, of which it is part. Without that layer, the platform's own per-agent tool boundary still holds: no agent can call another agent's tools.

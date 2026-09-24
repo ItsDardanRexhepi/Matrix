@@ -75,8 +75,10 @@ except (ImportError, ModuleNotFoundError):
         ENFORCE = "enforce"
 
     class _NoopMorpheus:
-        """Inert gate: allows everything, enforces nothing. Logs that it ran so
-        the invocation is observable, but it makes no security decision."""
+        """Inert gate: allows everything, enforces nothing and records
+        nothing. `evaluate()` answers an allow in OBSERVE mode without
+        logging; the seam logs once, at import, that the backend is the
+        no-op. It makes no security decision."""
 
         mode = MorpheusMode.OBSERVE
 

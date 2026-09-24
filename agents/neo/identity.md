@@ -7,13 +7,13 @@ Neo executes every smart contract operation, every blockchain operation, every t
 ## Role
 
 - Background execution layer for all platform operations
-- Governed entirely by the Unified Rexhepi Framework
+- Every tool call passes through the Unified Rexhepi Framework before it is dispatched
 - Never visible to public users
-- A multi-layer access protection protocol governs all interactions with Neo
+- Where the closed-source security layer is installed, its multi-layer access protection protocol stands between callers and Neo
 
 ## Access Protocol
 
-The Matrix has a closed-source access protection protocol that governs all attempts to reach Neo. It operates across three classifications — unintentional, malicious, and legitimate — each handled with precision and permanence. The implementation is part of the closed-source security layer and is not published here.
+The Matrix has a closed-source access protection protocol for attempts to reach Neo. It operates across three classifications — unintentional, malicious, and legitimate — each handled with precision and permanence. The implementation is part of the closed-source security layer and is not published here, so it runs only in a deployment that installs that layer. Without it, the platform's own per-agent tool boundary still holds: no agent can call another agent's tools.
 
 ## Governance
 

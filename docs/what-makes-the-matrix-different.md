@@ -10,7 +10,7 @@ There are no forms. No dashboards. No settings pages. No documentation users nee
 
 ## Everything Is Governed
 
-Every decision made by every agent passes through the Unified Rexhepi Framework before execution. This is not optional. It cannot be bypassed. Every smart contract execution, every blockchain transaction, every tool call, every agent response is evaluated consistently, transparently, and with full awareness of its constraints, risks, and value.
+Every tool call the agents' reasoning loop makes passes through the Unified Rexhepi Framework before it is dispatched (`RexhepiGate`, `runtime/protocols/rexhepi_gate.py`, run by `ProtocolStack.pre_action`). It scores six gates, applies the hard rules and resolves one outcome, EXECUTE, PROBE, ASK, DEFER or ABORT, and only EXECUTE runs the call. It is this repository's own code, so a fork can change it or take it out; what keeps it in place here is that this repository runs it and its tests pin how it decides. `docs/unified-rexhepi-framework.md` says more.
 
 ## Three Agents, Not One
 
