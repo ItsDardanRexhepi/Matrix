@@ -3,8 +3,14 @@
 The Matrix SDK — Blockchain Operations Example
 
 Five blockchain calls through the SDK: a price read, a contract conversion,
-a payment, an attestation and the platform dashboard. Each call except the
-conversion is a chat message to Neo, so what comes back is his reply.
+a payment, an attestation and the platform dashboard. Every one of them is a
+chat message to Neo (MatrixClient.ablockchain sends POST /chat naming him),
+so what comes back is his reply.
+
+Naming Neo takes the operator key on a gateway that has one set, and
+MatrixClient sends no key: against such a gateway the first call is refused
+with a 403 and the example stops there. Run it against a gateway with no key
+set (development), where whoever runs the gateway is the operator.
 
 Whether the platform pays the gas depends on the deployment: with no
 paymaster key configured nothing is sponsored, and with one, the operator's
