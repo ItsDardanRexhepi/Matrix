@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,318 tests, run against the versions
+automated suite of 5,329 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -516,7 +516,7 @@ All examples live in `examples/`. Each calls the platform's services, through th
 | `06_eas_attestation_chain.py` | Attest sample records through the attestation capabilities (queued unless time-critical), batch them, verify one |
 | `07_revenue_to_neosafe.py` | Inject a fee into a generated contract, record sample fees with the NeoSafe router (in memory, nothing moves), and where the platform's fees actually go |
 | `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
-| `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
+| `09_full_user_journey.py` | One user through seven services (DID, DAO, tokenization, NFT, governance, fundraising, staking), each step reporting whether it happened |
 
 ---
 

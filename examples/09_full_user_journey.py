@@ -1,32 +1,29 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-09 — Full User Journey: The Entire The Matrix Platform in One Script
+09 — Full User Journey: One User Through Seven Services
 
-Demonstrates every major platform capability in a single coherent user flow:
+Walks one user through a sequence of platform actions, each dispatched
+through ServiceDispatcher:
 
   1. Create a decentralised identity (DID)
-  2. Create a DAO for community governance
-  3. Tokenize a real-world asset (house)
-  4. Mint a governance NFT
-  5. Create a governance proposal
-  6. Vote on the proposal
-  7. Launch a fundraising campaign
-  8. Contribute to the campaign
-  9. Stake platform tokens for rewards
-  10. Claim staking rewards
-
-This script exercises Components 1-8 plus governance, fundraising, staking,
-and more — showing how they all compose through ServiceDispatcher.
+  2. Create a DAO and join it
+  3. Tokenize a real-world asset (a house)
+  4. Create a governance NFT collection and mint a badge
+  5. Create a governance proposal and vote on it
+  6. Launch a fundraising campaign and contribute to it
+  7. Stake into the default staking pool and read the position back
 
 Usage:
     python examples/09_full_user_journey.py            # live (uses config)
     python examples/09_full_user_journey.py --dry-run  # no dispatch calls
 
-NOTE: Until the platform contracts are deployed on-chain, every dispatch
-returns ``status='not_deployed'`` and the script falls back to printing
-the intended action. This is by design; deploying the contracts is
-covered in contracts/DEPLOYMENT_GUIDE.md.
+Every step prints what the service answered. A step the service refused or
+could not run (until the platform contracts are deployed, most answer
+``not_deployed``) is reported as not done, and a step that needs an id an
+earlier step did not produce is skipped rather than run with an invented one.
+The summary lists which steps happened. Deploying the contracts is covered
+in contracts/DEPLOYMENT_GUIDE.md.
 """
 
 import argparse
@@ -85,7 +82,7 @@ async def main():
   The Matrix Example 09: Full User Journey
 {'=' * 60}{RESET}
 
-  A complete user journey through the platform:
+  One user through the platform:
   DID -> DAO -> Tokenize -> NFT -> Govern -> Fund -> Stake
 """)
 
@@ -93,50 +90,41 @@ async def main():
     dispatcher = ServiceDispatcher(config)
     bc = config.get("blockchain", {})
     user = bc.get("demo_wallet_address", "0xUser")
+    done: dict[str, bool] = {}
 
-    # Track IDs across steps
-    did_id = None
-    dao_id = None
-    asset_id = None
-    nft_collection = None
-    proposal_id = None
-    campaign_id = None
+    def shown(result, *keys):
+        """The first of *keys* the service's answer carries, or 'not reported'."""
+        for key in keys:
+            if result.get(key) not in (None, ""):
+                return result[key]
+        return "not reported"
 
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 1: Identity
-    # ────────────────────────────────────────────────────────────────
+    async def run(label, action, params, needs=()):
+        """Dispatch *action*, record whether it happened, return its result."""
+        missing = [name for name, value in needs if not value]
+        if missing:
+            warn(f"Skipped: no {', '.join(missing)} from an earlier step")
+            done[label] = False
+            return None
+        result = await dispatch(dispatcher, action, params)
+        done[label] = result is not None
+        if result is None and not DRY_RUN:
+            warn(f"Not done: {label}")
+        return result
+
+    # ── Phase 1: Identity ──────────────────────────────────────────
     print(f"\n{BOLD}  --- Phase 1: Identity ---{RESET}")
+    step(1, "Creating a decentralised identity (DID)...")
+    result = await run("create a DID", "create_did", {"owner": user})
+    did_id = None
+    if result is not None:
+        did_id = result.get("did") or result.get("id")
+        ok(f"DID: {did_id or 'not reported'}")
 
-    # Step 1: Create DID
-    step(1, "Creating Decentralised Identity (DID)...")
-
-    result = await dispatch(dispatcher, "create_did", {
-        "owner": user,
-        "method": "did:ethr",
-        "attributes": {
-            "name": "Alice Builder",
-            "role": "developer",
-            "verified_email": True,
-        },
-    })
-    if result:
-        did_id = result.get("did", result.get("id", f"did:ethr:{user}"))
-        ok(f"DID created: {did_id}")
-        ok(f"Method: did:ethr")
-        ok(f"Owner: {user}")
-    else:
-        did_id = f"did:ethr:{user}"
-        ok(f"DID (fallback): {did_id}")
-
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 2: Organisation
-    # ────────────────────────────────────────────────────────────────
+    # ── Phase 2: Organisation ──────────────────────────────────────
     print(f"\n{BOLD}  --- Phase 2: Organisation ---{RESET}")
-
-    # Step 2: Create DAO
     step(2, "Creating DAO: 'Builders Collective'...")
-
-    result = await dispatch(dispatcher, "create_dao", {
+    result = await run("create a DAO", "create_dao", {
         "name": "Builders Collective",
         "creator": user,
         "governance_model": "token_weighted",
@@ -144,39 +132,23 @@ async def main():
         "voting_period_blocks": 50400,
         "description": "A DAO for builders on The Matrix",
     })
-    if result:
-        dao_id = result.get("dao_id", result.get("id", "N/A"))
-        ok(f"DAO created: {dao_id}")
-        ok(f"Name: Builders Collective")
-        ok(f"Governance: token-weighted voting")
-        ok(f"Quorum: 4%")
-    else:
-        dao_id = "dao-builders-001"
-        ok(f"DAO (fallback ID): {dao_id}")
+    dao_id = None
+    if result is not None:
+        dao_id = result.get("dao_id") or result.get("id")
+        ok(f"DAO: {dao_id or 'not reported'}")
 
-    # Step 3: Join DAO
-    step(3, "Joining DAO as founding member...")
+    step(3, "Joining the DAO...")
+    result = await run("join the DAO", "join_dao",
+                       {"dao_id": dao_id, "member": user, "role": "founder"},
+                       needs=[("DAO id", dao_id)])
+    if result is not None:
+        ok(f"Role: {shown(result, 'role')}")
+        ok(f"Voting power: {shown(result, 'voting_power')}")
 
-    result = await dispatch(dispatcher, "join_dao", {
-        "dao_id": dao_id,
-        "member": user,
-        "role": "founder",
-    })
-    if result:
-        ok(f"Joined DAO as: {result.get('role', 'founder')}")
-        ok(f"Voting power: {result.get('voting_power', '1.0')}")
-    else:
-        ok("Member role: founder")
-
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 3: Asset Tokenization
-    # ────────────────────────────────────────────────────────────────
+    # ── Phase 3: Asset tokenization ────────────────────────────────
     print(f"\n{BOLD}  --- Phase 3: Asset Tokenization ---{RESET}")
-
-    # Step 4: Tokenize a house
-    step(4, "Tokenizing real-world asset: residential property...")
-
-    result = await dispatch(dispatcher, "tokenize_asset", {
+    step(4, "Tokenizing a residential property...")
+    result = await run("tokenize an asset", "tokenize_asset", {
         "owner": user,
         "asset_type": "real_estate",
         "asset_details": {
@@ -190,124 +162,72 @@ async def main():
         "fractionalize": True,
         "total_fractions": 1000,
     })
-    if result:
-        asset_id = result.get("asset_id", result.get("token_id", "N/A"))
-        ok(f"Asset tokenized: {asset_id}")
-        ok(f"Type: Residential property")
-        ok(f"Valuation: 150 ETH")
-        ok(f"Fractionalized: 1000 shares")
-        if result.get("contract_address"):
-            ok(f"Token contract: {result['contract_address']}")
-    else:
-        asset_id = "rwa-house-001"
-        ok(f"Asset (fallback ID): {asset_id}")
+    if result is not None:
+        ok(f"Asset: {shown(result, 'asset_id', 'token_id')}")
+        ok(f"Token contract: {shown(result, 'contract_address')}")
 
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 4: NFT
-    # ────────────────────────────────────────────────────────────────
+    # ── Phase 4: Governance NFT ────────────────────────────────────
     print(f"\n{BOLD}  --- Phase 4: Governance NFT ---{RESET}")
-
-    # Step 5: Create governance NFT collection
-    step(5, "Creating governance NFT collection...")
-
-    result = await dispatch(dispatcher, "create_nft_collection", {
+    step(5, "Creating a governance NFT collection...")
+    result = await run("create an NFT collection", "create_nft_collection", {
         "name": "Builders Governance Badge",
         "symbol": "BGOV",
         "creator": user,
         "max_supply": 100,
         "base_uri": "ipfs://QmGovernanceBadge/",
-        "royalty_bps": 0,  # No royalty on governance tokens
+        "royalty_bps": 0,
     })
-    if result:
-        nft_collection = result.get("collection_address", result.get("contract_address", "N/A"))
-        ok(f"Collection: {nft_collection}")
-        ok(f"Name: Builders Governance Badge (BGOV)")
-    else:
-        nft_collection = "0xGovNFTCollection"
-        ok(f"Collection (fallback): {nft_collection}")
+    collection = None
+    if result is not None:
+        collection = result.get("collection_address") or result.get("contract_address")
+        ok(f"Collection: {collection or 'not reported'}")
 
-    # Step 6: Mint governance NFT
-    step(6, "Minting governance NFT #1...")
-
-    result = await dispatch(dispatcher, "mint_nft", {
-        "collection_address": nft_collection,
+    step(6, "Minting governance badge #1...")
+    result = await run("mint the badge", "mint_nft", {
+        "collection_address": collection,
         "to": user,
         "token_id": 1,
         "metadata": {
             "name": "Builders Governance Badge #1",
             "description": "Founding member governance badge for Builders Collective DAO",
             "image": "ipfs://QmGovernanceBadge/1.png",
-            "attributes": [
-                {"trait_type": "Role", "value": "Founder"},
-                {"trait_type": "Voting Weight", "value": "10x"},
-                {"trait_type": "DAO", "value": "Builders Collective"},
-            ],
         },
-    })
-    if result:
-        ok(f"Minted: Governance Badge #1")
-        ok(f"Role: Founder (10x voting weight)")
-    else:
-        ok("Governance badge minted (fallback)")
+    }, needs=[("collection address", collection)])
+    if result is not None:
+        ok(f"Token: {shown(result, 'token_id', 'id')}")
 
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 5: Governance
-    # ────────────────────────────────────────────────────────────────
+    # ── Phase 5: Governance ────────────────────────────────────────
     print(f"\n{BOLD}  --- Phase 5: Governance ---{RESET}")
-
-    # Step 7: Create proposal
-    step(7, "Creating governance proposal...")
-
-    result = await dispatch(dispatcher, "create_proposal", {
+    step(7, "Creating a governance proposal...")
+    result = await run("create a proposal", "create_proposal", {
         "dao_id": dao_id,
         "proposer": user,
         "title": "Allocate 10 ETH to Developer Grants Program",
-        "description": (
-            "Proposal to allocate 10 ETH from the DAO treasury to fund "
-            "developer grants for building on The Matrix. Grants will be "
-            "distributed in 1 ETH increments to approved projects."
-        ),
+        "description": ("Proposal to allocate 10 ETH from the DAO treasury to fund "
+                        "developer grants for building on The Matrix."),
         "proposal_type": "standard",
-        "actions": [
-            {"type": "transfer", "to": "grants_multisig", "amount_eth": 10.0},
-        ],
+        "actions": [{"type": "transfer", "to": "grants_multisig", "amount_eth": 10.0}],
         "voting_period_blocks": 50400,
-    })
-    if result:
-        proposal_id = result.get("proposal_id", result.get("id", "N/A"))
-        ok(f"Proposal created: {proposal_id}")
-        ok(f"Title: Allocate 10 ETH to Developer Grants")
-        ok(f"Type: standard (4% quorum)")
-        ok(f"Voting period: 50,400 blocks (~7 days)")
-    else:
-        proposal_id = "proposal-001"
-        ok(f"Proposal (fallback ID): {proposal_id}")
+    }, needs=[("DAO id", dao_id)])
+    proposal_id = None
+    if result is not None:
+        proposal_id = result.get("proposal_id") or result.get("id")
+        ok(f"Proposal: {proposal_id or 'not reported'}")
 
-    # Step 8: Vote on proposal
-    step(8, "Voting on proposal...")
-
-    result = await dispatch(dispatcher, "vote", {
+    step(8, "Voting on the proposal...")
+    result = await run("vote", "vote", {
         "proposal_id": proposal_id,
         "voter": user,
         "support": True,
-        "reason": "Strong community investment. Developer grants will accelerate platform growth.",
-    })
-    if result:
-        ok(f"Vote cast: FOR")
-        ok(f"Voting power: {result.get('voting_power', result.get('weight', '10'))}")
-        ok(f"Reason: recorded on-chain")
-    else:
-        ok("Vote cast: FOR (fallback)")
+        "reason": "Developer grants will accelerate platform growth.",
+    }, needs=[("proposal id", proposal_id)])
+    if result is not None:
+        ok(f"Voting power: {shown(result, 'voting_power', 'weight')}")
 
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 6: Fundraising
-    # ────────────────────────────────────────────────────────────────
+    # ── Phase 6: Fundraising ───────────────────────────────────────
     print(f"\n{BOLD}  --- Phase 6: Fundraising ---{RESET}")
-
-    # Step 9: Create campaign
-    step(9, "Launching fundraising campaign...")
-
-    result = await dispatch(dispatcher, "create_campaign", {
+    step(9, "Launching a fundraising campaign...")
+    result = await run("create a campaign", "create_campaign", {
         "creator": user,
         "title": "The Matrix Mobile App Development",
         "description": "Funding the development of a mobile app for The Matrix platform access.",
@@ -319,108 +239,39 @@ async def main():
             {"title": "Testing & Launch", "percentage": 30, "description": "QA and app store launch"},
         ],
     })
-    if result:
-        campaign_id = result.get("campaign_id", result.get("id", "N/A"))
-        ok(f"Campaign created: {campaign_id}")
-        ok(f"Goal: 50 ETH")
-        ok(f"Duration: 60 days")
-        ok(f"Milestones: 3")
-    else:
-        campaign_id = "campaign-001"
-        ok(f"Campaign (fallback ID): {campaign_id}")
+    campaign_id = None
+    if result is not None:
+        campaign_id = result.get("campaign_id") or result.get("id")
+        ok(f"Campaign: {campaign_id or 'not reported'}")
 
-    # Step 10: Contribute
-    step(10, "Contributing to campaign...")
+    step(10, "Contributing to the campaign...")
+    result = await run("contribute", "contribute_to_campaign",
+                       {"campaign_id": campaign_id, "contributor": user, "amount_eth": 5.0},
+                       needs=[("campaign id", campaign_id)])
+    if result is not None:
+        ok(f"Total raised: {shown(result, 'total_raised')}")
 
-    result = await dispatch(dispatcher, "contribute_to_campaign", {
-        "campaign_id": campaign_id,
-        "contributor": user,
-        "amount_eth": 5.0,
-    })
-    if result:
-        ok(f"Contributed: 5.0 ETH")
-        ok(f"Campaign progress: {result.get('progress_pct', '10')}%")
-        ok(f"Total raised: {result.get('total_raised', '5.0')} ETH")
-    else:
-        ok("Contributed: 5.0 ETH (fallback)")
+    # ── Phase 7: Staking ───────────────────────────────────────────
+    print(f"\n{BOLD}  --- Phase 7: Staking ---{RESET}")
+    step(11, "Staking 100 tokens into the default pool...")
+    result = await run("stake", "stake", {"staker": user, "amount": 100.0, "pool_id": "default"})
+    if result is not None:
+        ok(f"Staked amount: {shown(result, 'staked_amount', 'amount')}")
 
-    # ────────────────────────────────────────────────────────────────
-    # PHASE 7: Staking
-    # ────────────────────────────────────────────────────────────────
-    print(f"\n{BOLD}  --- Phase 7: Staking & Rewards ---{RESET}")
+    step(12, "Reading the staking position...")
+    result = await run("read the staking position", "get_staking_position", {"staker": user})
+    if result is not None:
+        ok(f"Staked amount: {shown(result, 'staked_amount', 'amount')}")
+        ok(f"Pending rewards: {shown(result, 'pending_rewards')}")
 
-    # Step 11: Stake tokens
-    step(11, "Staking platform tokens...")
-
-    result = await dispatch(dispatcher, "stake", {
-        "staker": user,
-        "amount": 100.0,
-        "token": "0pnMTX",
-        "lock_period_days": 90,
-    })
-    if result:
-        ok(f"Staked: 100.0 0pnMTX")
-        ok(f"Lock period: 90 days")
-        ok(f"APY: {result.get('apy', result.get('estimated_apy', 'N/A'))}%")
-        ok(f"Position ID: {result.get('position_id', result.get('id', 'N/A'))}")
-    else:
-        ok("Staked: 100.0 0pnMTX (fallback)")
-
-    # Step 12: Check staking position
-    step(12, "Checking staking position and rewards...")
-
-    result = await dispatch(dispatcher, "get_staking_position", {
-        "staker": user,
-    })
-    if result:
-        ok(f"Staked amount: {result.get('staked_amount', 100.0)} 0pnMTX")
-        ok(f"Pending rewards: {result.get('pending_rewards', 'N/A')} 0pnMTX")
-        ok(f"Time staked: {result.get('time_staked', 'N/A')}")
-        ok(f"Unlock date: {result.get('unlock_date', 'N/A')}")
-    else:
-        ok("Position: 100.0 0pnMTX staked (fallback)")
-
-    # ────────────────────────────────────────────────────────────────
-    # Journey Summary
-    # ────────────────────────────────────────────────────────────────
-    print(f"""
-
-{GREEN}{BOLD}{'=' * 60}
-  FULL USER JOURNEY COMPLETE
-{'=' * 60}{RESET}
-
-  {BOLD}Journey Map:{RESET}
-
-  [Identity]       DID: {did_id or 'created'}
-       |
-  [Organisation]   DAO: {dao_id or 'created'} (Builders Collective)
-       |
-  [Tokenization]   RWA: {asset_id or 'created'} (House -> 1000 fractions)
-       |
-  [NFT]            Governance Badge #1 minted
-       |
-  [Governance]     Proposal: {proposal_id or 'created'} (voted FOR)
-       |
-  [Fundraising]    Campaign: {campaign_id or 'created'} (contributed 5 ETH)
-       |
-  [Staking]        100 0pnMTX staked (90-day lock)
-
-  {BOLD}Components exercised:{RESET}
-     5  DID Identity        -  create_did
-     6  DAO Management      -  create_dao, join_dao
-     4  RWA Tokenization    -  tokenize_asset
-     3  NFT Services        -  create_nft_collection, mint_nft
-    19  Governance          -  create_proposal, vote
-    22  Fundraising         -  create_campaign, contribute_to_campaign
-    16  Staking             -  stake, get_staking_position
-     8  Attestation         -  (automatic on all state changes)
-
-  {BOLD}Total actions:{RESET}       12
-  {BOLD}Services touched:{RESET}    8 of 30
-  {BOLD}Attestations:{RESET}        12 (one per state-modifying action)
-
-{GREEN}{'=' * 60}{RESET}
-""")
+    # ── Summary ────────────────────────────────────────────────────
+    happened = [label for label, ok_ in done.items() if ok_]
+    print(f"\n{BOLD}{'=' * 60}\n  Journey summary: {len(happened)} of {len(done)} steps happened\n{'=' * 60}{RESET}")
+    for label, ok_ in done.items():
+        (ok if ok_ else warn)(f"{label}: {'done' if ok_ else 'not done'}")
+    print(f"\n  {DIM}When a state-modifying action completes, the service dispatcher queues an EAS")
+    print(f"  attestation of it; the queue is written to the chain once 50 have gathered in the")
+    print(f"  same process, and what is queued is lost if the process exits first.{RESET}\n")
 
 
 if __name__ == "__main__":

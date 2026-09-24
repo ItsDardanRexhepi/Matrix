@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -65,7 +66,17 @@ class _RecordingDispatcher:
         return json.dumps({"status": "ok", "action": action, "result": {}})
 
 
-def _run_example(path: Path, monkeypatch, *, dispatcher_configs: list | None = None):
+class _RefusingDispatcher(_RecordingDispatcher):
+    """Refuses every action, as a gateway with no contracts deployed does."""
+
+    async def execute(self, action, service=None, params=None, **kwargs):
+        self._actions.append(action)
+        return json.dumps({"status": "error", "action": action,
+                           "error": "not_deployed: refused by the test dispatcher"})
+
+
+def _run_example(path: Path, monkeypatch, *, dispatcher_configs: list | None = None,
+                 dispatcher=None):
     example = json.loads((ROOT / "matrix.config.json.example").read_text())
     bc = example.setdefault("blockchain", {})
     bc["rpc_url"] = "http://127.0.0.1:9"      # configured, and goes nowhere
@@ -86,8 +97,9 @@ def _run_example(path: Path, monkeypatch, *, dispatcher_configs: list | None = N
     monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     monkeypatch.setattr(module, "load_config", lambda: _RecordingDict(example, reads, str(path)))
+    make = dispatcher or _RecordingDispatcher
     monkeypatch.setattr(module, "ServiceDispatcher",
-                        lambda config: configs.append(config) or _RecordingDispatcher(actions))
+                        lambda config: configs.append(config) or make(actions))
     try:
         asyncio.run(module.main())
     except SystemExit:
@@ -163,3 +175,32 @@ def test_no_example_can_make_the_platform_deploy(monkeypatch):
             problems.append(f"{path.name} dispatches {converts} with conversion.auto_deploy on")
     assert checked, "no example dispatches to contract_conversion — this test observed nothing"
     assert not problems, "running these examples deploys with the platform account:\n  " + "\n  ".join(problems)
+
+
+# ── An example reports what happened, not what it meant to do ──────────────
+#
+# examples/09_full_user_journey.py printed, for every step whose dispatch was
+# refused, a success line marked "(fallback)" ("Staked: 100.0 ... (fallback)",
+# "Vote cast: FOR (fallback)"), passed invented ids ("dao-builders-001",
+# "proposal-001") to the steps after it, and ended "FULL USER JOURNEY COMPLETE"
+# with "Attestations: 12 (one per state-modifying action)". Every example is
+# run here against a dispatcher that refuses every action.
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_REFUSED_BUT_REPORTED = [
+    r"\(fallback\)|fallback id",
+    r"journey complete",
+    r"attestations:\s*\d+",
+]
+
+
+@pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)
+def test_an_example_does_not_report_a_refused_action_as_done(path, monkeypatch, capsys):
+    capsys.readouterr()
+    _, actions = _run_example(path, monkeypatch, dispatcher=_RefusingDispatcher)
+    out = _ANSI.sub("", capsys.readouterr().out).lower()
+    offenders = [line.strip() for line in out.splitlines()
+                 if any(re.search(p, line) for p in _REFUSED_BUT_REPORTED)]
+    assert not offenders, (
+        f"{path.name}, with every one of its {len(actions)} actions refused, printed: "
+        + "; ".join(offenders[:8]))

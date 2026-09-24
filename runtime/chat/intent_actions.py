@@ -2736,7 +2736,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "action_name": "credential_issue",
         "description": "Issue a verifiable credential — a signed digital statement proving something is true.",
         "required_params": [
-            {"name": "subject", "type": "string", "description": "DID or address of the credential subject.", "example": "did:0pn:abc123"},
+            {"name": "subject", "type": "string", "description": "DID or address of the credential subject.", "example": "did:matrix:base:0xabc123"},
             {"name": "claim_type", "type": "string", "description": "Type of claim being made (e.g. 'degree', 'membership', 'age_verification').", "example": "degree"},
             {"name": "claim_data", "type": "object", "description": "The actual claim data.", "example": {"institution": "MIT", "degree": "CS", "year": 2024}},
         ],
@@ -2749,9 +2749,9 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "example_conversation": (
             "User: I need to issue a credential for a course completion\n"
             "Trinity: Happy to help. Who is the credential for — their DID or wallet address — and what are the details of the course they completed?\n"
-            "User: For did:0pn:abc123, they completed Blockchain 101\n"
-            "Trinity: Issuing a verifiable credential for did:0pn:abc123 — Blockchain 101 completion. This is a cryptographically signed proof they can show anyone.\n"
-            "Trinity: [calls platform_action with action='credential_issue', params={subject: 'did:0pn:abc123', claim_type: 'course_completion', claim_data: {course: 'Blockchain 101'}}]"
+            "User: For did:matrix:base:0xabc123, they completed Blockchain 101\n"
+            "Trinity: Issuing a verifiable credential for did:matrix:base:0xabc123 — Blockchain 101 completion. This is a cryptographically signed proof they can show anyone.\n"
+            "Trinity: [calls platform_action with action='credential_issue', params={subject: 'did:matrix:base:0xabc123', claim_type: 'course_completion', claim_data: {course: 'Blockchain 101'}}]"
         ),
     },
 
