@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,356 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,370 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -298,9 +298,10 @@ check behind it:
   the same holds for a DeFi supply or borrow made for you, and for the
   account an NFT or game-item transfer moves from. A cross-border
   payment's compliance record names no address at all, since that call
-  pays nobody. Tests walk every attestation these tools make and every
-  call the platform's key signs (next point), and drive every one of those
-  doors. Three limits, stated: the next
+  pays nobody. Tests walk the source of every attestation these tools
+  make, report as a failure every place the walk cannot follow the
+  request to one, walk every call the platform's key signs (next point),
+  and drive every one of those doors. Three limits, stated: the next
   point's (a timelock's or a governor's inner call, which that contract
   makes as itself); a record about your own
   address is still your word (the platform checks no achievement and no
