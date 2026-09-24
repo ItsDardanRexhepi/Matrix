@@ -79,9 +79,9 @@ owners, or sanitizes — are **not in this repository** and never will be.
 
 **SECURITY-REVIEW-REQUIRED.** The enforcement layer is unverified scaffolding:
 testnet-only and feature-flagged. It defaults to OBSERVE, where a verdict's deny
-is not applied; a fault on a call that could move value and App Attest, when it
-is enforced, still deny, and the seam applies every deny it is handed, in either
-mode. ENFORCE mode must not be enabled before a human security review and
+is not applied; a fault on a call that could move value or change state and App
+Attest, when it is enforced, still deny, and the seam applies every deny it is
+handed, in either mode. ENFORCE mode must not be enabled before a human security review and
 testnet validation. The non-custodial invariant is absolute: the layer can deny
 an action, never sign or move funds.
 

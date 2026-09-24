@@ -8,14 +8,15 @@ ENFORCE") and its comment ("(in ENFORCE) can deny"), the seam's interface note
 ("default OBSERVE — logs, never hard-blocks") and the operator's walkthrough
 ("OBSERVE: logs, allows"). None of it was true. The seam applies whatever
 ``allow`` the gate answers, whichever mode the gate reports, and a gate in
-OBSERVE still answers a deny for a fault on a call that could move value, and
-for App Attest when it is enforced. A gate that faults in the seam's own hands
-is refused the same way, whatever its mode.
+OBSERVE still answers a deny for a fault on a call that could move value or
+change state, and for App Attest when it is enforced. A gate that faults in
+the seam's own hands is refused by the seam's own fail direction, whatever its
+mode.
 
 THE RULE. Under OBSERVE a verdict's deny is not applied; a fault on a call
-that could move value and App Attest, when it is enforced, still deny, and the
-seam applies every deny it is handed. The public tree says so, and nowhere
-that a deny binds only under ENFORCE.
+that could move value or change state and App Attest, when it is enforced,
+still deny, and the seam applies every deny it is handed. The public tree says
+so, and nowhere that a deny binds only under ENFORCE.
 
 CHECKS
   (a) no tracked file outside tests/ says a deny binds only under ENFORCE, or
@@ -34,6 +35,13 @@ runtime/security/SECURITY_INTERFACE.md; (b) failed because the interface note
 said OBSERVE never blocks. The seven pins passed: the seam already behaved as
 the corrected text says, and only the text was wrong. After the change, 9
 passed.
+
+§CC, second round: the first round said a fault on a call that could move
+value still denies under OBSERVE; the core also binds a fault on a call that
+could change state, so the text now says both. Measured against the tree at
+the commit "The installed security core and this seam, on one path, start the
+gate", with (b) asking for both: (b) failed and the other 8 passed. After the
+change, 9 passed.
 """
 
 from __future__ import annotations
@@ -81,7 +89,7 @@ def _tracked_text_files() -> list[Path]:
 def _folded(text: str) -> str:
     """*text* with each line's comment marker dropped and every run of
     whitespace, line breaks included, made one space."""
-    lines = (re.sub(r"^\s*(?:#+|//+|\*)\s?", "", line) for line in text.splitlines())
+    lines = (re.sub(r"^\s*(?:#+|//+|\*(?=\s|$))\s?", "", line) for line in text.splitlines())
     return " ".join(" ".join(lines).split())
 
 
@@ -102,9 +110,11 @@ def test_the_interface_note_says_which_denies_still_bind_under_observe():
     """(b)"""
     note = _folded((ROOT / "runtime" / "security" / "SECURITY_INTERFACE.md").read_text(
         encoding="utf-8"))
-    assert re.search(r"OBSERVE[^.]*a verdict's deny is not applied", note), note
-    assert re.search(r"a fault on a call that could move value[^.]*App Attest, when it is "
-                     r"enforced, still deny", note), note
+    assert re.search(r"OBSERVE[^.]*a verdict's deny is not applied", note), (
+        "the interface note does not say a verdict's deny is not applied under OBSERVE")
+    assert re.search(r"a fault on a call that could move value or change state[^.]*App "
+                     r"Attest, when it is enforced, still deny", note), (
+        "the interface note does not say which denies still bind under OBSERVE")
 
 
 # ── (c) PINS: what the corrected text says, driven ───────────────────────────
