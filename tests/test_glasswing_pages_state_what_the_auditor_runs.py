@@ -368,18 +368,35 @@ def test_no_offering_lists_a_deliverable_nothing_produces():
 
 _HERO_STAT = re.compile(
     r'<div class="hero-stat-num">([^<]*)</div>\s*<div class="hero-stat-label">([^<]*)</div>')
+_CONVERSION = "runtime/blockchain/services/contract_conversion"
+
+
+def _templates_the_converter_starts_from() -> set[str]:
+    """The templates a conversion can start from: the artist classifier's
+    recommendations (its category map and its fallback), the only thing the
+    service passes to get_template()."""
+    from runtime.blockchain.services.contract_conversion.artist_classifier import _TEMPLATE_MAP
+    source = (ROOT / _CONVERSION / "artist_classifier.py").read_text(encoding="utf-8")
+    fallbacks = re.findall(r'recommended_template = (?:_TEMPLATE_MAP\.get\([^,]+,\s*)?"(\w+)"', source)
+    service = (ROOT / _CONVERSION / "service.py").read_text(encoding="utf-8")
+    convert = next(n for n in ast.walk(ast.parse(service))
+                   if isinstance(n, ast.AsyncFunctionDef) and n.name == "convert")
+    body = ast.get_source_segment(service, convert)
+    calls = re.findall(r"get_template\(([^)]*)\)", body)
+    assert calls == ["template_name"], f"convert() picks a template some other way now: {calls}"
+    assert 'template_name = artist_info["recommended_template"]' in body
+    return set(_TEMPLATE_MAP.values()) | set(fallbacks)
 
 
 def test_the_conversion_page_stats_are_measured_counts():
     """The conversion page's stats bar said "12 Contract Types", "100% Audit
-    Included" and "<5min Generation Time". The converter has eight templates,
-    and neither of the other two was a count of anything. A stat must be one
-    of the counts measured here."""
+    Included" and "<5min Generation Time", and then "8 Templates": templates.py
+    holds eight, and a conversion can start from two of them. A stat must be
+    one of the counts measured here."""
     from runtime.blockchain.services.contract_conversion.parser import SUPPORTED_LANGUAGES
-    from runtime.blockchain.services.contract_conversion.templates import list_templates
 
     measured = {"source languages": len(SUPPORTED_LANGUAGES),
-                "templates": len(list_templates()),
+                "templates it starts from": len(_templates_the_converter_starts_from()),
                 "automated checks": len(_auditor_checks())}
     stats = _HERO_STAT.findall((ROOT / "web" / "conversion-service.html").read_text(encoding="utf-8"))
     assert stats, "web/conversion-service.html has no stats bar"
@@ -391,6 +408,174 @@ def test_the_conversion_page_stats_are_measured_counts():
         elif number.strip() != str(want):
             problems.append(f"{number} {label!r}: the code has {want}")
     assert not problems, "\n".join(problems)
+
+
+def _cards(html: str, grid_id: str) -> list[str]:
+    grid = re.search(rf'<div class="portfolio-grid" id="{grid_id}">(.*?)</div>\s*(?:</section>|<p)',
+                     html, re.S)
+    assert grid, f"no portfolio grid #{grid_id}"
+    return re.findall(r'<div class="portfolio-name">([^<]+)</div>', grid.group(1))
+
+
+def test_the_template_cards_are_the_ones_the_converter_starts_from():
+    """The page listed all eight templates as "the contracts the converter can
+    start from". The converter reaches get_template() only through the artist
+    classifier, whose recommendations are erc721 and erc1155."""
+    from runtime.blockchain.services.contract_conversion.templates import list_templates
+
+    used = _templates_the_converter_starts_from()
+    names = {t["name"] if isinstance(t, dict) else t for t in list_templates()}
+    assert used < names, "precondition: the converter starts from some of the templates, not all"
+    html = (ROOT / "web" / "conversion-service.html").read_text(encoding="utf-8")
+    assert sorted(_cards(html, "templates-used")) == sorted(used)
+    assert sorted(_cards(html, "templates-unused")) == sorted(names - used)
+    flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).lower()
+    assert "the contracts the converter can start from" not in flat
+
+
+# ── Sibling axis: what a finding's description says ────────────────────────
+#
+# The audit pages said each finding carries "a description that says how to
+# fix it", the audit page's hero "findings with remediation guidance", and
+# course 01 "a description with a suggested fix". Three of the twelve checks
+# state the problem and no fix: locked ether ("Funds will be locked"),
+# unprotected selfdestruct ("Anyone can destroy this contract") and timestamp
+# dependence.
+
+_FIX_VERB = re.compile(r"(?:^|[.;]\s+)(?:Use|Add|Apply|Capture|Ensure|Consider|Pin|Replace|Remove|"
+                       r"Require|Upgrade|Check|Move|Restrict|Emit)\b")
+_EVERY_FINDING_HAS_A_FIX = [
+    r"description that says how to fix",
+    r"description with a suggested fix",
+    r"findings? with remediation guidance",
+    r"(?:each|every) finding[^.]{0,80}?(?:how to fix|suggested fix|remediation)",
+]
+
+
+def _check_descriptions() -> dict[str, list[str]]:
+    """Each check's description strings, the constant text of every
+    `description=` in its method."""
+    source = AUDIT.read_text(encoding="utf-8")
+    cls = next(n for n in ast.parse(source).body
+               if isinstance(n, ast.ClassDef) and n.name == "ContractAuditor")
+    out: dict[str, list[str]] = {}
+    for fn in cls.body:
+        if not (isinstance(fn, ast.FunctionDef) and fn.name.startswith("_check_")):
+            continue
+        texts = []
+        for node in ast.walk(fn):
+            if isinstance(node, ast.keyword) and node.arg == "description":
+                parts = [c.value for c in ast.walk(node.value)
+                         if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+                texts.append("".join(parts))
+        out[fn.name] = texts
+    return out
+
+
+def test_the_fix_claim_scan_catches_the_old_copy():
+    old = ("for each finding its rule id, severity, title, a description that says how to fix it. "
+           "returns its findings with remediation guidance. each finding also carries a "
+           "description with a suggested fix and the code it points at.")
+    assert {p for p in _EVERY_FINDING_HAS_A_FIX if re.search(p, old)} == set(_EVERY_FINDING_HAS_A_FIX)
+    assert not any(re.search(p, "a one-line description of the problem; most checks also "
+                                "suggest a fix") for p in _EVERY_FINDING_HAS_A_FIX)
+
+
+def test_no_text_says_every_finding_says_how_to_fix_it():
+    descriptions = _check_descriptions()
+    assert set(descriptions) == {n for n, _r, _s in _auditor_checks()}
+    without = sorted(n for n, texts in descriptions.items()
+                     if texts and not all(_FIX_VERB.search(t) for t in texts))
+    if not without:
+        return  # every check suggests a fix now; the claim is not contradicted
+    with_fix = len(descriptions) - len(without)
+    assert with_fix * 2 > len(descriptions), (
+        f"only {with_fix} of {len(descriptions)} checks suggest a fix; 'most' is no longer true")
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel.startswith("tests/") or rel in {"CHANGELOG.md", "web/terms.html", "web/privacy.html"}:
+            continue
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))).lower()
+        for pattern in _EVERY_FINDING_HAS_A_FIX:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 30]}... "
+                                 f"({', '.join(without)} give no fix)")
+    assert not offenders, "\n".join(offenders)
+
+
+# ── Sibling axis: the quoted conversion tiers a source can reach ────────────
+#
+# The conversion page quoted 0.01, 0.05 or 0.1 ETH, and docs/blockchain.md
+# "0.05 ETH below 500; 0.1 ETH above". The complexity score starts at the
+# non-blank line count, and a score of 200 (the default custom_threshold) makes
+# the quote "negotiated", so with the default no source reaches the 0.1 ETH
+# tier for 500 lines and more.
+
+_QUOTE_SURFACES = {
+    "web/conversion-service.html": re.compile(r'<section class="section" id="returns">(.*?)</section>', re.S),
+    "docs/blockchain.md": re.compile(r"^\| Contract conversion tier.*$", re.M),
+}
+
+
+def _reachable_quotes() -> set[float]:
+    from runtime.blockchain.services.contract_conversion.tier_manager import TierManager
+    manager = TierManager({})
+    return {manager.classify("\n".join(["uint256 a;"] * n))["fee_eth"] for n in range(1, 700)}
+
+
+def test_every_quoted_tier_is_one_a_source_reaches_or_says_what_it_takes():
+    from runtime.blockchain.services.contract_conversion.tier_manager import _TIERS
+
+    reachable = _reachable_quotes()
+    unreachable = sorted(fee for _n, _m, fee in _TIERS if fee not in reachable)
+    assert unreachable == [0.1], f"precondition changed: unreachable by default = {unreachable}"
+    problems = []
+    for rel, section in _QUOTE_SURFACES.items():
+        found = section.search((ROOT / rel).read_text(encoding="utf-8"))
+        assert found, f"{rel}: the conversion quote text is not where this test reads it"
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", found.group(0))).lower()
+        for fee in unreachable:
+            if f"{fee:g} eth" in flat and "custom_threshold" not in flat:
+                problems.append(f"{rel}: quotes {fee:g} ETH without saying it takes a raised "
+                                "conversion.custom_threshold")
+        if re.search(r"0\.1 eth above", flat):
+            problems.append(f"{rel}: '0.1 ETH above' 500 lines is not reached with the default threshold")
+    assert not problems, "\n".join(problems)
+
+
+# ── Sibling axis: the badge widget and the key it needs ─────────────────────
+#
+# The Glasswing page said the widget "automatically displays your badge status".
+# /badge/widget.js and /badge/{id}/status are not in the gateway's public set,
+# so on a gateway with an API key set a visitor's browser is answered 401 on
+# both and the widget does not load.
+
+_WIDGET_CLAIM = re.compile(r"widget[^.]{0,80}?(?:displays|shows)[^.]{0,40}?badge(?:'s)? status")
+
+
+def _badge_widget_paths_are_public() -> bool:
+    import gateway.server as server
+    source = Path(server.__file__).read_text(encoding="utf-8")
+    block = source[source.index("self._public_paths"):]
+    block = block[:block.index("}")]
+    return "/badge/widget.js" in block
+
+
+def test_the_widget_is_described_with_the_key_it_needs():
+    if _badge_widget_paths_are_public():
+        return  # the widget script is public now; the qualification is not needed
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel.startswith("tests/") or rel in {"CHANGELOG.md", "web/terms.html", "web/privacy.html"}:
+            continue
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))).lower()
+        for m in _WIDGET_CLAIM.finditer(flat):
+            around = flat[max(0, m.start() - 300):m.end() + 300]
+            if "401" not in around:
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 30]}...")
+    assert not offenders, "\n".join(offenders)
 
 
 # ── Sibling axis: a badge or a certificate is not an on-chain attestation ────

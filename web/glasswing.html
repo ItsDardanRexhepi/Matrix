@@ -282,7 +282,7 @@ a:hover{text-decoration:underline}
 <section class="section" id="report">
   <h2 class="section-title">What an Audit Returns</h2>
   <p class="section-sub">One automated scan: the 12 checks above, run on the source it is given</p>
-  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a description that says how to fix it, the line and the code it points at. Nobody reviews the report by hand. Ordering an audit is not live: this gateway has no audit service behind its audit routes (they answer 503), so nothing here takes an order or a payment. The scan does run on a contract tool call that carries source code, and when a badge is issued (below).</p>
+  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a one-line description of the problem (most checks also suggest a fix; the locked-ether, selfdestruct and timestamp checks do not), the line and the code it points at. Nobody reviews the report by hand. Ordering an audit is not live: this gateway has no audit service behind its audit routes (they answer 503), so nothing here takes an order or a payment. The scan does run on a contract tool call that carries source code, and when a badge is issued (below).</p>
 </section>
 
 <!-- Glasswing Verified Badge -->
@@ -298,7 +298,7 @@ a:hover{text-decoration:underline}
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Embeddable Widget</div>
-        <div class="badge-feature-desc">Add a single script tag to your project's website. The widget automatically displays your badge status and links to the full verification page.</div>
+        <div class="badge-feature-desc">A single script tag shows the badge's status on your project's website, with a link to its page. The script and the status it reads are not in the gateway's public set: on a gateway with an API key set, both answer 401 to your site's visitors, and the widget does not load there.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Annual Renewal</div>

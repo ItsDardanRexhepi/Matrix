@@ -89,7 +89,7 @@ The generated source is scanned by **Glasswing**, the platform's security auditi
 }
 ```
 
-Each finding also carries a description with a suggested fix and the code it points at. How to read the verdict:
+Each finding also carries a one-line description of the problem and the code it points at; most checks also suggest a fix (the locked-ether, selfdestruct and timestamp checks do not). How to read the verdict:
 
 - **Critical**: the audit fails.
 - **High**: the audit fails only when the operator turns on `security.block_on_high`; it is off by default, which is why the report above passes with three High findings.

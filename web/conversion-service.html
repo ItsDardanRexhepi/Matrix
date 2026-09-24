@@ -284,16 +284,16 @@ body{
 
 <!-- Hero -->
 <header class="hero">
-  <h1>Plain Language to Solidity<br>Smart Contracts &mdash; <em>Scanned by Glasswing</em></h1>
-  <p>Describe what you need in structured plain language (pseudocode), or give it Solidity or Vyper. The conversion pipeline parses it, generates Solidity with per-chain gas rewrites (custom errors, packed storage, unchecked loop increments), and runs Glasswing's automated checks on the result. It writes no tests, and deploying the contract is yours to do.</p>
+  <h1>Pseudocode, Solidity or Vyper<br>to Solidity &mdash; <em>Scanned by Glasswing</em></h1>
+  <p>Give it structured pseudocode (a <code>contract</code> line, <code>state</code> lines and <code>function</code> lines), or Solidity or Vyper source. A paragraph of prose is not read: it comes back as an empty contract marked <code>partial</code>. The conversion pipeline parses the source, generates Solidity from what it parsed, and runs Glasswing's automated checks on the result. The generated source is a draft: the pipeline writes no tests, and unless an operator turns on <code>conversion.auto_deploy</code> it does not compile it, so read it and compile it yourself before you deploy it.</p>
   <div class="hero-stats">
     <div class="hero-stat">
       <div class="hero-stat-num">3</div>
       <div class="hero-stat-label">Source Languages</div>
     </div>
     <div class="hero-stat">
-      <div class="hero-stat-num">8</div>
-      <div class="hero-stat-label">Templates</div>
+      <div class="hero-stat-num">2</div>
+      <div class="hero-stat-label">Templates It Starts From</div>
     </div>
     <div class="hero-stat">
       <div class="hero-stat-num">12</div>
@@ -329,7 +329,7 @@ body{
 <section class="section" id="returns">
   <h2 class="section-title">What a Conversion Returns</h2>
   <p class="section-sub">One pipeline, the same for every request</p>
-  <p class="section-sub">There are no conversion plans. A conversion returns the generated Solidity and the name of the contract in it, the Glasswing report on that source (the same automated scan the audit page describes), the complexity tier with its fee quote (0.01, 0.05 or 0.1 ETH, or "negotiated" past a complexity score of 200; nothing collects it), and, when the source reads as a creative work, which template it started from. When <code>blockchain.platform_wallet</code> is set, the generated contract also carries the platform fee described under Fees in <code>docs/blockchain.md</code>. Nothing on this gateway takes an order or a payment for a conversion.</p>
+  <p class="section-sub">There are no conversion plans. A conversion returns the generated Solidity and the name of the contract in it, the Glasswing report on that source (the same automated scan the audit page describes), the complexity tier with its fee quote (0.01 ETH under 100 non-blank lines and 0.05 ETH from 100, until the complexity score, which starts at the line count, reaches 200 and the quote becomes "negotiated"; the 0.1 ETH tier for 500 lines and more is reached only where an operator raises <code>conversion.custom_threshold</code> above 500; nothing collects any of them), and, when a short pseudocode description reads as a creative work, which template it started from. When <code>blockchain.platform_wallet</code> is set, the generated contract also carries the platform fee described under Fees in <code>docs/blockchain.md</code>. Nothing on this gateway takes an order or a payment for a conversion.</p>
 </section>
 
 <!-- Preview Form -->
@@ -342,7 +342,7 @@ body{
       <div class="form-group">
         <label class="form-label" for="description">Contract Description</label>
         <textarea class="form-textarea" id="description" name="description"
-          placeholder="Example: I need a rental agreement contract where a landlord can list properties, tenants can sign leases and pay rent monthly, with automatic late fees after 5 days and a security deposit that is returned when the lease ends..." required></textarea>
+          placeholder="contract RentalAgreement&#10;state landlord: address&#10;state tenant: address&#10;state rent: uint256&#10;&#10;function payRent()&#10;    require(msg.sender == tenant)&#10;    require(msg.value == rent)" required></textarea>
       </div>
 
       <div class="form-group">
@@ -360,11 +360,14 @@ body{
 <!-- Templates -->
 <section class="section" id="templates">
   <h2 class="section-title">Templates</h2>
-  <p class="section-sub">The contracts the converter can start from (<code>runtime/blockchain/services/contract_conversion/templates.py</code>). Most conversions are generated from the parsed source instead; a template is used for a short pseudocode description that reads as a creative work.</p>
-  <div class="portfolio-grid">
-    <div class="portfolio-card"><div class="portfolio-type">Token</div><div class="portfolio-name">erc20</div><div class="portfolio-desc">ERC-20 token with burn, permit, and owner-only minting.</div></div>
+  <p class="section-sub">A conversion starts from a template in one case: a short pseudocode description (under 100 non-blank lines) that reads as a creative work. It then starts from one of these two, as <code>artist_classifier.py</code> recommends: erc721 for visual art, video, or no clear category, and erc1155 for music, collectibles and games. Every other conversion is generated from the parsed source.</p>
+  <div class="portfolio-grid" id="templates-used">
     <div class="portfolio-card"><div class="portfolio-type">NFT</div><div class="portfolio-name">erc721</div><div class="portfolio-desc">ERC-721 NFT with enumeration, URI storage, and ERC-2981 royalties.</div></div>
     <div class="portfolio-card"><div class="portfolio-type">NFT</div><div class="portfolio-name">erc1155</div><div class="portfolio-desc">ERC-1155 multi-token with supply tracking and ERC-2981 royalties.</div></div>
+  </div>
+  <p class="section-sub"><code>templates.py</code> holds six more. No conversion starts from them; the <code>list_templates</code> action names all eight.</p>
+  <div class="portfolio-grid" id="templates-unused">
+    <div class="portfolio-card"><div class="portfolio-type">Token</div><div class="portfolio-name">erc20</div><div class="portfolio-desc">ERC-20 token with burn, permit, and owner-only minting.</div></div>
     <div class="portfolio-card"><div class="portfolio-type">Governance</div><div class="portfolio-name">governor</div><div class="portfolio-desc">DAO Governor with configurable voting parameters, quorum fraction, and timelock execution.</div></div>
     <div class="portfolio-card"><div class="portfolio-type">Governance</div><div class="portfolio-name">timelock</div><div class="portfolio-desc">Timelock controller for DAO governance execution delays.</div></div>
     <div class="portfolio-card"><div class="portfolio-type">Token</div><div class="portfolio-name">vesting</div><div class="portfolio-desc">Linear token vesting with cliff period and revocability.</div></div>
@@ -375,7 +378,7 @@ body{
 
 <!-- Footer -->
 <footer class="footer">
-  <p>The Matrix &middot; Smart Contract Conversion &middot; Plain language to Solidity</p>
+  <p>The Matrix &middot; Smart Contract Conversion &middot; Pseudocode, Solidity or Vyper to Solidity</p>
 </footer>
 
 <script>

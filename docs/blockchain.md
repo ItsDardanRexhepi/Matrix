@@ -141,6 +141,6 @@ The `stablecoin` agent tool's transfer (`runtime/blockchain/stablecoins.py`) sen
 
 | Operation | Quote | Source |
 |---|---|---|
-| Contract conversion tier (`estimate_contract_cost`, and the `tier` in a conversion result) | 0.01 ETH below 100 non-blank lines; 0.05 ETH below 500; 0.1 ETH above; "negotiated" past a complexity score of 200. Nothing collects it: no route or service takes a payment for a conversion | `runtime/blockchain/services/contract_conversion/tier_manager.py` (`_TIERS`; `conversion.tier_overrides`) |
+| Contract conversion tier (`estimate_contract_cost`, and the `tier` in a conversion result) | 0.01 ETH below 100 non-blank lines and 0.05 ETH from 100, while the complexity score (the non-blank line count plus weights for patterns such as `assembly` or `delegatecall`) stays under 200; at 200 or more the quote is "negotiated". The 0.1 ETH tier for 500 lines and more is reached only where an operator raises `conversion.custom_threshold` above 500, because the score is never below the line count. Nothing collects it: no route or service takes a payment for a conversion | `runtime/blockchain/services/contract_conversion/tier_manager.py` (`_TIERS`; `conversion.tier_overrides`) |
 
 Paid plugin sales are not live (the purchase route answers `501`); their commission is the operator's `plugin_marketplace.commission_rate`. Subscriptions (Pro, Enterprise) are sold in the MTRX app through Apple In-App Purchase.

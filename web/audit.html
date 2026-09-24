@@ -266,7 +266,7 @@ body{
 <header class="hero">
   <div class="hero-badge">Glasswing Security Engine v1.0</div>
   <h1 style="margin-top:20px">Automated Smart Contract<br>Security Scanning<br><em>Powered by Glasswing</em></h1>
-  <p>Automated vulnerability detection across 12 attack classes. Glasswing scans contract source before deployment and returns its findings with remediation guidance.</p>
+  <p>Automated vulnerability detection across 12 attack classes. Glasswing scans contract source before deployment and returns its findings, each with a one-line description.</p>
   <p><strong>Ordering an audit is not live.</strong> This gateway has no audit service behind its audit routes (they answer 503), so nothing on this page takes an order or a payment, and no report is produced.</p>
 </header>
 
@@ -294,7 +294,7 @@ body{
 <section class="section" id="report">
   <h2 class="section-title">What an Audit Returns</h2>
   <p class="section-sub">One automated scan: the 12 checks above, run on the source it is given</p>
-  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a description that says how to fix it, the line and the code it points at. A Critical finding fails the audit; a High one fails it only when <code>security.block_on_high</code> is on. Nobody reviews the report by hand, and nothing on this gateway takes an order or a payment for an audit.</p>
+  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a one-line description of the problem (most checks also suggest a fix; the locked-ether, selfdestruct and timestamp checks do not), the line and the code it points at. A Critical finding fails the audit; a High one fails it only when <code>security.block_on_high</code> is on. Nobody reviews the report by hand, and nothing on this gateway takes an order or a payment for an audit.</p>
 </section>
 
 <!-- Submit Form -->
