@@ -161,7 +161,7 @@ async def main():
         warn(f"Cost estimation failed (non-critical): {e}")
 
     # ── Step 3: Convert to Solidity ─────────────────────────────────
-    step(3, "Converting pseudocode to optimised Solidity via ContractConversionService...")
+    step(3, "Converting pseudocode to Solidity via ContractConversionService...")
     t0 = time.monotonic()
     try:
         convert_result = await dispatcher.execute(

@@ -56,12 +56,12 @@ CERTIFICATION_TRACKS = {
 SAMPLE_QUESTIONS: dict[str, list[dict]] = {
     "developer": [
         {
-            "question": "Which Gateway API endpoint converts a natural-language contract description into audited Solidity source code?",
+            "question": "Which Gateway API endpoint converts pseudocode, Solidity or Vyper into Solidity and runs the Glasswing scan on the result?",
             "options": [
-                "POST /api/convert",
-                "POST /api/chat",
-                "POST /api/audit",
-                "POST /api/deploy",
+                "POST /api/v1/contracts/convert",
+                "POST /chat",
+                "POST /audit/request",
+                "POST /api/v1/contracts/deploy",
             ],
             "correct_index": 0,
         },

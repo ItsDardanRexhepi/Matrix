@@ -14,7 +14,7 @@ On The Matrix, if you can think it, you can achieve it.
 
 What you can do on The Matrix:
 
-- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
+- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan — the generated interface, state, and function signatures, a draft for you to read, fill in and compile. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
 - Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
@@ -22,7 +22,7 @@ What you can do on The Matrix:
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
 - Send money anywhere in the world in seconds. The agent's stablecoin transfer takes nothing from it, the transfer capability deducts a small tiered fee (0.1% or less by default), the fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
-- Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
+- Build blockchain applications and games with less hand-written Solidity — write the contract as structured pseudocode, read the Solidity draft it generates, compile and deploy it yourself
 - Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
 - Access parametric insurance that pays automatically when the data it watches meets the condition, no claims, no adjusters, no waiting
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,344 tests, run against the versions
+automated suite of 5,350 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -200,7 +200,7 @@ What works today, no chain required:
   reached, an executor that was not wired and an execution that threw are
   each reported as the refusal they are, and when Neo does run, the
   hand-off relays Neo's own verdict rather than its own opinion of it
-- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit; it compiles and deploys the result only where an operator turns on `conversion.auto_deploy`
+- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → generated Solidity draft → Glasswing security audit; it compiles and deploys the result only where an operator turns on `conversion.auto_deploy`
 - **Blockchain services, with no chain configured** — answer with what
   happened rather than a success: a stake returns a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide, a

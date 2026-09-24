@@ -32,14 +32,12 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
             {"name": "source_lang", "type": "string", "description": "Language of the source: solidity, vyper or pseudocode. Nothing else is parsed.", "example": "solidity"},
             {"name": "target_chain", "type": "string", "description": "EVM chain the generated Solidity is tuned for: base, ethereum or polygon (any other name gets Base's settings; the output is Solidity either way).", "example": "base"},
         ],
-        "optional_params": [
-            {"name": "optimize", "type": "boolean", "description": "Apply gas optimizations during conversion.", "default": True},
-        ],
+        "optional_params": [],
         "keywords": ["convert contract", "translate contract", "port contract", "migrate contract", "change chain", "convert my contract", "move contract to"],
-        "follow_up": "I can turn it into Solidity. Could you share the source code, whether it's Solidity, Vyper or a plain description, and whether it's for Base, Ethereum or Polygon?",
+        "follow_up": "I can turn it into Solidity. Could you share the source: Solidity, Vyper, or the contract written as structured pseudocode (a contract line, state lines and function lines; a paragraph of prose is not read)? And is it for Base, Ethereum or Polygon?",
         "example_conversation": (
             "User: I want to move my lease agreement contract to Polygon\n"
-            "Trinity: Sure! Could you paste the contract source? Is it Solidity, Vyper, or a plain description of what it should do?\n"
+            "Trinity: Sure! Could you paste the contract source? Is it Solidity, Vyper, or pseudocode?\n"
             "User: It's Solidity. [pastes code]\n"
             "Trinity: [calls platform_action with action='convert_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'polygon'}]"
         ),

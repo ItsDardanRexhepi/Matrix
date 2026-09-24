@@ -585,3 +585,30 @@ def test_a_route_documented_as_used_by_a_session_is_one_a_session_reaches():
     assert not offenders, (
         "docs/api-reference.md names a wallet session as the caller of routes a session "
         "is answered 403 on (gateway/session_routes.py): " + ", ".join(offenders))
+
+
+# ── The certification bank's answers ────────────────────────────────────────
+#
+# The developer track asked which endpoint converts a contract and marked
+# "POST /api/convert" correct. That path is not registered; the converter is at
+# POST /api/v1/contracts/convert. A certification answer is a client contract
+# too: whoever passes the question has learned the path.
+
+def test_every_route_a_certification_answer_names_is_registered():
+    from runtime.certification.assessments import SAMPLE_QUESTIONS
+
+    pairs, _paths = _registered()
+    problems, seen = [], 0
+    for track, questions in SAMPLE_QUESTIONS.items():
+        for q in questions:
+            answer = q["options"][q["correct_index"]].strip()
+            m = re.fullmatch(r"(GET|POST|PUT|DELETE|PATCH) (/\S+)", answer)
+            texts = [(m.group(1), m.group(2))] if m else []
+            texts += [(mm.group(1), mm.group(2)) for mm in _INLINE.finditer(q["question"])]
+            for method, path in texts:
+                seen += 1
+                if (method, _norm(path)) not in pairs:
+                    problems.append(f"{track}: {q['question'][:70]!r} answers {method} {path}, "
+                                    "which the gateway does not register")
+    assert seen, "no certification answer names a route; the reader sees nothing"
+    assert not problems, "\n".join(problems)

@@ -351,3 +351,18 @@ def test_no_course_or_page_says_the_platform_deploys_a_contract_for_you():
             for m in re.finditer(pattern, flat):
                 offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 30]}...")
     assert not offenders, "\n".join(offenders)
+
+
+def test_no_a2a_listing_offers_contract_deployment():
+    """GET /a2a/services is public, and it listed Neo's "Smart Contract
+    Deployment: Deploy and verify smart contracts on Base and other EVM
+    chains". The platform deploys nothing; a listing is an offer."""
+    from runtime.a2a.marketplace import BUILTIN_SERVICES
+
+    offenders = []
+    for svc in BUILTIN_SERVICES:
+        text = " ".join([svc.get("name", ""), svc.get("description", ""),
+                         " ".join(svc.get("capabilities", []))]).lower()
+        if re.search(r"\bdeploy(?:s|ment|ing)?\b|contract_deployment", text) and "deploys nothing" not in text:
+            offenders.append(f"{svc.get('agent_id')}: {svc.get('name')}: {svc.get('description')}")
+    assert not offenders, "\n".join(offenders)
