@@ -3,9 +3,12 @@ BlockchainInterface — base class for all blockchain capabilities.
 
 Every capability inherits from this and gets:
 - Web3 connection via RPC
-- Gas sponsorship via ERC-4337 paymaster
-- EAS attestation for every action
+- A platform signer metered by the sponsorship policy (`_platform_signer`)
 - Config-driven chain/contract addresses (no hardcoded values)
+
+The base class writes no attestation. A capability that attests calls
+EASClient itself, which signs outside the sponsorship policy;
+docs/blockchain.md lists those actions.
 """
 
 import json

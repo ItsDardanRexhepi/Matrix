@@ -24,7 +24,7 @@ weight, or a category are NOT in scope: they cannot offer or claim anything.
 They are dead entries, logged for Phase 6 cleanup, and asserting on them here
 would be noise that hides the real property.
 
-D-045 / §CD — two OFFER surfaces this file did not walk, both live at 9819e06:
+D-045 / §CD — two OFFER surfaces this file did not walk, both live at be42685:
 
   * the BLOCKCHAIN CAPABILITY TOOLS. `smart_contract` is registered as a tool
     in every configuration and its action enum contained "deploy"; the method

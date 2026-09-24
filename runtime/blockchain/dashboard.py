@@ -107,7 +107,7 @@ class Dashboard(BlockchainInterface):
                 "gas_price_wei": str(gas_price),
                 "gas_price_gwei": str(self.web3.from_wei(gas_price, "gwei")),
                 "eth_transfer_cost": str(self.web3.from_wei(gas_price * 21000, "ether")),
-                "note": "All gas is covered by the platform — users never pay",
+                "note": "Gas is sponsored by the platform within the operator's sponsorship policy, with its listed exemptions (docs/blockchain.md, Fees)",
                 "network": self.network,
             }, indent=2)
         except Exception as e:
@@ -153,7 +153,7 @@ class Dashboard(BlockchainInterface):
                 "platform_balance_eth": str(self.web3.from_wei(balance, "ether")),
                 "latest_block": latest_block,
                 "gas_price_gwei": str(self.web3.from_wei(gas_price, "gwei")),
-                "gas_policy": "All gas fees covered by platform — users never pay",
+                "gas_policy": "Gas is sponsored by the platform within the operator's sponsorship policy, with its listed exemptions (docs/blockchain.md, Fees)",
             }, indent=2)
         except Exception as e:
             return refusal(

@@ -1,6 +1,6 @@
 # The Matrix End-to-End Examples
 
-Runnable scripts that prove the platform works on-chain (Base Sepolia).
+Runnable scripts that walk the platform's services. A step reaches the chain (Base Sepolia) only through the RPC and keys in `matrix.config.json`; example 05 completes with no chain configured.
 
 ## Prerequisites
 
@@ -56,9 +56,9 @@ will print a warning and continue with the remaining steps.
 | 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
 | 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
 | 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
-| 05 | `05_marketplace_flow.py` | List item, search, buy via atomic escrow, fee routing | 24 |
-| 06 | `06_eas_attestation_chain.py` | Every action creates an EAS attestation; batch attest; verify | 8 |
-| 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee routing | 1, NeoSafe |
+| 05 | `05_marketplace_flow.py` | List, search, view and buy; the sale is recorded with its fee split (no escrow, nothing moves on chain) | 24 |
+| 06 | `06_eas_attestation_chain.py` | Writing EAS attestations, batching them, verifying one | 8 |
+| 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
 
@@ -104,32 +104,20 @@ Every example works on mainnet with zero code changes — just update your confi
 
 **Before going to mainnet:**
 - Contract conversion runs the Glasswing security audit on generated Solidity; it does not deploy it unless `conversion.auto_deploy` is on, in which case it deploys with the platform's paymaster account (example 01 always runs with it off)
-- EAS attestations are created for every state-modifying action
-- Revenue from all fee-generating actions routes to NeoSafe automatically
+- A state-modifying action the service dispatcher completes is queued for an EAS attestation, written to the chain in batches of 50 (see below)
+- Contracts the conversion pipeline generates carry a platform fee paid to `platform_wallet`; there is no single flow that routes every platform fee to NeoSafe (see below)
 - Oracle data feeds switch to mainnet Chainlink contracts automatically
 
-## EAS Attestation on Every Action
+## EAS Attestations
 
-Every state-modifying action in The Matrix creates an on-chain EAS (Ethereum Attestation Service) attestation. This is built into `ServiceDispatcher.execute()` — you don't need to do anything extra.
+`ServiceDispatcher.execute()` queues an EAS (Ethereum Attestation Service) attestation for a state-modifying action it completes; a refusal or an unconfirmed broadcast is not queued as done. The queue is written to the chain once 50 have gathered in the same process. Nothing drains it on a timer, and what is queued is lost if the process exits first.
 
-What gets attested:
-- Contract deployments (code hash, deployer, audit status)
-- Token transfers (sender, recipient, amount, tx hash)
-- Loan originations and repayments
-- NFT mints and sales (with royalty info)
-- Insurance policy creation and claim payouts
-- Governance votes and proposal executions
-- Identity registrations and verifications
+The dispatcher's record carries the action, the service, the caller it resolved and a hash of the parameters. What reaches the chain is narrower: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
 
-See `examples/06_eas_attestation_chain.py` for the full attestation flow.
+See `examples/06_eas_attestation_chain.py` for the attestation calls.
 
 ## Revenue Routing to NeoSafe
 
-All platform fees automatically route to the NeoSafe multisig via `RevenueEnforcer`:
-- Contract conversion fees
-- Marketplace transaction fees
-- NFT royalty platform share
-- Insurance premium fees
-- DeFi origination fees
+The conversion pipeline's `RevenueEnforcer` writes a platform fee into the contracts it generates, paid to the configured `platform_wallet` when the contract collects it. Protocol referral fees name the NeoSafe address as their recipient (`runtime/blockchain/protocol_referrals.py`). `NeoSafeRouter` can record fees and send revenue to the NeoSafe wallet, but nothing in the gateway calls it yet. There is no single flow that routes every platform fee to NeoSafe.
 
-See `examples/07_revenue_to_neosafe.py` for the complete revenue flow.
+See `examples/07_revenue_to_neosafe.py`, which calls the router directly.

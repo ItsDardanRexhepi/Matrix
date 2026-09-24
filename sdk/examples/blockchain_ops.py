@@ -3,7 +3,7 @@
 The Matrix SDK — Blockchain Operations Example
 
 Demonstrates all blockchain capabilities through the SDK.
-All gas fees are covered by the platform — users never pay.
+Gas is sponsored by the platform paymaster within the operator's sponsorship policy.
 """
 
 import asyncio

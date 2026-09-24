@@ -24,7 +24,8 @@ info:
     name: The Matrix engineering
     url: https://openmatrix-ai.com
   license:
-    name: Proprietary
+    name: MIT
+    identifier: MIT
 
 servers:
   - url: https://api.openmatrix-ai.com
@@ -390,7 +391,7 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
 
   # -------------------------------------------------------------------
-  # Blockchain services (44 services across 21 categories). Each follows the same
+  # Blockchain services (the service registry's services). Each follows the same
   # ServiceEnvelope pattern, so we describe request/response shapes
   # inline and skip repeating the envelope for every route.
   # -------------------------------------------------------------------
@@ -960,7 +961,7 @@ paths:
 
   /bridge/v1/services:
     get:
-      summary: Enumerate all 221 capabilities
+      summary: The bridge's service catalog for the iOS app
       responses:
         "200":
           description: Service catalog

@@ -46,7 +46,7 @@ Stablecoins are the bridge between volatile crypto prices and predictable dollar
 
 ## The Services
 
-The Matrix provides 221 capabilities across 21 categories. The DeFi and DeFi-advanced categories alone cover perps, options, synthetics, lending, swaps, liquid staking, restaking (EigenLayer), orderbook DEX, and more. Here are the main categories:
+The Matrix catalogues 195 capabilities across 21 categories. The DeFi and DeFi-advanced categories alone cover perps, options, synthetics, lending, swaps, liquid staking, restaking (EigenLayer), orderbook DEX, and more. Here are the main categories:
 
 **Lending and Borrowing**: Deposit collateral, borrow stablecoins, earn interest on deposits.
 

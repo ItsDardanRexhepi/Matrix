@@ -5,8 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "test": "jest"
+    "build": "tsc"
   },
   "keywords": ["the-matrix", "ai", "blockchain", "agents", "web3"],
   "author": "Dardan Rexhepi",

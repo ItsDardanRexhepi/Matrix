@@ -1,8 +1,96 @@
 """Shared fixtures for The Matrix test suite."""
 
 import os
+import re
+import shutil
+import tempfile
 
 import pytest
+
+# THE SUITE CLEANS UP ITS OWN TEMPORARY FILES. Dozens of tests create scratch
+# directories with tempfile.mkdtemp and never remove them, so every run left
+# hundreds in the system temp folder, and parallel runs filled a disk. For the
+# life of the pytest process, Python's temporary directory is a folder private
+# to that process, removed when the session ends: every mkdtemp made by a test
+# or by the code under test lands there, child processes inherit it through
+# TMPDIR, and one run cannot delete another's files. A run that is killed never
+# reaches session end, so its folder carries its process id, and each new run
+# removes the folders of processes that have exited — keeping any folder whose
+# process is alive or cannot be checked, and any that still holds a live run's
+# folder. The check is POSIX-only; on Windows no folder is swept.
+_SESSION_TEMP = {"dir": None, "tempdir": None, "env": None}
+_SUITE_PREFIX = "the-matrix-suite-"
+_SUITE_FOLDER = re.compile(r"the-matrix-suite-([0-9]+)-.+")
+
+
+def _pid_of(name: str):
+    """The process id a suite folder's name carries, or None when the name is not
+    exactly a suite folder's (ASCII digits, then a dash). Whether the id names a
+    process at all is left to _process_is_alive."""
+    match = _SUITE_FOLDER.fullmatch(name)
+    return int(match.group(1)) if match else None
+
+
+def _process_is_alive(pid: int) -> bool:
+    """True unless the process has certainly exited. Anything the check cannot
+    settle — an id out of range, a permission refusal — counts as alive, so the
+    sweep keeps the folder rather than guessing. On Windows os.kill(pid, 0) sends
+    a console control event instead of probing, so there every process counts as
+    alive and nothing is swept."""
+    if os.name == "nt":
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OverflowError, ValueError, OSError):
+        return True
+    return True
+
+
+def _holds_a_live_run(folder: str) -> bool:
+    """A child pytest inherits TMPDIR, so its folder sits inside its parent's."""
+    for root, dirs, _files in os.walk(folder):
+        for name in dirs:
+            pid = _pid_of(name)
+            if pid is not None and _process_is_alive(pid):
+                return True
+    return False
+
+
+def _remove_folders_of_exited_runs(parent: str) -> None:
+    try:
+        names = os.listdir(parent)
+    except OSError:
+        return
+    for name in names:
+        pid = _pid_of(name)
+        if pid is None or _process_is_alive(pid):
+            continue
+        folder = os.path.join(parent, name)
+        if os.path.islink(folder) or not os.path.isdir(folder) or _holds_a_live_run(folder):
+            continue
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def pytest_configure(config):
+    _remove_folders_of_exited_runs(tempfile.gettempdir())
+    base = tempfile.mkdtemp(prefix=f"{_SUITE_PREFIX}{os.getpid()}-")
+    _SESSION_TEMP.update(dir=base, tempdir=tempfile.tempdir, env=os.environ.get("TMPDIR"))
+    tempfile.tempdir = base
+    os.environ["TMPDIR"] = base
+
+
+def pytest_unconfigure(config):
+    base = _SESSION_TEMP["dir"]
+    if not base:
+        return
+    tempfile.tempdir = _SESSION_TEMP["tempdir"]
+    if _SESSION_TEMP["env"] is None:
+        os.environ.pop("TMPDIR", None)
+    else:
+        os.environ["TMPDIR"] = _SESSION_TEMP["env"]
+    shutil.rmtree(base, ignore_errors=True)
 
 # Environment prefixes whose variables switch security posture: production mode,
 # the gateway credential wall, the test-mint switch, the seam's state/attest/OTP

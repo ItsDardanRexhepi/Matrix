@@ -106,12 +106,14 @@ The response includes:
 
 ## Getting a Glasswing Security Badge
 
-Contracts that pass all 12 checks with zero Critical or High findings receive a **Glasswing Security Badge**. This badge is:
+A contract that passes all 12 checks with zero Critical or High findings can get a **Glasswing Security Badge**. `POST /badge/issue` takes the contract's source, runs the audit itself, and on a pass records a badge with:
 
-- Recorded as an EAS attestation on-chain
-- Verifiable by anyone using the attestation UID
-- Linked to the specific version of the code that was audited
-- Displayed alongside the contract on the Matrix dashboard
+- A page at `/badge/{badge_id}` and a status endpoint at `/badge/{badge_id}/status`
+- An embed snippet for your project's site
+- A place in the public registry at `/badges`
+- A hash of the audit report it was issued on, and an expiry one year out
+
+No EAS attestation is written for a badge yet, so the gateway that issued it is the only place to check one. Only the `/badges` registry is public: with an API key set, the badge page, its status, its embed and the widget script answer 401 to a visitor without the key.
 
 The badge does not guarantee the contract is bug-free -- no audit can promise that. It certifies that the contract passed automated screening for the most common vulnerability patterns.
 
@@ -139,7 +141,7 @@ The cost of re-auditing is near zero -- Glasswing runs in seconds. The cost of d
 - Glasswing performs a 12-point scan covering the most critical vulnerability categories
 - Submit contracts via Trinity (`/chat`) or directly via `/audit/request`
 - Critical and High findings block deployment; Medium and below are advisory
-- The Glasswing Security Badge is an on-chain attestation of passing the audit
+- The Glasswing Security Badge is a record on the gateway of a passing audit, not an on-chain attestation
 - Re-audit after every significant code change
 
 ---

@@ -1,8 +1,10 @@
 """Plugin marketplace store with SQLite persistence.
 
-Manages plugin listings, purchases, and download tracking.
-Supports free and paid plugins with Stripe integration for
-payment processing.
+Manages plugin listings, purchases, and download tracking. A free plugin is
+recorded as owned when it is bought. A paid plugin's purchase answers
+``requires_iap`` with its price split by PLATFORM_COMMISSION and stops there:
+nothing in this repository takes a payment, records a paid purchase or pays a
+developer.
 """
 
 from __future__ import annotations
@@ -117,9 +119,8 @@ class PluginMarketplace:
         db : Database, optional
             SQLite database for persistence.
 
-        Paid plugin purchases are handled client-side in the MTRX iOS app
-        via Apple IAP. The backend records ownership after the app reports
-        a successful purchase.
+        A paid plugin is not sold here: purchase() answers ``requires_iap``,
+        and no method or route records a paid purchase afterwards.
         """
         self.config = config or {}
         self.db = db
@@ -227,8 +228,8 @@ class PluginMarketplace:
     ) -> dict:
         """Initiate a plugin purchase.
 
-        For free plugins, completes immediately. For paid plugins,
-        creates a Stripe checkout session.
+        For free plugins, completes immediately. For paid plugins, answers
+        ``requires_iap`` with the price and its split and records nothing.
 
         Parameters
         ----------
@@ -240,7 +241,8 @@ class PluginMarketplace:
         Returns
         -------
         dict
-            Purchase result with checkout URL for paid plugins.
+            Purchase result. For a paid plugin, its price and split, and no
+            checkout.
         """
         listing = self.listings.get(plugin_id)
         if not listing:
@@ -260,16 +262,17 @@ class PluginMarketplace:
                 "price_paid": 0.0,
             }
 
-        # Paid plugins — purchase flow lives in the MTRX iOS app (Apple IAP).
-        # Clients should initiate the purchase via StoreKit and then call
-        # `record_purchase` with the verified transaction.
+        # Paid plugins: the sale is not completed anywhere in this repository.
+        # No method or route records a paid purchase, and nothing takes a
+        # payment or pays a developer, so this answer says so.
         return {
             "status": "requires_iap",
             "plugin_id": plugin_id,
             "price_usd": listing.price_usd,
             "platform_fee": round(listing.price_usd * PLATFORM_COMMISSION, 2),
             "developer_revenue": round(listing.price_usd * (1 - PLATFORM_COMMISSION), 2),
-            "message": "Complete the purchase in the MTRX iOS app.",
+            "message": ("Paid plugins cannot be bought yet: nothing on this "
+                        "server records a paid purchase."),
         }
 
     async def has_purchased(self, wallet_address: str, plugin_id: str) -> bool:
@@ -366,7 +369,8 @@ class PluginMarketplace:
         return {
             "status": "submitted",
             "plugin_id": listing.plugin_id,
-            "message": "Plugin submitted for review. You will be notified when approved.",
+            "message": ("Plugin submitted. It is stored as pending; nothing on "
+                        "this server reviews or approves a listing yet."),
         }
 
     async def record_download(self, plugin_id: str) -> None:

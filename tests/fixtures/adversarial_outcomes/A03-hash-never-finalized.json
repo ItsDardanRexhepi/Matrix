@@ -1,0 +1,40 @@
+{
+  "id": "A3",
+  "case": "Hash never finalized",
+  "false_signal": "receipt status 1 at depth 0",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "broadcast": true,
+      "status": "submitted",
+      "settled": true,
+      "value_moved": true,
+      "block_number": 100,
+      "gas_used": 21000
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "receipt": {
+        "status": 1,
+        "blockNumber": 100
+      },
+      "head_block": 100,
+      "required_depth": 12
+    },
+    "outranks_because": "a receipt counts only at the configured depth"
+  },
+  "expected": {
+    "verdict": "PENDING",
+    "run_state": "RUNNING",
+    "reason": "below_required_depth",
+    "then": "VERIFIED once the receipt is at the required depth"
+  },
+  "legacy": {
+    "record_verdict": "settled",
+    "report": "success"
+  },
+  "head_behaviour": "settle_transaction settles at status 1 with no depth, the dispatcher records it settled, and it is attested and published."
+}

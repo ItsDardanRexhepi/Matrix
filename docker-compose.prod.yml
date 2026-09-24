@@ -50,11 +50,16 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data         # certificates + ACME account keys
-      - caddy_config:/config     # Caddy admin API state
+      - caddy_config:/config     # Caddy's config dir (autosave of the loaded config)
     networks:
       - matrix_internal
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:2019/config/"]
+      # The Caddyfile turns the admin API off, so localhost:2019 does not
+      # answer and a check against it never passes. This asks the
+      # loopback-only :2020 listener the Caddyfile defines for it. 127.0.0.1,
+      # not localhost: busybox wget may try ::1 first, and the listener is
+      # bound to IPv4 loopback only.
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:2020/"]
       interval: 30s
       timeout: 5s
       retries: 3

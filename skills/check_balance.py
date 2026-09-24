@@ -1,53 +1,60 @@
 """
-Check Balance — retrieves wallet balance across connected networks.
+Check Balance — reads a wallet's native balance on the configured network.
 
-This skill queries the connected blockchain node for the user's wallet
-balance and returns a formatted summary of holdings.
+This skill queries the blockchain node the platform is configured for
+(``blockchain.rpc_url``) and returns the address's ETH balance. It reads one
+network, the configured one, and the native balance only.
 """
 
 SKILL_NAME = "check_balance"
 SKILL_DESCRIPTION = (
-    "Check the balance of a wallet address on any supported network. "
-    "Returns ETH balance and major token balances. "
-    "Use when the user asks about their balance, holdings, or portfolio."
+    "Check the native (ETH) balance of a wallet address on the network this "
+    "platform is configured for. "
+    "Use when the user asks about a wallet's ETH balance."
 )
 SKILL_PARAMETERS = {
     "type": "object",
     "properties": {
         "address": {
             "type": "string",
-            "description": "Wallet address or ENS name. If omitted, uses the connected wallet.",
-        },
-        "network": {
-            "type": "string",
-            "description": "Network to query (e.g. 'base', 'ethereum', 'polygon'). Defaults to the configured network.",
+            "description": "A 0x wallet address. If omitted, the platform wallet is used.",
         },
     },
 }
 
 
-async def execute(address: str = "", network: str = "", **kwargs) -> str:
+async def execute(address: str = "", **kwargs) -> str:
     """Execute the balance check."""
     try:
-        from runtime.blockchain.interface import BlockchainInterface
+        # The platform's shared connection, whose `.w3` this skill was written
+        # against. It used to build `BlockchainInterface(config)` — an abstract
+        # class, which cannot be instantiated — and read `.w3`, which that class
+        # does not have, so every call answered "Failed to check balance".
+        from runtime.blockchain.web3_manager import Web3Manager
 
-        config = kwargs.get("config", {})
-        blockchain = BlockchainInterface(config)
-
+        config = kwargs.get("config") or {}
         if not address:
             address = config.get("blockchain", {}).get("platform_wallet", "")
             if not address:
                 return "No wallet address provided and no default wallet configured."
 
-        balance_wei = blockchain.w3.eth.get_balance(address)
-        balance_eth = blockchain.w3.from_wei(balance_wei, "ether")
+        chain = Web3Manager.get_shared(config)
+        # Raises when nothing was read (no RPC configured, or the read failed):
+        # an unread balance is not zero.
+        balance_eth = chain.get_balance_eth(address)
 
-        net = network or config.get("blockchain", {}).get("network", "base-sepolia")
-        return (
-            f"**Wallet Balance**\n"
-            f"- **Address**: `{address[:6]}...{address[-4:]}`\n"
-            f"- **Network**: {net}\n"
-            f"- **ETH Balance**: {balance_eth:.6f} ETH\n"
-        )
+        lines = [
+            "**Wallet Balance**",
+            f"- **Address**: `{address[:6]}...{address[-4:]}`",
+            f"- **Network**: {chain.network}",
+            f"- **ETH Balance**: {balance_eth:.6f} ETH",
+        ]
+        requested = kwargs.get("network")
+        if requested and str(requested).lower() != str(chain.network).lower():
+            lines.append(
+                f"- This is the balance on {chain.network}, the configured "
+                f"network; {requested} was not read."
+            )
+        return "\n".join(lines) + "\n"
     except Exception as e:
         return f"Failed to check balance: {e}"

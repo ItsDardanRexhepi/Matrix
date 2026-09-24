@@ -483,6 +483,12 @@
     "block_on_critical": true,
     "block_on_high": false
   },
+  "engines": {
+    "_readme": "Measurement only. evidence.mode is \"off\" (the default: nothing new is recorded, though the two tables exist, empty, because the database creates them whatever the mode) or \"shadow\": each URF decision is written to the urf_decision_log table, and each state-modifying action dispatched through the service dispatcher whose service returns an answer writes one evidence_shadow row saying what the dispatcher's own verdict was, with the caller and the parameters stored as sha256 digests, never raw. A dispatch whose service raises writes no row, and neither do the /api/v1 service routes, which call services without the dispatcher. A row that cannot be written at once because another writer holds the database is dropped, not waited for. Nothing reads either table to decide anything. MATRIX_EVIDENCE_MODE overrides this value; it is read once at startup, so a change takes a restart, and a gateway in shadow says so in its boot log.",
+    "evidence": {
+      "mode": "off"
+    }
+  },
   "_supply_chain_note": "qr_secret has NO default and nothing falls back to one: unset (or left as this placeholder, or set to the retired published value) the QR generator refuses to issue or verify product-authenticity codes and says not_configured. Set it to a long random per-deployment value, in the environment as MATRIX_QR_SECRET, before issuing any QR code you intend to treat as authoritative. The verification hash is HMAC-SHA256 over product_id|timestamp, so every code ever issued under a different secret stops verifying when you rotate it.",
   "supply_chain": {
     "qr_secret": "CHANGE-ME-long-random-per-deployment-value"

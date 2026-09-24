@@ -197,7 +197,7 @@ class Payments(BlockchainInterface):
             return json.dumps({
                 "gas_price_gwei": str(self.web3.from_wei(gas_price, "gwei")),
                 "estimated_eth_transfer_cost": str(eth_cost),
-                "paid_by": "platform (The Matrix) — users never pay gas",
+                "paid_by": "platform paymaster, within the operator's sponsorship policy",
                 "network": self.network,
             })
         except Exception as e:

@@ -1,8 +1,9 @@
 """
 ENS Importer — imports Ethereum Name Service records.
 
-Resolves ENS names associated with an address and creates
-local records of domain ownership in The Matrix.
+Resolves ENS names associated with an address and writes them as JSON
+under imported/ens/ (--output changes it). Nothing is written into the
+gateway's database.
 """
 
 import argparse
@@ -71,9 +72,13 @@ async def fetch_ens_names(address: str) -> list[dict]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Import ENS names into The Matrix")
+    parser = argparse.ArgumentParser(description=(
+        "Look up the ENS names an address owns through The Graph's ENS subgraph "
+        "and write them as a JSON file under imported/ens/ (--output changes the "
+        "directory). Nothing is written into the gateway's database."))
     parser.add_argument("--address", required=True, help="Ethereum address to look up ENS names for")
-    parser.add_argument("--output", default="imported/ens", help="Output directory")
+    parser.add_argument("--output", default="imported/ens",
+                        help="Directory the JSON file is written to (default: imported/ens)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
