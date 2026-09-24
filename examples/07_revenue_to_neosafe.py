@@ -238,7 +238,7 @@ contract SimpleToken {
     2. NeoSafeRouter    - Records a fee in memory and queues its attestation,
                           when called directly, as here; it moves no value
 
-  {BOLD}Every fee and where it goes:{RESET} docs/blockchain.md, under Fees
+  {BOLD}The fees the code is known to take:{RESET} docs/blockchain.md, under Fees
 
   {BOLD}NeoSafe wallet:{RESET} {platform_wallet}
 

@@ -439,8 +439,8 @@ def test_the_absent_fee_scan_catches_the_old_sentence():
            "premium fee and no defi origination fee; the example list that used to stand "
            "here named both.")
     assert sum(bool(re.search(p, old)) for p in _ABSENT_FEE_CLAIMS) == 3
-    assert not any(re.search(p, "every fee the code takes is listed under fees, with its "
-                                "rate and where it goes.") for p in _ABSENT_FEE_CLAIMS)
+    assert not any(re.search(p, "the fees the code is known to take are listed under fees, "
+                                "with their rates.") for p in _ABSENT_FEE_CLAIMS)
 
 
 def test_no_text_says_what_the_fee_table_lacks():
@@ -455,6 +455,45 @@ def test_no_text_says_what_the_fee_table_lacks():
             continue
         flat = _flat(raw)
         for pattern in _ABSENT_FEE_CLAIMS:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 30]}...")
+    assert not offenders, "\n".join(offenders)
+
+
+# The replacement sentence was an absolute: "Every fee the code takes, with its
+# rate and where it goes, is listed under Fees". The Fees section says its own
+# sweep matches names, so a fee computed under a name that says neither "fee"
+# nor "commission" would not be found, and its service-ledger rows say only that
+# those fees are recorded and not settled. The README said the same absolute
+# twice and example 07 printed it. The table lists the fees the code is known to
+# take; no text may say it lists every one.
+_EVERY_FEE_CLAIMS = [
+    r"every fee\b[^.]{0,80}?\bis listed",
+    r"every fee and where it goes",
+    r"\ball (?:the )?fees\b[^.]{0,60}?\bare listed",
+    r"complete list of (?:the |platform )?fees",
+]
+
+
+def test_the_every_fee_scan_catches_the_old_sentences():
+    old = ("every fee the code takes, with its rate and where it goes, is listed under fees in "
+           "docs/blockchain.md. every fee is listed under fees. and every fee, its rate and where "
+           "it goes is listed under fees. every fee and where it goes: docs/blockchain.md")
+    assert sum(len(re.findall(p, old)) for p in _EVERY_FEE_CLAIMS) == 4
+    assert not any(re.search(p, "the fees the code is known to take are listed under fees, "
+                                "with their rates; the sweep that finds them matches names.")
+                   for p in _EVERY_FEE_CLAIMS)
+
+
+def test_no_text_says_the_fee_table_lists_every_fee():
+    fees = (ROOT / "docs" / "blockchain.md").read_text(encoding="utf-8")
+    section = fees[fees.index("## Fees"):]
+    assert "sweep matches names" in " ".join(section.split()), (
+        "the Fees section no longer says its sweep matches names; re-derive this check")
+    offenders = []
+    for rel, raw in _public_surfaces():
+        flat = _flat(raw)
+        for pattern in _EVERY_FEE_CLAIMS:
             for m in re.finditer(pattern, flat):
                 offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 30]}...")
     assert not offenders, "\n".join(offenders)

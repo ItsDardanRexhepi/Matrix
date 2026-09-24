@@ -20,7 +20,7 @@ What you can do on The Matrix:
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world in seconds. The agent's stablecoin transfer takes nothing from it, the transfer capability deducts a small tiered fee (0.1% or less by default), every fee is listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
+- Send money anywhere in the world in seconds. The agent's stablecoin transfer takes nothing from it, the transfer capability deducts a small tiered fee (0.1% or less by default), the fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
 - Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,337 tests, run against the versions
+automated suite of 5,339 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -433,9 +433,9 @@ sponsored. What is checked depends on who signs:
 
 Some operations carry a platform fee: the platform contracts pay theirs
 to each contract's `platformFeeRecipient`, which `scripts/deploy_all.py`
-sets to the configured NeoSafe address, and every fee, its rate and where
-it goes is listed under Fees in `docs/blockchain.md`, checked against the
-code by a test. Capabilities return
+sets to the configured NeoSafe address. The fees the code is known to
+take, with their rates, are listed under Fees in `docs/blockchain.md`,
+checked against the code by a test that finds a fee by its name. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 

@@ -122,6 +122,6 @@ The platform contracts pay their on-chain fees (marketplace 5%, staking 5% of re
 
 `NeoSafeRouter` (`runtime/blockchain/services/neosafe.py`) is not on that path, and no service calls it. It can record a fee on an in-memory ledger (`route_fee`), which only `examples/07_revenue_to_neosafe.py` calls. It can also send ETH to the multisig when a chain is configured (`route_revenue`); nothing outside the tests calls `route_revenue`. Service fees (stablecoin transfers, cross-border payments, the service-ledger staking commission and others) are computed on the service's own ledger, some recorded and not settled; nothing moves them anywhere. Protocol referral fees name the NeoSafe address as their recipient, and nothing collects them (`runtime/blockchain/protocol_referrals.py`).
 
-Every fee the code takes, with its rate and where it goes, is listed under **Fees** in `docs/blockchain.md`.
+The fees the code is known to take, with their rates, are listed under **Fees** in `docs/blockchain.md`, where a test derives each rate from the file that sets it. That test finds a fee by its name, so a fee computed under a name that says neither "fee" nor "commission" would not be listed; and for the service-ledger fees the table can say only that they are recorded and not settled, because nothing moves them anywhere.
 
 `examples/07_revenue_to_neosafe.py` shows what `route_fee` does when called directly.
