@@ -591,6 +591,9 @@ class CreatorPlatformsService:
                 )},
             )
         url = endpoint.rstrip("/") + "/tx"
+        # Set once the gateway has answered: every fault after that is about a
+        # request it received, whatever its type (see classify_transport_fault).
+        resp = None
         try:
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                 resp = await client.post(url, headers=headers, json=payload)
@@ -618,7 +621,7 @@ class CreatorPlatformsService:
                 "protocol": "Mirror (mirror.xyz / Arweave)",
                 "title": title,
             }
-            _kind = classify_transport_fault(exc)
+            _kind = classify_transport_fault(exc, after_send=resp is not None)
             if _kind == "not_sent":
                 return publish_not_sent(
                     base=_base, endpoint=safe_endpoint(url), exc=exc)
@@ -774,6 +777,7 @@ class CreatorPlatformsService:
                 )},
             )
         url = endpoint.rstrip("/") + "/v1/posts"
+        resp = None   # set once the gateway has answered, as in Mirror above
         try:
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
                 resp = await client.post(url, headers=headers, json=payload)
@@ -797,7 +801,7 @@ class CreatorPlatformsService:
                 "protocol": "Paragraph (paragraph.xyz)",
                 "title": title,
             }
-            _kind = classify_transport_fault(exc)
+            _kind = classify_transport_fault(exc, after_send=resp is not None)
             if _kind == "not_sent":
                 return publish_not_sent(
                     base=_base, endpoint=safe_endpoint(url), exc=exc)

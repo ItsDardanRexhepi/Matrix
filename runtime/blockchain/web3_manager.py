@@ -60,6 +60,27 @@ def is_placeholder_value(value: Any) -> bool:
     return stripped.startswith("YOUR_") or stripped.upper().startswith("YOUR_")
 
 
+#: Set on an exception raised while the signed transaction was being handed
+#: to the node. What such an exception says about the transaction is nothing:
+#: a read timeout, a reset connection or a reply that does not decode can all
+#: come after the node accepted it, and the transaction may be mined.
+HANDED_TO_NODE_ATTR = "raw_transaction_handed_to_node"
+
+
+def mark_handed_to_node(exc: BaseException) -> None:
+    """Record on *exc* that it was raised by ``send_raw_transaction``."""
+    try:
+        setattr(exc, HANDED_TO_NODE_ATTR, True)
+    except Exception:  # an exception type that takes no attributes
+        pass
+
+
+def was_handed_to_node(exc: BaseException) -> bool:
+    """True when *exc* came from handing a signed transaction to the node, so
+    the transaction may exist whatever the exception's type says."""
+    return getattr(exc, HANDED_TO_NODE_ATTR, False) is True
+
+
 class Web3Manager:
     """Singleton-style shared web3 connection manager.
 
@@ -328,7 +349,11 @@ class Web3Manager:
 
                 signed = account.sign_transaction(tx_to_sign)
                 raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
-                tx_hash = self.w3.eth.send_raw_transaction(raw)
+                try:
+                    tx_hash = self.w3.eth.send_raw_transaction(raw)
+                except Exception as exc:
+                    mark_handed_to_node(exc)
+                    raise
                 return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
             except Exception as exc:
                 logger.error("Web3Manager.send_transaction failed: %s", exc)
