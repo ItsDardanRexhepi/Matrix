@@ -746,9 +746,12 @@ def resolve_caller_identity() -> str:
 # was listed as "shared account handle; every USE of it is a call site metered on
 # its own". No use of it was. `Web3Manager.get_account()` returned the unmetered
 # signer, `Web3Manager.send_transaction` signed with it, and that method is the
-# ONLY signing path the 45 services in runtime/blockchain/services/** have — 35
-# call sites across 16 services, every one of them a platform signature the
-# D-045 cap never saw. The claim was the whole justification; nothing checked it.
+# signing path the services in runtime/blockchain/services/** send through, so
+# every signature it produced for them was one the D-045 cap never saw. (It is
+# not their only one: contract_conversion's deploy signs and broadcasts on its
+# own, through the metered signer, and the attestation service's revoke and
+# time-critical write sign with the listed exemptions below.) The claim was the
+# whole justification; nothing checked it.
 #
 # The exemption is gone. `Web3Manager.signer()` is metered like every other
 # capability's `_platform_signer`, and `get_account()` hands back an address, not
@@ -900,9 +903,11 @@ def settle_signature(tx_hash: Any) -> bool:
 
 def abandon_signature(tx_hash: Any) -> bool:
     """The node REFUSED *tx_hash*'s raw transaction: it will not be mined, no
-    gas is paid, and the budget goes back. Only for a refusal the node itself
-    stated — a transport fault says nothing about whether the bytes arrived,
-    and the row must then stay SIGNED."""
+    gas is paid, and the budget goes back. Only for a refusal the node named
+    (`node_refused`) about a hash it then said it does not hold
+    (`node_holds_no_copy`) — a transport fault, a timeout or any answer off
+    that list says nothing about whether the bytes arrived, and the row must
+    then stay SIGNED."""
     entry = _take_signature(tx_hash)
     if entry is None:
         return False
@@ -923,42 +928,131 @@ def abandon_signature(tx_hash: Any) -> bool:
 #
 # Compared with spaces, underscores and case taken out, because clients spell
 # them differently ("already known", "AlreadyKnown", "TRANSACTION_ALREADY_KNOWN").
+# An answer that carries one of these is never a refusal, whatever else it says.
 _STILL_PENDING_OR_MINED = (
     "alreadyknown", "knowntransaction", "alreadyimported",
     "noncetoolow", "nonceistoolow", "oldnonce",
 )
 
+# The refusals that give budget back: the answers geth, and the clients that
+# share its errors (op-geth on Base, reth, erigon, anvil), give when they turn
+# a transaction away before it enters the pool. Compared the same way.
+#
+# A LIST OF REFUSALS, NOT A LIST OF EXCEPTIONS TO ONE. This read every JSON-RPC
+# error as a refusal unless it named a pending or mined copy, and a JSON-RPC
+# error is often nothing of the kind: geth answers -32002 "request timed out"
+# while the handler that received the bytes keeps running; a Base replica
+# forwards the transaction to the sequencer and returns the forwarding error as
+# it is, and a forwarding timeout can come after the sequencer has the bytes; a
+# proxy answers -32603 "Internal error" or "context deadline exceeded" having
+# forwarded them. Each of those gave a signature's budget back for gas the
+# platform could still pay. An answer that is not on this list keeps the row
+# SIGNED, holding budget until its window passes — the direction that never
+# over-grants. A refusal missing from the list costs budget held, not budget
+# handed out.
+_REFUSED_AT_ADMISSION = (
+    "insufficientfunds",                   # insufficient funds for gas * price + value
+    "intrinsicgastoolow",                  # intrinsic gas too low
+    "underpriced",                         # transaction underpriced; replacement transaction underpriced
+    "lessthanblockbasefee",                # max fee per gas less than block base fee
+    "invalidsender",                       # invalid sender
+    "exceedsblockgaslimit",                # exceeds block gas limit
+    "exceedstheconfiguredcap",             # tx fee (… ether) exceeds the configured cap (… ether)
+    "txpoolisfull",                        # txpool is full
+    "onlyreplayprotected",                 # only replay-protected (EIP-155) transactions allowed over RPC
+    "invalidchainid",                      # invalid chain id for signer
+    "oversizeddata",                       # oversized data
+    "transactiontypenotsupported",         # transaction type not supported
+    "maxpriorityfeepergashigherthanmaxfeepergas",  # tip above the fee cap
+)
 
-def node_refused(exc: BaseException) -> bool:
-    """Did the NODE refuse these bytes, in a way no mined or pending copy of the
-    transaction could produce?
+_METHOD_NOT_FOUND = -32601
 
-    Only a JSON-RPC error response counts: the node received the bytes and said
-    no. web3 7 raises `Web3RPCError` for that; web3 6 raised `ValueError`
-    carrying the RPC error dict. Anything else — a timeout, a dropped
-    connection, a 5xx from a proxy — may have delivered the bytes, so it is not
-    a refusal. Neither is an answer that fits the transaction already being in
-    a mempool or on chain (`_STILL_PENDING_OR_MINED`).
 
-    The answer must also be about the only delivery. The shared manager's
-    provider does not re-send a raw transaction (`broadcast_safe_http_provider`);
-    with web3's default retry, a lost reply was followed by a second POST of the
-    same bytes, and the node's answer to that one was read here.
-    """
-    message = ""
+def _rpc_error(exc: BaseException) -> Optional[tuple[Optional[int], str]]:
+    """The (code, message) of a JSON-RPC error answer, or None when *exc* is
+    not one. web3 7 raises `Web3RPCError` and keeps the answer on
+    `rpc_response`; web3 6 raised `ValueError` carrying the error dict. The
+    message is read from the answer's own `message`, not from its `data`."""
     try:
         from web3.exceptions import Web3RPCError
     except Exception:  # noqa: BLE001 — older web3 has no such type
         Web3RPCError = ()  # type: ignore[assignment]
     if Web3RPCError and isinstance(exc, Web3RPCError):
-        message = str(exc)
-    elif isinstance(exc, ValueError) and exc.args and isinstance(exc.args[0], dict) \
+        response = getattr(exc, "rpc_response", None)
+        error = response.get("error") if isinstance(response, dict) else None
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            code = error.get("code")
+            return (code if isinstance(code, int) else None), error["message"]
+        return None, str(getattr(exc, "message", None) or exc)
+    if isinstance(exc, ValueError) and exc.args and isinstance(exc.args[0], dict) \
             and "message" in exc.args[0]:
-        message = str(exc.args[0].get("message", ""))
-    else:
+        code = exc.args[0].get("code")
+        return (code if isinstance(code, int) else None), str(exc.args[0].get("message", ""))
+    return None
+
+
+def node_refused(exc: BaseException) -> bool:
+    """Did the NODE refuse these bytes at admission?
+
+    True only for a JSON-RPC error answer (the node received the bytes and
+    replied) whose message is one of the refusals in `_REFUSED_AT_ADMISSION`,
+    or for a node that has no send method at all (-32601). Anything else is
+    not a refusal: a timeout, a dropped connection, a 5xx from a proxy, a
+    JSON-RPC timeout (web3's `RequestTimedOut`), a relayed internal error, and
+    any message not on the list. Neither is an answer that fits the
+    transaction already being in a mempool or on chain
+    (`_STILL_PENDING_OR_MINED`).
+
+    The answer must also be about the only delivery. The shared manager's
+    provider does not re-send a raw transaction (`broadcast_safe_http_provider`);
+    with web3's default retry, a lost reply was followed by a second POST of the
+    same bytes, and the node's answer to that one was read here.
+
+    A True here is not enough to give budget back on its own: the caller also
+    asks the node whether it holds the transaction (`node_holds_no_copy`).
+    """
+    try:
+        from web3.exceptions import RequestTimedOut
+    except Exception:  # noqa: BLE001 — older web3 has no such type
+        RequestTimedOut = ()  # type: ignore[assignment]
+    if RequestTimedOut and isinstance(exc, RequestTimedOut):
         return False
+    answer = _rpc_error(exc)
+    if answer is None:
+        return False
+    code, message = answer
     squeezed = "".join(ch for ch in message.lower() if ch.isalnum())
-    return not any(k in squeezed for k in _STILL_PENDING_OR_MINED)
+    if any(k in squeezed for k in _STILL_PENDING_OR_MINED):
+        return False
+    if code == _METHOD_NOT_FOUND:
+        return True
+    return any(k in squeezed for k in _REFUSED_AT_ADMISSION)
+
+
+def node_holds_no_copy(w3: Any, tx_hash: Any) -> bool:
+    """Asked right after a refusal, does the node say it holds NO transaction
+    under *tx_hash* — neither pending in its pool nor mined?
+
+    True only for the node's own "not found" (web3 raises `TransactionNotFound`
+    for a null answer and for a "transaction not found" error). Anything else
+    is False: a transaction it returns, a lookup that times out or fails, a
+    node still indexing. A refusal the node named can still be about a copy
+    that exists — a proxy that delivered the bytes to one backend and relayed
+    another's answer, or a retry made somewhere between here and the node — and
+    a copy that exists can still be mined.
+    """
+    try:
+        from web3.exceptions import TransactionNotFound
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        found = w3.eth.get_transaction(tx_hash)
+    except TransactionNotFound:
+        return True
+    except Exception:  # noqa: BLE001 — no answer is not "not found"
+        return False
+    return found is None
 
 
 class MeteredSigner:

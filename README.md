@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,227 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,276 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -250,18 +250,23 @@ check behind it:
   data being signed rather than read from a label the caller supplies. The
   ledger says what became of each signature: it holds budget as signed,
   becomes spent when a receipt shows the transaction was mined (a revert
-  pays gas too), and gives the budget back only when the node refuses the
-  transaction in a way no mined or pending copy of it could produce, such
-  as a sender who cannot pay for it. A send whose fate nobody learned keeps
-  holding it, because it may still be mined, and so does a node answering
-  "nonce too low" or "already known", because that is what a node says once
-  the transaction is mined or waiting to be. Every web3 connection the
+  pays gas too), and gives the budget back only when two things hold: the
+  node answered the send with one of the refusals a node gives when it
+  turns a transaction away at its pool — the sender cannot pay for it,
+  the fee is below what the node accepts, the gas is below the minimum,
+  and a short list like them — and the node, asked right after, holds no
+  transaction under that hash, pending or mined. Any other answer keeps
+  holding it, because the transaction may still be mined: a send whose
+  fate nobody learned, a timeout the node or a proxy reports as an error,
+  a relayed internal error, an error nobody listed, and a node answering
+  "nonce too low" or "already known", which is what a node says once the
+  transaction is mined or waiting to be. Every web3 connection the
   running platform opens sends a raw transaction once and never retries
   it, so the answer read is the answer to the one delivery; a retried send
   whose first reply was lost used to hear "nonce too low" about a
   transaction that had been mined, and gave its budget back. A node
   refusal is read on the shared web3 manager's send, which the services
-  sign through; the blockchain capabilities that broadcast on their own
+  send through; the blockchain capabilities that broadcast on their own
   do not read it yet, so a signature the node refused there holds budget
   until the day's window passes. An
   operator who configures no cap keeps the previous behaviour

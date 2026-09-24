@@ -368,17 +368,21 @@ class Web3Manager:
                 except Exception as send_exc:
                     # THE NODE SAID NO: nothing will be mined and no gas is
                     # paid, so the sponsorship budget this signature holds goes
-                    # back. Only a refusal the node stated about the one
-                    # delivery (this provider does not re-send the bytes), and
-                    # only one no mined or pending copy could produce: "nonce
-                    # too low" and "already known" keep the row SIGNED, as does
-                    # a transport fault, which may have delivered the bytes.
+                    # back. Only when both hold: the answer to the one delivery
+                    # (this provider does not re-send the bytes) is a refusal on
+                    # the node's admission list, and the node, asked right
+                    # after, holds no transaction under this hash, pending or
+                    # mined. Everything else keeps the row SIGNED: a transport
+                    # fault or a timeout, which may have delivered the bytes;
+                    # "nonce too low" and "already known"; a relayed internal
+                    # error; a lookup that finds the transaction or fails.
                     signed_hash = getattr(signed, "hash", None)
                     try:
                         from runtime.blockchain.sponsorship import (
-                            abandon_signature, node_refused,
+                            abandon_signature, node_holds_no_copy, node_refused,
                         )
-                        if signed_hash is not None and node_refused(send_exc):
+                        if signed_hash is not None and node_refused(send_exc) \
+                                and node_holds_no_copy(self.w3, signed_hash):
                             abandon_signature(signed_hash)
                     except Exception as ledger_exc:  # noqa: BLE001
                         logger.warning("sponsorship ledger: could not release a "

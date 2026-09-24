@@ -12,13 +12,16 @@ The row is now closed by the two places that learn a signature's fate, keyed
 by the transaction hash the signed bytes already determine:
 
     a receipt arrives (mined, success or revert)  -> SPENT     wait_for_receipt_on
-    the node answers the send with a refusal       -> released  Web3Manager.send_transaction
+    the node answers the send with a listed
+    refusal, and then holds no copy of the hash    -> released  Web3Manager.send_transaction
 
 and it stays SIGNED — holding budget — for everything that does not establish
-either: a transport fault on the send, a node saying it already has the bytes
-or that the nonce is used (both are what a node says once this transaction is
-pending or mined), a receipt wait that runs out. The refusal read is the answer
-to the only delivery: the provider does not re-send a raw transaction.
+either: a transport fault on the send, any answer off the refusal list (a
+JSON-RPC timeout, a relayed internal error), a node saying it already has the
+bytes or that the nonce is used (both are what a node says once this
+transaction is pending or mined), a node that holds the hash or cannot be
+asked, a receipt wait that runs out. The refusal read is the answer to the
+only delivery: the provider does not re-send a raw transaction.
 
 SIBLING AXIS, named and not changed: the metered blockchain capabilities in
 runtime/blockchain/*.py (nfts, staking, daos, payments, gaming, eas_manager,
@@ -59,10 +62,17 @@ def _signer(policy) -> MeteredSigner:
 
 
 class _Eth:
-    def __init__(self, *, send_raises=None, receipt=None, receipt_raises=None):
+    def __init__(self, *, send_raises=None, receipt=None, receipt_raises=None,
+                 lookup=None, lookup_raises=None):
         self._send_raises = send_raises
         self._receipt = receipt
         self._receipt_raises = receipt_raises
+        # What the node says when asked for the transaction by its hash: by
+        # default that it holds none (web3 raises TransactionNotFound for a
+        # null answer).
+        self._lookup = lookup
+        self._lookup_raises = lookup_raises
+        self.lookups: list = []
         self.gas_price = 1_000_000_000
 
     def send_raw_transaction(self, raw):
@@ -70,6 +80,15 @@ class _Eth:
             raise self._send_raises
         from eth_utils import keccak
         return keccak(raw)
+
+    def get_transaction(self, tx_hash):
+        self.lookups.append(tx_hash)
+        if self._lookup_raises is not None:
+            raise self._lookup_raises
+        if self._lookup is None:
+            from web3.exceptions import TransactionNotFound
+            raise TransactionNotFound(f"Transaction with hash: {tx_hash!r} not found.")
+        return self._lookup
 
     def get_transaction_count(self, _addr):
         return 0
@@ -261,22 +280,38 @@ class _Node:
     """A JSON-RPC node behind a real `requests` session: the provider, its
     retry and web3's error decoding all run for real; only the wire is fake."""
 
-    def __init__(self, raw_answers):
+    def __init__(self, raw_answers, *, lookup="none"):
         self.raw_answers = list(raw_answers)
         self.raw_posts = 0
         self.methods: list[str] = []
+        # The answer to eth_getTransactionByHash: "none" (a null result: the
+        # node holds no such transaction), "holds" (the transaction, pending),
+        # or a JSON-RPC error object.
+        self.lookup = lookup
+        self.sent_hashes: list[str] = []
 
     def post(self, _url, data=None, **_kwargs):
-        method = json.loads(data)["method"]
+        request = json.loads(data)
+        method = request["method"]
         self.methods.append(method)
         if method == "web3_clientVersion":
             return _rpc_reply(data, result="node/test")
         if method == "eth_sendRawTransaction":
+            from eth_utils import keccak
+            self.sent_hashes.append("0x" + keccak(hexstr=request["params"][0]).hex())
             self.raw_posts += 1
             answer = self.raw_answers.pop(0) if self.raw_answers else requests.Timeout("lost")
             if isinstance(answer, BaseException):
                 raise answer
             return _rpc_reply(data, error=answer)
+        if method == "eth_getTransactionByHash":
+            asked = request["params"][0]
+            if isinstance(self.lookup, dict):
+                return _rpc_reply(data, error=self.lookup)
+            if self.lookup == "holds" and asked.lower() in self.sent_hashes:
+                return _rpc_reply(data, result={"hash": asked, "blockNumber": None,
+                                                "nonce": "0x0"})
+            return _rpc_reply(data, result=None)
         raise AssertionError(f"unexpected RPC {method}")
 
 
@@ -422,3 +457,229 @@ def test_every_http_provider_in_the_platform_sends_a_raw_transaction_once():
                 offenders.append(f"{path.relative_to(root)}:{line}")
     assert offenders == [], (
         "HTTP providers built outside broadcast_safe_http_provider: " + ", ".join(offenders))
+
+
+# ── a refusal is one the node names, about a hash it does not hold ──────────
+#
+# The rule above was still a deny-list: any JSON-RPC error whose text named
+# none of the pending or mined answers counted as the node refusing the bytes,
+# and released the row. A JSON-RPC error is not always a refusal:
+#
+#   * geth answers -32002 "request timed out" while the handler that received
+#     the bytes keeps running, so the transaction can still enter the pool;
+#     web3 itself raises that answer as `RequestTimedOut`;
+#   * a Base replica (op-geth) forwards the transaction to the sequencer and
+#     hands back the forwarding error as it is, and a forwarding timeout can
+#     come after the sequencer has the bytes;
+#   * a proxy answers -32603 "Internal error", "context deadline exceeded" or
+#     "gateway timeout" having forwarded them.
+#
+# Each one handed back a signature's budget for gas the platform can still
+# pay. The budget now comes back only for an answer on the list of refusals a
+# node makes when it turns a transaction away at admission
+# (`sponsorship._REFUSED_AT_ADMISSION`), and only when the node, asked right
+# after, holds no transaction under that hash. Anything else keeps the row
+# SIGNED: it holds budget, and is never released early.
+
+_INSUFFICIENT = {"code": -32000, "message": "insufficient funds for gas * price + value"}
+
+
+@pytest.mark.parametrize("error", [
+    {"code": -32002, "message": "request timed out"},
+    {"code": -32603, "message": "Internal error"},
+    {"code": -32000, "message": "context deadline exceeded"},
+    {"code": -32000, "message": "gateway timeout"},
+    {"code": -32000, "message": "upstream request timeout"},
+    {"code": -32000, "message": "an answer no list in this repository names"},
+], ids=lambda e: e["message"])
+async def test_a_json_rpc_error_that_names_no_refusal_keeps_the_budget(
+        tmp_path, monkeypatch, error):
+    """DEFECT-PROVER. Through the real manager, provider and web3 error
+    decoding: each of these released the row and zeroed the day's spend."""
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    node = _Node([error])
+    mgr = _live_manager(monkeypatch, node, signer)
+
+    with pytest.raises(Exception):
+        await mgr.send_transaction(dict(_TX))
+
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED, (
+        f"{error['message']!r} is not the node refusing the bytes, and the "
+        f"signature's budget was handed back"
+    )
+    assert policy.spent_today("0xA") > 0
+    assert node.raw_posts == 1
+
+
+def test_web3s_own_timeout_answer_is_not_a_refusal():
+    from web3.exceptions import RequestTimedOut, Web3RPCError
+
+    timed_out = {"code": -32002, "message": "request timed out"}
+    assert node_refused(RequestTimedOut(repr(timed_out), rpc_response={"error": timed_out})) is False
+    assert node_refused(Web3RPCError(repr({"code": -32603, "message": "Internal error"}))) is False
+    assert node_refused(ValueError({"code": -32000, "message": "context deadline exceeded"})) is False
+
+
+# The answers geth and the clients that share its errors (op-geth, reth,
+# erigon, anvil) give when they turn a transaction away before it enters the
+# pool. None is taken on its word alone: the budget comes back only when the
+# node, asked right after, also holds no transaction under the hash (below).
+_LISTED_REFUSALS = [
+    "insufficient funds for gas * price + value",
+    "insufficient funds for gas * price + value: balance 0, tx cost 21000000000000, overshot 21000000000000",
+    "intrinsic gas too low",
+    "intrinsic gas too low: gas 20000, minimum needed 21000",
+    "transaction underpriced",
+    "replacement transaction underpriced",
+    "max fee per gas less than block base fee",
+    "invalid sender",
+    "exceeds block gas limit",
+    "tx fee (1.20 ether) exceeds the configured cap (1.00 ether)",
+    "txpool is full",
+    "only replay-protected (EIP-155) transactions allowed over RPC",
+    "invalid chain id for signer",
+    "oversized data",
+    "transaction type not supported",
+    "max priority fee per gas higher than max fee per gas",
+]
+
+# Answers that are not a refusal of the bytes, or that nothing establishes is
+# one: timeouts in every spelling, proxy and transport failures relayed as
+# JSON-RPC, rate limits, and text no client is known to send.
+_NOT_REFUSALS = [
+    "request timed out",
+    "Internal error",
+    "internal server error",
+    "context deadline exceeded",
+    "context canceled",
+    "gateway timeout",
+    "upstream request timeout",
+    "Bad Gateway",
+    "service unavailable",
+    "connection reset by peer",
+    "EOF",
+    "failed to forward tx to sequencer",
+    "tx already in mempool",
+    "rate limit exceeded",
+    "Too Many Requests",
+    "execution timeout",
+    "header not found",
+    "something went wrong",
+    "",
+]
+
+
+@pytest.mark.parametrize("message", _LISTED_REFUSALS)
+def test_a_listed_refusal_is_a_refusal(message):
+    from web3.exceptions import Web3RPCError
+
+    error = {"code": -32000, "message": message}
+    assert node_refused(Web3RPCError(repr(error), rpc_response={"error": error})) is True
+    assert node_refused(Web3RPCError(repr(error))) is True
+    assert node_refused(ValueError(error)) is True
+
+
+@pytest.mark.parametrize("message", _NOT_REFUSALS)
+def test_an_answer_that_names_no_listed_refusal_is_not_one(message):
+    """THE CLASS. Being a JSON-RPC error is not enough: the answer has to be
+    one of the refusals a node gives at admission."""
+    from web3.exceptions import Web3RPCError
+
+    for code in (-32000, -32002, -32603, -32005):
+        error = {"code": code, "message": message}
+        assert node_refused(Web3RPCError(repr(error), rpc_response={"error": error})) is False, error
+        assert node_refused(ValueError(error)) is False, error
+
+
+def test_a_listed_word_in_the_data_field_is_not_the_nodes_answer():
+    """The refusal is read from the answer's message. A timeout whose `data`
+    happens to carry a listed word was still a timeout."""
+    from web3.exceptions import Web3RPCError
+
+    error = {"code": -32002, "message": "request timed out",
+             "data": "insufficient funds for gas * price + value"}
+    assert node_refused(Web3RPCError(repr(error), rpc_response={"error": error})) is False
+
+
+def test_a_node_without_the_send_method_did_not_take_the_bytes():
+    from web3.exceptions import MethodUnavailable
+
+    error = {"code": -32601, "message": "the method eth_sendRawTransaction does not exist/is not available"}
+    assert node_refused(MethodUnavailable(repr(error), rpc_response={"error": error})) is True
+    assert node_refused(ValueError(error)) is True
+
+
+async def test_a_listed_refusal_about_a_hash_the_node_holds_keeps_the_budget(
+        tmp_path, monkeypatch):
+    """DEFECT-PROVER. The answer names a refusal, but the node, asked, holds a
+    transaction under this very hash: a proxy that delivered the bytes to one
+    backend and relayed another's answer, or a retry made somewhere between us
+    and the node. A copy exists, so the gas may yet be paid."""
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    node = _Node([_INSUFFICIENT], lookup="holds")
+    mgr = _live_manager(monkeypatch, node, signer)
+
+    with pytest.raises(Exception):
+        await mgr.send_transaction(dict(_TX))
+
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED
+    assert policy.spent_today("0xA") > 0
+    assert node.methods.count("eth_getTransactionByHash") >= 1
+
+
+async def test_a_listed_refusal_the_node_cannot_be_asked_about_keeps_the_budget(
+        tmp_path, monkeypatch):
+    """The lookup must answer "no such transaction" for the budget to come
+    back. A node that cannot say (still indexing) has not said it."""
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    node = _Node([_INSUFFICIENT],
+                 lookup={"code": -32000, "message": "transaction indexing is in progress"})
+    mgr = _live_manager(monkeypatch, node, signer)
+
+    with pytest.raises(Exception):
+        await mgr.send_transaction(dict(_TX))
+
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED
+    assert policy.spent_today("0xA") > 0
+
+
+@pytest.mark.parametrize("fault", [
+    ConnectionError("reset by peer"),
+    TimeoutError("read timed out"),
+], ids=["connection", "timeout"])
+async def test_a_listed_refusal_whose_lookup_fails_keeps_the_budget(tmp_path, fault):
+    from web3.exceptions import Web3RPCError
+
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    eth = _Eth(send_raises=Web3RPCError(repr(_INSUFFICIENT)), lookup_raises=fault)
+    mgr = _manager(_W3(eth), signer)
+
+    with pytest.raises(Web3RPCError):
+        await mgr.send_transaction(dict(_TX))
+
+    assert eth.lookups, "the node was never asked for the transaction"
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED
+
+
+async def test_a_listed_refusal_about_a_hash_the_node_does_not_hold_gives_the_budget_back(
+        tmp_path, monkeypatch):
+    """SCOPE PIN. The release still happens, through the real provider, when
+    the node refused the bytes and holds no copy of them."""
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    node = _Node([_INSUFFICIENT])
+    mgr = _live_manager(monkeypatch, node, signer)
+
+    with pytest.raises(Exception):
+        await mgr.send_transaction(dict(_TX))
+
+    assert policy.state_of(signer.last_reservation_id) is None
+    assert policy.spent_today("0xA") == pytest.approx(0.0)
+    assert node.raw_posts == 1
+    assert "eth_getTransactionByHash" in node.methods, (
+        "the budget came back without the node being asked whether it holds the transaction"
+    )
