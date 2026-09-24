@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,217 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,233 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -370,6 +370,8 @@ A run's state is its lifecycle, never a verdict: `START` (recorded, not yet call
 The tables, created by migration 10: `workflow_runs`, `workflow_steps`, `outbox`, `idempotency_keys`. Callers and parameters are stored as sha256 digests. A recorded answer is kept for 24 hours, with secret-named fields withheld, and then dropped; its key stays bound, so it never runs twice. Going back from `on` to `shadow` or `off` takes a restart and leaves any undelivered outbox rows undelivered until `on` returns.
 
 Not covered yet: the `/api/v1/*` routes and the capability-invoke route do not read `Idempotency-Key` (the capability route's dispatches are journaled; the `/api/v1` service routes call services without the dispatcher and are not), and a model's tool calls carry no key.
+
+How it is held to that. A crash is injected at ten points across the four places this covers — the app's request reaching the gateway, the gateway reaching the dispatcher, the attestation, the feed entry — 100 seeded times at each, by copying what the database holds at that instant and recovering the copy in a fresh engine, and a real process kill is added at five of the points. Every one of the 1,000 leaves every run findable, recovers the same way twice, runs nothing again without passing the gate again, and acts at most once. An attestation the crash left unsent is sent exactly once; one whose sending the crash cut off is held, not sent a second time; and a feed entry lands exactly once (`tests/test_durable_crash_matrix.py`, `tests/baseline/durable_crash_matrix.json`).
 
 ---
 

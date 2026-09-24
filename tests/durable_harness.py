@@ -246,6 +246,24 @@ def gateway(scratch: Path, durable: dict | None = None, **extra):
     return GatewayServer(config)
 
 
+def measured_where() -> dict:
+    """The commit the working tree sat on when an artefact was measured, and
+    whether it carried uncommitted changes (the commit that adds the artefact
+    is one): ``git log -1 -- <file>`` names the commit that carries it."""
+    import subprocess
+    root = Path(__file__).resolve().parent.parent
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
+                              timeout=60).stdout.strip()
+    try:
+        head = git("rev-parse", "--short", "HEAD")
+        dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
+    except (OSError, subprocess.SubprocessError):
+        head, dirty = "", None
+    return {"on_top_of": head or "unknown", "with_uncommitted_changes": dirty}
+
+
 def body_for(action: str, marker: Any = 1) -> dict:
     return {"action": action, "params": {"to": WALLET, "amount": 5, "marker": marker},
             "session_id": "durable"}
