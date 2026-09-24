@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,235 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,237 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -372,6 +372,8 @@ The tables, created by migration 10: `workflow_runs`, `workflow_steps`, `outbox`
 Not covered yet: the `/api/v1/*` routes and the capability-invoke route do not read `Idempotency-Key` (the capability route's dispatches are journaled; the `/api/v1` service routes call services without the dispatcher and are not), and a model's tool calls carry no key.
 
 How it is held to that. A crash is injected at ten points across the four places this covers — the app's request reaching the gateway, the gateway reaching the dispatcher, the attestation, the feed entry — 100 seeded times at each, by copying what the database holds at that instant and recovering the copy in a fresh engine, and a real process kill is added at five of the points. Every one of the 1,000 leaves every run findable, recovers the same way twice, runs nothing again without passing the gate again, and acts at most once. An attestation the crash left unsent is sent exactly once; one whose sending the crash cut off is held, not sent a second time; and a feed entry lands exactly once (`tests/test_durable_crash_matrix.py`, `tests/baseline/durable_crash_matrix.json`). And 1,000 different request bodies sent to `/bridge/v1/action` in mode `on`, each repeated under its key — one in five as two requests at the same moment — act 1,000 times in all, never twice; the same bodies in `shadow` act 2,343 times, which is what the platform does without the engine (`tests/test_durable_replay_corpus.py`, `tests/baseline/durable_replay.json`).
+
+What it costs. With the mode off, nothing that can be told apart from noise: `pre_action`, a dispatch and a bridge request each land within 3% of main's p95 (the median over ten rounds, each measuring main and this tree back to back; `pre_action`, which nothing here touches, is the yardstick for noise). In `shadow` and `on` it is not free, and it is over the +10% budget the plan proposed for each phase: a state-modifying dispatch writes two small SQLite transactions, which against a stub service that answers in about 30 µs makes the dispatcher's own p95 about six times what it is in the same process with the mode off (about +0.3 ms), and a keyed bridge request writes four, about twice the route's p95 (about +0.9 ms). A real service call — a chain, an RPC — takes milliseconds to seconds, so the share there is smaller, but that has not been measured here (`tests/test_durable_latency.py`, `tests/baseline/durable_latency.json`).
 
 ---
 
