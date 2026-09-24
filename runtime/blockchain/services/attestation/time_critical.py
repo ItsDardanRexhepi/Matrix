@@ -47,7 +47,8 @@ class TimeCriticalHandler:
         """Lazy-load Web3 connection."""
         if self._web3 is None:
             from web3 import Web3
-            self._web3 = Web3(Web3.HTTPProvider(self.rpc_url))
+            from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+            self._web3 = Web3(broadcast_safe_http_provider(self.rpc_url))
         return self._web3
 
     @staticmethod

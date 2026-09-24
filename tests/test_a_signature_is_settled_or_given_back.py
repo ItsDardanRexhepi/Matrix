@@ -5,7 +5,7 @@ attest-money F17. `SponsorshipPolicy.settle` and `.abandon` existed, and
 and nothing in production called any of the three. Every metered signature
 stayed SIGNED until the 24h sweep: the ledger never recorded SPENT, and a
 signature the node refused outright never gave its budget back. Live, because
-`Web3Manager.send_transaction` — the one signing path of the services — signs
+`Web3Manager.send_transaction` — the path the services sign through — signs
 through the metered platform signer.
 
 The row is now closed by the two places that learn a signature's fate, keyed
@@ -15,8 +15,10 @@ by the transaction hash the signed bytes already determine:
     the node answers the send with a refusal       -> released  Web3Manager.send_transaction
 
 and it stays SIGNED — holding budget — for everything that does not establish
-either: a transport fault on the send, a node saying it already has the bytes,
-a receipt wait that runs out.
+either: a transport fault on the send, a node saying it already has the bytes
+or that the nonce is used (both are what a node says once this transaction is
+pending or mined), a receipt wait that runs out. The refusal read is the answer
+to the only delivery: the provider does not re-send a raw transaction.
 
 SIBLING AXIS, named and not changed: the metered blockchain capabilities in
 runtime/blockchain/*.py (nfts, staking, daos, payments, gaming, eas_manager,
@@ -125,12 +127,16 @@ async def test_a_mined_revert_is_recorded_as_spent_too(tmp_path):
 
 
 async def test_a_signature_the_node_refused_gives_its_budget_back(tmp_path):
-    """DEFECT-PROVER, the other direction, through the real send path."""
+    """DEFECT-PROVER, the other direction, through the real send path. The
+    refusal is one no mined or pending copy of the transaction could produce:
+    the sender cannot pay for it. ("nonce too low", which this used first, is
+    what a node says once the transaction IS mined; see below.)"""
     from web3.exceptions import Web3RPCError
 
     policy = _policy(tmp_path)
     signer = _signer(policy)
-    mgr = _manager(_W3(_Eth(send_raises=Web3RPCError("nonce too low"))), signer)
+    mgr = _manager(_W3(_Eth(send_raises=Web3RPCError(
+        "insufficient funds for gas * price + value"))), signer)
 
     with pytest.raises(Web3RPCError):
         await mgr.send_transaction(dict(_TX))
@@ -201,10 +207,218 @@ async def test_send_then_settle_end_to_end(tmp_path):
 
 
 @pytest.mark.parametrize("exc,expected", [
-    (ValueError({"code": -32000, "message": "nonce too low"}), True),
+    (ValueError({"code": -32000, "message": "insufficient funds for gas * price + value"}), True),
+    (ValueError({"code": -32000, "message": "nonce too low"}), False),
     (ValueError({"code": -32000, "message": "already known"}), False),
     (ValueError("not an rpc answer"), False),
     (OSError("broken pipe"), False),
 ])
 def test_what_counts_as_the_node_saying_no(exc, expected):
     assert node_refused(exc) is expected
+
+
+# ── a refusal is only a refusal of the bytes the node was sent once ─────────
+#
+# The release above over-granted. Two ways, one outcome: a row DELETED, and
+# the day's budget handed back, for a transaction the platform paid gas on.
+#
+#   1. The shared manager's HTTP provider carried web3's default retry, and
+#      that retry list includes eth_sendRawTransaction. A first POST that
+#      delivered the bytes and lost its reply was re-sent; by then the
+#      transaction was mined, the node answered the SECOND delivery with
+#      "nonce too low", and that answer was read as the node refusing the
+#      FIRST.
+#   2. "nonce too low" was counted as a refusal at all. It says the nonce is
+#      already used, which is exactly what a node says once THIS transaction
+#      is mined. So is "AlreadyKnown", the spelling without a space, for one
+#      still in the mempool.
+#
+# Both are closed: the provider sends a raw transaction once, and an answer
+# that fits the transaction being in a mempool or on chain is not a refusal.
+
+import json  # noqa: E402
+
+import requests  # noqa: E402
+
+_RPC_URL = "http://rpc.node.test"
+
+
+def _rpc_reply(request_body: bytes, *, result=None, error=None) -> requests.Response:
+    rid = json.loads(request_body).get("id", 1)
+    body = {"jsonrpc": "2.0", "id": rid}
+    if error is not None:
+        body["error"] = error
+    else:
+        body["result"] = result
+    reply = requests.Response()
+    reply.status_code = 200
+    reply._content = json.dumps(body).encode()
+    reply.headers["Content-Type"] = "application/json"
+    return reply
+
+
+class _Node:
+    """A JSON-RPC node behind a real `requests` session: the provider, its
+    retry and web3's error decoding all run for real; only the wire is fake."""
+
+    def __init__(self, raw_answers):
+        self.raw_answers = list(raw_answers)
+        self.raw_posts = 0
+        self.methods: list[str] = []
+
+    def post(self, _url, data=None, **_kwargs):
+        method = json.loads(data)["method"]
+        self.methods.append(method)
+        if method == "web3_clientVersion":
+            return _rpc_reply(data, result="node/test")
+        if method == "eth_sendRawTransaction":
+            self.raw_posts += 1
+            answer = self.raw_answers.pop(0) if self.raw_answers else requests.Timeout("lost")
+            if isinstance(answer, BaseException):
+                raise answer
+            return _rpc_reply(data, error=answer)
+        raise AssertionError(f"unexpected RPC {method}")
+
+
+def _live_manager(monkeypatch, node, signer) -> Web3Manager:
+    """The real Web3Manager, built by its own constructor, so its provider is
+    the one production gets."""
+    monkeypatch.setattr(requests.Session, "post", node.post)
+    mgr = Web3Manager({"blockchain": {"rpc_url": _RPC_URL, "chain_id": 8453}})
+    assert mgr.available, "the test node did not answer the manager's connect check"
+
+    async def _signer_for(_action=None):
+        return signer
+
+    mgr.signer = _signer_for
+    return mgr
+
+
+async def test_a_lost_reply_and_a_resend_that_hears_nonce_too_low_keep_the_budget(
+        tmp_path, monkeypatch):
+    """DEFECT-PROVER for the over-grant. The first POST delivers the bytes and
+    its reply is lost; the node's next answer about the same bytes is "nonce
+    too low", because the transaction was mined in between. The platform paid
+    that gas, so its budget stays held."""
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    node = _Node([requests.Timeout("reply lost after delivery"),
+                  {"code": -32000, "message": "nonce too low"}])
+    mgr = _live_manager(monkeypatch, node, signer)
+
+    with pytest.raises(Exception):
+        await mgr.send_transaction(dict(_TX))
+
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED, (
+        "a transaction whose first delivery may have been mined gave its "
+        "sponsorship budget back"
+    )
+    assert policy.spent_today("0xA") > 0
+    assert node.raw_posts == 1, (
+        f"the signed bytes were POSTed {node.raw_posts} times; an answer to a "
+        f"re-send is not an answer about the first delivery"
+    )
+
+
+async def test_the_managers_provider_sends_a_raw_transaction_once(tmp_path, monkeypatch):
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    node = _Node([requests.Timeout("t1"), requests.Timeout("t2"), requests.Timeout("t3")])
+    mgr = _live_manager(monkeypatch, node, signer)
+
+    with pytest.raises(requests.Timeout):
+        await mgr.send_transaction(dict(_TX))
+
+    assert node.raw_posts == 1
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED
+
+
+def test_the_providers_reads_are_still_retried():
+    """SCOPE PIN. Only the send is taken off the retry list: a read that times
+    out is still asked again, as before."""
+    from web3.providers.rpc.utils import check_if_retry_on_failure
+
+    from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+
+    retry = broadcast_safe_http_provider(_RPC_URL).exception_retry_configuration
+    assert retry is not None and retry.retries > 1
+    assert not check_if_retry_on_failure("eth_sendRawTransaction", retry.method_allowlist)
+    for read in ("eth_getTransactionReceipt", "eth_getTransactionCount", "eth_call",
+                 "eth_getBalance", "eth_chainId"):
+        assert check_if_retry_on_failure(read, retry.method_allowlist), read
+
+
+@pytest.mark.parametrize("message", [
+    "nonce too low",
+    "Nonce too low",
+    "NonceTooLow",
+    "NONCE_TOO_LOW",
+    "OldNonce",
+    "Transaction nonce is too low. Try incrementing the nonce.",
+    "already known",
+    "AlreadyKnown",
+    "TRANSACTION_ALREADY_KNOWN",
+    "known transaction: 0xabc",
+])
+def test_an_answer_that_fits_a_mined_or_pending_transaction_is_not_a_refusal(message):
+    from web3.exceptions import Web3RPCError
+
+    assert node_refused(Web3RPCError(str({"code": -32000, "message": message}))) is False
+    assert node_refused(ValueError({"code": -32000, "message": message})) is False
+
+
+@pytest.mark.parametrize("message", [
+    "insufficient funds for gas * price + value",
+    "intrinsic gas too low",
+    "max fee per gas less than block base fee",
+    "invalid sender",
+])
+def test_a_refusal_of_the_bytes_themselves_is_still_a_refusal(message):
+    """SCOPE PIN: the release still happens for an answer no mined or pending
+    copy of the transaction could produce."""
+    from web3.exceptions import Web3RPCError
+
+    assert node_refused(Web3RPCError(str({"code": -32000, "message": message}))) is True
+
+
+async def test_nonce_too_low_through_the_send_keeps_the_budget(tmp_path):
+    from web3.exceptions import Web3RPCError
+
+    policy = _policy(tmp_path)
+    signer = _signer(policy)
+    mgr = _manager(_W3(_Eth(send_raises=Web3RPCError("nonce too low"))), signer)
+
+    with pytest.raises(Web3RPCError):
+        await mgr.send_transaction(dict(_TX))
+
+    assert policy.state_of(signer.last_reservation_id) == SPEND_STATES.SIGNED
+
+
+def test_every_http_provider_in_the_platform_sends_a_raw_transaction_once():
+    """THE CLASS. A provider built anywhere in the platform's own process with
+    web3's default retry re-sends a raw transaction whose reply was lost, and
+    whoever reads the answer reads the re-send's. Every one is built by
+    `broadcast_safe_http_provider`; this finds them from the source, so a new
+    one cannot quietly bring the default back.
+
+    Outside the running platform and not changed: the operator's deploy tools
+    (contracts/deploy.py, deployer.py, eas_deployer.py, neosafe_verifier.py,
+    scripts/verify_platform.py) and demo.py keep web3's default retry. None of
+    them holds a sponsorship ledger or an attestation queue; a lost reply
+    there can make a deploy that landed report an error."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    helper = root / "runtime/blockchain/web3_manager.py"
+    offenders = []
+    for base in ("runtime", "gateway"):
+        for path in sorted((root / base).rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for m in re.finditer(r"\b(?:Async)?HTTPProvider\s*\(", text):
+                if path == helper:
+                    continue
+                line = text.count("\n", 0, m.start()) + 1
+                offenders.append(f"{path.relative_to(root)}:{line}")
+    assert offenders == [], (
+        "HTTP providers built outside broadcast_safe_http_provider: " + ", ".join(offenders))

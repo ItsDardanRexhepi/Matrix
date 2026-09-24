@@ -911,20 +911,39 @@ def abandon_signature(tx_hash: Any) -> bool:
     return True
 
 
-# Node answers that mean the transaction IS (or may yet be) in a mempool: the
-# same bytes were already accepted. Abandoning on these would hand back budget
-# for a transaction that can still be mined.
-_STILL_PENDING_REFUSALS = ("already known", "known transaction", "already imported")
+# Node answers that fit THIS transaction being in a mempool or already mined.
+# Abandoning on one hands back budget for gas the platform paid, or may yet pay:
+#
+#   * "already known" / AlreadyKnown / known transaction / already imported —
+#     the node holds these very bytes;
+#   * "nonce too low" / NonceTooLow / OldNonce / "nonce is too low" — the nonce
+#     is used on chain, which is exactly what a node says once this transaction
+#     is mined. It used to count as a refusal, and a first delivery whose reply
+#     was lost, answered again after the block, gave its budget back.
+#
+# Compared with spaces, underscores and case taken out, because clients spell
+# them differently ("already known", "AlreadyKnown", "TRANSACTION_ALREADY_KNOWN").
+_STILL_PENDING_OR_MINED = (
+    "alreadyknown", "knowntransaction", "alreadyimported",
+    "noncetoolow", "nonceistoolow", "oldnonce",
+)
 
 
 def node_refused(exc: BaseException) -> bool:
-    """Did the NODE answer this send with a refusal of the transaction?
+    """Did the NODE refuse these bytes, in a way no mined or pending copy of the
+    transaction could produce?
 
     Only a JSON-RPC error response counts: the node received the bytes and said
     no. web3 7 raises `Web3RPCError` for that; web3 6 raised `ValueError`
     carrying the RPC error dict. Anything else — a timeout, a dropped
     connection, a 5xx from a proxy — may have delivered the bytes, so it is not
-    a refusal, and neither is a node saying it already has them.
+    a refusal. Neither is an answer that fits the transaction already being in
+    a mempool or on chain (`_STILL_PENDING_OR_MINED`).
+
+    The answer must also be about the only delivery. The shared manager's
+    provider does not re-send a raw transaction (`broadcast_safe_http_provider`);
+    with web3's default retry, a lost reply was followed by a second POST of the
+    same bytes, and the node's answer to that one was read here.
     """
     message = ""
     try:
@@ -938,8 +957,8 @@ def node_refused(exc: BaseException) -> bool:
         message = str(exc.args[0].get("message", ""))
     else:
         return False
-    lowered = message.lower()
-    return not any(k in lowered for k in _STILL_PENDING_REFUSALS)
+    squeezed = "".join(ch for ch in message.lower() if ch.isalnum())
+    return not any(k in squeezed for k in _STILL_PENDING_OR_MINED)
 
 
 class MeteredSigner:

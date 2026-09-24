@@ -320,7 +320,8 @@ class AttestationService:
                 }
             ]
 
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
+            from runtime.blockchain.web3_manager import broadcast_safe_http_provider
+            w3 = Web3(broadcast_safe_http_provider(rpc_url))
             eas = w3.eth.contract(
                 address=Web3.to_checksum_address(self.eas_contract),
                 abi=revoke_abi,

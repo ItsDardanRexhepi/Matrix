@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,206 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,226 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -250,13 +250,20 @@ check behind it:
   data being signed rather than read from a label the caller supplies. The
   ledger says what became of each signature: it holds budget as signed,
   becomes spent when a receipt shows the transaction was mined (a revert
-  pays gas too), and gives the budget back when the node refuses the
-  transaction outright; a send whose fate nobody learned keeps holding it,
-  because it may still be mined. A node refusal is read on the shared
-  web3 manager's send, which the services sign through; the blockchain
-  capabilities that broadcast on their own do not read it yet, so a
-  signature the node refused there holds budget until the day's window
-  passes. An
+  pays gas too), and gives the budget back only when the node refuses the
+  transaction in a way no mined or pending copy of it could produce, such
+  as a sender who cannot pay for it. A send whose fate nobody learned keeps
+  holding it, because it may still be mined, and so does a node answering
+  "nonce too low" or "already known", because that is what a node says once
+  the transaction is mined or waiting to be. Every web3 connection the
+  running platform opens sends a raw transaction once and never retries
+  it, so the answer read is the answer to the one delivery; a retried send
+  whose first reply was lost used to hear "nonce too low" about a
+  transaction that had been mined, and gave its budget back. A node
+  refusal is read on the shared web3 manager's send, which the services
+  sign through; the blockchain capabilities that broadcast on their own
+  do not read it yet, so a signature the node refused there holds budget
+  until the day's window passes. An
   operator who configures no cap keeps the previous behaviour
 - **The deployment tools will not put the old paymaster on a chain.** The
   paymaster the platform uses is the ERC-4337 verifying one, which pays
