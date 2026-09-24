@@ -16,10 +16,13 @@ refused with a 403 and the example stops there. A gateway with no key set
 Whether the platform pays the gas depends on the deployment: with no
 paymaster key configured nothing is sponsored, and with one, the operator's
 sponsorship policy decides, and may refuse an operation (docs/blockchain.md,
-Gas). An attestation you ask for is metered like any other operation.
+Gas). An attestation you ask for is metered like any other operation. The
+example prints the dashboard reply whole and, under Gas, the statement of the
+gas_policy that reply carries; when the reply carries none, it says so.
 """
 
 import asyncio
+import json
 import os
 import sys
 sys.path.insert(0, ".")
@@ -73,14 +76,38 @@ contract HelloMatrix {
     )
     print(f"Result: {result['response'][:200]}")
 
-    # 5. Platform dashboard
+    # 5. Platform dashboard, printed whole: its gas_policy comes last, and
+    # cutting the reply short cuts it off.
     print("\n── Dashboard ──")
     result = await client.ablockchain("dashboard", action="platform_stats")
-    print(f"Result: {result['response'][:200]}")
+    print(f"Result: {result['response']}")
 
-    print("\nWhether the platform paid gas for any of these depends on the deployment: "
-          "with no paymaster configured nothing is sponsored, and with one the operator's "
-          "sponsorship policy decides (docs/blockchain.md, Gas).")
+    # Gas: what the dashboard reply says about it, and nothing it does not say.
+    policy = gas_policy_in(result)
+    print("\n── Gas ──")
+    if policy is None:
+        print("The dashboard reply did not include the deployment's gas policy; this "
+              "example does not know whether the platform sponsors gas here.")
+    else:
+        print(policy.get("statement") or f"gas_policy: {json.dumps(policy)}")
+
+
+def gas_policy_in(result: dict) -> dict | None:
+    """The gas_policy object the dashboard's platform_stats result carries,
+    found in Neo's reply or a tool call's result preview, or None when neither
+    holds one. Neo's reply is text; a JSON object in it is read as he gave it."""
+    texts = [result.get("response") or ""]
+    texts += [str(call.get("result_preview") or "") for call in result.get("tool_calls") or []]
+    decoder = json.JSONDecoder()
+    for text in texts:
+        for start in (i for i, ch in enumerate(text) if ch == "{"):
+            try:
+                value, _end = decoder.raw_decode(text, start)
+            except ValueError:
+                continue
+            if isinstance(value, dict) and isinstance(value.get("gas_policy"), dict):
+                return value["gas_policy"]
+    return None
 
 
 if __name__ == "__main__":

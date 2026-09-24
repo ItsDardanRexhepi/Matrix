@@ -578,3 +578,85 @@ def test_no_example_prints_that_gas_was_paid_whatever_happened():
             offenders += [f"{rel} {o}" for o in
                           _unconditional_gas_paid_prints(path.read_text(encoding="utf-8"))]
     assert not offenders, "\n".join(offenders)
+
+
+# The same example printed the dashboard reply cut to 200 characters. The
+# platform_stats result puts gas_policy last, after the network, the wallet,
+# its balance, the block and the gas price, so the cut removed exactly the part
+# the gas sentence pointed at. The example is run here with the client's
+# transport replaced: Neo's reply is the dashboard's own platform_stats result
+# for each configuration, and what the example prints about gas must be that
+# result's gas_policy statement, or say the reply did not carry one.
+
+class _Eth:
+    block_number = 12_345_678
+    gas_price = 1_000_000
+
+    def get_balance(self, _address):
+        return 0
+
+
+class _Web3:
+    eth = _Eth()
+
+    @staticmethod
+    def from_wei(value, _unit):
+        return value / 10**9
+
+
+def _platform_stats(config) -> str:
+    import asyncio
+    from runtime.blockchain.dashboard import Dashboard
+    dashboard = Dashboard(config)
+    dashboard._web3 = _Web3()
+    return asyncio.run(dashboard.execute(action="platform_stats"))
+
+
+def _run_the_sdk_example(monkeypatch, capsys, dashboard_reply: str) -> str:
+    import asyncio
+    import importlib.util
+    import sys
+    from sdk.client import MatrixClient
+
+    async def post(self, path, data):
+        reply = dashboard_reply if '"platform_stats"' in data.get("message", "") else "done"
+        return {"response": reply, "agent": data.get("agent", ""), "tool_calls": []}
+
+    monkeypatch.setattr(MatrixClient, "_post", post)
+    monkeypatch.setenv("MATRIX_API_KEY", "the-operator-key")
+    path = ROOT / "sdk" / "examples" / "blockchain_ops.py"
+    spec = importlib.util.spec_from_file_location("sdk_blockchain_ops_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "sdk_blockchain_ops_under_test", module)
+    spec.loader.exec_module(module)
+    capsys.readouterr()
+    asyncio.run(module.main())
+    return capsys.readouterr().out
+
+
+def _gas_section(out: str) -> str:
+    return out.split("── Gas ──", 1)[1] if "── Gas ──" in out else ""
+
+
+@pytest.mark.parametrize("name", ["no_paymaster", "capped", "uncapped"])
+def test_the_sdk_example_prints_the_gas_policy_the_dashboard_reply_carries(
+        monkeypatch, capsys, name):
+    stats = _platform_stats(CONFIGS[name])
+    policy = json.loads(stats)["gas_policy"]
+    assert policy == describe_gas_policy(CONFIGS[name])  # measured premise
+    reply = "Here are the platform stats:\n" + stats
+    assert reply.index('"gas_policy"') > 200, "premise: a 200-character cut drops gas_policy"
+
+    out = _run_the_sdk_example(monkeypatch, capsys, reply)
+    assert stats in out, "the dashboard reply is not printed whole"
+    gas = " ".join(_gas_section(out).split())
+    assert gas == " ".join(policy["statement"].split()), (
+        f"under {name}, the example printed {gas!r} for gas; the reply says "
+        f"{policy['statement']!r}")
+
+
+def test_the_sdk_example_says_so_when_the_reply_carries_no_gas_policy(monkeypatch, capsys):
+    out = _run_the_sdk_example(monkeypatch, capsys, "The dashboard is unavailable right now.")
+    gas = " ".join(_gas_section(out).split())
+    assert "did not include" in gas and "gas policy" in gas, gas
+    assert not _GAS_PAID.search(gas), gas
