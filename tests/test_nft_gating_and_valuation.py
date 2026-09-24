@@ -226,17 +226,28 @@ async def test_the_seven_say_nothing_settled_once_armed():
 async def test_the_header_table_says_what_each_method_returns():
     """The NEW-93 header's table is a claim about seven methods, and it went
     stale: it kept mapping them to "fractionalized", "rented", "minted" … after
-    all seven had been changed to answer `recorded_unsettled`. This reads the
-    table out of the module and holds each row to what the armed method
-    actually returns, so the next change to a return has to change the row."""
+    all seven had been changed to answer `recorded_unsettled`. This reads every
+    column of the table out of the module — the status, the `value_moved` it
+    names, and the store a row says the method writes — and holds each row to
+    what the armed method actually returns and writes, so the next change to a
+    return has to change its row. (Its first version read only the status word,
+    so a row's `value_moved` could have said anything.)"""
     import re
 
     text = SERVICE_SRC.read_text()
-    rows = dict(re.findall(r"^#\s{5}(\w+)\s+->\s+(\w+)", text, flags=re.M))
+    table = re.findall(
+        r"^#\s{5}(\w+)\s+->\s+(\w+),\s+value_moved\s+(True|False|None)"
+        r"(?:\s+writes\s+self\.(\w+))?\s*$",
+        text, flags=re.M)
+    rows = {name: (status, {"True": True, "False": False, "None": None}[moved], store)
+            for name, status, moved, store in table}
     assert set(rows) == {
         "fractionalize", "rent", "mint_soulbound", "batch_mint",
         "royalty_claim", "bridge_nft", "dynamic_update",
     }, rows
+    # Every line of the table was read whole: a row this pattern cannot parse
+    # (a new column, a misspelt value) fails here instead of being skipped.
+    assert len(re.findall(r"^#\s{5}\w+\s+->", text, flags=re.M)) == len(table)
 
     svc = _armed()
     calls = dict(zip(
@@ -245,4 +256,11 @@ async def test_the_header_table_says_what_each_method_returns():
         _the_seven(svc),
     ))
     for name, coro in calls.items():
-        assert (await coro)["status"] == rows[name], (name, rows[name])
+        status, value_moved, store = rows[name]
+        before = len(getattr(svc, store)) if store else None
+        record = await coro
+        assert record["status"] == status, (name, status, record)
+        assert "value_moved" in record and record["value_moved"] is value_moved, (
+            name, value_moved, record.get("value_moved"))
+        if store:
+            assert len(getattr(svc, store)) == before + 1, (name, store)
