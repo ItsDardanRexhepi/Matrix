@@ -76,6 +76,10 @@ async def test_a_screened_green_result_passes_the_gate():
     svc = _svc()
     svc._config["services"]["kyc"].update(
         api_key="k", secret_key="s", provider="sumsub")
+    # Given a binding of the applicant to the subject, which the platform
+    # does not hold for any pair today; without one the same review is refused
+    # (tests/test_kyc_issuance_waits_for_a_binding.py).
+    svc._applicant_binding = lambda _applicant, _subject: "bound in this test"
     with patch.object(httpx, "AsyncClient",
                       _body_client({"reviewResult": {"reviewAnswer": "GREEN"}})):
         out = await svc.issue_kyc_credential(

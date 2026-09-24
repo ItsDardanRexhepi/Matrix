@@ -154,7 +154,7 @@ The sections below organise every capability by its high-level category. Older c
 | Reputation Query | Query aggregated on-chain reputation for an agent | Free | via capability registry | custom |
 | Start KYC | Start a KYC session with the configured provider | Free | via capability registry | Sumsub, Persona |
 | Check AML Risk | Fetch the provider's review for a KYC applicant and say whether a sanctions screen ran (a Persona response is fetched and not graded) | Free | via capability registry | Sumsub |
-| Issue KYC Credential | Attest onto a wallet that a named applicant's provider review answered GREEN with a screen (the applicant is not tied to the wallet) | Free | via capability registry | EAS |
+| Issue KYC Credential | Refused: the provider's review is read first, then the request is refused, because nothing ties the named applicant to the wallet the credential would name | Free | via capability registry | EAS |
 | Register / Update / Deregister Agent | Manage an AI agent identity | Free | via capability registry | custom |
 | Create / Revoke / Batch Attest | On-chain attestations | Free | via capability registry | EAS |
 | Attestation Verify | Verify an on-chain attestation by UID | Free | GET /api/v1/attestation/verify/{uid} | EAS |

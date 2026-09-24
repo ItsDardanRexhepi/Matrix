@@ -11,7 +11,9 @@ This service wires three operations to real protocol integrations:
                           attestation of the provider's verdict (a level, a
                           pass flag and the issue time — an EAS record, not a
                           W3C credential document), gas paid by the platform
-                          paymaster (non-custodial).
+                          paymaster (non-custodial). REFUSED for now: nothing
+                          ties a provider applicant to the wallet it would be
+                          written onto (see ``_applicant_binding``).
 
 PII HANDLING: this service NEVER stores raw PII. Identity documents and
 personal data are passed straight through to the KYC provider (Sumsub /
@@ -554,6 +556,21 @@ class KYCService:
                 "error": str(exc),
             }
 
+    def _applicant_binding(self, applicant_id: str, subject: str) -> str | None:
+        """How this platform knows *applicant_id* is the holder of *subject*,
+        or None when it does not.
+
+        It does not, for any pair: no record ties a provider applicant to a
+        wallet. ``start_kyc`` takes the applicant's reference from the request,
+        and the caller of ``issue_kyc_credential`` names both the applicant and
+        the subject, so a pairing written anywhere today would be the caller's
+        own word. This answers None until the platform writes the binding
+        itself, when the subject's own authenticated wallet starts the
+        applicant; that record is what this method will read. Issuance is
+        refused while it answers None.
+        """
+        return None
+
     async def issue_kyc_credential(self, **params: Any) -> dict:
         """Issue an on-chain KYC attestation through the Ethereum Attestation
         Service (EAS).
@@ -569,9 +586,12 @@ class KYCService:
         The pass flag is the PROVIDER'S verdict, fetched by this method: it
         calls ``check_aml_risk`` for ``applicant_id`` and attests only a review
         that answered GREEN and says a sanctions screen ran. A verification
-        result supplied with the request is not read. What is still the
+        result supplied with the request is not read. What would still be the
         caller's word is WHICH applicant: nothing ties the applicant to the
-        subject wallet (see the lifting condition below).
+        subject wallet, so after the verdict the request is REFUSED
+        (``applicant_binding: "absent"``) until the platform holds that tie
+        (``_applicant_binding``; the lifting condition below). Today no request
+        reaches the chain.
 
         Expected params: ``subject`` / ``recipient`` (holder wallet address),
         ``applicant_id`` (the provider applicant from ``start_kyc``), optional
@@ -649,10 +669,14 @@ class KYCService:
         # that sanctions/PEP screening ran, and (c) the applicant record it
         # describes, and the subject does not supply it. What is NOT
         # established: that the applicant is the subject. The caller names
-        # both, and a GREEN applicant can be attested onto any wallet. Binding
-        # them needs a handle this platform issued to the subject's own
-        # authenticated wallet, which does not exist yet; until it does, the
-        # result says so in `applicant_binding`.
+        # both. Binding them needs a handle this platform issued to the
+        # subject's own authenticated wallet, which does not exist yet, so
+        # issuance is REFUSED after the verdict (see `_applicant_binding`).
+        # It briefly was not: a screened GREEN applicant was attested onto
+        # whatever wallet the request named, with the gap disclosed in the
+        # result. A disclosure on a record that cannot be recalled does not
+        # make the record true, and the refusal it replaced was the stronger
+        # state, so the refusal stands until the binding exists.
         applicant_id = params.get("applicant_id")
         verification: dict[str, Any] = {}
         if not is_placeholder_value(applicant_id):
@@ -698,6 +722,32 @@ class KYCService:
                     "word from a fixed vocabulary, never caller text, and the "
                     "platform attests no level finer than the verdict it "
                     "fetched"
+                ),
+            }
+        applicant_binding = self._applicant_binding(str(applicant_id), str(subject))
+        if applicant_binding is None:
+            return {
+                "status": "not_verified",
+                "service": self.service_name,
+                "method": "issue_kyc_credential",
+                "refused": True,
+                "subject": subject,
+                "requested_level": kyc_level,
+                "verification_status": verification.get("status"),
+                "applicant_binding": "absent",
+                "reason": (
+                    "The provider's review is of the applicant named in the "
+                    "request, and nothing this platform holds ties that "
+                    "applicant to the subject wallet. The attestation would "
+                    "say, on a public registry and beyond recall, that this "
+                    "wallet passed KYC, and which person passed would be the "
+                    "caller's word. Issuance is refused until the platform "
+                    "binds an applicant to the wallet that started it."
+                ),
+                "required": (
+                    "a binding, written by this platform when the subject's "
+                    "own authenticated wallet starts the applicant, between "
+                    "that applicant and that wallet"
                 ),
             }
         _passed = True
@@ -825,11 +875,7 @@ class KYCService:
                 "kyc_level": kyc_level,
                 "issued_at": issued_at,
                 "applicant_id": str(applicant_id),
-                "applicant_binding": (
-                    "not verified: the provider verdict is for the applicant "
-                    "named in the request, and nothing ties that applicant to "
-                    "this subject wallet"
-                ),
+                "applicant_binding": applicant_binding,
                 "explorer_url": self._web3.explorer_url(tx_hash),
                 "gas_paid_by": "platform paymaster (non-custodial)",
                 "pii_storage": (

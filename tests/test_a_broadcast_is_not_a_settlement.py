@@ -707,6 +707,10 @@ def _kyc_dispatcher(receipt_status, spies):
                 "review_answer": "GREEN", "applicant_id": str(params.get("applicant_id"))}
 
     svc.check_aml_risk = _provider_review
+    # And the applicant is bound to the subject, which the platform does not
+    # hold for any pair today (tests/test_kyc_issuance_waits_for_a_binding.py):
+    # these tests are about what happens once a credential is sent.
+    svc._applicant_binding = lambda _applicant, _subject: "bound in this test"
     d._get_registry()._instances["kyc"] = svc
     return d, svc, chain
 

@@ -105,9 +105,15 @@ async def test_a_review_with_no_screen_is_not_a_pass():
 
 async def test_a_screened_green_review_the_platform_fetched_passes_the_gate():
     """Scope pin: the gate must still permit what it should. Past the gate the
-    shipped config has no chain, so the answer is a chain-config refusal."""
+    shipped config has no chain, so the answer is a chain-config refusal.
+
+    Given a binding of the applicant to the subject, which the platform does
+    not hold for any pair today (tests/test_kyc_issuance_waits_for_a_binding.py
+    holds that without one the same review is refused)."""
+    svc = _svc()
+    svc._applicant_binding = lambda _applicant, _subject: "bound in this test"
     with _provider_answers(_GREEN):
-        out = await _svc().issue_kyc_credential(
+        out = await svc.issue_kyc_credential(
             subject=_SUBJECT, applicant_id="TEST_ENTITY_001")
     assert out["status"] not in ("not_verified", "invalid_request"), out
     assert out.get("missing"), out
