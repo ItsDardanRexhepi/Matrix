@@ -86,7 +86,7 @@ The key you configured, presented as a bearer token:
 Authorization: Bearer YOUR_GATEWAY_KEY
 ```
 
-or as a query parameter, `?api_key=YOUR_GATEWAY_KEY`. No other header carries it, and the gateway gives it no prefix or format: it is whatever string you set. The operator key opens every route.
+or as a query parameter, `?api_key=YOUR_GATEWAY_KEY`. No other header carries it, and the gateway imposes no prefix or format: it accepts whatever string is configured (setup generates a random one if you do not choose one). The operator key opens every route.
 
 ### A wallet session
 

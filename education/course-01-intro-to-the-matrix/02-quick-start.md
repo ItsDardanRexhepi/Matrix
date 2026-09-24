@@ -116,52 +116,57 @@ not_deployed response rather than failing.
 
 ## Step 6: Your First Chat with Trinity
 
-Now send your first message. You will need your API key (generated during setup -- check your config file or the setup output):
+Now send your first message. The chat is public, so it needs no key:
 
 ```bash
 curl -X POST http://localhost:18790/chat \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{"message": "Hello Trinity, what can you help me with?"}'
+  -d '{"message": "Hello Trinity, what can you help me with?", "session_id": "quick-start"}'
 ```
 
-Expected response:
+Expected response (the wording is the model's):
 
 ```json
 {
-  "request_id": "req_abc123def456",
   "response": "Hello! I'm Trinity, your guide to The Matrix. I can help you with a wide range of blockchain operations on Base...",
+  "tool_calls": [],
+  "session_id": "quick-start",
   "agent": "trinity",
-  "tools_used": [],
-  "timestamp": "2026-04-10T12:01:00Z"
+  "provider": "ollama"
 }
 ```
 
 ## Understanding the Response Format
 
-Every response from the `/chat` endpoint includes these fields:
+A successful answer from the `/chat` endpoint has these fields:
 
 | Field | Description |
 |-------|-------------|
-| `request_id` | Unique identifier for tracing this request through the system |
 | `response` | Trinity's natural language reply |
-| `agent` | Which agent generated the response (usually "trinity") |
-| `tools_used` | List of blockchain services Neo invoked (empty for conversational responses) |
-| `timestamp` | When the response was generated |
+| `tool_calls` | The tools the agent called this turn (empty for conversational responses) |
+| `session_id` | The conversation this turn belongs to; send it again to continue it |
+| `agent` | Which agent generated the response (`trinity` unless you named another with the operator key) |
+| `provider` | The model provider that answered |
 
-When Neo executes blockchain operations, the `tools_used` array will contain entries describing what was done:
+The request's ID is not in the body: it is the `X-Request-ID` response header, which the gateway's log lines for the request carry too.
+
+When the agent calls a tool, each entry in `tool_calls` names the tool, the arguments it was called with, a preview of what it returned, and whether it succeeded:
 
 ```json
 {
-  "tools_used": [
+  "tool_calls": [
     {
-      "tool": "token_deploy",
-      "status": "success",
-      "result": {"contract_address": "0x..."}
+      "tool": "platform_action",
+      "arguments": {"action": "get_staking_position", "params": {"staker": "0x..."}},
+      "result_preview": "{\"status\": \"ok\", \"call_outcome\": \"failure\", ...}",
+      "success": false,
+      "reported": "failure"
     }
   ]
 }
 ```
+
+A service whose contract is not deployed on your gateway answers `not_deployed`, and the entry says the call did not succeed.
 
 ## Troubleshooting
 
@@ -171,15 +176,15 @@ When Neo executes blockchain operations, the `tools_used` array will contain ent
 
 **Connection refused**: Verify the gateway is still running in your other terminal. Check for error messages in its output.
 
-**Authentication failed**: Double-check your API key. You can find it in your local configuration file or regenerate it by running setup again.
+**Authentication failed** (`401` on `/status` or another key-gated route): Double-check your API key. You can find it in your local configuration file or regenerate it by running setup again.
 
 ## Key Takeaways
 
 - The gateway runs on port 18790 and is started with `python -m gateway.server` after `source .venv/bin/activate`
 - `/health` is unauthenticated and returns basic liveness information
-- `/status` provides detailed information about agents and services
-- `/chat` requires authentication via Bearer token
-- Every response includes a `request_id` for tracing
+- `/status` provides detailed information about the running gateway, behind the API key
+- `/chat` is public; naming Neo or Morpheus takes the API key
+- Every response carries an `X-Request-ID` header for tracing
 
 ---
 

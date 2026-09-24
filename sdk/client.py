@@ -62,23 +62,39 @@ class MatrixClient:
     Example:
         client = MatrixClient("http://localhost:18790")
 
-        # Chat with Trinity
+        # Chat with Trinity (the chat is public; no key needed)
         response = client.chat("Hello!")
         print(response.text)
 
-        # Execute with Neo
-        response = client.chat("Deploy a smart contract", agent="neo")
+        # Naming Neo takes the gateway's operator key, where one is set
+        operator = MatrixClient("http://localhost:18790", api_key="YOUR_GATEWAY_KEY")
+        response = operator.chat("What is the ETH/USD price?", agent="neo")
         print(response.tool_calls)
 
         # Check platform health
         health = client.health()
         print(health.status)
+
+    ``api_key`` is the gateway's operator key (``gateway.api_key`` or
+    ``MATRIX_API_KEY`` on the gateway). When it is given, every request
+    carries it as ``Authorization: Bearer``; without it the client reaches the
+    gateway's public routes, and a gateway with a key set answers the others
+    401 and a chat naming Neo or Morpheus 403.
     """
 
-    def __init__(self, base_url: str = "http://localhost:18790", session_id: str | None = None):
+    def __init__(self, base_url: str = "http://localhost:18790", session_id: str | None = None,
+                 api_key: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.session_id = session_id or uuid.uuid4().hex[:12]
+        self.api_key = api_key or ""
         self._async_session = None
+
+    def _headers(self, extra: dict | None = None) -> dict:
+        """The request headers: the operator key when one was given."""
+        headers = dict(extra or {})
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
     # ─── Sync API ──────────────────────────────────────────────────────────
 
@@ -192,9 +208,7 @@ class MatrixClient:
             "agent": agent,
             "session_id": self.session_id,
         }
-        headers = {"Accept": "text/event-stream"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers = self._headers({"Accept": "text/event-stream"})
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -338,7 +352,7 @@ class MatrixClient:
     async def _get(self, path: str) -> dict:
         import aiohttp
         async with aiohttp.ClientSession() as session:
-            async with session.get(f"{self.base_url}{path}") as resp:
+            async with session.get(f"{self.base_url}{path}", headers=self._headers()) as resp:
                 if resp.status != 200:
                     text = await resp.text()
                     raise Exception(f"HTTP {resp.status}: {text}")
@@ -350,7 +364,7 @@ class MatrixClient:
             async with session.post(
                 f"{self.base_url}{path}",
                 json=data,
-                headers={"Content-Type": "application/json"},
+                headers=self._headers({"Content-Type": "application/json"}),
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()

@@ -599,18 +599,20 @@ response = client.chat("What can you help me with?")
 print(response.text)
 ```
 
-The Python client sends no API key yet, so it reaches the gateway's public
-routes, `/chat` among them; where the gateway's API key is set, the key-gated
-ones answer it `401`.
+Pass the gateway's operator key as `MatrixClient(url, api_key=...)` to reach
+the key-gated routes and to name Neo or Morpheus; without it the client
+reaches the public routes, `/chat` (as Trinity) among them. The SDK is the
+`sdk` package in this repository and is not published to PyPI.
 
 Or the JavaScript SDK:
 
 ```typescript
 import { MatrixClient } from '@the-matrix/sdk';
 
-const client = new MatrixClient('http://localhost:18790', { apiKey: 'sk-...' });
+const client = new MatrixClient('http://localhost:18790', { apiKey: 'YOUR_GATEWAY_KEY' });
 const response = await client.chat('What can you help me with?');
 console.log(response.text);
 ```
 
-See `sdk/README.md` for full SDK documentation.
+`sdk-js/` is not published to npm; `sdk-js/README.md` says how to build and
+install it from your clone. See `sdk/README.md` for the Python SDK.

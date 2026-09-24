@@ -4,8 +4,15 @@ JavaScript/TypeScript SDK for the Matrix AI agent platform.
 
 ## Installation
 
+This package is not published to npm. Build it from your clone and install
+it from that directory:
+
 ```bash
-npm install @the-matrix/sdk
+cd sdk-js
+npm install
+npm run build
+cd ../your-app
+npm install ../path/to/your/clone/sdk-js
 ```
 
 ## Quick Start

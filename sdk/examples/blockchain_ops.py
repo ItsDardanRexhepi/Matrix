@@ -7,10 +7,11 @@ a payment, an attestation and the platform dashboard. Every one of them is a
 chat message to Neo (MatrixClient.ablockchain sends POST /chat naming him),
 so what comes back is his reply.
 
-Naming Neo takes the operator key on a gateway that has one set, and
-MatrixClient sends no key: against such a gateway the first call is refused
-with a 403 and the example stops there. Run it against a gateway with no key
-set (development), where whoever runs the gateway is the operator.
+Naming Neo takes the operator key on a gateway that has one set. The
+example passes MATRIX_API_KEY from the environment as MatrixClient's
+api_key; without it, against a gateway with a key set, the first call is
+refused with a 403 and the example stops there. A gateway with no key set
+(development) treats whoever runs it as the operator.
 
 Whether the platform pays the gas depends on the deployment: with no
 paymaster key configured nothing is sponsored, and with one, the operator's
@@ -19,6 +20,7 @@ Gas). An attestation you ask for is metered like any other operation.
 """
 
 import asyncio
+import os
 import sys
 sys.path.insert(0, ".")
 
@@ -26,7 +28,7 @@ from sdk import MatrixClient
 
 
 async def main():
-    client = MatrixClient("http://localhost:18790")
+    client = MatrixClient("http://localhost:18790", api_key=os.environ.get("MATRIX_API_KEY"))
 
     # 1. Check price feed
     print("── Oracle: ETH/USD Price ──")

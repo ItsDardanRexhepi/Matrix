@@ -18,18 +18,18 @@ Complete these five exercises to solidify your understanding of The Matrix. Each
 **Expected Output Format**:
 ```
 {
-  "request_id": "req_...",
   "response": "...(Trinity's response describing capabilities)...",
+  "tool_calls": [],
+  "session_id": "...",
   "agent": "trinity",
-  "tools_used": [],
-  "timestamp": "..."
+  "provider": "..."
 }
 ```
 
 **Success Criteria**:
 - The request returns HTTP 200
 - The `agent` field is `"trinity"`
-- The `tools_used` array is empty (this is a conversational response, no tools needed)
+- The `tool_calls` array is empty (this is a conversational response, no tools needed)
 - The response file is valid JSON
 
 ---
@@ -69,7 +69,7 @@ Weather for San Francisco:
 
 ---
 
-## Exercise 3: Smart Contract from English
+## Exercise 3: Smart Contract from Pseudocode
 
 **Objective**: Convert a simple rental agreement into a smart contract, then deploy it yourself.
 
@@ -102,85 +102,84 @@ Contract Address: 0x... (Base Sepolia, from your own deployment)
 
 ## Exercise 4: SDK Integration
 
-**Objective**: Use the Python SDK to send three messages and print the responses.
+**Objective**: Use the Python SDK to send three messages in one conversation and print the responses.
 
 **Instructions**:
-1. Create a file called `exercise4_sdk.py`
+1. Create a file called `exercise4_sdk.py`, run from the repository root (Module 06, Installation)
 2. Use `from sdk import MatrixClient` to import the client
-3. Send three sequential messages:
+3. Send three sequential messages with `achat()`:
    - "What is Base and why does The Matrix use it?"
    - "How many blockchain services are available?"
    - "What is the Glasswing security auditor?"
 4. For each response, print:
-   - The request ID
+   - The session ID
    - The first 100 characters of the response
-   - The number of tools used
+   - The number of tool calls
 5. At the end, print the total number of requests sent
 
 **Expected Output Format**:
 ```
 Message 1:
-  Request ID: req_...
+  Session: 3f9c2a1b7d4e
   Response: Base is an Ethereum Layer 2 network that provides lower gas fees and faster transaction...
-  Tools used: 0
+  Tool calls: 0
 
 Message 2:
-  Request ID: req_...
+  Session: 3f9c2a1b7d4e
   Response: There are 195 capabilities across 20 categories in the catalog. Browse them with `GET /api/v1/capabilities`.
-  Tools used: 0
+  Tool calls: 0
 
 Message 3:
-  Request ID: req_...
+  Session: 3f9c2a1b7d4e
   Response: Glasswing is the security auditing engine built into The Matrix. It performs a 12-poi...
-  Tools used: 0
+  Tool calls: 0
 
 Total requests sent: 3
 ```
 
+The answers are the model's, so their wording will differ from these.
+
 **Success Criteria**:
 - The script runs without errors
 - All three messages receive responses
-- Request IDs are unique for each message
+- The three responses carry the same session ID: one client keeps one conversation
 - Output is formatted as specified
 
 ---
 
 ## Exercise 5: Status Endpoint Parser
 
-**Objective**: Query the `/status` endpoint and display the active agents in a formatted way.
+**Objective**: Query the `/status` endpoint and display what it reports in a formatted way.
 
 **Instructions**:
 1. Create a file called `exercise5_status.py`
-2. Use the `requests` library (or `httpx`) to GET `http://localhost:18790/status`
+2. Use the `requests` library (or `httpx`) to GET `http://localhost:18790/status`, sending the operator key as `Authorization: Bearer` when the gateway has one set (Module 03)
 3. Parse the JSON response
 4. Display:
-   - Overall system status
-   - Each agent's name, status, and role in a formatted table
-   - Number of active services out of total
+   - The platform name and version
+   - The enabled agents, one per line
+   - The model provider and primary model
+   - The session and request counts
    - System uptime in human-readable format (e.g., "2 hours, 15 minutes, 30 seconds")
-5. Handle the case where the gateway is not running (connection error)
+5. Handle the case where the gateway is not running (connection error), and a `401` (a gateway with a key set, asked without it)
 
 **Expected Output Format**:
 ```
 === The Matrix System Status ===
 
-System: operational
+Platform: The Matrix 1.0.0
 
 Agents:
-  +----------+--------+--------------+
-  | Agent    | Status | Role         |
-  +----------+--------+--------------+
-  | Neo      | active | execution    |
-  | Trinity  | active | conversation |
-  | Morpheus | active | confirmation |
-  +----------+--------+--------------+
+  - neo
+  - trinity
+  - morpheus
 
-Services: 30/30 active
+Model: ollama (llama3.1)
+Sessions: 2   Requests: 57
 Uptime: 2 hours, 15 minutes, 30 seconds
 ```
 
 **Success Criteria**:
 - The script correctly parses the JSON response
-- Agent information is displayed in a formatted table
 - Uptime is converted from seconds to human-readable format
-- Connection errors are handled gracefully with a helpful message
+- Connection errors and a missing key are handled gracefully with a helpful message
