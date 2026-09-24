@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 4,526 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,152 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:

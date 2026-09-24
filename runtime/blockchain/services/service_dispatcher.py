@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import hashlib
 import inspect
 import json
 import logging
+import sqlite3
 import time
-from typing import Any
+import uuid
+from typing import Any, Callable
 
 # The outcome contract, read and written in one place. `outcome_truth` pulls
 # `_REAL_OUTCOME_STATUSES` from this module LAZILY, inside a function, so
@@ -843,6 +846,161 @@ def _record_verdict(result: Any) -> str:
     return RECORD_SETTLED
 
 
+# ---------------------------------------------------------------------------
+# Evidence shadow (engines Phase 1: measurement only)
+# ---------------------------------------------------------------------------
+#
+# While engines.evidence.mode is "shadow", a state-modifying execute() whose
+# service RETURNED an answer writes one evidence_shadow row (database migration
+# 9) saying what `_record_verdict` made of that answer. The row is written AFTER
+# the verdict is computed and changes nothing about what happens with it: the
+# attestation, the broadcast record, the refusal record and the feed publish
+# below run exactly as they do with no sink. With no sink — the default —
+# nothing here runs.
+#
+# WHAT THE TABLE DOES NOT SEE. Only dispatches that reach `_record_verdict`
+# write a row. An execute() that returns before calling the service (unknown
+# action, service unavailable, parameters that do not bind) or whose service
+# RAISES (reported not_implemented / service_error) writes none, and neither
+# does the /api/v1 funnel (gateway/service_routes.py ServiceRoutes._call), which
+# calls service methods directly and never enters execute(). A later phase that
+# compares its verdicts against this table compares them against dispatcher
+# verdicts on returned answers, not against every state change;
+# tests/test_evidence_shadow_matches_legacy_verdict.py pins these gaps.
+
+EvidenceShadowSink = Callable[[dict[str, Any]], None]
+
+_evidence_shadow_sink: EvidenceShadowSink | None = None
+
+#: The evidence_shadow columns, in table order.
+EVIDENCE_SHADOW_COLUMNS: tuple[str, ...] = (
+    "run_id", "action", "service", "actor_hash", "params_digest",
+    "legacy_verdict", "reported_status", "tx_hash", "observed_at",
+)
+
+_INSERT_EVIDENCE_SHADOW = (
+    f"INSERT OR IGNORE INTO evidence_shadow ({', '.join(EVIDENCE_SHADOW_COLUMNS)}) "
+    f"VALUES ({', '.join('?' for _ in EVIDENCE_SHADOW_COLUMNS)})"
+)
+
+
+def set_evidence_shadow_sink(sink: EvidenceShadowSink | None) -> EvidenceShadowSink | None:
+    """Install *sink* as the process-wide shadow sink (None removes it) and
+    return the one it replaces. Process-wide because the gateway's shared
+    dispatcher is not the only one: the capability-invoke route and the bridge's
+    cold fallback construct their own, and the rows have to come from every
+    dispatcher, not only the shared one."""
+    global _evidence_shadow_sink
+    previous, _evidence_shadow_sink = _evidence_shadow_sink, sink
+    return previous
+
+
+def current_evidence_shadow_sink() -> EvidenceShadowSink | None:
+    """The process-wide shadow sink, or None when nothing is recorded."""
+    return _evidence_shadow_sink
+
+
+def params_digest(params: Any) -> str:
+    """sha256 of the canonical JSON of *params*: sorted keys, no whitespace,
+    UTF-8 unescaped, anything not JSON rendered with ``str``. Anyone holding the
+    same parameters re-derives the same digest in any process — unlike the
+    attestation's ``params_hash``, which is Python's per-process salted
+    ``hash()`` and left as it is in this phase."""
+    canonical = json.dumps(params, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def evidence_shadow_row(
+    action: str,
+    service: str,
+    actor: str,
+    params: Any,
+    result: Any,
+    verdict: str,
+) -> dict[str, Any]:
+    """One evidence_shadow row. The actor is a sha256 of the resolved identity
+    ("" when the entry point resolved none) and the parameters a digest; the
+    status is the service's own word, normalised the way the verdict reads it.
+    ``run_id`` is minted here because no run journal exists yet."""
+    status = result.get("status") if isinstance(result, dict) else None
+    tx = (result.get("tx_hash") or result.get("transaction_hash")
+          if isinstance(result, dict) else None)
+    return {
+        "run_id": "run_" + uuid.uuid4().hex,
+        "action": action,
+        "service": service,
+        "actor_hash": hashlib.sha256(actor.encode("utf-8")).hexdigest() if actor else "",
+        "params_digest": params_digest(params),
+        "legacy_verdict": verdict,
+        "reported_status": _normalise_status(status) if status is not None else "",
+        "tx_hash": str(tx) if tx else "",
+        "observed_at": time.time(),
+    }
+
+
+def write_without_waiting(db: Any, sql: str, params: tuple) -> None:
+    """One self-contained statement on *db*'s connection that never waits for a
+    lock: the connection's busy timeout is zero for this statement only.
+
+    The platform ``Database`` holds one connection with sqlite3's default
+    five-second busy timeout, and ``execute_sync`` runs on the event loop's
+    thread. A recording row written through it while another connection held
+    the write lock (an operator's sqlite3 session, an external VACUUM, a second
+    gateway process) stalled the whole loop for five seconds before failing —
+    long enough to turn a dispatch into a timeout and drop the attestation
+    behind it. Here the statement raises at once instead, and the caller drops
+    the row: recording never waits for anything.
+
+    Only the event loop's thread uses the connection and nothing here awaits,
+    so no other statement runs between the three below and none of them sees
+    the zero. Same connection, not a second one: a second connection held open
+    beside it would keep the write-ahead log alive across
+    ``Database.restore_from``, and the restored file would be read through it.
+    """
+    previous = int(db.fetchall_sync("PRAGMA busy_timeout")[0][0])
+    db.execute_sync("PRAGMA busy_timeout = 0")
+    try:
+        db.execute_sync(sql, params)
+    finally:
+        db.execute_sync(f"PRAGMA busy_timeout = {previous}")
+
+
+def evidence_shadow_sink(db: Any) -> EvidenceShadowSink:
+    """A sink writing each row to *db*'s evidence_shadow table (migration 9):
+    one INSERT per row through ``write_without_waiting``, so a database another
+    writer holds drops the row instead of holding the dispatch."""
+    def sink(row: dict[str, Any]) -> None:
+        write_without_waiting(db, _INSERT_EVIDENCE_SHADOW,
+                              tuple(row[c] for c in EVIDENCE_SHADOW_COLUMNS))
+    return sink
+
+
+def _shadow_the_verdict(action: str, service: str, actor: str, params: Any,
+                        result: Any, verdict: str) -> None:
+    """Write the shadow row when a sink is installed; a failing sink is logged
+    and the dispatch carries on exactly as it would have without one.
+
+    The sink is handed the row alone: a dict of strings and one float built
+    here for it, holding a digest of the parameters and never the parameters,
+    the result or anything else the dispatch goes on to read (the verdict and
+    whether it happened are computed before this call, and the branches after
+    it read those). Nothing a sink writes into what it was handed reaches the
+    attestation, the broadcast record, the refusal record or the feed.
+    """
+    sink = _evidence_shadow_sink
+    if sink is None:
+        return
+    try:
+        sink(evidence_shadow_row(action, service, actor, params, result, verdict))
+    except sqlite3.Error as exc:
+        # Expected when another writer holds the database, and already logged
+        # with its statement by Database.execute_sync: no trace here.
+        logger.warning("Evidence shadow row not written (action=%s): %s", action, exc)
+    except Exception:
+        logger.warning("Evidence shadow row not written (action=%s)", action, exc_info=True)
+
+
 #: Keys a service uses to report the figure its action actually moved, most
 #: specific first. `value_usd` is the settled figure where a service states one.
 _FEED_VALUE_KEYS: tuple[str, ...] = ("value_usd", "amount", "value", "total", "price")
@@ -1622,6 +1780,7 @@ class ServiceDispatcher:
             if action in _STATE_MODIFYING_ACTIONS:
                 _verdict = _record_verdict(result)
                 _happened = _verdict == RECORD_SETTLED
+                _shadow_the_verdict(action, target_service, _actor, params, result, _verdict)
 
                 if _happened:
                     await self._attest_action(

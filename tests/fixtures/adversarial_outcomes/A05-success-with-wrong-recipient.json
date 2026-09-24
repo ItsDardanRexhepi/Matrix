@@ -1,0 +1,41 @@
+{
+  "id": "A5",
+  "case": "Success with wrong recipient or amount",
+  "false_signal": "receipt status 1",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "status": "success",
+      "settled": true,
+      "value_moved": true,
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "fact_source": {
+    "kind": "chain_event",
+    "payload": {
+      "event": {
+        "to": "0x3434343434343434343434343434343434343434",
+        "amount": 5,
+        "token": "USDC"
+      },
+      "intent": {
+        "to": "0x1212121212121212121212121212121212121212",
+        "amount": 50,
+        "token": "USDC"
+      }
+    },
+    "outranks_because": "the transfer event is what moved, the status is only that something did"
+  },
+  "expected": {
+    "verdict": "FAILED",
+    "run_state": "FAIL",
+    "reason": "effect_mismatch",
+    "incident": true
+  },
+  "legacy": {
+    "record_verdict": "settled",
+    "report": "success"
+  },
+  "head_behaviour": "Recorded settled from the service's own word; only the real-estate escrow reads an event log to check what moved."
+}
