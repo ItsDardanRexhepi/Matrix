@@ -26,8 +26,15 @@ Everything here is derived from `audit.py`, never typed in:
     may offer manual, expert or professional review, or a standalone audit
     submission.
 
+  * with nothing taking an order, no PDF writer, no gas check in the auditor
+    and no test writer in the converter, none of those surfaces may list a
+    deliverable nothing produces (a PDF report, gas optimisation, monitoring,
+    a support channel, turnaround, a re-audit, test coverage, a client
+    portfolio and the rest of the phrase list).
+
 What this cannot see: a class list written outside the `vuln-item` markup or
-the course table, and a review promise worded outside the phrase list.
+the course table, and a review promise or a deliverable worded outside the
+phrase lists.
 """
 
 from __future__ import annotations
@@ -252,6 +259,138 @@ def test_no_audit_surface_offers_review_no_service_performs():
             for m in re.finditer(pattern, flat):
                 offenders.append(f"{rel}: ...{flat[max(0, m.start() - 40):m.end() + 20]}...")
     assert not offenders, "\n".join(offenders)
+
+
+# ── Sibling axis: an offering lists deliverables nothing produces ───────────
+#
+# Under their "Not available to order" banners the audit tiers still listed,
+# at prices, a PDF report delivered within 48 hours, gas optimisation analysis,
+# code quality scoring, a best-practices compliance check, inline annotations,
+# priority turnaround, a free re-audit, an executive summary, deployment
+# readiness certification, ongoing contract monitoring and a dedicated support
+# channel; the conversion page promised a "fully audited" contract with
+# "comprehensive test coverage", a 30-day support window, SLA-backed
+# turnaround, revision requests, a priority queue, custom template creation
+# and direct engineering support, and showed six contracts "we have generated
+# for clients" with line counts and quality grades. The audit is the twelve
+# checks audit() runs, returned as a report; the converter writes no tests;
+# no route takes an order for either, and nothing in the code produces the
+# rest. A banner that says a tier cannot be ordered does not say its features
+# do not exist.
+
+_DELIVERABLE_CLAIMS = [
+    r"\bpdf\b",
+    r"gas[- ]optimi[sz](?:ation|ed)",
+    r"code quality scor",
+    r"best[- ]practices? compliance",
+    r"inline (?:code )?annotations?",
+    r"executive summary",
+    r"readiness certification",
+    r"\bmonitoring\b",
+    r"support (?:channel|window)",
+    r"engineering support",
+    r"\bsla\b|sla-backed",
+    r"turnaround",
+    r"delivered within",
+    r"(?:free|priority) re-audit",
+    r"revision requests?",
+    r"priority (?:queue|processing)",
+    r"custom template",
+    r"test coverage",
+    r"fully audited",
+    r"generated for (?:our )?clients",
+    r"\b[a-f][+-]? quality\b",
+]
+_PDF_WRITERS = ("reportlab", "fpdf", "weasyprint", "pdfkit", "xhtml2pdf", "pypdf")
+
+
+def _nothing_produces_the_deliverables() -> list[str]:
+    """The premises, measured: why none of the listed deliverables exists."""
+    problems = []
+    if not _audit_service_is_never_wired():
+        problems.append("an audit service is wired now")
+    for root in ("runtime", "gateway"):
+        for path in (ROOT / root).rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for lib in _PDF_WRITERS:
+                if re.search(rf"^\s*(?:import|from)\s+{lib}\b", text, re.M):
+                    problems.append(f"{path.relative_to(ROOT)} imports {lib}")
+    if any("gas" in name for name, _r, _s in _auditor_checks()):
+        problems.append("audit() runs a gas check now")
+    conversion = "\n".join(p.read_text(encoding="utf-8") for p in sorted(
+        (ROOT / "runtime" / "blockchain" / "services" / "contract_conversion").glob("*.py")))
+    if re.search(r"\.t\.sol|function test|forge test", conversion):
+        problems.append("the converter writes tests now")
+    routes = "\n".join((ROOT / "gateway" / f).read_text(encoding="utf-8")
+                       for f in ("server.py", "service_routes.py"))
+    if re.search(r"add_(?:post|put)\(\s*[\"'][^\"']*(?:/services/conversion|/audit/order)", routes):
+        problems.append("a conversion or audit order route is registered now")
+    return problems
+
+
+def _deliverable_offenders(rel: str, raw: str) -> list[str]:
+    flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw)).lower()
+    out = []
+    for pattern in _DELIVERABLE_CLAIMS:
+        for m in re.finditer(pattern, flat):
+            out.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 30]}...")
+    return out
+
+
+def test_the_deliverable_scan_catches_the_old_copy():
+    old = ("<li>PDF report delivered within 48 hours</li><li>Gas optimisation analysis</li>"
+           "<li>Code quality scoring</li><li>Best practices compliance check</li>"
+           "<li>Inline code annotations</li><li>Priority turnaround</li>"
+           "<li>One free re-audit after fixes are applied</li><li>Executive summary</li>"
+           "<li>Deployment readiness certification</li><li>Ongoing contract monitoring</li>"
+           "<li>Dedicated support channel</li><li>30-day support window</li>"
+           "<li>SLA-backed turnaround</li><li>Revision requests included</li>"
+           "<li>Priority queue</li><li>Custom template creation</li>"
+           "<li>Direct engineering support</li> a fully audited, gas-optimised contract with comprehensive "
+           "test coverage. Types of contracts we have generated for clients: "
+           "<strong>A+</strong> quality")
+    flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", old)).lower()
+    hits = {p for p in _DELIVERABLE_CLAIMS if re.search(p, flat)}
+    assert hits == set(_DELIVERABLE_CLAIMS), set(_DELIVERABLE_CLAIMS) - hits
+    # What the pages may still say: the scan, its report and a user re-running it.
+    assert not _deliverable_offenders("x", "Glasswing runs 12 checks and returns a report; "
+                                           "fix and re-audit after every change.")
+
+
+def test_no_offering_lists_a_deliverable_nothing_produces():
+    premises = _nothing_produces_the_deliverables()
+    assert not premises, "re-derive this check: " + "; ".join(premises)
+    offenders = []
+    for rel in REVIEW_SURFACES:
+        offenders += _deliverable_offenders(rel, (ROOT / rel).read_text(encoding="utf-8"))
+    assert not offenders, "\n".join(offenders)
+
+
+_HERO_STAT = re.compile(
+    r'<div class="hero-stat-num">([^<]*)</div>\s*<div class="hero-stat-label">([^<]*)</div>')
+
+
+def test_the_conversion_page_stats_are_measured_counts():
+    """The conversion page's stats bar said "12 Contract Types", "100% Audit
+    Included" and "<5min Generation Time". The converter has eight templates,
+    and neither of the other two was a count of anything. A stat must be one
+    of the counts measured here."""
+    from runtime.blockchain.services.contract_conversion.parser import SUPPORTED_LANGUAGES
+    from runtime.blockchain.services.contract_conversion.templates import list_templates
+
+    measured = {"source languages": len(SUPPORTED_LANGUAGES),
+                "templates": len(list_templates()),
+                "automated checks": len(_auditor_checks())}
+    stats = _HERO_STAT.findall((ROOT / "web" / "conversion-service.html").read_text(encoding="utf-8"))
+    assert stats, "web/conversion-service.html has no stats bar"
+    problems = []
+    for number, label in stats:
+        want = measured.get(label.strip().lower())
+        if want is None:
+            problems.append(f"{number} {label!r}: not a count this test measures")
+        elif number.strip() != str(want):
+            problems.append(f"{number} {label!r}: the code has {want}")
+    assert not problems, "\n".join(problems)
 
 
 # ── Sibling axis: a badge or a certificate is not an on-chain attestation ────

@@ -408,9 +408,9 @@ All error responses share this shape:
 |--------|--------------------------|--------------------------------------|
 | `GET`  | `/`                      | Landing page                         |
 | `GET`  | `/chat`                  | Web chat interface (Trinity)         |
-| `GET`  | `/audit`                 | Glasswing security audit service     |
+| `GET`  | `/audit`                 | Glasswing audit: the 12 checks and the report they return (ordering is not live) |
 | `GET`  | `/marketplace`           | Developer plugin marketplace         |
-| `GET`  | `/services/conversion`   | Smart contract conversion service    |
+| `GET`  | `/services/conversion`   | Contract conversion: what the pipeline returns (ordering is not live) |
 
 ---
 

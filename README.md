@@ -188,7 +188,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,304 tests, run against the versions
+automated suite of 5,307 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -654,7 +654,7 @@ The gateway serves a built-in web interface:
 
 - `http://localhost:18790` — Landing page
 - `http://localhost:18790/chat` — Web chat with Trinity
-- `http://localhost:18790/audit` — Glasswing security audit service
+- `http://localhost:18790/audit` — Glasswing audit: what the scan checks and the report it returns
 - `http://localhost:18790/marketplace` — Plugin marketplace
 - `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
 - `http://localhost:18790/learn` — Educational courses and certifications
@@ -664,14 +664,15 @@ The gateway serves a built-in web interface:
 ## Professional Services
 
 - **Glasswing Security Audit** — the automated scan itself is in this
-  repository and runs locally as part of the conversion pipeline, free. The
-  paid hosted service at `/audit` is **not live**: no audit backend is wired
-  into the gateway, so `POST /audit/request` answers `503 not_available`
-  rather than taking an order it cannot fill. The prices on that page
-  describe the intended service, not one you can buy today.
-- **Contract Conversion** — likewise: the pipeline is here and free to run;
-  the hosted service page describes an offering that is not yet accepting
-  work.
+  repository and runs locally as part of the conversion pipeline, free. A
+  paid hosted audit is **not live**: no audit backend is wired into the
+  gateway, so `POST /audit/request` answers `503 not_available` rather than
+  taking an order it cannot fill. The page at `/audit` describes the scan
+  and the report it returns; it offers no tiers and takes no order.
+- **Contract Conversion** — likewise: the pipeline is here and free to run
+  (`POST /api/v1/contracts/convert`). The page at `/services/conversion`
+  describes what a conversion returns; it offers no plans and takes no
+  order.
 
 ## Glasswing Security Badges
 

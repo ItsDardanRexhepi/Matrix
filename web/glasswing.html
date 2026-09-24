@@ -108,57 +108,6 @@ a:hover{text-decoration:underline}
   border:1px solid var(--border-green);
 }
 
-/* ── Pricing Cards ── */
-.pricing-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-  gap:20px;margin-bottom:48px;
-}
-.price-card{
-  padding:32px 28px;border-radius:var(--radius);
-  background:var(--bg-card);border:1px solid var(--border);
-  position:relative;transition:border-color .3s,transform .2s;
-}
-.price-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
-.price-card.featured{border-color:var(--green-dim)}
-.price-card.featured::before{
-  content:"MOST POPULAR";position:absolute;top:-11px;left:50%;
-  transform:translateX(-50%);
-  padding:3px 14px;border-radius:10px;
-  font-size:.62rem;font-weight:700;letter-spacing:1px;
-  background:var(--green);color:var(--bg);
-}
-.price-tier{font-size:.88rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
-.price-amount{
-  font-size:2.2rem;font-weight:700;color:var(--green);
-  text-shadow:var(--green-glow);margin-bottom:4px;
-}
-.price-amount span{font-size:.82rem;color:var(--text-muted);font-weight:400}
-.price-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:20px}
-.price-features{list-style:none;margin-bottom:24px}
-.price-features li{
-  font-size:.78rem;color:var(--text);
-  padding:6px 0;border-bottom:1px solid rgba(30,30,30,.6);
-  display:flex;align-items:flex-start;gap:8px;
-}
-.price-features li::before{
-  content:">";color:var(--green);font-weight:700;flex-shrink:0;
-}
-.price-btn{
-  display:block;width:100%;padding:12px;
-  border:1px solid var(--green);border-radius:6px;
-  background:transparent;color:var(--green);
-  font-family:inherit;font-size:.82rem;font-weight:600;
-  cursor:pointer;transition:all .2s;text-align:center;
-  text-decoration:none;
-}
-.price-btn:hover{background:var(--green);color:var(--bg);text-decoration:none}
-.price-card.featured .price-btn{
-  background:var(--green);color:var(--bg);
-}
-.price-card.featured .price-btn:hover{
-  background:var(--green-dim);
-}
-
 /* ── Badge Preview Section ── */
 .badge-section{
   padding:64px 24px;
@@ -280,7 +229,6 @@ a:hover{text-decoration:underline}
   .nav-toggle{display:block}
   .hero h1{font-size:1.4rem}
   .hero{padding:56px 16px 48px}
-  .pricing-grid{grid-template-columns:1fr}
   .vuln-grid{grid-template-columns:1fr 1fr}
   .badge-features{grid-template-columns:1fr}
   .registry{overflow-x:auto}
@@ -330,59 +278,11 @@ a:hover{text-decoration:underline}
   </div>
 </section>
 
-<!-- Audit Pricing -->
-<section class="section" id="pricing">
-  <h2 class="section-title">Audit Pricing</h2>
-  <p class="section-sub">Choose the depth of analysis your project requires</p>
-  <p class="section-sub"><strong>Not available to order:</strong> this gateway has no audit service behind its audit routes (they answer 503), so these tiers have no request or payment path yet.</p>
-  <div class="pricing-grid">
-
-    <!-- Standard -->
-    <div class="price-card">
-      <div class="price-tier">Standard Audit</div>
-      <div class="price-amount">$299 <span>per audit</span></div>
-      <div class="price-desc">Automated 12-point scan with full PDF report</div>
-      <ul class="price-features">
-        <li>Automated 12-point vulnerability scan</li>
-        <li>Severity classification (Critical / High / Medium / Low)</li>
-        <li>PDF report delivered within 48 hours</li>
-        <li>Remediation guidance per finding</li>
-      </ul>
-      <a class="price-btn" href="/audit">See tier details</a>
-    </div>
-
-    <!-- Advanced -->
-    <div class="price-card featured">
-      <div class="price-tier">Advanced Audit</div>
-      <div class="price-amount">$599 <span>per audit</span></div>
-      <div class="price-desc">Automated scan with detailed recommendations</div>
-      <ul class="price-features">
-        <li>Everything in Standard, plus:</li>
-        <li>Detailed remediation recommendations</li>
-        <li>Gas optimisation analysis</li>
-        <li>Code quality scoring</li>
-        <li>Delivered within 1 week</li>
-      </ul>
-      <a class="price-btn" href="/audit">See tier details</a>
-    </div>
-
-    <!-- Enterprise -->
-    <div class="price-card">
-      <div class="price-tier">Enterprise Audit</div>
-      <div class="price-amount">$999 <span>per audit</span></div>
-      <div class="price-desc">Full audit with ongoing monitoring and first-year badge included</div>
-      <ul class="price-features">
-        <li>Everything in Advanced, plus:</li>
-        <li>Ongoing contract monitoring</li>
-        <li>Priority re-audit after fixes</li>
-        <li>Executive summary for stakeholders</li>
-        <li>First-year Glasswing Verified badge included</li>
-        <li>Dedicated support channel</li>
-      </ul>
-      <a class="price-btn" href="/audit">See tier details</a>
-    </div>
-
-  </div>
+<!-- What an audit returns -->
+<section class="section" id="report">
+  <h2 class="section-title">What an Audit Returns</h2>
+  <p class="section-sub">One automated scan: the 12 checks above, run on the source it is given</p>
+  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a description that says how to fix it, the line and the code it points at. Nobody reviews the report by hand. Ordering an audit is not live: this gateway has no audit service behind its audit routes (they answer 503), so nothing here takes an order or a payment. The scan does run on a contract tool call that carries source code, and when a badge is issued (below).</p>
 </section>
 
 <!-- Glasswing Verified Badge -->
@@ -438,7 +338,7 @@ a:hover{text-decoration:underline}
 
 <!-- CTA -->
 <section class="cta-section">
-  <a class="cta-btn" href="/audit">Audit Tiers</a>
+  <a class="cta-btn" href="/audit">About the Audit</a>
   <div class="cta-sub">Ordering an audit is not live on this gateway. Issuing a badge (<code>POST /badge/issue</code>, which audits the source itself) and badge pages need the gateway's API key where one is set, so a browser cannot reach them there.</div>
 </section>
 
