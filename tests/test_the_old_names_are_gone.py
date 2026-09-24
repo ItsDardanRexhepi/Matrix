@@ -62,11 +62,14 @@ def test_the_quick_start_clones_and_enters_the_same_directory():
 
 
 
-#: The spelling with a zero names no bundle id and no domain, so committed
-#: text needs no exemption for it, and this sweep runs whether or not the
-#: guard is installed. What can still carry it is the machine around the
-#: repository (a checkout directory, a local config that records one), so the
-#: sweep reads the files git would commit, not whatever else sits in the tree.
+#: The spelling with a zero names no bundle id and no domain. The guard
+#: exempts it in two places, a checkout path on a machine and the
+#: repository's former GitHub address, and neither belongs in a committed
+#: file: the README clones the current address. So committed text needs no
+#: exemption for it, and this sweep runs whether or not the guard is
+#: installed. What can still carry it is the machine around the repository (a
+#: checkout directory, a local config that records one), so the sweep reads
+#: the files git would commit, not whatever else sits in the tree.
 #:
 #: Two files are held apart, by name, and only while they still carry it: the
 #: privacy and terms pages the gateway serves from web/. They are legal text,
