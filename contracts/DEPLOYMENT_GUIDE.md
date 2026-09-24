@@ -1,58 +1,77 @@
 # The Matrix Contract Deployment Guide
 
-This guide walks you through deploying the Matrix smart-contract suite to
-Base Sepolia (testnet) or Base Mainnet, then plugging the resulting addresses
-into `matrix.config.json`.
+This repository has two deployment tools, and they deploy different things.
+Both default to Base Sepolia (testnet, chain id 84532). Neither is run for
+you: you run them with your own key, and the contracts are yours.
+
+| Tool | Deploys | Reads its key from | Writes |
+|------|---------|--------------------|--------|
+| `python -m contracts.deploy` | `MatrixAttestation` only | `matrix.config.json` → `blockchain.paymaster_private_key` | `contracts/deployment.json` and `contracts/MatrixAttestation.abi.json` |
+| `python scripts/deploy_all.py [config.json]` | `MatrixMarketplace`, `MatrixStaking`, `MatrixDAO`, `MatrixInsurance`, `MatrixDEX`, `MatrixNFT`, `MatrixDID`, `PropertyDeed`, `PropertyEscrow`, attesting each deployment | a JSON config's `private_key`, or `MATRIX_PRIVATE_KEY` | `deployment_manifest.json` at the repository root |
+
+All of those output files are git-ignored. `contracts.deploy` no longer
+deploys `MatrixPaymaster`, and prints on every run what it will not deploy and
+why (`scripts/refuse_legacy_contracts.py` holds the list).
 
 ## Prerequisites
 
 - Python 3.10+
-- An RPC URL for Base (default Sepolia: `https://sepolia.base.org`)
+- An RPC URL for Base (Sepolia: `https://sepolia.base.org`)
 - A funded deployer wallet
   - Sepolia ETH faucet: <https://www.alchemy.com/faucets/base-sepolia>
-- `solc` 0.8.20 (auto-installed by `py-solc-x` on first run)
-- Solidity dependencies (forge-std + OpenZeppelin v5.0.2) live under `contracts/lib/`
-  as git submodules. On a fresh checkout, fetch them before `forge build`:
+- `solc` 0.8.20 (installed by `py-solc-x` on first run)
+- For Foundry builds and tests, the three Solidity dependencies under
+  `contracts/lib/`, pinned as git submodules: forge-std,
+  openzeppelin-contracts and account-abstraction. On a fresh checkout:
 
   ```bash
-  git submodule update --init --recursive   # forge-std + openzeppelin-contracts
-  # or, without submodules:
-  # forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
+  git submodule update --init --recursive
   ```
 
-## 1. Configure environment
+  `scripts/build-contracts.sh` installs forge-std and OpenZeppelin when they
+  are missing, but not account-abstraction, which `MatrixAccount.sol`
+  imports; initialise the submodules first.
 
-Copy `.env.example` to `.env` and fill in:
+## 1a. MatrixAttestation, with `contracts.deploy`
 
-```
-BASE_RPC_URL=https://sepolia.base.org
-```
-
-Set the deployer key in `matrix.config.json`:
+Set these in `matrix.config.json`, in the directory you run from:
 
 ```json
 "blockchain": {
   "network": "base-sepolia",
   "rpc_url": "https://sepolia.base.org",
   "chain_id": 84532,
-  "demo_wallet_private_key": "0x...",
-  "demo_wallet_address": "0x..."
+  "paymaster_private_key": "0x...",
+  "platform_wallet": "0x..."
 }
 ```
 
-## 2. Compile and deploy
+`paymaster_private_key` is the deployer: it signs and pays for the deployment,
+so fund its address. The tool refuses to start if any of `rpc_url`,
+`paymaster_private_key` or `platform_wallet` is missing or still a `YOUR_…`
+placeholder, and stops if the deployer's balance is zero.
 
 ```bash
 python -m contracts.deploy
 ```
 
-The deployer compiles each `.sol` file under `contracts/`, deploys it, and
-writes the resulting addresses to `contracts/deployed_addresses.json`.
+## 1b. The rest of the suite, with `scripts/deploy_all.py`
 
-## 3. Wire addresses into config
+Give it `rpc_url`, `chain_id`, `private_key` and `neosafe_address` (the address
+the contracts send platform fees to), and optionally `oracle_address` and
+`eas_schema_uid`, in a JSON file passed as its argument or as `MATRIX_RPC_URL`,
+`MATRIX_CHAIN_ID`, `MATRIX_PRIVATE_KEY`, `MATRIX_NEOSAFE_ADDRESS`,
+`MATRIX_ORACLE_ADDRESS` and `MATRIX_EAS_SCHEMA_UID`. `rpc_url` and `chain_id`
+default to Base Sepolia.
 
-After deployment, copy each address from `deployed_addresses.json` into the
-matching `services.*` block in `matrix.config.json`. For example:
+```bash
+MATRIX_PRIVATE_KEY=0x... MATRIX_NEOSAFE_ADDRESS=0x... python scripts/deploy_all.py
+```
+
+## 2. Wire addresses into config
+
+Copy each address from the tool's output file into the matching `services.*`
+block in `matrix.config.json`. For example:
 
 ```json
 "services": {
@@ -65,33 +84,29 @@ matching `services.*` block in `matrix.config.json`. For example:
 }
 ```
 
-## 4. Verify
+## 3. Verify
 
 ```bash
-curl http://localhost:18790/status | jq .subsystems.blockchain
+curl http://localhost:18790/status -H "Authorization: Bearer YOUR_API_KEY" | jq .subsystems.blockchain
 ```
 
-You should see `{"configured": true}`.
+`{"configured": true}` means `blockchain.rpc_url` is set to something other
+than a placeholder. It does not check your contract addresses.
 
-## Reference: Pre-deployed addresses
+## Reference: EAS on Base
 
-The Matrix team maintains a public deployment on Base Sepolia for testing.
-These addresses are stable and can be used directly in your config:
+The Ethereum Attestation Service is a predeploy on Base, the same address on
+Base Sepolia and Base mainnet:
 
-| Service              | Base Sepolia                                       |
-|----------------------|----------------------------------------------------|
-| EAS (Attestation)    | `0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587`       |
-| Marketplace          | _populate after deploy_                            |
-| Staking              | _populate after deploy_                            |
-| DAO factory          | _populate after deploy_                            |
-| DID registry         | _populate after deploy_                            |
-| Insurance            | _populate after deploy_                            |
-| NFT factory          | _populate after deploy_                            |
-| DEX router           | _populate after deploy_                            |
-| Paymaster            | _populate after deploy_                            |
+| Contract       | Base Sepolia and Base mainnet                  |
+|----------------|------------------------------------------------|
+| EAS            | `0x4200000000000000000000000000000000000021`   |
+| SchemaRegistry | `0x4200000000000000000000000000000000000020`   |
 
-> If you deploy your own copies, please open a PR adding your addresses to
-> this table so others can reuse them.
+`0xA1207F3BBa224E2c9c3c6D5aF63D0eb1582Ce587`, which this guide used to list
+for Base Sepolia, is Ethereum's EAS contract. Check any address against
+<https://docs.attest.org> before trusting it. This guide lists no shared
+deployment of the other contracts; deploy your own.
 
 ## Troubleshooting
 

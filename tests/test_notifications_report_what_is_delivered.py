@@ -1,6 +1,6 @@
 """What the gateway says about notifications is what it does with them.
 
-daaef5f set out to make "configured channels actually fire at runtime". It
+0ec0d78 set out to make "configured channels actually fire at runtime". It
 constructed the NotificationDispatcher, listed its channels at boot
 ("Notifications ready: telegram, slack") and later handed it the push-token
 store — and nothing in the gateway ever called broadcast(). An operator who

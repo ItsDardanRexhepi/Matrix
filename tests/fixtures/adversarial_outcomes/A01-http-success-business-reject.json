@@ -1,0 +1,31 @@
+{
+  "id": "A1",
+  "case": "HTTP success but business reject",
+  "false_signal": "the call returned; a transport-level success wraps the refusal",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "ok": false,
+      "status": "declined",
+      "error": "declined by the provider"
+    }
+  },
+  "fact_source": {
+    "kind": "response_body",
+    "payload": {
+      "ok": false,
+      "status": "declined"
+    },
+    "outranks_because": "the body states its own verdict"
+  },
+  "expected": {
+    "verdict": "FAILED",
+    "run_state": "FAIL",
+    "reason": "business_reject"
+  },
+  "legacy": {
+    "record_verdict": "refused",
+    "report": "failure"
+  },
+  "head_behaviour": "Right on the server: the refusal shape reads as a failure and the dispatcher records a refusal. A client that counts any status below 400 as delivered without reading the body would count it done."
+}

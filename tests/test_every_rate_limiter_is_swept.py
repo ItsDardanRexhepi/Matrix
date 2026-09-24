@@ -1,7 +1,7 @@
 """The periodic sweep prunes every rate limiter the gateway keys buckets in.
 
 ``RateLimiter`` creates a bucket on first touch for whatever key it is handed
-and keeps it until ``cleanup()`` removes it. 0771c71 introduced the sweep and
+and keeps it until ``cleanup()`` removes it. 9c3657f introduced the sweep and
 named two of the three limiters; ``rate_limiter_wallet`` — keyed by SIWE
 address, where addresses are free to mint and /auth/nonce and /auth/verify are
 public — kept a bucket for every address that ever signed in.

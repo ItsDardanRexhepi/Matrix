@@ -6,7 +6,7 @@ and /api/v1/capabilities/{id}: every row publishes a `service`, a `method` and a
 from ACTION_MAP, and `install_action_map` refuses to overwrite an ACTION_MAP entry
 that already exists — so a wrong row was invisible to every behavioural test.
 
-Measured at 9f4aa37: 81 of 195 rows named a method that does not exist on the
+Measured at d0cdf73: 81 of 195 rows named a method that does not exist on the
 named service (and 6 of those named the wrong service outright), and 32 rows
 published `feed_event: null` for an action whose dispatch emits a feed event.
 The resulting conflicts were logged at DEBUG, truncated to five names — the same
@@ -111,7 +111,7 @@ def test_a_conflict_is_reported_in_full_not_truncated(caplog):
 # the escape set, and a session could invoke through
 # /api/v1/capabilities/{id}/invoke an operation whose own route answers it 403.
 # "Harmless because ACTION_MAP wins" was wrong: ACTION_MAP won the dispatch, the
-# stale row won the authorization. Measured at 9f4aa37: 15 such capabilities
+# stale row won the authorization. Measured at d0cdf73: 15 such capabilities
 # answered HTTP 200 to a session — 14 through stale rows, and provenance_log
 # because a comment inside its handler's `self._call(` hid the call from the
 # generator's regex. Both derivations here and in the generator use the AST.
@@ -169,7 +169,7 @@ def _route_pairs():
                 continue
             head = node.args[:2]
             # Every call, not the first; and a call this derivation cannot
-            # attribute is a failure, not a skip (review of bb6635b).
+            # attribute is a failure, not a skip (review of b56a5a4).
             assert len(head) == 2 and all(
                 isinstance(a, ast.Constant) and isinstance(a.value, str) for a in head), (
                 f"{route.resource.canonical}: self._call with a non-literal service/method")
@@ -645,13 +645,13 @@ async def test_a_session_cannot_invoke_any_derived_escape(monkeypatch):
 
 # ── Every session-reachable DISPATCHER, keyed on the pair dispatch runs ───────
 #
-# bb6635b closed POST /api/v1/capabilities/{id}/invoke and called the boundary
+# b56a5a4 closed POST /api/v1/capabilities/{id}/invoke and called the boundary
 # fixed. It was not: the refusal was keyed on the CATALOG ID and enforced in that
 # one handler, and a session reaches the same ServiceDispatcher through two more
 # doors that take an ACTION_MAP action name instead of a catalog id:
 #
 #   POST /bridge/v1/action   — `dispatcher.execute(action, params=...)`, no check.
-#                              Measured on bb6635b: every capability in the escape
+#                              Measured on b56a5a4: every capability in the escape
 #                              set answered 403 on invoke and on its own route, and
 #                              HTTP 200 here, reaching ServiceDispatcher.execute.
 #   POST /bridge/v1/chat     — Trinity's `request_execution` hands any action to
@@ -743,7 +743,7 @@ async def test_a_session_cannot_reach_a_refused_operation_through_the_bridge_act
     recorder = _RecordingExecute()
     recorder.install(monkeypatch)
     reaching = _actions_reaching_a_refused_pair()
-    # A superset of the catalog escape set bb6635b closed on the invoke route only.
+    # A superset of the catalog escape set b56a5a4 closed on the invoke route only.
     escape_actions = {catalog.get_by_id(c)["action"] for c in _derived_escapes()}
     assert escape_actions and escape_actions <= set(reaching), escape_actions - set(reaching)
     server = _session_server(tmp_path, SWEEP_CONFIG)
@@ -921,7 +921,7 @@ async def test_the_operator_batch_still_reaches_the_bridge_dispatchers(monkeypat
 # The refusal above models only routes that need the OPERATOR key. The chat
 # surfaces (/bridge/v1/chat, /chat, /ws) are PUBLIC paths, so a caller with no
 # credential at all reaches Trinity, and her request_execution ran operations
-# whose dedicated route answers that caller 401 — measured on 47d18d3:
+# whose dedicated route answers that caller 401 — measured on f1ed79b:
 # transfer_stablecoin, swap_tokens, buy_marketplace, stake and mint_nft each
 # reached ServiceDispatcher.execute from an anonymous /bridge/v1/chat, while an
 # anonymous POST /api/v1/stablecoin/transfer answered 401.
@@ -1112,8 +1112,8 @@ async def test_an_anonymous_chat_is_refused_what_its_routes_refuse_and_a_session
 
 # ── Round 4: what the anonymous tier's two tables did not know ───────────────
 #
-# 03a305e refused an anonymous caller every pair behind a non-public route and
-# every action in _STATE_MODIFYING_ACTIONS. Measured at 03a305e, on
+# 1acdbb7 refused an anonymous caller every pair behind a non-public route and
+# every action in _STATE_MODIFYING_ACTIONS. Measured at 1acdbb7, on
 # /bridge/v1/chat and /chat with no credential, three dispatches still reached
 # ServiceDispatcher.execute:
 #   * social_follow (social.follow_wallet), through platform_action AND
@@ -1224,7 +1224,7 @@ def test_the_wrapped_feed_read_is_behind_its_route():
 
 # ── Round 5: the wrapper rule ran one way ────────────────────────────────────
 #
-# f414a7d's rule saw only what a route's method WRAPS. Measured at f414a7d, an
+# a701a6c's rule saw only what a route's method WRAPS. Measured at a701a6c, an
 # anonymous /chat ran platform_action get_price and oracle_price_query, and both
 # executed OracleGateway.request("price_feed", {"pair": "BTC/USD"}) — the very
 # call GET /api/v1/oracle/price/{pair} makes, and that route answered the same
@@ -1283,9 +1283,9 @@ def test_a_session_is_refused_the_remittance_that_wraps_the_send_its_route_refus
 
 # ── Round 6: the wrapper rules stop at the service boundary ──────────────────
 #
-# c5f2de4 left it unmeasured: "an operation duplicated across services, or
+# 310b9e0 left it unmeasured: "an operation duplicated across services, or
 # reached through a component (self.part.x), is not joined". Measured at
-# c5f2de4: an anonymous /chat, /bridge/v1/chat and /ws ran platform_action
+# 310b9e0: an anonymous /chat, /bridge/v1/chat and /ws ran platform_action
 # get_payment_quote, and the service performed OracleGateway.request(
 # "price_feed", {"pair": "USD/EUR"}) — the call GET /api/v1/oracle/price/{pair}
 # makes, which answered the same caller 401. cross_border.get_quote reaches it
@@ -1332,13 +1332,13 @@ def test_the_quote_that_performs_the_price_read_is_behind_its_route():
 
 # ── Round 7: the sibling axis, derived instead of listed ─────────────────────
 #
-# c5f2de4 held two reads refused by decision — governance.list_proposals and
+# 310b9e0 held two reads refused by decision — governance.list_proposals and
 # supply_chain.verify — and its control pinned the set to exactly those two, so
 # nothing could see a third. There was a third, and it gave away more than the
 # one recorded: supply_chain.track (track_product) runs the same
 # _verify_chain_integrity over the same self._provenance as verify_authenticity
 # and returns the ENTIRE provenance chain plus the product record. Measured at
-# 492abdd, an anonymous chat on /chat, /bridge/v1/chat and /ws reached
+# c389378, an anonymous chat on /chat, /bridge/v1/chat and /ws reached
 # track_product, get_proposal, get_social_profile and get_activity, while
 # verify_product and list_proposals were denied in the same run and
 # /api/v1/supply-chain/verify, /api/v1/governance/daos/{daoId}/proposals,
@@ -1368,7 +1368,7 @@ def test_the_quote_that_performs_the_price_read_is_behind_its_route():
 def test_every_sibling_read_of_an_anonymous_refused_read_is_adjudicated():
     """The class, not the two instances somebody happened to name.
 
-    c5f2de4 recorded `governance.list_proposals` and `supply_chain.verify` and
+    310b9e0 recorded `governance.list_proposals` and `supply_chain.verify` and
     pinned the set to those two, so a third sibling was invisible — and there
     was one: `supply_chain.track` (track_product) runs `_verify_chain_integrity`
     over the same `self._provenance` and returns the whole chain on top of it,
@@ -1478,7 +1478,7 @@ async def test_an_anonymous_chat_cannot_read_the_price_proposals_or_provenance_i
     and /ws reaches all five, as its routes grant it. The second script is the session
     tier's leg: request_execution cross_border_remit hands everything to
     send_payment, whose route needs the operator key — the operator reaches it
-    and nobody else does. Measured at f414a7d: every anonymous run reached all
+    and nobody else does. Measured at a701a6c: every anonymous run reached all
     four reads, and both session runs reached the remittance."""
     import json
     import sys
@@ -1557,7 +1557,7 @@ async def test_an_anonymous_chat_cannot_read_the_chain_proposal_profile_or_activ
         monkeypatch, tmp_path):
     """Round 7: the siblings the pinned pair of decisions hid.
 
-    Measured at 492abdd, with no credential, on /chat, /bridge/v1/chat and /ws:
+    Measured at c389378, with no credential, on /chat, /bridge/v1/chat and /ws:
       * platform_action track_product ran SupplyChainService.track, which runs
         `_verify_chain_integrity` over the same `self._provenance` that
         verify_authenticity runs it over and returns the whole provenance chain

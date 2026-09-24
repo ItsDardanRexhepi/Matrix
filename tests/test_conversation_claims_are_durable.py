@@ -1,6 +1,6 @@
 """Who a conversation belongs to must not live in an evictable cache.
 
-dbbeb0d bounded the conversation caches and said eviction loses nothing. It
+7ffe8de bounded the conversation caches and said eviction loses nothing. It
 lost the owner. ``claim_conversation`` wrote the claim to disk only when the
 conversation already had stored rows; a signed-in caller's FIRST turn in a new
 conversation was protected only by the in-memory entry while its model call
@@ -492,7 +492,7 @@ async def test_a_turn_from_before_deletion_is_not_written_into_a_claim_made_by_a
 
 # ── The erasure log must not cost the erasure, nor keep the account ─────────
 #
-# 080f76d read conversation_erasure_log_seconds with float() inside the
+# 4580977 read conversation_erasure_log_seconds with float() inside the
 # transaction that erases an account. A value float() rejects ("1h", a YAML
 # null) raised there, rolled the whole erasure back, and the handler swallowed
 # it: DELETE /api/v1/auth/account answered 200 and erased nothing. It also
@@ -673,7 +673,7 @@ async def test_restoring_a_missing_state_row_revives_no_turn_whose_erasure_was_p
 # and went on: it removed the push tokens and the session and answered 200
 # {"success": true} with the account's conversations, scoped memory and claim
 # all still stored — and the session gone, so the client could not retry. A
-# retention value float() rejected was one way in (fixed in 2cc7700); a store
+# retention value float() rejected was one way in (fixed in 7254f38); a store
 # that raises for any other reason was still answered the same way.
 
 async def test_a_deletion_whose_erasure_fails_is_answered_as_a_failure_and_can_be_retried():

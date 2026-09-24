@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 """
-Omega Protocol — The synthesis layer that combines all protocol outputs
-into a unified agent response. This is the orchestration brain.
+Omega Protocol — a synthesis layer written to run the other protocols in
+sequence and merge their outputs into one agent response.
+
+Nothing calls it. ProtocolStack (runtime/protocols/integration.py)
+constructs an OmegaMind and counts it among the protocols it loaded, but
+the ReAct loop calls only the stack's pre_process, pre_action, post_action
+and post_process, none of which reach OmegaMind.process.
 """
 
 import logging

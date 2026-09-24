@@ -1,0 +1,274 @@
+{
+ "actions_reached_by_the_funnel_too": 61,
+ "actions_under_two_labels": {
+  "add_liquidity": {
+   "funnel": "provide_liquidity",
+   "react": "add_liquidity"
+  },
+  "ai_agent_register": {
+   "funnel": "register_agent",
+   "react": "ai_agent_register"
+  },
+  "authenticity_verify": {
+   "funnel": "verify_authenticity",
+   "react": "authenticity_verify"
+  },
+  "buy_marketplace": {
+   "funnel": "buy_item",
+   "react": "buy_marketplace"
+  },
+  "community_create": {
+   "funnel": "create_community",
+   "react": "community_create"
+  },
+  "contribute_to_campaign": {
+   "funnel": "contribute",
+   "react": "contribute_to_campaign"
+  },
+  "convert_contract": {
+   "funnel": "convert",
+   "react": "convert_contract"
+  },
+  "create_brand_campaign": {
+   "funnel": "create_campaign",
+   "react": "create_brand_campaign"
+  },
+  "create_insurance": {
+   "funnel": "create_policy",
+   "react": "create_insurance"
+  },
+  "create_nft_collection": {
+   "funnel": "create_collection",
+   "react": "create_nft_collection"
+  },
+  "create_payment": {
+   "funnel": "payment",
+   "react": "create_payment"
+  },
+  "create_social_profile": {
+   "funnel": "create_profile",
+   "react": "create_social_profile"
+  },
+  "credential_issue": {
+   "funnel": "issue_credential",
+   "react": "credential_issue"
+  },
+  "credential_verify": {
+   "funnel": "verify_credential",
+   "react": "credential_verify"
+  },
+  "custody_transfer": {
+   "funnel": "transfer_custody",
+   "react": "custody_transfer"
+  },
+  "did_create": {
+   "funnel": "create_did",
+   "react": "did_create"
+  },
+  "dispute_file": {
+   "funnel": "file_dispute",
+   "react": "dispute_file"
+  },
+  "earn_loyalty": {
+   "funnel": "earn_points",
+   "react": "earn_loyalty"
+  },
+  "file_insurance_claim": {
+   "funnel": "file_claim",
+   "react": "file_insurance_claim"
+  },
+  "get_dashboard": {
+   "funnel": "get_overview",
+   "react": "get_dashboard"
+  },
+  "ipfs_pin": {
+   "funnel": "pin_to_ipfs",
+   "react": "ipfs_pin"
+  },
+  "list_marketplace": {
+   "funnel": "list_item",
+   "react": "list_marketplace"
+  },
+  "mint_nft": {
+   "funnel": "mint",
+   "react": "mint_nft"
+  },
+  "nft_batch_mint": {
+   "funnel": "batch_mint",
+   "react": "nft_batch_mint"
+  },
+  "nft_bridge": {
+   "funnel": "bridge_nft",
+   "react": "nft_bridge"
+  },
+  "nft_fractionalize": {
+   "funnel": "fractionalize",
+   "react": "nft_fractionalize"
+  },
+  "nft_rent": {
+   "funnel": "rent",
+   "react": "nft_rent"
+  },
+  "nft_royalty_claim": {
+   "funnel": "royalty_claim",
+   "react": "nft_royalty_claim"
+  },
+  "oracle_request": {
+   "funnel": "request",
+   "react": "oracle_request"
+  },
+  "parametric_policy": {
+   "funnel": "create_parametric_policy",
+   "react": "parametric_policy"
+  },
+  "provenance_log": {
+   "funnel": "log_event",
+   "react": "provenance_log"
+  },
+  "redeem_loyalty": {
+   "funnel": "redeem_points",
+   "react": "redeem_loyalty"
+  },
+  "rwa_tokenize": {
+   "funnel": "tokenize_asset",
+   "react": "rwa_tokenize"
+  },
+  "send_message": {
+   "funnel": "share_proof",
+   "react": "send_message"
+  },
+  "send_payment": {
+   "funnel": "send",
+   "react": "send_payment"
+  },
+  "swap_tokens": {
+   "funnel": "swap",
+   "react": "swap_tokens"
+  },
+  "transfer_stablecoin": {
+   "funnel": "transfer",
+   "react": "transfer_stablecoin"
+  },
+  "verify_attestation": {
+   "funnel": "verify",
+   "react": "verify_attestation"
+  }
+ },
+ "capability_invoke": {
+  "capabilities": 195,
+  "catalog_action_is_an_action_map_name": 195,
+  "exceptions": {},
+  "label_is_the_catalog_action": 195,
+  "reaches_gate": 195
+ },
+ "funnel": {
+  "agent_identity.register_agent": "register_agent",
+  "attestation.verify": "verify",
+  "brand_rewards.create_campaign": "create_campaign",
+  "cashback.track_spending": "track_spending",
+  "contract_conversion.convert": "convert",
+  "cross_border.send_payment": "send",
+  "dao_management.create_dao": "create_dao",
+  "dashboard.get_overview": "get_overview",
+  "defi.bridge_execute": "bridge_execute",
+  "defi.bridge_quote": "bridge_quote",
+  "defi.create_loan": "create_loan",
+  "defi.repay_loan": "repay_loan",
+  "defi.swap_execute": "swap_execute",
+  "defi.swap_route": "swap_route",
+  "dex.add_liquidity": "provide_liquidity",
+  "dex.swap": "swap",
+  "did_identity.create_did": "create_did",
+  "did_identity.generate_zk_proof": "generate_zk_proof",
+  "did_identity.issue_credential": "issue_credential",
+  "did_identity.verify_credential": "verify_credential",
+  "dispute_resolution.claim": "claim",
+  "dispute_resolution.file_dispute": "file_dispute",
+  "dispute_resolution.vote": "vote",
+  "fundraising.contribute": "contribute",
+  "fundraising.create_campaign": "create_campaign",
+  "gaming.register_game": "register_game",
+  "governance.create_proposal": "create_proposal",
+  "governance.list_proposals_detailed": "list_proposals_detailed",
+  "governance.snapshot_vote": "snapshot_vote",
+  "governance.vote": "vote",
+  "insurance.create_parametric_policy": "create_parametric_policy",
+  "insurance.create_policy": "create_policy",
+  "insurance.file_claim": "file_claim",
+  "ip_royalties.license_ip": "license_ip",
+  "ip_royalties.register_ip": "register_ip",
+  "loyalty.earn_points": "earn_points",
+  "loyalty.redeem_points": "redeem_points",
+  "marketplace.buy_item": "buy_item",
+  "marketplace.list_item": "list_item",
+  "nft_services.batch_mint": "batch_mint",
+  "nft_services.bridge_nft": "bridge_nft",
+  "nft_services.create_collection": "create_collection",
+  "nft_services.fractionalize": "fractionalize",
+  "nft_services.mint": "mint",
+  "nft_services.rent": "rent",
+  "nft_services.royalty_claim": "royalty_claim",
+  "oracle_gateway.request": "request",
+  "privacy.decentralized_store": "decentralized_store",
+  "privacy.pin_to_ipfs": "pin_to_ipfs",
+  "privacy.request_deletion": "request_deletion",
+  "real_estate.confirm_settlement": "confirm_settlement",
+  "real_estate.create_property": "create_property",
+  "real_estate.execute_purchase": "execute_purchase",
+  "real_estate.get_buyer_verification": "get_buyer_verification",
+  "real_estate.get_documents": "get_documents",
+  "real_estate.get_escrow": "get_escrow",
+  "real_estate.get_property": "get_property",
+  "real_estate.get_readiness": "get_readiness",
+  "real_estate.list_properties": "list_properties",
+  "real_estate.mark_recording_complete": "mark_recording_complete",
+  "real_estate.query_expiring_documents": "query_expiring_documents",
+  "real_estate.refund_escrow": "refund_escrow",
+  "real_estate.update_listing_status": "update_listing_status",
+  "real_estate.upload_document": "upload_document",
+  "real_estate.verify_buyer": "verify_buyer",
+  "rwa_tokenization.list_assets": "list_assets",
+  "rwa_tokenization.tokenize_asset": "tokenize_asset",
+  "securities_exchange.create_security": "create_security",
+  "social.create_community": "create_community",
+  "social.create_post": "create_post",
+  "social.create_profile": "create_profile",
+  "social.get_conversations": "get_conversations",
+  "social.get_feed_view": "get_feed_view",
+  "social.get_messages": "get_messages",
+  "social.share_proof": "share_proof",
+  "stablecoin.transfer": "transfer",
+  "staking.stake": "stake",
+  "staking.unstake": "unstake",
+  "subscriptions.subscribe": "subscribe",
+  "supply_chain.log_event": "log_event",
+  "supply_chain.register_product": "register_product",
+  "supply_chain.transfer_custody": "transfer_custody",
+  "supply_chain.verify_authenticity": "verify_authenticity",
+  "x402_payments.create_payment": "payment"
+ },
+ "names": 253,
+ "security_preflight": {
+  "dispatches": false,
+  "labels": [
+   "transfer"
+  ]
+ },
+ "sites": {
+  "bridge": {
+   "exceptions": {},
+   "label_is_the_name": 253,
+   "reaches_gate": 253
+  },
+  "handoff": {
+   "exceptions": {},
+   "label_is_the_name": 253,
+   "reaches_gate": 253
+  },
+  "react": {
+   "exceptions": {},
+   "label_is_the_name": 253,
+   "reaches_gate": 253
+  }
+ }
+}

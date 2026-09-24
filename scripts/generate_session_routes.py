@@ -459,7 +459,7 @@ def cross_service_runs(service: str, method: str) -> dict:
     cross_border.get_quote asks its conversion component for a rate, and the
     component does ``OracleGateway(self._config).request("price_feed",
     {"pair": ...})`` — the call GET /api/v1/oracle/price/{pair} makes, which
-    answers an anonymous caller 401. Measured at c5f2de4: an anonymous chat ran
+    answers an anonymous caller 401. Measured at 310b9e0: an anonymous chat ran
     get_payment_quote and the service performed that read for the pair the
     caller named.
 
@@ -652,7 +652,7 @@ def _is_read_anchor(pair) -> bool:
 # walk relates — neither hands its arguments to the other — can still be the
 # same operation: `verify` and `verify_authenticity` both run
 # `_verify_chain_integrity` over `self._provenance[product_id]`, and one of them
-# backs a route the auth wall answers an anonymous caller 401. c5f2de4 recorded
+# backs a route the auth wall answers an anonymous caller 401. 310b9e0 recorded
 # the two such pairs a reviewer happened to name and pinned the set to them, so
 # a third was invisible — and there was one: `track` (track_product) runs that
 # same helper over that same store and returns the WHOLE provenance chain on top
@@ -799,7 +799,7 @@ def refused_pairs(allowed: set) -> dict:
     what it is given to a (service, method) pair. So "exactly the routes the app
     calls" is true of URLs and false of operations unless the refusal is keyed
     on that PAIR: a session that gets 403 on a dedicated route must get 403 on
-    every dispatcher that resolves to the same ``self._call``. bb6635b keyed it on
+    every dispatcher that resolves to the same ``self._call``. b56a5a4 keyed it on
     the catalog id and enforced it on the invoke route only; /bridge/v1/action
     still answered 200 for all of them.
 

@@ -1,0 +1,39 @@
+{
+  "id": "A10",
+  "case": "Two authoritative sources disagree",
+  "false_signal": "one RPC endpoint returns a receipt",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "broadcast": true,
+      "status": "submitted",
+      "settled": true,
+      "value_moved": true,
+      "block_number": 100,
+      "gas_used": 21000
+    }
+  },
+  "fact_source": {
+    "kind": "chain_multi",
+    "payload": {
+      "rpc_a": {
+        "status": 1,
+        "blockNumber": 100
+      },
+      "rpc_b": null
+    },
+    "outranks_because": "a value-moving run needs agreement at depth across two sources"
+  },
+  "expected": {
+    "verdict": "UNKNOWN",
+    "run_state": "HELD",
+    "reason": "sources_disagree",
+    "incident": true
+  },
+  "legacy": {
+    "record_verdict": "settled",
+    "report": "success"
+  },
+  "head_behaviour": "One RPC endpoint is read and nothing compares it with another; the service's own word settles it."
+}

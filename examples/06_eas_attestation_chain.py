@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-06 — EAS Attestation Chain: Every Action Creates a Verifiable Record
+06 — EAS Attestation Chain: Recording Actions as EAS Attestations
 
 Demonstrates how The Matrix uses Ethereum Attestation Service (EAS) to
-create permanent, verifiable on-chain records for every platform action:
+write on-chain records of platform actions:
 
   1. Deploy a contract -> attestation
   2. Transfer ownership -> attestation
   3. Create an insurance policy -> attestation
   4. Verify a specific attestation on-chain
 
-This is the trust layer of The Matrix: every state-modifying capability is attested on-chain automatically.
+A state-modifying action the ServiceDispatcher completes is queued for an EAS attestation; the queue is written to the chain once 50 have gathered in the same process, nothing drains it on a timer, and what is queued is lost if the process exits first.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -51,9 +51,10 @@ async def main():
   The Matrix Example 06: EAS Attestation Chain
 {'=' * 60}{RESET}
 
-  Every action on The Matrix creates an on-chain attestation
-  via Ethereum Attestation Service (EAS) on Base Sepolia.
-  This provides a permanent, verifiable audit trail.
+  This example asks for EAS attestations through
+  create_attestation and batch_attest. A state-modifying action
+  the ServiceDispatcher completes is queued for one, and the
+  queue is written to the chain in batches of 50.
 """)
 
     config = load_config()
@@ -273,9 +274,10 @@ async def main():
     5. verify_attestation  - Verify attestation on-chain
 
   {BOLD}Key insight:{RESET}
-    Every state-modifying action across all 221 capabilities
-    automatically creates an EAS attestation. The ServiceDispatcher
-    handles this transparently — no extra code needed.
+    A state-modifying action the ServiceDispatcher completes is
+    queued for an EAS attestation, written to the chain once 50
+    have gathered in the same process; a refusal or an unconfirmed
+    broadcast is not queued as done.
 
   {BOLD}EAS contract:{RESET} {bc.get('eas_contract', 'see config')}
   {BOLD}Network:{RESET} Base Sepolia

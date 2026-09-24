@@ -1,0 +1,39 @@
+{
+  "id": "A6",
+  "case": "Timeout after actual success",
+  "false_signal": "no receipt inside the wait window",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "broadcast": true,
+      "status": "pending",
+      "settled": false,
+      "value_moved": null,
+      "disclosure": "The transaction was BROADCAST and no receipt was obtained within the wait window. This is NOT a refusal and NOT a failure \u2014 it may be mined. Check the hash before retrying."
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "later_receipt": {
+        "status": 1,
+        "blockNumber": 130
+      },
+      "head_block": 150,
+      "required_depth": 12
+    },
+    "outranks_because": "a later receipt for the same hash"
+  },
+  "expected": {
+    "verdict": "PENDING",
+    "run_state": "RUNNING",
+    "then": "VERIFIED on reconcile",
+    "rule": "a run that holds a hash is never retried"
+  },
+  "legacy": {
+    "record_verdict": "broadcast",
+    "report": "unknown"
+  },
+  "head_behaviour": "Recorded as a broadcast in a log line; no record holds the hash for a later read, so nothing reconciles it."
+}

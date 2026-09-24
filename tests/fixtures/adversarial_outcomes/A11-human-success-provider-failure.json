@@ -1,0 +1,28 @@
+{
+  "id": "A11",
+  "case": "Human says success, provider says failure",
+  "false_signal": "an operator- or user-stated confirmation",
+  "producer": {
+    "kind": "operator_statement",
+    "payload": {
+      "confirmed": true
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "receipt": {
+        "status": 0,
+        "blockNumber": 100
+      }
+    },
+    "outranks_because": "the provider decides the fact; a person may only add caution or open a dispute"
+  },
+  "expected": {
+    "verdict": "FAILED",
+    "run_state": "FAIL",
+    "reason": "provider_reverted"
+  },
+  "legacy": null,
+  "head_behaviour": "No human channel is read: the URF approval flags (user_confirmed, approved, owner_approved) have no writer in runtime/ or gateway/, and the operator-stated chat context admits five keys (wallet_connected, network, balance, jurisdiction, total_transactions), none of them an approval or a confirmation."
+}

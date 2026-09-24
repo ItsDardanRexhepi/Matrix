@@ -258,6 +258,10 @@ class AttestationService:
         """
         Revoke an existing attestation on-chain.
 
+        The platform pays the gas. It is signed through "eas.revoke", an
+        exemption listed in UNMETERED_PLATFORM_OPERATIONS, so no sponsorship
+        allowlist or daily cap is checked.
+
         Args:
             attestation_uid: The attestation UID to revoke.
             schema_uid: The schema UID the attestation was made under.

@@ -31,7 +31,7 @@ This will:
 - Install all Python dependencies from `requirements.txt`
 - Create a default configuration file if one does not exist
 - Generate a local API key for development
-- Verify that Python 3.11+ is available
+- Verify that Python 3.10+ is available
 
 If you encounter version errors, confirm your Python version:
 
@@ -39,7 +39,7 @@ If you encounter version errors, confirm your Python version:
 python3 --version
 ```
 
-You need Python 3.11 or higher. If you have multiple versions installed, you may need to use `python3.11` or `python3` explicitly.
+You need Python 3.10 or newer; setup refuses anything older. On macOS the command is `python3` — there is no `python`.
 
 ## Step 3: Start the Gateway
 
@@ -48,17 +48,7 @@ source .venv/bin/activate    # once per terminal; setup created .venv
 python -m gateway.server
 ```
 
-You should see output indicating the server has started:
-
-```
-[INFO] The Matrix Gateway starting...
-[INFO] Loading middleware chain...
-[INFO] Agents initialized: Neo, Trinity, Morpheus
-[INFO] 221 capabilities across 21 categories loaded
-[INFO] Gateway listening on port 18790
-```
-
-The gateway is now running. Leave this terminal open and open a new terminal for the next steps.
+The gateway logs as it starts and then listens on port 18790 (or `$PORT`). Leave this terminal open and open a new terminal for the next steps.
 
 ## Step 4: Check Health
 
@@ -68,46 +58,45 @@ In your new terminal, verify the gateway is responding:
 curl http://localhost:18790/health
 ```
 
-Expected response:
+The response looks like this (your agents and provider are the ones you chose in setup):
 
 ```json
 {
-  "status": "healthy",
-  "timestamp": "2026-04-10T12:00:00Z",
-  "version": "1.0.0"
+  "status": "ok",
+  "agents": ["neo", "trinity", "morpheus"],
+  "model_provider": "ollama",
+  "models": {"ollama": true}
 }
 ```
 
-The `/health` endpoint is unauthenticated -- it is designed for load balancers and monitoring systems to check that the server is running.
+`agents` lists the agents enabled in your config, and `models` says whether each configured model provider answered. The `/health` endpoint is unauthenticated and answers "is the process up?" for load balancers and monitoring. Whether the instance should take traffic is `/ready`, which fails when no model provider is reachable.
 
 ## Step 5: Check Status
 
-The `/status` endpoint provides more detail about the running system:
+The `/status` endpoint provides more detail about the running system. It needs the API key setup generated:
 
 ```bash
-curl http://localhost:18790/status
+curl http://localhost:18790/status -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
-Expected response:
+The response names the platform and version, the enabled agents, the model, the session and request counts, uptime, memory, and the health of each subsystem:
 
 ```json
 {
-  "status": "operational",
-  "agents": {
-    "neo": {"status": "active", "role": "execution"},
-    "trinity": {"status": "active", "role": "conversation"},
-    "morpheus": {"status": "active", "role": "confirmation"}
-  },
-  "capabilities": {
-    "total": 221,
-    "categories": 21,
-    "available_now": 150
-  },
-  "uptime_seconds": 45
+  "platform": "The Matrix",
+  "version": "1.0.0",
+  "agents": ["neo", "trinity", "morpheus"],
+  "model": {"provider": "ollama", "primary": "llama3.1"},
+  "sessions": 0,
+  "wallet_sessions": 0,
+  "total_requests": 2,
+  "uptime_seconds": 45.2,
+  "memory_mb": 180.4,
+  "subsystems": {"...": "..."}
 }
 ```
 
-This tells you all three agents are loaded and the 221-capability catalog is ready. Capabilities for protocols you haven't configured return a clean not_deployed response rather than failing.
+The capability catalog is its own endpoint. `curl http://localhost:18790/api/v1/capabilities -H "Authorization: Bearer YOUR_API_KEY"` lists all 195 capabilities, in 21 categories. Capabilities for protocols you haven't configured return a clean not_deployed response rather than failing.
 
 ## Step 6: Your First Chat with Trinity
 

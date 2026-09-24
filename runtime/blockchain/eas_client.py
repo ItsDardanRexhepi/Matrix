@@ -1,9 +1,11 @@
 """
 EAS Client — Ethereum Attestation Service integration.
 
-Every blockchain action in The Matrix is attested on-chain via EAS.
-Attestations provide a permanent, verifiable record of what was done,
-by whom, and when. All attestation gas is covered by the platform.
+Writes an EAS attestation with the platform key, one transaction per
+call, recording the platform, the action, the agent and a timestamp. The
+service dispatcher's record of an action it completes does not come here
+directly: it is queued by AttestationService, whose batch calls this
+client when 50 have gathered. Attestation gas is paid by the platform.
 """
 
 import json
@@ -88,7 +90,10 @@ class EASClient:
     ) -> dict:
         """
         Create an on-chain attestation for a blockchain action.
-        Gas is covered by the platform — users never pay.
+        Gas is covered by the platform — users never pay. It is signed
+        through "eas.attest", an exemption listed in
+        UNMETERED_PLATFORM_OPERATIONS, so no sponsorship allowlist or daily
+        cap is checked.
 
         Args:
             action: The action being attested (e.g., "deploy_contract")

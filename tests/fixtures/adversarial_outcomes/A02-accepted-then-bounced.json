@@ -1,0 +1,31 @@
+{
+  "id": "A2",
+  "case": "Accepted then bounced",
+  "false_signal": "a transaction hash came back; the transaction was then dropped or replaced",
+  "producer": {
+    "kind": "service_result",
+    "payload": {
+      "status": "submitted",
+      "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "fact_source": {
+    "kind": "chain",
+    "payload": {
+      "receipt": null,
+      "nonce_consumed_by": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "outranks_because": "no receipt for this hash and its nonce is spent by another"
+  },
+  "expected": {
+    "verdict": "FAILED",
+    "run_state": "FAIL",
+    "reason": "replaced",
+    "if_nonce_unconsumed": "PENDING until the deadline"
+  },
+  "legacy": {
+    "record_verdict": "broadcast",
+    "report": "success"
+  },
+  "head_behaviour": "Recorded as a broadcast with its hash in a log line; nothing reads the hash again, and a dropped or replaced transaction is not modelled on the server."
+}

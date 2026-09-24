@@ -649,7 +649,7 @@ class BridgeRoutes:
         both entrances read: the HTTP router (register_routes) and
         POST /api/v1/batch (ServiceRoutes._build_batch_route_map).
 
-        They were two hand-kept lists. e1232ca removed /bridge/v1/push/register
+        They were two hand-kept lists. a5a21fb removed /bridge/v1/push/register
         from the batch copy when its handler was deleted; P1-6 brought the
         handler back on the router only, so the same call succeeded direct and
         answered 404 "No route" through batch.

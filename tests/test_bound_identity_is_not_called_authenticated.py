@@ -22,7 +22,7 @@ body `wallet` or `params.from` the middleware promoted. The capability-invoke
 tests below drive the whole gateway, middleware included, with no session and
 no header, and read the grantor the rights record names.
 
-A third pass, after 3123fec, found the same claim worded without the word
+A third pass, after b20c85a, found the same claim worded without the word
 "authenticated", which the earlier sweeps keyed on: "Derived, not asserted." in
 the middleware that does the body fallback (gateway/server.py); "identity is
 derived, never asserted" in the tool dispatcher's log line; "The HTTP and bridge
@@ -34,7 +34,7 @@ they exercise is the dispatcher overwriting one key, `params["caller_identity"]`
 Those are corrected and listed below. This is still a text check: it catches
 these phrases coming back, not a new wording of the same claim.
 
-A fourth pass, after 0c34aa7, followed the same `caller_identity` down the
+A fourth pass, after 9bdf757, followed the same `caller_identity` down the
 tool path. runtime/react_loop.py threads user_context["wallet_address"] to the
 tool dispatcher and called it "the trusted caller identity ... from the
 gateway-bound context"; runtime/tools/dispatcher.py said it injects "the
