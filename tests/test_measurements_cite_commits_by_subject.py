@@ -1,4 +1,19 @@
-"""A measurement a test records names the commit it was measured against by subject.
+"""A test's prose names a commit by its subject, never by its id.
+
+WHAT THIS READS. The docstrings and the comments of the Python files under
+tests/, and nothing else. The rule below holds there, and only there.
+
+WHAT THIS DOES NOT READ. A string in test code that is not a docstring, and a
+file under tests/ that is not Python. A measurement recorded in one of those
+is not held to the rule, and some of them name their commit by id:
+tests/baseline/collection.json, tests/baseline/latency.json,
+tests/baseline/privileged_vocabulary_coverage.json,
+tests/baseline/replay_duplicate.json, tests/baseline/restart.json and
+tests/baseline/urf_outcomes.json record the tree their figures were taken
+from by id, and so does BASE_COMMIT in tests/test_engines_baseline.py. The
+last check below finds each file where such a place holds the id of a commit
+in this history and requires this paragraph to name it; an id there that
+names no commit here cannot be told from other hex digits, and is not seen.
 
 THE DEFECT. The §CC notes in this repository's test docstrings named the tree a
 control was measured against by its commit id. The 2026-09 history rewrite
@@ -13,15 +28,18 @@ and » when the subject itself holds a double quote), and never by its id; and
 every subject it names is the subject of a commit in this history, where the
 history is here to read (a checkout that is not shallow). An id inside a quoted
 subject is part of that subject, not a citation. The first two checks below
-hold the §CC notes to this, as the rule was first written; the next two hold
-every docstring and comment under tests/ to it.
+hold the §CC notes to this, as the rule was first written; the fourth and
+fifth hold every docstring and comment under tests/ to it; the third and the
+sixth compare the counts the notes here state with the trees they name.
 
 WHY THE RULE WAS WIDENED. It read the §CC notes only, while its first line
-speaks of every measurement a test records. A measurement recorded anywhere
-else in a test's prose still named its commit by id: the sixth check's note
-below says how many, against which tree. Some of those ids named no commit in
-this history any more — the 2026-09 rewrite had changed them, or a later rebase
-had — although each commit they had named is still here under another id.
+then spoke of every measurement a test records. A measurement recorded
+anywhere else in a test's prose still named its commit by id: the sixth
+check's note below says how many, against which tree. Some of those ids named
+no commit in this history any more — the 2026-09 rewrite had changed them, or
+a later rebase had — although each commit they had named is still here under
+another id. The first line still said more than the rule read, since the
+places named above are not read; it now says what the rule reads.
 
 §CC, measured against the tree at the commit "Merge main into
 fix/phase0-bypasses: the one-spelling rewrite is schema migration 10, after
@@ -279,3 +297,74 @@ def test_the_counts_the_widened_rule_states_are_those_of_the_tree_it_names():
     measured = (len({t for _, t in found}), len(found), len({p for p, _ in found}))
     assert measured == tuple(int(x) for x in stated.groups()), (
         f"the note states {stated.groups()}; the tree has {measured}")
+
+
+# ── What the checks above do not read ────────────────────────────────────────
+
+def _docstring_nodes(tree: ast.AST) -> set[int]:
+    return {id(node.body[0].value) for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.body and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)}
+
+
+def _unread_places_naming_a_commit() -> dict[str, list[str]] | None:
+    """Each tracked file under tests/ with a place the checks above do not
+    read — a string in its code that is not a docstring, or the whole file
+    where it is not Python — holding the id of a commit in HEAD's history,
+    with those ids; None where the history is not here to read."""
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
+                              check=True, timeout=60).stdout
+    try:
+        if git("rev-parse", "--is-shallow-repository").strip() != "false":
+            return None
+        commits = git("rev-list", "HEAD").split()
+        files = git("ls-files", "-z", "tests").split("\0")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found: dict[str, list[str]] = {}
+    for rel in sorted(f for f in files if f):
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if rel.endswith(".py"):
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                continue
+            docs = _docstring_nodes(tree)
+            text = "\n".join(n.value for n in ast.walk(tree)
+                             if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                             and id(n) not in docs)
+        ids = sorted({t for t in _COMMIT_ID.findall(text)
+                      if any(c.startswith(t) for c in commits)})
+        if ids:
+            found[rel] = ids
+    return found
+
+
+def test_each_place_not_read_that_names_a_commit_here_is_named_in_the_header():
+    """The header's "WHAT THIS DOES NOT READ" paragraph names every tracked file
+    under tests/ where a string that is not a docstring, or a file that is not
+    Python, holds the id of a commit in this history.
+
+    §CC, measured against this file as the commit "The prose of every test
+    file names a commit by subject, not only a §CC note" left it, with this
+    check added: it failed, since the header said nothing of what it does not
+    read. With that paragraph in place but naming no file, it failed naming
+    the six baselines under tests/baseline/ and tests/test_engines_baseline.py.
+    With the header as it is, it passes."""
+    places = _unread_places_naming_a_commit()
+    if places is None:
+        pytest.skip("the history is not here to read (no checkout, or a shallow one)")
+    doc = ast.get_docstring(ast.parse(Path(__file__).read_text(encoding="utf-8"))) or ""
+    start, end = doc.find("WHAT THIS DOES NOT READ."), doc.find("THE DEFECT.")
+    assert 0 <= start < end, "the header no longer says what it does not read"
+    paragraph = " ".join(doc[start:end].split())
+    unnamed = sorted(f"{path} ({', '.join(ids)})" for path, ids in places.items()
+                     if path not in paragraph)
+    assert not unnamed, (f"a place this rule does not read names a commit by id, and the "
+                         f"header does not say so: {unnamed}")
