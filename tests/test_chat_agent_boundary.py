@@ -1,7 +1,10 @@
 """A caller without the operator key is served by Trinity, however it spells the
 agent, on every chat surface, and the dispatcher holds that line on its own.
 
-Measured at 1acdbb7 (and already true at d0cdf73): the gateway's operator-only
+Measured at the commit "An anonymous chat ran what its own routes answer 401:
+refuse the anonymous tier on the pair, too" (and already true at the commit "Stop
+certifying what nobody judged: the auditor's two zeros, the badge's
+caller-asserted verdict, and Vyper's lost payable"): the gateway's operator-only
 check compared ``agent in ("neo", "morpheus")`` exactly, while the per-agent tool
 policy lowercases the name. /bridge/v1/chat, a public path, had no membership
 check. So an anonymous POST /bridge/v1/chat ``{"agent": "Neo"}`` passed the
@@ -9,9 +12,11 @@ operator check and Neo's toolset ran: a scripted ``bash`` call executed on the
 gateway host. ``"neo"`` answered 403. /chat and /ws answered 400 for ``"Neo"``
 only because their own membership checks were case-sensitive as well.
 
-The credential refusals built in 1acdbb7 covered only the two dispatching tools
-(platform_action, request_execution), so they could not see bash, file_ops or the
-blockchain twin tools. Those were fenced by the agent name alone.
+The credential refusals built in the commit "An anonymous chat ran what its own
+routes answer 401: refuse the anonymous tier on the pair, too" covered only the
+two dispatching tools (platform_action, request_execution), so they could not see
+bash, file_ops or the blockchain twin tools. Those were fenced by the agent name
+alone.
 
 Two controls, two layers:
   * every chat surface, every spelling, no credential and a session: no tool

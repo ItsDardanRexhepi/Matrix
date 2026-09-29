@@ -7,10 +7,21 @@ no commit in this history any more, although each commit they had named was
 still here under another id. An id is only as stable as the history it was
 read from; a subject is carried across a rewrite.
 
-THE RULE. A §CC note (from "§CC" to the end of the docstring it sits in) names
-a commit by its subject, quoted after the words "the commit", and never by id;
-and every subject it names is the subject of a commit in this history, where
-the history is here to read (a checkout that is not shallow).
+THE RULE. The prose of every test file — its docstrings and its comments —
+names a commit by its subject, quoted after the words "the commit" (between «
+and » when the subject itself holds a double quote), and never by its id; and
+every subject it names is the subject of a commit in this history, where the
+history is here to read (a checkout that is not shallow). An id inside a quoted
+subject is part of that subject, not a citation. The first two checks below
+hold the §CC notes to this, as the rule was first written; the next two hold
+every docstring and comment under tests/ to it.
+
+WHY THE RULE WAS WIDENED. It read the §CC notes only, while its first line
+speaks of every measurement a test records. A measurement recorded anywhere
+else in a test's prose still named its commit by id: the sixth check's note
+below says how many, against which tree. Some of those ids named no commit in
+this history any more — the 2026-09 rewrite had changed them, or a later rebase
+had — although each commit they had named is still here under another id.
 
 §CC, measured against the tree at the commit "Merge main into
 fix/phase0-bypasses: the one-spelling rewrite is schema migration 10, after
@@ -31,8 +42,10 @@ it passes. It is skipped where the history is not here to read.
 from __future__ import annotations
 
 import ast
+import io
 import re
 import subprocess
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -163,3 +176,106 @@ def test_the_counts_this_note_states_are_those_of_the_tree_it_names():
     assert measured == (ids, places, files), (
         f"the note states {ids} ids at {places} places in {files} files; the tree at the "
         f"commit {subject!r} has {measured[0]} at {measured[1]} in {measured[2]}")
+
+
+# ── Every docstring and comment under tests/ ────────────────────────────────
+
+_QUOTED = re.compile(r'[Tt]he commit (?:"([^"]+)"|«([^»]+)»)')
+
+
+def _prose_blocks(text: str) -> list[str]:
+    """Every docstring in *text*, and every run of comment lines (one comment
+    per line, each alone on its line and in the same column) joined into one
+    block, each with its whitespace made single spaces."""
+    blocks = []
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return blocks
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if doc:
+                blocks.append(" ".join(doc.split()))
+    lines = text.splitlines()
+    run: list[str] = []
+    last = (None, None)
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        tokens = []
+    for tok in tokens:
+        if tok.type != tokenize.COMMENT:
+            continue
+        row, col = tok.start
+        alone = not lines[row - 1][:col].strip()
+        body = re.sub(r"^#:?\s?", "", tok.string)
+        if alone and last == (row - 1, col):
+            run.append(body)
+        else:
+            if run:
+                blocks.append(" ".join(" ".join(run).split()))
+            run = [body]
+        last = (row, col) if alone else (None, None)
+    if run:
+        blocks.append(" ".join(" ".join(run).split()))
+    return blocks
+
+
+def _cited_ids(sources: dict[str, str]) -> list[tuple[str, str]]:
+    """(file, id) for every commit id the prose in *sources* names, outside a
+    quoted subject."""
+    return [(path, token) for path, text in sorted(sources.items())
+            for block in _prose_blocks(text)
+            for token in _COMMIT_ID.findall(_QUOTED.sub(" ", block))]
+
+
+def _test_sources() -> dict[str, str]:
+    return {str(p.relative_to(ROOT)): p.read_text(encoding="utf-8")
+            for p in sorted((ROOT / "tests").rglob("*.py"))}
+
+
+def test_no_test_prose_names_a_commit_by_id():
+    by_id = sorted({f"{path}: {token}" for path, token in _cited_ids(_test_sources())})
+    assert not by_id, f"a test's prose names a commit by id; name it by subject: {by_id}"
+
+
+def test_every_subject_test_prose_names_is_a_commit_here():
+    named = {(path, " ".join((a or b).split()))
+             for path, text in _test_sources().items()
+             for block in _prose_blocks(text) for a, b in _QUOTED.findall(block)}
+    subjects = _history_subjects()
+    if subjects is None:
+        pytest.skip("the history is not here to read (no checkout, or a shallow one)")
+    unknown = sorted(f"{path}: {subject!r}" for path, subject in named if subject not in subjects)
+    assert not unknown, f"a test's prose names a commit this history does not hold: {unknown}"
+
+
+_STATED_WIDE = re.compile(r"named (\d+) commits by id at (\d+) places in (\d+) files", re.I)
+
+
+def test_the_counts_the_widened_rule_states_are_those_of_the_tree_it_names():
+    """§CC, measured against the tree at the commit "Where a gate that raises lets
+    a read through, the three public texts say the hand-off refuses every
+    request", with this file's fourth and fifth checks added: the fourth failed,
+    and the fifth passed. The prose of the test files there named 41 commits by
+    id at 81 places in 38 files, and 15 of those ids named no commit in this
+    history. Each place now names its commit by subject: 13 of the 15 through
+    the 2026-09 rewrite's own record of the commit each became, and the other
+    two — ids a rebase after the rewrite replaced — by the commits at which the
+    counts their note states reproduce. After the change the fourth and fifth
+    checks pass. This check reads that tree from the history, counts the ids the
+    way the fourth check does, and compares the counts with the ones stated
+    here."""
+    doc = " ".join(test_the_counts_the_widened_rule_states_are_those_of_the_tree_it_names
+                   .__doc__.split())
+    subject = _QUOTED.search(doc)
+    stated = _STATED_WIDE.search(doc)
+    assert subject and stated, "the note no longer names its tree or states its counts"
+    sources = _test_sources_at(subject.group(1) or subject.group(2))
+    if sources is None:
+        pytest.skip("the history is not here to read, or does not hold the named commit")
+    found = _cited_ids(sources)
+    measured = (len({t for _, t in found}), len(found), len({p for p, _ in found}))
+    assert measured == tuple(int(x) for x in stated.groups()), (
+        f"the note states {stated.groups()}; the tree has {measured}")

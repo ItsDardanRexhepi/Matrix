@@ -79,8 +79,10 @@ SERVICE_ROUTES = ROOT / "gateway" / "service_routes.py"
 SECURITY_GATE = ROOT / "gateway" / "security_gate.py"
 VOCABULARY = ROOT / "runtime" / "security" / "vocabulary.py"
 
-#: The public denominators, measured at The Matrix c637715 (the tables this
-#: branch leaves as they were).
+#: The public denominators, measured at The Matrix at the commit "Merge
+#: audit-remediation-2026-07: no personal address, local path or private detail
+#: in the shipped files, and the compose stack passes the secrets the documents
+#: name" (the tables this branch leaves as they were).
 MEASURED = {
     "action_map_literal": 193,
     "action_map_runtime": 253,
