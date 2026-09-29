@@ -62,40 +62,55 @@ below silent where this docstring said it failed: on bytes reaching a signed
 call through a name bound by a loop, unpacking, ``with``, ``match`` or
 ``except``, and through a function alias bound twice. And it found this
 docstring's account of the paymaster's signature untrue. The walk now reads
-every form that binds a name and fails on any bytes input it cannot read as a
+the binding forms named below and fails on a bytes input it cannot read as a
 constant; the paymaster's signature is stated below as it is; and every
-address a request supplies to a call the services layer signs is listed, so a
-third account handed over would fail here until read.
+address the address walk reads a request supplying to a call the services
+layer signs is listed, so a third account handed over in a shape it reads
+would fail here until read.
+
+THE FOURTH AND FIFTH (the reviews of those repairs). A built transaction
+changed through another name, a container or a helper passed the walk; so did
+one written as a tuple, list, annotated, ``for`` or ``with`` target, one bound
+to another name through ``or`` or a conditional, and bytes a def inside the
+method rebound through ``nonlocal``. Each is now reported. None is a shape any
+signing site in the tree uses. What follows names the shapes the walk reads.
 
 THE CLASS, AND THE CENSUS. A platform signature on a call or a message the
 request composed: the platform wallet becomes the sender of words somebody else
 wrote. The walk reads every module under ``runtime/`` and ``gateway/``, finds
 every ``sign_transaction(`` and ``send_transaction(`` call, follows what is
-signed back to where it is built, and fails:
+signed back to where it is built through the shapes below, and fails:
 
   * on a transaction built from a function it cannot read as one the source
     names: chosen at run time (``functions[...]``, ``getattr``,
     ``get_function_by_*``), or a local name any one of whose bindings is not a
     named function;
   * on a transaction written out by hand whose ``data`` is not a constant, whose
-    keys it cannot read, which is unpacked or updated from anything it cannot
-    read, or whose data is replaced after it is built (``[...] =``, ``update``,
-    ``setdefault``, ``|=``);
+    keys it cannot read, or which is unpacked or updated from anything it
+    cannot read; and on a transaction whose data is replaced after it is built:
+    a ``tx[...]`` in any target of an assignment (unpacking included), an
+    annotated or augmented assignment, a ``for`` or comprehension target or
+    ``with ... as``, and ``update``, ``setdefault``, ``__setitem__`` and
+    ``|=`` on it;
   * on a built transaction handed anywhere before it is signed but a signer or
-    the node's gas estimate: bound to another name, handed to another call
+    the node's gas estimate: bound to another name (itself, or as an
+    ``and``/``or`` operand or a conditional's branch), handed to another call
     (``dict.update``, ``operator.setitem``, a helper), put in a container or
-    on an attribute — where the census cannot read what is written into it;
+    on an attribute — where the census cannot read what is written into it.
+    Reading it, testing it (directly or inside an ``and``/``or`` or a
+    conditional's test) and formatting it are not reported;
   * on a named function whose inputs it cannot read: no ABI for it written out
     under ``runtime/`` or ``gateway/``, a ``*`` or ``**`` argument, a keyword;
   * on every ``bytes`` or ``bytes[]`` input of a named function's ABI (inside a
     tuple too) that is not a constant, directly or through local names bound
     only to constants. It says "bytes the function was handed" when the value
-    reads a parameter; a local name bound from one by any form Python binds a
-    name with (an assignment, unpacking, an augmented or annotated one, ``:=``,
-    a ``for`` or comprehension target, ``with ... as``, a ``match`` capture); a
-    ``self`` attribute some method writes from what it was handed; a module
-    name a function writes that way; a name bound by ``except``, ``import``,
-    ``global`` or ``nonlocal``; or an enclosing def's parameter. Otherwise it
+    reads a parameter; a local name bound from one by an assignment,
+    unpacking, an augmented or annotated one, ``:=``, a ``for`` or
+    comprehension target, ``with ... as`` or a ``match`` capture; a ``self``
+    attribute some method writes from what it was handed; a module name a
+    function writes that way; a name bound by ``except``, ``import``,
+    ``global`` or ``nonlocal``, or that a def inside the method declares
+    ``nonlocal``; or an enclosing def's parameter. Otherwise it
     says "bytes the census cannot read as a constant" (what a helper returns,
     another object's state, bytes the platform composes). Either way the site
     fails unless it is listed with its reason;
@@ -153,8 +168,16 @@ WHAT THIS DOES NOT COVER, stated.
     is.
   * A signing method reached through a name computed at run time, and code that
     is not in the source the walk reads (a method replaced at run time).
+  * Any shape not named above. The walk reads the shapes it names and no
+    others; this file does not claim they are every shape Python allows, and
+    reviews have found shapes past it before (the history above).
+  * A signature a platform credential other than the wallet's key makes off
+    the chain (an MPC cluster's API key, a publishing account, a storage
+    node): that is not a ``sign_transaction`` or ``send_transaction`` call.
+    Which of those a user session may reach is read by
+    tests/test_no_session_has_the_platform_act_on_what_it_names.py.
 
-CONTROL. Of this file's 87 tests, 48 are marked [control] and 39 [guard]. The
+CONTROL. Of this file's 96 tests, 56 are marked [control] and 40 [guard]. The
 product's controls are measured by laying this file over each commit: at
 fix/oldq-census 420a88a 32 fail; at d3dcf89 the 24 from the services section
 on (the first round's 8 — the tool's five, the allowlist's two and the census
@@ -168,8 +191,12 @@ wallet recovers no account and registers no session key on a request ...")
 by running them with it: all eleven fail there. The five shapes of a built
 transaction changed through another name, run with the census as it stood at
 the signing-census commit ("The signing census reads every form that binds a
-name ..."), each pass there with nothing reported. All 87 pass here, and the
-39 guards pass at every commit above. On 15 of the planted shapes the census as
+name ..."), each pass there with nothing reported. The eight shapes of a transaction
+written through another target or name and of bytes rebound through
+``nonlocal``, run with the census as it stood at "Both censuses report a
+value changed through another name before it is read ...", each pass there
+with nothing reported, and their guard passes. All 96 pass here, and the
+guards pass at every commit above. On 15 of the planted shapes the census as
 it stood at d3dcf89 reported nothing.
 """
 
@@ -822,6 +849,12 @@ def _bindings(fn) -> dict[str, list[ast.AST]]:
                 out.setdefault((a.asname or a.name).split(".")[0], []).append(_Opaque())
         elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n is not fn:
             out.setdefault(n.name, []).append(_Opaque())
+            # A def inside this one that declares a name ``nonlocal`` can bind
+            # this function's name to anything when it runs.
+            for inner in ast.walk(n):
+                if isinstance(inner, ast.Nonlocal):
+                    for name in inner.names:
+                        out.setdefault(name, []).append(_Opaque())
         elif isinstance(n, (ast.Global, ast.Nonlocal)):
             for name in n.names:
                 out.setdefault(name, []).append(_Opaque())
@@ -1025,18 +1058,49 @@ def _update_problem(value, ctx, seen) -> str | None:
     return "the census cannot read what the transaction is updated from"
 
 
+def _targets(n) -> list:
+    """The targets statement or clause *n* binds or writes into."""
+    if isinstance(n, ast.Assign):
+        return n.targets
+    if isinstance(n, (ast.AnnAssign, ast.AugAssign, ast.For, ast.AsyncFor, ast.comprehension)):
+        return [n.target]
+    if isinstance(n, (ast.With, ast.AsyncWith)):
+        return [i.optional_vars for i in n.items if i.optional_vars is not None]
+    return []
+
+
+def _key_written(sub, name):
+    """The key ``name[key]`` a store into *sub* writes, or None when *sub* is
+    not a store into the transaction bound to *name* (``name[k][...] = ...``
+    writes into ``name[k]``)."""
+    node = sub
+    while isinstance(node, (ast.Subscript, ast.Attribute)):
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            return node.slice if node.value.id == name else None
+        node = node.value
+    return None
+
+
 def _mutated(name, fn, ctx) -> str | None:
-    """What a later write into the transaction bound to *name* can change."""
+    """What a later write into the transaction bound to *name* can change: a
+    ``name[...]`` in any target (an assignment, unpacking, an annotated or
+    augmented one, a ``for`` or comprehension target, ``with ... as``), ``|=``,
+    and ``update``, ``setdefault`` and ``__setitem__`` called on it."""
     for n in _own_nodes(fn):
-        if isinstance(n, ast.Assign):
-            for t in n.targets:
-                if isinstance(t, ast.Subscript) and isinstance(t.value, ast.Name) and t.value.id == name:
-                    key = t.slice
-                    if not isinstance(key, ast.Constant):
-                        return "the census cannot read which key of the transaction is set"
-                    if key.value in DATA_KEYS and not isinstance(n.value, ast.Constant):
-                        return "the transaction's data is replaced after it is built"
-        elif (isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name)
+        for t in _targets(n):
+            for sub in ast.walk(t):
+                if not (isinstance(sub, ast.Subscript) and isinstance(sub.ctx, ast.Store)):
+                    continue
+                key = _key_written(sub, name)
+                if key is None:
+                    continue
+                if not isinstance(key, ast.Constant):
+                    return "the census cannot read which key of the transaction is set"
+                plain = (t is sub and isinstance(n, (ast.Assign, ast.AnnAssign))
+                         and isinstance(n.value, ast.Constant))
+                if key.value in DATA_KEYS and not plain:
+                    return "the transaction's data is replaced after it is built"
+        if (isinstance(n, ast.AugAssign) and isinstance(n.target, ast.Name)
               and n.target.id == name):
             problem = _update_problem(n.value, ctx, frozenset())
             if problem:
@@ -1069,10 +1133,29 @@ _TX_READS = frozenset({"get", "items", "keys", "values", "copy"})
 _TX_HANDED_TO = SIGNING_CALLS | {"estimate_gas"}
 
 
+def _flows_on(node, parents):
+    """(child, parent) where *node*'s value lands, past every ``and``/``or``
+    operand and conditional branch it is (``tx or {}``, ``tx if c else {}``)."""
+    child, parent = node, parents.get(id(node))
+    while isinstance(parent, ast.BoolOp) or (isinstance(parent, ast.IfExp) and child is not parent.test):
+        child, parent = parent, parents.get(id(parent))
+    return child, parent
+
+
+def _only_tested(child, parent) -> bool:
+    """Whether *child*'s value is only tested where it lands."""
+    if isinstance(parent, (ast.If, ast.While, ast.Assert, ast.IfExp)):
+        return child is parent.test
+    if isinstance(parent, ast.comprehension):
+        return child in parent.ifs
+    return isinstance(parent, (ast.Compare, ast.UnaryOp))
+
+
 def _escaped(name, fn) -> str | None:
     """Why the transaction bound to *name* may change where the census does
     not look before it is signed: handed to another call, bound to another
-    name, put in a container, stored on an attribute."""
+    name (directly, or as an ``and``/``or`` operand or a conditional's
+    branch), put in a container, stored on an attribute."""
     parents = {id(c): n for n in ast.walk(fn) for c in ast.iter_child_nodes(n)}
     for node in _own_nodes(fn):
         if not (isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load)):
@@ -1083,7 +1166,14 @@ def _escaped(name, fn) -> str | None:
         if isinstance(parent, ast.Attribute) and parent.value is node and (
                 parent.attr in _TX_READS or parent.attr in MUTATORS):
             continue
-        if isinstance(parent, (ast.Compare, ast.BoolOp, ast.UnaryOp, ast.If, ast.IfExp,
+        child, landing = _flows_on(node, parents)
+        if child is not node:
+            if _only_tested(child, landing):
+                continue
+            return (f"the transaction is handed on through an and/or or a conditional "
+                    f"(line {node.lineno}), so it is handed elsewhere before it is signed; "
+                    "the census cannot read what is written into it there")
+        if isinstance(parent, (ast.Compare, ast.UnaryOp, ast.If, ast.IfExp,
                                ast.FormattedValue, ast.AugAssign)):
             continue
         if (isinstance(parent, ast.Call) and node in parent.args
@@ -1876,6 +1966,71 @@ def test_a_transaction_changed_through_another_name_is_reported(shape):
               + "    await self._web3.send_transaction(tx)\n")
     problems = [s.problem for s in _census(source, "<planted>") if s.problem]
     assert any("handed elsewhere before it is signed" in p for p in problems), (shape, problems)
+
+
+# ── eight more shapes past that walk ────────────────────────────────────
+#
+# At the commit that added the section above ("Both censuses report a value
+# changed through another name ...") each of these passed with nothing
+# reported: the walk read a write into the transaction only as a plain
+# ``tx[...] = ...``, read an ``and``/``or`` or a conditional over it as a test,
+# and did not see a def inside the method rebind one of its names through
+# ``nonlocal``.
+
+_TX_WRITTEN = {
+    "a tuple target": ("    tx['data'], n = params['data'], 1\n", "data is replaced"),
+    "a list target": ("    [tx['data'], n] = params['data'], 1\n", "data is replaced"),
+    "an annotated assignment": ("    tx['data']: bytes = params['data']\n", "data is replaced"),
+    "a for target": ("    for tx['data'] in [params['data']]:\n        pass\n", "data is replaced"),
+    "a with target": ("    with hold(params['data']) as tx['data']:\n        pass\n", "data is replaced"),
+    "an alias through or": ("    t2 = tx or {}\n    t2['data'] = params['data']\n",
+                            "handed elsewhere before it is signed"),
+    "an alias through a conditional": ("    t2 = tx if tx else {}\n    t2['data'] = params['data']\n",
+                                       "handed elsewhere before it is signed"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_TX_WRITTEN))
+def test_a_transaction_written_through_any_target_is_reported(shape):
+    """[control]"""
+    body, expected = _TX_WRITTEN[shape]
+    source = ("PING = [{'name': 'ping', 'type': 'function', 'inputs': []}]\n"
+              "async def go(self, params):\n"
+              "    tx = c.functions.ping().build_transaction({})\n" + body
+              + "    await self._web3.send_transaction(tx)\n")
+    problems = [s.problem for s in _census(source, "<planted>") if s.problem]
+    assert any(expected in p for p in problems), (shape, problems)
+
+
+def test_a_name_a_nested_def_rebinds_is_the_requests():
+    """[control] ``nonlocal`` in a def inside the method rebinds the bytes the
+    call carries; the walk read the method's own binding, a constant."""
+    source = (_EXECUTE_ABI +
+              "async def go(self, params):\n"
+              "    d = b''\n"
+              "    def put():\n"
+              "        nonlocal d\n"
+              "        d = params['data']\n"
+              "    put()\n"
+              "    tx = tba.functions.execute(params['to'], 0, d, 1).build_transaction({})\n"
+              "    await self._web3.send_transaction(tx)\n")
+    problems = [s.problem for s in _census(source, "<planted>") if s.problem]
+    assert any("handed (data)" in p for p in problems), problems
+
+
+def test_a_transaction_tested_through_and_or_still_passes():
+    """[guard] Testing a built transaction, directly or inside an and/or or a
+    conditional's test, and setting a key the census reads as a constant."""
+    source = ("PING = [{'name': 'ping', 'type': 'function', 'inputs': []}]\n"
+              "async def go(self, params):\n"
+              "    tx = c.functions.ping().build_transaction({})\n"
+              "    if tx and 'gas' not in tx:\n"
+              "        tx['gas'] = 21000\n"
+              "    ok = 1 if tx else 0\n"
+              "    assert tx or not params\n"
+              "    tx['data']: bytes = b''\n"
+              "    await self._web3.send_transaction(tx)\n")
+    assert [s.problem for s in _census(source, "<clean>") if s.problem] == []
 
 
 def test_what_every_signer_does_with_its_transaction_still_passes():

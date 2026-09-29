@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,442 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,458 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -298,13 +298,20 @@ check behind it:
   the same holds for a DeFi supply or borrow made for you, and for the
   account an NFT or game-item transfer moves from. A cross-border
   payment's compliance record names no address at all, since that call
-  pays nobody. Tests trace, in the source, every value that reaches the
+  pays nobody. Tests trace, in the source, each value that reaches the
   statement or the subject of an attestation these tools make back to a
-  constant or to the request as it was written, and report as a failure
-  every value they cannot trace that far, every place the request could be
-  changed before it is read, and every way of reaching the attestation
-  they cannot read; walk every call the platform's key signs (next point);
-  and drive every one of those doors. Four limits, stated: the next
+  constant or to the request as it was written, through the shapes they
+  name (a field of the request, local names bound by an assignment, a loop,
+  `with` or `match`, the `self` attributes the module writes, conversions),
+  and report as a failure a value in any other form; report a request
+  written into before its field is read — directly, or through a name bound
+  to it by an assignment, an `and`/`or`, a conditional or a `match` capture
+  — or handed to code they do not read; report each way of reaching the
+  attestation they name and cannot read; walk every call the platform's
+  wallet signs (next point); and drive every one of those doors. They read
+  the shapes they name and no others, and do not claim those are every
+  shape: reviews have found shapes past them before, and each found is now
+  named and planted. Four limits, stated: the next
   point's (a timelock's or a governor's inner call, which that contract
   makes as itself); a record about your own
   address is still your word (the platform checks no achievement and no
@@ -358,11 +365,14 @@ check behind it:
   any other action every door refuses. A configured
   sponsorship allowlist binds with or without a daily cap. A test walks
   every `sign_transaction` and `send_transaction` call in `runtime/` and
-  `gateway/`, reads every name binding a bytes input each one carries,
-  and fails on any it cannot read as a constant unless it is listed with
-  its reason, and on a transaction handed anywhere before it is signed
-  where it cannot read what is written into it; every other key
-  signature there is listed where it is made. The limits, stated: `governance`'s timelock schedule and execute
+  `gateway/`, follows each bytes input a named function carries through
+  the binding forms it names, and fails on one it cannot read as a
+  constant unless it is listed with its reason; it fails on a transaction
+  written into through any target or method it names, or handed on — to a
+  call, a container, an attribute or another name, directly or through
+  `or` or a conditional — before it is signed; and every other key
+  signature there is listed where it is made. It reads the shapes it names
+  and no others, and does not claim those are every shape. The limits, stated: `governance`'s timelock schedule and execute
   and a `dao` proposal carry an inner call the request wrote, which the
   timelock or governor makes as itself under whatever role the platform
   holds there, a deployment fact this repository cannot see; those are

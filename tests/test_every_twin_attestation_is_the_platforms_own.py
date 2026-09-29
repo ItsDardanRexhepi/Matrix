@@ -29,7 +29,7 @@ THE CENSUS. The walk reads the source of every module in
 request, and fails if a request field reaches the action or the agent, or reaches
 the recipient through a field the seam does not bind for that tool and verb.
 
-The trace is closed: every part of each of those three values must be one of
+The trace: every part of each of those three values must be one of
 
   * a constant, or a module name bound once to a literal that cannot change;
   * a field of the request (a parameter of the tool method, read by ``.get``,
@@ -49,15 +49,20 @@ The trace is closed: every part of each of those three values must be one of
 
 A field of the request is the caller's only if the request still says what the
 caller wrote when it is read. So in a module with an attestation, every
-function but ``__init__`` must leave what it is handed as it arrived: a write
-into a parameter, directly or through a name bound to it, and a parameter
-handed anywhere the census does not read (a call outside the class and the
-module, an attribute, a container, a ``return``) is reported at each of the
-module's attestations. Reading a field, looking a key up, testing, matching,
-formatting, and handing the request to a method of the class or a function of
-the module do not change it.
+function but ``__init__`` must leave what it is handed as it arrived. Reported
+at each of the module's attestations: a write into a parameter, or into a name
+bound to one — bound by an assignment, an annotated assignment or ``:=`` to a
+plain name whose value may be the parameter itself (the name, an
+``and``/``or`` operand, a conditional's branch), or by a ``match`` capture of
+the whole subject (``case q``, ``case ... as q``); and a parameter, or an
+``and``/``or`` or conditional over one, handed anywhere the census does not
+read (a call outside the class and the module, an attribute, a container, a
+``return``). Reading a field, looking a key up, testing, matching, formatting,
+converting, and handing the request to a method of the class or a function of
+the module are read as leaving it unchanged.
 
-Anything else is reported as a place the walk cannot follow the request: a
+Any other part of a value is reported as a place the walk cannot follow the
+request: a
 module name something can write (a dict, a ContextVar), a name bound by
 ``except``, ``import``, ``global`` or ``nonlocal``, another object's attribute,
 a ``self`` attribute written through anything but ``self`` or outside a
@@ -67,7 +72,7 @@ attribute hook (``__getattr__``, ``__getattribute__``, ``__setattr__`` and their
 kin), a local or attribute handed elsewhere before it is read into, and what a
 call not handed the request returns.
 
-How ``attest`` is reached is closed the same way. Reported, each saying why:
+How ``attest`` is reached. Reported, each saying why:
 ``attest`` taken as a value; reached by its name as a string (``getattr``,
 ``__getattribute__``, ``operator.methodcaller``, a subscript); any attribute
 reached by a name computed at run time; a namespace read or written by name
@@ -102,7 +107,11 @@ the directory (monkeypatching by an importer, a test) is outside it. An
 attestation signed through a contract call whose function the request chose
 never reaches ``EASClient.attest``, so this walk cannot see one; the census of
 every signing call (tests/test_no_request_chooses_the_call_the_platform_key_
-signs.py) is what rules that out.
+signs.py) is what reads that. And the walk reads the shapes this docstring
+names, and no others: a value, a request or a way of reaching ``attest``
+spelled in a shape it does not name is not read, and nothing here claims the
+list is every shape Python allows. Reviews have found shapes past it before
+(the control history below); each is now named and planted.
 
 CONTROL. At The Matrix ``main`` 91a89fb, and on the first repair (fix/oldq-census
 faad66f), the 12 tests marked [control] before the planted-shape section fail;
@@ -123,7 +132,11 @@ premise as it stood there. The last section's four guards pass here. The six
 census as it stood at the attestation-trace commit ("The attestation census
 traces every value ..."), each pass there with nothing reported, and are
 reported here; their guard passes. So does the attribute-hook control, and
-its guard passes.
+its guard passes. The six [control] shapes of a request changed through a name
+bound by ``or``, a conditional or a ``match`` capture, or handed on through
+``or``, run with the census as it stood at "Both censuses report a value
+changed through another name before it is read ...", each pass there with
+nothing reported, and are reported here; their guard passes at both.
 """
 
 from __future__ import annotations
@@ -1055,20 +1068,61 @@ def _trace_call(call, w: _Walk, seen) -> tuple[list[str], set[str]]:
 _READS = frozenset({"get", "keys", "values", "items", "copy", "__contains__", "__getitem__"})
 
 
+def _may_be(value, names: set[str]) -> bool:
+    """Whether *value* can evaluate to one of *names* itself: the name, an
+    ``and``/``or`` operand, a conditional's branch, or a ``:=`` of one."""
+    if isinstance(value, ast.Name):
+        return value.id in names
+    if isinstance(value, ast.BoolOp):
+        return any(_may_be(v, names) for v in value.values)
+    if isinstance(value, ast.IfExp):
+        return _may_be(value.body, names) or _may_be(value.orelse, names)
+    if isinstance(value, ast.NamedExpr):
+        return _may_be(value.value, names)
+    return False
+
+
+def _whole_captures(pattern) -> list[str]:
+    """Names a ``case`` pattern binds to the whole subject: ``case q``,
+    ``case <pattern> as q``, and either as an alternative of ``|``."""
+    if isinstance(pattern, ast.MatchAs):
+        return [pattern.name] if pattern.name else []
+    if isinstance(pattern, ast.MatchOr):
+        return [name for p in pattern.patterns for name in _whole_captures(p)]
+    return []
+
+
 def _aliases(fn, params: set[str]) -> set[str]:
-    """The parameters, and every local name bound to one of them as a whole."""
+    """The parameters, and every local name bound to one of them as a whole:
+    by an assignment, an annotated assignment or ``:=`` to a plain name whose
+    value may be one (``q = params``, ``q = params or {}``, ``q = params if
+    c else {}``), and by a ``match`` on one that captures its whole subject."""
     names = set(params)
     changed = True
     while changed:
         changed = False
         for n in _own(fn):
-            if isinstance(n, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and isinstance(
-                    getattr(n, "value", None), ast.Name) and n.value.id in names:
-                for t in (n.targets if isinstance(n, ast.Assign) else [n.target]):
-                    if isinstance(t, ast.Name) and t.id not in names:
-                        names.add(t.id)
-                        changed = True
+            bound: list[str] = []
+            if isinstance(n, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and _may_be(
+                    getattr(n, "value", None), names):
+                bound = [t.id for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+                         if isinstance(t, ast.Name)]
+            elif isinstance(n, ast.Match) and _may_be(n.subject, names):
+                bound = [name for case in n.cases for name in _whole_captures(case.pattern)]
+            for name in bound:
+                if name not in names:
+                    names.add(name)
+                    changed = True
     return names
+
+
+def _lands(node, parents):
+    """(child, parent) where *node*'s value lands, past every ``and``/``or``
+    operand and conditional branch it is."""
+    child, parent = node, parents.get(id(node))
+    while isinstance(parent, ast.BoolOp) or (isinstance(parent, ast.IfExp) and child is not parent.test):
+        child, parent = parent, parents.get(id(parent))
+    return child, parent
 
 
 def _request_handling(tree) -> list[tuple[str, int, str]]:
@@ -1092,18 +1146,25 @@ def _request_handling(tree) -> list[tuple[str, int, str]]:
         for node in ast.walk(fn):
             if not (isinstance(node, ast.Name) and node.id in names and isinstance(node.ctx, ast.Load)):
                 continue
-            parent = parents.get(id(node))
-            if isinstance(parent, ast.Subscript):
+            # Where the value lands: past an and/or operand or a conditional's
+            # branch (``params or {}``), the rules below read what it lands in.
+            child, parent = _lands(node, parents)
+            via = "" if child is node else f" through {ast.unparse(child)[:40]!s}"
+            if isinstance(parent, ast.Subscript) and parent.value is child:
                 continue                                   # a field read, or a key looked up
                                                            # (a write into it is a rewrite)
-            if isinstance(parent, ast.Attribute) and parent.value is node:
+            if isinstance(parent, ast.Attribute) and parent.value is child:
                 called = parents.get(id(parent))
                 if not (isinstance(called, ast.Call) and called.func is parent) or parent.attr in _READS:
                     continue                               # an attribute read, or .get()
-                out.append((fn.name, node.lineno, f"{node.id}.{parent.attr}() may change the request"))
+                out.append((fn.name, node.lineno,
+                            f"{node.id}{via}.{parent.attr}() may change the request"))
                 continue
-            if isinstance(parent, (ast.Compare, ast.BoolOp, ast.UnaryOp, ast.If, ast.IfExp,
-                                   ast.While, ast.Assert, ast.FormattedValue, ast.comprehension,
+            if isinstance(parent, (ast.If, ast.While, ast.Assert, ast.IfExp)) and child is parent.test:
+                continue                                   # tested
+            if isinstance(parent, ast.comprehension) and child in parent.ifs:
+                continue
+            if isinstance(parent, (ast.Compare, ast.UnaryOp, ast.FormattedValue, ast.comprehension,
                                    ast.For, ast.AsyncFor, ast.Match, ast.BinOp)):
                 continue                                   # tested, matched, formatted, iterated,
                                                            # or an operand of a new value
@@ -1111,7 +1172,7 @@ def _request_handling(tree) -> list[tuple[str, int, str]]:
                     isinstance(t, ast.Name) for t in (parent.targets if isinstance(parent, ast.Assign)
                                                       else [parent.target])):
                 continue                                   # bound to another name, which is followed
-            if isinstance(parent, ast.Call) and node in parent.args:
+            if isinstance(parent, ast.Call) and child in parent.args:
                 f = parent.func
                 if isinstance(f, ast.Attribute) and _is_self(f.value):
                     continue                               # a method of this class: read by the census
@@ -1122,7 +1183,7 @@ def _request_handling(tree) -> list[tuple[str, int, str]]:
                 if isinstance(f, ast.Attribute) and f.attr in ("get", "__contains__", "__getitem__"):
                     continue                               # a key looked up in another mapping
             out.append((fn.name, node.lineno, (
-                f"{node.id} is handed to {ast.unparse(parent)[:50]!s}, which the census does not "
+                f"{node.id} is handed{via} to {ast.unparse(parent)[:50]!s}, which the census does not "
                 "read; it may come back changed")))
     return out
 
@@ -2063,6 +2124,71 @@ def test_the_census_reports_a_request_that_may_have_changed(shape):
     """[control]"""
     problems = _problems(REQUEST_CHANGED_SHAPES[shape])
     assert any("may not arrive as it was written" in p for p in problems), (shape, problems)
+
+
+# At the commit that added the shapes above ("Both censuses report a value
+# changed through another name ...") each of these passed with nothing
+# reported: the walk followed a name bound to the request only by a plain
+# assignment of the name itself, and read an ``and``/``or``, a conditional and
+# a ``match`` over it as a test.
+
+REQUEST_ALIASED_SHAPES = {
+    "a name bound through or": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        q = params or {}\n"
+        "        q['player_address'] = params.get('to')\n" + _READS_BOUND),
+    "a name bound through a conditional": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        q = params if params else {}\n"
+        "        q['player_address'] = params.get('to')\n" + _READS_BOUND),
+    "a match capture with as": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        match params:\n"
+        "            case dict() as q:\n"
+        "                q['player_address'] = params.get('to')\n" + _READS_BOUND),
+    "a bare match capture": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        match params:\n"
+        "            case q:\n"
+        "                q['player_address'] = params.get('to')\n" + _READS_BOUND),
+    "a module function through a conditional": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        fill(params)\n" + _READS_BOUND +
+        "def fill(p):\n"
+        "    q = p if p else {}\n"
+        "    q['player_address'] = p.get('to')\n"),
+    "a request handed on through or": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        normalize(params or {})\n" + _READS_BOUND),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(REQUEST_ALIASED_SHAPES))
+def test_the_census_reports_a_request_changed_through_an_alias(shape):
+    """[control]"""
+    problems = _problems(REQUEST_ALIASED_SHAPES[shape])
+    assert any("may not arrive as it was written" in p for p in problems), (shape, problems)
+
+
+def test_a_request_tested_through_and_or_still_passes():
+    """[guard] An and/or or a conditional that only tests the request or
+    converts it, and a match that only reads it, change nothing and pass."""
+    body = (_RECORD +
+        "    async def _record(self, params):\n"
+        "        kind = 'x' if params and params.get('kind') else 'y'\n"
+        "        label = str(params or '')\n"
+        "        match params:\n"
+        "            case {'kind': k}:\n"
+        "                kind = k\n"
+        "        await client.attest(action='a', agent='neo', details={'k': kind, 'l': label},\n"
+        "                            recipient=params.get('player_address'))\n")
+    assert _problems(body) == [], _problems(body)
 
 
 def test_a_request_only_read_still_passes():
