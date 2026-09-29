@@ -194,6 +194,9 @@ def _measure() -> tuple[list[str], dict]:
     x402 = _run(dispatcher, "create_payment", {"agent_id": "a", "recipient": _B, "amount": 1.0,
                                                "token": "USDC", "purpose": "p"}).get("result", {})
     pid = x402.get("payment_id", "")
+    if x402.get("status") != "pending" or "tx_hash" in x402:
+        problems.append(f"create_payment answered {x402}")
+    statuses["create_payment"] = x402.get("status")
     asyncio.run(dispatcher._get_registry().get("x402_payments").authorize_payment(pid))
     closed = _run(dispatcher, "complete_payment", {"payment_id": pid}).get("result", {})
     if not (closed.get("status") == "recorded_unsettled" and closed.get("value_moved") is False):
@@ -363,6 +366,67 @@ def test_no_runtime_text_says_a_recorded_payment_was_sent():
             wrong.append(f"{method.__qualname__}: {doc.splitlines()[0]!r}")
         if re.search(r"\btiered fee", doc) and method.__qualname__.startswith("CrossBorderService"):
             wrong.append(f"{method.__qualname__} calls the flat cross-border fee tiered")
+    assert not wrong, "\n".join(wrong)
+
+
+_PAYMENT_ACTIONS = ("send_payment", "transfer_stablecoin", "cross_border_remit", "create_payment",
+                    "complete_payment")
+
+
+def _binds(action: str, required: list[str], optional: list[str] = ()) -> str | None:
+    """None when *required* binds the method the action runs and every optional
+    name is one it takes; else what is wrong."""
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    service, method = ACTION_MAP[action]
+    signature = inspect.signature(getattr(_dispatcher()._get_registry().get(service), method))
+    try:
+        signature.bind(**{p: None for p in required})
+    except TypeError as exc:
+        return f"{action} lists {required}: {exc}"
+    unknown = [p for p in optional if p not in signature.parameters]
+    return f"{action} lists optional {unknown}, which it does not take" if unknown else None
+
+
+def test_the_intent_table_and_trinitys_prompt_say_the_payment_actions_record():
+    """Trinity's intent table said send_payment would "Send a cross-border
+    payment", transfer_stablecoin "Transfer stablecoins to another address",
+    cross_border_remit "Send a cross-border remittance" and complete_payment
+    "Complete an authorized payment"; its remittance example had Trinity say
+    "Sending $500 USD to 0xfamily ... Much faster and cheaper than traditional
+    wire transfers"; and four of the five entries, and her prompt's table row
+    for send_payment, listed parameters the service refuses."""
+    from runtime.chat.intent_actions import INTENT_ACTION_MAP
+
+    problems, facts = _measure()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    assert all(facts["statuses"].get(a) in ("recorded_unsettled", "pending") for a in _PAYMENT_ACTIONS)
+    wrong = []
+    for action in _PAYMENT_ACTIONS + ("get_payment_quote",):
+        entry = INTENT_ACTION_MAP[action]
+        if action != "get_payment_quote":
+            description = entry["description"]
+            if "record" not in description.lower() or re.match(
+                    r"(?:send|transfer|complete|execute)\b", description, re.I):
+                wrong.append(f"{action}: {description!r}")
+            for line in entry.get("example_conversation", "").splitlines():
+                if re.match(r"Trinity: (?!\[)", line) and re.search(
+                        r"^Trinity: sending\b|\b(?:sent|transferred)\b", line, re.I) and "record" not in line.lower():
+                    wrong.append(f"{action} example: {line!r}")
+        problem = _binds(action, [p["name"] for p in entry.get("required_params", [])],
+                         [p["name"] for p in entry.get("optional_params", [])])
+        if problem:
+            wrong.append(problem)
+    rows = [r for r in (ROOT / "agents" / "trinity" / "identity.md").read_text(encoding="utf-8").splitlines()
+            if r.startswith("| ") and re.search(r"`(" + "|".join(_PAYMENT_ACTIONS) + r")`", r)]
+    assert rows, "Trinity's table names no payment action; re-derive this check"
+    for row in rows:
+        action = re.search(r"`(\w+)`", row).group(1)
+        params = [p.strip() for p in row.rstrip(" |").rsplit("|", 1)[1].split(",") if p.strip()]
+        if "record" not in row.lower():
+            wrong.append(f"Trinity's table: {row!r} does not say the action records")
+        problem = _binds(action, params)
+        if problem:
+            wrong.append(f"Trinity's table: {problem}")
     assert not wrong, "\n".join(wrong)
 
 

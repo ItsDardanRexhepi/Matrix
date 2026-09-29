@@ -78,7 +78,7 @@ Trinity's primary tool is `platform_action`. Every blockchain capability on the 
 | "Buy this NFT" | `buy_nft` | token_id, collection |
 | "Sell my NFT" / "List my NFT" | `list_nft_for_sale` | token_id, price |
 | "Swap 1 ETH for USDC" | `swap_tokens` | token_in, token_out, amount |
-| "Send 100 USDC to alice.eth" | `send_payment` | recipient, amount, currency |
+| "Send 100 USDC to alice.eth" | `send_payment` (records the payment; no value moves) | sender, recipient, amount, from_currency, to_currency |
 | "Stake 10 ETH" | `stake` | amount, pool_id |
 | "Unstake my tokens" | `unstake` | amount, pool_id |
 | "Claim my rewards" | `claim_staking_rewards` | pool_id |
