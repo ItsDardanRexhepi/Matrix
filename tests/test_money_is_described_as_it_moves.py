@@ -30,7 +30,18 @@ check shown able to answer both ways. The texts are then read against them.
 
 The README also said "Every one of those runs against a blockchain you
 configure" of the whole list; the payment ledgers record with no chain
-configured at all, as the last test measures.
+configured at all, as a later test measures.
+
+Two texts the patterns missed kept the offer. Trinity's prompt listed "Payments
+& Transfers — send tokens, batch payments, schedule recurring transfers, verify
+recipients": her payment actions record, and ACTION_MAP has no batch-payment,
+recurring-transfer or recipient-check action. The chat page's welcome, which
+every visitor to GET /chat reads, offered "Payments: stablecoin transfers and
+cross-border sends"; the page's chat carries no credential, so on a gateway with
+an operator key set it is refused every payment action, and elsewhere the
+cross-border payment records and the empty stablecoin ledger refuses the
+transfer. The pattern for "send tokens" needed "to", "across" or "globally"
+after it, and none named "cross-border sends".
 
 What this cannot see: a claim about moving money worded outside the patterns.
 """
@@ -57,8 +68,19 @@ _SENDS_MONEY = [
     # Stargate", describes a capability the catalog marks unavailable; it is
     # not an offer to send.
     r"\btransfer stablecoins\b(?! using)",
-    r"\bsend (?:a payment|stablecoins|money|tokens) (?:to|across|globally)\b",
+    # Trinity's prompt offered "send tokens, batch payments, ..." with nothing
+    # after "tokens", which the pattern once required to be "to", "across" or
+    # "globally"; the chat welcome offered "cross-border sends".
+    r"\bsend (?:a payment|payments|stablecoins|money|tokens)\b",
+    r"\bcross-border sends?\b",
 ]
+# An offer of a payment operation no action performs, with the test the action
+# names are measured by: none of ACTION_MAP's names may match it.
+_NO_SUCH_ACTION = {
+    r"\bbatch(?:es|ed)? payments?\b": re.compile(r"batch.*pay|pay.*batch|split", re.I),
+    r"\brecurring (?:transfers?|payments?)\b": re.compile(r"recurr|schedul", re.I),
+    r"\bverif(?:y|ies|ying) (?:the )?recipients?\b": re.compile(r"recipient", re.I),
+}
 _A_UNIQUE_PATH = re.compile(r"\bthe (?:one|only) (?:path|tool|way)\b[^.]{0,40}\bsends?\b", re.I)
 _SENT_WORDING = re.compile(r"\bsend|\bsent\b|\btransfer tokens\b|\bexecute\b", re.I)
 
@@ -255,8 +277,14 @@ def test_the_scan_catches_the_old_copy():
                 "nothing from it, the transfer capability deducts a small tiered fee. Create "
                 "payments, transfer stablecoins, and record cross-border payments. | Send a payment "
                 "to a wallet | Send stablecoins globally | Send money across borders with FX "
-                "conversion | send_payment — Send tokens to someone.")
+                "conversion | send_payment — Send tokens to someone. - **Payments & Transfers** — send "
+                "tokens, batch payments, schedule recurring transfers, verify recipients - **Payments**: "
+                "stablecoin transfers and cross-border sends")
     assert {p for p in _SENDS_MONEY if re.search(p, old)} == set(_SENDS_MONEY)
+    assert {p for p in _NO_SUCH_ACTION if re.search(p, old)} == set(_NO_SUCH_ACTION)
+    for line in ("- **Payments & Transfers** — send tokens, batch payments, schedule recurring "
+                 "transfers, verify recipients", "- **Payments**: stablecoin transfers and cross-border sends"):
+        assert any(re.search(p, _flat(line)) for p in _SENDS_MONEY), line
     assert not [p for p in _SENDS_MONEY if re.search(p, _flat(
         "Record payments today, and send them once settlement is built: the stablecoin-transfer "
         "capability records a payment. Create payments, and record stablecoin transfers and "
@@ -269,16 +297,35 @@ def test_the_premises_hold():
     assert not problems, "re-derive this check: " + "; ".join(problems)
 
 
+def _no_such_action_holds() -> list[str]:
+    """Each operation _NO_SUCH_ACTION names is one no action performs: none of
+    ACTION_MAP's names matches its test, and the test does match a name built
+    to fit it (so a no here can be a yes)."""
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    problems = []
+    for offer, action_test in _NO_SUCH_ACTION.items():
+        matching = sorted(a for a in ACTION_MAP if action_test.search(a))
+        if matching:
+            problems.append(f"{offer!r}: ACTION_MAP now has {matching}")
+    for built in ("batch_payment", "schedule_recurring_transfer", "verify_recipient"):
+        if not any(t.search(built) for t in _NO_SUCH_ACTION.values()):
+            problems.append(f"no action test matches {built!r}")
+    return problems
+
+
+def _public_texts() -> list[tuple[str, str]]:
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    return [(rel, _flat((ROOT / rel).read_text(encoding="utf-8"))) for rel in out.splitlines()
+            if rel not in _NOT_READ and not rel.startswith("tests/") and (ROOT / rel).is_file()]
+
+
 def test_no_public_text_says_a_payment_capability_sends_money():
     problems, _facts = _measure()
+    problems += _no_such_action_holds()
     assert not problems, "re-derive this check: " + "; ".join(problems)
-    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
     offenders = []
-    for rel in out.splitlines():
-        if rel in _NOT_READ or rel.startswith("tests/") or not (ROOT / rel).is_file():
-            continue
-        flat = _flat((ROOT / rel).read_text(encoding="utf-8"))
-        for pattern in _SENDS_MONEY + [_A_UNIQUE_PATH.pattern]:
+    for rel, flat in _public_texts():
+        for pattern in _SENDS_MONEY + [_A_UNIQUE_PATH.pattern] + list(_NO_SUCH_ACTION):
             for m in re.finditer(pattern, flat, re.I):
                 offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 50]}...")
     assert not offenders, "\n".join(offenders)
@@ -484,3 +531,136 @@ def test_no_text_says_every_capability_needs_a_chain():
                  if rel not in _NOT_READ and not rel.startswith("tests/") and (ROOT / rel).is_file()
                  and _EVERY_ITEM_NEEDS_A_CHAIN.search(_flat((ROOT / rel).read_text(encoding="utf-8")))]
     assert not offenders, offenders
+
+
+# ── What Trinity's prompt and the chat page offer ───────────────────────────
+
+def _trinitys_offers() -> list[str]:
+    """The items of the capability list in Trinity's prompt."""
+    prompt = (ROOT / "agents" / "trinity" / "identity.md").read_text(encoding="utf-8")
+    section = prompt.split("### Capabilities Available Through Natural Conversation", 1)[1].split("\n#", 1)[0]
+    return [line for line in section.splitlines() if line.startswith("- **")]
+
+
+def test_trinitys_payments_offer_names_the_actions_and_what_they_answer():
+    """Each name the Payments item puts in backticks is an action ACTION_MAP
+    dispatches or a status one of those actions answers, measured; the item
+    names the three actions that record a payment a user asks for, and says
+    what they answer, that no value moves, and that the empty stablecoin ledger
+    refuses a transfer."""
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP, _STATE_MODIFYING_ACTIONS
+
+    problems, facts = _measure()
+    problems += _no_such_action_holds()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    offers = _trinitys_offers()
+    assert len(offers) > 10, "Trinity's capability list moved; re-derive this check"
+    payments = [line for line in offers if re.match(r"- \*\*Payments\b", line)]
+    assert len(payments) == 1, payments
+    item, statuses = payments[0], facts["statuses"]
+    named = re.findall(r"`(\w+)`", item)
+    actions = [n for n in named if n in ACTION_MAP]
+    answered = {statuses[a] for a in actions if a in statuses}
+    wrong = [f"`{n}` is neither an action nor a status the named actions answer"
+             for n in named if n not in ACTION_MAP and n not in answered]
+    for action in ("send_payment", "cross_border_remit", "transfer_stablecoin"):
+        if action not in actions:
+            wrong.append(f"the item does not name `{action}`, which records a payment")
+    for action in actions:
+        if action in _STATE_MODIFYING_ACTIONS and action not in statuses:
+            wrong.append(f"`{action}` changes state and this check has not measured what it answers")
+    for status in sorted(answered):
+        if f"`{status}`" not in item:
+            wrong.append(f"the item does not say the actions it names answer `{status}`")
+    if answered and not re.search(r"\bno value moves\b", item):
+        wrong.append("the item does not say no value moves")
+    if "transfer_stablecoin" in actions and not re.search(r"\brefused for insufficient balance\b", item):
+        wrong.append("the item does not say the empty stablecoin ledger refuses a transfer")
+    if "get_stablecoin_balance" in actions:
+        ledger = _dispatcher()
+        ledger._get_registry().get("stablecoin").set_balance(_A, "USDC", 7)
+        read = [_run(ledger, "get_stablecoin_balance", {"address": a, "token": "USDC"})["result"].get("balance")
+                for a in (_A, _B)]
+        if read != [7, 0]:
+            wrong.append(f"get_stablecoin_balance read {read} from a ledger holding 7 for one address; "
+                         "re-derive this check")
+        if not re.search(r"\ba balance on the stablecoin service's ledger, which is not a wallet's balance "
+                         r"on chain\b", item):
+            wrong.append("the item does not say the balance it reads is the stablecoin ledger's")
+    assert not wrong, "\n".join(wrong)
+
+
+_KEY = "money-operator-key"
+
+
+def _gateway(api_key: str):
+    import sys
+    import tempfile
+
+    from gateway.server import GatewayServer
+    if str(ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(ROOT / "tests"))
+    from test_route_sweep import SWEEP_CONFIG
+    scratch = tempfile.mkdtemp(prefix="the-matrix-money-")
+    return GatewayServer({**SWEEP_CONFIG, "memory_dir": scratch, "database": {"path": f"{scratch}/m.db"},
+                          "gateway": {**SWEEP_CONFIG["gateway"], "api_key": api_key}})
+
+
+def _chat_page() -> str:
+    return (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+
+
+def _welcome_items() -> list[str]:
+    m = re.search(r"const welcomeText = `((?:\\.|[^`\\])*)`", _chat_page())
+    assert m, "the chat page has no welcome text; re-derive this check"
+    return [line for line in m.group(1).replace("\\`", "`").splitlines() if line.startswith("- **")]
+
+
+def _chat_request_headers() -> dict[str, str]:
+    """The headers the chat page's POST /chat/stream carries, read from its fetch."""
+    m = re.search(r"fetch\(`\$\{baseUrl\(\)\}/chat/stream`,\s*\{(.*?)\n\s*\}\);", _chat_page(), re.S)
+    assert m, "the chat page no longer posts to /chat/stream; re-derive this check"
+    options = m.group(1)
+    assert "credentials" not in options, options
+    block = re.search(r"headers:\s*\{([^}]*)\}", options)
+    return dict(re.findall(r'"([^"]+)"\s*:\s*"([^"]*)"', block.group(1))) if block else {}
+
+
+def test_the_chat_welcome_says_what_the_pages_payments_answer():
+    """The page's chat carries no credential: on a gateway with an operator key
+    set it is anonymous and refused both payment actions, and where no key is
+    set it is the operator, the cross-border payment records, and the empty
+    stablecoin ledger refuses the transfer."""
+    from aiohttp.test_utils import make_mocked_request
+
+    from gateway.session_routes import caller_refused_route
+
+    problems, facts = _measure()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    headers = _chat_request_headers()
+    keyed, keyless = _gateway(_KEY), _gateway("")
+    kinds = [server._caller_kind(make_mocked_request("POST", "/chat/stream", headers=h))
+             for server, h in ((keyed, headers), (keyless, headers),
+                               (keyed, {**headers, "Authorization": f"Bearer {_KEY}"}))]
+    assert kinds == ["anonymous", "operator", "operator"], f"the page's chat is {kinds}; re-derive this check"
+    refused = {a: caller_refused_route("anonymous", a) for a in ("send_payment", "transfer_stablecoin")}
+    assert all(refused.values()), f"an anonymous caller may record a payment now: {refused}"
+    statuses = {facts["statuses"][a] for a in ("send_payment", "transfer_stablecoin")}
+    assert statuses == {"recorded_unsettled"}, statuses
+
+    items = [line for line in _welcome_items() if re.match(r"- \*\*Payments\b", line)]
+    assert len(items) == 1, _welcome_items()
+    item, wrong = items[0], []
+    for status in re.findall(r"`(\w+)`", item):
+        if status not in statuses:
+            wrong.append(f"`{status}` is not what the page's payment actions answer")
+    for needed, why in (
+            (r"`recorded_unsettled`", "what a recorded payment answers"),
+            (r"\bno value moves\b", "that no value moves"),
+            (r"\brefused for insufficient balance\b", "that the empty stablecoin ledger refuses a transfer"),
+            (r"\bthis page does not sign in, so on a gateway with an operator key set it is refused both\b",
+             "that the page is refused both where an operator key is set")):
+        if not re.search(needed, item):
+            wrong.append(f"the item does not state {why} ({needed})")
+    assert not wrong, "\n".join(wrong)
+

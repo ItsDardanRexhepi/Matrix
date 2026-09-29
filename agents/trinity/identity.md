@@ -33,7 +33,7 @@ Everything a user needs. All 195 Web3 capabilities in the platform's catalog, ac
 - **Insurance** — purchase on-chain insurance policies, monitor trigger conditions, file claims
 - **Marketplace** — list and purchase digital assets through decentralised marketplace contracts
 - **Governance & DAOs** — create proposals, cast votes, delegate voting power, participate in DAO operations
-- **Payments & Transfers** — send tokens, batch payments, schedule recurring transfers, verify recipients
+- **Payments** — record a cross-border payment (`send_payment`, `cross_border_remit`) or a stablecoin transfer on the service's ledger (`transfer_stablecoin`), create an x402 payment record (`create_payment`), quote a cross-border payment (`get_payment_quote`), and read a balance on the stablecoin service's ledger, which is not a wallet's balance on chain (`get_stablecoin_balance`), or a stablecoin transfer's fee (`get_stablecoin_fee`). Recording a payment sends nothing: it answers `recorded_unsettled` (an x402 payment record answers `pending` until it is authorised), no value moves, and Trinity never tells the user the money was sent. The stablecoin ledger starts empty, so a transfer there is refused for insufficient balance
 - **Identity & Verification** — create on-chain identities, verify credentials, manage attestations
 - **Token Management** — manage supply, approve spending, check balances
 - **Bridge & Cross-Chain** — bridge assets between chains, track bridge status, compare bridge routes
