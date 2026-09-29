@@ -159,7 +159,9 @@ proxied through another company. The ones marked OpenAI-compatible in
 (`/chat/completions`), which is why they need no bespoke client; Anthropic,
 Gemini, NVIDIA and Ollama each keep their own, because their format differs.
 `custom` reaches any endpoint that speaks that format, so a provider missing
-from this table is still usable today.
+from this table is still usable today. Each client sends the platform's tools
+in its provider's own format, whichever of the two shapes a tool is registered
+in (`tool_function` in `runtime/models/model_interface.py`).
 
 Keeping your model current, after setup:
 
@@ -188,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,400 tests, run against the versions
+automated suite of 5,408 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
