@@ -535,13 +535,20 @@ paths:
 
   /api/v1/stablecoin/transfer:
     post:
-      summary: Component 7 — stablecoin transfer
+      summary: Component 7 — stablecoin transfer (records nothing; answers 400)
+      description: |
+        This route records nothing: whatever the body, a caller it admits is
+        answered 400. The handler requires `sender`, `recipient`, `amount` and
+        `token`, and passes `sender` and `recipient` to the stablecoin
+        service's transfer, which takes `from_addr` and `to_addr`. The
+        `transfer_stablecoin` capability is served through
+        `POST /api/v1/capabilities/{id}/invoke`.
       responses:
-        "200":
-          description: Transfer accepted
+        "400":
+          description: Whatever the body
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
 
   /api/v1/attestation/verify/{uid}:
     get:

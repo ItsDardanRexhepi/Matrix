@@ -41,7 +41,12 @@ cross-border sends"; the page's chat carries no credential, so on a gateway with
 an operator key set it is refused every payment action, and elsewhere the
 cross-border payment records and the empty stablecoin ledger refuses the
 transfer. The pattern for "send tokens" needed "to", "across" or "globally"
-after it, and none named "cross-border sends".
+after it, and none named "cross-border sends". The capability map's row for the
+stablecoin transfer named POST /api/v1/stablecoin/transfer, which records
+nothing: its handler passes `sender` and `recipient` to a method that takes
+`from_addr` and `to_addr`, so every body is answered 400; the OpenAPI spec
+promised "200 Transfer accepted". The last test drives each payment route the
+map names through the gateway and holds the row and the spec to the answer.
 
 What this cannot see: a claim about moving money worded outside the patterns.
 """
@@ -499,13 +504,17 @@ def test_the_payment_actions_the_agents_read_list_the_parameters_their_services_
     assert not wrong, "\n".join(wrong)
 
 
+def _payments_rows() -> list[str]:
+    text = (ROOT / "docs" / "COMPLETE_CAPABILITY_MAP.md").read_text(encoding="utf-8")
+    section = text.split("\n## Payments\n", 1)[1].split("\n## ", 1)[0]
+    return [r for r in section.splitlines() if r.startswith("| ") and not r.startswith("| Capability")
+            and not r.startswith("|---") and "Channel" not in r]
+
+
 def test_the_capability_map_says_each_payment_capability_records():
     problems, _facts = _measure()
     assert not problems, "re-derive this check: " + "; ".join(problems)
-    text = (ROOT / "docs" / "COMPLETE_CAPABILITY_MAP.md").read_text(encoding="utf-8")
-    section = text.split("\n## Payments\n", 1)[1].split("\n## ", 1)[0]
-    rows = [r for r in section.splitlines() if r.startswith("| ") and not r.startswith("| Capability")
-            and not r.startswith("|---") and "Channel" not in r]
+    rows = _payments_rows()
     assert len(rows) == 5, rows
     wrong = [r for r in rows if not re.search(r"\brecorded, not settled\b", r)
              or re.search(r"circle|wise", r, re.I)]
@@ -664,3 +673,148 @@ def test_the_chat_welcome_says_what_the_pages_payments_answer():
             wrong.append(f"the item does not state {why} ({needed})")
     assert not wrong, "\n".join(wrong)
 
+
+# ── The payment routes the capability map names, driven through the gateway ─
+
+# A value for each body field a payment route's handler requires or its service
+# method takes. A field missing here stops the test rather than being guessed.
+_FIELD_VALUES = {
+    "sender": _A, "recipient": _B, "from_addr": _A, "to_addr": _B, "payer": _A, "payee": _B,
+    "agent_id": _A, "amount": 10, "token": "USDC", "purpose": "p", "source_currency": "USDC",
+    "destination_currency": "USDT", "from_currency": "USDC", "to_currency": "USDT",
+}
+_EVERY_BODY_REFUSED = "records nothing: whatever the body, a caller it admits is answered 400"
+
+
+def _handler_contract(handler) -> tuple[list[str], str, str, list[str]]:
+    """(the body fields the handler requires, the service and method it calls,
+    the keyword names it passes), read from its self._require and self._call."""
+    import textwrap
+    tree = ast.parse(textwrap.dedent(inspect.getsource(handler)))
+    required, calls = [], []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == "_require":
+                required += [a.value for a in node.args[1:] if isinstance(a, ast.Constant)]
+            elif node.func.attr == "_call":
+                calls.append(node)
+    assert len(calls) == 1, f"{handler.__name__} makes {len(calls)} service calls; re-derive this check"
+    service, method = (a.value for a in calls[0].args[:2])
+    return required, service, method, [kw.arg for kw in calls[0].keywords]
+
+
+def _result_of(payload: dict) -> dict:
+    """The service's own result inside a route's envelope."""
+    for key in ("data", "result"):
+        inner = payload.get(key)
+        if isinstance(inner, str):
+            try:
+                inner = json.loads(inner)
+            except ValueError:
+                continue
+        if isinstance(inner, dict):
+            return _result_of(inner)
+    return payload
+
+
+def test_each_payment_route_the_capability_map_names_is_described_by_its_answer():
+    """Each POST route a Payments row names is driven with the body its handler
+    requires, with the service method's own field names, with both and with
+    none, as the operator and (where the route admits one) as a session. A route
+    that records is answered 200 with a record that moved nothing, and the spec
+    documents 200. A route that answers 400 to every one of those has its row and
+    its spec entry say it records nothing, name the fields the handler passes
+    that the method does not take and the ones the method takes instead, and
+    document only 400. A row that says a capability is refused for insufficient
+    balance is held to the registry's answer for it."""
+    import time
+
+    import yaml
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from gateway.session_routes import session_may_reach
+    from runtime.capabilities.catalog import CAPABILITIES
+
+    problems, _facts = _measure()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    spec = yaml.safe_load((ROOT / "gateway" / "openapi.yaml").read_text(encoding="utf-8"))["paths"]
+    server = _gateway(_KEY)
+    app = server.create_app()
+    handlers = {(r.method, r.resource.canonical): r.handler for r in app.router.routes() if r.resource}
+    registry = _dispatcher()._get_registry()
+    named = [(row, m.group(1)) for row in _payments_rows()
+             for m in re.finditer(r"\bPOST (/api/v1/[\w/{}-]+)", row)]
+    assert len(named) >= 3, named
+    wrong, recorded, refused = [], 0, 0
+
+    async def drive() -> None:
+        nonlocal recorded, refused
+        async with TestClient(TestServer(app)) as client:
+            now = time.time()
+            await server.wallet_sessions.add(token="money-routes-session", address=_A, issued_at=now,
+                                             expires_at=now + 3600)
+            callers = {"operator": {"Authorization": f"Bearer {_KEY}"},
+                       "session": {"Authorization": "Bearer money-routes-session"}}
+            for row, path in named:
+                required, service, method, passed = _handler_contract(handlers[("POST", path)])
+                takes = inspect.signature(getattr(registry.get(service), method)).parameters
+                unbound = [p for p in passed if p not in takes]
+                instead = [p for p, param in takes.items()
+                           if param.default is inspect.Parameter.empty and p not in passed]
+                handler_body = {f: _FIELD_VALUES[f] for f in required}
+                service_body = {p: _FIELD_VALUES[p] for p in takes if p in _FIELD_VALUES}
+                answers = {}
+                for who, headers in callers.items():
+                    if who == "session" and not session_may_reach(path):
+                        continue
+                    for label, body in (("handler's", handler_body), ("service's", service_body),
+                                        ("both", {**service_body, **handler_body}), ("empty", {})):
+                        response = await client.post(path, json=body, headers=headers)
+                        answers[(who, label)] = (response.status, await response.json())
+                documented = set(spec[path]["post"]["responses"])
+                entry = spec[path]["post"]
+                spec_text = f"{entry.get('summary', '')} {entry.get('description', '')}"
+                status, payload = answers[("operator", "handler's")]
+                if status == 200:
+                    recorded += 1
+                    result = _result_of(payload)
+                    if result.get("status") not in ("recorded_unsettled", "pending") \
+                            or result.get("value_moved"):
+                        wrong.append(f"{path} answered {result}, and its row says it records")
+                    if _EVERY_BODY_REFUSED in row or "200" not in documented:
+                        wrong.append(f"{path} records, and its row or its spec entry says otherwise")
+                elif {s for s, _ in answers.values()} == {400}:
+                    refused += 1
+                    if f"POST {path} {_EVERY_BODY_REFUSED}" not in row:
+                        wrong.append(f"{path} answers 400 to every body; its row does not say so")
+                    if documented != {"400"} or "records nothing" not in spec_text:
+                        wrong.append(f"{path} answers 400 to every body; its spec entry says "
+                                     f"{sorted(documented)}")
+                    for text, where in ((row, "row"), (spec_text, "spec entry")):
+                        for field in unbound + instead:
+                            if f"`{field}`" not in text:
+                                wrong.append(f"the {where} for {path} does not name `{field}`")
+                    if not unbound:
+                        wrong.append(f"{path} passes nothing {service}.{method} refuses; "
+                                     "re-derive this check")
+                else:
+                    wrong.append(f"{path} answered {sorted((k, s) for k, (s, _) in answers.items())}; "
+                                 "re-derive this check")
+
+            for row in _payments_rows():
+                if not re.search(r"\brefused for insufficient balance\b", row):
+                    continue
+                name = row.strip("| ").split(" | ", 1)[0]
+                capability = next(c for c in CAPABILITIES if c["name"] == name)
+                runs = getattr(registry.get(capability["service"]), capability["method"])
+                params = {p: _FIELD_VALUES[p] for p in inspect.signature(runs).parameters}
+                response = await client.post(f"/api/v1/capabilities/{capability['id']}/invoke",
+                                             json={"params": params}, headers=callers["operator"])
+                answer = _result_of(await response.json())
+                if "via capability registry" not in row \
+                        or "Insufficient balance" not in str(answer.get("error")):
+                    wrong.append(f"{name}: the registry answered {response.status} {answer}")
+
+    asyncio.run(drive())
+    assert recorded and refused, (recorded, refused)
+    assert not wrong, "\n".join(wrong)
