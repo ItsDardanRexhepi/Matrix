@@ -52,6 +52,29 @@ def shown(result: Any, *keys: str) -> Any:
     return "not reported"
 
 
+def dispatcher_record_note(config: dict) -> str:
+    """What happens, under *config*, to the record the service dispatcher
+    hands the attestation service for each state-modifying action that
+    happened. The attestation service resolves its schema before it queues
+    anything, and refuses the record when ``blockchain.eas_schema`` is not a
+    well-formed bytes32 UID (the shipped example config's placeholder is not
+    one); the dispatcher logs that refusal. The batch size is the service's."""
+    import inspect
+
+    from runtime.blockchain.services.attestation.service import AttestationService
+
+    batch = inspect.signature(AttestationService.__init__).parameters["batch_size"].default
+    try:
+        AttestationService(config)._resolve_schema("")
+    except ValueError:
+        return ("blockchain.eas_schema is not a well-formed bytes32 UID in this config, so the "
+                "attestation service refused the service dispatcher's record of each action "
+                "that happened; the dispatcher logged each refusal, and nothing was queued.")
+    return ("When a state-modifying action completes, the service dispatcher queues an EAS "
+            f"attestation of it; the queue is written to the chain once {batch} have gathered in "
+            "the same process, and what is queued is lost if the process exits first.")
+
+
 class Steps:
     """Runs an example's actions and keeps the record of which happened."""
 

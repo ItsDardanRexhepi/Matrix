@@ -39,12 +39,14 @@ import asyncio
 import json
 import os
 import sys
+import textwrap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
-from examples._steps import BOLD, CYAN, DIM, RESET, Steps, fail, ok, shown, step
+from examples._steps import (BOLD, CYAN, DIM, RESET, Steps, dispatcher_record_note, fail, ok,
+                             shown, step)
 
 
 def load_config() -> dict:
@@ -202,9 +204,9 @@ async def main():
         ok(f"Pending rewards: {shown(position, 'pending_rewards')}")
 
     steps.summary("Journey summary")
-    print(f"\n  {DIM}When a state-modifying action completes, the service dispatcher queues an EAS")
-    print(f"  attestation of it; the queue is written to the chain once 50 have gathered in the")
-    print(f"  same process, and what is queued is lost if the process exits first.{RESET}\n")
+    note = textwrap.fill(dispatcher_record_note(config), width=78,
+                         initial_indent="  ", subsequent_indent="  ")
+    print(f"\n{DIM}{note}{RESET}\n")
 
 
 if __name__ == "__main__":

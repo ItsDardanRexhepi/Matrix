@@ -22,9 +22,13 @@ What this cannot see: the claim worded outside the patterns below.
 from __future__ import annotations
 
 import ast
+import asyncio
+import importlib.util
 import inspect
+import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -81,3 +85,130 @@ def test_no_public_text_says_every_action_is_attested_on_chain():
         for claim in _claims((ROOT / rel).read_text(encoding="utf-8")):
             offenders.append(f"{rel}: {claim!r}")
     assert not offenders, "\n".join(offenders)
+
+
+# ── The record is queued only where a schema is configured ──────────────────
+#
+# Example 09 ended "When a state-modifying action completes, the service
+# dispatcher queues an EAS attestation of it; the queue is written to the chain
+# once 50 have gathered", example 06 said the dispatcher's record is "queued like
+# any record that is not time-critical", and examples/README.md and
+# docs/blockchain.md said the record joins an in-memory batch, each with no
+# condition. The attestation service resolves its schema before it queues
+# anything and refuses the record when blockchain.eas_schema is not a
+# well-formed bytes32 UID; the shipped example config's placeholder is not one.
+# Run with that config, example 09 logged "Attestation failed ... EAS schema is
+# not configured" for each of the steps that happened, queued nothing, and
+# printed that sentence. A section of a document, or an example's docstring,
+# that says an attestation or a record is queued states that condition; an
+# example says what happened under the config it ran with.
+
+_QUEUED = re.compile(
+    r"\bqueues? an? (?:eas )?attestation\b"
+    r"|\b(?:record|attestation)s?\b[^.;]{0,90}?\b(?:(?:is|are) queued|queued (?:in memory|until|like|on))\b"
+    r"|\bjoins an in-memory batch\b|\bqueued on (?:the|an|a new) attestation service\b"
+    r"|\beach queue an attestation\b|\bqueued unless time-critical\b", re.I)
+_THE_CONDITION = re.compile(
+    r"eas_schema|schemas\.<component>|\bschema (?:is )?(?:configured|registered)\b|well-formed bytes32"
+    r"|where eas is set up", re.I)
+_WELL_FORMED = "0x" + "ab" * 32
+
+
+def _example_config(schema: str | None = None) -> dict:
+    config = json.loads((ROOT / "matrix.config.json.example").read_text(encoding="utf-8"))
+    bc = config.setdefault("blockchain", {})
+    bc["rpc_url"] = "http://127.0.0.1:9"
+    bc["demo_wallet_address"] = "0x" + "22" * 20
+    if schema is not None:
+        bc["eas_schema"] = schema
+    return config
+
+
+def _schema_resolves(config: dict) -> bool:
+    from runtime.blockchain.services.attestation.service import AttestationService
+    try:
+        AttestationService(config)._resolve_schema("")
+    except ValueError:
+        return False
+    return True
+
+
+def _units() -> list[tuple[str, str]]:
+    """(where, text): each section of a public document, and each example's docstring."""
+    out = subprocess.check_output(["git", "ls-files", "*.md", "examples/*.py"], cwd=ROOT, text=True)
+    units = []
+    for rel in out.splitlines():
+        if rel.startswith("tests/") or rel == "CHANGELOG.md" or not (ROOT / rel).is_file():
+            continue
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        if rel.endswith(".py"):
+            units.append((rel, ast.get_docstring(ast.parse(text)) or ""))
+            continue
+        for section in re.split(r"\n(?=#{1,6} )", text):
+            units.append((f"{rel} ({section.splitlines()[0][:60]})", section))
+    return units
+
+
+def _unconditional_queue_claims(units) -> list[str]:
+    offenders = []
+    for where, text in units:
+        flat = " ".join(text.split())
+        m = _QUEUED.search(flat)
+        if m and not _THE_CONDITION.search(flat):
+            offenders.append(f"{where}: ...{flat[max(0, m.start() - 60):m.end() + 40]}...")
+    return offenders
+
+
+def _run_example(stem: str, config: dict, monkeypatch, capsys) -> str:
+    path = ROOT / "examples" / f"{stem}.py"
+    name = f"example_queue_note_{stem}"
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, module)
+    spec.loader.exec_module(module)
+
+    class _Refusing:
+        async def execute(self, action, service=None, params=None, **kwargs):
+            return json.dumps({"status": "error", "action": action, "error": "refused here"})
+
+    monkeypatch.setattr(module, "load_config", lambda: config)
+    monkeypatch.setattr(module, "ServiceDispatcher", lambda cfg: _Refusing())
+    capsys.readouterr()
+    asyncio.run(module.main())
+    return " ".join(capsys.readouterr().out.split())
+
+
+def test_the_shipped_example_config_attests_nothing():
+    assert not _schema_resolves(_example_config()), (
+        "the shipped example config's schema resolves now; re-derive this check")
+    assert _schema_resolves(_example_config(_WELL_FORMED))
+
+
+def test_the_queue_scan_catches_the_old_copy():
+    old = [("examples/README.md (## EAS)", "It is not written on-chain straight away: it joins an "
+                                          "in-memory batch that is submitted when 50 records have queued."),
+           ("06", "the ServiceDispatcher hands the attestation service a record of it (action, "
+                  "service), queued like any record that is not time-critical."),
+           ("readme", "| `06_eas_attestation_chain.py` | Attest sample records through the attestation "
+                      "capabilities (queued unless time-critical), batch them, verify one |"),
+           ("docs", "| The service dispatcher's record | Queued on the attestation service of the "
+                    "dispatcher's service registry, as a platform record |")]
+    assert len(_unconditional_queue_claims(old)) == len(old)
+    assert not _unconditional_queue_claims([("x", "When blockchain.eas_schema is a well-formed "
+                                                  "bytes32 UID, the record joins an in-memory batch.")])
+
+
+def test_no_section_says_a_record_is_queued_without_the_schema_it_needs():
+    offenders = _unconditional_queue_claims(_units())
+    assert not offenders, "\n".join(offenders)
+
+
+def test_the_examples_say_what_happened_to_the_record_under_their_config(monkeypatch, capsys):
+    for stem in ("06_eas_attestation_chain", "09_full_user_journey"):
+        out = _run_example(stem, _example_config(), monkeypatch, capsys)
+        assert "queues an EAS attestation" not in out, (
+            f"{stem} says the dispatcher queues an attestation under a config whose schema "
+            "the attestation service refuses")
+        assert "nothing was queued" in out, stem
+        out = _run_example(stem, _example_config(_WELL_FORMED), monkeypatch, capsys)
+        assert "queues an EAS attestation" in out and "nothing was queued" not in out, stem

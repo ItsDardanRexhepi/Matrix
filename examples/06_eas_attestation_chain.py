@@ -17,11 +17,13 @@ data, attested under the schema in blockchain.eas_schema. An attestation that is
 on-chain only when a batch of 50 fills in the same process: nothing drains the
 queue on a timer, and what is queued is lost if the process exits first. So a
 run of this example usually gets queue receipts rather than transaction hashes.
-The dispatcher also records each state-modifying action that settles, the same
-way. An attestation you ask for is refused when blockchain.eas_schema is not a
-registered schema UID, and it is metered by the gas sponsorship policy like
-any other operation, so where no sponsorship is configured the policy
-refuses it.
+When blockchain.eas_schema is a well-formed bytes32 UID (the code checks the
+form, not that it is registered), the dispatcher also queues a record of each
+state-modifying action that settles, the same way; otherwise the attestation
+service refuses that record and the dispatcher logs the refusal. An attestation
+you ask for is refused when blockchain.eas_schema is not a well-formed bytes32
+UID, and it is metered by the gas sponsorship policy like any other operation,
+so where no sponsorship is configured the policy refuses it.
 
 Each step prints what the service answered, and a step counts as done only
 when the dispatcher reports that it happened (its call_outcome is "success").
@@ -34,12 +36,14 @@ import asyncio
 import json
 import os
 import sys
+import textwrap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
-from examples._steps import BOLD, CYAN, RESET, Steps, fail, ok, shown, step, warn
+from examples._steps import (BOLD, CYAN, RESET, Steps, dispatcher_record_note, fail, ok, shown,
+                             step, warn)
 
 
 def load_config() -> dict:
@@ -64,8 +68,9 @@ async def main():
 {'=' * 60}{RESET}
 
   Attests sample records through the attestation capabilities
-  (Ethereum Attestation Service on Base Sepolia). A record that is not
-  time-critical is queued in memory until a batch of 50 fills.
+  (Ethereum Attestation Service on Base Sepolia). Where blockchain.eas_schema
+  is a well-formed bytes32 UID, a record that is not time-critical is queued
+  in memory until a batch of 50 fills; otherwise it is refused.
 """)
 
     config = load_config()
@@ -134,9 +139,11 @@ async def main():
     print(f"""
   When an action on the dispatcher's state-modifying list settles, the
   ServiceDispatcher hands the attestation service a record of it (action,
-  service, actor, a parameter hash, a timestamp), queued like any record that
-  is not time-critical. A refusal is logged, not attested.
+  service, actor, a parameter hash, a timestamp). A refusal is logged, not
+  attested.
 """)
+    print(textwrap.fill(dispatcher_record_note(config), width=78,
+                        initial_indent="  ", subsequent_indent="  ") + "\n")
 
 
 if __name__ == "__main__":

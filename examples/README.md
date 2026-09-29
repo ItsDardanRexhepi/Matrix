@@ -57,7 +57,7 @@ will print a warning and continue with the remaining steps.
 | 03 | `03_nft_with_royalties.py` | ERC-721 collection with an EIP-2981 royalty: create, mint, list, sell | 3 |
 | 04 | `04_parametric_insurance.py` | Crop insurance: policy, weather oracle reading, claim judged on the service's own oracle data | 13, 11 |
 | 05 | `05_marketplace_flow.py` | List, search, view and buy; the sale is recorded with its fee split (no escrow, nothing moves on chain) | 24 |
-| 06 | `06_eas_attestation_chain.py` | Attest sample records (queued unless time-critical); batch attest; verify | 8 |
+| 06 | `06_eas_attestation_chain.py` | Attest sample records (where `blockchain.eas_schema` is a well-formed bytes32 UID, queued unless time-critical); batch attest; verify | 8 |
 | 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording (in memory, nothing moves) | 1, NeoSafe |
 | 08 | `08_oracle_routing.py` | Price feeds, a weather reading and a VRF request through the oracle gateway | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
@@ -81,7 +81,7 @@ result = await dispatcher.execute(
 The `ServiceDispatcher.execute()` method:
 1. Resolves the action to a service and method via `ACTION_MAP`
 2. Calls the service method with the provided params
-3. For a state-modifying action that settles, hands the attestation service a record of it, queued until a batch fills (see below)
+3. For a state-modifying action that settles, hands the attestation service a record of it, which is queued until a batch fills when `blockchain.eas_schema` is a well-formed bytes32 UID and refused otherwise (see below)
 4. Returns a JSON string with `status`, `result`, and timing info
 
 ## Network
@@ -106,13 +106,13 @@ Every example works on mainnet with zero code changes — just update your confi
 
 **Before going to mainnet:**
 - Contract conversion runs the Glasswing security audit on generated Solidity; it does not deploy it unless `conversion.auto_deploy` is on, in which case it deploys with the platform's paymaster account (example 01 always runs with it off)
-- When a state-modifying action settles, the dispatcher hands the attestation service a record of it, queued in memory and written on-chain only when a batch fills (see below)
+- When a state-modifying action settles, the dispatcher hands the attestation service a record of it; with `blockchain.eas_schema` set to your chain's registered schema UID, it is queued in memory and written on-chain only when a batch fills (see below)
 - Contract fees reach NeoSafe through deployment, not through a router: each platform contract pays its fee to `platformFeeRecipient`, which `scripts/deploy_all.py` sets to the configured NeoSafe address (where each fee goes is listed under **Fees** in `docs/blockchain.md`). `NeoSafeRouter.route_fee` is called only by `examples/07_revenue_to_neosafe.py`. Nothing outside the tests calls `route_revenue`.
 - The oracle service's default Chainlink feeds are the Base mainnet aggregator addresses on every network; nothing switches them. On Base Sepolia, set `oracle.price_feeds` to that network's feeds
 
 ## EAS Attestation of State-Modifying Actions
 
-When an action on the dispatcher's state-modifying list settles, `ServiceDispatcher.execute()` hands the attestation service a record of it. The record holds the action, the service, the actor the request was bound to, a hash of the parameters and a timestamp; it carries no amounts, addresses or transaction hashes. It is not written on-chain straight away: it joins an in-memory batch that is submitted when 50 records have queued in the same process. There is no timer, so a batch that has not filled is lost when the process exits. A refusal, and a transaction that was broadcast and not yet confirmed, are logged, not attested. Contract deployment is not among the actions: `/api/v1/contracts/deploy` answers `501`.
+When an action on the dispatcher's state-modifying list settles, `ServiceDispatcher.execute()` hands the attestation service a record of it. The record holds the action, the service, the actor the request was bound to, a hash of the parameters and a timestamp; it carries no amounts, addresses or transaction hashes. The attestation service resolves its schema first: when `blockchain.eas_schema` is not a well-formed bytes32 UID, as in the shipped example config, it refuses the record, the dispatcher logs the refusal, and nothing is queued. When it is one, the record is not written on-chain straight away: it joins an in-memory batch that is submitted when 50 records have queued in the same process. There is no timer, so a batch that has not filled is lost when the process exits. A refusal, and a transaction that was broadcast and not yet confirmed, are logged, not attested. Contract deployment is not among the actions: `/api/v1/contracts/deploy` answers `501`.
 
 What reaches the chain is narrower than that record: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
 

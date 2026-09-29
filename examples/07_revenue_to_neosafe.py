@@ -8,7 +8,8 @@ Demonstrates the NeoSafe router, called directly by this example:
   1. The RevenueEnforcer injects fee logic into a sample contract
   2. NeoSafeRouter.route_fee records sample fees on its in-memory ledger and
      hands each one to the attestation service, which queues it when
-     blockchain.eas_schema is a registered schema UID and refuses it otherwise
+     blockchain.eas_schema is a well-formed bytes32 UID (the code checks the
+     form, not that it is registered) and refuses it otherwise
   3. Revenue totals are read back from that ledger
   4. Where the platform's fees actually go
   5. What the injected fee logic does on-chain
