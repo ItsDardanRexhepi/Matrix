@@ -50,8 +50,9 @@ Kubernetes stack in `k8s/` (README → Production Deployment).
 
 Both run the gateway with `MATRIX_ENV=production` (`docker-compose.prod.yml` and
 `k8s/deployment.yaml` set it, `docker-compose.yml` defaults to it), and a
-production gateway refuses to start on the no-op security backend, naming the
-cause. The `Dockerfile` installs only the public requirements, so the commands
+production gateway refuses to start on the no-op security backend, or on an
+installed security core whose gate cannot be built or cannot load its saved
+state at startup, naming the cause. The `Dockerfile` installs only the public requirements, so the commands
 below bring up a gateway only from an image that also carries the separately
 installed security core (`CREDENTIALS_NEEDED.md`, section 5). For a testnet run
 without the core, start `docker-compose.yml` alone with a non-production

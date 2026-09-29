@@ -46,9 +46,13 @@ kubectl apply -f ingress.yaml  # optional — only if using cert-manager + nginx
 
 ## Probes
 
-All three probes (`liveness`, `readiness`, `startup`) hit `/health`,
-which is intentionally cheap and auth-free. Startup probe gives the
-gateway up to 2 minutes to come up before liveness takes over.
+The `liveness` and `startup` probes hit `/health`, which answers 200
+whenever the process can serve and is intentionally cheap and auth-free.
+The `readiness` probe hits `/ready`, which answers 503 when this instance
+should not take traffic: no model provider answered, or the security gate
+the gateway builds at startup is not up (README → Check platform health).
+Startup probe gives the gateway up to 2 minutes to come up before
+liveness takes over.
 
 ## Resource requests
 

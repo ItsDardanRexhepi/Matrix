@@ -1,7 +1,8 @@
 """DOMAIN 20 — a retirement must name a credit that exists, and spend it.
 
-20-A. `retire_carbon_credit` read NO field of any credit record and
-decremented nothing. MEASURED at pin e6cbc018, before the fix:
+20-A. `retire_carbon_credit` read NO field of any credit record and decremented
+nothing. MEASURED at the commit "19-D: an unauthenticated caller could render
+/social/feed permanently invalid", before the fix:
 
     never purchased  -> status "retired", tonnes_retired=None
     same id twice    -> status "retired" both times

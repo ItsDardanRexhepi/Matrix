@@ -22,30 +22,34 @@ body `wallet` or `params.from` the middleware promoted. The capability-invoke
 tests below drive the whole gateway, middleware included, with no session and
 no header, and read the grantor the rights record names.
 
-A third pass, after b20c85a, found the same claim worded without the word
-"authenticated", which the earlier sweeps keyed on: "Derived, not asserted." in
-the middleware that does the body fallback (gateway/server.py); "identity is
-derived, never asserted" in the tool dispatcher's log line; "The HTTP and bridge
-entry points derive identity from the session" in tests/test_cd_sibling_axes_fixes.py;
-"On the gateway route that caller is authenticated" in
-tests/test_insurance_claim_preconditions.py; and test names and docstrings that
-say a body or an "unauthenticated" call "cannot assert an identity" when what
-they exercise is the dispatcher overwriting one key, `params["caller_identity"]`.
-Those are corrected and listed below. This is still a text check: it catches
-these phrases coming back, not a new wording of the same claim.
+A third pass, after the commit "Corrects 3cb28f7's message: the sweep did miss sites,
+including a sentence 3cb28f7 added, and a body-written wallet is recorded as the
+grantor on the capability route", found the same claim worded without the word
+"authenticated", which the earlier sweeps keyed on: "Derived, not asserted." in the
+middleware that does the body fallback (gateway/server.py); "identity is derived,
+never asserted" in the tool dispatcher's log line; "The HTTP and bridge entry points
+derive identity from the session" in tests/test_cd_sibling_axes_fixes.py; "On the
+gateway route that caller is authenticated" in
+tests/test_insurance_claim_preconditions.py; and test names and docstrings that say a
+body or an "unauthenticated" call "cannot assert an identity" when what they exercise
+is the dispatcher overwriting one key, `params["caller_identity"]`. Those are
+corrected and listed below. This is still a text check: it catches these phrases
+coming back, not a new wording of the same claim.
 
-A fourth pass, after 9bdf757, followed the same `caller_identity` down the
-tool path. runtime/react_loop.py threads user_context["wallet_address"] to the
-tool dispatcher and called it "the trusted caller identity ... from the
-gateway-bound context"; runtime/tools/dispatcher.py said it injects "the
-TRUSTED value". On /chat that field is the request body's `wallet`, session or
-not (gateway/server.py handle_chat); the session's identity is not consulted.
-The chat-path tests below drive the real /chat with an Apple session and a
-body wallet, then hand that value to the real dispatcher through the
-platform_action tool and read the grantor. Two sites in files the earlier
-passes edited also still carried the claim: a test name in
-tests/test_insurance_claim_route.py and "whoever was authenticated" in
-tests/test_sponsorship_policy_is_enforced.py.
+A fourth pass, after the commit «Corrects b20c85a's message: its own sweep
+surfaced four more sites of the claim and its "left as they are" list omitted
+them; five others were worded past its terms», followed the same
+`caller_identity` down the tool path. runtime/react_loop.py threads
+user_context["wallet_address"] to the tool dispatcher and called it "the
+trusted caller identity ... from the gateway-bound context";
+runtime/tools/dispatcher.py said it injects "the TRUSTED value". On /chat that
+field is the request body's `wallet`, session or not (gateway/server.py
+handle_chat); the session's identity is not consulted. The chat-path tests
+below drive the real /chat with an Apple session and a body wallet, then hand
+that value to the real dispatcher through the platform_action tool and read the
+grantor. Two sites in files the earlier passes edited also still carried the
+claim: a test name in tests/test_insurance_claim_route.py and "whoever was
+authenticated" in tests/test_sponsorship_policy_is_enforced.py.
 
 A fifth pass asked why four passes kept finding copies, and the answer was this
 file: the check below is PER FILE, so it asks each file only about the phrases
@@ -492,6 +496,16 @@ TRUE_IN_CONTEXT = {
     "tests/test_feed_value_cannot_poison_the_public_feed.py": [
         ("an unauthenticated caller could render /social/feed permanently invalid",
          "names the absence of a credential, asserts nothing about a bound value"),
+    ],
+    # The same sentence, as the subject of the commit a measurement in each of these
+    # was taken at, quoted to name that commit.
+    "tests/test_carbon_credit_registry.py": [
+        ("an unauthenticated caller could render /social/feed permanently invalid",
+         "a commit's subject, quoted to name it; names the absence of a credential"),
+    ],
+    "tests/test_release_pct_conservation.py": [
+        ("an unauthenticated caller could render /social/feed permanently invalid",
+         "a commit's subject, quoted to name it; names the absence of a credential"),
     ],
     "tests/test_staking_arming_condition.py": [
         ('if `staker` is now " "bound to an authenticated caller, clause 2 is '

@@ -1,7 +1,9 @@
 """What the platform tells people about gas follows what the sponsorship policy
 actually does.
 
-Since D-045 (f797b1d) the platform signer is metered: a per-identity rolling
+Since the commit "D-045: enforce the sponsorship cap the repo already
+documents, and close the deploy offer the 501 never reached" the platform
+signer is metered: a per-identity rolling
 24-hour USD cap, an action allowlist, a refusal when the cap would be crossed,
 and nothing at all when no paymaster is configured. The copy never moved. The
 Trinity system prompt, the capability map, docs/blockchain.md ("No exceptions.

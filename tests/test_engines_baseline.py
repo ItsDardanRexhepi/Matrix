@@ -33,13 +33,23 @@ B4, B9 and B10 are measured only then, because they take a stopwatch, a
 subprocess suite collection and a gateway boot.
 
 WHAT EACH FILE DESCRIBES, AND WHERE IT WAS MEASURED. Every file was measured on
-this branch, not at c637715, and says which of its figures describe c637715:
+this branch, not at the commit "Merge audit-remediation-2026-07: no personal
+address, local path or private detail in the shipped files, and the compose
+stack passes the secrets the documents name", and says which of its figures
+describe the commit "Merge audit-remediation-2026-07: no personal address,
+local path or private detail in the shipped files, and the compose stack passes
+the secrets the documents name":
 
   * ``describes`` — B1, B2 and B3 measure paths this branch leaves as they
-    were at c637715 while the evidence mode is off, and the suite recomputes
-    them at every commit, so they describe c637715 and every commit since.
-    B4's and B10's ``shadow`` cells and B9's ``collected`` need code that
-    exists only on this branch, and each file names those figures.
+    were at the commit "Merge audit-remediation-2026-07: no personal address,
+    local path or private detail in the shipped files, and the compose stack
+    passes the secrets the documents name" while the evidence mode is off, and
+    the suite recomputes them at every commit, so they describe the commit
+    "Merge audit-remediation-2026-07: no personal address, local path or
+    private detail in the shipped files, and the compose stack passes the
+    secrets the documents name" and every commit since. B4's and B10's
+    ``shadow`` cells and B9's ``collected`` need code that exists only on this
+    branch, and each file names those figures.
   * ``measured`` (B4, B9, B10: written only on request) — the commit the
     working tree sat on when the stopwatch ran and whether it carried
     uncommitted changes (the change that commits the file is one). The commit
@@ -99,7 +109,10 @@ UNCHANGED_SINCE_BASE = (f"behaviour at {BASE_COMMIT}: these paths run with the e
                         "file at every commit and fails if it differs")
 
 #: B9's figure at the base: `pytest tests/ --collect-only -q -p no:cacheprovider`
-#: in a scratch export of c637715 (no contract submodules), Python 3.11.
+#: in a scratch export of the commit "Merge audit-remediation-2026-07: no
+#: personal address, local path or private detail in the shipped files, and the
+#: compose stack passes the secrets the documents name" (no contract submodules),
+#: Python 3.11.
 COLLECTED_AT_BASE = 4468
 
 

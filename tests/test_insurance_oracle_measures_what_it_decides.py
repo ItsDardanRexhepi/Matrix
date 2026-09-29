@@ -38,12 +38,14 @@ PRECONDITIONS DIFFER, which is the part worth stating precisely:
                                          threshold, which the API lets them do
                                          (§U composing with 18-D).
 
-Both measured at 462d317. At the SHIPPED thresholds an empty payload happens
-to deny in all five — luck, not a control, and the ground it reports is false
-either way. The approval direction is reached by
-`_build_trigger_conditions` reading every threshold from caller-supplied
-`coverage`: delay_minutes=0 against a fabricated 0, magnitude_threshold=0
-against a fabricated 0, rainfall_threshold_mm=1000 against a fabricated 999.
+Both measured at the commit "C3/17-C/17-E: the requester's own numbers, the
+disclosure that vouched for them, and a status that claimed a grant nobody
+made". At the SHIPPED thresholds an empty payload happens to deny in all five —
+luck, not a control, and the ground it reports is false either way. The
+approval direction is reached by `_build_trigger_conditions` reading every
+threshold from caller-supplied `coverage`: delay_minutes=0 against a fabricated
+0, magnitude_threshold=0 against a fabricated 0, rainfall_threshold_mm=1000
+against a fabricated 999.
 
 The two that resist do so by accident of shape, not by control: `hack` needs a
 conjunction whose other term defaults False, and `weather` already refused an
@@ -238,11 +240,13 @@ async def test_a_claimant_cannot_pick_a_threshold_its_own_default_satisfies(
         magnitude_threshold=0    -> fabricated 0   >= 0     -> APPROVED
         rainfall_threshold_mm=1000 -> fabricated 999 < 1000 -> APPROVED
 
-    Measured at 462d317: 3 of 5 trigger types approve a full payout on a
-    `data: {}` body. The remaining two deny for reasons that are accidents of
-    shape, not controls — `hack` needs a conjunction whose other term defaults
-    False, and `weather` already refused an absent reading (`if value is None`)
-    and was merely reading the wrong key.
+    Measured at the commit "C3/17-C/17-E: the requester's own numbers, the
+    disclosure that vouched for them, and a status that claimed a grant nobody
+    made": 3 of 5 trigger types approve a full payout on a `data: {}` body. The
+    remaining two deny for reasons that are accidents of shape, not controls —
+    `hack` needs a conjunction whose other term defaults False, and `weather`
+    already refused an absent reading (`if value is None`) and was merely
+    reading the wrong key.
 
     THE PRECONDITIONS OF THE TWO DIRECTIONS DIFFER, which is worth stating
     precisely: the denial half needs nothing at all — it is the shipped default

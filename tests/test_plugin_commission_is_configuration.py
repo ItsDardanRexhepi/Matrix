@@ -2,7 +2,8 @@
 can complete does not come back with invented proceeds.
 
 runtime/marketplace/plugin_store.py carried `PLATFORM_COMMISSION = 0.10` — the
-same class 875e8ec removed from subscription tiers: a commercial number
+same class the commit "fix: remove subscription pricing from public repo"
+removed from subscription tiers: a commercial number
 hardcoded in the public repository — and the package docstring beside it said
 "The platform takes a 30% commission on paid plugins". The constant was
 consumed in exactly one place, the paid branch of `purchase()`, which answered

@@ -272,7 +272,8 @@ async def test_re_registering_a_device_without_a_session_does_not_forget_whose_i
 
 
 async def test_deletion_removes_a_device_filed_under_the_accounts_conversation_before_tokens_had_owners():
-    """A token stored before 485bdcd has no owner; it is still filed under a
+    """A token stored before the commit "Account deletion removes the account's push
+    tokens, as the docs already said it did" has no owner; it is still filed under a
     conversation, and a conversation the account owns is the account's."""
     from runtime.notifications.token_store import PushTokenStore
 
