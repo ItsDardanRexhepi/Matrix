@@ -1,7 +1,8 @@
 """`ConversionWizard.convert()` — the method a deletion killed in silence.
 
-WHY THIS FILE EXISTS. Commit 3e931d4 removed `migrate_members`. The deletion
-hunk ended on the `@staticmethod` decorator belonging to the NEXT method,
+WHY THIS FILE EXISTS. The commit "Domain 11 Cluster B: four unbacked authority
+claims, five doors, one store fix" removed `migrate_members`. The deletion hunk
+ended on the `@staticmethod` decorator belonging to the NEXT method,
 `_calculate_voting_power`, and took it along. `convert()` calls it as
 `self._calculate_voting_power(shares, total, governance_type)` — three arguments
 plus the implicit `self` — so an undecorated three-parameter function received

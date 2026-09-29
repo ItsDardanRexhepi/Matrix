@@ -1,8 +1,9 @@
 """NEW-89 — Tier 1 + Tier 2 of the broken-binding class, by disposition.
 
 THE RE-SCOPE. 49 of 105 handler->method bindings could not execute. The 11
-SERVICE-MISSING routes went at 944c7c7. The remaining 38 were split by WHO IS
-AFFECTED rather than by defect class:
+SERVICE-MISSING routes went at the commit "fix(D8): delete the 11
+SERVICE-MISSING routes; ship the binder as a permanent gate". The remaining 38
+were split by WHO IS AFFECTED rather than by defect class:
 
   Tier 1 (17)  no client impact — the iOS app never calls them. Ship.
   Tier 2 (3)   the advertised contract invites a caller-names-the-outcome

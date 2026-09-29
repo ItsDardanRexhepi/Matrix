@@ -7,7 +7,9 @@ serving one:
 
   NEW-81  /api/v1/insurance/claim/settle is GONE. Pre-fix it was registered in
           both tables and dispatched to `insurance.settle_claim` — a method
-          that has never existed in this codebase. Verified at HEAD ae9ff80:
+          that has never existed in this codebase. Verified at the commit
+          "security(NEW-76): disable the unauthenticated insurance payout
+          primitive":
 
               POST {"claim_id": "c1", "settlement_amount": 999999}
               -> 404 {"error": "Method 'settle_claim' not found on 'insurance'"}

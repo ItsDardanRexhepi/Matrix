@@ -52,6 +52,30 @@ def gateway_config_no_auth(gateway_config):
     return cfg
 
 
+class _EmptyDatabase:
+    """Stands in for runtime.db.database.Database with nothing in it: every
+    read finds nothing, every write succeeds.
+
+    The gateway hands this handle to the security gate it builds at startup.
+    A bare MagicMock cannot be awaited, so a backend that loads its saved
+    state from the handle failed to start, and a gate that did not start is
+    not handed to anybody (gateway/server.py _start_security_gate). An empty
+    database is what these tests mean: nothing saved yet.
+    """
+
+    async def execute(self, *args, **kwargs):
+        return None
+
+    async def executemany(self, *args, **kwargs):
+        return None
+
+    async def fetchone(self, *args, **kwargs):
+        return None
+
+    async def fetchall(self, *args, **kwargs):
+        return []
+
+
 def _build_mock_server(config):
     """Create a GatewayServer with mocked model calls."""
     with patch("gateway.server.GatewayServer.__init__", lambda self, cfg: None):
@@ -133,6 +157,7 @@ def _build_mock_server(config):
     mock_loop.memory = MagicMock()
     mock_loop.memory.initialize = AsyncMock()
     mock_loop.memory.close = AsyncMock()
+    mock_loop.memory.db = _EmptyDatabase()
     mock_loop.memory.read = MagicMock(return_value={"kv": {}, "turns": []})
     mock_loop.memory.write = AsyncMock()
     mock_loop.memory.load_conversation = MagicMock(return_value=[])

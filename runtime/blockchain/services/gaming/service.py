@@ -17,6 +17,7 @@ from runtime.blockchain.services.gaming.vetting import VettingPipeline
 from runtime.blockchain.services.gaming.milestone_funding import MilestoneFunding
 from runtime.blockchain.services.gaming.revenue_share import RevenueShare
 from runtime.blockchain.services.gaming.game_sdk import GameSDK
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class GamingService:
         asset = self._assets.get(asset_id)
         if not asset:
             raise ValueError(f"Asset {asset_id} not found")
-        if asset["owner"] != from_player:
+        if not same_caller(asset["owner"], from_player):
             raise ValueError(
                 f"Asset {asset_id} is not owned by {from_player}"
             )

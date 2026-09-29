@@ -13,6 +13,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,7 +91,7 @@ class XMTPMessaging:
             raise ValueError("recipient is required")
         if not content:
             raise ValueError("content is required")
-        if sender == recipient:
+        if same_caller(sender, recipient):
             raise ValueError("Cannot send a message to yourself")
 
         conversation = self._get_or_create_conversation(sender, recipient)
