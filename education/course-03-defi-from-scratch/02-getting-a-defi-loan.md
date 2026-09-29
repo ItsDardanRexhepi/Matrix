@@ -22,7 +22,7 @@ a safety margin against price drops.
 Would you like to proceed with 0.4 ETH as collateral to borrow 500 USDC?
 ```
 
-Trinity calculates the requirements, checks current prices, and recommends a safe deposit amount. If Morpheus has a note for the loan -- he speaks the first time you use a kind of capability and before an action that cannot be undone -- it arrives with the result. He informs; he does not hold the action for a confirmation.
+Trinity calculates the requirements, checks current prices, and recommends a safe deposit amount. If Morpheus has a note for the loan -- he speaks the first time you use a kind of capability and on an action that cannot be undone -- it arrives with the result, after the call has run. He informs; he does not hold the action for a confirmation.
 
 ## Step 2: Understanding Collateral Ratios
 

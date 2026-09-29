@@ -26,7 +26,7 @@ Trinity is who you talk to. She translates your natural language requests into s
 
 ### Morpheus -- The Guardian
 
-Morpheus appears at pivotal moments: the first time you use a kind of capability, before an action that cannot be undone (a token transfer, an ownership change), when something significant happens, and when you ask him to explain something. He states what is about to happen, that it is permanent, and what it means. He informs; he does not block. Whether an action runs is decided by the platform's own gates (the Unified Rexhepi Framework on every tool call, and the closed-source security layer where a deployment installs it), not by a confirmation through Morpheus.
+Morpheus appears at pivotal moments: the first time you use a kind of capability, on an action that cannot be undone (a token transfer, an ownership change), when something significant happens, and when you ask him to explain something. His note is added to the result of the call it concerns, so you read it with that result, after the call has run: he states what the action does, that it is permanent, and what it means. He informs; he does not block. Whether an action runs is decided by the platform's own gates (the Unified Rexhepi Framework on every tool call, and the closed-source security layer where a deployment installs it), not by a confirmation through Morpheus.
 
 ## Architecture Overview
 

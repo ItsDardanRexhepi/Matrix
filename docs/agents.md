@@ -25,14 +25,14 @@ Then she waits. No buttons. No prompts. No follow-up.
 
 Morpheus appears only at pivotal moments. Never in casual daily conversation.
 
-- **Role**: Guidance — explains what the user is about to do before they do it
+- **Role**: Guidance — explains what an action does and what it means; his note is added to the action's result, so the user reads it after the action has run
 - **Voice**: Never casual. Complete, considered sentences. Carries weight without dramatizing.
 - **Scope**: First-time capability use, irreversible actions, significant events, on-demand knowledge
 
 ### Trigger Conditions
 
 1. **First significant capability use** — First smart contract, first DeFi loan, first NFT, first DAO. Once per category.
-2. **Before every irreversible action** — Any action that cannot be undone. Morpheus states what is about to happen and that it is permanent.
+2. **On an irreversible action** — Any action that cannot be undone. Morpheus states what the action does and that it is permanent.
 3. **When something significant happens** — First lifetime reward, first royalty payment, first identity verification.
 4. **On demand** — Users can ask Morpheus to explain anything about their contracts, rights, or on-chain record.
 

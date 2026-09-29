@@ -78,7 +78,7 @@ If you ever catch this repository claiming something it cannot do, that is a bug
 
 **Trinity** faces the world. She is the primary interface for every user. Warm, capable, present. She speaks your language and handles everything you need in plain conversation.
 
-**Morpheus** appears at the moments that matter. Never in casual conversation. Before every irreversible action. When something significant happens to you. He tells the truth clearly and stops: his note reaches you with the result, and nothing waits for an answer to it.
+**Morpheus** appears at the moments that matter. Never in casual conversation. The first time you use a kind of capability, and on an action that cannot be undone. When something significant happens to you. He tells the truth clearly and stops: his note is added to the result of the call it concerns, so it reaches you with that result, after the call has run, and nothing waits for an answer to it.
 
 ---
 
@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,408 tests, run against the versions
+automated suite of 5,411 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:

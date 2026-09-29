@@ -399,6 +399,13 @@ class MorpheusTriggerSystem:
         return False
 
     # ── Message generators ────────────────────────────────────────────
+    #
+    # A message is added to the result of the call it concerns
+    # (runtime/react_loop.py prepends it after the dispatch), so the user reads
+    # it with that result, after the call has run, and nothing waits for an
+    # answer to it. The messages are written for that moment: they say what
+    # the action is and what it means, not what is about to happen or what to
+    # check before going ahead.
 
     @staticmethod
     def _gen_first_capability(details: dict[str, Any]) -> str:
@@ -408,110 +415,110 @@ class MorpheusTriggerSystem:
 
         category_intros: dict[str, str] = {
             "smart_contract": (
-                "You are about to interact with a smart contract for the first time. "
+                "This is your first interaction with a smart contract. "
                 "Smart contracts are self-executing programs on the blockchain. Once deployed "
                 "or called, their effects are permanent and governed by code, not people."
             ),
             "defi": (
-                "You are entering the world of decentralised finance. "
+                "This is your first use of decentralised finance. "
                 "DeFi protocols operate without intermediaries — your assets are managed by "
                 "smart contracts. Understand the risks: impermanent loss, liquidation, and "
                 "smart contract vulnerabilities are real."
             ),
             "nft": (
-                "You are about to interact with non-fungible tokens. "
+                "This is your first use of non-fungible tokens. "
                 "NFTs represent unique digital ownership. Once minted or transferred, "
                 "the action is recorded permanently on-chain."
             ),
             "dao": (
-                "You are about to participate in a decentralised autonomous organisation. "
+                "This is your first time taking part in a decentralised autonomous organisation. "
                 "DAOs are collectively governed entities. Your votes and proposals carry real weight."
             ),
             "staking": (
-                "You are about to stake tokens. Staking locks your tokens to support "
+                "This is your first staking action. Staking locks your tokens to support "
                 "network security in exchange for rewards. Unstaking typically involves a "
                 "cooldown period during which your tokens cannot be moved."
             ),
             "insurance": (
-                "You are about to use on-chain insurance. These protocols provide coverage "
+                "This is your first use of on-chain insurance. These protocols provide coverage "
                 "against specific events like smart contract failures or price crashes."
             ),
             "securities": (
-                "You are about to interact with tokenised securities. These carry legal "
-                "and regulatory implications. Ensure you understand the compliance requirements."
+                "This is your first interaction with tokenised securities. These carry legal "
+                "and regulatory implications, and compliance requirements of their own."
             ),
             "identity": (
-                "You are about to create or manage an on-chain identity. "
+                "This is your first time creating or managing an on-chain identity. "
                 "This identity may be linked to your real-world credentials and is difficult to undo."
             ),
             "governance": (
-                "You are about to participate in on-chain governance. "
+                "This is your first time taking part in on-chain governance. "
                 "Your vote is immutable once cast and directly influences protocol direction."
             ),
             "marketplace": (
-                "You are about to use a decentralised marketplace. "
+                "This is your first use of a decentralised marketplace. "
                 "Listings, purchases, and sales are executed via smart contracts."
             ),
             "privacy": (
-                "You are about to use privacy-preserving technology. "
+                "This is your first use of privacy-preserving technology. "
                 "Private transfers and zero-knowledge proofs shield your transaction details from public view. "
                 "Once sent, private transactions are final and cannot be traced or reversed."
             ),
             "prediction_market": (
-                "You are about to enter a prediction market. "
-                "You will stake real value on the outcome of future events. "
+                "This is your first prediction market. "
+                "A position stakes real value on the outcome of future events. "
                 "Positions are locked until the market resolves, and losses are permanent."
             ),
             "rwa": (
-                "You are about to interact with real-world assets on-chain. "
+                "This is your first interaction with real-world assets on-chain. "
                 "Tokenized real estate, commodities, and other physical assets carry legal and regulatory obligations. "
-                "Verify the asset's legitimacy and your jurisdiction's compliance requirements before proceeding."
+                "The asset's legitimacy and your jurisdiction's compliance requirements are yours to verify."
             ),
             "bridge": (
-                "You are about to bridge assets across blockchains. "
+                "This is your first cross-chain bridge. "
                 "Cross-chain transfers involve locking tokens on one chain and minting on another. "
-                "Bridge exploits are among the most costly in crypto — verify the bridge, the destination chain, and the amount carefully."
+                "Bridge exploits are among the most costly in crypto — the bridge, the destination chain and the amount are in the result."
             ),
             "streaming_payment": (
-                "You are about to create a streaming payment. "
+                "This is your first streaming payment. "
                 "Streaming payments continuously transfer tokens over time and remain active until explicitly cancelled. "
-                "Ensure you have sufficient balance for the full stream duration."
+                "The stream needs a balance that covers its full duration."
             ),
             "social": (
-                "You are about to use on-chain social features. "
+                "This is your first use of on-chain social features. "
                 "Posts, follows, and interactions are recorded permanently on the blockchain. "
                 "Unlike traditional social media, on-chain content cannot be deleted."
             ),
             "gaming": (
-                "You are about to interact with blockchain gaming. "
-                "Game assets, tournament entries, and achievements are tokenized on-chain. "
-                "Understand the entry costs and reward structures before committing."
+                "This is your first interaction with blockchain gaming. "
+                "Game assets, tournament entries, and achievements are tokenized on-chain, "
+                "each with its own entry costs and reward structure."
             ),
             "energy": (
-                "You are about to interact with on-chain energy and carbon markets. "
+                "This is your first interaction with on-chain energy and carbon markets. "
                 "Carbon credits and renewable energy certificates represent real-world environmental impact. "
                 "Retired credits are permanently consumed and cannot be resold."
             ),
             "compute": (
-                "You are about to use decentralized compute and storage services. "
+                "This is your first use of decentralized compute and storage services. "
                 "Data stored on IPFS or Arweave may be permanent and publicly accessible. "
-                "Compute jobs are billed on execution — verify the cost and parameters before submitting."
+                "Compute jobs are billed on execution."
             ),
             "ai_agent": (
-                "You are about to interact with on-chain AI services. "
-                "AI model trading, inference verification, and agent registration involve binding commitments. "
-                "Verify model provenance and licensing terms before transacting."
+                "This is your first interaction with on-chain AI services. "
+                "AI model trading, inference verification, and agent registration involve binding commitments, "
+                "under the model's provenance and licensing terms."
             ),
             "legal": (
-                "You are about to execute a legal action on-chain. "
+                "This is your first legal action on-chain. "
                 "IP licenses, agreements, and dispute filings carry real legal weight and may be enforceable in court. "
-                "Review all terms carefully — executed agreements are immutable."
+                "An executed agreement is immutable."
             ),
         }
 
         intro = category_intros.get(
             category,
-            f"You are about to use a new capability: {category}. Take a moment to understand what this involves.",
+            f"This is your first use of a new capability: {category}. Take a moment to understand what it involves.",
         )
         return f"[Morpheus] {intro}"
 
@@ -523,19 +530,19 @@ class MorpheusTriggerSystem:
         irreversible_notes: dict[str, str] = {
             # NEW-12: removed — warned about the consequences of a deployment
             # the platform cannot perform.
-            "burn_nft": "Burning this NFT will destroy it permanently. It cannot be recovered.",
-            "transfer_ownership": "Transferring ownership is permanent. You will lose control of this contract.",
-            "self_destruct": "Self-destructing this contract will remove its code from the blockchain permanently.",
-            "renounce_ownership": "Renouncing ownership means no one will ever be able to administer this contract again.",
+            "burn_nft": "Burning an NFT destroys it permanently. It cannot be recovered.",
+            "transfer_ownership": "Transferring ownership is permanent. Once it confirms, you no longer control the contract.",
+            "self_destruct": "Self-destructing a contract removes its code from the blockchain permanently.",
+            "renounce_ownership": "Renouncing ownership means no one can administer the contract again.",
             "burn_tokens": "Burning tokens permanently removes them from circulation. They cannot be recovered.",
-            "delete_account": "Deleting this account is permanent and all associated data will be lost.",
+            "delete_account": "Deleting an account is permanent, and its associated data is lost.",
         }
 
         note = irreversible_notes.get(
             action_type,
             f"The action '{action_type}' cannot be undone once executed.",
         )
-        return f"[Morpheus] This is an irreversible action. {note} Proceed only if you are certain."
+        return f"[Morpheus] This is an irreversible action. {note}"
 
     @staticmethod
     def _gen_significant(details: dict[str, Any]) -> str:
@@ -547,17 +554,17 @@ class MorpheusTriggerSystem:
         if tx_count is not None and tx_count == 0:
             return (
                 "[Morpheus] This is your first transaction. Welcome. "
-                "Take a moment to verify every detail — the address, the amount, the network. "
-                "Once confirmed, there is no undo."
+                "The address, the amount and the network are in the result that follows. "
+                "Once a transaction confirms, there is no undo."
             )
 
         if isinstance(value, (int, float)) and value > 0:
             return (
                 f"[Morpheus] This transaction involves ${value:,.2f}. "
-                f"This is a significant amount. Verify the recipient, network, and parameters carefully."
+                f"This is a significant amount. The recipient, network and parameters are in the result that follows."
             )
 
-        return "[Morpheus] This is a significant moment. Review all details before proceeding."
+        return "[Morpheus] This is a significant moment. The details are in the result that follows."
 
     @staticmethod
     def _gen_on_demand(details: dict[str, Any]) -> str:
@@ -568,4 +575,4 @@ class MorpheusTriggerSystem:
 
     @staticmethod
     def _gen_fallback(details: dict[str, Any]) -> str:
-        return "[Morpheus] Pause and consider before proceeding."
+        return "[Morpheus] Consider what this action does; its result follows."
