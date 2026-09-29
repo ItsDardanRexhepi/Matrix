@@ -185,6 +185,17 @@ _KYC_STATEMENT = (
     "The platform's key attests no KYC credential on a request: the "
     "verification it would attest arrives in the request, and the platform "
     "holds no provider result of its own to check it against. Nothing was signed.")
+# A recovery or a session key is a call on an account-abstraction module, and
+# the module decides by who calls it. Sent from the platform's wallet, the
+# platform's own standing with the module (as a guardian, if it lets the
+# platform be one) would authorize handing the account the request names to a
+# new owner or to a new key of the request's choosing, and nothing tied that
+# account to the caller. Both are refused in the service as well.
+_ACCOUNT_AUTHORITY_STATEMENT = (
+    "The platform's key recovers no account and registers no session key on a "
+    "request: the module call would be sent from the platform's wallet, so the "
+    "platform's standing with the module, not the account holder's, would hand "
+    "the account the request names to a new owner or a new key. Nothing was signed.")
 REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
     ("attestation", "attest"): _PLATFORM_KEY_STATEMENT,
     ("attestation", "batch_attest"): _PLATFORM_KEY_STATEMENT,
@@ -196,6 +207,8 @@ REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
     ("ccip", "bridge_hyperlane"): _COMPOSED_MESSAGE_STATEMENT,
     ("ccip", "bridge_wormhole"): _COMPOSED_MESSAGE_STATEMENT,
     ("ccip", "bridge_axelar"): _COMPOSED_MESSAGE_STATEMENT,
+    ("mpc", "recover_wallet"): _ACCOUNT_AUTHORITY_STATEMENT,
+    ("mpc", "create_session_key"): _ACCOUNT_AUTHORITY_STATEMENT,
 }
 
 

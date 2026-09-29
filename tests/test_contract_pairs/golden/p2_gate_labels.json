@@ -163,14 +163,16 @@
    "bridge_hyperlane": null,
    "bridge_wormhole": null,
    "create_attestation": null,
+   "create_session_key": null,
    "execute_as_tba": null,
    "issue_kyc_credential": null,
+   "recover_wallet": null,
    "revoke_attestation": null,
    "send_cross_chain_message": null,
    "submit_retropgf": null
   },
-  "label_is_the_catalog_action": 185,
-  "reaches_gate": 185
+  "label_is_the_catalog_action": 183,
+  "reaches_gate": 183
  },
  "funnel": {
   "agent_identity.register_agent": "register_agent",
@@ -273,14 +275,16 @@
     "bridge_hyperlane": null,
     "bridge_wormhole": null,
     "create_attestation": null,
+    "create_session_key": null,
     "execute_as_tba": null,
     "issue_kyc_credential": null,
+    "recover_wallet": null,
     "revoke_attestation": null,
     "send_cross_chain_message": null,
     "submit_retropgf": null
    },
-   "label_is_the_name": 243,
-   "reaches_gate": 243
+   "label_is_the_name": 241,
+   "reaches_gate": 241
   },
   "handoff": {
    "exceptions": {
@@ -289,14 +293,16 @@
     "bridge_hyperlane": null,
     "bridge_wormhole": null,
     "create_attestation": null,
+    "create_session_key": null,
     "execute_as_tba": null,
     "issue_kyc_credential": null,
+    "recover_wallet": null,
     "revoke_attestation": null,
     "send_cross_chain_message": null,
     "submit_retropgf": null
    },
-   "label_is_the_name": 243,
-   "reaches_gate": 243
+   "label_is_the_name": 241,
+   "reaches_gate": 241
   },
   "react": {
    "exceptions": {},

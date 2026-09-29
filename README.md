@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,370 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,373 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -332,8 +332,14 @@ check behind it:
   `bridge_hyperlane`, `bridge_wormhole`, `bridge_axelar`) are refused,
   because the receiving chain reads the platform's wallet as their
   sender, and a CCIP token bridge carries no message: it refuses a
-  request that brings one. `execute_as_tba` and the four sends are each
-  refused in the service and at every door, whoever asks. A configured
+  request that brings one. Nor does the platform's wallet hand an account
+  to a new owner or a new key: `recover_wallet` and `create_session_key`
+  sent their module call from the platform's wallet with the addresses the
+  request named, so the platform's standing with the module, not the
+  account holder's, authorized it. `execute_as_tba`, the four sends and
+  those two are each refused in the service and at every door, whoever
+  asks, and the component registry the app reads offers none of them, nor
+  any other action every door refuses. A configured
   sponsorship allowlist binds with or without a daily cap. A test walks
   every signing call in `runtime/` and `gateway/` and every bytes input
   each one carries. The limit, stated: `governance`'s timelock schedule
@@ -444,8 +450,8 @@ voting), social
 Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
 token bridges (CCIP, Stargate), staking & restaking
 (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK
-(including MPC signing, session keys and social recovery, all three
-catalogued as not yet available), oracles (Chainlink, Pyth,
+(MPC signing, catalogued as not yet available; session keys and
+social recovery, refused), oracles (Chainlink, Pyth,
 RedStone, API3, Keepers), storage (IPFS, Arweave, Filecoin, Ceramic,
 OrbitDB), compute & DePIN (Akash, Gensyn, Render), real-world assets,
 markets (prediction, auction), gaming, and infrastructure. The 21st

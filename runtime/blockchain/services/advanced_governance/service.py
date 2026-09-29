@@ -1,5 +1,6 @@
 """
-veToken locks, quadratic voting, RetroPGF, gauge bribes, voting delegation.
+veToken locks, quadratic voting, gauge bribes, voting delegation; RetroPGF
+submission refused.
 
 Real protocol wiring (CREDENTIAL-GATED until the operator configures keys):
 

@@ -130,8 +130,13 @@ def dispatcher_with_spies():
 #: a call or a message the request composed
 #: (tests/test_no_request_chooses_the_call_the_platform_key_signs.py). 21
 #: functions, 21 action names; the rest of the surface is unchanged.
-_BARE_BROADCAST_METHODS_MEASURED = 21
-_BARE_BROADCAST_ACTIONS_MEASURED = 21
+#: Re-derived again when two more stopped: `mpc.recover_wallet` and
+#: `mpc.create_session_key` now refuse before anything is built or signed,
+#: because the module call went out from the platform's wallet, whose standing
+#: with the module, not the account holder's, handed a request-named account to
+#: a new owner or key. 19 functions, 19 action names.
+_BARE_BROADCAST_METHODS_MEASURED = 19
+_BARE_BROADCAST_ACTIONS_MEASURED = 19
 
 
 def _bare_broadcast_methods() -> set[tuple[str, str]]:
@@ -540,8 +545,9 @@ _RECEIPT_WAITS = frozenset({
 #: Measured at the commit that wrote this line, by `_no_wait_broadcasters`
 #: itself: 26 functions in 10 service directories. Pinned exactly, so the
 #: surface cannot grow or shrink without someone re-reading it. Re-read at 20
-#: when the same six senders stopped sending (see _BARE_BROADCAST_METHODS_MEASURED).
-_NO_WAIT_BROADCASTERS_MEASURED = 20
+#: when the same six senders stopped sending, and at 18 when the two `mpc`
+#: module calls did (see _BARE_BROADCAST_METHODS_MEASURED).
+_NO_WAIT_BROADCASTERS_MEASURED = 18
 
 
 

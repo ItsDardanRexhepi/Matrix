@@ -27,9 +27,10 @@ consumer, and pins what each one hands over against a golden file:
 
   * for every name the dispatcher can run: the label the ReAct seam, the bridge
     and the hand-off send — today the name itself, at every site, except the
-    three attestation actions no request may dispatch
-    (runtime/access_policy.py REFUSED_ON_REQUEST), which the bridge, the
-    hand-off and the invoke route refuse before any gate and which run nothing;
+    names no request may dispatch (runtime/access_policy.py
+    REFUSED_ON_REQUEST: twelve, the three attestation actions among them),
+    which the bridge, the hand-off and the invoke route refuse before any gate
+    and which run nothing;
   * for every ``_call`` pair in the funnel: the label it sends — the method
     name, after five aliases;
   * for every capability in the catalog: the label the invoke route sends —

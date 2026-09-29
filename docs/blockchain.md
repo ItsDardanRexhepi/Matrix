@@ -16,13 +16,13 @@ The Matrix catalogues 195 discrete Web3 capabilities in 21 categories (`runtime/
 10. **Payments** — streaming, escrow, recurring, splits, invoicing, payroll, state channels, cross-border
 11. **Cross-chain** — CCIP and Stargate token bridges, remote chain queries. Message sends over CCIP, Hyperlane, Wormhole and Axelar are refused: the receiving chain reads the platform's wallet as the sender of words the request wrote
 12. **Staking & Restaking** — staking, unstaking, liquid staking (Lido, Rocket Pool), restaking (EigenLayer, Symbiotic, Karak), delegation
-13. **Privacy & ZK** — private transfers, stealth addresses, ZK proofs, MPC, threshold sigs, social recovery, session keys
+13. **Privacy & ZK** — private transfers, stealth addresses, ZK proofs, MPC, threshold sigs (social recovery and session keys are refused: the module call went out from the platform's wallet, so the platform's standing with the module, not the account holder's, handed the account the request named to a new owner or key)
 14. **Oracles** — Chainlink price feeds, VRF randomness, Pyth, RedStone, API3, Keepers automation
 15. **Storage** — IPFS, Arweave, Filecoin, Ceramic, OrbitDB
 16. **Compute & DePIN** — Akash, Gensyn, Render, IoT device rentals, physical infrastructure
 17. **Real-world Assets** — RWA tokenization, supply chain provenance, carbon credits, green bonds
 18. **Markets** — prediction markets, auctions (Dutch/English/sealed-bid), fundraising, securities, marketplaces
-19. **Security & Wallets** — catalogued with no capabilities in it yet. MPC signing, session keys and social recovery are under Privacy & ZK (all three not yet available), multisig under Governance, attestations under Identity (and one under Gaming)
+19. **Security & Wallets** — catalogued with no capabilities in it yet. MPC signing (not yet available), session keys and social recovery (both refused) are under Privacy & ZK, multisig under Governance, attestations under Identity (and one under Gaming)
 20. **Gaming** — games, assets, tournaments, achievements, in-game economies
 21. **Infrastructure** — AI agents, ML models, training data
 

@@ -49,6 +49,16 @@ and every door refuses all six and the KYC credential, whoever asks
 process, where nothing calls it. ``MeteredSigner`` checks a configured
 allowlist on every signature, cap or no cap.
 
+THE THIRD (the review of that repair). Two more services-layer calls a session
+reached had the platform's wallet act on an account the request named, with
+every argument the request's: ``mpc.recover_wallet`` signed
+``initiateRecovery(account, newOwner)`` and ``mpc.create_session_key``
+``registerSessionKey(account, sessionKey, validUntil)`` on the configured
+module. A module decides by who calls it, so the platform's standing with it,
+not the account holder's, authorized handing the account to a new owner or a
+new key. Both now refuse in the service before anything is built or signed,
+and every door refuses them, whoever asks.
+
 THE CLASS, AND THE CENSUS. A platform signature on a call or a message the
 request composed: the platform wallet becomes the sender of words somebody else
 wrote. The walk reads every module under ``runtime/`` and ``gateway/``, finds
@@ -102,12 +112,16 @@ named function's other arguments must be the caller's own is the seam's
 delivers to is not bound (CLOSEOUT §0 D), and the services layer's
 ``nft_lending`` borrow takes ``on_behalf_of`` from the request (§0 A10).
 
-CONTROL. Of the file's 63 tests, 29 are marked [control]. At fix/oldq-census
-420a88a all 29 fail; at d3dcf89 the 21 from the services section on fail (the
-first round's 8 — the tool's five, the allowlist's two and the census of outer
-functions — were fixed at 7abfa21); all 63 pass at the fix. The 34
-marked [guard] pass at all three. The planted shapes are guards of the census
-itself: on 15 of them the census as it stood at d3dcf89 reported nothing.
+CONTROL, measured by laying this file over each commit. Of its 65 tests, 31
+are marked [control]. At fix/oldq-census 420a88a all 31 fail; at d3dcf89 the 23
+from the services section on (the first round's 8 — the tool's five, the
+allowlist's two and the census of outer functions — were fixed at 7abfa21); at
+the dispatcher's refusal of ``send`` ("No door has the platform's key sign a
+contract call the request composed"), the 9 the recovery and the session key
+make fail: their own two, and the door and table controls that now name them.
+All 65 pass here. The 34 marked [guard] pass at all four. The planted shapes
+are guards of the census itself: on 15 of them the census as it stood at
+d3dcf89 reported nothing.
 """
 
 from __future__ import annotations
@@ -301,6 +315,14 @@ CCIP_CFG = {**CFG, "services": {"ccip": {
 RETROPGF = {"project_id": "p1", "recipient": B, "metadata_uri": "ipfs://x"}
 KYC_ASK = {"subject": B, "kyc_level": "enhanced",
            "verification_result": {"sanctions_screened": True, "review_answer": "GREEN"}}
+#: A module call sent from the platform's wallet that hands the account the
+#: request names to a new owner, or to a new key, of the request's choosing.
+ACCOUNT_AUTHORITY = {
+    "recover_wallet": {"account": B, "new_owner": ACCOUNT},
+    "create_session_key": {"account": B, "session_key": ACCOUNT, "valid_until": 2**40},
+}
+MPC_CFG = {**CFG, "services": {"mpc": {"recovery_module": "0x" + "71" * 20,
+                                       "session_key_module": "0x" + "72" * 20}}}
 
 
 class _Fn:
@@ -449,6 +471,18 @@ async def test_the_platform_attests_no_retropgf_application_the_request_wrote(ch
     assert out["status"] == "refused", out
 
 
+@pytest.mark.parametrize("method", sorted(ACCOUNT_AUTHORITY))
+async def test_the_platform_hands_no_account_the_request_names_to_a_new_owner_or_key(chain, method):
+    """[control] The review drove both over HTTP with a session token: the
+    platform signed initiateRecovery(victim, attacker) and
+    registerSessionKey(victim, attacker key, 2**40), from its own wallet, so
+    the module's authorization rested on the platform being its caller."""
+    from runtime.blockchain.services.mpc.service import MPCService
+    out = await getattr(MPCService(MPC_CFG), method)(**ACCOUNT_AUTHORITY[method])
+    assert chain.signed == [], f"{method}: the platform signed {chain.signed}"
+    assert out["status"] == "refused" and out["signed"] is False, out
+
+
 # ── the doors: the KYC credential, and every pair now refused ────────────
 
 @pytest.fixture
@@ -490,7 +524,7 @@ async def _with_session(server):
 
 #: Every action newly refused at the doors, with what a request would send.
 NEWLY_REFUSED = {"execute_as_tba": TBA_EXECUTE, "submit_retropgf": RETROPGF,
-                 "issue_kyc_credential": KYC_ASK, **MESSAGES}
+                 "issue_kyc_credential": KYC_ASK, **MESSAGES, **ACCOUNT_AUTHORITY}
 HEADERS = {"session": {"Authorization": "Bearer 0xTEST_SESSION"},
            "operator": {"Authorization": "Bearer k"}}
 
@@ -553,7 +587,7 @@ async def test_the_platforms_own_code_still_reaches_the_kyc_service(monkeypatch)
 def test_every_refused_pair_is_offered_nowhere():
     """[control] Each is refused by name at every door, catalogued as
     unavailable (still routed, so a caller hears the refusal, not a 404), and
-    the six refused in the service say why without signing."""
+    every refusal says nothing was signed."""
     from runtime.access_policy import REFUSED_ON_REQUEST, refused_on_request
     from runtime.capabilities import catalog
     for action in NEWLY_REFUSED:

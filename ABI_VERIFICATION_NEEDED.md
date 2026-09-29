@@ -29,11 +29,11 @@ Default network: **Base Sepolia (84532)**. Non-custodial invariant preserved
 - **Verify ABI:** generic `claimRewards(address)` on the DePIN reward contract — **UNVERIFIED**, the real selector is provider-specific.
 - **Verify API:** Akash `POST {endpoint}/v1/deployments`, `/v1/leases`, `/v1/rewards/claim`. **UNVERIFIED:** exact SDL/manifest body + paths are provider-specific (`https://api.akash.network`).
 
-### 3. mpc (recovery / session keys / threshold sign)
-- **Config:** `services.mpc.recovery_module`/`module_address`, `.session_key_module`, `.endpoint`, `.api_key`.
-- **Verify ABI:** `initiateRecovery(account,newOwner,...)`, `registerSessionKey(account,...)`. **UNVERIFIED:** signatures follow a *generic* social-recovery / session-key module — confirm against your deployed recovery module (e.g. the specific 4337/6900 module).
+### 3. mpc (threshold sign; recovery and session keys refused)
+- **Config:** `services.mpc.endpoint`, `.api_key`.
+- **Refused:** `recover_wallet` and `create_session_key`, in the service and at every door. Each sent its module call (`initiateRecovery`, `registerSessionKey`) from the platform's wallet with the request's addresses, so the platform's standing with the module, not the account holder's, authorized it. Recovery and a session key are the account's own operation, signed by its holder or its guardians; the paymaster may sponsor that operation's gas.
 - **Verify API:** MPC-node signing request shape (generic) — confirm against the real MPC node.
-- **Non-custodial note:** must operate via the user-authorized module; the server never holds user keys.
+- **Non-custodial note:** the server never holds user keys.
 
 ### 4. social_protocols (Lens / Farcaster / Push)
 - **Config:** `services.social_protocols.lens_hub_address`, `.farcaster_api_base`/`.farcaster_api_key`/`.farcaster_signer_uuid`, `.push_api_base`/`.push_channel`, `.token_factory_address`.

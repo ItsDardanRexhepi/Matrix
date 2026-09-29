@@ -252,8 +252,8 @@ The sections below organise every capability by its high-level category. Older c
 | Private Vote | Vote privately on a proposal | Pro | via capability registry | Semaphore |
 | Confidential Compute | Run a confidential compute job | Pro | via capability registry | TEE, MPC |
 | MPC Sign | Threshold-sign a transaction using an MPC quorum | Pro | via capability registry | MPC threshold sig |
-| Social Recovery | Recover a wallet through a social guardian set | Free | via capability registry | custom |
-| Session Key | Issue a scoped session key for dApp interactions | Free | via capability registry | ERC-4337 session keys |
+| ~~Social Recovery~~ **REFUSED** | Sent `initiateRecovery(account, newOwner)` from the platform's wallet with both addresses the request's, so the platform's standing with the recovery module, not the account holder's, authorized handing the account to a new owner. Refused in the service and at every door. | — | via capability registry → refused | custom |
+| ~~Session Key~~ **REFUSED** | Sent `registerSessionKey(account, key, validUntil)` from the platform's wallet with all three the request's, so the platform's standing with the module authorized a key of the request's choosing on an account of its choosing. Refused in the service and at every door. | — | via capability registry → refused | ERC-4337 session keys |
 
 ---
 
