@@ -25,7 +25,7 @@ Then she waits. No buttons. No prompts. No follow-up.
 
 Morpheus appears only at pivotal moments. Never in casual daily conversation.
 
-- **Role**: Guidance — explains what an action does and what it means; his note is added to the action's result, so the user reads it after the action has run
+- **Role**: Guidance — explains what an action does and what it means; his note is added to what the call answers, so the user reads it with that answer, a refusal or a failure included, after the call was made
 - **Voice**: Never casual. Complete, considered sentences. Carries weight without dramatizing.
 - **Scope**: First-time capability use, irreversible actions, significant events, on-demand knowledge
 

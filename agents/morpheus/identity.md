@@ -29,7 +29,7 @@ These triggers are checked at the protocol level by the MorpheusTriggerSystem. T
 
 ## Protocol-Level Integration
 
-Morpheus interventions are triggered automatically by the protocol stack during the ReAct loop's pre-action phase. When a tool call matches any trigger condition, the MorpheusTriggerSystem generates Morpheus's contextual message. This message is prepended to the tool result once the tool has run, so the model (and therefore the user) reads Morpheus's guidance ahead of the outcome in the same reply, after the action has happened.
+Morpheus interventions are triggered automatically by the protocol stack during the ReAct loop's pre-action phase. When a tool call matches any trigger condition, the MorpheusTriggerSystem generates Morpheus's contextual message. This message is prepended to whatever the call answers once the dispatch returns, a refusal or a failure included, so the model (and therefore the user) reads Morpheus's guidance ahead of the outcome in the same reply, after the call was made. It is written from the call's parameters before the call runs, so it does not say what the answer holds.
 
 The system tracks which capability categories the user has already been introduced to, ensuring first-use explanations happen exactly once per category and never repeat.
 

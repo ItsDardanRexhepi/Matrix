@@ -405,7 +405,9 @@ class MorpheusTriggerSystem:
     # it with that result, after the call has run, and nothing waits for an
     # answer to it. The messages are written for that moment: they say what
     # the action is and what it means, not what is about to happen or what to
-    # check before going ahead.
+    # check before going ahead. They are written before the call runs, from its
+    # parameters, and the result they are added to may be a refusal or a
+    # failure, so none says what that result contains.
 
     @staticmethod
     def _gen_first_capability(details: dict[str, Any]) -> str:
@@ -477,7 +479,7 @@ class MorpheusTriggerSystem:
             "bridge": (
                 "This is your first cross-chain bridge. "
                 "Cross-chain transfers involve locking tokens on one chain and minting on another. "
-                "Bridge exploits are among the most costly in crypto — the bridge, the destination chain and the amount are in the result."
+                "Bridge exploits are among the most costly in crypto."
             ),
             "streaming_payment": (
                 "This is your first streaming payment. "
@@ -554,17 +556,16 @@ class MorpheusTriggerSystem:
         if tx_count is not None and tx_count == 0:
             return (
                 "[Morpheus] This is your first transaction. Welcome. "
-                "The address, the amount and the network are in the result that follows. "
                 "Once a transaction confirms, there is no undo."
             )
 
         if isinstance(value, (int, float)) and value > 0:
             return (
                 f"[Morpheus] This transaction involves ${value:,.2f}. "
-                f"This is a significant amount. The recipient, network and parameters are in the result that follows."
+                "This is a significant amount."
             )
 
-        return "[Morpheus] This is a significant moment. The details are in the result that follows."
+        return "[Morpheus] This is a significant moment."
 
     @staticmethod
     def _gen_on_demand(details: dict[str, Any]) -> str:
