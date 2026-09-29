@@ -57,7 +57,15 @@ every argument the request's: ``mpc.recover_wallet`` signed
 module. A module decides by who calls it, so the platform's standing with it,
 not the account holder's, authorized handing the account to a new owner or a
 new key. Both now refuse in the service before anything is built or signed,
-and every door refuses them, whoever asks.
+and every door refuses them, whoever asks. The same review found the walk
+below silent where this docstring said it failed: on bytes reaching a signed
+call through a name bound by a loop, unpacking, ``with``, ``match`` or
+``except``, and through a function alias bound twice. And it found this
+docstring's account of the paymaster's signature untrue. The walk now reads
+every form that binds a name and fails on any bytes input it cannot read as a
+constant; the paymaster's signature is stated below as it is; and every
+address a request supplies to a call the services layer signs is listed, so a
+third account handed over would fail here until read.
 
 THE CLASS, AND THE CENSUS. A platform signature on a call or a message the
 request composed: the platform wallet becomes the sender of words somebody else
@@ -65,22 +73,37 @@ wrote. The walk reads every module under ``runtime/`` and ``gateway/``, finds
 every ``sign_transaction(`` and ``send_transaction(`` call, follows what is
 signed back to where it is built, and fails:
 
-  * on a transaction built from a function chosen at run time
-    (``functions[...]``, ``getattr``, ``get_function_by_*``);
-  * on a transaction written out by hand whose ``data`` is not a constant, one
-    unpacked from what the function was handed, one whose keys it cannot read,
-    and one whose data is replaced or updated after it is built (``[...] =``,
-    ``update``, ``setdefault``, ``|=``);
-  * on a call of a named function that carries bytes of any length — calldata,
-    a message, a payload; a ``bytes`` or ``bytes[]`` input of the function's
-    ABI, inside a tuple too — that the function was handed: a parameter, a local
-    name drawn from one, a ``self`` attribute some method of the class writes
-    from what it was handed, or a module name a function writes that way. A def
-    nested in another sees what the outer one was handed;
-  * wherever it cannot read what is signed, which function is called, or that
-    function's inputs; and on a signing method it does not read as a direct call
-    inside a function: taken as a value, called in a lambda, at module or class
-    level, or reached by its name through getattr.
+  * on a transaction built from a function it cannot read as one the source
+    names: chosen at run time (``functions[...]``, ``getattr``,
+    ``get_function_by_*``), or a local name any one of whose bindings is not a
+    named function;
+  * on a transaction written out by hand whose ``data`` is not a constant, whose
+    keys it cannot read, which is unpacked or updated from anything it cannot
+    read, or whose data is replaced after it is built (``[...] =``, ``update``,
+    ``setdefault``, ``|=``);
+  * on a named function whose inputs it cannot read: no ABI for it written out
+    under ``runtime/`` or ``gateway/``, a ``*`` or ``**`` argument, a keyword;
+  * on every ``bytes`` or ``bytes[]`` input of a named function's ABI (inside a
+    tuple too) that is not a constant, directly or through local names bound
+    only to constants. It says "bytes the function was handed" when the value
+    reads a parameter; a local name bound from one by any form Python binds a
+    name with (an assignment, unpacking, an augmented or annotated one, ``:=``,
+    a ``for`` or comprehension target, ``with ... as``, a ``match`` capture); a
+    ``self`` attribute some method writes from what it was handed; a module
+    name a function writes that way; a name bound by ``except``, ``import``,
+    ``global`` or ``nonlocal``; or an enclosing def's parameter. Otherwise it
+    says "bytes the census cannot read as a constant" (what a helper returns,
+    another object's state, bytes the platform composes). Either way the site
+    fails unless it is listed with its reason;
+  * wherever it cannot read what is signed; and on a signing method it does not
+    read as a direct call inside a function: taken as a value, called in a
+    lambda, at module or class level, or reached through ``getattr`` by its
+    name written as a string.
+
+Every other method that signs with a key (``sign_message``,
+``sign_typed_data``, ``unsafe_sign_hash``, ``transact`` and their kin) is found
+wherever the source names it, and each place is listed with what it signs:
+there is one, the paymaster's (below).
 
 Some sites are listed by name, each for a stated reason: the two signers that
 sign what their caller hands them (every caller is itself a site the walk
@@ -93,35 +116,54 @@ an Automation upkeep reads as its own; the twin attestation signer, which the
 twin census walks), what no request reaches (every door refuses its pair), and
 the stated limit below.
 
-WHAT THIS DOES NOT COVER, stated. A call the platform's key signs to a
-contract that then makes another call the request wrote: ``governance``
-schedule_operation and execute_operation (a timelock's target, value and data),
-``dao`` create_proposal and execute_proposal (a governor's targets and
-calldatas). The contract makes the inner call as itself, under a role the
-platform holds there, never as the platform's wallet; whether the platform
-holds such a role is a deployment fact this repository cannot see, and the two
-tools are Neo's, which a caller without the operator key never holds. Nor does
-it cover a message the platform signs rather than a transaction (the paymaster's
-sponsorship signature is over an operation the caller's own account executes).
-The walk reads one function at a time: what a helper method returns counts as
-the request's only when the call hands the helper something the request
-carried; a request carried in another object's state, or a signing method
-reached through a name computed at run time, it does not follow. Which of a
-named function's other arguments must be the caller's own is the seam's
-(``ACTION_BENEFICIARY_FIELDS``) and the gate's; an address a transfer
-delivers to is not bound (CLOSEOUT §0 D), and the services layer's
-``nft_lending`` borrow takes ``on_behalf_of`` from the request (§0 A10).
+WHAT THIS DOES NOT COVER, stated.
 
-CONTROL, measured by laying this file over each commit. Of its 65 tests, 31
-are marked [control]. At fix/oldq-census 420a88a all 31 fail; at d3dcf89 the 23
-from the services section on (the first round's 8 — the tool's five, the
-allowlist's two and the census of outer functions — were fixed at 7abfa21); at
-the dispatcher's refusal of ``send`` ("No door has the platform's key sign a
-contract call the request composed"), the 9 the recovery and the session key
-make fail: their own two, and the door and table controls that now name them.
-All 65 pass here. The 34 marked [guard] pass at all four. The planted shapes
-are guards of the census itself: on 15 of them the census as it stood at
-d3dcf89 reported nothing.
+  * A call the platform's key signs to a contract that then makes another call
+    the request wrote: ``governance`` schedule_operation and execute_operation
+    (a timelock's target, value and data), ``dao`` create_proposal and
+    execute_proposal (a governor's targets and calldatas). The contract makes
+    the inner call as itself, under a role the platform holds there, never as
+    the platform's wallet; whether the platform holds such a role is a
+    deployment fact this repository cannot see, and the two tools are Neo's,
+    which a caller without the operator key never holds
+    (test_the_inner_call_tools_are_the_operators).
+  * The paymaster's sponsorship signature (``gateway/paymaster.py``
+    ``sign_digest``, listed). It is a platform-key signature over a digest of a
+    user operation the request composes — its sender, its call data, its gas
+    fields — and it commits the paymaster's EntryPoint deposit to that
+    operation's gas. It makes the platform the sender of nothing: the operation
+    runs only if its sender account's own validation accepts it. The allowlist
+    is checked against the actions decoded from that call data; the sender
+    account, the target contract and a value recipient are not verified, and
+    without a session the daily cap is metered against an address the caller
+    writes (the module's own docstring says so).
+  * Which contract a named function is sent to. It can be one the request
+    names (an NFT's breed contract, a vault, a pool): the platform calls only
+    the function its code names, but that contract's own code then runs with
+    the platform's wallet as its caller and the platform paying its gas.
+  * Which of a named function's other arguments must be the caller's own. At
+    the blockchain tools that is the seam's (``ACTION_BENEFICIARY_FIELDS``) and
+    the gate's, and the address a payment, transfer or mint delivers to is not
+    bound. In the services layer nothing binds one: every address a request
+    supplies to a call it signs is listed at the end of this file with what it
+    is.
+  * A signing method reached through a name computed at run time, and code that
+    is not in the source the walk reads (a method replaced at run time).
+
+CONTROL. Of this file's 81 tests, 43 are marked [control] and 38 [guard]. The
+product's controls are measured by laying this file over each commit: at
+fix/oldq-census 420a88a 32 fail; at d3dcf89 the 24 from the services section
+on (the first round's 8 — the tool's five, the allowlist's two and the census
+of outer functions — were fixed at 7abfa21); at the dispatcher's refusal of
+``send`` ("No door has the platform's key sign a contract call the request
+composed") 10, the ones the recovery and the session key make fail: their own
+two, the door and table controls that now name them, and the address listing.
+The census's own controls, the eleven binding shapes, are measured against the
+census as it stood at the recovery and session-key refusal ("The platform's
+wallet recovers no account and registers no session key on a request ...")
+by running them with it: all eleven fail there. All 81 pass here, and the 38
+guards pass at every commit above. On 15 of the planted shapes the census as
+it stood at d3dcf89 reported nothing.
 """
 
 from __future__ import annotations
@@ -719,16 +761,63 @@ def _params(fn) -> set[str]:
     return names - {"self", "cls"}
 
 
+class _Opaque(ast.expr):
+    """What a name holds when the walk cannot see what bound it: an ``except``
+    clause's exception, an ``import`` inside the function, a nested def or
+    class, a name declared ``global`` or ``nonlocal``. Read as the request's
+    (``_draws``), never as a constant, and as no function the source names."""
+    _fields = ()
+
+
+def _stored(target) -> list[str]:
+    """The plain names an assignment target binds, unpacking and ``*`` included."""
+    return [t.id for t in ast.walk(target)
+            if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)]
+
+
 def _bindings(fn) -> dict[str, list[ast.AST]]:
+    """Every value each local name of *fn*'s own body is bound to, by every
+    form Python binds a name with: an assignment (unpacking included, the name
+    then reads the whole value), an annotated or augmented one, ``:=``, a
+    ``for`` or comprehension target (the iterable), ``with ... as`` (the
+    context expression), a ``match`` capture (the subject); and, as a value
+    the walk cannot see into, an ``except ... as``, an ``import``, a nested def
+    or class, a ``global`` or ``nonlocal`` declaration."""
     out: dict[str, list[ast.AST]] = {}
+
+    def bind(target, value):
+        for name in _stored(target):
+            out.setdefault(name, []).append(value)
+
     for n in _own_nodes(fn):
         if isinstance(n, ast.Assign):
             for t in n.targets:
-                if isinstance(t, ast.Name):
-                    out.setdefault(t.id, []).append(n.value)
-        elif (isinstance(n, (ast.AnnAssign, ast.NamedExpr)) and n.value is not None
-              and isinstance(n.target, ast.Name)):
-            out.setdefault(n.target.id, []).append(n.value)
+                bind(t, n.value)
+        elif isinstance(n, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+            if n.value is not None:
+                bind(n.target, n.value)
+        elif isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
+            bind(n.target, n.iter)
+        elif isinstance(n, (ast.With, ast.AsyncWith)):
+            for item in n.items:
+                if item.optional_vars is not None:
+                    bind(item.optional_vars, item.context_expr)
+        elif isinstance(n, ast.Match):
+            for case in n.cases:
+                for p in ast.walk(case.pattern):
+                    for name in (getattr(p, "name", None), getattr(p, "rest", None)):
+                        if isinstance(name, str):
+                            out.setdefault(name, []).append(n.subject)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            out.setdefault(n.name, []).append(_Opaque())
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                out.setdefault((a.asname or a.name).split(".")[0], []).append(_Opaque())
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n is not fn:
+            out.setdefault(n.name, []).append(_Opaque())
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            for name in n.names:
+                out.setdefault(name, []).append(_Opaque())
     return out
 
 
@@ -759,6 +848,8 @@ def _draws(expr, ctx: _Ctx, seen=frozenset()) -> bool:
     """Whether *expr* reads what the function was handed: a parameter, directly,
     through local names, or carried on ``self`` or a module name."""
     for n in ast.walk(expr):
+        if isinstance(n, _Opaque):
+            return True
         if isinstance(n, ast.Name):
             if n.id in ctx.params or n.id in ctx.module_tainted:
                 return True
@@ -874,13 +965,19 @@ def _named_calls(recv, bindings, seen=frozenset()):
         return
     if not isinstance(recv, ast.Call):
         return
-    f = recv.func
-    for _ in range(4):  # fn = c.functions.transfer; fn(...)
-        if isinstance(f, ast.Name) and f.id in bindings and len(bindings[f.id]) == 1:
-            f = bindings[f.id][0]
-    if (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Attribute)
-            and f.value.attr == "functions"):
-        yield f.attr, recv
+    for name in _function_names(recv.func, bindings):
+        yield name, recv
+
+
+def _function_names(f, bindings, seen=frozenset()):
+    """Each ``contract.functions.NAME`` *f* can be, following every binding of
+    a local name (``fn = c.functions.transfer`` in two branches is read twice)."""
+    if isinstance(f, ast.Name) and f.id in bindings and f.id not in seen:
+        for v in bindings[f.id]:
+            yield from _function_names(v, bindings, seen | {f.id})
+    elif (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Attribute)
+          and f.value.attr == "functions"):
+        yield f.attr
 
 
 def _deploys(recv, bindings, seen=frozenset()) -> bool:
@@ -1066,6 +1163,16 @@ def _bytes_in(inp: dict, expr, path: str, bindings):
         yield path, expr
 
 
+def _constant(expr, bindings, seen=frozenset()) -> bool:
+    """Whether *expr* is a constant, directly or through local names every one
+    of whose bindings is one."""
+    if isinstance(expr, ast.Constant):
+        return True
+    if isinstance(expr, ast.Name) and expr.id in bindings and expr.id not in seen:
+        return all(_constant(v, bindings, seen | {expr.id}) for v in bindings[expr.id])
+    return False
+
+
 def _carried(name, call, abis, ctx):
     """(path, expression or None) for the dynamic bytes a call of *name* carries;
     None when the census cannot read the function's inputs."""
@@ -1117,6 +1224,10 @@ def _census(source: str, filename: str):
                     elif _draws(expr, ctx):
                         yield Site(qual, n.lineno, "carries",
                                    f"the call carries bytes the function was handed ({path})", path)
+                    elif not _constant(expr, ctx.bindings):
+                        yield Site(qual, n.lineno, "carries",
+                                   f"the call carries bytes the census cannot read as a "
+                                   f"constant ({path})", path)
     for n in ast.walk(tree):
         if isinstance(n, ast.Attribute) and n.attr in SIGNING_CALLS and id(n) not in read:
             yield Site("(not read)", n.lineno, "unread",
@@ -1377,8 +1488,8 @@ def test_the_census_sees_a_planted_shape(shape):
 
 def test_the_census_passes_the_shape_every_signer_uses():
     """[guard] A named function whose arguments come from the request is not
-    this class; which argument must be the caller's is the seam's. Neither are
-    bytes the platform composes, nor a constant."""
+    this class; which argument must be the caller's is the seam's. Nor is a
+    bytes input that is a constant, directly or through a local name."""
     clean = (
         _EXECUTE_ABI +
         "async def go(self, params):\n"
@@ -1388,8 +1499,297 @@ def test_the_census_passes_the_shape_every_signer_uses():
         "    signed = account.sign_transaction(tx)\n"
         "    await self._web3.send_transaction({'to': params['to'], 'value': 1, 'gas': 21000})\n"
         "    await self._web3.send_transaction({'to': params['to'], 'data': b''})\n"
+        "    empty = b''\n"
+        "    tx = router.functions.send((b'', empty)).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n"
+    )
+    assert [s.problem for s in _census(clean, "<clean>") if s.problem] == []
+
+
+def test_bytes_the_platform_composes_are_listed_or_reported():
+    """[guard] Fail closed: a bytes input the census cannot read as a constant
+    is reported even when nothing the function was handed reaches it, because
+    a walk that could not see the request in it cannot say it is not there.
+    No such input exists in the tree today; one would be listed with its
+    reason."""
+    composed = (
+        _EXECUTE_ABI +
+        "async def go(self, params):\n"
         "    payload = encode(['address'], [PLATFORM])\n"
         "    tx = router.functions.send((b'', payload)).build_transaction({})\n"
         "    await self._web3.send_transaction(tx)\n"
     )
-    assert [s.problem for s in _census(clean, "<clean>") if s.problem] == []
+    problems = [s.problem for s in _census(composed, "<composed>") if s.problem]
+    assert any("cannot read as a constant (message.data)" in p for p in problems), problems
+
+
+# ── the review's shapes past the bytes walk ─────────────────────────────
+#
+# At this branch's dispatcher-refusal commit each of these passed the census
+# with nothing reported, although its docstring said it failed on bytes drawn
+# from a parameter through a local name, and wherever it could not read a
+# function's inputs: the walk read a local name bound only by a plain
+# assignment, ``:=`` or an annotation, and followed a function alias only when
+# it had one binding. It now reads every form Python binds a name with, and a
+# bytes input it cannot read as a constant fails whatever its source.
+
+_BINDING_SHAPES = {
+    "a for-loop target": (
+        "    for d in [params['data']]:\n"
+        "        tx = tba.functions.execute(params['to'], 0, d, 1).build_transaction({})\n"
+        "        await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "tuple unpacking": (
+        "    to, d = params['to'], params['data']\n"
+        "    tx = tba.functions.execute(to, 0, d, 1).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "star unpacking": (
+        "    *_, d = params['to'], params['data']\n"
+        "    tx = tba.functions.execute(params['to'], 0, d, 1).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "a with-as target": (
+        "    with hold(params['data']) as d:\n"
+        "        tx = tba.functions.execute(params['to'], 0, d, 1).build_transaction({})\n"
+        "        await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "an except-as name": (
+        "    try:\n"
+        "        raise Carry(params['data'])\n"
+        "    except Carry as held:\n"
+        "        tx = tba.functions.execute(params['to'], 0, held.args[0], 1).build_transaction({})\n"
+        "        await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "a match capture": (
+        "    match params:\n"
+        "        case {'data': d}:\n"
+        "            tx = tba.functions.execute(params['to'], 0, d, 1).build_transaction({})\n"
+        "            await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "an augmented assignment": (
+        "    d = b''\n"
+        "    d += params['data']\n"
+        "    tx = tba.functions.execute(params['to'], 0, d, 1).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "a name declared global": (
+        "    global PENDING\n"
+        "    tx = tba.functions.execute(params['to'], 0, PENDING, 1).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "a function alias bound in two branches": (
+        "    if params.get('fast'):\n"
+        "        fn = tba.functions.execute\n"
+        "    else:\n"
+        "        fn = tba.functions.execute\n"
+        "    tx = fn(params['to'], 0, params['data'], 1).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "handed (data)"),
+    "what a helper returns": (
+        "    tx = tba.functions.execute(params['to'], 0, self._payload(), 1).build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "cannot read as a constant (data)"),
+    "another object's state": (
+        "    tx = tba.functions.execute(params['to'], 0, self._relay.pending, 1)"
+        ".build_transaction({})\n"
+        "    await self._web3.send_transaction(tx)\n", "cannot read as a constant (data)"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_BINDING_SHAPES))
+def test_the_census_reads_every_binding_of_a_bytes_input(shape):
+    """[control]"""
+    body, expected = _BINDING_SHAPES[shape]
+    source = _EXECUTE_ABI + "async def go(self, params):\n" + body
+    problems = [s.problem for s in _census(source, "<planted>") if s.problem]
+    assert any(expected in p for p in problems), (shape, problems)
+
+
+# ── every other signature, by where it is made ──────────────────────────
+
+#: Methods that sign with a key other than ``sign_transaction`` and
+#: ``send_transaction``: a message, typed data, a bare hash, an authorization,
+#: or a node-signed transaction.
+OTHER_SIGNING_METHODS = frozenset({
+    "sign_message", "sign_typed_data", "unsafe_sign_hash", "signHash", "sign_hash",
+    "sign_msg", "sign_msg_hash", "sign_msg_non_recoverable", "sign_authorization",
+    "transact",
+})
+#: Every place under runtime/ and gateway/ that calls one, with what it signs.
+OTHER_SIGNATURES = {
+    ("gateway/paymaster.py", "sign_digest"): (
+        "the paymaster's sponsorship signature: an EIP-191 signature, with the "
+        "configured paymaster signer key, over a digest of a user operation the "
+        "request composes (sender, call data, gas fields) and its validity window. "
+        "It commits the paymaster's EntryPoint deposit to that operation's gas and "
+        "makes the platform the sender of nothing; the operation runs only if its "
+        "sender account's own validation accepts it. Called from POST "
+        "/api/v1/paymaster/sign after the sponsorship policy"),
+}
+
+
+def _signatures_by_other_methods(source: str):
+    """(qualified name or '(module)', line) of each mention of an other signing
+    method: an attribute of that name, or its name as a string argument."""
+    tree = ast.parse(source)
+    where: dict[int, str] = {}
+    for qual, fn, _c, _o in _functions(tree):
+        for node in ast.walk(fn):
+            where.setdefault(id(node), qual)
+    for n in ast.walk(tree):
+        named = (isinstance(n, ast.Attribute) and n.attr in OTHER_SIGNING_METHODS) or (
+            isinstance(n, ast.Call) and any(isinstance(a, ast.Constant)
+                                            and a.value in OTHER_SIGNING_METHODS for a in n.args))
+        if named:
+            yield where.get(id(n), "(module)"), n.lineno
+
+
+def test_every_other_signature_is_listed():
+    """[guard] The census above reads the two transaction signers. Every other
+    signing method is listed where it is called, with what it signs."""
+    found = {(str(path.relative_to(ROOT)), qual)
+             for path in _tree_files()
+             for qual, _line in _signatures_by_other_methods(path.read_text(encoding="utf-8"))}
+    assert found == set(OTHER_SIGNATURES), found ^ set(OTHER_SIGNATURES)
+
+
+def test_an_other_signature_is_seen():
+    """[guard] Each spelling is found: a call, the method as a value, its name
+    handed to getattr."""
+    for source in ("def f(a, p):\n    return a.sign_typed_data(p)\n",
+                   "def f(a):\n    s = a.unsafe_sign_hash\n",
+                   "def f(a, p):\n    return getattr(a, 'sign_message')(p)\n",
+                   "def f(c, p):\n    return c.functions.x(p).transact({})\n"):
+        assert list(_signatures_by_other_methods(source)), source
+
+
+# ── every address a request hands a call the services layer signs ────────
+#
+# The census above is about bytes: a call or a message. The arguments a
+# request may supply are not that class, and at the blockchain tools the seam
+# binds the ones that must be the caller's own. In the services layer nothing
+# binds one, and the review drove two of them to an account takeover: the
+# platform's wallet sending a recovery module or a session-key module the
+# account and the new owner or key the request named (refused, above). So each
+# address a request supplies there is listed with what it is, and a new one
+# fails here until someone reads it: the platform's key handing over an
+# account the request names would be one.
+#
+# What this reads: the signed call's ABI inputs of type address (inside a
+# tuple and an array too) and a raw transaction's ``to``, where the method's
+# own parameters reach them, directly or through a local name bound by any
+# form. An address a service stores on ``self`` from one request and signs in
+# another is not followed here.
+
+ADDRESS = re.compile(r"^address(\[\d*\])*$")
+_SERVICES = "runtime/blockchain/services/"
+
+PAYEE = ("who receives, holds or is credited with what the platform's own call "
+         "pays, lends, stakes, delegates, mints or creates")
+ASSET = ("which token, NFT or contract the platform's own call spends, stakes, "
+         "lends against or binds, not who receives it")
+DOOR = "every door refuses the pair that reaches it (REFUSED_ON_REQUEST)"
+_SVC = "runtime/blockchain/services/{}/service.py".format
+
+#: (file, function, signed function, input path) -> what it is.
+SERVICE_ADDRESSES = {
+    (_SVC("advanced_governance"), "AdvancedGovernanceService.place_bribe", "depositBribe", "_token"): ASSET,
+    (_SVC("advanced_governance"), "AdvancedGovernanceService.delegate_voting", "setDelegate", "delegate"): PAYEE,
+    (_SVC("auctions"), "AuctionService.create_auction", "createAuction", "tokenContract"): ASSET,
+    (_SVC("auctions"), "AuctionService.create_auction", "createAuction", "currency"): ASSET,
+    (_SVC("ccip"), "CrossChainMessagingService.bridge_token_ccip", "ccipSend", "message.tokenAmounts"): ASSET,
+    (_SVC("compute"), "DecentralizedComputeService.claim_compute_reward", "claimRewards", "recipient"): PAYEE,
+    (_SVC("creator_platforms"), "CreatorPlatformsService.mint_sound", "mint", "to"): PAYEE,
+    (_SVC("nft_lending"), "NFTLendingService.borrow_against_nft", "borrow", "nftAsset"): ASSET,
+    (_SVC("nft_lending"), "NFTLendingService.borrow_against_nft", "borrow", "onBehalfOf"): PAYEE,
+    (_SVC("nft_lending"), "NFTLendingService.liquidate_nft_loan", "liquidate", "nftAsset"): ASSET,
+    (_SVC("oracles_plus"), "OraclesPlusService.register_keeper_job", "registerUpkeep",
+     "requestParams.upkeepContract"): PAYEE,
+    (_SVC("payment_channels"), "PaymentChannelsService.open_channel", "openChannel", "participant2"): PAYEE,
+    (_SVC("payment_channels"), "PaymentChannelsService.close_channel", "closeChannel", "partner"): PAYEE,
+    (_SVC("restaking"), "RestakingService.restake", "depositIntoStrategy", "token"): ASSET,
+    (_SVC("restaking"), "RestakingService.restake_symbiotic", "deposit", "receiver"): PAYEE,
+    (_SVC("restaking"), "RestakingService.restake_karak", "deposit", "receiver"): PAYEE,
+    (_SVC("restaking"), "RestakingService.delegate_to_operator", "delegateTo", "operator"): PAYEE,
+    (_SVC("restaking"), "RestakingService.withdraw_restake", "queueWithdrawals",
+     "queuedWithdrawalParams"): PAYEE,
+    (_SVC("restaking"), "RestakingService.liquid_stake_lido", "submit", "_referral"): PAYEE,
+    (_SVC("social_protocols"), "SocialProtocolsService.create_lens_profile", "createProfile",
+     "createProfileParams.to"): PAYEE,
+    (_SVC("social_protocols"), "SocialProtocolsService._launch_token", "createToken", "owner"): PAYEE,
+    (_SVC("tba"), "TokenBoundAccountService.create_tba", "createAccount", "tokenContract"): ASSET,
+    ("runtime/blockchain/services/attestation/time_critical.py", "TimeCriticalHandler.attest_now",
+     "attest", "request.data.recipient"): DOOR,
+    (_SVC("kyc"), "KYCService.issue_kyc_credential", "attest", "request.data.recipient"): DOOR,
+}
+
+
+def _carries_address(inp: dict) -> bool:
+    return bool(ADDRESS.match(str(inp.get("type", "")))) or any(
+        _carries_address(c) for c in inp.get("components") or ())
+
+
+def _addresses_in(inp: dict, expr, path: str, bindings):
+    """(path, expression) for each address input under *inp*."""
+    if ADDRESS.match(str(inp.get("type", ""))):
+        yield path, expr
+        return
+    comps = inp.get("components")
+    if not comps or not _carries_address(inp):
+        return
+    lit = _literal(expr, bindings)
+    if lit is not None and not str(inp.get("type", "")).endswith("]") and len(lit.elts) == len(comps):
+        for comp, elt in zip(comps, lit.elts):
+            yield from _addresses_in(comp, elt, f"{path}.{comp.get('name', '?')}", bindings)
+    else:
+        yield path, expr
+
+
+def _request_addresses(source: str, filename: str):
+    """(function, signed function, input path) for each address a signed call
+    carries that the function's own parameters supply."""
+    tree = ast.parse(source, filename=filename)
+    abis = _abis(tree)
+    for qual, fn, _cls, outer in _functions(tree):
+        ctx = _Ctx(fn, *_scope(fn, outer), frozenset(), frozenset())
+        for n in _own_nodes(fn):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr in SIGNING_CALLS and n.args):
+                continue
+            arg = n.args[0]
+            if isinstance(arg, ast.Dict):
+                for key, value in zip(arg.keys, arg.values):
+                    if isinstance(key, ast.Constant) and key.value == "to" and _draws(value, ctx):
+                        yield qual, "(transaction)", "to"
+            for name, call in _signs(arg, ctx)[2]:
+                if any(isinstance(a, ast.Starred) for a in call.args) or call.keywords:
+                    continue        # the census above reports these as unreadable
+                for inputs in (abis.get(name) or _GLOBAL_ABIS.get(name) or []):
+                    if len(inputs) != len(call.args):
+                        continue
+                    for inp, a in zip(inputs, call.args):
+                        for path, expr in _addresses_in(inp, a, str(inp.get("name", "?")), ctx.bindings):
+                            if _draws(expr, ctx):
+                                yield qual, name, path
+
+
+def test_every_address_a_request_hands_a_services_layer_signature_is_listed():
+    """[control] Laid over this branch's dispatcher-refusal commit it fails on
+    four: the account, the new owner and the session key the recovery and
+    session-key modules were sent from the platform's wallet."""
+    found = {(str(path.relative_to(ROOT)), *row)
+             for path in sorted((ROOT / _SERVICES).rglob("*.py"))
+             for row in _request_addresses(path.read_text(encoding="utf-8"), str(path))}
+    assert len(found) >= 20, f"the walk found {len(found)}; it is not reading the services"
+    unlisted = sorted(" ".join(r) for r in found - set(SERVICE_ADDRESSES))
+    assert unlisted == [], ("an address a request supplies to a call the platform's key "
+                            "signs, not yet read:\n  " + "\n  ".join(unlisted))
+    assert found == set(SERVICE_ADDRESSES), sorted(set(SERVICE_ADDRESSES) - found)
+
+
+def test_the_address_walk_sees_a_planted_account():
+    """[guard] The shape the review drove, planted: the account and the new
+    owner a recovery module is sent are the request's."""
+    source = (
+        "RECOVER = [{'name': 'initiateRecovery', 'type': 'function', 'inputs': ["
+        "{'name': 'account', 'type': 'address'}, {'name': 'newOwner', 'type': 'address'}]}]\n"
+        "class M:\n"
+        "    async def recover(self, **params):\n"
+        "        acct, owner = params.get('account'), params.get('new_owner')\n"
+        "        c = self._web3.load_contract(MODULE, RECOVER)\n"
+        "        tx = c.functions.initiateRecovery(acct, owner).build_transaction({})\n"
+        "        await self._web3.send_transaction(tx)\n")
+    rows = set(_request_addresses(source, "<planted>"))
+    assert rows == {("M.recover", "initiateRecovery", "account"),
+                    ("M.recover", "initiateRecovery", "newOwner")}, rows

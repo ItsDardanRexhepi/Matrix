@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,373 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,389 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -316,12 +316,21 @@ check behind it:
   cross-chain message — except the limit named below (an attestation's
   statement is the point above). The few request-written bytes a signed
   call does carry are listed in the test by name, each with the reason
-  it is neither (an address encoded as bytes, the input an automation
-  job hands the request's own contract). A request may supply other
-  arguments; which of them must be your own address is checked at the
-  blockchain tools, as above, and not everywhere in the services layer
-  (its `nft_lending` borrow still takes the account it borrows for from
-  the request). The `smart_contract` tool compiles, reads and verifies
+  it is neither (an address encoded as bytes; the input an automation
+  job hands the contract the request named for it). A request may supply
+  other arguments. At the blockchain tools the ones that must be your own
+  address are checked, as above. In the services layer none is checked
+  against your session: a test lists every address a request supplies to
+  a call the platform signs there, 24 of them, each with what it is — 14
+  name who receives, holds or is credited with what the platform's own
+  call pays, lends, stakes, delegates, mints or creates (a token bridge's
+  receiver, a reward's recipient, a loan's on-behalf-of account, a keeper
+  job's upkeep, a restaking receiver among them), 8 name which of the
+  platform's own tokens or contracts the call uses, and 2 sit behind a
+  pair every door refuses. That is the platform's value moving where a
+  request says, which is the security gate's to evaluate and which, with
+  no enforcement core installed, it observes and does not refuse; a new
+  one fails the test until it is read. The `smart_contract` tool compiles, reads and verifies
   and signs nothing: its `send` let a request pick the contract, the
   function, the arguments and the value, and the tool dispatcher now
   refuses it before the tool runs, for every caller. A token-bound account's
@@ -341,13 +350,23 @@ check behind it:
   asks, and the component registry the app reads offers none of them, nor
   any other action every door refuses. A configured
   sponsorship allowlist binds with or without a daily cap. A test walks
-  every signing call in `runtime/` and `gateway/` and every bytes input
-  each one carries. The limit, stated: `governance`'s timelock schedule
-  and execute and a `dao` proposal carry an inner call the request
-  wrote, which the timelock or governor makes as itself under whatever
-  role the platform holds there, a deployment fact this repository
-  cannot see; those are Neo's tools, which no chat without the operator
-  key reaches
+  every `sign_transaction` and `send_transaction` call in `runtime/` and
+  `gateway/`, reads every name binding a bytes input each one carries,
+  and fails on any it cannot read as a constant unless it is listed with
+  its reason; every other key signature there is listed where it is
+  made. The limits, stated: `governance`'s timelock schedule and execute
+  and a `dao` proposal carry an inner call the request wrote, which the
+  timelock or governor makes as itself under whatever role the platform
+  holds there, a deployment fact this repository cannot see; those are
+  Neo's tools, which no chat without the operator key reaches. The
+  paymaster signs, with a platform key, a digest of a user operation the
+  request composes, which commits the paymaster's deposit to that
+  operation's gas and makes the platform the sender of nothing: the
+  operation runs only if its own account's validation accepts it, and
+  without a session the daily cap is metered against an address the
+  caller writes. And a function the code names can be sent to a contract
+  the request names, whose own code then runs with the platform's wallet
+  as its caller
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
