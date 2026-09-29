@@ -682,6 +682,57 @@ def test_no_public_text_promises_a_tier_nothing_performs():
     assert not offenders, "\n".join(offenders)
 
 
+# docs/COMPLETE_CAPABILITY_MAP.md said "The Tier column is the subscription
+# tier" and listed 40 capabilities as Pro and 4 as Enterprise, while the
+# catalog it calls the single source of truth sets every capability's min_tier
+# to free. A table that names capabilities states each one's tier only as the
+# catalog sets it.
+
+def _capability_table_tiers(text: str) -> list[tuple[str, str]]:
+    """(capability cell, tier cell) for every row of a Markdown table whose
+    header has both a Capability and a Tier column."""
+    rows, header = [], None
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            header = None
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if header is None:
+            header = [c.lower() for c in cells]
+            continue
+        if set(line.replace("|", "").strip()) <= set("-: "):
+            continue
+        if "capability" in header and "tier" in header and len(cells) == len(header):
+            rows.append((cells[header.index("capability")], cells[header.index("tier")]))
+    return rows
+
+
+def test_the_tier_column_reader_reads_the_old_table():
+    old = ("| Capability | Description | Tier | Gateway Endpoint | Protocols |\n"
+           "|---|---|---|---|---|\n"
+           "| Place Limit Order | Submit a limit order | Pro | via capability registry | orderbook |\n"
+           "| ~~Data Deletion~~ **NOT AVAILABLE** | No erasure path | — | → 501 | — |\n")
+    assert _capability_table_tiers(old) == [("Place Limit Order", "Pro"),
+                                            ("~~Data Deletion~~ **NOT AVAILABLE**", "—")]
+    assert _capability_table_tiers("| Tier | Description |\n|---|---|\n| `pro` | Higher |\n") == []
+
+
+def test_no_capability_table_states_a_tier_the_catalog_does_not_set():
+    from runtime.capabilities.catalog import CAPABILITIES
+    tiers = {c["min_tier"] for c in CAPABILITIES}
+    out = subprocess.check_output(["git", "ls-files", "*.md"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel.startswith("tests/") or rel == "CHANGELOG.md" or not (ROOT / rel).is_file():
+            continue
+        for capability, tier in _capability_table_tiers((ROOT / rel).read_text(encoding="utf-8")):
+            stated = re.sub(r"[`*_~]", "", tier).strip().lower()
+            if stated not in tiers | {"—", "-", ""}:
+                offenders.append(f"{rel}: {capability} is listed as {tier}; the catalog's tiers "
+                                 f"are {sorted(tiers)}")
+    assert not offenders, "\n".join(offenders)
+
+
 # ── Sibling axis: a badge or a certificate is not an on-chain attestation ────
 #
 # The badge and certificate tables each carry an `eas_uid` column, and the
