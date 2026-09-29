@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,373 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,378 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -340,17 +340,20 @@ check behind it:
   first run that used it; and every answer is the one `off` gives, a replay
   included. At `on`, for those actions, the run is the only way they run: it
   is written before the action is called, and an action whose run cannot be
-  written is not called. The outbox's one loop sends the attestation and
-  publishes the feed entry, retrying with backoff; a replayed
-  `Idempotency-Key` runs nothing and gets the first answer, or, when that
-  answer is no longer held (it is kept in memory, for 24 hours, by the
-  process that gave it), an error that says so. A run whose process died
-  mid-call is closed FAIL with its effect marked unknown, and is never run
-  again. The four tables hold digests and fixed words, never a raw address,
-  parameter or answer. Nothing in it asks or overrides the security gate. The
+  written is not called. The outbox's one loop sends the attestation,
+  retrying with backoff while the chain has not confirmed it, and publishes
+  the feed entry once; a replayed `Idempotency-Key` runs nothing and gets the
+  first answer, or, when that answer is no longer held (it is kept in memory
+  by the process that gave it, for up to 24 hours and at most the latest
+  4,096), an error that says so. A run whose process died mid-call is closed
+  FAIL with its effect marked unknown, and is never run again. The four
+  tables hold digests and fixed words, never a raw address, parameter or
+  answer. Nothing in it asks or overrides the security gate. The dedicated
   `/api/v1` service routes call services without the dispatcher and are not
-  journaled. With the mode at `shadow` or `on`, `GET /ready` answers 503
-  while the loop is not running
+  journaled; `POST /api/v1/capabilities/{id}/invoke` goes through the
+  dispatcher and is, without reading an `Idempotency-Key`. With the mode at
+  `shadow` or `on`, `GET /ready` answers 503 while the loop is not running
+  or has stopped making progress
 
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
@@ -470,7 +473,9 @@ you configured a key for — each one is asked, with a short timeout, and they a
 all asked at once so the probe costs one timeout rather than five. `/ready` is
 the one an orchestrator should point at: it answers 503 when no provider
 answered, or when the platform is running in production with security in
-observe-only mode, and it deliberately tells you nothing else. Which check
+observe-only mode, or, with `engines.durable.mode` at `shadow` or `on`, when
+the durable outbox loop has stopped or stopped making progress, and it
+deliberately tells you nothing else. Which check
 failed is in the log against the request id, because a readiness endpoint that
 announces what is not enforcing is telling whoever asks where to push.
 

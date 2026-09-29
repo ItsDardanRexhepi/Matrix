@@ -36,8 +36,9 @@ in ONE transaction; every transition is a compare-and-set on the state it
 expects, so a transition that lost a race changes nothing and says so.
 
 Only digests and fixed words reach these tables: the caller is a sha256, the
-parameters a sha256 of their canonical JSON, a step's ``detail`` a fixed word
-or ``sha256:<hex>``.
+parameters a sha256 of their canonical JSON, a step's ``detail`` a fixed word,
+``sha256:<hex>`` or ``raised:<exception class name>`` (a name the code defines,
+never an exception's message).
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ TRANSITIONS: frozenset[tuple[str, str]] = frozenset({
 STEP_START = "start"              # state: "opened"
 STEP_CALL = "call"                # state: "began"
 STEP_RETURN = "return"            # state: the caller's word for the answer
-STEP_RAISE = "raise"              # state: "raised"; detail: the exception's type, digested
+STEP_RAISE = "raise"              # state: "raised"; detail: raised:<exception class name>
 STEP_ABORT = "abort"              # state: why the call never began
 STEP_UNKNOWN = "unknown_effect"   # state: why no answer is recorded
 
@@ -90,10 +91,33 @@ def new_run_id() -> str:
 def digest(value: Any) -> str:
     """sha256 of the canonical JSON of *value* (sorted keys, no whitespace,
     UTF-8 unescaped, anything not JSON rendered with ``str``) — the digest
-    ``service_dispatcher.params_digest`` writes into evidence_shadow."""
-    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"),
-                           ensure_ascii=False, default=str)
+    ``service_dispatcher.params_digest`` writes into evidence_shadow.
+
+    Total: a value that has no canonical JSON (keys of mixed types cannot be
+    sorted; a structure that contains itself) is digested as the canonical JSON
+    of the same value with every key turned into its string, or, failing that,
+    as its ``repr`` — so a record is never skipped because its value is odd."""
+    try:
+        canonical = json.dumps(value, sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        try:
+            canonical = "keys-as-strings:" + json.dumps(
+                _string_keys(value), sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, default=str)
+        except (TypeError, ValueError, RecursionError):
+            canonical = "repr:" + repr(value)
     return hashlib.sha256(canonical.encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _string_keys(value: Any, depth: int = 0) -> Any:
+    if depth > 100:
+        raise ValueError("too deep")
+    if isinstance(value, dict):
+        return {str(k): _string_keys(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_string_keys(v, depth + 1) for v in value]
+    return value
 
 
 def text_digest(text: str) -> str:
@@ -102,7 +126,7 @@ def text_digest(text: str) -> str:
 
 def actor_hash(actor: str) -> str:
     """sha256 of the resolved caller, or "" when the entry point resolved none."""
-    return hashlib.sha256(actor.encode("utf-8")).hexdigest() if actor else ""
+    return hashlib.sha256(actor.encode("utf-8", "surrogatepass")).hexdigest() if actor else ""
 
 
 def label(value: str, known: Callable[[str], bool]) -> str:

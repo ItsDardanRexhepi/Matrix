@@ -12,12 +12,14 @@ the twin tools' dispatch) consult.
   a run; the attestation and the feed entry the legacy path delivers get
   outbox rows written as already handed off; an Idempotency-Key is recorded
   against the first run that used it. Every answer is the answer mode off
-  gives, and a replay runs again, as it does with the mode off. A record that
-  cannot be written at once is dropped, never waited for.
+  gives, and a replay runs again, as it does with the mode off. Nothing waits
+  for the database: a run that cannot be opened at once is not recorded, and
+  an end that cannot be written at once is kept and written again each tick.
 * ``on`` — for the actions in the canary, the run is the only lifecycle path:
   the run is written before the effect call begins, and an action whose run
-  cannot be written is not run; the outbox loop delivers its attestation and
-  feed entry; a replayed Idempotency-Key gets the first answer and runs
+  cannot be written is not run; the outbox loop sends its attestation (retried
+  with backoff while the chain has not confirmed it) and publishes its feed
+  entry (once); a replayed Idempotency-Key gets the first answer and runs
   nothing.
 
 THE CANARY, in the order it moved: first the twin tools' platform-key signing
@@ -651,11 +653,19 @@ class DurableEngine:
         verb = str(args.get("action") or "").strip().lower()
         # The verb is the model's own string: written only when the tool declares it.
         action = f"{tool_name}.{verb if verb in SIGNING_ACTIONS[tool_name] else 'undeclared'}"
-        run = Run(run_id=journal.new_run_id(), action=action, service=tool_name,
-                  actor_hash=journal.actor_hash(caller_identity),
-                  params_digest=journal.digest({k: v for k, v in args.items()
-                                                if k not in ("caller_identity", "caller_source")}),
-                  started_at=self._clock(), owned=self.owns(TWINS))
+        try:
+            run = Run(run_id=journal.new_run_id(), action=action, service=tool_name,
+                      actor_hash=journal.actor_hash(str(caller_identity or "")),
+                      params_digest=journal.digest(
+                          {k: v for k, v in args.items()
+                           if k not in ("caller_identity", "caller_source")}),
+                      started_at=self._clock(), owned=self.owns(TWINS))
+        except Exception as exc:  # noqa: BLE001 — a record never breaks the call
+            logger.warning("Durable %s: run for %s not opened: %s", self.mode, action, exc)
+            if self.owns(TWINS):
+                raise NotRecorded("the platform could not record this signing call before "
+                                  "making it, so it was not made; nothing was executed") from exc
+            return await make_call()
         if not self.open(run):
             raise NotRecorded(
                 "the platform could not record this signing call before making it, so it was "
@@ -720,7 +730,11 @@ class DurableEngine:
         self.loop.start()
 
     async def stop(self) -> None:
+        """Stop the loop, then a last attempt to write what this process knows
+        and has not written: run ends, and the answers of deliveries."""
         await self.loop.stop()
+        self._write_pending()
+        self.loop.settle_unsettled()
 
     def healthy(self) -> bool:
         return self.loop.healthy()

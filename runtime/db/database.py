@@ -403,8 +403,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             # step (start, call, return, raise, abort, unknown_effect, or
             # outbox:<kind>), `state` a word from a fixed vocabulary (the
             # dispatcher's settled / broadcast / refused, the tool dispatcher's
-            # success / failure / unknown, …), `detail` a fixed word or a
-            # "sha256:" digest — never free text a caller wrote.
+            # success / failure / unknown, …), `detail` a fixed word, a
+            # "sha256:" digest or "raised:" and an exception's class name —
+            # never an exception's message or free text a caller wrote.
             """
             CREATE TABLE IF NOT EXISTS workflow_steps (
                 run_id  TEXT NOT NULL,

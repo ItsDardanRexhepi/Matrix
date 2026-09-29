@@ -2,32 +2,32 @@
  "added": {
   "execute": {
    "on": {
-    "p50_us": 336.7,
-    "p95_us": 588.9
+    "p50_us": 320.8,
+    "p95_us": 527.3
    },
    "shadow": {
-    "p50_us": 354.3,
-    "p95_us": 594.9
+    "p50_us": 347.3,
+    "p95_us": 576.7
    }
   },
   "execute_keyed": {
    "on": {
-    "p50_us": 413.6,
-    "p95_us": 724.3
+    "p50_us": 395.9,
+    "p95_us": 753.2
    },
    "shadow": {
-    "p50_us": 438.4,
-    "p95_us": 753.2
+    "p50_us": 414.8,
+    "p95_us": 773.0
    }
   },
   "tool_twin_signing": {
    "on": {
-    "p50_us": 271.0,
-    "p95_us": 441.5
+    "p50_us": 272.6,
+    "p95_us": 451.1
    },
    "shadow": {
-    "p50_us": 308.0,
-    "p95_us": 500.5
+    "p50_us": 309.4,
+    "p95_us": 539.4
    }
   }
  },
@@ -35,52 +35,52 @@
   "execute": {
    "off": {
     "n": 5000,
-    "p50_us": 52.1,
-    "p95_us": 122.4
+    "p50_us": 50.5,
+    "p95_us": 116.2
    },
    "on": {
     "n": 5000,
-    "p50_us": 388.8,
-    "p95_us": 711.3
+    "p50_us": 371.3,
+    "p95_us": 643.5
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 406.4,
-    "p95_us": 717.3
+    "p50_us": 397.8,
+    "p95_us": 692.9
    }
   },
   "execute_keyed": {
    "off": {
     "n": 5000,
-    "p50_us": 55.6,
-    "p95_us": 132.1
+    "p50_us": 53.5,
+    "p95_us": 103.4
    },
    "on": {
     "n": 5000,
-    "p50_us": 469.2,
-    "p95_us": 856.4
+    "p50_us": 449.4,
+    "p95_us": 856.6
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 494.0,
-    "p95_us": 885.3
+    "p50_us": 468.3,
+    "p95_us": 876.4
    }
   },
   "tool_twin_signing": {
    "off": {
     "n": 5000,
-    "p50_us": 55.4,
-    "p95_us": 125.0
+    "p50_us": 53.4,
+    "p95_us": 121.2
    },
    "on": {
     "n": 5000,
-    "p50_us": 326.4,
-    "p95_us": 566.5
+    "p50_us": 326.0,
+    "p95_us": 572.3
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 363.4,
-    "p95_us": 625.5
+    "p50_us": 362.8,
+    "p95_us": 660.6
    }
   }
  },
@@ -94,26 +94,26 @@
  "main_off": {
   "main": {
    "n": 15000,
-   "p50_us": 46.3,
-   "p95_us": 99.0
+   "p50_us": 45.7,
+   "p95_us": 87.8
   },
   "main_commit": "58b8b4d",
   "ratio_cell_off_to_main": {
-   "p50": 1.125,
-   "p95": 1.236
+   "p50": 1.105,
+   "p95": 1.323
   },
   "ratio_this_tree_to_main": {
-   "p50": 1.037,
-   "p95": 0.987
+   "p50": 1.061,
+   "p95": 1.081
   },
   "this_tree": {
    "n": 15000,
-   "p50_us": 48.0,
-   "p95_us": 97.7
+   "p50_us": 48.5,
+   "p95_us": 94.9
   }
  },
  "measured": {
-  "on_top_of": "e14974d",
+  "on_top_of": "4e62dd6",
   "with_uncommitted_changes": true
  },
  "rule": "the latency engines.durable adds to one dispatch, in microseconds: for each surface, added = the mode's p50 (p95) minus mode off's p50 (p95), measured in the same rounds. A p95 difference is a difference of percentiles, not a percentile of per-call differences.",

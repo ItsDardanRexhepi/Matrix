@@ -310,3 +310,124 @@ async def test_a_scope_that_raises_drops_the_key_and_the_request_runs_unkeyed(tm
             answer = await d.execute(ACTION, params=params_for(ACTION, 1), caller_identity=WALLET)
     assert json.loads(answer)["status"] == "ok"
     assert rows(db, "idempotency_keys") == [] and len(rows(db, "workflow_runs")) == 1
+
+
+# ── round two: a real loop, a long delivery, another process ────────────────
+
+async def test_a_long_delivery_never_lets_another_process_take_the_rows_behind_it(tmp_path):
+    """No hand-called renewal: process A's own tick, whose first delivery takes
+    most of the delivery timeout while process B drains past the window."""
+    path = tmp_path / "a.db"
+    clock = Clock()
+    db1, db2 = open_db(path), open_db(path)
+    window = 300.0
+    a = OutboxLoop(db1, deliver=True, clock=clock, abandoned_after_s=window)
+    b = OutboxLoop(db2, deliver=True, clock=clock, abandoned_after_s=window)
+
+    def run(tx):
+        journal.insert_run(tx, run_id="run_a", action=ACTION, service="s", actor_hash="",
+                           params_digest="p", state=journal.COMPLETE, started_at=clock.now,
+                           terminal_at=clock.now)
+    journal.transaction(db1, run, wait=True)
+    sent: list[int] = []
+
+    def deliverer(n):
+        async def deliver() -> Delivery:
+            clock.advance(outbox.DELIVERY_TIMEOUT_S - 10)  # a slow receipt, within the timeout
+            await b.drain()                              # B passes meanwhile
+            sent.append(n)
+            return Delivery(outbox.DELIVERED, "landed")
+        return deliver
+    for n in range(3):
+        row_id = journal.transaction(db1, lambda tx, n=n: outbox.insert(
+            tx, run_id="run_a", kind="attest", payload_digest=f"d{n}", now=clock.now,
+            deliver=True), wait=True)
+        a.hold(row_id, Held("run_a", "attest", f"d{n}", deliverer(n)))
+    clock.advance(149)                                  # A was busy before its tick
+    await a.tick()
+    assert sorted(sent) == [0, 1, 2], f"rows A held were taken by B: sent {sent}"
+    assert outbox.counts(db1) == {"due": 0, "handed_off": 3, "given_up": 0}
+
+
+async def test_a_retry_whose_row_was_given_up_elsewhere_is_not_revived(tmp_path):
+    db = open_db(tmp_path / "a.db")
+    clock = Clock()
+    loop = OutboxLoop(db, deliver=True, clock=clock)
+    row_id = journal.transaction(db, lambda tx: outbox.insert(
+        tx, run_id="run_a", kind="attest", payload_digest="d", now=clock.now, deliver=True),
+        wait=True)
+    row = (row_id, "run_a", "attest", "d", 0, clock.now)
+    db.execute_sync("UPDATE outbox SET next_at = NULL WHERE id = ?", (row_id,))  # given up elsewhere
+    loop._settle(row, Delivery(outbox.RETRY, "skipped"))
+    assert outbox.counts(db)["given_up"] == 1, "a given-up row was made due again"
+    assert loop.held_count() == 0
+
+
+async def test_an_answer_with_no_canonical_json_still_ends_its_run(tmp_path):
+    """Keys of mixed types cannot be sorted: the digest falls back, and the run
+    ends COMPLETE with its answer on record — a replay gets the first answer."""
+    db = open_db(tmp_path / "a.db")
+    effects = Effects()
+    d = dispatcher(effects)
+    d._services.answers[ACTION] = {"status": "success", "settled": True,
+                                   "tx_hash": "0x" + "22" * 32, "by_block": {1: "a", "t": 1}}
+    with installed(eng := engine(db, "on", Clock(), effects)):
+        first = await bridge_like(d, ACTION, params_for(ACTION, 1), key="k-mixed")
+        replay = await bridge_like(d, ACTION, params_for(ACTION, 1), key="k-mixed")
+        await drain(eng)
+    (run,) = rows(db, "workflow_runs")
+    assert run["state"] == journal.COMPLETE and replay == first
+    assert effects.count("service") == 1
+    assert journal.digest({1: "a", "t": 1}) == journal.digest({1: "a", "t": 1})
+
+
+async def test_a_stopping_engine_writes_the_ends_it_could_not_write_before(tmp_path, monkeypatch):
+    db = open_db(tmp_path / "a.db")
+    effects = Effects()
+    d = dispatcher(effects)
+    real = journal.transaction
+    calls: list[int] = []
+
+    def the_end_fails_once(db_, work, *, wait):
+        calls.append(1)
+        if len(calls) == 2:
+            raise __import__("sqlite3").OperationalError("database is locked")
+        return real(db_, work, wait=wait)
+    monkeypatch.setattr(journal, "transaction", the_end_fails_once)
+    eng = engine(db, "on", Clock(), effects)
+    with installed(eng):
+        await d.execute(ACTION, params=params_for(ACTION, 1), caller_identity=WALLET)
+        assert rows(db, "workflow_runs")[0]["state"] == journal.RUNNING
+        eng.start()
+        await eng.stop()
+    (run,) = rows(db, "workflow_runs")
+    assert run["state"] == journal.COMPLETE, "a stopping engine left a known end unwritten"
+
+
+async def test_an_identity_no_encoder_accepts_changes_nothing_in_shadow_and_is_run_in_on(tmp_path):
+    """A lone surrogate is legal JSON and reaches the dispatch as the caller's
+    identity; digesting it must never change an answer or refuse the action."""
+    identity = "0xab\ud800"
+    for mode in ("shadow", "on"):
+        db = open_db(tmp_path / f"{mode}.db")
+        effects = Effects()
+        d = dispatcher(effects)
+        with installed(engine(db, mode, Clock(), effects)):
+            answer = await d.execute(ACTION, params=params_for(ACTION, 1),
+                                     caller_identity=identity)
+        assert json.loads(answer)["status"] == "ok", (mode, answer)
+        assert effects.count("service") == 1, mode
+        assert [r["state"] for r in rows(db, "workflow_runs")] == [journal.COMPLETE], mode
+
+    from runtime.tools.dispatcher import ToolDispatcher
+    called: list[int] = []
+
+    async def mint(**kwargs):
+        called.append(1)
+        return {"status": "success"}
+    tools = ToolDispatcher({})
+    tools._tools["nft"] = mint
+    db = open_db(tmp_path / "tool.db")
+    with installed(engine(db, "shadow", Clock(), Effects())):
+        outcome = await tools.dispatch("nft", {"action": "mint"}, caller_identity=identity)
+    assert outcome.ok and called == [1], outcome

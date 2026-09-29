@@ -77,6 +77,7 @@ STOP_GRACE_S = 10.0
 DELIVERED = "delivered"
 RETRY = "retry"
 GIVEN_UP = "given_up"
+GIVEN_UP_ELSEWHERE = "given_up_elsewhere"   # internal: the row was given up by another process
 
 
 @dataclass(frozen=True)
@@ -263,8 +264,7 @@ class OutboxLoop:
         delivery, so however many of them there are, none stands in front of a
         row it holds."""
         now = self._clock()
-        for row_id, (row, delivery) in list(self._unsettled.items()):
-            self._settle(row, delivery)
+        self.settle_unsettled()
         self._renew(now)
         cols = "id, run_id, kind, payload_digest, attempts, next_at"
         for row in [tuple(r) for r in self._db.fetchall_sync(
@@ -272,7 +272,8 @@ class OutboxLoop:
                 "AND next_at < ? ORDER BY next_at, id LIMIT ?",
                 (now - self._abandoned_after_s, 1000))]:
             if row[0] not in self._held:
-                self._give_up(row[0], row[1], row[2], "payload_not_held")
+                self._give_up(row[0], row[1], row[2], "payload_not_held",
+                              due_before=now - self._abandoned_after_s)
         held_ids = sorted(i for i in self._held if i not in self._unsettled)
         rows: list[tuple] = []
         for i in range(0, len(held_ids), 500):
@@ -286,32 +287,44 @@ class OutboxLoop:
         for row in rows:
             if self._stopping:
                 break
+            self._renew(self._clock())
             claimed = self._claim(row, self._clock())
             if claimed is None:
                 continue
             delivery = await self._attempt(claimed, row)
             self.last_progress_at = self._clock()
             self._settle(row, delivery)
-            self._renew(self._clock())
             tried += 1
         return tried, len(rows)
 
+    def settle_unsettled(self) -> None:
+        """Write the answers of deliveries that answered and could not be
+        marked yet (never delivering them again)."""
+        for row, delivery in list(self._unsettled.values()):
+            self._settle(row, delivery)
+
     def _renew(self, now: float) -> None:
-        """Keep the due rows this process holds from looking abandoned to
-        another process while this one is busy: a row due for more than half
-        the window has its ``next_at`` moved up to now. Rows claimed or backing
-        off are in the future already."""
+        """Keep every row this process holds from looking abandoned to another
+        process while this one is busy — renewed before each delivery, so no
+        held row is ever older than one delivery (``DELIVERY_TIMEOUT_S``, under
+        the window): a held row that is due has its ``next_at`` moved up to now,
+        and a row whose answer is still to be written has its lease extended."""
         ids = [i for i in self._held if i not in self._unsettled]
-        if not ids:
+        waiting = list(self._unsettled)
+        if not ids and not waiting:
             return
-        stale = now - self._abandoned_after_s / 2
 
         def work(tx: Tx) -> None:
             for i in range(0, len(ids), 500):
                 chunk = ids[i:i + 500]
                 tx.run(f"UPDATE outbox SET next_at = ? WHERE id IN ({', '.join('?' for _ in chunk)}) "
                        "AND done_at IS NULL AND next_at IS NOT NULL AND next_at < ?",
-                       (now, *chunk, stale))
+                       (now, *chunk, now))
+            for i in range(0, len(waiting), 500):
+                chunk = waiting[i:i + 500]
+                tx.run(f"UPDATE outbox SET next_at = ? WHERE id IN ({', '.join('?' for _ in chunk)}) "
+                       "AND done_at IS NULL AND next_at IS NOT NULL AND next_at < ?",
+                       (now + LEASE_S, *chunk, now + LEASE_S / 2))
         try:
             self._tx(work)
         except Exception:  # noqa: BLE001 — the next pass renews again
@@ -381,8 +394,12 @@ class OutboxLoop:
                        "WHERE id = ? AND done_at IS NULL", (now, row_id))
                 word = DELIVERED
             elif delivery.outcome == RETRY and attempts < MAX_ATTEMPTS:
-                tx.run("UPDATE outbox SET next_at = ? WHERE id = ? AND done_at IS NULL",
-                       (now + backoff_s(attempts, row_id), row_id))
+                # Only while the row is still this delivery's: a row another
+                # process gave up meanwhile stays given up.
+                if tx.execute("UPDATE outbox SET next_at = ? WHERE id = ? AND done_at IS NULL "
+                              "AND next_at IS NOT NULL",
+                              (now + backoff_s(attempts, row_id), row_id)) != 1:
+                    return GIVEN_UP_ELSEWHERE
                 word = RETRY
             else:
                 tx.run("UPDATE outbox SET next_at = NULL WHERE id = ? AND done_at IS NULL",
@@ -404,14 +421,26 @@ class OutboxLoop:
         self._unsettled.pop(row_id, None)
         if word != RETRY:
             self._held.pop(row_id, None)
+        if word == GIVEN_UP_ELSEWHERE:
+            return
         if word == GIVEN_UP:
             logger.error("Durable outbox: row %s (%s, run %s) given up after %d attempt(s): %s",
                          row_id, kind, run_id, attempts, delivery.detail)
 
-    def _give_up(self, row_id: int, run_id: str, kind: str, why: str) -> None:
+    def _give_up(self, row_id: int, run_id: str, kind: str, why: str, *,
+                 due_before: float | None = None) -> None:
+        """Give *row_id* up. With *due_before* (a row this process does not
+        hold), only while it is still that stale: a row its holder renewed in
+        the meantime is left to its holder."""
         def work(tx: Tx) -> bool:
-            if tx.execute("UPDATE outbox SET next_at = NULL WHERE id = ? AND done_at IS NULL "
-                          "AND next_at IS NOT NULL", (row_id,)) != 1:
+            if due_before is None:
+                changed = tx.execute("UPDATE outbox SET next_at = NULL WHERE id = ? "
+                                     "AND done_at IS NULL AND next_at IS NOT NULL", (row_id,))
+            else:
+                changed = tx.execute("UPDATE outbox SET next_at = NULL WHERE id = ? "
+                                     "AND done_at IS NULL AND next_at IS NOT NULL "
+                                     "AND next_at < ?", (row_id, due_before))
+            if changed != 1:
                 return False
             if journal.get_run(tx, run_id) is not None:
                 journal.step(tx, run_id, journal.next_seq(tx, run_id), "outbox:" + kind,
