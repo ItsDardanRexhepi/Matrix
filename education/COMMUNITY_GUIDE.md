@@ -48,4 +48,4 @@ Community members are encouraged to run workshops for their teams, meetup groups
 
 No workshop or course completion certificate is issued. There is no certification portal, and nothing reviews submitted exercises or solutions.
 
-The gateway does run three certification exams, developer, auditor and enterprise (`GET /certification/tracks` lists them). `POST /certification/start` begins one and `POST /certification/submit` scores the answers. A passing score records a certificate with an ID, which `GET /certification/{cert_id}` looks up. No on-chain attestation is written for a certificate yet.
+The gateway has three certification tracks, developer, auditor and enterprise (`GET /certification/tracks` lists them). It serves no exam questions yet: `POST /certification/start` opens an attempt, and `POST /certification/submit` scores the answers against the track's 10 sample questions, with no time limit. A passing score records a certificate with an ID, which `GET /certification/{cert_id}` looks up. No on-chain attestation is written for a certificate yet.

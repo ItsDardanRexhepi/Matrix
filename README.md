@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,429 tests, run against the versions
+automated suite of 5,431 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -716,9 +716,13 @@ See `/learn` for details.
 
 ## Get Certified
 
-The gateway runs three certification exams (`GET /certification/tracks`,
-`POST /certification/start`, `POST /certification/submit`). A passing score
-records a certificate with an ID that `GET /certification/{cert_id}` looks
+The gateway has three certification tracks (`GET /certification/tracks`,
+`POST /certification/start`, `POST /certification/submit`). It serves no
+exam questions yet: `start` opens an attempt and answers with the track's
+intended question count and time limit, and `submit` scores the answers
+against the track's 10 sample questions in
+`runtime/certification/assessments.py`, with no time limit enforced. A
+passing score records a certificate with an ID that `GET /certification/{cert_id}` looks
 up. No on-chain attestation is written for a certificate: the record has an
 `eas_uid` field that nothing fills. The exam routes take no payment; the
 prices below are the intended fees, as the tracks list them:
