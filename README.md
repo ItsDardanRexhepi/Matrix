@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,389 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,411 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -298,16 +298,20 @@ check behind it:
   the same holds for a DeFi supply or borrow made for you, and for the
   account an NFT or game-item transfer moves from. A cross-border
   payment's compliance record names no address at all, since that call
-  pays nobody. Tests walk the source of every attestation these tools
-  make, report as a failure every place the walk cannot follow the
-  request to one, walk every call the platform's key signs (next point),
-  and drive every one of those doors. Three limits, stated: the next
+  pays nobody. Tests trace, in the source, every value that reaches the
+  statement or the subject of an attestation these tools make back to a
+  constant or to the request, and report as a failure every value they
+  cannot trace that far and every way of reaching the attestation they
+  cannot read; walk every call the platform's key signs (next point);
+  and drive every one of those doors. Four limits, stated: the next
   point's (a timelock's or a governor's inner call, which that contract
   makes as itself); a record about your own
   address is still your word (the platform checks no achievement and no
-  investor's eligibility), and the records the services layer writes about
+  investor's eligibility); the records the services layer writes about
   operations it ran (a cross-border payment, an insurance claim, a
-  royalty) carry what that operation was asked; no test walks those yet
+  royalty) carry what that operation was asked, and no test walks those
+  yet; and a reading of the source cannot see code replaced while the
+  platform runs
 - **No request composes a call or a message the platform's key signs.**
   Every transaction the platform signs calls a function named in its own
   code (or, with `conversion.auto_deploy` on, deploys a contract the

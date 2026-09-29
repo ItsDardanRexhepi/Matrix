@@ -27,28 +27,54 @@ THE CENSUS. The walk reads the source of every module in
 ``runtime/blockchain/`` (the twin tools and what they import there), finds every
 ``.attest(`` call, traces its ``action``, ``agent`` and ``recipient`` back to the
 request, and fails if a request field reaches the action or the agent, or reaches
-the recipient through a field the seam does not bind for that tool and verb. The
-trace reads assignments, loops, comprehensions, ``with ... as`` and ``match``
-patterns, and a request stored on ``self`` by assignment or by
-``setattr(self, "name", ...)``.
+the recipient through a field the seam does not bind for that tool and verb.
 
-Where it cannot follow the request it fails too, and says why: ``attest`` taken
-as a value; ``attest`` reached by its name as a string (``getattr``,
-``__getattribute__``, ``operator.methodcaller``); any attribute reached by a
-name computed at run time; an attestation outside a tool method; a method
-``execute`` hands a rewritten request; a request rewritten before it is read;
-arguments passed through a ``*`` or ``**`` splat; an attestation inside a def
-or lambda nested in a tool method; a decorator between ``execute``'s caller and
-the method; a name bound by ``except ... as``, ``global`` or ``nonlocal``; a
-request written onto ``self`` through ``self.__dict__``, ``vars(self)`` or a
-``setattr`` with a computed name; and the EAS contract's attest or revoke (or
-any other write it offers) built anywhere but inside ``EASClient.attest``. Four
-places in the directory reach an attribute by a computed name and no EAS
-client, and are listed by name with the reason (``NAMED_LOOKUPS``). Planted
-shapes prove the walk reports each of these. Two guards keep it honest about
-the client: ``EASClient`` reaches the contract only in ``attest`` and in
-``verify``'s read, and if it ever encodes ``details``, the census has to learn
-to read them.
+The trace is closed: every part of each of those three values must be one of
+
+  * a constant, or a module name bound once to a literal that cannot change;
+  * a field of the request (a parameter of the tool method, read by ``.get``,
+    by subscript or whole);
+  * a local name, every one of whose bindings the trace reads — an assignment
+    (unpacking included), an augmented or annotated one, ``:=``, a ``for`` or
+    comprehension target, ``with ... as``, a ``match`` capture — and which, if
+    it is read into, is handed nowhere else in the method;
+  * a ``self`` attribute, every one of whose writes anywhere in the module the
+    trace reads (in a method's own body: by those same forms, by a
+    ``setattr`` spelled either way with a constant name, or into its content),
+    read back as the request whole whenever a write draws on one; or one the
+    base class sets from the configuration (``BASE_ATTRIBUTES``, pinned);
+  * a call of a builtin that only converts (``str``, ``int`` ...) or of a
+    string method, on such parts; or any other call handed the request, read
+    as the request whole.
+
+Anything else is reported as a place the walk cannot follow the request: a
+module name something can write (a dict, a ContextVar), a name bound by
+``except``, ``import``, ``global`` or ``nonlocal``, another object's attribute,
+a ``self`` attribute written through anything but ``self`` or outside a
+method's own body, a method or property of that name, an attribute nothing in
+the module writes, a local or attribute handed elsewhere before it is read
+into, and what a call not handed the request returns.
+
+How ``attest`` is reached is closed the same way. Reported, each saying why:
+``attest`` taken as a value; reached by its name as a string (``getattr``,
+``__getattribute__``, ``operator.methodcaller``, a subscript); any attribute
+reached by a name computed at run time; a namespace read or written by name
+(``__dict__``, ``vars()``, ``globals()``, ``locals()``); an attribute written or
+deleted by a computed name; code or a module loaded at run time (``exec``,
+``eval``, ``compile``, ``__import__``, ``importlib``); a contract function
+looked up by name or selector or chosen at run time; the EAS contract's attest
+or revoke (or any other write it offers) built anywhere but inside
+``EASClient.attest``; an attestation outside a tool method, inside a def or
+lambda nested in one, behind a decorator, or with a ``*`` or ``**`` splat; and
+a request ``execute`` rewrites or re-hands. Four places in the directory reach
+an attribute by a computed name and no EAS client, and one looks a contract
+function up to read it; each is listed by name with the reason
+(``NAMED_LOOKUPS``, ``CONTRACT_LOOKUPS``). Planted shapes prove the walk reports
+each of these. Two guards keep it honest about the client: ``EASClient``
+reaches the contract only in ``attest`` and in ``verify``'s read, and if it
+ever encodes ``details``, the census has to learn to read them. A third keeps
+the directory closed: every module a twin imports under ``runtime/``, a
+relative import resolved, is inside it or named and read for an attestation.
 
 WHAT THIS DOES NOT COVER, stated. The services layer
 (``runtime/blockchain/services/``) has its own attestation service; its three
@@ -57,16 +83,12 @@ request-facing actions are refused at every door that dispatches them
 the services write about operations they ran are not walked here. A bound
 subject is not a verified statement: an achievement, an IP claim or an
 investor's whitelisting recorded for the caller's own address is still the
-caller's word. The walk follows the request through local names, ``self``
-attributes and ``execute``'s hand-off, and reports a name another function
-binds as a global; through another object's state it does not follow it, and
-what another method returns counts as the request only when that method is
-handed the request. It reads source, so a method replaced at run time
-(monkeypatching, a metaclass) is outside it. An attestation
-signed through a contract call whose function the request chose never reaches
-``EASClient.attest``, so this walk cannot see one; the census of every signing
-call (tests/test_no_request_chooses_the_call_the_platform_key_signs.py) is
-what rules that out.
+caller's word. The walk reads source: code replaced at run time from outside
+the directory (monkeypatching by an importer, a test) is outside it. An
+attestation signed through a contract call whose function the request chose
+never reaches ``EASClient.attest``, so this walk cannot see one; the census of
+every signing call (tests/test_no_request_chooses_the_call_the_platform_key_
+signs.py) is what rules that out.
 
 CONTROL. At The Matrix ``main`` 91a89fb, and on the first repair (fix/oldq-census
 faad66f), the 12 tests marked [control] before the planted-shape section fail;
@@ -78,15 +100,22 @@ in the planted-shape section's first part fail and its [guard] passes; at
 the last section fail (the nine shapes and an EAS write outside the client) and
 three of its four [guard] tests pass; the fourth, which holds ``NAMED_LOOKUPS``
 to what the walk finds, tests the listing this change adds and cannot run there.
+The seventeen [control] shapes of the last section, run with the census as it
+stood at this branch's signing-census commit ("The signing census reads every
+form that binds a name ..."), each pass there with nothing reported, and are
+reported here; the relative-import control's form was not counted by the
+premise as it stood there. The last section's four guards pass here.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
+import collections
 import json
 import pathlib
 import sys
+from typing import NamedTuple
 
 import pytest
 
@@ -459,10 +488,15 @@ def _carried(cls: ast.ClassDef) -> frozenset[str]:
                 elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                         and isinstance(n.func.value, (ast.Attribute, ast.Subscript))):
                     stores = [(n.func.value, a) for a in [*n.args, *(k.value for k in n.keywords)]]
-                elif (_is_setattr_on_self(n) and isinstance(n.args[1], ast.Constant)
-                        and isinstance(n.args[1].value, str)):
+                elif isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
+                    stores = [(n.target, n.iter)]
+                elif isinstance(n, (ast.With, ast.AsyncWith)):
+                    stores = [(i.optional_vars, i.context_expr) for i in n.items if i.optional_vars]
+                elif (_is_setattr_on_self(n) and isinstance(_setattr_parts(n)[1], ast.Constant)
+                        and isinstance(_setattr_parts(n)[1].value, str)):
+                    _obj, name, value = _setattr_parts(n)
                     stores = [(ast.Attribute(value=ast.Name(id="self", ctx=ast.Load()),
-                                             attr=n.args[1].value, ctx=ast.Store()), n.args[2])]
+                                             attr=name.value, ctx=ast.Store()), value)]
                 for target, value in stores:
                     if not _fields(value, roots, tainted, frozenset(carried))[0]:
                         continue
@@ -474,14 +508,32 @@ def _carried(cls: ast.ClassDef) -> frozenset[str]:
     return frozenset(carried)
 
 
-def _is_setattr_on_self(n: ast.AST) -> bool:
-    """``setattr(self, name, value)`` or ``object.__setattr__(self, name, value)``."""
-    if not (isinstance(n, ast.Call) and len(n.args) == 3
-            and isinstance(n.args[0], ast.Name) and n.args[0].id == "self"):
-        return False
+def _setattr_parts(n: ast.AST):
+    """(object, name, value) of an attribute write spelled as a call:
+    ``setattr(obj, name, value)``, ``X.__setattr__(obj, name, value)``, or
+    ``obj.__setattr__(name, value)`` (``super().__setattr__`` included, read as
+    ``self``); None for anything else."""
+    if not isinstance(n, ast.Call):
+        return None
     f = n.func
-    return ((isinstance(f, ast.Name) and f.id == "setattr")
-            or (isinstance(f, ast.Attribute) and f.attr == "__setattr__"))
+    if isinstance(f, ast.Name) and f.id == "setattr" and len(n.args) == 3:
+        return tuple(n.args)
+    if isinstance(f, ast.Attribute) and f.attr == "__setattr__":
+        if len(n.args) == 3:
+            return tuple(n.args)
+        if len(n.args) == 2:
+            obj = f.value
+            if (isinstance(obj, ast.Call) and isinstance(obj.func, ast.Name)
+                    and obj.func.id == "super"):
+                obj = ast.Name(id="self", ctx=ast.Load())
+            return (obj, *n.args)
+    return None
+
+
+def _is_setattr_on_self(n: ast.AST) -> bool:
+    """An attribute write spelled as a call, on ``self``."""
+    parts = _setattr_parts(n)
+    return parts is not None and isinstance(parts[0], ast.Name) and parts[0].id == "self"
 
 
 def _is_self_namespace(n: ast.AST) -> bool:
@@ -504,9 +556,9 @@ def _opaque_self_store(cls: ast.ClassDef) -> str | None:
         tainted = _taint(fn, roots)
         for n in ast.walk(fn):
             values = []
-            if _is_setattr_on_self(n) and not (isinstance(n.args[1], ast.Constant)
-                                               and isinstance(n.args[1].value, str)):
-                values = [n.args[2]]
+            if _is_setattr_on_self(n) and not (isinstance(_setattr_parts(n)[1], ast.Constant)
+                                               and isinstance(_setattr_parts(n)[1].value, str)):
+                values = [_setattr_parts(n)[2]]
             elif isinstance(n, (ast.Assign, ast.AugAssign)):
                 targets = n.targets if isinstance(n, ast.Assign) else [n.target]
                 if any(_is_self_namespace(sub) for t in targets for sub in ast.walk(t)):
@@ -518,6 +570,446 @@ def _opaque_self_store(cls: ast.ClassDef) -> str | None:
                 return (f"{fn.name} stores the request on self under a name the census "
                         f"cannot read (line {n.lineno}); it cannot follow it to an attestation")
     return None
+
+
+# ── what the walk follows, and everything else it reports ───────────────
+#
+# The checks above read the forms the walk knows. What follows makes that
+# list closed: every value that reaches an attestation's action, agent or
+# recipient is traced back through the source, and any part of it that is not
+# a constant, a field of the request, or something built only from those
+# through a form the walk reads is reported as a place it cannot follow the
+# request. So a shape nobody planted fails too.
+
+#: Builtins that only convert what they are handed.
+_CONVERTERS = frozenset({"str", "int", "float", "bool", "len", "hex", "abs",
+                         "min", "max", "round", "repr"})
+#: String methods that only transform the string they are called on.
+_STRING_METHODS = frozenset({"lower", "upper", "strip", "lstrip", "rstrip", "casefold",
+                             "replace", "startswith", "endswith", "split", "join",
+                             "format"})
+#: Attributes a twin reads on ``self`` that no module in the directory the walk
+#: reads writes there: the base class sets them from the configuration it is
+#: built with. Each with where it comes from.
+BASE_ATTRIBUTES = {
+    "platform_wallet": (
+        "BlockchainInterface.__init__ sets it from config['blockchain']"
+        "['platform_wallet'] (runtime/blockchain/interface.py); nothing a request "
+        "carries reaches it (test_the_base_attributes_are_the_configurations)"),
+}
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_READ_FORMS = frozenset({"an assignment", "a loop", "a with", "a match"})
+
+
+def _own(fn):
+    """The nodes of *fn*'s own body: not those of a def, lambda or class in it."""
+    stack = list(ast.iter_child_nodes(fn))
+    while stack:
+        node = stack.pop()
+        yield node
+        if not isinstance(node, _SCOPE_NODES):
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def _stored_names(target) -> list[str]:
+    return [t.id for t in ast.walk(target)
+            if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)]
+
+
+def _immutable(value) -> bool:
+    if isinstance(value, (tuple, frozenset)):
+        return all(_immutable(v) for v in value)
+    return isinstance(value, (str, bytes, int, float, bool, type(None)))
+
+
+def _fixed(expr) -> bool:
+    """Whether *expr* is built only from literals that cannot change: a
+    constant, or a tuple, an operator or an f-string over such parts."""
+    if isinstance(expr, ast.Constant):
+        return _immutable(expr.value)
+    if isinstance(expr, ast.Tuple):
+        return all(_fixed(e) for e in expr.elts)
+    if isinstance(expr, ast.BinOp):
+        return _fixed(expr.left) and _fixed(expr.right)
+    if isinstance(expr, ast.UnaryOp):
+        return _fixed(expr.operand)
+    if isinstance(expr, ast.JoinedStr):
+        return all(_fixed(v.value if isinstance(v, ast.FormattedValue) else v) for v in expr.values)
+    return False
+
+
+def _parents(tree) -> dict[int, ast.AST]:
+    return {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+
+def _scope_of(node, parents) -> ast.AST | None:
+    """The innermost def, lambda or class around *node*, or None at module level."""
+    up = parents.get(id(node))
+    while up is not None and not isinstance(up, _SCOPE_NODES):
+        up = parents.get(id(up))
+    return up
+
+
+class _Module(NamedTuple):
+    """What the trace needs to know about one module, read once."""
+    tree: ast.AST
+    parents: dict
+    constants: frozenset      # module names bound once, to an immutable literal
+    writes: dict              # attribute name -> [(readable, why, method, value)]
+    escaped: frozenset        # self attributes handed somewhere as a whole
+
+
+def _module_constants(tree, parents) -> frozenset:
+    counts: collections.Counter = collections.Counter()
+    values: dict = {}
+    for node in ast.walk(tree):
+        if _scope_of(node, parents) is not None:
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            counts[node.name] += 2
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                counts[(a.asname or a.name).split(".")[0]] += 2
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            counts[node.id] += 1
+            parent = parents.get(id(node))
+            if isinstance(parent, (ast.Assign, ast.AnnAssign)) and getattr(parent, "value", None) is not None:
+                values[node.id] = parent.value
+    declared = {g for n in ast.walk(tree) if isinstance(n, (ast.Global, ast.Nonlocal)) for g in n.names}
+    return frozenset(name for name, count in counts.items()
+                     if count == 1 and name not in declared and name in values
+                     and _fixed(values[name]))
+
+
+def _is_self(node) -> bool:
+    return isinstance(node, ast.Name) and node.id == "self"
+
+
+def _self_root(node) -> str | None:
+    """X when *node* is ``self.X`` or something inside it (``self.X[k]``, ``self.X.y``)."""
+    while isinstance(node, (ast.Subscript, ast.Attribute)):
+        if isinstance(node, ast.Attribute) and _is_self(node.value):
+            return node.attr
+        node = node.value
+    return None
+
+
+def _attribute_writes(tree, parents) -> dict:
+    """Every write of an attribute anywhere in the module, by attribute name:
+    (readable, why not, the method it is in, the value written)."""
+    out: dict = collections.defaultdict(list)
+
+    def method_of(node):
+        scope = _scope_of(node, parents)
+        if (isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and isinstance(parents.get(id(scope)), ast.ClassDef)):
+            return scope
+        return None
+
+    def record(target_node, value, anchor):
+        method = method_of(anchor)
+        if isinstance(target_node, ast.Attribute) and _is_self(target_node.value):
+            attr, how = target_node.attr, "written"
+        elif isinstance(target_node, ast.Attribute):
+            out[target_node.attr].append(
+                (False, "written through something other than self (a class, "
+                        "type(self), another object); the census does not follow it", None, None))
+            return
+        else:
+            attr, how = _self_root(target_node), "written into"
+            if attr is None:
+                return
+        if method is None:
+            out[attr].append((False, f"{how} outside a method's own body (a nested def "
+                                     "or lambda, or module level); the census does not "
+                                     "follow it", None, None))
+        else:
+            out[attr].append((True, "", method, value))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for stmt in node.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    out[stmt.name].append((False, "a method or property of that name; the "
+                                                  "census does not follow what it returns",
+                                           None, None))
+                elif isinstance(stmt, (ast.Assign, ast.AnnAssign)) and stmt.value is not None:
+                    fixed = _fixed(stmt.value)
+                    for t in (stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]):
+                        for name in _stored_names(t):
+                            out[name].append((fixed, "a class attribute bound to something "
+                                                     "other than an immutable literal", None,
+                                              None))
+        pairs = []
+        if isinstance(node, ast.Assign):
+            pairs = [(t, node.value) for t in node.targets]
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)) and node.value is not None:
+            pairs = [(node.target, node.value)]
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            pairs = [(node.target, node.iter)]
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            pairs = [(i.optional_vars, i.context_expr) for i in node.items if i.optional_vars]
+        for target, value in pairs:
+            for sub in ast.walk(target):
+                if isinstance(sub, (ast.Attribute, ast.Subscript)) and isinstance(
+                        getattr(sub, "ctx", None), ast.Store):
+                    record(sub, value, node)
+        parts = _setattr_parts(node)
+        if parts and isinstance(parts[1], ast.Constant) and isinstance(parts[1].value, str):
+            record(ast.Attribute(value=parts[0], attr=parts[1].value, ctx=ast.Store()),
+                   parts[2], node)
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and _self_root(node.func.value) and (node.args or node.keywords)):
+            record(node.func.value,
+                   ast.Tuple(elts=[*node.args, *(k.value for k in node.keywords)], ctx=ast.Load()),
+                   node)
+    return dict(out)
+
+
+def _escaped_self(tree, parents) -> frozenset:
+    """Self attributes read as a whole somewhere other than as the base of a
+    subscript or an attribute: handed to a call, bound to another name, put in
+    a container. What is written into them there, the census does not see."""
+    out = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute) and _is_self(node.value)
+                and isinstance(node.ctx, ast.Load)):
+            parent = parents.get(id(node))
+            if not (isinstance(parent, (ast.Subscript, ast.Attribute)) and parent.value is node):
+                out.add(node.attr)
+    return frozenset(out)
+
+
+def _module_facts(tree) -> _Module:
+    parents = _parents(tree)
+    return _Module(tree, parents, _module_constants(tree, parents),
+                   _attribute_writes(tree, parents), _escaped_self(tree, parents))
+
+
+def _local_bindings(fn) -> dict:
+    """name -> [(how it is bound, the value)] for *fn*'s own body; the value is
+    None for a form the trace does not read into."""
+    out: dict = collections.defaultdict(list)
+
+    def bind(target, how, value):
+        for name in _stored_names(target):
+            out[name].append((how, value))
+
+    for n in _own(fn):
+        if isinstance(n, ast.Assign):
+            for t in n.targets:
+                bind(t, "an assignment", n.value)
+                for sub in ast.walk(t):
+                    if (isinstance(sub, (ast.Subscript, ast.Attribute))
+                            and isinstance(sub.value, ast.Name) and isinstance(sub.ctx, ast.Store)):
+                        out[sub.value.id].append(("an assignment", n.value))
+        elif isinstance(n, (ast.AugAssign, ast.AnnAssign, ast.NamedExpr)) and n.value is not None:
+            bind(n.target, "an assignment", n.value)
+            if isinstance(n.target, (ast.Subscript, ast.Attribute)) and isinstance(n.target.value, ast.Name):
+                out[n.target.value.id].append(("an assignment", n.value))
+        elif isinstance(n, (ast.For, ast.AsyncFor, ast.comprehension)):
+            bind(n.target, "a loop", n.iter)
+        elif isinstance(n, (ast.With, ast.AsyncWith)):
+            for item in n.items:
+                if item.optional_vars is not None:
+                    bind(item.optional_vars, "a with", item.context_expr)
+        elif isinstance(n, ast.Match):
+            for case in n.cases:
+                for target, value in _captures(case.pattern, n.subject):
+                    bind(target, "a match", value)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            out[n.name].append(("except ... as", None))
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                out[(a.asname or a.name).split(".")[0]].append(("an import", None))
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out[n.name].append(("a nested def or class", None))
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            for name in n.names:
+                out[name].append(("global or nonlocal", None))
+        elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and isinstance(n.func.value, ast.Name) and (n.args or n.keywords)):
+            out.setdefault(n.func.value.id, [])
+            out[n.func.value.id].append(("a call on it", ast.Tuple(
+                elts=[*n.args, *(k.value for k in n.keywords)], ctx=ast.Load())))
+    return dict(out)
+
+
+def _escaped_locals(fn, parents) -> frozenset:
+    """Local names read as a whole anywhere but as the base of a subscript or
+    an attribute (handed to a call, bound to another name, captured by a
+    nested def): what is written into them there, the census does not see."""
+    out = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            parent = parents.get(id(node))
+            if not (isinstance(parent, (ast.Subscript, ast.Attribute)) and parent.value is node):
+                out.add(node.id)
+    return frozenset(out)
+
+
+class _Walk(NamedTuple):
+    module: _Module
+    fn: ast.AST
+    roots: frozenset
+    bindings: dict
+    escaped: frozenset
+
+
+def _walk_for(fn, module: _Module) -> _Walk:
+    return _Walk(module, fn, frozenset(_roots(fn)), _local_bindings(fn),
+                 _escaped_locals(fn, module.parents))
+
+
+def _key_field(key) -> str:
+    return key.value if isinstance(key, ast.Constant) and isinstance(key.value, str) else "*"
+
+
+def _trace(expr, w: _Walk, seen=frozenset()) -> tuple[list[str], set[str]]:
+    """(what the walk cannot follow in *expr*, the request fields it reads).
+    A field is "*" when the request is read whole or under a name the census
+    cannot name."""
+    problems: list[str] = []
+    fields: set[str] = set()
+
+    def add(result):
+        problems.extend(result[0])
+        fields.update(result[1])
+
+    if expr is None or isinstance(expr, ast.Constant):
+        return problems, fields
+    if isinstance(expr, ast.Name):
+        return _trace_name(expr.id, w, seen, content=False)
+    if isinstance(expr, ast.Attribute):
+        if _is_self(expr.value):
+            return _trace_self(expr.attr, w, seen, content=False)
+        return _trace_content(expr.value, w, seen)
+    if isinstance(expr, ast.Subscript):
+        base = expr.value
+        if isinstance(base, ast.Name) and base.id in w.roots:
+            fields.add(_key_field(expr.slice))
+        else:
+            add(_trace_content(base, w, seen))
+        add(_trace(expr.slice, w, seen))
+        return problems, fields
+    if isinstance(expr, ast.Call):
+        return _trace_call(expr, w, seen)
+    if isinstance(expr, (ast.Lambda, ast.Yield, ast.YieldFrom)):
+        return [f"a {type(expr).__name__.lower()} reaches it; the census does not follow it"], fields
+    if isinstance(expr, ast.comprehension):
+        add(_trace(expr.iter, w, seen))
+        for cond in expr.ifs:
+            add(_trace(cond, w, seen))
+        return problems, fields
+    for child in ast.iter_child_nodes(expr):
+        if isinstance(child, (ast.expr, ast.comprehension)) and not (
+                isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store)):
+            add(_trace(child, w, seen))
+    return problems, fields
+
+
+def _trace_name(name, w: _Walk, seen, content) -> tuple[list[str], set[str]]:
+    if name in w.roots:
+        return [], {"*"}
+    if name in w.bindings:
+        if name in seen:
+            return [], set()
+        problems: list[str] = []
+        fields: set[str] = set()
+        for how, value in w.bindings[name]:
+            if value is None:
+                problems.append(f"{name} is bound by {how}; the census does not follow what it holds")
+                continue
+            p, f = _trace(value, w, seen | {name})
+            problems += p
+            fields |= f
+        if content and name in w.escaped:
+            problems.append(f"{name} is handed elsewhere before it is read; the census does not "
+                            "follow what is written into it there")
+        return problems, fields
+    if name in w.module.constants:
+        return [], set()
+    return [f"{name} is neither bound in this method nor an immutable constant of the module; "
+            "the census does not follow what it holds"], set()
+
+
+def _trace_self(attr, w: _Walk, seen, content) -> tuple[list[str], set[str]]:
+    key = f"self.{attr}"
+    if key in seen:
+        return [], set()
+    writes = w.module.writes.get(attr, [])
+    if not writes:
+        if attr in BASE_ATTRIBUTES:
+            return [], set()
+        return [f"{key} is never written in this module; the census does not follow where "
+                "it comes from"], set()
+    problems: list[str] = []
+    fields: set[str] = set()
+    for readable, why, method, value in writes:
+        if not readable:
+            problems.append(f"{key}: {why}")
+            continue
+        if value is None:
+            continue
+        p, f = _trace(value, _walk_for(method, w.module), seen | {key})
+        problems += p
+        if f:
+            fields.add("*")         # the request stored on self: its fields cannot be named
+    if content and attr in w.module.escaped:
+        problems.append(f"{key} is handed elsewhere; the census does not follow what is "
+                        "written into it there")
+    return problems, fields
+
+
+def _trace_content(base, w: _Walk, seen) -> tuple[list[str], set[str]]:
+    """What reading into *base* (a subscript, an attribute, ``.get``) yields."""
+    if isinstance(base, ast.Name):
+        if base.id in w.roots:
+            return [], {"*"}
+        return _trace_name(base.id, w, seen, content=True)
+    if isinstance(base, ast.Attribute) and _is_self(base.value):
+        return _trace_self(base.attr, w, seen, content=True)
+    return _trace(base, w, seen)
+
+
+def _trace_call(call, w: _Walk, seen) -> tuple[list[str], set[str]]:
+    problems: list[str] = []
+    fields: set[str] = set()
+    f = call.func
+    arguments = [*call.args, *(k.value for k in call.keywords)]
+    if isinstance(f, ast.Attribute) and f.attr == "get":
+        if isinstance(f.value, ast.Name) and f.value.id in w.roots:
+            if call.args:
+                fields.add(_key_field(call.args[0]))
+            for a in arguments[1:]:
+                p, fs = _trace(a, w, seen)
+                problems += p
+                fields |= fs
+            return problems, fields
+        p, fs = _trace_content(f.value, w, seen)
+        problems += p
+        fields |= fs
+        for a in arguments:
+            p, fs = _trace(a, w, seen)
+            problems += p
+            fields |= fs
+        return problems, fields
+    pure = ((isinstance(f, ast.Name) and f.id in _CONVERTERS)
+            or (isinstance(f, ast.Attribute) and f.attr in _STRING_METHODS))
+    parts = list(arguments)
+    if isinstance(f, ast.Attribute) and not (
+            _is_self(f.value) or (isinstance(f.value, ast.Name) and f.value.id not in w.roots
+                                  and f.value.id not in w.bindings)):
+        parts.append(f.value)
+    for a in parts:
+        p, fs = _trace(a, w, seen)
+        problems += p
+        fields |= fs
+    if pure:
+        return problems, fields
+    if fields:
+        return problems, {"*"}      # a call handed the request is read as the request itself
+    return problems + [f"what {ast.unparse(f)[:60]} returns; the census does not follow it"], fields
 
 
 #: Decorators that hand a method what its caller passed, unchanged.
@@ -595,6 +1087,48 @@ def _named_lookups(tree: ast.AST, accounted: set[int]):
         if spelled:
             yield where.get(id(n), ""), n.lineno, (
                 "attest is reached by its name as a string; the census cannot read its arguments")
+            continue
+        parts = _setattr_parts(n)
+        deleting = ((isinstance(f, ast.Name) and f.id == "delattr")
+                    or (isinstance(f, ast.Attribute) and f.attr == "__delattr__"))
+        if (parts and not (isinstance(parts[1], ast.Constant) and isinstance(parts[1].value, str))) \
+                or (deleting and not any(isinstance(a, ast.Constant) for a in n.args[1:2])):
+            yield where.get(id(n), ""), n.lineno, (
+                "an attribute is written by a name computed at run time; the census cannot "
+                "tell which")
+            continue
+        name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+        loads = (isinstance(f, ast.Name) and name in ("exec", "eval", "compile", "__import__")) \
+            or name == "import_module"
+        if loads:
+            yield where.get(id(n), ""), n.lineno, (
+                f"code or a module is loaded at run time ({name}); the census cannot read it")
+        elif name in ("vars", "globals", "locals"):
+            yield where.get(id(n), ""), n.lineno, (
+                f"a namespace is read or written by name ({name}); the census cannot tell which "
+                "name")
+        elif name.startswith(("get_function_by_", "find_functions_by_")):
+            yield where.get(id(n), ""), n.lineno, (
+                f"{_CONTRACT_LOOKUP} ({name}); the census cannot tell it is not an EAS write")
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Attribute) and n.attr == "__dict__":
+            yield where.get(id(n), ""), n.lineno, (
+                "a namespace is read or written by name (__dict__); the census cannot tell "
+                "which name")
+        elif (isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant)
+              and n.slice.value == "attest"):
+            yield where.get(id(n), ""), n.lineno, (
+                "attest is reached by its name as a string; the census cannot read its arguments")
+        elif (isinstance(n, ast.Subscript) and isinstance(n.value, ast.Attribute)
+              and n.value.attr == "functions" and not isinstance(n.slice, ast.Constant)):
+            yield where.get(id(n), ""), n.lineno, (
+                f"{_CONTRACT_LOOKUP} (functions[...]); the census cannot tell it is not an EAS "
+                "write")
+        elif isinstance(n, (ast.Import, ast.ImportFrom)) and any(
+                (a.name or "").split(".")[0] == "importlib" for a in n.names) or (
+                isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] == "importlib"):
+            yield where.get(id(n), ""), n.lineno, (
+                "code or a module is loaded at run time (importlib); the census cannot read it")
     for n in ast.walk(tree):
         write = None
         if isinstance(n, ast.Attribute) and n.attr in EAS_WRITES and isinstance(n.value, ast.Attribute) \
@@ -608,6 +1142,9 @@ def _named_lookups(tree: ast.AST, accounted: set[int]):
             yield where.get(id(n), ""), n.lineno, (
                 f"the EAS contract's {write} is built here, not through EASClient.attest; "
                 "the census cannot read what it signs")
+
+
+_CONTRACT_LOOKUP = "a contract function is looked up or chosen at run time"
 
 
 def _nested(fn) -> set[int]:
@@ -633,6 +1170,7 @@ def _census(source: str, filename: str, binds=_seam_binds):
     written onto ``self`` under a name it cannot read, and an EAS write built
     outside the client. A census that cannot see a site must not pass it."""
     tree = ast.parse(source, filename=filename)
+    module = _module_facts(tree)
     accounted: set[int] = set()
     for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
         tool, verbs = _tool_name(cls), _verbs(cls)
@@ -693,12 +1231,19 @@ def _census(source: str, filename: str, binds=_seam_binds):
                     problems.append(rewritten)
                 if call.args or not {"action", "agent"} <= set(kw):
                     problems.append("action/agent not passed by keyword; the census cannot read it")
+                walk = _walk_for(fn, module)
+                traced = {}
+                for part in ("action", "agent", "recipient"):
+                    if part in kw:
+                        untraced, traced[part] = _trace(kw[part], walk)
+                        problems += [f"{part}: {p}" for p in dict.fromkeys(untraced)]
                 for part in ("action", "agent"):
-                    if part in kw and _fields(kw[part], roots, tainted, carried)[0]:
+                    if part in kw and (_fields(kw[part], roots, tainted, carried)[0] or traced[part]):
                         if not (part == "agent" and (tool, verb) in AGENT_FROM_A_FIXED_SET):
                             problems.append(f"{part} is drawn from the request")
                 if "recipient" in kw:
                     drawn, fields = _fields(kw["recipient"], roots, tainted, carried)
+                    drawn, fields = drawn or bool(traced["recipient"]), fields | traced["recipient"]
                     bound = binds(tool, verb)
                     if drawn and (verb is None or "*" in fields or not fields <= bound):
                         problems.append(f"recipient is drawn from request field(s) "
@@ -732,6 +1277,13 @@ NAMED_LOOKUPS = {
         "reads a field of a transaction receipt; it calls nothing it reads",
 }
 _COMPUTED_NAME = "a method is reached by a name computed at run time"
+#: The places in the twin directory that look a contract function up at run
+#: time, each with why it signs nothing. The walk reports every such place.
+CONTRACT_LOOKUPS = {
+    ("smart_contracts.py", "SmartContracts._call"):
+        "the read action: contract.functions[fn](*args).call(), an eth_call that "
+        "signs and writes nothing (test_the_contract_lookup_listing_is_exact)",
+}
 
 
 def _all_twin_sites():
@@ -744,8 +1296,10 @@ def _all_twin_sites():
 
 def _listed(site) -> bool:
     f, _tool, _verb, method, _line, problems = site
-    return ((f, method) in NAMED_LOOKUPS and len(problems) == 1
-            and problems[0].startswith(_COMPUTED_NAME))
+    if len(problems) != 1:
+        return False
+    return (((f, method) in NAMED_LOOKUPS and problems[0].startswith(_COMPUTED_NAME))
+            or ((f, method) in CONTRACT_LOOKUPS and problems[0].startswith(_CONTRACT_LOOKUP)))
 
 
 def _twin_sites():
@@ -1048,12 +1602,13 @@ def test_the_census_reports_a_place_it_could_not_follow(shape):
 
 
 def test_what_the_walk_now_follows_it_still_passes_when_bound():
-    """[guard] Following ``with`` and ``match`` is reading them, not refusing
-    them: a bound field through either passes."""
+    """[guard] Following ``match`` is reading it, not refusing it: a bound
+    field through a capture passes, and so does a staticmethod beside the tool
+    method. (A ``with ... as`` target is what the context manager's
+    ``__enter__`` returns, which the census cannot name: handed the request, it
+    is read as the request whole, and reported unless the seam binds all of it;
+    test_a_with_target_is_the_request_whole.)"""
     for body in (
-        "    async def _record(self, params):\n"
-        "        with hold(params.get('player_address')) as who:\n"
-        "            await client.attest(action='a', agent='neo', details={}, recipient=who)\n",
         "    async def _record(self, params):\n"
         "        match params:\n"
         "            case {'player_address': who}:\n"
@@ -1108,19 +1663,45 @@ def test_the_named_lookup_listing_is_exact():
     assert seen.count(("web3_manager.py", "Web3Manager.get_shared")) == 2, seen
 
 
+def _imported(tree, package: str = "runtime.blockchain") -> set[str]:
+    """Every module a twin module imports, a relative import resolved against
+    *package* (``from . import x`` and ``from .x import y`` are
+    runtime.blockchain.x; ``from .. import y`` is runtime.y)."""
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            out |= {a.name for a in n.names}
+        elif isinstance(n, ast.ImportFrom):
+            if n.level:
+                base = ".".join(package.split(".")[: len(package.split(".")) - (n.level - 1)])
+                if n.module:
+                    out.add(f"{base}.{n.module}")
+                else:
+                    out |= {f"{base}.{a.name}" for a in n.names}
+            elif n.module:
+                out.add(n.module)
+    return out
+
+
+def test_a_relative_import_is_resolved():
+    """[control] The premise below counted only names that start with
+    ``runtime.``, so a relative import was never counted at all."""
+    tree = ast.parse("from ..security import audit\nfrom . import eas_client\n"
+                     "from .services.attestation import AttestationService\n")
+    assert _imported(tree) == {"runtime.security", "runtime.blockchain.eas_client",
+                               "runtime.blockchain.services.attestation"}, _imported(tree)
+
+
 def test_the_twins_reach_no_attestation_the_walk_does_not_read():
     """[guard] The walk reads ``runtime/blockchain/*.py``. What a twin module
-    imports from anywhere else is named here, and none of it attests: so the
-    walk reads every attestation these tools make."""
+    imports from anywhere else under ``runtime/`` is named here, and none of it
+    attests; a module loaded at run time is reported by the walk itself."""
     outside = {}
     for path in sorted(TWIN_DIR.glob("*.py")):
-        for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            mods = ([n.module] if isinstance(n, ast.ImportFrom) and n.module
-                    else [a.name for a in n.names] if isinstance(n, ast.Import) else [])
-            for mod in mods:
-                if mod.startswith("runtime.") and not (
-                        mod.startswith("runtime.blockchain.") and mod.count(".") == 2):
-                    outside.setdefault(mod, set()).add(path.name)
+        for mod in _imported(ast.parse(path.read_text(encoding="utf-8"))):
+            if mod.startswith("runtime.") and not (
+                    mod.startswith("runtime.blockchain.") and mod.count(".") == 2):
+                outside.setdefault(mod, set()).add(path.name)
     assert set(outside) <= {"runtime.access_policy", "runtime.protocols.outcome_truth",
                             "runtime.security.audit"}, outside
     for mod in outside:
@@ -1129,3 +1710,178 @@ def test_the_twins_reach_no_attestation_the_walk_does_not_read():
         assert not any(isinstance(n, ast.Attribute) and n.attr in ("attest", "EASClient")
                        for n in ast.walk(tree)), mod
         assert not any(isinstance(n, ast.Name) and n.id == "EASClient" for n in ast.walk(tree)), mod
+
+
+
+# ── the fifth review's shapes, and the trace that closes the list ───────
+#
+# At this branch's signing-census commit ("The signing census reads every form
+# that binds a name ...") each shape below passed the census with no problem
+# reported, although the README said the walk reported every place it could
+# not follow the request: a constant ``setattr`` spelled as a method call; a
+# ``for`` or ``with`` target that is an attribute of ``self``; ``attest`` or a
+# contract's attest reached through a class's ``__dict__``, ``vars()`` or a
+# selector; a module dict, a ContextVar, a class attribute or ``exec`` carrying
+# the request between methods; ``eval``; an attribute written inside a nested
+# def; a local container handed elsewhere; a property; an attribute nothing
+# writes. The walk now traces every value that reaches action, agent and
+# recipient, and whatever it cannot trace it reports.
+
+_TWO_METHODS = (
+    "    async def _record(self, params):\n"
+    "        {store}\n"
+    "        await self._sign()\n"
+    "    async def _sign(self):\n"
+    "        await client.attest(action='a', agent='neo', details={{}}, recipient={read})\n"
+)
+
+FIFTH_REVIEW_SHAPES = {
+    "setattr as a method call": ("", _TWO_METHODS.format(
+        store="self.__setattr__('who', params.get('to'))", read="self.who"),
+        "recipient is drawn"),
+    "a for target on self": ("", _TWO_METHODS.format(
+        store="for self.who in [params.get('to')]: pass", read="self.who"),
+        "recipient is drawn"),
+    "a with target on self": ("", _TWO_METHODS.format(
+        store="with hold(params.get('to')) as self.who: pass", read="self.who"),
+        "recipient is drawn"),
+    "attest through a class's __dict__": ("",
+        "    async def _record(self, params):\n"
+        "        await EASClient.__dict__['attest'](client, action='a', agent='neo',\n"
+        "                                           details={}, recipient=params.get('to'))\n",
+        "(__dict__)"),
+    "an EAS attest looked up by selector": ("",
+        "    async def _record(self, params):\n"
+        "        tx = eas.get_function_by_selector('0xf17325e7')(\n"
+        "            (SCHEMA, (params.get('to'), 0, True, b'', b'', 0)))\n",
+        "looked up or chosen at run time"),
+    "a module dict between methods": ("_HELD = {}\n", _TWO_METHODS.format(
+        store="_HELD['who'] = params.get('to')", read="_HELD['who']"),
+        "_HELD is neither bound in this method nor an immutable constant"),
+    "a ContextVar between methods": ("WHO = ContextVar('who')\n", _TWO_METHODS.format(
+        store="WHO.set(params.get('to'))", read="WHO.get()"),
+        "WHO is neither bound in this method nor an immutable constant"),
+    "a class attribute written through type(self)": ("", _TWO_METHODS.format(
+        store="type(self).who = params.get('to')", read="self.who"),
+        "written through something other than self"),
+    "exec of a string": ("", _TWO_METHODS.format(
+        store="exec(\"self.who = params.get('to')\")", read="self.who"),
+        "loaded at run time (exec)"),
+    "eval of a string": ("",
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='a', agent='neo', details={},\n"
+        "                            recipient=eval(\"params.get('to')\"))\n",
+        "loaded at run time (eval)"),
+    "attest through type(client).__dict__": ("",
+        "    async def _record(self, params):\n"
+        "        await type(client).__dict__['attest'](client, action='a', agent='neo',\n"
+        "                                              details={}, recipient=params.get('to'))\n",
+        "(__dict__)"),
+    "attest through vars()": ("",
+        "    async def _record(self, params):\n"
+        "        await vars(EASClient)['attest'](client, action='a', agent='neo',\n"
+        "                                        details={}, recipient=params.get('to'))\n",
+        "(vars)"),
+    "an attribute written in a nested def": ("", _TWO_METHODS.format(
+        store="stash = lambda p: setattr(self, 'who', p.get('to')); stash(params)",
+        read="self.who"),
+        "outside a method's own body"),
+    "a local container handed elsewhere": ("",
+        "    async def _record(self, params):\n"
+        "        held = {}\n"
+        "        stash(held, params)\n"
+        "        await client.attest(action='a', agent='neo', details={}, recipient=held['to'])\n",
+        "handed elsewhere"),
+    "a property": ("_HELD = {}\n",
+        "    @property\n"
+        "    def who(self):\n"
+        "        return _HELD['who']\n"
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='a', agent='neo', details={}, recipient=self.who)\n",
+        "a method or property"),
+    "an attribute nothing writes": ("",
+        "    async def _record(self, params):\n"
+        "        await client.attest(action='a', agent='neo', details={}, recipient=self.target)\n",
+        "never written in this module"),
+    "an attribute written by a computed name": ("",
+        "    async def _record(self, params):\n"
+        "        setattr(holder, params.get('field'), params.get('to'))\n"
+        "        await client.attest(action='a', agent='neo', details={}, recipient=holder.to)\n",
+        "written by a name computed at run time"),
+}
+
+
+def _problems_with(prelude: str, body: str) -> list[str]:
+    source = prelude + _PLANTED_HEAD + _RECORD + body
+    return [p for *_site, problems in _census(source, "<planted>", binds=lambda t, v: {"player_address"})
+            for p in problems]
+
+
+@pytest.mark.parametrize("shape", sorted(FIFTH_REVIEW_SHAPES))
+def test_the_census_reports_every_value_it_cannot_trace(shape):
+    """[control]"""
+    prelude, body, expected = FIFTH_REVIEW_SHAPES[shape]
+    problems = _problems_with(prelude, body)
+    assert any(expected in p for p in problems), (shape, problems)
+
+
+def test_a_with_target_is_the_request_whole():
+    """[guard] ``with hold(x) as who`` binds what ``hold(x).__enter__()``
+    returns. Handed the request, it is read as the request whole, so even a
+    bound field through it is reported."""
+    body = ("    async def _record(self, params):\n"
+            "        with hold(params.get('player_address')) as who:\n"
+            "            await client.attest(action='a', agent='neo', details={}, recipient=who)\n")
+    assert any("recipient is drawn from request field(s) ['*']" in p
+               for p in _problems_with("", body)), _problems_with("", body)
+
+
+def test_the_trace_still_passes_what_the_twins_write():
+    """[guard] Stricter, not blind: the shapes the real sites use pass — a
+    constant, a bound field with a constant default, a local bound from one and
+    read through a conditional, a module constant, a converted string."""
+    body = ("    async def _record(self, params):\n"
+            "        who = params.get('player_address', ZERO)\n"
+            "        name = str(params.get('player_address') or '').strip().lower()\n"
+            "        await client.attest(action=ACTION, agent='neo', details={},\n"
+            "                            recipient=who if who else name)\n")
+    assert _problems_with("ZERO = '0x' + '0' * 40\nACTION = 'achievement'\n", body) == [], \
+        _problems_with("ZERO = '0x' + '0' * 40\nACTION = 'achievement'\n", body)
+
+
+def test_the_base_attributes_are_the_configurations():
+    """[guard] Each attribute the trace takes from the base class is written,
+    anywhere in the directory, only in an ``__init__`` and only from the
+    configuration's blockchain section."""
+    for attr in BASE_ATTRIBUTES:
+        writes = []
+        for path in sorted(TWIN_DIR.glob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for fn in ast.walk(tree):
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for n in ast.walk(fn):
+                    if isinstance(n, ast.Assign) and any(
+                            isinstance(t, ast.Attribute) and t.attr == attr for t in n.targets):
+                        writes.append((path.name, fn.name, ast.unparse(n.value)))
+        assert writes and all(fn == "__init__" and value == f"bc.get('{attr}', '')"
+                              for _f, fn, value in writes), writes
+        assert "interface.py" in {f for f, _fn, _v in writes}, writes
+
+
+def test_the_contract_lookup_listing_is_exact():
+    """[guard, of the listing] The one place in the directory that looks a
+    contract function up at run time calls it as a read and nothing else."""
+    seen = {(f, method) for f, _t, _v, method, _l, problems in _all_twin_sites()
+            for p in problems if p.startswith(_CONTRACT_LOOKUP)}
+    assert seen == set(CONTRACT_LOOKUPS), seen
+    tree = ast.parse((TWIN_DIR / "smart_contracts.py").read_text(encoding="utf-8"))
+    parents = _parents(tree)
+    for n in ast.walk(tree):
+        if (isinstance(n, ast.Subscript) and isinstance(n.value, ast.Attribute)
+                and n.value.attr == "functions"):
+            called = parents[id(n)]
+            used = parents[id(called)]
+            assert isinstance(called, ast.Call) and called.func is n, ast.unparse(called)
+            assert isinstance(used, ast.Attribute) and used.attr == "call", ast.unparse(used)
+            assert isinstance(parents[id(used)], ast.Call), "a read, called"
