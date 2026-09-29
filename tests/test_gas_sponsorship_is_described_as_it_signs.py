@@ -1,7 +1,7 @@
 """What the code and the documents say about gas sponsorship is what the
 signers do.
 
-Two statements had drifted from the code:
+Three statements had drifted from the code:
 
 * runtime/blockchain/gas_sponsor.py said its paymaster "funds the operations
   the policy allows; the rest are refused", and that sponsor_transaction pays

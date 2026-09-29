@@ -1,7 +1,7 @@
 """What the text says the security seam and the decision framework do is what
 this tree runs.
 
-Three statements had outlived the code they describe:
+Four statements had outlived the code they describe:
 
   * the inert gate the seam binds when the closed-source security core is not
     installed (runtime/security/__init__.py, `_NoopMorpheus`) said it "Logs
@@ -24,21 +24,18 @@ Three statements had outlived the code they describe:
     it is this repository's own code, which a fork can change or remove, and
     docs/unified-rexhepi-framework.md says exactly that.
 
-The premises are measured here: the backend this clone binds, what the no-op
-gate logs when it is asked, and where the framework's gate is called from.
+The premises are measured here: what the no-op gate logs when it is asked and
+what the seam logs when it is imported, in a fresh interpreter in which the
+closed core cannot be imported, read against the three texts in both
+directions; and where the framework's gate is called from.
 """
 
 from __future__ import annotations
 
 import ast
-import asyncio
-import inspect
-import logging
 import re
 import subprocess
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -168,41 +165,125 @@ def test_no_public_text_says_a_layer_governs_everything_or_cannot_be_bypassed():
     assert not offenders, "\n".join(offenders)
 
 
-def test_the_noop_gate_says_what_it_does_when_it_is_asked(caplog):
-    import runtime.security as seam
-
-    if not _seam_binds_the_noop_gate():
-        pytest.skip("the closed security core is installed; there is no no-op gate here")
-    gate = seam.get_morpheus_security()
-    caplog.set_level(logging.DEBUG)
-    caplog.clear()
-    verdict = asyncio.run(gate.evaluate({"tool": "anything"}, {"agent": "neo"}))
-    assert verdict["allow"] is True and verdict["backend"] == "noop"
-    # The platform's own loggers only: asyncio.run logs its selector at DEBUG.
-    logged = [r for r in caplog.records if r.name.startswith(("runtime", "gateway"))]
-    # The gate's own docstring, the seam's module docstring and the interface
-    # document all describe this gate. The module docstring and the document
-    # said "every action is allowed and logged" while the class said it logs
-    # nothing, and evaluate() logs nothing.
-    texts = {
-        "_NoopMorpheus": inspect.getdoc(type(gate)) or "",
-        "runtime/security/__init__.py": inspect.getdoc(seam) or "",
-        "runtime/security/SECURITY_INTERFACE.md":
-            (ROOT / "runtime" / "security" / "SECURITY_INTERFACE.md").read_text(encoding="utf-8"),
-    }
-    if not logged:
-        for where, text in texts.items():
-            doc = " ".join(text.split()).lower()
-            m = _SAYS_IT_LOGS_EACH_CALL.search(doc)
-            assert not m, (f"the no-op gate logged nothing when asked, and {where} says: "
-                           f"...{doc[max(0, m.start() - 60):m.end() + 30]}...")
-
-
 _SAYS_IT_LOGS_EACH_CALL = re.compile(
     r"logs that it ran|invocation is observable"
     r"|logs (?:each|every) (?:call|evaluation|invocation|action)"
     r"|(?:every|each) (?:action|call) is (?:allowed and )?logged"
     r"|allowed and logged")
+_SAYS_IT_LOGS_NOTHING_PER_CALL = re.compile(
+    r"nothing is logged per (?:action|call)|without logging|logs nothing")
+_SAYS_THE_SEAM_LOGS_ONCE_AT_IMPORT = re.compile(r"logs once, at import")
+
+
+# What the no-op gate logs is measured in a fresh interpreter in which the
+# closed core cannot be imported, so the seam binds the no-op whatever this
+# process has installed: every record the seam's logger writes while it is
+# imported, then every record the platform's loggers write while the gate
+# answers one call. The texts are then read against both measurements, in
+# both directions: a text may say nothing is logged per call only while
+# evaluate() logs nothing, may say the gate logs each call only when it does,
+# and may say the seam logs once, at import, only when the import writes
+# exactly one record naming the no-op.
+_MEASURE_THE_NOOP_GATE = r"""
+import asyncio, json, logging, sys
+sys.modules["morpheus_security"] = None  # the closed core is not installed
+records = []
+
+class _Keep(logging.Handler):
+    def emit(self, record):
+        records.append([record.name, record.levelname, record.getMessage()])
+
+logging.getLogger().addHandler(_Keep())
+logging.getLogger().setLevel(logging.DEBUG)
+import runtime.security as seam
+at_import = [r for r in records if r[0] == "runtime.security"]
+del records[:]
+gate = seam.get_morpheus_security()
+verdict = asyncio.run(gate.evaluate({"tool": "anything"}, {"agent": "neo"}))
+per_call = [r for r in records if r[0].startswith(("runtime", "gateway"))]
+print(json.dumps({"backend": seam.SECURITY_BACKEND, "gate": type(gate).__name__,
+                  "allow": verdict.get("allow"), "verdict_backend": verdict.get("backend"),
+                  "at_import": at_import, "per_call": per_call}))
+"""
+
+
+def _measure_the_noop_gate() -> dict:
+    import json
+    import os
+    import sys
+    env = {**os.environ, "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
+    out = subprocess.run([sys.executable, "-c", _MEASURE_THE_NOOP_GATE], cwd=ROOT, env=env,
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out.strip().splitlines()[-1])
+
+
+def _noop_gate_texts() -> dict[str, str]:
+    """The gate's own docstring, the seam's module docstring and the interface
+    document, which all describe the no-op gate, read from source so that the
+    no-op branch is read even where the closed core is installed."""
+    source = (ROOT / "runtime" / "security" / "__init__.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    noop = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "_NoopMorpheus")
+    return {
+        "_NoopMorpheus": ast.get_docstring(noop) or "",
+        "runtime/security/__init__.py": ast.get_docstring(tree) or "",
+        "runtime/security/SECURITY_INTERFACE.md":
+            (ROOT / "runtime" / "security" / "SECURITY_INTERFACE.md").read_text(encoding="utf-8"),
+    }
+
+
+def _statements_the_measurement_contradicts(measured: dict, texts: dict[str, str]) -> list[str]:
+    logs_per_call = bool(measured["per_call"])
+    noop_records = [r for r in measured["at_import"] if "noop" in r[2].lower()]
+    once_at_import = len(noop_records) == 1
+    wrong = []
+    for where, text in texts.items():
+        doc = " ".join(text.split()).lower()
+        checks = [
+            (_SAYS_IT_LOGS_EACH_CALL, not logs_per_call,
+             "the no-op gate logged nothing when asked"),
+            (_SAYS_IT_LOGS_NOTHING_PER_CALL, logs_per_call,
+             f"the no-op gate logged {measured['per_call']} when asked"),
+            (_SAYS_THE_SEAM_LOGS_ONCE_AT_IMPORT, not once_at_import,
+             f"importing the seam wrote {measured['at_import']}"),
+        ]
+        for pattern, contradicted, measured_fact in checks:
+            m = pattern.search(doc)
+            if m and contradicted:
+                wrong.append(f"{measured_fact}, and {where} says: "
+                             f"...{doc[max(0, m.start() - 60):m.end() + 30]}...")
+    return wrong
+
+
+def test_the_noop_gate_says_what_it_does_when_it_is_asked():
+    measured = _measure_the_noop_gate()
+    assert measured["backend"] == "noop" and measured["gate"] == "MorpheusSecurity", measured
+    assert measured["allow"] is True and measured["verdict_backend"] == "noop", measured
+    texts = _noop_gate_texts()
+    # Each text says what the gate does per call and what the seam logs at
+    # import; without the statement there is nothing here to read.
+    for where, text in texts.items():
+        doc = " ".join(text.split()).lower()
+        assert (_SAYS_IT_LOGS_EACH_CALL.search(doc) or _SAYS_IT_LOGS_NOTHING_PER_CALL.search(doc)), (
+            f"{where} no longer says whether the no-op gate logs a call")
+        assert _SAYS_THE_SEAM_LOGS_ONCE_AT_IMPORT.search(doc), (
+            f"{where} no longer says what the seam logs at import")
+    wrong = _statements_the_measurement_contradicts(measured, texts)
+    assert not wrong, "\n".join(wrong)
+
+
+def test_the_reading_goes_both_ways():
+    """Both edits the old check let through are caught: a gate that starts
+    logging each call under texts that say it logs nothing, and a seam that
+    stops logging at import under texts that say it logs once."""
+    texts = _noop_gate_texts()
+    quiet_import = [["runtime.security", "WARNING", "Security backend: noop. ..."]]
+    logging_gate = {"per_call": [["runtime.security", "INFO", "evaluated"]], "at_import": quiet_import}
+    assert len(_statements_the_measurement_contradicts(logging_gate, texts)) == len(texts)
+    silent_import = {"per_call": [], "at_import": []}
+    assert len(_statements_the_measurement_contradicts(silent_import, texts)) == len(texts)
+    assert not _statements_the_measurement_contradicts({"per_call": [], "at_import": quiet_import},
+                                                       texts)
 
 
 def test_the_logging_scan_sees_the_old_sentences():
