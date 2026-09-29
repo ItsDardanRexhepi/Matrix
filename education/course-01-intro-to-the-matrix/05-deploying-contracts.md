@@ -58,7 +58,7 @@ curl -X POST http://localhost:18790/api/v1/contracts/convert \
   -d '{"source_code": "contract MatrixCoin\nstate owner: address\n...", "source_lang": "pseudocode"}'
 ```
 
-`source_lang` is one of `pseudocode`, `solidity` or `vyper`. You can also ask Trinity in chat to convert a contract; she calls the same capability.
+`source_lang` is one of `pseudocode`, `solidity` or `vyper`. You can also ask Trinity in chat to convert a contract, with the operator key or a wallet session on the request: she calls the same capability, and on a gateway with a key set an anonymous chat is refused it.
 
 The answer carries `generated_source`, the name of the contract in it, the complexity `tier` with its fee quote (`fee_eth`; nothing collects it), `audit` and `audit_passed`. For the description above, the generated source declares `MatrixCoin` with the three state variables and the three functions.
 

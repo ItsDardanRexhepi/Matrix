@@ -315,7 +315,7 @@ body{
     <div class="step">
       <div class="step-num">2</div>
       <h3>Convert</h3>
-      <p>Send it to <code>POST /api/v1/contracts/convert</code> with the gateway's API key, or ask Trinity in chat. The answer carries the generated Solidity, Glasswing's report on it and the conversion's tier quote.</p>
+      <p>Send it to <code>POST /api/v1/contracts/convert</code> with the gateway's API key or a wallet session. Trinity converts in chat too, for a caller who presents the key or a session; the chat page at <code>/chat</code> sends neither, so on a gateway with a key set she is refused the conversion there. The answer carries the generated Solidity, Glasswing's report on it and the conversion's tier quote.</p>
     </div>
     <div class="step">
       <div class="step-num">3</div>

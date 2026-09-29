@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,424 tests, run against the versions
+automated suite of 5,427 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -456,10 +456,17 @@ curl -X POST http://localhost:18790/chat \
 
 **Convert a contract**
 ```bash
-curl -X POST http://localhost:18790/chat \
+curl -X POST http://localhost:18790/api/v1/contracts/convert \
   -H "Content-Type: application/json" \
-  -d '{"agent": "trinity", "message": "Convert this rental agreement into a smart contract: Monthly rent of $2000, 12 month term, $4000 security deposit, late fee of $100 after 5 days"}'
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"source_lang": "pseudocode", "source_code": "contract Rental\n    state landlord: address\n    state tenant: address\n    state monthlyRent: uint256\n\n    function constructor(tenantAddr: address, rent: uint256)\n        landlord = msg.sender\n        tenant = tenantAddr\n        monthlyRent = rent\n\n    payable function payRent()\n        require(msg.sender == tenant, \"Only tenant can pay rent\")\n        require(msg.value == monthlyRent, \"Must pay exact rent\")\n"}'
 ```
+
+`YOUR_API_KEY` is the key setup generated (`gateway.api_key`). The
+converter reads structured pseudocode, Solidity or Vyper, not a
+description in prose; it answers with the Solidity draft and Glasswing's
+report on it. Unless the operator has turned on `conversion.auto_deploy`,
+it deploys nothing.
 
 **Check platform health**
 ```bash
