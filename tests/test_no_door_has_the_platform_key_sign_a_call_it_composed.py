@@ -33,7 +33,9 @@ THE DOORS, each driven:
                            and the real security seam;
   capability invoke and    ``/api/v1/capabilities/{id}/invoke`` and
   the bridge action        ``/bridge/v1/action``, for a session and for the
-                           operator, under every name the call could go by;
+                           operator, under eight names (the tool's, its
+                           action's and six more spellings), with and without
+                           a service override;
   the agent hand-off       ``request_execution`` and ``platform_action``, as
                            Trinity for a session and as Neo for the operator.
 
@@ -43,19 +45,24 @@ operator key included, before the handler runs
 (``runtime/access_policy.py`` ``REFUSED_TOOL_CALLS``). The action-dispatching
 doors cannot name the tool at all: capability invoke, ``/bridge/v1/action``,
 ``request_execution`` and ``platform_action`` resolve an action through
-ACTION_MAP to a services-layer method, and no entry reaches ``smart_contract``;
-the guards below pin that. What the platform composes itself still signs under
+ACTION_MAP to a services-layer method, and no entry reaches ``smart_contract``.
+The eight names are a sample, not every name; what rules out every other is
+read from the registry, not tried: a dispatch resolves only a service the
+service registry maps, and each of those is a class in a module of
+``runtime/blockchain/services/``, none of them a tool
+(test_no_name_an_action_door_resolves_is_a_tool). What the platform composes itself still signs under
 the default policy: a read through the same tool, and a named function the
 source writes.
 
-CONTROL, measured on this file's 27 tests at The Matrix ``main`` 58b8b4d, at
+CONTROL, measured on this file's 28 tests at The Matrix ``main`` 58b8b4d, at
 fix/oldq-census a710052 and here. The 14 marked [control] fail on ``main``,
 each because the platform wallet signed the request's attest or revoke on the
 EAS contract (the tool, the dispatcher for both callers, and all four chat
 entrances), and pass at a710052 and here. The 3 marked [control:door] fail on
 ``main`` and at a710052, where the tool refused but the dispatcher still ran
-its handler, and pass here. The 10 marked [guard] pass at all three: no
-action-dispatching door reaches the tool, a session's chat never held it, a
+its handler, and pass here. The 11 marked [guard] pass at all three: no
+action-dispatching door reaches the tool, no name one resolves can be a tool,
+a session's chat never held it, a
 read still reads, and a platform-composed transfer still signs under the
 default policy (on ``main`` too, so the probe sees a signature when there is
 one). 17 fail on ``main``, 3 at a710052, none here.
@@ -347,8 +354,8 @@ HEADERS = {"session": {"Authorization": "Bearer 0xTEST_SESSION"},
 
 @pytest.mark.parametrize("who", sorted(HEADERS))
 async def test_no_action_door_reaches_the_tool(chain, tmp_path, monkeypatch, who):
-    """[guard] Capability invoke and /bridge/v1/action, under every name the
-    call could go by, with and without a service override. None of them reaches
+    """[guard] Capability invoke and /bridge/v1/action, under the eight names,
+    with and without a service override. None of them reaches
     ``smart_contract``; none of them signs."""
     from aiohttp.test_utils import TestClient, TestServer
 
@@ -378,6 +385,28 @@ async def test_no_action_door_reaches_the_tool(chain, tmp_path, monkeypatch, who
                 answered[f"action {json.dumps(body)[:60]}"] = resp.status
     assert entered == [] and _eas_calls_signed(chain) == [], (entered, chain.sent)
     assert all(status >= 400 for status in answered.values()), answered
+
+
+def test_no_name_an_action_door_resolves_is_a_tool():
+    """[guard] What makes the eight names enough. Every door that dispatches by
+    action name hands ServiceDispatcher.execute an action it resolves through
+    ACTION_MAP and a service a platform_action override may replace; either
+    way the service is looked up in the service registry, which imports a
+    class from a module of runtime/blockchain/services/ and nothing else. So
+    no action name and no override reaches a tool."""
+    import importlib
+
+    from runtime.blockchain.services.registry import _SERVICE_MAP
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+
+    assert {service for service, _method in ACTION_MAP.values()} <= set(_SERVICE_MAP)
+    for name, (module, cls_name) in _SERVICE_MAP.items():
+        assert module.startswith(".") and not module.startswith(".."), (name, module)
+        cls = getattr(importlib.import_module(module, "runtime.blockchain.services"), cls_name)
+        assert cls.__module__.startswith("runtime.blockchain.services."), (name, cls.__module__)
+    from runtime.blockchain.smart_contracts import SmartContracts
+    assert SmartContracts.__module__ == "runtime.blockchain.smart_contracts"
+    assert "smart_contract" not in _SERVICE_MAP
 
 
 @pytest.mark.parametrize("tool,agent,caller_kind", [
