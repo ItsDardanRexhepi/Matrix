@@ -655,8 +655,85 @@ def test_the_sdk_example_prints_the_gas_policy_the_dashboard_reply_carries(
         f"{policy['statement']!r}")
 
 
-def test_the_sdk_example_says_so_when_the_reply_carries_no_gas_policy(monkeypatch, capsys):
+def test_the_sdk_example_says_so_when_the_reply_quotes_no_gas_policy(monkeypatch, capsys):
     out = _run_the_sdk_example(monkeypatch, capsys, "The dashboard is unavailable right now.")
     gas = " ".join(_gas_section(out).split())
-    assert "did not include" in gas and "gas policy" in gas, gas
+    assert "does not quote" in gas and "gas policy" in gas, gas
     assert not _GAS_PAID.search(gas), gas
+
+
+# The example also looked for the policy in each tool call's result_preview,
+# and its docstring said the policy was "found in Neo's reply or a tool call's
+# result preview". A client reads a tool's output as ToolOutcome.success cuts
+# it, cut again where the reasoning loop writes result_preview, and
+# platform_stats puts gas_policy after the cut, so a preview never carries it.
+# When Neo describes the policy in words rather than quoting the object, the
+# example cannot read it, and it said "the dashboard reply did not include the
+# deployment's gas policy", which is then untrue.
+
+def _the_cut_the_client_reads() -> int:
+    """The length runtime/react_loop.py cuts a tool's client_preview to where
+    it writes result_preview."""
+    import ast
+    tree = ast.parse((ROOT / "runtime" / "react_loop.py").read_text(encoding="utf-8"))
+    cuts = [value.slice.upper.value for node in ast.walk(tree) if isinstance(node, ast.Dict)
+            for key, value in zip(node.keys, node.values)
+            if isinstance(key, ast.Constant) and key.value == "result_preview"
+            and isinstance(value, ast.Subscript) and ast.unparse(value.value) == "client_preview"
+            and isinstance(value.slice, ast.Slice) and isinstance(value.slice.upper, ast.Constant)]
+    assert len(cuts) == 1, f"re-derive: result_preview is written as {cuts}"
+    return cuts[0]
+
+
+def _preview_the_client_reads(text: str) -> str:
+    from runtime.tools.dispatcher import ToolOutcome
+    return ToolOutcome.success(text).client_preview[:_the_cut_the_client_reads()]
+
+
+def _the_sdk_example():
+    import importlib.util
+    path = ROOT / "sdk" / "examples" / "blockchain_ops.py"
+    spec = importlib.util.spec_from_file_location("sdk_blockchain_ops_read", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SAYS_IT_READS_A_PREVIEW = re.compile(
+    r"\b(?:found|read|taken)(?: from| in)? [^.;]{0,60}\bresult[_ ]preview", re.I)
+
+
+@pytest.mark.parametrize("name", ["no_paymaster", "capped", "uncapped"])
+def test_the_sdk_example_names_no_source_that_cannot_carry_the_policy(name):
+    import inspect
+    stats = _platform_stats(CONFIGS[name])
+    assert '"gas_policy"' in stats
+    preview = _preview_the_client_reads(stats)
+    assert '"gas_policy"' not in preview, "premise: a tool call's preview carries gas_policy now"
+
+    example = _the_sdk_example()
+    # It reads what it says it reads: a preview holding the whole result is
+    # not read, and no docstring names the preview as where the policy is found.
+    assert example.gas_policy_in({"response": "", "tool_calls": [{"result_preview": stats}]}) is None
+    docs = " ".join(" ".join((inspect.getdoc(obj) or "").split())
+                    for obj in (example, example.gas_policy_in))
+    m = _SAYS_IT_READS_A_PREVIEW.search(docs)
+    assert not m, f"the example says it reads the policy from a preview: ...{m.group(0)}..."
+
+
+def test_the_sdk_example_does_not_deny_a_policy_neo_describes_in_words(monkeypatch, capsys):
+    statement = describe_gas_policy(CONFIGS["capped"])["statement"]
+    out = _run_the_sdk_example(monkeypatch, capsys,
+                               "Gas on this deployment: " + statement + " (from the dashboard)")
+    gas = " ".join(_gas_section(out).split())
+    assert not re.search(r"\b(?:did|does) not (?:include|carry|contain)\b", gas), gas
+    assert not _GAS_PAID.search(gas), gas
+
+
+def test_the_preview_scan_sees_the_old_docstring():
+    assert _SAYS_IT_READS_A_PREVIEW.search(
+        "The gas_policy object the dashboard's platform_stats result carries, found in Neo's "
+        "reply or a tool call's result preview, or None when neither holds one.")
+    assert not _SAYS_IT_READS_A_PREVIEW.search(
+        "It does not look in a tool call's result_preview: the gateway cuts a preview. "
+        "A tool call's result_preview is not read: it is cut to 200 characters.")

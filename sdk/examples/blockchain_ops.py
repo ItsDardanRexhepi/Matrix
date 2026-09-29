@@ -17,8 +17,12 @@ Whether the platform pays the gas depends on the deployment: with no
 paymaster key configured nothing is sponsored, and with one, the operator's
 sponsorship policy decides, and may refuse an operation (docs/blockchain.md,
 Gas). An attestation you ask for is metered like any other operation. The
-example prints the dashboard reply whole and, under Gas, the statement of the
-gas_policy that reply carries; when the reply carries none, it says so.
+example prints the dashboard reply whole and, under Gas, the statement of a
+gas_policy object Neo's reply quotes; when his reply quotes none, it says that
+it cannot read the policy from the reply. It does not look in a tool call's
+result_preview: the gateway cuts a preview to 200 characters, and the
+dashboard's platform_stats result puts gas_policy after that, so a preview
+never carries it.
 """
 
 import asyncio
@@ -86,27 +90,27 @@ contract HelloMatrix {
     policy = gas_policy_in(result)
     print("\n── Gas ──")
     if policy is None:
-        print("The dashboard reply did not include the deployment's gas policy; this "
-              "example does not know whether the platform sponsors gas here.")
+        print("Neo's reply does not quote the dashboard's gas_policy object, so this "
+              "example cannot read the deployment's gas policy from it; his reply, "
+              "printed above, may describe it in words.")
     else:
         print(policy.get("statement") or f"gas_policy: {json.dumps(policy)}")
 
 
 def gas_policy_in(result: dict) -> dict | None:
-    """The gas_policy object the dashboard's platform_stats result carries,
-    found in Neo's reply or a tool call's result preview, or None when neither
-    holds one. Neo's reply is text; a JSON object in it is read as he gave it."""
-    texts = [result.get("response") or ""]
-    texts += [str(call.get("result_preview") or "") for call in result.get("tool_calls") or []]
+    """The gas_policy object of the dashboard's platform_stats result, as Neo's
+    reply quotes it, or None when his reply quotes none. His reply is text; a
+    JSON object in it is read as he gave it. A tool call's result_preview is
+    not read: it is cut to 200 characters, before gas_policy begins."""
+    text = result.get("response") or ""
     decoder = json.JSONDecoder()
-    for text in texts:
-        for start in (i for i, ch in enumerate(text) if ch == "{"):
-            try:
-                value, _end = decoder.raw_decode(text, start)
-            except ValueError:
-                continue
-            if isinstance(value, dict) and isinstance(value.get("gas_policy"), dict):
-                return value["gas_policy"]
+    for start in (i for i, ch in enumerate(text) if ch == "{"):
+        try:
+            value, _end = decoder.raw_decode(text, start)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and isinstance(value.get("gas_policy"), dict):
+            return value["gas_policy"]
     return None
 
 
