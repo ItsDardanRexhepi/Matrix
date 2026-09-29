@@ -28,6 +28,8 @@ The Matrix catalogues 195 discrete Web3 capabilities in 21 categories (`runtime/
 
 Gas for state-changing capabilities is sponsored by the platform paymaster within the policy the operator configures (see Fees).
 
+A user session — the app's own credential — and chat acting for one are refused every capability in which the platform's wallet or a platform credential would sign, pay, publish or authorise while the request names the payee, the account, the asset, the key, the digest or the content: the platform's funds sent where the request says (the restaking, NFT-lending, payment-channel, keeper, compute-reward, Stargate and CCIP token-bridge actions, a delegation, a bribe, an auction, a token-bound account), the operator's MPC cluster signing a digest the request wrote (`mpc_sign`), a post, a cast or a stored record under the platform's own account, the platform's compute or KYC provider account, and an oracle request that would have the platform's server fetch a URL the request writes. A Lens profile, a social or creator token and a Push subscription are kept for a session and must name its own address. The operator's key keeps every one. The lists are `REFUSED_TO_A_SESSION`, `BOUND_TO_THE_CALLER` and `HELD_FOR_A_SESSION` in `runtime/access_policy.py`, derived by `tests/test_no_session_has_the_platform_act_on_what_it_names.py`.
+
 ## How It Works
 
 Users describe what they want to Trinity in plain language. Trinity translates the request into the appropriate blockchain operation. Neo executes it. If it's a first-time use or irreversible action, Morpheus explains what's happening first.

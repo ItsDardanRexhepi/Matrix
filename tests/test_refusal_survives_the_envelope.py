@@ -226,9 +226,11 @@ async def _invoke(capability_id: str, params: dict | None = None):
 
 
 async def test_the_invoke_route_does_not_answer_200_ok_over_a_relayed_refusal():
-    """`place_limit_order` reaches `auctions`, which is not deployed here."""
-    status, body = await _invoke("place_limit_order", {
-        "auction_id": "a1", "bidder": "0xabc", "amount": 1.0,
+    """`create_dao` reaches `dao_management`, which is not deployed here. (This
+    used `place_limit_order`, which the catalog marks unavailable; the route
+    runs no capability so marked, so it relays nothing for it.)"""
+    status, body = await _invoke("create_dao", {
+        "creator": "0x" + "ab" * 20, "name": "Builders", "config": {},
     })
     assert body.get("result"), f"premise changed — nothing was relayed: {body}"
     assert report_of(body) == FAILURE, f"premise changed — not a refusal: {body}"

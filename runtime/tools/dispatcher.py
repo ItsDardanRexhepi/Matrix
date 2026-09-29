@@ -417,6 +417,24 @@ class ToolDispatcher:
                     f"[DENIED] {caller_refusal_message(caller_kind, refused)}",
                     code="denied", ref=ref,
                 )
+            # The platform's wallet or a platform credential acting on what the
+            # request names (runtime/access_policy.py REFUSED_TO_A_SESSION), and
+            # the few actions held to the caller's own address, read on the
+            # parameters the service will see: request_execution merges any
+            # other argument into them (runtime/agents/handoff.py as_tool).
+            from runtime.access_policy import refused_to_the_caller
+            raw = args.get("params")
+            view = dict(raw) if isinstance(raw, dict) else ({} if raw is None else raw)
+            if tool_name == "request_execution" and isinstance(view, dict):
+                view.update({k: v for k, v in args.items() if k not in ("action", "params")})
+            refused = refused_to_the_caller(
+                caller_kind, args.get("action"),
+                args.get("service") if tool_name == "platform_action" else None,
+                params=view, identity=caller_identity)
+            if refused:
+                logger.warning("%s DENIED tool '%s' action '%s': %s", caller_kind, tool_name,
+                               args.get("action"), refused)
+                return ToolOutcome.failure(f"[DENIED] {refused}", code="denied", ref=ref)
 
         # Strip anything the model may not assert, then inject the value the
         # entry point bound — the same treatment agent_name already gets. It

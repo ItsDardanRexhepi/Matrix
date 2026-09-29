@@ -12,7 +12,8 @@ The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/
 
 - **195 capabilities** across **21 categories** (Security & Wallets has none yet), backed by **43 services** in `runtime/blockchain/services/`.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (`free` / `pro` / `enterprise`), `uses_paymaster` flag, `protocol` tag, and `available` flag.
-- Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them.
+- Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them, and `POST /api/v1/capabilities/{id}/invoke` does not run one: it answers `503` with `"error": "unavailable"`, whoever asks. `/bridge/v1/action` and the chat agents' tools still dispatch one for a caller they otherwise allow. In the tables below, "via capability registry" names the catalog entry.
+- A row marked **operator key only** is refused to a user session, and to chat acting for one, at every door a session reaches, because the platform's wallet or a platform credential would sign, pay, publish or authorise what the request names; a row marked **a session names only its own address** is kept for a session and must name the address it is bound to. Both lists are in `runtime/access_policy.py` (`REFUSED_TO_A_SESSION`, `BOUND_TO_THE_CALLER`), and `tests/test_no_session_has_the_platform_act_on_what_it_names.py` derives them from the source. The generic oracle request (`oracle_request`, no row of its own) answers a session a price, a weather reading or randomness only (`HELD_FOR_A_SESSION`).
 
 Discover and invoke them over HTTP:
 
@@ -77,12 +78,12 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Bridge Quote | Get a cross-chain bridge quote | Free | POST /api/v1/defi/bridge/quote | Stargate, Hop, Across |
 | Bridge Execute | Execute a cross-chain bridge transfer | Free | POST /api/v1/defi/bridge/execute | Stargate, Hop, Across |
-| Bridge via CCIP | Transfer the platform's own tokens using Chainlink CCIP; it carries no message, and a request that brings one is refused | Free | via capability registry | Chainlink CCIP |
+| Bridge via CCIP | Transfer the platform's own tokens using Chainlink CCIP; it carries no message, and a request that brings one is refused | Free | via capability registry · operator key only | Chainlink CCIP |
 | ~~Cross-chain Message~~ **REFUSED** | The receiving chain reads the platform's wallet as the sender of a message the request wrote. Refused in the service and at every door. | — | via capability registry → refused | CCIP |
 | ~~Bridge via Hyperlane~~ **REFUSED** | A Mailbox.dispatch of the request's message body from the platform's wallet; it moved no token. Refused in the service and at every door. | — | via capability registry → refused | Hyperlane |
 | ~~Bridge via Wormhole~~ **REFUSED** | A publishMessage of the request's payload with the platform as emitter; it moved no token. Refused in the service and at every door. | — | via capability registry → refused | Wormhole |
 | ~~Bridge via Axelar~~ **REFUSED** | A callContract with the request's payload to the request's contract, from the platform's wallet; it moved no token. Refused in the service and at every door. | — | via capability registry → refused | Axelar |
-| Bridge via Stargate | Transfer stablecoins using Stargate | Free | via capability registry | Stargate |
+| Bridge via Stargate | Transfer stablecoins using Stargate | Free | via capability registry · operator key only | Stargate |
 | Query Remote Chain | Read state from a foreign chain | Free | via capability registry | CCIP |
 
 ---
@@ -95,13 +96,13 @@ The sections below organise every capability by its high-level category. Older c
 | Unstake | Unstake tokens and claim rewards | Free | POST /api/v1/staking/unstake | native |
 | Claim Staking Rewards | Claim accrued staking rewards | Free | via capability registry | native |
 | Get Staking Position | View current staking position | Free | via capability registry | native |
-| Liquid Stake (Lido) | Obtain stETH by liquid-staking ETH with Lido | Free | via capability registry | Lido |
+| Liquid Stake (Lido) | Obtain stETH by liquid-staking ETH with Lido | Free | via capability registry · operator key only | Lido |
 | Liquid Stake (Rocket Pool) | Obtain rETH by liquid-staking with Rocket Pool | Free | via capability registry | Rocket Pool |
-| Restake on EigenLayer | Restake LSTs to EigenLayer AVSs | Pro | via capability registry | EigenLayer |
-| Restake on Symbiotic | Restake via Symbiotic | Pro | via capability registry | Symbiotic |
-| Restake on Karak | Restake via Karak | Pro | via capability registry | Karak |
-| Delegate to Operator | Delegate restaked capital to an AVS operator | Pro | via capability registry | EigenLayer |
-| Withdraw Restake | Initiate withdrawal from restaking | Pro | via capability registry | EigenLayer, Symbiotic, Karak |
+| Restake on EigenLayer | Restake LSTs to EigenLayer AVSs | Pro | via capability registry · operator key only | EigenLayer |
+| Restake on Symbiotic | Restake via Symbiotic | Pro | via capability registry · operator key only | Symbiotic |
+| Restake on Karak | Restake via Karak | Pro | via capability registry · operator key only | Karak |
+| Delegate to Operator | Delegate restaked capital to an AVS operator | Pro | via capability registry · operator key only | EigenLayer |
+| Withdraw Restake | Initiate withdrawal from restaking | Pro | via capability registry · operator key only | EigenLayer, Symbiotic, Karak |
 
 ---
 
@@ -133,10 +134,10 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Borrow Against NFT | Take a loan collateralised by an NFT | Pro | via capability registry | BendDAO, NFTfi |
-| Liquidate NFT Loan | Liquidate a defaulted NFT loan | Pro | via capability registry | BendDAO, NFTfi |
+| Borrow Against NFT | Take a loan collateralised by an NFT | Pro | via capability registry · operator key only | BendDAO, NFTfi |
+| Liquidate NFT Loan | Liquidate a defaulted NFT loan | Pro | via capability registry · operator key only | BendDAO, NFTfi |
 | Breed NFT | Breed two NFTs to produce a new one | Free | via capability registry | custom |
-| Create Token-bound Account | Deploy an ERC-6551 account for a token | Free | via capability registry | ERC-6551 |
+| Create Token-bound Account | Deploy an ERC-6551 account for a token | Free | via capability registry · operator key only | ERC-6551 |
 | ~~Execute As TBA~~ **REFUSED** | Signed the request's call (a delegatecall if asked) from the platform's wallet, with the platform's ETH, to whatever contract the request named. Refused in the service and at every door. | — | via capability registry → refused | ERC-6551 |
 
 ---
@@ -152,8 +153,8 @@ The sections below organise every capability by its high-level category. Older c
 | Issue Credential | Issue a verifiable credential to a subject | Free | POST /api/v1/identity/credential/issue | W3C VC, EAS |
 | Verify Credential | Verify the validity of a credential | Free | POST /api/v1/identity/credential/verify | W3C VC, EAS |
 | Reputation Query | Query aggregated on-chain reputation for an agent | Free | via capability registry | custom |
-| Start KYC | Start a KYC session with the configured provider | Free | via capability registry | Sumsub, Persona |
-| Check AML Risk | Screen an address for AML risk | Free | via capability registry | Sumsub, Persona |
+| Start KYC | Start a KYC session with the configured provider | Free | via capability registry · operator key only | Sumsub, Persona |
+| Check AML Risk | Screen an address for AML risk | Free | via capability registry · operator key only | Sumsub, Persona |
 | ~~Issue KYC Credential~~ **REFUSED** | The verification it attested was read from the request. Refused at every door until the service fetches the provider's own result. | — | via capability registry → refused | W3C VC |
 | Register / Update / Deregister Agent | Manage an AI agent identity | Free | via capability registry | custom |
 | ~~Create / Revoke / Batch Attest~~ **REFUSED** | The platform's key signs no attestation a request composes and revokes none a request names; it attests an action when it executes it. Refused at every door. | — | via capability registry → refused | EAS |
@@ -181,8 +182,8 @@ The sections below organise every capability by its high-level category. Older c
 | Vote-Escrow Lock | Lock tokens in a veToken gauge | Pro | via capability registry | Curve, Balancer |
 | Quadratic Vote | Cast a quadratic vote | Free | via capability registry | Gitcoin, custom |
 | ~~Submit RetroPGF~~ **REFUSED** | Attested, with the platform's key, an application and recipient the request wrote. Refused in the service and at every door. | — | via capability registry → refused | Optimism RetroPGF |
-| Place Gauge Bribe | Bribe a gauge for vote weight | Pro | via capability registry | Convex, Hidden Hand |
-| Delegate Voting Power | Delegate voting to another address | Free | via capability registry | Governor |
+| Place Gauge Bribe | Bribe a gauge for vote weight | Pro | via capability registry · operator key only | Convex, Hidden Hand |
+| Delegate Voting Power | Delegate voting to another address | Free | via capability registry · operator key only | Governor |
 | File / Submit Evidence / Resolve / Appeal Dispute | Dispute resolution lifecycle | Free | POST /api/v1/dispute/file | custom |
 | Arbitration Request | Request third-party arbitration | Free | via capability registry | custom |
 
@@ -199,11 +200,11 @@ The sections below organise every capability by its high-level category. Older c
 | Create Community | Launch a token-gated community | Free | POST /api/v1/social/community/create | custom |
 | Send Message (XMTP) | Send an encrypted peer-to-peer message | Free | POST /api/v1/social/message/send | XMTP, custom |
 | Encrypted Message | Encrypt a payload for a recipient | Free | via capability registry | XMTP |
-| Create Lens Profile | Mint a profile on the Lens Protocol | Free | via capability registry | Lens |
-| Publish Farcaster Cast | Post a cast on Farcaster | Free | via capability registry | Farcaster |
-| Subscribe to Push | Subscribe to Push Protocol notification channels | Free | via capability registry | Push Protocol |
-| Launch Social Token | Launch a personal social token | Pro | via capability registry | custom |
-| Launch Creator Coin | Launch a creator coin with a bonding curve | Pro | via capability registry | custom |
+| Create Lens Profile | Mint a profile on the Lens Protocol | Free | via capability registry · a session names only its own address | Lens |
+| Publish Farcaster Cast | Post a cast on Farcaster | Free | via capability registry · operator key only | Farcaster |
+| Subscribe to Push | Subscribe to Push Protocol notification channels | Free | via capability registry · a session names only its own address | Push Protocol |
+| Launch Social Token | Launch a personal social token | Pro | via capability registry · a session names only its own address | custom |
+| Launch Creator Coin | Launch a creator coin with a bonding curve | Pro | via capability registry · a session names only its own address | custom |
 
 ---
 
@@ -212,9 +213,9 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
 | Monetize Content | Enable paywalls, tips, and subscriptions on content | Free | via capability registry | custom |
-| Mint Sound.xyz Drop | Release a music drop on Sound.xyz | Pro | via capability registry | Sound.xyz |
-| Publish Mirror Post | Publish a long-form post on Mirror | Free | via capability registry | Mirror |
-| Publish Paragraph Post | Publish a Paragraph newsletter | Free | via capability registry | Paragraph |
+| Mint Sound.xyz Drop | Release a music drop on Sound.xyz | Pro | via capability registry · operator key only | Sound.xyz |
+| Publish Mirror Post | Publish a long-form post on Mirror | Free | via capability registry · operator key only | Mirror |
+| Publish Paragraph Post | Publish a Paragraph newsletter | Free | via capability registry · operator key only | Paragraph |
 | Register IP | Register intellectual property on-chain | Free | via capability registry | EAS |
 | Transfer IP | Transfer IP ownership | Free | via capability registry | custom |
 | License IP | Grant a license for intellectual property | Pro | POST /api/v1/legal/license/grant | custom |
@@ -237,7 +238,7 @@ The sections below organise every capability by its high-level category. Older c
 | Invoice Factor | Tokenize and sell an invoice for working capital | Pro | via capability registry | custom |
 | Payroll | Execute a batch payroll run | Enterprise | POST /api/v1/payments/payroll | 0xSplits, Sablier |
 | Cross-Border Payment | Send money across borders with FX conversion | Free | POST /api/v1/crossborder/send | Circle, Wise, native |
-| Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | Pro | via capability registry | state channels |
+| Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | Pro | via capability registry · operator key only | state channels |
 
 ---
 
@@ -251,7 +252,7 @@ The sections below organise every capability by its high-level category. Older c
 | ZK Proof Generate | Generate a zero-knowledge proof | Pro | via capability registry | Semaphore, zkSNARK |
 | Private Vote | Vote privately on a proposal | Pro | via capability registry | Semaphore |
 | Confidential Compute | Run a confidential compute job | Pro | via capability registry | TEE, MPC |
-| MPC Sign | Threshold-sign a transaction using an MPC quorum | Pro | via capability registry | MPC threshold sig |
+| MPC Sign | Threshold-sign a transaction using an MPC quorum | Pro | via capability registry · operator key only | MPC threshold sig |
 | ~~Social Recovery~~ **REFUSED** | Sent `initiateRecovery(account, newOwner)` from the platform's wallet with both addresses the request's, so the platform's standing with the recovery module, not the account holder's, authorized handing the account to a new owner. Refused in the service and at every door. | — | via capability registry → refused | custom |
 | ~~Session Key~~ **REFUSED** | Sent `registerSessionKey(account, key, validUntil)` from the platform's wallet with all three the request's, so the platform's standing with the module authorized a key of the request's choosing on an account of its choosing. Refused in the service and at every door. | — | via capability registry → refused | ERC-4337 session keys |
 
@@ -267,7 +268,7 @@ The sections below organise every capability by its high-level category. Older c
 | Pyth Pull | Pull a Pyth price update on demand | Free | via capability registry | Pyth |
 | RedStone Request | Fetch a signed RedStone data package | Free | via capability registry | RedStone |
 | API3 Query | Query a first-party API3 dAPI | Free | via capability registry | API3 |
-| Register Keeper Job | Register a Chainlink Keeper / upkeep job | Pro | via capability registry | Chainlink Keepers |
+| Register Keeper Job | Register a Chainlink Keeper / upkeep job | Pro | via capability registry · operator key only | Chainlink Keepers |
 
 ---
 
@@ -278,9 +279,9 @@ The sections below organise every capability by its high-level category. Older c
 | Decentralized Store | Store data on a decentralised storage network | Free | POST /api/v1/compute/store | IPFS, Arweave, Filecoin |
 | IPFS Pin | Pin content on IPFS for persistence | Free | POST /api/v1/compute/ipfs/pin | IPFS |
 | Arweave Store | Store data permanently on Arweave | Free | POST /api/v1/compute/arweave/store | Arweave |
-| Filecoin Store | Make a Filecoin storage deal | Free | via capability registry | Filecoin |
-| Ceramic Stream | Create a mutable Ceramic stream | Free | via capability registry | Ceramic |
-| OrbitDB Write | Write to an OrbitDB peer-to-peer database | Free | via capability registry | OrbitDB |
+| Filecoin Store | Make a Filecoin storage deal | Free | via capability registry · operator key only | Filecoin |
+| Ceramic Stream | Create a mutable Ceramic stream | Free | via capability registry · operator key only | Ceramic |
+| OrbitDB Write | Write to an OrbitDB peer-to-peer database | Free | via capability registry · operator key only | OrbitDB |
 
 ---
 
@@ -288,9 +289,9 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Submit Compute Job | Submit a decentralised compute job | Pro | via capability registry | Akash, Gensyn, Render |
-| Rent DePIN Device | Rent a device on a DePIN network | Pro | via capability registry | custom |
-| Claim Compute Reward | Claim rewards for running compute workers | Free | via capability registry | custom |
+| Submit Compute Job | Submit a decentralised compute job | Pro | via capability registry · operator key only | Akash, Gensyn, Render |
+| Rent DePIN Device | Rent a device on a DePIN network | Pro | via capability registry · operator key only | custom |
+| Claim Compute Reward | Claim rewards for running compute workers | Free | via capability registry · operator key only | custom |
 | Legacy Compute Submit | Submit a job through the legacy compute pipeline | Pro | via capability registry | custom |
 
 ---
@@ -330,7 +331,7 @@ The sections below organise every capability by its high-level category. Older c
 | Place Prediction Bet | Place a bet on a prediction market outcome | Free | POST /api/v1/prediction/market/bet | Polymarket, custom |
 | Resolve Market | Resolve a market to a final outcome | Pro | via capability registry | Polymarket, custom |
 | List Markets | Browse active prediction markets | Free | GET /api/v1/prediction/market/list | Polymarket, custom |
-| Create Auction | Create an English, Dutch, or sealed-bid auction | Free | via capability registry | custom |
+| Create Auction | Create an English, Dutch, or sealed-bid auction | Free | via capability registry · operator key only | custom |
 | Place Bid | Submit a bid to an auction | Free | via capability registry | custom |
 | Settle Auction | Settle an auction and distribute proceeds | Free | via capability registry | custom |
 | Create Fundraiser | Create a crowdfunding campaign with milestones | Free | POST /api/v1/fundraising/campaign/create | custom |

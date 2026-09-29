@@ -352,9 +352,10 @@ CAPABILITIES: list[dict[str, Any]] = [
     # available=False — it is reachable and answers, and the answer is "not
     # available". The `execute_deletion` capability is REMOVED outright: its
     # ACTION_MAP entry is gone, so a descriptor for it would be a broken
-    # pointer, and `available=False` is only metadata (registry.list filters on
-    # it; `invoke` does not consult it) so it could not have disabled anything
-    # on its own.
+    # pointer, and `available=False` could not have disabled it on its own:
+    # registry.list filters on it and the capability invoke route refuses on
+    # it, but the registry's own `invoke`, /bridge/v1/action and the chat
+    # tools do not consult it.
     _cap("request_deletion",        "Request Deletion",        "privacy", "privacy", "request_deletion", available=False),
 
     # ── Oracles & Data ─────────────────────────────────────────────────────

@@ -10,6 +10,11 @@ Driven through aiohttp's test client with the gate doubled at the public seam
 (``runtime.security.get_morpheus_security``): a blocking gate answers the
 generic denial before the dispatcher runs; an allowing one lets the invoke
 proceed; the label the gate sees is the capability's ACTION_MAP verb.
+
+``settle_auction`` is catalogued as not available, and the route now runs no
+capability so catalogued, before any gate
+(tests/test_no_session_has_the_platform_act_on_what_it_names.py). The gate is
+driven here with ``market_resolve``, a catalog write that is available.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from aiohttp.test_utils import TestClient, TestServer  # noqa: E402
 from gateway.server import GatewayServer  # noqa: E402
 from test_route_sweep import SWEEP_CONFIG  # noqa: E402
 
-CAPABILITY = "settle_auction"
+CAPABILITY = "market_resolve"
 
 
 def _server() -> GatewayServer:
@@ -65,14 +70,14 @@ async def test_a_blocking_gate_stops_the_invoke_before_the_dispatcher(monkeypatc
     server = _server()
     async with TestClient(TestServer(server.create_app())) as client:
         resp = await client.post(f"/api/v1/capabilities/{CAPABILITY}/invoke",
-                                 json={"params": {"auction_id": "0xTEST_A"}})
+                                 json={"params": {"market_id": "0xTEST_A"}})
         assert resp.status == 403, await resp.text()
         body = await resp.json()
         assert "error" in body and "test" not in body["error"], "the internal reason must not leak"
     assert invoked == [], "the dispatcher ran despite the gate's deny"
     (action, _context), = gate.seen
     assert action["action_type"] == CAPABILITY
-    assert action["parameters"] == {"auction_id": "0xTEST_A"}
+    assert action["parameters"] == {"market_id": "0xTEST_A"}
 
 
 async def test_an_allowing_gate_lets_the_invoke_proceed(monkeypatch, invoked):

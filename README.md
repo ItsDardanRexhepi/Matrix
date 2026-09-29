@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,458 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,487 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -320,9 +320,10 @@ check behind it:
   royalty) carry what that operation was asked, and no test walks those
   yet; and a reading of the source cannot see code replaced while the
   platform runs
-- **No request composes a call or a message the platform's key signs.**
-  Every transaction the platform signs calls a function named in its own
-  code (or, with `conversion.auto_deploy` on, deploys a contract the
+- **No request composes a call or a message in a transaction the
+  platform's wallet signs, in the shapes a test reads.** Every transaction
+  the platform's wallet signs, as that test reads it, calls a function
+  named in its own code (or, with `conversion.auto_deploy` on, deploys a contract the
   conversion pipeline generated and its audit passed), and none carries
   a call or a message the request wrote — calldata for another call, a
   cross-chain message — except the limit named below (an attestation's
@@ -331,20 +332,21 @@ check behind it:
   it is neither (an address encoded as bytes; the input an automation
   job hands the contract the request named for it). A request may supply
   other arguments. At the blockchain tools the ones that must be your own
-  address are checked, as above. In the services layer no address a
-  request supplies to a call the platform signs is checked against your
-  session: a test lists every one it reads there, 24, each with what it
-  is — 14 name who receives, holds or is credited with what the
-  platform's own call pays, lends, stakes, delegates, mints or creates (a
-  reward's recipient, a loan's on-behalf-of account, a keeper job's
-  upkeep, a restaking receiver, a payment channel's partner among them),
-  8 name which of the platform's own tokens or contracts the call uses,
-  and 2 sit behind a pair every door refuses; two more, a token bridge's
-  receiver and a Stargate recipient, travel encoded as bytes and are
-  listed with them. That is the platform's value moving where a
-  request says, which is the security gate's to evaluate and which, with
-  no enforcement core installed, it observes and does not refuse; a new
-  one fails the test until it is read. The `smart_contract` tool compiles, reads and verifies
+  address are checked, as above. In the services layer a test lists every
+  address it reads a request supplying to a call the platform signs, 24,
+  each with what it is — 14 name who receives, holds or is credited with
+  what the platform's own call pays, lends, stakes, delegates, mints or
+  creates (a reward's recipient, a loan's on-behalf-of account, a keeper
+  job's upkeep, a restaking receiver, a payment channel's partner among
+  them), 8 name which of the platform's own tokens or contracts the call
+  uses, and 2 sit behind a pair every door refuses; two more, a token
+  bridge's receiver and a Stargate recipient, travel encoded as bytes and
+  are listed with them. A new one fails the test until it is read. A user
+  session is refused every action that reaches one of them, or held to
+  its own address (next point); for the operator's key they are the
+  platform's value moving where a request says, which is the security
+  gate's to evaluate and which, with no enforcement core installed, it
+  observes and does not refuse. The `smart_contract` tool compiles, reads and verifies
   and signs nothing: its `send` let a request pick the contract, the
   function, the arguments and the value, and the tool dispatcher now
   refuses it before the tool runs, for every caller. A token-bound account's
@@ -384,7 +386,47 @@ check behind it:
   without a session the daily cap is metered against an address the
   caller writes. And a function the code names can be sent to a contract
   the request names, whose own code then runs with the platform's wallet
-  as its caller
+  as its caller. A platform credential other than the wallet's key — the
+  operator's MPC cluster, a publishing account, a storage node — signs or
+  publishes off the chain, which this test does not read; a user session
+  is refused those (next point), and the operator's key keeps them
+- **A user session does not have the platform act on what it names.** In
+  the services layer the platform's wallet signs, and credentials the
+  operator configured act, for whoever reaches them. A user session — the
+  app's credential — and chat acting for one (Trinity's hand-off to Neo,
+  and `platform_action`) are refused, at capability invoke,
+  `/bridge/v1/action` and the tool dispatcher, each action in which the
+  platform's wallet or a platform credential would sign, pay, publish or
+  authorise while the request names the payee, the account, the asset, the
+  key, the digest or the content: the platform's funds sent to a payee the
+  request names or spent on an asset it names (a compute reward's
+  recipient, a token bridge's receiver, a Stargate recipient, a loan's
+  on-behalf-of account, a keeper job's upkeep, a restaking receiver or
+  operator, a payment channel's partner, a delegate, an auction's or a
+  bribe's token, a token-bound account's NFT among them); a threshold
+  signature the operator's MPC cluster makes over the request's digest
+  under the key id it names (`mpc_sign`); a post under the platform's
+  publishing account, a cast through a Farcaster signer the platform's key
+  reaches, a write to the platform's storage node or database, a job or a
+  lease on its provider account, a payment from its payment node, a KYC
+  applicant opened or read with its KYC credential; and an oracle request
+  that would have the platform's server send what the request wrote to
+  the address it names (`custom`) or read its sports provider, with its
+  key, at a path the request writes. The operator's key keeps every one.
+  Where the one address a request names is the one the platform acts for
+  and it spends only gas on it — a Lens profile, a social or creator
+  token, a Push subscription — the action is kept for a session and bound:
+  it must name the session's own address, and a session bound to no wallet
+  is refused. The list is derived, not only written: a test takes every
+  address a request supplies to a call the services layer signs, as the
+  signing census reads them, and walks every HTTP request a services-layer
+  method sends, through the shapes it names, and fails on any action either
+  finds that is not refused, bound, held or listed with its reason, and on
+  a table entry neither finds. It does not read an amount, a send made by
+  an object a service holds (the weather oracle's is listed by name), or a
+  shape it does not name. The component registry the app reads offers a
+  session none of the refused actions, and the capability invoke route
+  runs nothing the catalog marks unavailable, whoever asks
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused

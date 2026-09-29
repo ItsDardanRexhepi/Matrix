@@ -34,7 +34,7 @@ print(health.status)
 
 - **Chat**: Send messages to any agent (sync and async)
 - **Sessions**: Maintain conversation context across messages
-- **Blockchain**: Access the platform's Web3 capabilities: 195, in 21 categories
+- **Blockchain**: Access the platform's Web3 capabilities: 195, in 21 categories. With a user session instead of the operator key, the ones that would have the platform's wallet or a platform credential act on what the request names are refused (docs/api-reference.md)
 - **Memory**: Read/write agent memory
 - **Health & Status**: Full platform monitoring
 - **Async**: Full async support with `achat()`, `ahealth()`, etc.

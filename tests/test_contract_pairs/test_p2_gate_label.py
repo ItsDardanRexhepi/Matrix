@@ -34,7 +34,9 @@ consumer, and pins what each one hands over against a golden file:
   * for every ``_call`` pair in the funnel: the label it sends — the method
     name, after five aliases;
   * for every capability in the catalog: the label the invoke route sends —
-    the capability's ``action``, which is an ACTION_MAP name;
+    the capability's ``action``, which is an ACTION_MAP name — except the
+    ones the catalog marks unavailable, which the route refuses before any
+    gate, whoever asks, and which run nothing;
   * the preflight's one fixed label, which dispatches nothing;
   * where two conventions meet (an action the funnel also reaches), how many
     actions reach the gate under two different labels.
