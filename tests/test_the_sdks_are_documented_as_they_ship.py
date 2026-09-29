@@ -16,8 +16,12 @@ Each Python code block in a document that uses MatrixClient is parsed: the
 constructor's keywords, the client methods it calls, the `sdk` modules it
 imports and the attributes it reads off a chat answer must all exist.
 
-What this cannot see: a JavaScript sample's calls (the TypeScript client is
-not loaded here), and a Python sample that builds its client some other way.
+Each JavaScript or TypeScript block that uses MatrixClient is read against the
+TypeScript sources: the constructor's options, the client methods it calls and
+the fields it reads off an answer whose type the method declares.
+
+What this cannot see: a sample that builds its client some other way, and a
+JavaScript answer whose type the client does not declare.
 """
 
 from __future__ import annotations
@@ -169,3 +173,87 @@ def test_no_document_shows_a_chat_field_or_key_format_the_gateway_does_not_have(
         for m in re.finditer(r"tools_used|mtrx_k_", text):
             offenders.append(f"{rel}: {m.group(0)}")
     assert not offenders, "\n".join(offenders)
+
+
+# ── The JavaScript samples ──────────────────────────────────────────────────
+#
+# docs/api-reference.md's JavaScript sample printed `response.text` after
+# `await client.chat(...)`. The TypeScript SDK's chat() resolves to a
+# ChatResponse (sdk-js/src/types.ts) with response, tool_calls, session_id,
+# agent and provider, and no text, so the sample printed undefined. Each
+# JavaScript or TypeScript block that uses MatrixClient is read against the
+# SDK's own sources: the constructor's options, the client methods it calls,
+# and the fields it reads off an answer whose type the method declares.
+
+_JS_BLOCK = re.compile(r"```(?:typescript|javascript|ts|js)\n(.*?)```", re.S)
+
+
+def _js_interfaces() -> dict[str, set[str]]:
+    text = (ROOT / "sdk-js" / "src" / "types.ts").read_text(encoding="utf-8")
+    return {m.group(1): set(re.findall(r"^\s+(\w+)\??\s*:", m.group(2), re.M))
+            for m in re.finditer(r"export interface (\w+)\s*\{(.*?)\n\}", text, re.S)}
+
+
+def _js_client() -> tuple[dict[str, str], set[str]]:
+    """MatrixClient's methods, each with the type its promise resolves to, and
+    the names its constructor's options take."""
+    text = (ROOT / "sdk-js" / "src" / "client.ts").read_text(encoding="utf-8")
+    body = text[text.index("export class MatrixClient"):]
+    end = body.find("\nexport ", 10)
+    body = body if end == -1 else body[:end]
+    methods = {m.group(1): m.group(3) or "" for m in re.finditer(
+        r"^  (?:(?:async|public|private|protected|static)\s+)*(\w+)\s*\(([^)]*)\)\s*(?::\s*Promise<(\w+)>)?",
+        body, re.M | re.S) if m.group(1) not in ("if", "for", "while", "switch", "catch")}
+    ctor = re.search(r"constructor\s*\((.*?)\)\s*\{", body, re.S).group(1)
+    options = set(re.findall(r"^\s+(\w+)\??\s*:", ctor[ctor.index("options"):], re.M))
+    return methods, options
+
+
+def _js_sample_problems(code: str) -> list[str]:
+    interfaces = _js_interfaces()
+    methods, options = _js_client()
+    code = re.sub(r"(?<![:\w])//[^\n]*|/\*.*?\*/", "", code, flags=re.S)  # comments, not URLs
+    problems, clients, answers = [], set(), {}
+    for m in re.finditer(r"(?:const|let|var)\s+(\w+)\s*=\s*new MatrixClient\(([^;]*?)\);", code, re.S):
+        clients.add(m.group(1))
+        opts = re.search(r"\{(.*)\}", m.group(2), re.S)
+        for key in re.findall(r"(\w+)\s*:", opts.group(1) if opts else ""):
+            if key not in options:
+                problems.append(f"new MatrixClient(..., {{{key}}}) is not an option")
+    for client in clients:
+        for call in re.findall(rf"\b{client}\.(\w+)\s*\(", code):
+            if call not in methods:
+                problems.append(f"client.{call}() does not exist")
+        for m in re.finditer(rf"(?:const|let|var)\s+(\w+)\s*=\s*await\s+{client}\.(\w+)\s*\(", code):
+            if methods.get(m.group(2)) in interfaces:
+                answers[m.group(1)] = methods[m.group(2)]
+    for answer, kind in answers.items():
+        for field in re.findall(rf"\b{answer}\.(\w+)", code):
+            if field not in interfaces[kind]:
+                problems.append(f"a {kind} has no .{field}")
+    return problems
+
+
+def test_the_javascript_sample_reader_catches_the_old_sample():
+    old = ("import { MatrixClient } from '@the-matrix/sdk';\n"
+           "const client = new MatrixClient('http://localhost:18790', { apiKey: 'K', gatewayUrl: 'x' });\n"
+           "const response = await client.chat('What can you help me with?');\n"
+           "console.log(response.text);\nawait client.deployContract('x');\n")
+    problems = _js_sample_problems(old)
+    assert "a ChatResponse has no .text" in problems
+    assert any("gatewayUrl" in p for p in problems) and any("deployContract" in p for p in problems)
+    assert not _js_sample_problems("const client = new MatrixClient('http://x', {\n  apiKey: 'K',  // optional: a key\n});\n"
+                                   "const r = await client.chat('hi');\nconsole.log(r.response, r.tool_calls);\n")
+
+
+def test_every_javascript_sdk_sample_uses_what_the_sdk_has():
+    methods, options = _js_client()
+    assert {"chat", "chatStream", "health", "status"} <= set(methods) and "apiKey" in options, (
+        "the reader no longer reads the TypeScript client; re-derive this check")
+    problems = []
+    for rel in _documents():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        for block in _JS_BLOCK.findall(text):
+            if "MatrixClient" in block:
+                problems += [f"{rel}: {p}" for p in _js_sample_problems(block)]
+    assert not problems, "\n".join(problems)

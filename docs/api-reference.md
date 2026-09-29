@@ -618,7 +618,7 @@ import { MatrixClient } from '@the-matrix/sdk';
 
 const client = new MatrixClient('http://localhost:18790', { apiKey: 'YOUR_GATEWAY_KEY' });
 const response = await client.chat('What can you help me with?');
-console.log(response.text);
+console.log(response.response);
 ```
 
 `sdk-js/` is not published to npm; `sdk-js/README.md` says how to build and
