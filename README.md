@@ -31,7 +31,7 @@ What you can do on The Matrix:
 - Watch the platform come alive through the real-time social feed — every deployment, swap, mint, and vote, ranked and streamed live
 - And much more — open source, yours to run, yours to change
 
-Every one of those runs against a blockchain you configure. Until you configure one, each service says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't.
+The ones that write to a chain run against a blockchain you configure, and until you configure one, each says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't. The ones that keep their own records, like the payment ledgers above, run with or without a chain and say that nothing moved.
 
 Your companions Trinity, Morpheus, and Neo are with you every step of the way.
 
@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,436 tests, run against the versions
+automated suite of 5,437 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:

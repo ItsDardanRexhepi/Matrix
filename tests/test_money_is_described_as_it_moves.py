@@ -12,6 +12,10 @@ stablecoins tool, which builds its transfer from the platform wallet.
 The premises are measured here, through the service dispatcher and from the
 tool's source; the texts are then read against them.
 
+The README also said "Every one of those runs against a blockchain you
+configure" of the whole list; the payment ledgers record with no chain
+configured at all, as the last test measures.
+
 What this cannot see: a claim about moving money worded outside the patterns.
 """
 
@@ -111,3 +115,24 @@ def test_no_public_text_says_a_payment_capability_sends_money():
             for m in re.finditer(pattern, flat):
                 offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 50]}...")
     assert not offenders, "\n".join(offenders)
+
+
+_EVERY_ITEM_NEEDS_A_CHAIN = re.compile(r"every one of those runs against a blockchain", re.I)
+
+
+def test_no_text_says_every_capability_needs_a_chain():
+    from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+    config = json.loads((ROOT / "matrix.config.json.example").read_text(encoding="utf-8"))
+    config["blockchain"] = {"platform_wallet": "0x" + "44" * 20}  # no RPC, no chain
+    dispatcher = ServiceDispatcher(config)
+    dispatcher._get_registry().get("stablecoin").set_balance(_A, "USDC", 1_000)
+    recorded = _run(dispatcher, "transfer_stablecoin",
+                    {"token": "USDC", "from_addr": _A, "to_addr": _B, "amount": 100})["result"]
+    assert recorded.get("status") == "recorded_unsettled", (
+        f"the ledger needs a chain now; re-derive this check: {recorded}")
+    assert _EVERY_ITEM_NEEDS_A_CHAIN.search("Every one of those runs against a blockchain you configure.")
+    offenders = [rel for rel in subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT,
+                                                        text=True).splitlines()
+                 if rel not in _NOT_READ and not rel.startswith("tests/") and (ROOT / rel).is_file()
+                 and _EVERY_ITEM_NEEDS_A_CHAIN.search(_flat((ROOT / rel).read_text(encoding="utf-8")))]
+    assert not offenders, offenders
