@@ -461,10 +461,13 @@ def _move_sequence(conn: sqlite3.Connection, table: str, key: str, old: str, new
     moved row goes at *new*'s highest seq plus one; when *new* holds nothing the
     rows keep their seqs. Two runs numbered from 0 merge into one numbered from
     0, which is what the next ``seq = len(turns)`` write relies on."""
-    offset = conn.execute(  # nosec B608 - fixed table and column names
-        f"SELECT COALESCE(MAX(seq) + 1, 0) FROM {table} WHERE {key} = ?", (new,)).fetchone()[0]
-    conn.execute(  # nosec B608
-        f"UPDATE {table} SET {key} = ?, seq = seq + ? WHERE {key} = ?", (new, offset, old))
+    # The table and the column are names this module writes, never a caller's.
+    offset = conn.execute(
+        f"SELECT COALESCE(MAX(seq) + 1, 0) FROM {table} WHERE {key} = ?",  # nosec B608
+        (new,)).fetchone()[0]
+    conn.execute(
+        f"UPDATE {table} SET {key} = ?, seq = seq + ? WHERE {key} = ?",  # nosec B608
+        (new, offset, old))
 
 
 def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
@@ -500,8 +503,9 @@ def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
         for (old,) in conn.execute(f"SELECT session_id FROM {table}").fetchall():  # nosec B608
             new = _account_id(old)
             if new != old:
-                conn.execute(  # nosec B608
-                    f"UPDATE OR IGNORE {table} SET session_id = ? WHERE session_id = ?", (new, old))
+                conn.execute(
+                    f"UPDATE OR IGNORE {table} SET session_id = ? WHERE session_id = ?",  # nosec B608
+                    (new, old))
     # A first-boot mark is only "the welcome was sent", and an erasure of the
     # same conversation under the same sequence number is one erasure: a second
     # row under the other spelling goes.
@@ -544,8 +548,9 @@ def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
     if {"follower", "followee"} <= _columns(conn, "social_follows"):
         _one_spelling(conn, "social_follows", "follower", or_ignore=True)
         _one_spelling(conn, "social_follows", "followee", or_ignore=True)
-        conn.execute(  # nosec B608 - fixed names
-            "DELETE FROM social_follows WHERE "
+        # The two column names are written here, never a caller's.
+        conn.execute(
+            "DELETE FROM social_follows WHERE "  # nosec B608
             f"{_is_other_spelling('follower')} OR {_is_other_spelling('followee')} "
             "OR follower = followee")
     _one_spelling(conn, "plugin_purchases", "wallet_address", or_ignore=True)
