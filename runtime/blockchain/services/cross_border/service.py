@@ -88,7 +88,7 @@ class CrossBorderService:
             exchange_rate     a real rate, oracle-first with a declared
                               fallback table
             converted_amount  a real conversion of the net amount
-            fee_amount        real tiered fee arithmetic
+            fee_amount        real fee arithmetic (one flat fee_pct)
             attestation       a real EAS call
 
         So this is category 6 (real-local-defective), not category 4: the
@@ -374,7 +374,7 @@ class CrossBorderService:
     async def remit(
         self, sender: str, recipient: str, amount: float, from_currency: str, to_currency: str, corridor: str = "",
     ) -> dict:
-        """Send a remittance. DELEGATES to send_payment. NEW-86.
+        """Record a remittance. DELEGATES to send_payment. NEW-86.
 
         WHAT THIS USED TO BE: fifteen lines that minted a uuid, computed a
         fee, and returned ``"status": "sent"``. Zero awaits. It applied NONE

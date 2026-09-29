@@ -20,7 +20,7 @@ What you can do on The Matrix:
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Record payments today, and send them once settlement is built: the stablecoin-transfer and cross-border payment capabilities record a payment, with its tiered fee (0.1% or less by default for a stablecoin transfer, 0.5% across borders), on their service's in-memory ledger and answer `recorded_unsettled` — no value moves and no transaction is sent. The stablecoin ledger starts empty and only a test helper funds it, so a transfer there is refused for insufficient balance. The one path that sends tokens on chain is Neo's `stablecoins` tool, which sends the platform wallet's own tokens and takes no fee, and naming Neo takes the operator key. The fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
+- Record payments today, and send them once settlement is built: the stablecoin-transfer capability records a transfer on its service's in-memory ledger with a tiered fee (0.1% or less by default), and the cross-border payment capability records the payment instruction, keeping no balances, with a flat 0.5% fee. Both answer `recorded_unsettled` — no value moves and no transaction is sent — and a cross-border payment the compliance check stops answers `compliance_hold`. The stablecoin ledger starts empty and only a test helper funds it, so a transfer there is refused for insufficient balance. Neo's own chain tools are a different path, and they do send: with a chain configured, and within the sponsorship policy, `payment` sends ETH or an ERC-20 token and `stablecoin` a stablecoin it lists for the network, each from the platform wallet's own balance and with no fee, and other Neo tools sign ETH and token transfers from that wallet too. Naming Neo takes the operator key on a gateway that has one set, and the Python SDK's `send_payment()` is a chat message asking Neo to use `payment` for ETH and `stablecoin` for a token. The fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games with less hand-written Solidity — write the contract as structured pseudocode, read the Solidity draft it generates, compile and deploy it yourself
 - Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,452 tests, run against the versions
+automated suite of 5,457 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:

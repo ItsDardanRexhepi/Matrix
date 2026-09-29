@@ -1291,10 +1291,10 @@ class ServiceDispatcher:
                 "  add_liquidity, remove_liquidity, get_dex_positions\n\n"
 
                 "PAYMENTS & TRANSFERS:\n"
-                "  send_payment — Send tokens to someone. "
-                    "params: {recipient, amount, currency}\n"
+                "  send_payment — Record a cross-border payment (recorded, not settled: "
+                    "no value moves). params: {sender, recipient, amount, from_currency, to_currency}\n"
                 "  get_payment_quote — Get a cross-border payment quote. "
-                    "params: {amount, currency, destination_country}\n"
+                    "params: {amount, from_currency, to_currency}\n"
                 "  create_payment, complete_payment\n\n"
 
                 "STAKING:\n"

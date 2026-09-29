@@ -215,11 +215,11 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
-| Create Payment | Create a one-time payment | POST /api/v1/payments/create | x402, native |
-| Complete Payment | Complete an authorized x402 payment (authorizing and refunding are service methods, not registry capabilities) | via capability registry | x402 |
-| Send Payment | Send a payment to a wallet | via capability registry | stablecoin |
-| Transfer Stablecoin | Send stablecoins globally (tiered platform fee, 0.01%–0.1% by default) | POST /api/v1/stablecoin/transfer | USDC, USDT, DAI |
-| Cross-Border Payment | Send money across borders with FX conversion | POST /api/v1/crossborder/send | Circle, Wise, native |
+| Create Payment | Create a one-time x402 payment record, pending until it is authorised, with the agent's spend limits checked: recorded, not settled — no value moves | POST /api/v1/payments/create | x402 |
+| Complete Payment | Close an authorised x402 payment's record: recorded, not settled — no value moves (authorising and refunding are service methods, not registry capabilities) | via capability registry | x402 |
+| Send Payment | Record a cross-border payment to a wallet, with a flat 0.5% fee: recorded, not settled — no value moves | via capability registry | none (a record) |
+| Transfer Stablecoin | Record a stablecoin transfer on the service's in-memory ledger (tiered platform fee, 0.01%–0.1% by default): recorded, not settled — no value moves | POST /api/v1/stablecoin/transfer | USDC, USDT, DAI |
+| Cross-Border Payment | Record a cross-border payment with FX conversion and a flat 0.5% fee: recorded, not settled — no value moves, and no payment provider is called | POST /api/v1/crossborder/send | none (a record) |
 | Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | via capability registry | state channels |
 
 ---
