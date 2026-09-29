@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,257 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,260 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -579,9 +579,10 @@ launch:
   different case. With the security core installed, a call the gate could
   not decide is refused under ENFORCE, reads included; under OBSERVE it is
   refused when it could move value or change state, and a plain read goes
-  through. When the gate raises instead of answering, the platform refuses
-  the call if it could move value and a plain read goes through, in either
-  mode. The `Dockerfile`
+  through. When the gate raises instead of answering, the HTTP gate and the
+  tool-call check refuse the call if it could move value and a plain read goes
+  through, in either mode; Trinity's hand-off to Neo refuses every request it
+  escalates then, reads included. The `Dockerfile`
   installs only the public requirements, so a production image needs the
   separately installed security core as well (`CREDENTIALS_NEEDED.md`,
   section 5).

@@ -24,8 +24,10 @@ owners, or sanitizes — are **not in this repository** and never will be.
   applies every deny: under ENFORCE the installed core refuses that call,
   reads included, and under OBSERVE it refuses a call that could move value
   or change state and lets a plain read proceed. When the gate raises instead
-  of answering, the seam's own fail direction decides, in either mode: an
-  action that could move value is refused, a plain read proceeds. With no
+  of answering, the seam's own fail direction decides at the HTTP gate and at
+  `pre_action`, in either mode: an action that could move value is refused, a
+  plain read proceeds; the hand-off refuses every request it escalates then,
+  reads included (`runtime/agents/handoff.py`). With no
   gateway running (a script, the CLI) the
   accessor builds the gate on first use, and the tool boundary asks the
   policy, as before.

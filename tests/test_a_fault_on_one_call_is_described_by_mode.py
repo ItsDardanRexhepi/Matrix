@@ -31,6 +31,19 @@ CHECKS
       at the pre-action check, while the same read by a caller it can read is
       allowed; in OBSERVE the faulted read goes through and a swap faulted the
       same way is refused. Skipped on the no-op backend.
+  (e) every tracked file outside tests/ that says a gate which raises instead
+      of answering lets a plain read through also says that the hand-off
+      refuses every request it escalates then, reads included  (the control)
+  (f) PIN: the hand-off, with a gate that raises instead of answering,
+      refuses a balance read and a swap alike, in either mode
+
+THE CASE (e) AND (f) ADD. The sentence the three places carried for a gate
+that raises — "the platform refuses the call if it could move value and a
+plain read goes through, in either mode" — holds at the HTTP gate and at the
+pre-action check. The third place the platform asks the gate, Trinity's
+hand-off to Neo (runtime/agents/handoff.py), refuses every request it
+escalates when the gate raises, reads included; its own docstring said so, and
+the three public places did not.
 
 §CC, measured against the tree at the commit "Under OBSERVE a fault denies for
 a call that could change state, not only one that could move value", with
@@ -40,6 +53,12 @@ the same three files; (c) passed, and (d) passed with the core installed and
 was skipped on the no-op backend, since the seam and the core already behaved
 as the corrected text says and only the text was wrong. After the change, all
 pass.
+
+§CC, measured against the tree at the commit "The commit-citation note says
+seven files, and its counts are checked against the tree it names", with (e)
+and (f) added: (e) failed naming README.md, CREDENTIALS_NEEDED.md and
+runtime/security/SECURITY_INTERFACE.md; (f) passed, since the hand-off already
+refused as the corrected text says. After the change, both pass.
 """
 
 from __future__ import annotations
@@ -64,6 +83,11 @@ _READ_THROUGH = re.compile(r"plain read (?:goes |go )?(?:through|proceeds?)", re
 _QUALIFIED = re.compile(r"\bOBSERVE\b|raises instead of answering")
 #: The case the three places left out.
 _ENFORCE_REFUSES_READS = re.compile(r"under ENFORCE[^.;]*reads included")
+#: A gate that raises, said of: the seam's own fail direction.
+_RAISES = re.compile(r"raises instead of answering")
+#: The one place the seam asks the gate whose own catch refuses reads as well.
+_HANDOFF_REFUSES_READS = re.compile(r"hand-off[^.;]*refuses every request[^.;]*reads included",
+                                    re.IGNORECASE)
 
 
 def _tracked_text_files() -> list[Path]:
@@ -213,3 +237,41 @@ async def test_the_core_in_observe_lets_a_read_it_faulted_on_through(core_gate):
         "a swap by a caller the core can read is refused; the pin below says nothing")
     assert is_blocked(await gate_action("swap", {}, context=UNREADABLE))
     assert (await _stack(core_gate).pre_action(*READ, UNREADABLE))["approved"] is True
+
+
+# ── (e) and (f): the hand-off, where a gate that raises refuses reads too ──────
+
+def test_a_file_that_says_a_raising_gate_lets_a_read_through_names_the_hand_off():
+    """(e) THE CONTROL."""
+    said = [path for path, hits in _read_through_sentences().items()
+            if any(_RAISES.search(s) for s in hits)]
+    assert said, "no public sentence says what a gate that raises does to a read"
+    silent = [path for path in said
+              if not _HANDOFF_REFUSES_READS.search(_folded((ROOT / path).read_text(
+                  encoding="utf-8")))]
+    assert not silent, (
+        "a public file says a gate that raises lets a plain read through and not that "
+        f"the hand-off refuses every request then, reads included: {sorted(silent)}")
+
+
+@pytest.mark.parametrize("mode", [seam.MorpheusMode.ENFORCE, seam.MorpheusMode.OBSERVE])
+async def test_the_hand_off_refuses_every_request_when_the_gate_raises(monkeypatch, mode):
+    """(f)"""
+    from runtime.agents.handoff import AgentHandoff
+
+    class _Raising:
+        async def evaluate(self, action, context):
+            raise RuntimeError("gate fault")
+
+    gate = _Raising()
+    gate.mode = mode
+    monkeypatch.setattr(seam, "get_morpheus_security", lambda *a, **k: gate)
+
+    class _Dispatcher:
+        async def execute(self, *a, **k):
+            raise AssertionError("the hand-off ran a request the gate did not decide")
+
+    handoff = AgentHandoff({}, _Dispatcher())
+    for action in ("get_balance", "swap"):
+        result = await handoff.escalate(action, {}, {seam.CALLER_IDENTITY_KEY: W})
+        assert result["approved"] is False, (mode, action, result)

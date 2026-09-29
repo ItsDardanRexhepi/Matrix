@@ -119,8 +119,10 @@ you set in this repository.
   come up and then cannot decide a single call refuses it under ENFORCE,
   reads included; under OBSERVE it refuses the call when it could move value
   or change state and lets a plain read through. When the gate raises instead
-  of answering, the platform refuses the call if it could move value and lets
-  a plain read through, in either mode. `docker-compose.prod.yml` and
+  of answering, the HTTP gate and the tool-call check refuse the call if it
+  could move value and let a plain read through, in either mode; Trinity's
+  hand-off to Neo refuses every request it escalates then, reads included.
+  `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core
