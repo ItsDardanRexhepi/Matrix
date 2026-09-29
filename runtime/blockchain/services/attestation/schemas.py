@@ -20,8 +20,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Primary platform schema UID — EMPTY by default; supply the real
-# registered bytes32 via config["blockchain"]["schemas"]["primary"].
-PRIMARY_SCHEMA_UID: str = ""  # config-required (blockchain.schemas.primary); no fabricated default
+# registered bytes32 via config["blockchain"]["eas_schema"], which is where
+# AttestationService and EASClient read the core schema from.
+PRIMARY_SCHEMA_UID: str = ""  # config-required (blockchain.eas_schema); no fabricated default
 
 # Platform schemas — maps component names to default schema UIDs.
 # In production these are overridden via config["blockchain"]["schemas"].
