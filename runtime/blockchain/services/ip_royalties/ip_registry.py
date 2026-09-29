@@ -10,6 +10,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 
@@ -112,7 +114,7 @@ class IPRegistry:
         hash_filter = query.get("content_hash", "")
 
         for record in self._registry.values():
-            if owner_filter and record["owner"] != owner_filter:
+            if owner_filter and not same_caller(record["owner"], owner_filter):
                 continue
             if type_filter and record["ip_type"] != type_filter:
                 continue
@@ -141,7 +143,7 @@ class IPRegistry:
                 "reason": "IP not found",
             }
 
-        is_owner = record["owner"] == claimant
+        is_owner = bool(claimant) and same_caller(record["owner"], claimant)
         return {
             "verified": is_owner,
             "ip_id": ip_id,

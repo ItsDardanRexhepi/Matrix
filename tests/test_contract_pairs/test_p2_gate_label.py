@@ -256,7 +256,7 @@ NOT_A_SITE = {
         "the wrapper the funnel, the bridge, the invoke route and the preflight call",
     ("runtime/protocols/integration.py", "_init_protocols"):
         "builds the stack's gate; _pre_action hands it the action",
-    ("gateway/server.py", "_start_cleanup_task"):
+    ("gateway/server.py", "_start_security_gate"):
         "builds and initialises the process-wide gate at startup",
     ("runtime/protocols/omega.py", "_phase_gate"):
         "evaluates the framework's own RexhepiGate, not the security gate",
@@ -266,8 +266,9 @@ NOT_A_SITE = {
 SEAM = "runtime/security/__init__.py"
 
 #: The names code reaches the security gate by: the seam's accessor, the
-#: gateway's wrapper around it, and the core's class.
-GATE_NAMES = {"get_morpheus_security", "gate_action", "MorpheusSecurity"}
+#: host's start of the gate (which returns it), the gateway's wrapper around
+#: it, and the core's class.
+GATE_NAMES = {"get_morpheus_security", "start_security_gate", "gate_action", "MorpheusSecurity"}
 #: The private core's package, imported directly rather than through the seam.
 CORE_PACKAGE = "morpheus_security"
 
@@ -337,7 +338,8 @@ def _source_files(root):
 def gate_call_sites(root: Path = ROOT) -> set[tuple[str, str]]:
     """Every function outside tests/ (or ``<module>`` for module level) that
     reaches for the security gate in a form the source shows: it names the
-    seam's accessor, the gateway's wrapper or the core's class — calling it,
+    seam's accessor, the host's start of the gate, the gateway's wrapper or
+    the core's class — calling it,
     passing it, importing it under any alias, reaching it as an attribute or
     naming it in a string — imports the core's package directly (by an
     ``import`` statement or a call that imports a literal name), or touches a

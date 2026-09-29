@@ -15,6 +15,8 @@ import uuid
 from enum import Enum
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 
@@ -175,7 +177,7 @@ class P2PLending:
             offer["status"] = OfferStatus.EXPIRED
             raise ValueError(f"Offer '{offer_id}' has expired")
 
-        if offer["lender"] == borrower:
+        if same_caller(offer["lender"], borrower):
             raise ValueError("Cannot borrow from your own offer")
 
         # Validate collateral
@@ -297,7 +299,7 @@ class P2PLending:
                 continue
             if token_filter and offer["token"] != token_filter:
                 continue
-            if lender_filter and offer["lender"] != lender_filter:
+            if lender_filter and not same_caller(offer["lender"], lender_filter):
                 continue
             if offer["remaining_amount"] < min_amount:
                 continue
@@ -319,7 +321,7 @@ class P2PLending:
             raise KeyError(f"Offer '{offer_id}' not found")
 
         offer = self._offers[offer_id]
-        if offer["lender"] != lender:
+        if not same_caller(offer["lender"], lender):
             raise ValueError("Only the lender can cancel their offer")
         if offer["status"] != OfferStatus.OPEN:
             raise ValueError(f"Offer is {offer['status']}, cannot cancel")
@@ -338,7 +340,7 @@ class P2PLending:
         offer = self._offers[offer_id]
         if offer["status"] != OfferStatus.FILLED:
             raise ValueError(f"Offer is {offer['status']}, cannot repay")
-        if offer["borrower"] != borrower:
+        if not same_caller(offer["borrower"], borrower):
             raise ValueError("Only the borrower can repay")
 
         # DOMAIN 16-I — THE THIRD VALUE ENTRY POINT IN THIS FILE, MISSED BY ME.

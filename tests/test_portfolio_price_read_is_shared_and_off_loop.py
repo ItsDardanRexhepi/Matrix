@@ -1,16 +1,20 @@
 """The portfolio's live ETH/USD read: one read per cache window, off the event
 loop, and never for a wallet that is not an address.
 
-540b991 made /portfolio/complete and /portfolio/positions value a non-zero
-balance at a live quote, which was right, but it built a fresh
-`PriceFeed(self._config)` inside every request. PriceFeed's 30 s cache lives on
-the instance, so no request ever hit it. The /price route and the paymaster
-route already shared one instance (ServiceRoutes._price_feed).
+The commit "Corrects 6175eed's message: a router or balance failure was still a
+200 default, and the sweep never reached the resolver" made /portfolio/complete
+and /portfolio/positions value a non-zero balance at a live quote, which was
+right, but it built a fresh `PriceFeed(self._config)` inside every request.
+PriceFeed's 30 s cache lives on the instance, so no request ever hit it. The
+/price route and the paymaster route already shared one instance
+(ServiceRoutes._price_feed).
 
 Worse, PriceFeed._default_chainlink was an `async def` that made synchronous
 web3 HTTP calls, so every read held the gateway's event loop for its RPC round
-trips. Before 540b991 the portfolio used a static table and made no call at
-all, so the branch added a stall to every portfolio request.
+trips. Before the commit "Corrects 6175eed's message: a router or balance
+failure was still a 200 default, and the sweep never reached the resolver" the
+portfolio used a static table and made no call at all, so the branch added a
+stall to every portfolio request.
 
 Also, a wallet path segment that is not an address is the caller's input. web3
 rejected it inside get_balance_eth's try, and the route answered 503
