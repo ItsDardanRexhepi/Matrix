@@ -276,9 +276,28 @@ def test_no_audit_surface_offers_review_no_service_performs():
 # checks audit() runs, returned as a report; the converter writes no tests;
 # no route takes an order for either, and nothing in the code produces the
 # rest. A banner that says a tier cannot be ordered does not say its features
-# do not exist. The list also names the tiers' own wording that its first
-# patterns let through: "re-audit, and deployment certification", "priority
-# re-audit after fixes", a price per audit and a badge included in one.
+# do not exist. The list also reads the tiers' own wording that its first
+# patterns let through, _LET_THROUGH_BY_THE_FIRST_PATTERNS below: a deployment
+# certification after "re-audit, and", a price per audit and a badge included
+# in a tier. The patterns added with them read the same promises worded
+# otherwise: a re-audit after fixes, a delivery window without "delivered" and
+# dedicated support.
+
+_ADDED_FOR_THE_TIERS = [
+    r"re-audits? after fix",
+    r"deployment (?:readiness )?certification",
+    r"within \d+ (?:business )?(?:hours?|days?|weeks?)",
+    r"dedicated support",
+    r"\$\s?\d[\d,.]* per audit",
+    r"badge included",
+]
+# The tiers' wording, as web/audit.html and web/glasswing.html listed it, that
+# the patterns before _ADDED_FOR_THE_TIERS did not read.
+_LET_THROUGH_BY_THE_FIRST_PATTERNS = [
+    "Full audit with remediation, re-audit, and deployment certification",
+    "$299 per audit",
+    "Full audit with ongoing monitoring and first-year badge included",
+]
 
 _DELIVERABLE_CLAIMS = [
     r"\bpdf\b",
@@ -295,12 +314,7 @@ _DELIVERABLE_CLAIMS = [
     r"turnaround",
     r"delivered within",
     r"(?:free|priority) re-audit",
-    r"re-audits? after fix",
-    r"deployment (?:readiness )?certification",
-    r"within \d+ (?:business )?(?:hours?|days?|weeks?)",
-    r"dedicated support",
-    r"\$\s?\d[\d,.]* per audit",
-    r"badge included",
+    *_ADDED_FOR_THE_TIERS,
     r"revision requests?",
     r"priority (?:queue|processing)",
     r"custom template",
@@ -369,6 +383,23 @@ def test_the_deliverable_scan_catches_the_old_copy():
     # What the pages may still say: the scan, its report and a user re-running it.
     assert not _deliverable_offenders("x", "Glasswing runs 12 checks and returns a report; "
                                            "fix and re-audit after every change.")
+
+
+def test_the_wording_the_first_patterns_let_through_is_what_the_comment_names():
+    """Each wording in _LET_THROUGH_BY_THE_FIRST_PATTERNS has a promise the
+    patterns before _ADDED_FOR_THE_TIERS did not read, and the full list reads."""
+    first = [p for p in _DELIVERABLE_CLAIMS if p not in _ADDED_FOR_THE_TIERS]
+
+    def spans(patterns, flat):
+        return [m.span() for p in patterns for m in re.finditer(p, flat)]
+
+    for wording in _LET_THROUGH_BY_THE_FIRST_PATTERNS:
+        flat = wording.lower()
+        added = spans(_ADDED_FOR_THE_TIERS, flat)
+        assert added, f"the added patterns do not read {wording!r}"
+        caught_first = spans(first, flat)
+        assert any(not any(s < e2 and s2 < e for s2, e2 in caught_first) for s, e in added), (
+            f"the first patterns already read every promise in {wording!r}")
 
 
 def test_no_offering_lists_a_deliverable_nothing_produces():
