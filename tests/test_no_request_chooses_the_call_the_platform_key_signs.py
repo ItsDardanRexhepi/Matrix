@@ -81,6 +81,10 @@ signed back to where it is built, and fails:
     keys it cannot read, which is unpacked or updated from anything it cannot
     read, or whose data is replaced after it is built (``[...] =``, ``update``,
     ``setdefault``, ``|=``);
+  * on a built transaction handed anywhere before it is signed but a signer or
+    the node's gas estimate: bound to another name, handed to another call
+    (``dict.update``, ``operator.setitem``, a helper), put in a container or
+    on an attribute — where the census cannot read what is written into it;
   * on a named function whose inputs it cannot read: no ABI for it written out
     under ``runtime/`` or ``gateway/``, a ``*`` or ``**`` argument, a keyword;
   * on every ``bytes`` or ``bytes[]`` input of a named function's ABI (inside a
@@ -150,7 +154,7 @@ WHAT THIS DOES NOT COVER, stated.
   * A signing method reached through a name computed at run time, and code that
     is not in the source the walk reads (a method replaced at run time).
 
-CONTROL. Of this file's 81 tests, 43 are marked [control] and 38 [guard]. The
+CONTROL. Of this file's 87 tests, 48 are marked [control] and 39 [guard]. The
 product's controls are measured by laying this file over each commit: at
 fix/oldq-census 420a88a 32 fail; at d3dcf89 the 24 from the services section
 on (the first round's 8 — the tool's five, the allowlist's two and the census
@@ -161,8 +165,11 @@ two, the door and table controls that now name them, and the address listing.
 The census's own controls, the eleven binding shapes, are measured against the
 census as it stood at the recovery and session-key refusal ("The platform's
 wallet recovers no account and registers no session key on a request ...")
-by running them with it: all eleven fail there. All 81 pass here, and the 38
-guards pass at every commit above. On 15 of the planted shapes the census as
+by running them with it: all eleven fail there. The five shapes of a built
+transaction changed through another name, run with the census as it stood at
+the signing-census commit ("The signing census reads every form that binds a
+name ..."), each pass there with nothing reported. All 87 pass here, and the
+39 guards pass at every commit above. On 15 of the planted shapes the census as
 it stood at d3dcf89 reported nothing.
 """
 
@@ -1055,6 +1062,38 @@ def _mutated(name, fn, ctx) -> str | None:
     return None
 
 
+#: What may be done with a built transaction before it is signed without the
+#: census losing sight of it: read it, test it, write into it where
+#: ``_mutated`` reads the write, and have the node estimate its gas.
+_TX_READS = frozenset({"get", "items", "keys", "values", "copy"})
+_TX_HANDED_TO = SIGNING_CALLS | {"estimate_gas"}
+
+
+def _escaped(name, fn) -> str | None:
+    """Why the transaction bound to *name* may change where the census does
+    not look before it is signed: handed to another call, bound to another
+    name, put in a container, stored on an attribute."""
+    parents = {id(c): n for n in ast.walk(fn) for c in ast.iter_child_nodes(n)}
+    for node in _own_nodes(fn):
+        if not (isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, ast.Load)):
+            continue
+        parent = parents.get(id(node))
+        if isinstance(parent, ast.Subscript) and parent.value is node:
+            continue
+        if isinstance(parent, ast.Attribute) and parent.value is node and (
+                parent.attr in _TX_READS or parent.attr in MUTATORS):
+            continue
+        if isinstance(parent, (ast.Compare, ast.BoolOp, ast.UnaryOp, ast.If, ast.IfExp,
+                               ast.FormattedValue, ast.AugAssign)):
+            continue
+        if (isinstance(parent, ast.Call) and node in parent.args
+                and isinstance(parent.func, ast.Attribute) and parent.func.attr in _TX_HANDED_TO):
+            continue
+        return (f"the transaction is handed elsewhere before it is signed (line {node.lineno}); "
+                "the census cannot read what is written into it there")
+    return None
+
+
 def _signs(arg, ctx, seen=frozenset()) -> tuple[str, str | None, list]:
     """(kind, problem, named calls) for what one signing call signs: kind is
     'built', 'deployment' or 'handed'."""
@@ -1086,7 +1125,10 @@ def _signs(arg, ctx, seen=frozenset()) -> tuple[str, str | None, list]:
             kind = next(k for k in ("handed", "deployment", "built") if k in kinds)
             problem = next((p for _k, p, _c in found if p), None)
             calls = [c for _k, _p, cs in found for c in cs]
-            return kind, problem or _mutated(arg.id, ctx.fn, ctx), calls
+            problem = problem or _mutated(arg.id, ctx.fn, ctx)
+            if kind == "built":
+                problem = problem or _escaped(arg.id, ctx.fn)
+            return kind, problem, calls
     return "built", unread, []
 
 
@@ -1659,9 +1701,11 @@ def test_an_other_signature_is_seen():
 # The census above is about bytes: a call or a message. The arguments a
 # request may supply are not that class, and at the blockchain tools the seam
 # binds the ones that must be the caller's own. In the services layer nothing
-# binds one, and the review drove two of them to an account takeover: the
-# platform's wallet sending a recovery module or a session-key module the
-# account and the new owner or key the request named (refused, above). So each
+# binds one, and the review drove two of them to the platform's signature on
+# a hand-over of an account: the platform's wallet sending a recovery module
+# or a session-key module the account and the new owner or key the request
+# named, which takes the account wherever the module trusts the platform's
+# wallet (refused, above). So each
 # address a request supplies there is listed with what it is, and a new one
 # fails here until someone reads it: the platform's key handing over an
 # account the request names would be one.
@@ -1793,3 +1837,57 @@ def test_the_address_walk_sees_a_planted_account():
     rows = set(_request_addresses(source, "<planted>"))
     assert rows == {("M.recover", "initiateRecovery", "account"),
                     ("M.recover", "initiateRecovery", "newOwner")}, rows
+
+
+
+# ── a built transaction changed through another name ────────────────────
+#
+# At the signing-census commit ("The signing census reads every form ...")
+# each of these passed: the walk read writes into the transaction under its
+# own name, and not through another name bound to it, a function handed it,
+# or a helper that fills it in.
+
+_TX_CHANGED = {
+    "a name bound to it": (
+        "    tx = c.functions.ping().build_transaction({})\n"
+        "    alias = tx\n"
+        "    alias['data'] = params['data']\n"),
+    "dict.update": (
+        "    tx = c.functions.ping().build_transaction({})\n"
+        "    dict.update(tx, data=params['data'])\n"),
+    "operator.setitem": (
+        "    tx = c.functions.ping().build_transaction({})\n"
+        "    operator.setitem(tx, 'data', params['data'])\n"),
+    "a helper that fills it in": (
+        "    tx = c.functions.ping().build_transaction({})\n"
+        "    self._fill(tx, params)\n"),
+    "a container it is put in": (
+        "    tx = c.functions.ping().build_transaction({})\n"
+        "    box = [tx]\n"
+        "    box[0]['data'] = params['data']\n"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_TX_CHANGED))
+def test_a_transaction_changed_through_another_name_is_reported(shape):
+    """[control]"""
+    source = ("PING = [{'name': 'ping', 'type': 'function', 'inputs': []}]\n"
+              "async def go(self, params):\n" + _TX_CHANGED[shape]
+              + "    await self._web3.send_transaction(tx)\n")
+    problems = [s.problem for s in _census(source, "<planted>") if s.problem]
+    assert any("handed elsewhere before it is signed" in p for p in problems), (shape, problems)
+
+
+def test_what_every_signer_does_with_its_transaction_still_passes():
+    """[guard] Reading it, testing it, setting a field the census reads, and
+    having the node estimate its gas."""
+    source = ("PING = [{'name': 'ping', 'type': 'function', 'inputs': []}]\n"
+              "async def go(self, params):\n"
+              "    tx = c.functions.ping().build_transaction({'from': self.wallet})\n"
+              "    if 'gas' not in tx:\n"
+              "        tx['gas'] = self.w3.eth.estimate_gas(tx)\n"
+              "    tx.setdefault('nonce', 0)\n"
+              "    for key, value in tx.items():\n"
+              "        pass\n"
+              "    await self._web3.send_transaction(tx)\n")
+    assert [s.problem for s in _census(source, "<clean>") if s.problem] == []

@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,412 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,427 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -300,9 +300,10 @@ check behind it:
   payment's compliance record names no address at all, since that call
   pays nobody. Tests trace, in the source, every value that reaches the
   statement or the subject of an attestation these tools make back to a
-  constant or to the request, and report as a failure every value they
-  cannot trace that far and every way of reaching the attestation they
-  cannot read; walk every call the platform's key signs (next point);
+  constant or to the request as it was written, and report as a failure
+  every value they cannot trace that far, every place the request could be
+  changed before it is read, and every way of reaching the attestation
+  they cannot read; walk every call the platform's key signs (next point);
   and drive every one of those doors. Four limits, stated: the next
   point's (a timelock's or a governor's inner call, which that contract
   makes as itself); a record about your own
@@ -323,15 +324,17 @@ check behind it:
   it is neither (an address encoded as bytes; the input an automation
   job hands the contract the request named for it). A request may supply
   other arguments. At the blockchain tools the ones that must be your own
-  address are checked, as above. In the services layer none is checked
-  against your session: a test lists every address a request supplies to
-  a call the platform signs there, 24 of them, each with what it is — 14
-  name who receives, holds or is credited with what the platform's own
-  call pays, lends, stakes, delegates, mints or creates (a token bridge's
-  receiver, a reward's recipient, a loan's on-behalf-of account, a keeper
-  job's upkeep, a restaking receiver among them), 8 name which of the
-  platform's own tokens or contracts the call uses, and 2 sit behind a
-  pair every door refuses. That is the platform's value moving where a
+  address are checked, as above. In the services layer no address a
+  request supplies to a call the platform signs is checked against your
+  session: a test lists every one it reads there, 24, each with what it
+  is — 14 name who receives, holds or is credited with what the
+  platform's own call pays, lends, stakes, delegates, mints or creates (a
+  reward's recipient, a loan's on-behalf-of account, a keeper job's
+  upkeep, a restaking receiver, a payment channel's partner among them),
+  8 name which of the platform's own tokens or contracts the call uses,
+  and 2 sit behind a pair every door refuses; two more, a token bridge's
+  receiver and a Stargate recipient, travel encoded as bytes and are
+  listed with them. That is the platform's value moving where a
   request says, which is the security gate's to evaluate and which, with
   no enforcement core installed, it observes and does not refuse; a new
   one fails the test until it is read. The `smart_contract` tool compiles, reads and verifies
@@ -357,8 +360,9 @@ check behind it:
   every `sign_transaction` and `send_transaction` call in `runtime/` and
   `gateway/`, reads every name binding a bytes input each one carries,
   and fails on any it cannot read as a constant unless it is listed with
-  its reason; every other key signature there is listed where it is
-  made. The limits, stated: `governance`'s timelock schedule and execute
+  its reason, and on a transaction handed anywhere before it is signed
+  where it cannot read what is written into it; every other key
+  signature there is listed where it is made. The limits, stated: `governance`'s timelock schedule and execute
   and a `dao` proposal carry an inner call the request wrote, which the
   timelock or governor makes as itself under whatever role the platform
   holds there, a deployment fact this repository cannot see; those are

@@ -47,13 +47,25 @@ The trace is closed: every part of each of those three values must be one of
     string method, on such parts; or any other call handed the request, read
     as the request whole.
 
+A field of the request is the caller's only if the request still says what the
+caller wrote when it is read. So in a module with an attestation, every
+function but ``__init__`` must leave what it is handed as it arrived: a write
+into a parameter, directly or through a name bound to it, and a parameter
+handed anywhere the census does not read (a call outside the class and the
+module, an attribute, a container, a ``return``) is reported at each of the
+module's attestations. Reading a field, looking a key up, testing, matching,
+formatting, and handing the request to a method of the class or a function of
+the module do not change it.
+
 Anything else is reported as a place the walk cannot follow the request: a
 module name something can write (a dict, a ContextVar), a name bound by
 ``except``, ``import``, ``global`` or ``nonlocal``, another object's attribute,
 a ``self`` attribute written through anything but ``self`` or outside a
 method's own body, a method or property of that name, an attribute nothing in
-the module writes, a local or attribute handed elsewhere before it is read
-into, and what a call not handed the request returns.
+the module writes, any ``self`` attribute in a module whose classes define an
+attribute hook (``__getattr__``, ``__getattribute__``, ``__setattr__`` and their
+kin), a local or attribute handed elsewhere before it is read into, and what a
+call not handed the request returns.
 
 How ``attest`` is reached is closed the same way. Reported, each saying why:
 ``attest`` taken as a value; reached by its name as a string (``getattr``,
@@ -75,6 +87,8 @@ reaches the contract only in ``attest`` and in ``verify``'s read, and if it
 ever encodes ``details``, the census has to learn to read them. A third keeps
 the directory closed: every module a twin imports under ``runtime/``, a
 relative import resolved, is inside it or named and read for an attestation.
+A fourth keeps inheritance closed: every class that attests inherits only
+``BlockchainInterface``, which defines no attribute hook.
 
 WHAT THIS DOES NOT COVER, stated. The services layer
 (``runtime/blockchain/services/``) has its own attestation service; its three
@@ -104,7 +118,12 @@ The seventeen [control] shapes of the last section, run with the census as it
 stood at this branch's signing-census commit ("The signing census reads every
 form that binds a name ..."), each pass there with nothing reported, and are
 reported here; the relative-import control's form was not counted by the
-premise as it stood there. The last section's four guards pass here.
+premise as it stood there. The last section's four guards pass here. The six
+[control] shapes of a request changed before its field is read, run with the
+census as it stood at the attestation-trace commit ("The attestation census
+traces every value ..."), each pass there with nothing reported, and are
+reported here; their guard passes. So does the attribute-hook control, and
+its guard passes.
 """
 
 from __future__ import annotations
@@ -933,10 +952,20 @@ def _trace_name(name, w: _Walk, seen, content) -> tuple[list[str], set[str]]:
             "the census does not follow what it holds"], set()
 
 
+#: Hooks that make an attribute read or write run code of the class's own:
+#: with one in the module, what ``self.x`` reads is not what the source wrote.
+_ATTRIBUTE_HOOKS = frozenset({"__getattr__", "__getattribute__", "__setattr__", "__delattr__",
+                              "__init_subclass__", "__set_name__", "__get__", "__set__"})
+
+
 def _trace_self(attr, w: _Walk, seen, content) -> tuple[list[str], set[str]]:
     key = f"self.{attr}"
     if key in seen:
         return [], set()
+    hooks = sorted(h for h in _ATTRIBUTE_HOOKS if h in w.module.writes)
+    if hooks:
+        return [f"{key}: the module defines {', '.join(hooks)}, so an attribute read runs "
+                "code the census does not follow"], set()
     writes = w.module.writes.get(attr, [])
     if not writes:
         if attr in BASE_ATTRIBUTES:
@@ -1010,6 +1039,92 @@ def _trace_call(call, w: _Walk, seen) -> tuple[list[str], set[str]]:
     if fields:
         return problems, {"*"}      # a call handed the request is read as the request itself
     return problems + [f"what {ast.unparse(f)[:60]} returns; the census does not follow it"], fields
+
+
+# ── the request itself must reach the attestation as it arrived ─────────
+#
+# A field read from the request is taken to be what the request wrote. That
+# holds only while nothing in the module can change the request object before
+# it is read: a method or function that writes into a parameter, directly or
+# through a name bound to it, and a parameter handed anywhere the census does
+# not read (another object's method, a function outside the module, a
+# container, an attribute) can each put a different value under a field the
+# seam binds. Reported at every attestation of a module where one appears.
+
+#: Methods of a mapping that read it and change nothing.
+_READS = frozenset({"get", "keys", "values", "items", "copy", "__contains__", "__getitem__"})
+
+
+def _aliases(fn, params: set[str]) -> set[str]:
+    """The parameters, and every local name bound to one of them as a whole."""
+    names = set(params)
+    changed = True
+    while changed:
+        changed = False
+        for n in _own(fn):
+            if isinstance(n, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and isinstance(
+                    getattr(n, "value", None), ast.Name) and n.value.id in names:
+                for t in (n.targets if isinstance(n, ast.Assign) else [n.target]):
+                    if isinstance(t, ast.Name) and t.id not in names:
+                        names.add(t.id)
+                        changed = True
+    return names
+
+
+def _request_handling(tree) -> list[tuple[str, int, str]]:
+    """(function, line, why) for every place in *tree* where a parameter a
+    function is handed may be changed, or leaves for somewhere the census does
+    not read. ``__init__`` is left out: what it is handed is the configuration."""
+    parents = _parents(tree)
+    local_defs = {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or fn.name == "__init__":
+            continue
+        params = {a.arg for a in [*fn.args.posonlyargs, *fn.args.args, *fn.args.kwonlyargs]
+                  if a.arg not in ("self", "cls")}
+        params |= {a.arg for a in (fn.args.vararg, fn.args.kwarg) if a is not None}
+        names = _aliases(fn, params)
+        rewritten = _rewrites(fn, names)
+        if rewritten:
+            out.append((fn.name, fn.lineno, f"{rewritten} (through a name bound to it)"
+                        if not _rewrites(fn, params) else rewritten))
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Name) and node.id in names and isinstance(node.ctx, ast.Load)):
+                continue
+            parent = parents.get(id(node))
+            if isinstance(parent, ast.Subscript):
+                continue                                   # a field read, or a key looked up
+                                                           # (a write into it is a rewrite)
+            if isinstance(parent, ast.Attribute) and parent.value is node:
+                called = parents.get(id(parent))
+                if not (isinstance(called, ast.Call) and called.func is parent) or parent.attr in _READS:
+                    continue                               # an attribute read, or .get()
+                out.append((fn.name, node.lineno, f"{node.id}.{parent.attr}() may change the request"))
+                continue
+            if isinstance(parent, (ast.Compare, ast.BoolOp, ast.UnaryOp, ast.If, ast.IfExp,
+                                   ast.While, ast.Assert, ast.FormattedValue, ast.comprehension,
+                                   ast.For, ast.AsyncFor, ast.Match, ast.BinOp)):
+                continue                                   # tested, matched, formatted, iterated,
+                                                           # or an operand of a new value
+            if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and all(
+                    isinstance(t, ast.Name) for t in (parent.targets if isinstance(parent, ast.Assign)
+                                                      else [parent.target])):
+                continue                                   # bound to another name, which is followed
+            if isinstance(parent, ast.Call) and node in parent.args:
+                f = parent.func
+                if isinstance(f, ast.Attribute) and _is_self(f.value):
+                    continue                               # a method of this class: read by the census
+                if isinstance(f, ast.Name) and f.id in local_defs:
+                    continue                               # a function of this module: read too
+                if isinstance(f, ast.Name) and f.id in _CONVERTERS:
+                    continue
+                if isinstance(f, ast.Attribute) and f.attr in ("get", "__contains__", "__getitem__"):
+                    continue                               # a key looked up in another mapping
+            out.append((fn.name, node.lineno, (
+                f"{node.id} is handed to {ast.unparse(parent)[:50]!s}, which the census does not "
+                "read; it may come back changed")))
+    return out
 
 
 #: Decorators that hand a method what its caller passed, unchanged.
@@ -1171,6 +1286,8 @@ def _census(source: str, filename: str, binds=_seam_binds):
     outside the client. A census that cannot see a site must not pass it."""
     tree = ast.parse(source, filename=filename)
     module = _module_facts(tree)
+    handling = [f"the request may not arrive as it was written: {name} (line {line}): {why}"
+                for name, line, why in _request_handling(tree)]
     accounted: set[int] = set()
     for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
         tool, verbs = _tool_name(cls), _verbs(cls)
@@ -1231,6 +1348,7 @@ def _census(source: str, filename: str, binds=_seam_binds):
                     problems.append(rewritten)
                 if call.args or not {"action", "agent"} <= set(kw):
                     problems.append("action/agent not passed by keyword; the census cannot read it")
+                problems += handling
                 walk = _walk_for(fn, module)
                 traced = {}
                 for part in ("action", "agent", "recipient"):
@@ -1615,7 +1733,7 @@ def test_what_the_walk_now_follows_it_still_passes_when_bound():
         "                await client.attest(action='a', agent='neo', details={}, recipient=who)\n",
         "    @staticmethod\n"
         "    async def _unrelated(x):\n"
-        "        return x\n"
+        "        return str(x)\n"
         "    async def _record(self, params):\n"
         "        await client.attest(action='a', agent='neo', details={},\n"
         "                            recipient=params.get('player_address'))\n",
@@ -1885,3 +2003,116 @@ def test_the_contract_lookup_listing_is_exact():
             assert isinstance(called, ast.Call) and called.func is n, ast.unparse(called)
             assert isinstance(used, ast.Attribute) and used.attr == "call", ast.unparse(used)
             assert isinstance(parents[id(used)], ast.Call), "a read, called"
+
+
+
+# ── the request changed before its field is read ────────────────────────
+#
+# A field the seam binds is only the caller's if the request still says what
+# the caller wrote when the field is read. At the attestation-trace commit
+# ("The attestation census traces every value ...") each shape below passed:
+# the request rewritten by another method, through a local name bound to it,
+# through an attribute or a container it was put in, by a function outside
+# the module, or by the caller of a method that returned it.
+
+_READS_BOUND = ("        await client.attest(action='a', agent='neo', details={},\n"
+                "                            recipient=params.get('player_address'))\n")
+
+REQUEST_CHANGED_SHAPES = {
+    "another method rewrites it": (
+        "    async def execute(self, **kwargs):\n"
+        "        self._stash(kwargs)\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            return await self._record(kwargs)\n"
+        "    def _stash(self, p):\n"
+        "        p['player_address'] = p.get('to')\n"
+        "    async def _record(self, params):\n" + _READS_BOUND),
+    "a name bound to it": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        alias = params\n"
+        "        alias['player_address'] = params.get('to')\n" + _READS_BOUND),
+    "an attribute it is stored in": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        self._held = params\n"
+        "        self._swap()\n" + _READS_BOUND +
+        "    def _swap(self):\n"
+        "        self._held['player_address'] = self._held.get('to')\n"),
+    "a function outside the module": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        normalize(params)\n" + _READS_BOUND),
+    "a container it is put in": (
+        _RECORD +
+        "    async def _record(self, params):\n"
+        "        box = [params]\n"
+        "        box[0]['player_address'] = params.get('to')\n" + _READS_BOUND),
+    "the caller of a method that returns it": (
+        _RECORD +
+        "    def _same(self, p):\n"
+        "        return p\n"
+        "    async def _record(self, params):\n"
+        "        q = self._same(params)\n"
+        "        q['player_address'] = params.get('to')\n" + _READS_BOUND),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(REQUEST_CHANGED_SHAPES))
+def test_the_census_reports_a_request_that_may_have_changed(shape):
+    """[control]"""
+    problems = _problems(REQUEST_CHANGED_SHAPES[shape])
+    assert any("may not arrive as it was written" in p for p in problems), (shape, problems)
+
+
+def test_a_request_only_read_still_passes():
+    """[guard] Reading a field, looking a key up, testing, matching and
+    handing the request to a method of the class or a function of the module
+    change nothing, and pass."""
+    body = (
+        "    async def execute(self, **kwargs):\n"
+        "        if kwargs.get('action') == 'record_achievement':\n"
+        "            if 'player_address' in kwargs:\n"
+        "                return await self._record(kwargs)\n"
+        "    async def _record(self, params):\n"
+        "        kind = TABLE.get(params.get('kind'), 'x')\n"
+        "        label = f\"{params}\"\n"
+        "        await client.attest(action='a', agent='neo', details={'k': kind, 'l': label},\n"
+        "                            recipient=params.get('player_address'))\n")
+    assert _problems(body) == [], _problems(body)
+
+
+
+def test_an_attribute_hook_in_the_module_is_reported():
+    """[control] With ``__getattr__`` or ``__getattribute__`` in the class, a
+    ``self`` attribute the source writes from a bound field is not what a read
+    returns. At the attestation-trace commit this passed with nothing reported."""
+    body = (_RECORD +
+            "    def __init__(self, config):\n"
+            "        self.who = '0x' + '0' * 40\n"
+            "    def __getattribute__(self, name):\n"
+            "        return HELD.get(name)\n"
+            "    async def _record(self, params):\n"
+            "        HELD['who'] = params.get('to')\n"
+            "        await client.attest(action='a', agent='neo', details={}, recipient=self.who)\n")
+    assert any("the module defines __getattribute__" in p for p in _problems(body)), _problems(body)
+
+
+def test_no_class_a_twin_inherits_from_hooks_its_attributes():
+    """[guard] The trace reads a twin's own module. What a twin inherits comes
+    from BlockchainInterface (runtime/blockchain/interface.py), whose attribute
+    reads and writes run no hook of its own, and from ABC."""
+    tree = ast.parse((TWIN_DIR / "interface.py").read_text(encoding="utf-8"))
+    (base,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "BlockchainInterface"]
+    assert [ast.unparse(b) for b in base.bases] == ["ABC"] and not base.keywords
+    defined = {n.name for n in base.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    assert not defined & _ATTRIBUTE_HOOKS, defined & _ATTRIBUTE_HOOKS
+    for path in sorted(TWIN_DIR.glob("*.py")):
+        if path.name == "eas_client.py":        # the client itself, not a caller
+            continue
+        source = path.read_text(encoding="utf-8")
+        for cls in (n for n in ast.parse(source).body if isinstance(n, ast.ClassDef)):
+            if any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                   and c.func.attr == "attest" for c in ast.walk(cls)):
+                assert [ast.unparse(b) for b in cls.bases] == ["BlockchainInterface"], (
+                    path.name, cls.name, [ast.unparse(b) for b in cls.bases])
