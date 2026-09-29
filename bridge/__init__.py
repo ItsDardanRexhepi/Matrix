@@ -39,12 +39,13 @@ NEOSAFE_ADDRESS = "0x46fF491D7054A6F500026B3E81f358190f8d8Ec5"
 # Ethereum-mainnet's EAS (0xA1207...0eb1582Ce587) — it was wrong.
 EAS_CONTRACT = "0x4200000000000000000000000000000000000021"
 
-# Schema UID for bridge attestations — EMPTY by default (P2-9). An EAS schema
-# UID is a chain-specific keccak256 bytes32, NOT an easscan display number like
-# "348"; a fabricated default attests against a nonexistent schema. Supply the
-# real registered UID via config["blockchain"]["schemas"]["primary"] and resolve
-# it through runtime.blockchain.services.attestation.schemas.get_schema_uid,
-# which fails closed on an empty/malformed value.
+# Schema UID for bridge attestations — EMPTY (P2-9), and nothing sets it. An EAS
+# schema UID is a chain-specific keccak256 bytes32, NOT an easscan display number
+# like "348"; a fabricated default would name a nonexistent schema. The bridge
+# signs nothing with it: bridge/deployer.py copies it into the record it hashes
+# for a deployment's UID. The platform reads its core schema from
+# config["blockchain"]["eas_schema"] (AttestationService and EASClient), and the
+# attestation service refuses an empty or malformed one.
 EAS_SCHEMA_UID: str = ""
 
 from bridge.exporter import ComponentExporter

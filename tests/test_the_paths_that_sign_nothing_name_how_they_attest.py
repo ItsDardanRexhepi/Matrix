@@ -17,9 +17,16 @@ refused and the `payments` component's schema resolves. Each line's code is then
 read by AST: which attest call its function makes and under which schema, and
 the line has to say so.
 
+Where the primary schema is read from is scanned in every tracked text file.
+The scan once read three files, and the bridge's own comment on its schema
+constant still told the reader to supply the UID via
+config["blockchain"]["schemas"]["primary"], which nothing reads; that comment is
+now read against the bridge's code as well.
+
 What this cannot see: a line whose code reference is not written as
 (`file.py` `function`) or names the function outside the parentheses in another
-form than `Class.method`.
+form than `Class.method`, and a text that puts the primary schema in
+blockchain.schemas in words outside the scan's patterns.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -173,8 +181,23 @@ def test_each_path_that_signs_nothing_is_described_by_the_call_it_makes():
 _PRIMARY_FROM_SCHEMAS = re.compile(
     r"'primary' overrides blockchain\.eas_schema|\(blockchain\.schemas\.primary\)"
     r"|\[\"schemas\"\]\[\"primary\"\]|into config blockchain\.schemas\.<component>\.", re.I)
-_PRIMARY_TEXTS = ("matrix.config.json.example", "runtime/blockchain/services/attestation/schemas.py",
-                  "scripts/register_eas_schemas.py")
+_HERE = Path(__file__).resolve().relative_to(ROOT).as_posix()
+
+
+def _tracked_texts() -> list[tuple[str, str]]:
+    """(path, text) for every tracked file that reads as UTF-8 text, apart from
+    this one, which quotes the old copy."""
+    out = subprocess.check_output(["git", "ls-files"], cwd=ROOT, text=True)
+    texts = []
+    for rel in out.splitlines():
+        path = ROOT / rel
+        if rel == _HERE or not path.is_file():
+            continue
+        try:
+            texts.append((rel, path.read_text(encoding="utf-8")))
+        except UnicodeDecodeError:
+            continue
+    return texts
 
 
 def _primary_is_read_from_eas_schema() -> bool:
@@ -197,6 +220,8 @@ def test_the_primary_scan_catches_the_old_copy():
                 "core schema.",
                 'PRIMARY_SCHEMA_UID: str = ""  # config-required (blockchain.schemas.primary)',
                 '# registered bytes32 via config["blockchain"]["schemas"]["primary"].',
+                '# "348"; a fabricated default attests against a nonexistent schema. Supply the\n'
+                '# real registered UID via config["blockchain"]["schemas"]["primary"] and resolve',
                 'print(f"# {n} schemas. After registering, paste each returned")\n'
                 '    print(f"# bytes32 UID into config blockchain.schemas.<component>.\\n")'):
         assert _PRIMARY_FROM_SCHEMAS.search(old), old
@@ -204,6 +229,129 @@ def test_the_primary_scan_catches_the_old_copy():
 
 def test_no_text_says_the_primary_schema_is_read_from_blockchain_schemas():
     assert _primary_is_read_from_eas_schema(), "the primary schema is read elsewhere now; re-derive this check"
-    offenders = [f"{rel}: {m.group(0)!r}" for rel in _PRIMARY_TEXTS
-                 for m in _PRIMARY_FROM_SCHEMAS.finditer((ROOT / rel).read_text(encoding="utf-8"))]
+    texts = _tracked_texts()
+    read = {rel for rel, _ in texts}
+    assert {"bridge/__init__.py", "matrix.config.json.example", "scripts/register_eas_schemas.py",
+            "runtime/blockchain/services/attestation/schemas.py", "README.md"} <= read, "the scan reads less now"
+    offenders = [f"{rel}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)!r}" for rel, text in texts
+                 for m in _PRIMARY_FROM_SCHEMAS.finditer(text)]
     assert not offenders, "\n".join(offenders)
+
+
+# ── The bridge's schema constant ─────────────────────────────────────────────
+#
+# bridge/__init__.py's comment on EAS_SCHEMA_UID told the reader to "Supply the
+# real registered UID via config["blockchain"]["schemas"]["primary"] and resolve
+# it through ...get_schema_uid". Nothing in the bridge resolves a schema: the
+# constant is the empty string, nothing assigns it, and bridge/deployer.py only
+# copies it into the record it hashes for a deployment's UID; nothing in bridge/
+# signs, sends or attests. The comment is read against that code.
+
+_SIGNING_CALLS = {"attest", "batch_attest", "send_transaction", "send_raw_transaction",
+                  "sign_transaction", "transact", "multi_attest"}
+_SIGNING_MODULES = re.compile(r"^(?:web3|eth_account)\b|eas_client|eas_manager|attestation|web3_manager")
+
+
+def _signs(tree: ast.AST) -> list[str]:
+    """The signing or attesting calls and imports in *tree*."""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr in _SIGNING_CALLS:
+            found.append(f"calls .{node.func.attr}()")
+        elif isinstance(node, ast.Import):
+            found += [f"imports {a.name}" for a in node.names if _SIGNING_MODULES.search(a.name)]
+        elif isinstance(node, ast.ImportFrom) and _SIGNING_MODULES.search(node.module or ""):
+            found.append(f"imports from {node.module}")
+    return found
+
+
+def _assigns_the_schema(tree: ast.AST, definition: bool = False) -> list[int]:
+    """Lines that bind EAS_SCHEMA_UID, as a name, an attribute or through
+    setattr; with *definition*, one module-level annotated definition is not
+    counted."""
+    lines = []
+    defined = [n for n in getattr(tree, "body", []) if isinstance(n, ast.AnnAssign)
+               and getattr(n.target, "id", None) == "EAS_SCHEMA_UID"][:1] if definition else []
+    for node in ast.walk(tree):
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, (ast.AugAssign, ast.AnnAssign)) else [])
+        for target in targets:
+            if getattr(target, "id", getattr(target, "attr", None)) == "EAS_SCHEMA_UID" and node not in defined:
+                lines.append(node.lineno)
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "setattr" \
+                and any(isinstance(a, ast.Constant) and a.value == "EAS_SCHEMA_UID" for a in node.args):
+            lines.append(node.lineno)
+    return lines
+
+
+def _the_bridge_schema_facts() -> list[str]:
+    """What is wrong with the premises the comment is read against."""
+    problems = []
+    planted = ast.parse("from runtime.blockchain.eas_client import EASClient\n"
+                        "w3.eth.send_raw_transaction(tx)\nbridge.EAS_SCHEMA_UID = 'x'\n")
+    if len(_signs(planted)) != 2 or _assigns_the_schema(planted) != [3]:
+        problems.append("the signing or assignment scan does not see a planted one")
+    for rel, text in _tracked_texts():
+        if not rel.endswith(".py") or rel.startswith("tests/"):
+            continue
+        tree = ast.parse(text)
+        bound = _assigns_the_schema(tree, definition=rel == "bridge/__init__.py")
+        if bound:
+            problems.append(f"{rel} binds EAS_SCHEMA_UID at {bound}")
+        if rel.startswith("bridge/") and _signs(tree):
+            problems.append(f"{rel} {_signs(tree)}")
+    constant = ast.parse((ROOT / "bridge" / "__init__.py").read_text(encoding="utf-8"))
+    values = [n.value.value for n in ast.walk(constant) if isinstance(n, ast.AnnAssign)
+              and getattr(n.target, "id", None) == "EAS_SCHEMA_UID" and isinstance(n.value, ast.Constant)]
+    if values != [""]:
+        problems.append(f"EAS_SCHEMA_UID is {values}")
+    deployer = ast.parse((ROOT / "bridge" / "deployer.py").read_text(encoding="utf-8"))
+    attest = next((n for n in ast.walk(deployer) if isinstance(n, ast.AsyncFunctionDef)
+                   and n.name == "_attest_deployment"), None)
+    copies = attest is not None and any(
+        isinstance(n, ast.Dict) and any(isinstance(k, ast.Constant) and k.value == "schema_uid"
+                                        and getattr(v, "id", None) == "EAS_SCHEMA_UID"
+                                        for k, v in zip(n.keys, n.values))
+        for n in ast.walk(attest))
+    hashes = attest is not None and any(isinstance(n, ast.Attribute) and n.attr == "sha256"
+                                        for n in ast.walk(attest))
+    if not (copies and hashes):
+        problems.append("bridge/deployer.py _attest_deployment no longer hashes a record holding the schema")
+    from runtime.blockchain.services.attestation.service import AttestationService
+    for empty in ("", "YOUR_EAS_SCHEMA_UID", "0x1234"):
+        try:
+            AttestationService({"blockchain": {"eas_schema": empty}})._resolve_schema("primary")
+            problems.append(f"the attestation service accepts eas_schema {empty!r}")
+        except ValueError:
+            pass
+    return problems
+
+
+def _the_bridge_schema_comment() -> str:
+    lines = (ROOT / "bridge" / "__init__.py").read_text(encoding="utf-8").splitlines()
+    end = next(i for i, line in enumerate(lines) if line.startswith("EAS_SCHEMA_UID"))
+    start = end
+    while start and lines[start - 1].startswith("#"):
+        start -= 1
+    return " ".join(line.lstrip("#").strip() for line in lines[start:end])
+
+
+def test_the_bridges_schema_comment_says_what_the_bridge_does_with_it():
+    problems = _the_bridge_schema_facts()
+    assert _primary_is_read_from_eas_schema(), "the primary schema is read elsewhere now; re-derive this check"
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    comment = _the_bridge_schema_comment()
+    wrong = []
+    for needed, why in (
+            (r"\bEMPTY\b[^.]*\bnothing sets it\b", "that the constant is empty and nothing sets it"),
+            (r"\bThe bridge signs nothing with it\b", "that the bridge signs nothing with it"),
+            (r"bridge/deployer\.py copies it into the record it hashes", "what the deployer does with it"),
+            (r'reads its core schema from config\["blockchain"\]\["eas_schema"\]',
+             "where the core schema is read from"),
+            (r"refuses an empty or malformed one", "that an empty or malformed schema is refused")):
+        if not re.search(needed, comment):
+            wrong.append(f"the comment does not say {why}")
+    if re.search(r"get_schema_uid|\bsupply\b", comment, re.I):
+        wrong.append("the comment still tells the reader to supply or resolve the bridge's schema")
+    assert not wrong, "\n".join(wrong) + "\n" + comment
