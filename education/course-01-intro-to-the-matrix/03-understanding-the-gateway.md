@@ -92,7 +92,7 @@ or as a query parameter, `?api_key=YOUR_GATEWAY_KEY`. No other header carries it
 
 The MTRX app signs in and receives a session token (`/api/v1/auth/apple`, or Sign-In with Ethereum through `/auth/nonce` and `/auth/verify`). It presents the token as `X-Wallet-Session: <token>` or as `Authorization: Bearer <token>`. A session reaches only the routes the app uses (`gateway/session_routes.py`); any other route answers it `403`.
 
-The chat entrances (`/chat`, `/chat/stream`, `/ws`, `/bridge/v1/chat`), `/health`, the sign-in routes and the web pages are public.
+The chat entrances (`/chat`, `/chat/stream`, `/ws`, `/bridge/v1/chat`), `/health`, the sign-in routes and the web pages are public, except the badge pages: `/badge/{id}`, its `/status` and `/embed`, and `/badge/widget.js` answer `401` without a credential.
 
 The key is not tied to a subscription tier. Every capability in the catalog is free tier, and nothing in the gateway reads a subscription to decide what a request may do. Pro and Enterprise are the MTRX app's subscription tiers: the gateway records a subscription the App Store verifies (`POST /api/v1/iap/verify`), and no capability, limit or route depends on the tier yet.
 
@@ -112,7 +112,7 @@ A request carrying the operator key is counted in the key's bucket.
 
 Everything else is counted per client IP (the first `X-Forwarded-For` address when a proxy sets one). This covers anonymous traffic, including `/health` and the public chat.
 
-Each bucket is a token bucket. The defaults are 120 requests a minute with a burst of 30 for the operator key and for wallet sessions, and 20 a minute with a burst of 5 per IP (`gateway.rate_limit_rpm_*` and `gateway.rate_limit_burst_*`). A request over the limit is answered `429` with `{"error": "rate_limited"}`. The gateway sends no rate-limit headers, so a client that is refused should back off and retry.
+Each bucket is a token bucket. The defaults are 120 requests a minute with a burst of 30 for the operator key and for wallet sessions, and 20 a minute with a burst of 5 per IP (`gateway.rate_limit_rpm_*` and `gateway.rate_limit_burst_*`). `python3 setup.py` writes `rate_limit_rpm: 60` and `rate_limit_burst: 15`, so a gateway set up that way gives the operator key and wallet sessions 60 a minute with a burst of 15. A request over the limit is answered `429` with `{"error": "rate_limited"}`. The gateway sends no rate-limit headers, so a client that is refused should back off and retry.
 
 ## The Middleware Chain
 
@@ -125,7 +125,8 @@ Incoming Request
 [1] request_id        -- Takes the caller's X-Request-ID or makes one, and returns it on the response
     |
     v
-[2] cors              -- Answers preflights; allows the origins in gateway.cors_origins (none by default)
+[2] cors              -- Answers preflights; allows the origins in gateway.cors_origins (none by default;
+                         python3 setup.py writes ["*"], every origin)
     |
     v
 [3] auth              -- Checks the operator key or a wallet session on protected routes

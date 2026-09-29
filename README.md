@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,417 tests, run against the versions
+automated suite of 5,422 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -569,9 +569,13 @@ launch:
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
-- **Per-wallet rate limiting** — three-tier token bucket (wallet → API
-  key → IP). Limits are configurable under
-  `gateway.rate_limits.wallet`.
+- **Per-wallet rate limiting** — three token buckets, keyed by the
+  wallet session, then the operator key, then the client IP. Each has
+  its own limit: `gateway.rate_limit_rpm_wallet` and
+  `gateway.rate_limit_burst_wallet`; `…_authenticated` for the operator
+  key, which `gateway.rate_limit_rpm` and `gateway.rate_limit_burst`
+  also set and which the wallet bucket follows when it has no limit of
+  its own; and `…_anonymous` per IP.
 - **No production boot without enforcement** — with
   `MATRIX_ENV=production`, which `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
