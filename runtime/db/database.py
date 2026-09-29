@@ -367,26 +367,19 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         ("durable execution — workflow_runs, workflow_steps, outbox, idempotency_keys: "
          "written only while engines.durable.mode is shadow or on"),
         [
-            # The run journal (runtime/durable/journal.py). One row per
-            # state-modifying action the durable engine journals: a twin tool's
-            # signing call (runtime/tools/dispatcher.py) or a state-modifying
-            # ServiceDispatcher.execute. `state` is the LIFECYCLE and never a
-            # verdict: START (recorded, the effect call not begun), RUNNING (the
-            # effect call began — it may have acted), then exactly one of
-            # COMPLETE (the call returned an answer that is not a refusal),
-            # FAIL (it returned a refusal or raised) or ABORT (it ended before
-            # the effect call began). A run whose call never answered — a crash,
-            # a timeout, a cancellation — stays RUNNING, because nobody knows
-            # whether it acted. `key` is the scoped idempotency key digest ("" for
-            # none), `decision_ref` the gate decision's id where the entry point
-            # has one. The caller and the parameters are sha256 digests, as in
-            # evidence_shadow; params_digest is the same digest evidence_shadow
-            # writes for the same dispatch. A twin tool's run is named
-            # `<tool>.<declared verb>`, or `<tool>.undeclared`: the model's own
-            # verb string is never written out. The first step, `start`, says
-            # whether the engine that recorded the run owned its lifecycle
-            # (`recorded`) or not (`observed`): only an owned START proves its
-            # call never began.
+            # The run journal (runtime/durable/journal.py): one row per
+            # state-modifying ServiceDispatcher.execute and per twin tool
+            # signing call, written only while engines.durable.mode is "shadow"
+            # or "on". `state` is the LIFECYCLE, never a verdict: START (the run
+            # is opened, its call not begun), RUNNING (the call began: from here
+            # it may have acted), then COMPLETE (the call returned an answer,
+            # whatever that answer says), FAIL (the call raised, or the run
+            # ended with no answer recorded — its effect is unknown) or ABORT
+            # (the run ended before its call began). `key` is the scoped
+            # idempotency key digest ("" for none), `decision_ref` the gate
+            # decision's id where the entry point has one. The caller and the
+            # parameters are sha256 digests (the digest evidence_shadow writes):
+            # no raw address and no raw parameter reaches any of these tables.
             """
             CREATE TABLE IF NOT EXISTS workflow_runs (
                 run_id         TEXT PRIMARY KEY,
@@ -400,90 +393,66 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
                 decision_ref   TEXT NOT NULL DEFAULT '',
                 started_at     REAL NOT NULL,
                 terminal_at    REAL
-            ) WITHOUT ROWID
+            )
             """,
-            # Only the runs that are still open, which is all recovery looks for.
             """
-            CREATE INDEX IF NOT EXISTS idx_workflow_runs_open ON workflow_runs (started_at)
-                WHERE state IN ('START', 'RUNNING')
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_open
+                ON workflow_runs (started_at) WHERE state IN ('START', 'RUNNING')
             """,
-            # Each run's history, appended and never rewritten: start, call,
-            # return / raise / abort / unknown_effect. `state` here is the word
-            # the layer that ran the call gave its answer (the dispatcher's
-            # settled / broadcast / refused, the tool dispatcher's success /
-            # failure / unknown), a digest of the answer, and its tx hash when it
-            # carried one.
+            # Each run's history, appended and never rewritten. `name` is the
+            # step (start, call, return, raise, abort, unknown_effect, or
+            # outbox:<kind>), `state` a word from a fixed vocabulary (the
+            # dispatcher's settled / broadcast / refused, the tool dispatcher's
+            # success / failure / unknown, …), `detail` a fixed word or a
+            # "sha256:" digest — never free text a caller wrote.
             """
             CREATE TABLE IF NOT EXISTS workflow_steps (
-                run_id          TEXT NOT NULL,
-                seq             INTEGER NOT NULL,
-                kind            TEXT NOT NULL,
-                payload_digest  TEXT NOT NULL DEFAULT '',
-                tx_hash         TEXT NOT NULL DEFAULT '',
-                state           TEXT NOT NULL,
-                at              REAL NOT NULL,
+                run_id  TEXT NOT NULL,
+                seq     INTEGER NOT NULL,
+                name    TEXT NOT NULL,
+                state   TEXT NOT NULL,
+                detail  TEXT NOT NULL DEFAULT '',
+                at      REAL NOT NULL,
                 PRIMARY KEY (run_id, seq)
-            ) WITHOUT ROWID
+            )
             """,
             # The transactional outbox (runtime/durable/outbox.py): a run's
-            # attestation and feed publication, written in the SAME transaction
-            # as the run's terminal state, at most one of each kind per run.
-            # `recorded` rows are shadow bookkeeping — the legacy path delivered
-            # them and nothing ever drains them; only `pending` rows, written in
-            # mode on, are delivered, by the one outbox loop. `attempting` is
-            # written BEFORE a delivery is tried, so a crash mid-delivery leaves
-            # a mark: an attestation found that way is `held`, never sent again;
-            # a feed row is delivered again under the run's own event id, which
-            # the feed stores once. The payload is cleared once a row is done or
-            # dead; its digest stays.
+            # attestation and feed entry, written in the SAME transaction as
+            # the run's terminal state. The row holds a digest of its payload,
+            # never the payload: the payload is held by the process that wrote
+            # the row, and only a row whose payload that process holds, with
+            # that digest, is ever delivered. `done_at` is when the row was
+            # handed off (by the loop in mode on; by the legacy path, at once,
+            # in shadow). A row whose `done_at` and `next_at` are both NULL was
+            # given up; why is on its run's outbox:<kind> step.
             """
             CREATE TABLE IF NOT EXISTS outbox (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id          TEXT NOT NULL,
-                kind            TEXT NOT NULL CHECK (kind IN ('attest', 'feed', 'notify')),
-                payload         TEXT NOT NULL DEFAULT '',
+                kind            TEXT NOT NULL,
                 payload_digest  TEXT NOT NULL,
-                state           TEXT NOT NULL
-                                CHECK (state IN ('recorded', 'pending', 'attempting',
-                                                 'done', 'held', 'dead')),
                 attempts        INTEGER NOT NULL DEFAULT 0,
-                next_at         REAL NOT NULL,
-                done_at         REAL,
-                last_error      TEXT NOT NULL DEFAULT '',
-                created_at      REAL NOT NULL,
-                UNIQUE (run_id, kind)
+                next_at         REAL,
+                done_at         REAL
             )
             """,
-            # Only the rows the loop still has to look at.
             """
-            CREATE INDEX IF NOT EXISTS idx_outbox_due ON outbox (next_at)
-                WHERE state IN ('pending', 'attempting')
+            CREATE INDEX IF NOT EXISTS idx_outbox_due
+                ON outbox (next_at) WHERE done_at IS NULL AND next_at IS NOT NULL
             """,
             # Idempotency keys (runtime/durable/keys.py). `key` is a sha256 of
             # the surface, the caller the gate saw and the client's
             # Idempotency-Key — never the raw key. The first request under a key
-            # binds it to its run; the answer it got (`response`, with
-            # secret-named fields withheld) is given to a replay for 24 hours,
-            # and the engine's loop then clears it — only while an engine runs
-            # (shadow or on): with the mode back at off, answers recorded earlier
-            # stay until one runs again. The row stays, so the key never runs a
-            # second time.
+            # binds it to its run; `response_digest` is the digest of the answer
+            # that request got. The answer itself is held in memory by the
+            # process that gave it, never here.
             """
             CREATE TABLE IF NOT EXISTS idempotency_keys (
                 key              TEXT PRIMARY KEY,
                 run_id           TEXT NOT NULL,
-                first_seen       REAL NOT NULL,
                 response_digest  TEXT NOT NULL DEFAULT '',
-                request_digest   TEXT NOT NULL,
-                status           INTEGER,
-                response         TEXT,
-                expires_at       REAL NOT NULL
-            ) WITHOUT ROWID
-            """,
-            # Only the answers still held, which is all the 24-hour sweep looks for.
-            """
-            CREATE INDEX IF NOT EXISTS idx_idempotency_keys_held ON idempotency_keys (expires_at)
-                WHERE response IS NOT NULL
+                created_at       REAL NOT NULL
+            )
             """,
         ],
     ),
@@ -718,47 +687,6 @@ class Database:
         except sqlite3.Error as exc:
             logger.error("DB execute_sync failed: %s | sql=%s", exc, sql.strip()[:120])
             raise
-
-    def transaction_sync(self, work, *, wait: bool = True):
-        """Run ``work(conn)`` — synchronous statements only — as ONE
-        ``BEGIN IMMEDIATE`` transaction on this connection, now, and return what
-        it returns. An exception inside *work* rolls all of it back and is
-        re-raised.
-
-        For callers that must record something BEFORE the next await (the
-        durable run journal writes a run's row before its effect is called).
-        It takes no asyncio lock and needs none: every statement here runs on
-        the event loop's thread with nothing awaited between BEGIN and COMMIT,
-        and so does every transaction :meth:`run_in_transaction` and the
-        single-statement writers issue, so neither can land inside the other.
-        A transaction left open on the connection by anything else is refused
-        rather than joined.
-
-        ``wait=False`` sets the busy timeout to zero for this transaction only:
-        when another connection holds the database the call raises at once
-        instead of waiting up to five seconds on the event loop's thread — for
-        records that are dropped rather than waited for.
-        """
-        conn = self._require_conn()
-        if conn.in_transaction:
-            raise sqlite3.OperationalError("a transaction is already open on this connection")
-        previous = None
-        if not wait:
-            previous = int(conn.execute("PRAGMA busy_timeout").fetchone()[0])
-            conn.execute("PRAGMA busy_timeout = 0")
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                result = work(conn)
-                conn.execute("COMMIT")
-            except BaseException:
-                if conn.in_transaction:
-                    conn.execute("ROLLBACK")
-                raise
-            return result
-        finally:
-            if previous is not None:
-                conn.execute(f"PRAGMA busy_timeout = {previous}")
 
     # Convenience: synchronous reads for cold-cache lookups during init
     def fetchall_sync(self, sql: str, params: Sequence[Any] | None = None) -> list[sqlite3.Row]:

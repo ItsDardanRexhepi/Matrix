@@ -11,7 +11,7 @@ write on-chain records of platform actions:
   3. Create an insurance policy -> attestation
   4. Verify a specific attestation on-chain
 
-A state-modifying action the ServiceDispatcher completes is queued for an EAS attestation; the queue is written to the chain once 50 have gathered in the same process, nothing drains it on a timer, and what is queued is lost if the process exits first. That is the default; with engines.durable.mode on and its canary covering the state-modifying actions, the attestation is instead a row in the platform database, sent by the durable engine's outbox loop as soon as the action's run ends (the README's "Durable execution").
+A state-modifying action the ServiceDispatcher completes is queued for an EAS attestation; the queue is written to the chain once 50 have gathered in the same process, nothing drains it on a timer, and what is queued is lost if the process exits first.
 
 Usage:
     python examples/06_eas_attestation_chain.py
@@ -276,10 +276,8 @@ async def main():
   {BOLD}Key insight:{RESET}
     A state-modifying action the ServiceDispatcher completes is
     queued for an EAS attestation, written to the chain once 50
-    have gathered in the same process (with engines.durable on for
-    the action, sent by the durable outbox loop as soon as its run
-    ends); a refusal or an unconfirmed broadcast is not queued as
-    done.
+    have gathered in the same process; a refusal or an unconfirmed
+    broadcast is not queued as done.
 
   {BOLD}EAS contract:{RESET} {bc.get('eas_contract', 'see config')}
   {BOLD}Network:{RESET} Base Sepolia

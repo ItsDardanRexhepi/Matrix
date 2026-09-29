@@ -194,9 +194,7 @@ async def main():
     - When blockchain.eas_schema is a well-formed bytes32 UID (the code
       checks the form, not that it is registered), the service dispatcher
       queues an attestation for a sale it completes, written to the chain
-      once 50 have gathered (with engines.durable on for the sale, sent
-      by the durable outbox loop as soon as its run ends); otherwise the
-      attempt is logged and dropped
+      once 50 have gathered; otherwise the attempt is logged and dropped
 
   {BOLD}Services used:{RESET}
     - Marketplace (Component 24)

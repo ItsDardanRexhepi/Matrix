@@ -1,186 +1,114 @@
-"""The idempotency store: ``idempotency_keys`` (database migration 10).
+"""The idempotency store: ``idempotency_keys`` (database migration 10) and the
+first answers this process gave.
 
-A client that sends ``Idempotency-Key`` with a state-changing request is saying
-"this is one command, however many times it reaches you". The first request
-under a key binds the key to its run; every later request under it gets that
-first request's answer and runs nothing.
+A client that sends ``Idempotency-Key`` on ``POST /bridge/v1/action`` promises
+that every request under that key is the same request. The key is scoped — a
+sha256 of the surface, the caller the gate saw and the client's key — so one
+caller's key never reaches another caller's run, and the raw key is never
+written.
 
-WHAT A KEY IS SCOPED TO. The stored ``key`` is a sha256 of the surface, the
-caller the gate saw and the client's key — never the raw key — so one caller's
-key never answers for another caller, and a key reused on another surface is a
-different key.
+The first request under a key binds it to its run, in the transaction that
+opens the run; a replay finds the binding and runs nothing. What it is answered
+depends on the run:
 
-THE FOUR ANSWERS a claim can give, besides binding a fresh key:
+* the run is still open → ``in progress``;
+* the run ended → the FIRST answer, byte for byte, when this process still
+  holds it; otherwise an answer saying the run's state and that the first
+  answer is not held — never a second run;
+* the key was bound to a different action or different parameters →
+  ``conflict``.
 
-* ``hit`` — same request, and its answer is recorded: return that answer.
-* ``conflict`` — the key was used for a DIFFERENT request (another action or
-  other parameters): refuse, run nothing.
-* ``in_flight`` — same request, and no answer is recorded: it is still running,
-  or it stopped at a point where it may have acted (its effect call began, or
-  an engine that did not own it could not say whether it did). Run nothing; the
-  run's own state says which.
-* ``expired`` — same request, answered more than 24 hours ago: the answer is no
-  longer given (it may name addresses, so it is not kept: the engine's loop
-  clears it, in shadow and in on — with the mode back at off nothing runs to
-  clear it until an engine runs again), and the request is still not run a
-  second time.
-
-A request that ended before its effect call began (a gate that refused it, an
-action that does not exist, parameters that do not bind, a journal that could
-not be written) does not bind its key: the key is released in the same
-transaction that ends the run, and a retry under it is a first request.
-
-Every function here takes a connection already inside a transaction.
+WHAT IS STORED. The table holds the key digest, the run, a digest of the first
+answer and when the key was bound: no raw address, no raw parameter, no answer.
+The first answer itself is held in memory (``AnswerCache``), by the process
+that gave it, for 24 hours or until 4,096 newer answers push it out — which is
+why an answer can be "not held" after a restart. A key is never released once
+its run's call began, so a replay can never act twice; it is released only with
+a run that ended before its call began (ABORT), because such a request acted on
+nothing and binding its key would refuse a retry that is safe.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
-import re
-import sqlite3
-from dataclasses import dataclass
+import time
+from collections import OrderedDict
 from typing import Any
 
-#: The caller-supplied key: 8-64 characters of A-Z a-z 0-9 _ . : - (a UUID fits).
-KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{8,64}$")
+from runtime.durable.journal import Tx
 
-#: How long a recorded answer is given to a replay; the engine's loop then clears
-#: it (only while an engine runs: shadow or on). The key itself is kept.
-ANSWER_KEPT_S = 24 * 3600.0
-
-MISS = "miss"
-HIT = "hit"
-CONFLICT = "conflict"
-IN_FLIGHT = "in_flight"
-EXPIRED = "expired"
-
-#: Field names whose values are withheld from a recorded answer. Names that are
-#: secrets by definition — never a word like "token" or "key", which the
-#: services use for a token symbol or a public key.
-SECRET_FIELDS: frozenset[str] = frozenset({
-    "private_key", "privatekey", "seed_phrase", "seed", "mnemonic", "secret",
-    "client_secret", "password", "passphrase", "api_key", "apikey",
-    "access_token", "refresh_token", "session_token", "auth_token", "bearer",
-})
-WITHHELD = "[withheld]"
+#: Longest client key accepted; a longer one is refused, not truncated.
+MAX_CLIENT_KEY = 255
+ANSWER_TTL_S = 24 * 60 * 60.0
+ANSWER_CACHE_SIZE = 4096
 
 
-@dataclass(frozen=True)
-class Claim:
-    outcome: str
-    key: str
-    run_id: str
-    status: int | None = None
-    response: str | None = None
+def valid_client_key(client_key: Any) -> bool:
+    """1-255 printable ASCII characters, no leading or trailing space."""
+    return (isinstance(client_key, str) and 0 < len(client_key) <= MAX_CLIENT_KEY
+            and client_key == client_key.strip()
+            and all(32 <= ord(c) < 127 for c in client_key))
 
 
-def valid_client_key(raw: Any) -> bool:
-    return isinstance(raw, str) and KEY_PATTERN.fullmatch(raw) is not None
+def scoped(surface: str, scope: str, client_key: str) -> str:
+    """The key as stored: sha256 over the surface, the caller's scope and the
+    client's key, each length-prefixed so no two triples collide."""
+    h = hashlib.sha256()
+    for part in (surface, scope, client_key):
+        raw = part.encode("utf-8", "surrogatepass")
+        h.update(len(raw).to_bytes(4, "big"))
+        h.update(raw)
+    return h.hexdigest()
 
 
-def scoped_key(surface: str, actor_scope: str, client_key: str) -> str:
-    material = f"{surface}\n{actor_scope}\n{client_key}".encode("utf-8", "surrogatepass")
-    return "sha256:" + hashlib.sha256(material).hexdigest()
+def lookup(source: Any, key: str) -> tuple[str, str] | None:
+    """``(run_id, response_digest)`` bound to *key*, or None."""
+    sql = "SELECT run_id, response_digest FROM idempotency_keys WHERE key = ?"
+    rows = source.rows(sql, (key,)) if isinstance(source, Tx) else source.fetchall_sync(sql, (key,))
+    return (rows[0][0], rows[0][1]) if rows else None
 
 
-def request_digest(request: Any) -> str:
-    canonical = json.dumps(request, sort_keys=True, separators=(",", ":"),
-                           ensure_ascii=False, default=str)
-    return hashlib.sha256(canonical.encode("utf-8", "surrogatepass")).hexdigest()
+def bind(tx: Tx, *, key: str, run_id: str, now: float) -> bool:
+    """Bind *key* to *run_id*. False when another request already holds it."""
+    return tx.execute("INSERT OR IGNORE INTO idempotency_keys (key, run_id, response_digest, "
+                      "created_at) VALUES (?, ?, '', ?)", (key, run_id, now)) == 1
 
 
-def claim(conn: sqlite3.Connection, *, key: str, request_digest: str, run_id: str,
-          now: float) -> Claim:
-    """Bind *key* to *run_id* if it is unused (``miss``); otherwise say what the
-    key is already bound to, and bind nothing."""
-    row = conn.execute(
-        "SELECT run_id, request_digest, status, response, expires_at "
-        "FROM idempotency_keys WHERE key = ?", (key,)).fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO idempotency_keys (key, run_id, first_seen, request_digest, expires_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (key, run_id, now, request_digest, now + ANSWER_KEPT_S))
-        return Claim(MISS, key, run_id)
-    bound, digest, status, response, expires_at = (
-        row[0], row[1], row[2], row[3], row[4])
-    if digest != request_digest:
-        return Claim(CONFLICT, key, bound)
-    if status is not None and (response is None or now > float(expires_at)):
-        return Claim(EXPIRED, key, bound, int(status))
-    if status is not None:
-        return Claim(HIT, key, bound, int(status), response)
-    return Claim(IN_FLIGHT, key, bound)
+def answered(tx: Tx, *, key: str, run_id: str, response_digest: str) -> None:
+    tx.run("UPDATE idempotency_keys SET response_digest = ? WHERE key = ? AND run_id = ?",
+           (response_digest, key, run_id))
 
 
-def record_response(conn: sqlite3.Connection, *, key: str, run_id: str, status: int,
-                    body: str, replace: bool = False) -> bool:
-    """Record the answer the first request got. Only the request that bound the
-    key can record it, and only once — unless *replace*: the run's end records
-    the answer as it stands then, in the same transaction as the run's terminal
-    state, so an answer lost after that commit is still there for a replay; the
-    request then replaces it with the answer it actually sent."""
-    sql = (_REPLACE_RESPONSE if replace else _RECORD_RESPONSE)
-    cur = conn.execute(
-        sql, (int(status), body,
-              hashlib.sha256(body.encode("utf-8", "surrogatepass")).hexdigest(), key, run_id))
-    return cur.rowcount == 1
+def release(tx: Tx, *, key: str, run_id: str) -> None:
+    """Give *key* back — only while it is still bound to *run_id*."""
+    tx.run("DELETE FROM idempotency_keys WHERE key = ? AND run_id = ?", (key, run_id))
 
 
-_RECORD_RESPONSE = ("UPDATE idempotency_keys SET status = ?, response = ?, response_digest = ? "
-                    "WHERE key = ? AND run_id = ? AND status IS NULL")
-_REPLACE_RESPONSE = ("UPDATE idempotency_keys SET status = ?, response = ?, response_digest = ? "
-                     "WHERE key = ? AND run_id = ?")
+class AnswerCache:
+    """The first answer given under each key, in memory: bounded in number and
+    in age, oldest pushed out first."""
 
+    def __init__(self, *, size: int = ANSWER_CACHE_SIZE, ttl_s: float = ANSWER_TTL_S,
+                 clock=time.time) -> None:
+        self._size = size
+        self._ttl = ttl_s
+        self._clock = clock
+        self._held: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
-def release(conn: sqlite3.Connection, *, key: str, run_id: str) -> bool:
-    """Unbind a key whose run never began its effect call."""
-    cur = conn.execute(
-        "DELETE FROM idempotency_keys WHERE key = ? AND run_id = ? AND status IS NULL",
-        (key, run_id))
-    return cur.rowcount == 1
+    def put(self, key: str, answer: str) -> None:
+        self._held[key] = (answer, self._clock() + self._ttl)
+        self._held.move_to_end(key)
+        while len(self._held) > self._size:
+            self._held.popitem(last=False)
 
+    def get(self, key: str) -> str | None:
+        found = self._held.get(key)
+        if found is None:
+            return None
+        if found[1] < self._clock():
+            del self._held[key]
+            return None
+        return found[0]
 
-def release_for_run(conn: sqlite3.Connection, run_id: str) -> int:
-    cur = conn.execute(
-        "DELETE FROM idempotency_keys WHERE run_id = ? AND status IS NULL", (run_id,))
-    return cur.rowcount
-
-
-def drop_expired_answers(conn: sqlite3.Connection, *, now: float) -> int:
-    """Clear the answers kept past their 24 hours. The rows stay."""
-    cur = conn.execute(
-        "UPDATE idempotency_keys SET response = NULL "
-        "WHERE response IS NOT NULL AND expires_at < ?", (now,))
-    return cur.rowcount
-
-
-def withhold_secrets(value: Any) -> Any:
-    """*value* with every secret-named field's value replaced by ``[withheld]``,
-    at any depth, including inside a string that is itself a JSON object or
-    array (the bridge's ``data`` is the dispatcher's JSON string). A value with
-    nothing to withhold comes back unchanged — the same object, the same string."""
-    if isinstance(value, dict):
-        out: dict = {}
-        changed = False
-        for k, v in value.items():
-            if isinstance(k, str) and k.lower() in SECRET_FIELDS and v not in (None, ""):
-                out[k] = WITHHELD
-                changed = True
-            else:
-                nv = withhold_secrets(v)
-                changed = changed or nv is not v
-                out[k] = nv
-        return out if changed else value
-    if isinstance(value, list):
-        items = [withhold_secrets(v) for v in value]
-        return items if any(a is not b for a, b in zip(items, value)) else value
-    if isinstance(value, str) and value[:1] in ("{", "["):
-        try:
-            parsed = json.loads(value)
-        except (ValueError, TypeError):
-            return value
-        cleaned = withhold_secrets(parsed)
-        return value if cleaned is parsed else json.dumps(cleaned)
-    return value
+    def __len__(self) -> int:
+        return len(self._held)

@@ -1,0 +1,718 @@
+{
+ "cells": {
+  "X1_dispatch_then_crash": {
+   "crash": {
+    "crash_points": {
+     "abort_committed": 3,
+     "open_committed": 6,
+     "service_after_effect": 2,
+     "service_before_effect": 5,
+     "terminal_committed": 4,
+     "terminal_uncommitted": 8
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 50,
+     "ok": 6
+    }
+   },
+   "normal": {
+    "crash_points": {
+     "answered": 19,
+     "delivered": 9
+    },
+    "deliveries": {
+     "attest": 9,
+     "feed": 9
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 56,
+     "ok": 28
+    }
+   },
+   "raises": {
+    "crash_points": {
+     "answered": 12,
+     "terminal_committed": 12,
+     "terminal_uncommitted": 4
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 56,
+     "not_implemented": 3,
+     "service_error": 9
+    }
+   },
+   "refused": {
+    "crash_points": {
+     "answered": 3,
+     "open_committed": 4,
+     "service_after_effect": 7,
+     "service_before_effect": 4,
+     "terminal_committed": 5,
+     "terminal_uncommitted": 5
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "gate_403": 28,
+     "idempotency_answer_not_held": 56,
+     "ok": 3
+    }
+   }
+  },
+  "X2_crash_before_record": {
+   "crash": {
+    "crash_points": {
+     "abort_uncommitted": 8,
+     "begin": 6,
+     "open_uncommitted": 14
+    },
+    "deliveries": {
+     "attest": 10,
+     "feed": 10
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "ok": 56
+    }
+   },
+   "normal": {
+    "crash_points": {
+     "open_uncommitted": 28
+    },
+    "deliveries": {
+     "attest": 7,
+     "feed": 7
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "ok": 56
+    }
+   },
+   "raises": {
+    "crash_points": {
+     "open_uncommitted": 28
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "not_implemented": 28,
+     "service_error": 28
+    }
+   },
+   "refused": {
+    "crash_points": {
+     "refused": 28
+    },
+    "deliveries": {
+     "attest": 7,
+     "feed": 7
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 22,
+      "held": 22
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "gate_403": 56,
+     "ok": 28
+    }
+   }
+  },
+  "X6_replay_after_complete": {
+   "crash": {
+    "crash_points": {
+     "answered": 11,
+     "delivered": 3,
+     "delivery_sent": 7,
+     "terminal_committed": 7
+    },
+    "deliveries": {
+     "attest": 10,
+     "feed": 3
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 56,
+     "ok": 21
+    }
+   },
+   "normal": {
+    "crash_points": {
+     "after_all": 13,
+     "none": 15
+    },
+    "deliveries": {
+     "attest": 9,
+     "feed": 9
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 26,
+     "ok": 89
+    }
+   },
+   "raises": {
+    "crash_points": {
+     "after_all": 17,
+     "none": 11
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 34,
+     "not_implemented": 35,
+     "service_error": 49
+    }
+   },
+   "refused": {
+    "crash_points": {
+     "after_all": 17,
+     "none": 11
+    },
+    "deliveries": {
+     "attest": 9,
+     "feed": 9
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "gate_403": 28,
+     "idempotency_answer_not_held": 34,
+     "ok": 78
+    }
+   }
+  },
+  "X7_replay_during_run": {
+   "crash": {
+    "crash_points": {
+     "held": 7,
+     "service_after_effect": 7,
+     "terminal_committed": 10,
+     "terminal_uncommitted": 4
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 66,
+     "idempotency_in_progress": 46
+    }
+   },
+   "normal": {
+    "crash_points": {
+     "after_all": 15,
+     "none": 13
+    },
+    "deliveries": {
+     "attest": 11,
+     "feed": 11
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 30,
+     "idempotency_in_progress": 28,
+     "ok": 56
+    }
+   },
+   "raises": {
+    "crash_points": {
+     "after_all": 16,
+     "none": 12
+    },
+    "deliveries": {
+     "attest": 0,
+     "feed": 0
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "idempotency_answer_not_held": 32,
+     "idempotency_in_progress": 28,
+     "not_implemented": 22,
+     "service_error": 34
+    }
+   },
+   "refused": {
+    "crash_points": {
+     "after_all": 16,
+     "none": 12
+    },
+    "deliveries": {
+     "attest": 14,
+     "feed": 14
+    },
+    "held": {
+     "A": {
+      "checked": 28,
+      "held": 28
+     },
+     "D": {
+      "checked": 28,
+      "held": 28
+     },
+     "L": {
+      "checked": 28,
+      "held": 28
+     },
+     "R": {
+      "checked": 28,
+      "held": 28
+     },
+     "T": {
+      "checked": 28,
+      "held": 28
+     }
+    },
+    "injections": 28,
+    "replay_answers": {
+     "gate_403": 28,
+     "idempotency_answer_not_held": 32,
+     "ok": 56
+    }
+   }
+  }
+ },
+ "gate": "G7",
+ "instrument": "tests/test_durable_crash_matrix.py: engines.durable.mode on, the real ServiceDispatcher and DurableEngine over the platform Database (SQLite, a scratch file per injection), driven through the bridge's sequence at the dispatcher (gate -> wiring.keyed -> execute) under an Idempotency-Key, over stand-in services, chain and feed that record every call and effect. A crash is the SQLite backup of the committed state at the instant plus the effects and calls made so far; a restart is a fresh Database and engine over it, the clock moved past abandoned_after_s, maintain() and one loop tick, then the same request twice under the same key. Seeded with random.Random('G7|cell|path|index'). real_process: a child interpreter over a real database file, ended with os._exit(137) at the instant, recovered by the parent.",
+ "measured": {
+  "on_top_of": "e14974d",
+  "with_uncommitted_changes": true
+ },
+ "properties": {
+  "A": "every request answered what the spec says: the first answer byte for byte, idempotency_in_progress, idempotency_answer_not_held after a restart, or a normal dispatch when the key was never bound (not one of the four G7 properties; recorded alongside)",
+  "D": "service calls under the key <= 1 across the first request, the crash and the replays, effects <= calls; exactly 1 call when the first request made no call and left its key unbound in the committed state and a later request passed the gate",
+  "L": "at most one attestation (outbox or legacy) and one feed entry delivered, only when a COMPLETE run returned settled, and no outbox row marked delivered for a run that is not COMPLETE",
+  "R": "once a run under the key may have acted (call began, or key bound to it in the committed state) no later request calls the service, the key stays bound to that run and it ends COMPLETE or FAIL; checked only where some run may have acted",
+  "T": "every run in the recovered database is COMPLETE, ABORT or FAIL"
+ },
+ "real_process": {
+  "X1_dispatch_then_crash": {
+   "crash_points": {
+    "open_committed": 1,
+    "service_after_effect": 1,
+    "terminal_uncommitted": 1
+   },
+   "deliveries": {
+    "attest": 0,
+    "feed": 0
+   },
+   "exit_status": {
+    "137": 3
+   },
+   "held": {
+    "A": {
+     "checked": 3,
+     "held": 3
+    },
+    "D": {
+     "checked": 3,
+     "held": 3
+    },
+    "L": {
+     "checked": 3,
+     "held": 3
+    },
+    "R": {
+     "checked": 3,
+     "held": 3
+    },
+    "T": {
+     "checked": 3,
+     "held": 3
+    }
+   },
+   "injections": 3,
+   "replay_answers": {
+    "idempotency_answer_not_held": 6
+   }
+  },
+  "X2_crash_before_record": {
+   "crash_points": {
+    "abort_uncommitted": 1,
+    "begin": 1,
+    "open_uncommitted": 1
+   },
+   "deliveries": {
+    "attest": 0,
+    "feed": 0
+   },
+   "exit_status": {
+    "137": 3
+   },
+   "held": {
+    "A": {
+     "checked": 3,
+     "held": 3
+    },
+    "D": {
+     "checked": 3,
+     "held": 3
+    },
+    "L": {
+     "checked": 3,
+     "held": 3
+    },
+    "R": {
+     "checked": 3,
+     "held": 3
+    },
+    "T": {
+     "checked": 3,
+     "held": 3
+    }
+   },
+   "injections": 3,
+   "replay_answers": {
+    "ok": 6
+   }
+  }
+ },
+ "rule": "G7: every run reaches a terminal state on every path (normal, refused by the gate, service raises, crash between steps then restart) for X1 dispatch-then-crash, X2 crash-before-record, X6 replay-after-complete and X7 replay-during-run; and through every injection no action runs twice, an action that may have acted is never re-run and keeps its key, and no attestation or feed entry is delivered for a run that is not COMPLETE or delivered twice.",
+ "scope": "28 injections per path, 4 paths per cell, 4 cells (448 in all), over the 184 state-modifying names ACTION_MAP serves; 3 real-process runs each for X1 and X2. In-process: no network, no chain, no gateway HTTP layer (the gate is bridge_like's blocked flag)."
+}

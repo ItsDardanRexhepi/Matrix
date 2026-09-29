@@ -28,6 +28,7 @@ from typing import Any
 from aiohttp import web
 
 from gateway.error_contract import client_error, dispatcher_failure, refusal_http_status
+from runtime.durable.wiring import caller_scope as _durable_scope, keyed as _durable_keyed
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, report_of
 
 logger = logging.getLogger(__name__)
@@ -999,34 +1000,6 @@ class BridgeRoutes:
         if is_blocked(decision):
             return MobileResponse.error(generic_denial(decision), 403)
 
-        # ENGINES PHASE 2 — THE IDEMPOTENCY-KEY. With engines.durable.mode off
-        # (the default) no engine is installed and the header is not read. In
-        # shadow and on, a state-modifying action carrying one claims the key
-        # AFTER the gate allowed it — a replay is gated like any request — and
-        # before anything runs. In mode on, with the canary covering the
-        # state-modifying names, a key already bound answers from its record and
-        # runs nothing: the first answer (a replay), or a 409 when the key was
-        # used for another request or its request has not answered. In shadow,
-        # and in on with the canary at twins, the claim and the answer are
-        # recorded and the request runs as it would with the mode off.
-        from runtime.durable import wiring as _durable_wiring
-        durable = _durable_wiring.current()
-        claim = None
-        if durable is not None:
-            from runtime.blockchain.services.service_dispatcher import (
-                ACTION_MAP, _STATE_MODIFYING_ACTIONS,
-            )
-            if action in _STATE_MODIFYING_ACTIONS:
-                claim = durable.bridge_claim(
-                    client_key=request.headers.get("Idempotency-Key"),
-                    action=action, params=params, service=ACTION_MAP[action][0],
-                    actor=identity, actor_scope=f"{caller_kind or 'unknown'}|{identity}",
-                    decision_ref=str(decision.get("evaluation_id") or "")
-                    if isinstance(decision, dict) else "",
-                )
-                if claim.honoured:
-                    return self._durable_answer(claim)
-
         try:
             # Reuse the server's shared ServiceDispatcher (feed engine attached
             # at startup) so direct iOS actions publish to the social feed too.
@@ -1074,25 +1047,19 @@ class BridgeRoutes:
             # linked a wallet to was GATED as B and EXECUTED as W: the service
             # decided ownership for the account that linked, not the one that
             # asked. The dispatcher now gets exactly the identity the gate saw.
-            if claim is None:
+            # Engines Phase 2: with engines.durable.mode shadow or on, the
+            # dispatcher is told this request's Idempotency-Key header, whose it
+            # is (the credential's own subject, which linking a wallet does not
+            # change) and the gate decision it passed (runtime/durable/wiring.py
+            # keyed). With the mode off (the default) no engine is installed and
+            # `keyed` reads and computes nothing.
+            with _durable_keyed(request, decision=decision, scope=lambda: _durable_scope(
+                    self._server, request, caller_kind, identity)):
                 result = await dispatcher.execute(
                     action,
                     params=params,
                     caller_identity=identity,
                 )
-            else:
-                # The run's end records this route's answer on the key in its
-                # own transaction, built here from the dispatcher's answer, so a
-                # response lost after that commit still reaches the replay.
-                def answer_of(envelope, _action=action):
-                    built = self._action_response(_action, envelope)
-                    return built.status, built.body
-                with durable.bound(claim, answer_of=answer_of):
-                    result = await dispatcher.execute(
-                        action,
-                        params=params,
-                        caller_identity=identity,
-                    )
         except Exception as e:
             # RUN-5: was the raw exception as the response body. And this
             # caught TypeError as "Invalid parameters" (422, the raw binding
@@ -1100,80 +1067,8 @@ class BridgeRoutes:
             # but the dispatcher returns every caller-attributable failure as a
             # payload; an exception that escapes it is an internal defect,
             # which is what the error contract says: internal_error, a ref.
-            response = MobileResponse.from_exception(e, what="Bridge action")
-            if claim is not None:
-                durable.bridge_finish(claim, status=response.status, body=response.body)
-            return response
-        response = self._action_response(action, result)
-        if claim is not None:
-            durable.bridge_finish(claim, status=response.status, body=response.body)
-        return response
-
-    @staticmethod
-    def _durable_answer(claim) -> web.Response:
-        """The answer to a request whose Idempotency-Key is already bound (mode
-        on). Nothing is run for it.
-
-        * the first answer, when it is recorded — its status and body, with
-          ``replayed: true`` added and an ``Idempotent-Replayed`` header. It is
-          recorded in the transaction that ends the first request's run, so a
-          first request whose process died after that commit, before it could
-          answer, is answered here all the same;
-        * 409 ``idempotency_conflict`` when the key was used for a different
-          request, when its request has not answered (still running, or it
-          stopped at a point where it may have acted — the run's state is
-          included), or when its answer is older than the 24 hours answers
-          are kept;
-        * 400 for a key that is not 8-64 of ``A-Z a-z 0-9 _ . : -``;
-        * 503 when the key could not be recorded, so the request was not run.
-        """
-        from runtime.durable import keys as _keys
-        from runtime.logging.json_formatter import get_request_id
-
-        ref = get_request_id() or None
-        if claim.outcome == _keys.HIT:
-            try:
-                body = json.loads(claim.response or "")
-            except (ValueError, TypeError):
-                body = None
-            if isinstance(body, dict):
-                response = web.json_response({**body, "replayed": True}, status=claim.status)
-            else:
-                response = web.Response(text=claim.response or "", status=claim.status,
-                                        content_type="application/json")
-            response.headers["Idempotent-Replayed"] = "true"
-            return response
-        if claim.outcome == "invalid":
-            return MobileResponse.error(
-                "Idempotency-Key must be 8 to 64 characters, each a letter, a digit, "
-                "or one of _ . : -", 400, error_code="invalid_request", ref=ref)
-        if claim.outcome == "unrecorded":
-            response = MobileResponse.error(
-                "This request was not run: the platform could not record its "
-                "Idempotency-Key. Nothing was executed; retry with the same key.", 503,
-                error_code="service_unavailable", ref=ref)
-            response.headers["Retry-After"] = "1"
-            return response
-        sentences = {
-            _keys.CONFLICT: ("This Idempotency-Key was already used for a different request; "
-                             "this one was not run."),
-            _keys.IN_FLIGHT: ("The first request with this Idempotency-Key has not answered — it "
-                              "is still running, or it stopped at a point where it may have "
-                              "acted — so this one was not run. Its run's state is included."),
-            _keys.EXPIRED: ("The answer to the first request with this Idempotency-Key is no "
-                            "longer kept (answers are kept for 24 hours); this one was not run."),
-        }
-        body: dict[str, Any] = {
-            "ok": False,
-            "error": sentences.get(claim.outcome, "This request was not run."),
-            "code": "idempotency_conflict",
-            "timestamp": time.time(),
-        }
-        if ref:
-            body["ref"] = ref
-        if claim.outcome in (_keys.IN_FLIGHT, _keys.EXPIRED) and claim.run_id:
-            body["run"] = {"run_id": claim.run_id, "state": claim.run_state}
-        return web.json_response(body, status=409)
+            return MobileResponse.from_exception(e, what="Bridge action")
+        return self._action_response(action, result)
 
     @staticmethod
     def _action_response(action: str, result) -> web.Response:

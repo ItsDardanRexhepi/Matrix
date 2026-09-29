@@ -704,7 +704,7 @@ class GatewayServer:
         real and worse than the diagnosis, because every probe shared the
         always-ok liveness route. This is the missing half.
 
-        Two conditions fail closed:
+        These conditions fail closed:
 
         * **No model provider reachable.** Every chat path terminates at the
           router; an instance whose providers are all down cannot serve its
@@ -714,6 +714,10 @@ class GatewayServer:
           the platform is running with security in OBSERVE — no enforcement.
           That is a legitimate local/dev state and a NON-STARTER in production,
           so it is only fatal when ``MATRIX_ENV=production``.
+        * **The durable outbox loop is not running** (engines Phase 2, only
+          with ``engines.durable.mode`` shadow or on): the loop that delivers
+          the outbox and closes runs a stopped process left open has died or
+          stopped ticking. With the mode off there is no loop and no check.
 
         THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
         endpoint returned each check with its values — `"backend": "noop"`,
@@ -751,14 +755,12 @@ class GatewayServer:
         if production and backend == "noop":
             failed.append("security_backend")
 
-        # Engines, Phase 2: in mode on the outbox loop is what delivers the
-        # canary's attestations and feed entries, so an instance whose loop is
-        # not running must not take traffic. Its dead letters and held rows are
-        # logged by the loop when they happen; they do not fail readiness.
+        # Engines Phase 2: with engines.durable.mode shadow or on, the outbox
+        # loop must be running and ticking; with the mode off there is no loop
+        # and nothing is checked.
         durable_engine = getattr(self, "_durable_engine", None)
         durable_health = None
-        if (durable_engine is not None and durable_engine.mode == "on"
-                and not durable_engine.loop.alive):
+        if durable_engine is not None and not durable_engine.healthy():
             failed.append("durable_outbox_loop")
             durable_health = durable_engine.health()
 
@@ -769,11 +771,10 @@ class GatewayServer:
             # client can quote.
             logger.error(
                 "Readiness FAILED [ref=%s] checks=%s | providers_reachable=%s "
-                "probed=%s | security_backend=%s production=%s",
+                "probed=%s | security_backend=%s production=%s%s",
                 ref, failed, providers_up, sorted(model_health), backend, production,
+                f" | durable={durable_health}" if durable_health is not None else "",
             )
-            if durable_health is not None:
-                logger.error("Readiness [ref=%s] durable engine: %s", ref, durable_health)
 
         return web.json_response(
             {"ready": ready, "ref": ref},
@@ -2262,6 +2263,45 @@ class GatewayServer:
             dispatch.set_evidence_shadow_sink(None)
         self._engine_sinks = None
 
+    def _install_durable_engine(self) -> None:
+        """Engines, Phase 2 — durable execution (runtime/durable). Read
+        engines.durable.mode once; under "shadow" or "on" build the engine over
+        the platform database, install it process-wide and start its one outbox
+        loop, and say so at boot. Under "off" this installs nothing, starts
+        nothing and logs nothing; the four tables still exist, empty."""
+        self._durable_engine = None
+        try:
+            from runtime.durable import wiring as durable
+            mode = durable.durable_mode(self.config)
+            if mode == "off":
+                return
+            engine = durable.build_engine(self.config, self.react_loop.memory.db)
+        except Exception:
+            # The engine is optional; serving is not. The gateway runs as it
+            # would with the mode off, and says so.
+            logger.exception("Durable execution could not be built; running with the mode off")
+            return
+        durable.install(engine)
+        engine.start()
+        self._durable_engine = engine
+        logger.info("Engines: durable mode=%s (canary: %s): run journal, outbox loop and "
+                    "idempotency keys%s", engine.mode, ", ".join(engine.canary),
+                    "; the legacy path still delivers and nothing is refused"
+                    if engine.mode == "shadow" else "")
+
+    async def _remove_durable_engine(self) -> None:
+        """Stop this gateway's engine and take it out again — only its own."""
+        engine = getattr(self, "_durable_engine", None)
+        if engine is None:
+            return
+        from runtime.durable import wiring as durable
+        try:
+            await engine.stop()
+        finally:
+            if durable.current() is engine:
+                durable.install(None)
+            self._durable_engine = None
+
     async def _start_cleanup_task(self, app: web.Application) -> None:
         """Initialise persistence and start background cleanup tasks."""
         # Open the SQLite database and load auth stores from disk.
@@ -2284,6 +2324,8 @@ class GatewayServer:
             logger.exception("Failed to initialise the Morpheus security layer")
         # Engines, Phase 1: the shadow decision/evidence log (off by default).
         self._install_engine_sinks()
+        # Engines, Phase 2: durable execution and its one outbox loop (off by default).
+        self._install_durable_engine()
         # Optional OTel push exporter (no-op unless configured + installed)
         try:
             self.otel_bridge.start()
@@ -2377,60 +2419,6 @@ class GatewayServer:
                 logger.info("Push token store attached to notifier.")
         except Exception as exc:
             logger.warning("Push token store init skipped: %s", exc)
-
-        # Engines, Phase 2: durable execution (off by default). Last, because
-        # its outbox loop delivers feed entries to the feed engine built above.
-        self._install_durable_engine()
-
-    def _install_durable_engine(self) -> None:
-        """Engines, Phase 2 — durable execution. Read engines.durable.mode once
-        and, in "shadow" or "on", build the engine over the platform database,
-        install it process-wide, close what a previous process left behind, and
-        start its one loop; then say so at boot. Under "off" this installs
-        nothing, starts nothing and logs nothing. An engine that cannot be
-        built leaves the gateway as it is with the mode off, and says so."""
-        from runtime.durable import wiring as durable
-        self._durable_engine = None
-        self._durable_mode = durable.durable_mode(self.config)
-        if self._durable_mode == "off":
-            return
-        try:
-            engine = durable.build_engine(self.config, self.react_loop.memory.db,
-                                          feed_engine=self.social_feed_engine)
-            engine.maintain()
-        except Exception:
-            logger.exception("Engines: the durable engine could not be built; durable "
-                             "execution is off")
-            self._durable_mode = "off"
-            return
-        durable.install(engine)
-        engine.start()
-        self._durable_engine = engine
-        health = engine.health()
-        logger.info("Engines: durable mode=%s canary=%s: %s; outbox %s",
-                    engine.mode, engine.canary,
-                    ("the run journal, the outbox and replay keys record; the legacy path "
-                     "still delivers and nothing is answered from them"
-                     if engine.mode == "shadow" else
-                     "runs in the canary are journaled before they act, their attestation "
-                     "and feed entry are delivered by the outbox loop, and a replayed "
-                     "Idempotency-Key answers from its record"),
-                    health["outbox"] or "empty")
-        pending = health["outbox"].get("pending", 0)
-        if engine.mode == "shadow" and pending:
-            logger.warning("Engines: %d outbox row(s) written in mode on are not delivered in "
-                           "shadow; they are delivered when the mode is on again", pending)
-
-    async def _remove_durable_engine(self) -> None:
-        """Stop this gateway's loop and uninstall its engine — only its own."""
-        engine = getattr(self, "_durable_engine", None)
-        if engine is None:
-            return
-        from runtime.durable import wiring as durable
-        await engine.stop()
-        if durable.current() is engine:
-            durable.install(None)
-        self._durable_engine = None
 
     def _rate_limiters(self) -> list:
         """Every RateLimiter the server keys buckets in."""
@@ -2604,7 +2592,7 @@ class GatewayServer:
         try:
             await self._remove_durable_engine()
         except Exception as exc:
-            logger.warning("Durable engine shutdown raised: %s", exc)
+            logger.warning("Durable engine stop failed: %s", exc)
         try:
             await self.react_loop.memory.close()
         except Exception as exc:

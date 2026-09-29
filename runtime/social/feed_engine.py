@@ -342,30 +342,15 @@ class SocialFeedEngine:
         component: Optional[int] = None,
         tx_hash: Optional[str] = None,
         value_usd: Optional[float] = None,
-        *,
-        event_id: Optional[str] = None,
     ) -> FeedEvent:
         """Persist and rank a new feed event.
 
         This method is designed to be called via
         ``asyncio.create_task(engine.ingest(...))``. It must never
         raise — all errors are logged and swallowed.
-
-        ``event_id`` names the event instead of a fresh random id, and an event
-        already stored under that id is not stored, ranked or counted again.
-        The durable outbox loop (runtime/durable/outbox.py) passes an id
-        derived from the run, so a run's feed entry exists once however many
-        times its delivery is attempted.
         """
         try:
             await self._ensure_table()
-
-            if event_id is not None:
-                existing = await self._db.fetchone(
-                    "SELECT id FROM social_feed_events WHERE id = ?", (event_id,)
-                )
-                if existing is not None:
-                    return FeedEvent(id=event_id, event_type=action, actor=actor)
 
             summary = ACTION_LABELS.get(action, f"performed {action}")
             if actor:
@@ -381,8 +366,6 @@ class SocialFeedEngine:
                 tx_hash=tx_hash,
                 value_usd=sanitize_value_usd(value_usd),
             )
-            if event_id is not None:
-                event.id = event_id
 
             # Score before persisting
             event.rarity_score = self._ranker._rarity_score(action)

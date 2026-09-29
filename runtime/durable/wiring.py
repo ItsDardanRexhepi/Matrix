@@ -1,40 +1,42 @@
-"""The wiring: the mode, the canary, and the engine the call sites consult.
+"""The wiring: the mode, the canary, and the engine the service dispatcher (and
+the twin tools' dispatch) consult.
 
-``engines.durable.mode`` (``MATRIX_DURABLE_MODE`` wins, read once at startup):
+``engines.durable.mode`` — ``MATRIX_DURABLE_MODE`` wins, then the config, then
+"off"; read once at startup:
 
 * ``off`` — the default. No engine is installed; every call site's first check
-  finds none and runs exactly the code it ran before this package existed. The
-  ``Idempotency-Key`` header is not read. The four tables exist, empty, because
-  the database creates them whatever the mode.
-* ``shadow`` — the engine journals and records, and owns nothing: every run is
-  written to the journal, every attestation and feed entry the legacy path
-  delivers is written to the outbox as ``recorded`` bookkeeping, and every key
-  the bridge sees is recorded with the answer it got. A request's answer is the
-  answer it gets with the mode off. A row that cannot be written at once is
-  dropped, never waited for — and a row that is dropped never makes another
-  one false: a keyed run whose RUNNING mark was dropped still went on to its
-  call, so the mark is written late, with the call's answer, and says so; such
-  a run is never closed as "not attempted", and its key is never given back.
-* ``on`` — the engine owns the LIFECYCLE of the actions in its canary, and
-  nothing else: a run's row is written before its effect call begins, and an
-  action whose row cannot be written is not run; the outbox loop delivers the
-  attestation and the feed entry; a replayed ``Idempotency-Key`` gets the first
-  answer and runs nothing.
+  finds none and runs exactly the code it ran before this package existed. No
+  Idempotency-Key is read. The four tables exist, empty, because the database
+  creates them whatever the mode.
+* ``shadow`` — the engine records and owns nothing. Every journaled action gets
+  a run; the attestation and the feed entry the legacy path delivers get
+  outbox rows written as already handed off; an Idempotency-Key is recorded
+  against the first run that used it. Every answer is the answer mode off
+  gives, and a replay runs again, as it does with the mode off. A record that
+  cannot be written at once is dropped, never waited for.
+* ``on`` — for the actions in the canary, the run is the only lifecycle path:
+  the run is written before the effect call begins, and an action whose run
+  cannot be written is not run; the outbox loop delivers its attestation and
+  feed entry; a replayed Idempotency-Key gets the first answer and runs
+  nothing.
 
-``engines.durable.canary`` says which actions ``on`` covers. ``twins`` (the
-default) is the twin tools' platform-key signing calls
-(``runtime/security/action_map.py`` ``SIGNING_ACTIONS``); ``state_modifying`` is
-those and every state-modifying action name the service dispatcher serves.
-Actions outside the canary are journaled as in shadow.
+THE CANARY, in the order it moved: first the twin tools' platform-key signing
+calls (``runtime/security/action_map.py`` ``SIGNING_ACTIONS``), then every
+state-modifying name the service dispatcher serves (``_STATE_MODIFYING_ACTIONS``).
+``CANARY`` names the stages mode on covers.
 
 WHAT THE ENGINE NEVER DOES, IN ANY MODE. It never decides whether an action is
-allowed — the gate has already decided before any of this runs, and a replay is
-gated again like any request. It never decides what an action's outcome was: a
-run's state says whether its call began and whether it answered, and the words
-on its steps are the ones the layer that made the call already computed. It
-never runs an action a second time: a run whose call never answered stays
-RUNNING for a person to look at, and a key already bound answers from its
-record. The only refusal it adds is to not start an effect it could not record.
+allowed: every entry point's gate has answered before any of this runs, and a
+replay passes the gate again like any request. It never decides what an
+action's outcome was: a run's state says whether its call began and whether it
+answered, and the words on its steps are the ones the layer that made the call
+already computed. It never runs an action a second time. The one refusal it
+adds, in mode on, is to not start an effect it could not first record.
+
+COPIES, NEVER THE LIVE DICTS. The parameters and the answer are only digested
+here; the attestation and feed payloads the outbox holds are deep copies taken
+when the run ends, so nothing a delivery does reaches the dispatcher's own
+dicts and nothing the dispatcher does afterwards reaches a delivery.
 """
 
 from __future__ import annotations
@@ -42,55 +44,48 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import copy
 import json
 import logging
 import os
-import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from runtime.durable import journal, keys, outbox
+from runtime.durable.journal import Tx
 
 logger = logging.getLogger(__name__)
 
 MODES: tuple[str, ...] = ("off", "shadow", "on")
 TWINS = "twins"
 STATE_MODIFYING = "state_modifying"
-CANARIES: tuple[str, ...] = (TWINS, STATE_MODIFYING)
+#: The stages of the canary mode on covers, in the order they moved.
+CANARY: tuple[str, ...] = (TWINS, STATE_MODIFYING)
 
 #: The surface the bridge's keys are scoped to.
-BRIDGE_ACTION_SURFACE = "bridge.action"
+BRIDGE_ACTION = "bridge.action"
 
+#: A run whose record could not be written: in memory only, nothing more is written.
+UNRECORDED = "UNRECORDED"
 
-def _engines_section(config: Any) -> dict:
-    engines = config.get("engines") if isinstance(config, dict) else None
-    durable = engines.get("durable") if isinstance(engines, dict) else None
-    return durable if isinstance(durable, dict) else {}
+_OUTCOME_FIELD = "call_outcome"   # runtime.protocols.outcome_truth.OUTCOME_FIELD
+_FAILURE = "failure"              # runtime.protocols.outcome_truth.FAILURE
 
 
 def durable_mode(config: Any) -> str:
-    """``MATRIX_DURABLE_MODE``, then ``engines.durable.mode``, then "off". A
-    value that is not one of MODES is logged and read as "off": an unrecognised
-    switch never moves lifecycle authority."""
-    raw = os.environ.get("MATRIX_DURABLE_MODE") or _engines_section(config).get("mode") or "off"
+    """``MATRIX_DURABLE_MODE``, then ``engines.durable.mode``, then "off". A value
+    that is not one of MODES is logged and read as "off": an unrecognised switch
+    never moves lifecycle authority."""
+    engines = config.get("engines") if isinstance(config, dict) else None
+    durable = engines.get("durable") if isinstance(engines, dict) else None
+    configured = durable.get("mode") if isinstance(durable, dict) else None
+    raw = os.environ.get("MATRIX_DURABLE_MODE") or configured or "off"
     mode = str(raw).strip().lower()
     if mode not in MODES:
         logger.warning("Unknown engines.durable.mode %r; durable execution stays off.", raw)
         return "off"
     return mode
-
-
-def durable_canary(config: Any) -> str:
-    """``engines.durable.canary``: "twins" (the default) or "state_modifying". A
-    value that is not one of CANARIES is logged and read as "twins", the
-    narrower one."""
-    raw = _engines_section(config).get("canary") or TWINS
-    canary = str(raw).strip().lower()
-    if canary not in CANARIES:
-        logger.warning("Unknown engines.durable.canary %r; the canary stays %r.", raw, TWINS)
-        return TWINS
-    return canary
 
 
 # ── the process-wide engine ─────────────────────────────────────────────────
@@ -113,555 +108,613 @@ def current() -> "DurableEngine | None":
     return _engine
 
 
-class CallMark:
-    """Whether the dispatcher reached the effect call of a keyed request's run —
-    set before the call is made, whether or not the run's RUNNING mark could be
-    written first. In memory, for the one request: it is how the bridge tells a
-    run that is still START because its call was never reached (ABORT, the key
-    given back) from one whose mark was dropped on the way to the call."""
-
-    __slots__ = ("reached", "at", "service", "params_digest")
-
-    def __init__(self) -> None:
-        self.reached = False
-        self.at = 0.0
-        self.service = ""
-        self.params_digest = ""
-
-    def reach(self, at: float, service: str, params_digest: str) -> None:
-        if not self.reached:
-            self.reached, self.at = True, at
-            self.service, self.params_digest = service, params_digest
-
-
-@dataclass(frozen=True)
-class Binding:
-    """What the bridge knows about a request before the dispatcher runs it: the
-    scoped key, the run the key's claim started (None when it started none),
-    the gate decision's id, the request's CallMark, and how the bridge turns
-    the dispatcher's answer into the HTTP answer it will send (so the run's end
-    can record that answer in its own transaction)."""
-    key: str
-    run_id: str | None
-    action: str
-    decision_ref: str = ""
-    mark: CallMark | None = field(default=None, compare=False)
-    answer_of: Callable[[str], tuple[int, Any]] | None = field(default=None, compare=False)
-
-
-_binding: contextvars.ContextVar[Binding | None] = contextvars.ContextVar(
-    "durable_binding", default=None)
-
+# ── the bridge's key, for the one dispatch it makes ─────────────────────────
 
 @dataclass
+class RequestKey:
+    client_key: Any
+    scope: str
+    decision_ref: str = ""
+    used: bool = False
+
+
+_request: contextvars.ContextVar[RequestKey | None] = contextvars.ContextVar(
+    "durable_request_key", default=None)
+
+
+@contextlib.contextmanager
+def keyed(request: Any, *, scope: str | Callable[[], str], decision: Any = None):
+    """While the bridge runs one request, tell the dispatcher the request's
+    ``Idempotency-Key`` header (None when it sent none), whose it is (*scope*,
+    called only here: the credential's kind and stable subject) and the gate
+    decision's id. The first state-modifying dispatch in the request uses them.
+    With no engine installed (mode off) this reads and calls nothing."""
+    if _engine is None:
+        yield
+        return
+    headers = getattr(request, "headers", None)
+    client_key = headers.get("Idempotency-Key") if headers is not None else None
+    decision_ref = decision.get("evaluation_id") if isinstance(decision, dict) else None
+    try:
+        who = str((scope() if callable(scope) else scope) or "")
+    except Exception:  # noqa: BLE001 — no scope: the key cannot be honoured
+        who, client_key = "", None
+    token = _request.set(RequestKey(client_key, who, str(decision_ref) if decision_ref else ""))
+    try:
+        yield
+    finally:
+        _request.reset(token)
+
+
+def caller_scope(server: Any, request: Any, caller_kind: str, identity: str) -> str:
+    """Whose an Idempotency-Key is on the bridge: the credential's kind and its
+    own subject — the SIWE address or ``apple:<sub>`` a session was issued to,
+    which linking a wallet does not change — or, with no session, the identity
+    the gate saw (the operator naming the user it acts for). Lowercased."""
+    subject = ""
+    lookup = getattr(server, "_wallet_session_from_request", None)
+    if callable(lookup):
+        try:
+            session = lookup(request)
+        except Exception:  # noqa: BLE001
+            session = None
+        if isinstance(session, dict):
+            subject = str(session.get("address") or "")
+    return f"{caller_kind or 'unknown'}|{(subject or identity or '').strip().lower()}"
+
+
+# ── a run, while this process holds it ─────────────────────────────────────
+
+@dataclass(eq=False)
 class Run:
     run_id: str
+    action: str
+    service: str
+    actor_hash: str
+    params_digest: str
+    started_at: float
     owned: bool
-    refused: bool = False
-    #: False when the run's RUNNING mark could not be written before its call
-    #: (never for an owned run: that one is refused instead). The mark is then
-    #: written late, in the transaction that records what the call did.
-    marked: bool = True
-    began_at: float = 0.0
-    service: str = ""
-    params_digest: str = ""
-    #: The bridge's binding when this run is a keyed request's.
-    bound: Binding | None = None
-
-
-@dataclass(frozen=True)
-class BridgeClaim:
-    """What a request's Idempotency-Key is bound to.
-
-    ``outcome`` is "none" (no key), "invalid", "unrecorded" (the claim could not
-    be written), or one of keys.MISS / HIT / CONFLICT / IN_FLIGHT / EXPIRED.
-    ``honoured`` is True when the bridge must answer from this claim instead of
-    running the request: mode on, the canary covering state-modifying names,
-    and an outcome other than a fresh bind. ``mark`` records, for this request,
-    whether its effect call was reached."""
-    outcome: str
-    honoured: bool = False
     key: str = ""
-    run_id: str | None = None
-    run_state: str | None = None
-    status: int | None = None
-    response: str | None = None
-    action: str = ""
     decision_ref: str = ""
-    mark: CallMark = field(default_factory=CallMark, compare=False, repr=False)
+    #: This run's key was looked up and found unbound, so opening binds it.
+    binds_key: bool = False
+    #: When set, the dispatcher returns this instead of running anything.
+    answer: str | None = None
+    state: str = journal.START
+    #: False once a write for this run failed (shadow): nothing more is written.
+    written: bool = True
+    answered: bool = False
+    seq: int = 0
+    #: Payloads the outbox delivers for this run (mode on): deep copies.
+    deliveries: dict = field(default_factory=dict)
+    #: The dispatcher's own deliveries of the same, used only when the outbox
+    #: did not take them.
+    legacy: dict = field(default_factory=dict)
+    #: Shadow: the payloads the legacy path delivered, by kind (digested only).
+    recorded: dict = field(default_factory=dict)
+
+    def next_seq(self) -> int:
+        self.seq += 1
+        return self.seq
 
 
-def _tx_of(result: Any) -> str:
-    if isinstance(result, dict):
-        tx = result.get("tx_hash") or result.get("transaction_hash")
-        return str(tx) if tx else ""
-    return ""
+def envelope_error(category: str, error: str, **extra: Any) -> str:
+    """A dispatcher failure envelope, in the dispatcher's own shape."""
+    return json.dumps({"status": "error", _OUTCOME_FIELD: _FAILURE, "error_category": category,
+                       "degraded": False, "error": error, **extra})
 
 
-def _recordable(body: bytes | str | None) -> str:
-    """An answer's body as it is kept for a replay: its text, with every
-    secret-named field's value withheld."""
-    text = (body.decode("utf-8", "replace") if isinstance(body, (bytes, bytearray))
-            else (body or ""))
-    try:
-        parsed = json.loads(text)
-    except (ValueError, TypeError):
-        return text
-    cleaned = keys.withhold_secrets(parsed)
-    return text if cleaned is parsed else json.dumps(cleaned)
+#: Ends kept for writing later, at most; past this the run is left to recovery.
+MAX_PENDING_ENDS = 10_000
 
 
-def _start_word(owned: bool) -> str:
-    return journal.START_OWNED if owned else journal.START_OBSERVED
+class NotRecorded(RuntimeError):
+    """Mode on could not record a signing call before making it; it was not made."""
 
 
 class DurableEngine:
     """One per gateway process, installed by the gateway at startup."""
 
-    def __init__(
-        self,
-        db: Any,
-        *,
-        mode: str,
-        canary: str = TWINS,
-        clock: Callable[[], float] = time.time,
-        deliverers: dict[str, outbox.Deliverer] | None = None,
-        tick_s: float = outbox.TICK_S,
-    ) -> None:
+    def __init__(self, db: Any, *, mode: str, canary: tuple[str, ...] = CANARY,
+                 clock: Callable[[], float] = time.time, attestations: Any = None,
+                 tick_s: float = outbox.TICK_S,
+                 abandoned_after_s: float = journal.ABANDONED_AFTER_S) -> None:
         if mode not in ("shadow", "on"):
             raise ValueError(f"an engine runs in shadow or on, not {mode!r}")
-        if canary not in CANARIES:
-            raise ValueError(f"unknown canary {canary!r}")
         self._db = db
         self.mode = mode
-        self.canary = canary
+        self.canary = tuple(canary)
         self._clock = clock
+        self._abandoned_after_s = abandoned_after_s
+        #: The batch processor whose submission path delivers attestations.
+        self.attestations = attestations
+        self.answers = keys.AnswerCache(clock=clock)
+        self._open: set[str] = set()
+        #: Ends this process knows and could not write yet (run_id -> the write):
+        #: written again every tick, so recovery never closes a run whose end
+        #: this process holds.
+        self._pending: dict[str, tuple[Callable[[Tx], None], Callable[[], None] | None]] = {}
+        self.recovered: dict[str, list[str]] = {"aborted": [], "failed": []}
         self.loop = outbox.OutboxLoop(
-            db, deliver=(mode == "on"), deliverers=deliverers, maintain=self.maintain,
-            clock=clock, tick_s=tick_s, write_wait=(mode == "on"))
+            db, deliver=(mode == "on"), maintain=self.maintain, clock=clock, tick_s=tick_s,
+            abandoned_after_s=abandoned_after_s, write_wait=(mode == "on"))
 
     # ── authority ────────────────────────────────────────────────────────
 
-    def owns(self, domain: str) -> bool:
-        """Does mode on move the lifecycle of *domain* ("twins" or
-        "state_modifying") to this engine? Never in shadow."""
-        if self.mode != "on":
-            return False
-        if domain == TWINS:
-            return True
-        return domain == STATE_MODIFYING and self.canary == STATE_MODIFYING
+    def owns(self, stage: str) -> bool:
+        """Does mode on move the lifecycle of *stage* to the run? Never in shadow."""
+        return self.mode == "on" and stage in self.canary
 
-    # ── writes ───────────────────────────────────────────────────────────
-
-    def _write(self, work: Callable[[sqlite3.Connection], Any], *, owned: bool,
-               what: str) -> tuple[bool, Any]:
+    def _write(self, work: Callable[[Tx], Any], *, owned: bool, what: str) -> tuple[bool, Any]:
         """One transaction. An owned write waits for the database like any other
-        platform write; a shadow write never waits. A failure — the database,
-        or anything else that goes wrong building the rows — is logged and
+        platform write; a shadow write never waits. A failure is logged and
         reported, never raised into the call site: the call site's own code
-        path decides what a failed write means (not run, or delivered the
-        legacy way), never an exception from here."""
+        decides what a failed write means."""
         try:
-            return True, self._db.transaction_sync(work, wait=owned)
-        except (sqlite3.Error, RuntimeError) as exc:
+            return True, journal.transaction(self._db, work, wait=owned)
+        except Exception as exc:  # noqa: BLE001 — a record never breaks the dispatch
             logger.warning("Durable %s: %s not written: %s", self.mode, what, exc)
-            return False, None
-        except Exception:
-            logger.exception("Durable %s: %s not written", self.mode, what)
             return False, None
 
     # ── the service dispatcher ───────────────────────────────────────────
 
-    def begin_dispatch(self, action: str, service: str, actor: str, params: Any) -> Run | None:
-        """Record a state-modifying dispatch as RUNNING before its service is
-        called. None: nothing journaled, run as before (shadow, a write that
-        failed). ``refused``: mode on could not record it, so it must not run.
+    def begin(self, action: str, service: str, actor: str, params: Any) -> Run:
+        try:
+            return self._begin(action, service, actor, params)
+        except Exception as exc:  # noqa: BLE001 — a record never breaks the dispatch
+            logger.warning("Durable %s: run for %s not opened: %s", self.mode, action, exc)
+            run = Run(run_id=journal.new_run_id(), action=action, service=service,
+                      actor_hash="", params_digest="", started_at=self._clock(),
+                      owned=self.owns(STATE_MODIFYING), state=UNRECORDED, written=False)
+            if run.owned:
+                run.answer = self._not_run(action)
+            return run
 
-        A keyed request's run already exists, in START, from the bridge's claim.
-        When an engine that does not own it cannot move it to RUNNING at once,
-        the service is called anyway — as it is with the mode off — so the run
-        comes back unmarked (``marked`` False) and its mark is written late,
-        with the call's answer. Either way the request's CallMark says the call
-        was reached, so the bridge never reads that START as "not attempted"."""
+    def _begin(self, action: str, service: str, actor: str, params: Any) -> Run:
+        """Open a state-modifying dispatch's run, in memory: nothing is written
+        until the call is about to begin (``open``) or will not begin (``abort``).
+        A replayed Idempotency-Key in mode on comes back with ``answer`` set —
+        the first answer, or why nothing is run — and the dispatcher returns it."""
         owned = self.owns(STATE_MODIFYING)
-        binding = _binding.get()
-        if binding is not None and binding.action != action:
-            binding = None
+        run = Run(run_id=journal.new_run_id(), action=action, service=service,
+                  actor_hash=journal.actor_hash(actor), params_digest=journal.digest(params),
+                  started_at=self._clock(), owned=owned)
+        request = _request.get()
+        if request is None or request.used:
+            return run
+        request.used = True
+        run.decision_ref = request.decision_ref
+        if request.client_key is None:
+            return run
+        if not keys.valid_client_key(request.client_key):
+            if owned:
+                run.answer = envelope_error(
+                    "validation", "Idempotency-Key must be 1 to 255 printable ASCII characters "
+                    "with no leading or trailing space; this request was not run.")
+            return run
+        run.key = keys.scoped(BRIDGE_ACTION, request.scope, request.client_key)
+        try:
+            bound = keys.lookup(self._db, run.key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Durable %s: key lookup failed: %s", self.mode, exc)
+            if owned:
+                run.answer = self._not_run(action)
+            return run
+        if bound is None:
+            run.binds_key = True
+        elif owned:
+            run.answer = self._replay(run, *bound)
+        return run
+
+    def _replay(self, run: Run, bound_run_id: str, response_digest: str) -> str:
+        """What a request whose key is already bound is answered (mode on)."""
+        first = journal.get_run(self._db, bound_run_id)
+        if first is None or (first["action"], first["params_digest"]) != (run.action,
+                                                                          run.params_digest):
+            return envelope_error(
+                "idempotency_conflict", "This Idempotency-Key was used for a different request; "
+                "this one was not run.")
+        if first["state"] in journal.OPEN:
+            return envelope_error(
+                "idempotency_in_progress", "The first request with this Idempotency-Key has not "
+                "answered yet; this one was not run.", run_state=first["state"])
+        held = self.answers.get(run.key)
+        if held is not None and response_digest and journal.text_digest(held) == response_digest:
+            return held
+        return envelope_error(
+            "idempotency_answer_not_held", "The first request with this Idempotency-Key ended; "
+            "its answer is no longer held, and this one was not run.", run_state=first["state"])
+
+    def _not_run(self, action: str) -> str:
+        return envelope_error(
+            "service_unavailable", f"Action '{action}' was not run: the platform could not "
+            "record it before running it. Nothing was executed; it is safe to try again.",
+            degraded=True)
+
+    def abort(self, run: Run, why: str) -> None:
+        """The dispatch ends before its call: written as START and ABORT together."""
+        if run.answer is not None or run.state != journal.START:
+            return
         now = self._clock()
 
-        if binding is not None and binding.run_id:
-            run_id = binding.run_id
-            digest = journal.digest(params)
+        def work(tx: Tx) -> None:
+            journal.insert_run(tx, run_id=run.run_id, action=run.action, service=run.service,
+                               actor_hash=run.actor_hash, params_digest=run.params_digest,
+                               state=journal.ABORT, started_at=run.started_at,
+                               decision_ref=run.decision_ref, terminal_at=now)
+            journal.step(tx, run.run_id, run.next_seq(), journal.STEP_START, "opened",
+                         at=run.started_at)
+            journal.step(tx, run.run_id, run.next_seq(), journal.STEP_ABORT, why, at=now)
+        run.state = journal.ABORT
+        self._write(work, owned=run.owned, what=f"run for {run.action} ABORT")
 
-            def begin_bound(conn):
-                if not journal.transition(conn, run_id, journal.START, journal.RUNNING, at=now):
+    def open(self, run: Run) -> bool:
+        """Write the run as RUNNING, with its key, immediately before its call.
+        False when the dispatcher must not call: mode on could not record it, or
+        (another process having bound the key in between) it is now a replay —
+        ``run.answer`` says which."""
+        if run.state != journal.START:
+            return run.state == UNRECORDED and not run.owned
+        now = self._clock()
+
+        def work(tx: Tx) -> bool:
+            if run.binds_key and not keys.bind(tx, key=run.key, run_id=run.run_id, now=now):
+                if run.owned:
                     return False
-                conn.execute("UPDATE workflow_runs SET service = ?, params_digest = ? "
-                             "WHERE run_id = ?", (service, digest, run_id))
-                journal.append_step(conn, run_id, journal.STEP_CALL, journal.CALL_MARKED, at=now)
-                return True
-            ok, moved = self._write(begin_bound, owned=owned, what=f"run {run_id} RUNNING")
-            if ok and moved:
-                if binding.mark is not None:
-                    binding.mark.reach(now, service, digest)
-                return Run(run_id, owned, bound=binding)
-            if owned:
-                return Run(run_id, owned, refused=True)
-            if binding.mark is not None:
-                binding.mark.reach(now, service, digest)
-            return Run(run_id, owned, marked=False, began_at=now, service=service,
-                       params_digest=digest, bound=binding)
-
-        run_id = journal.new_run_id()
-
-        def begin(conn):
-            journal.insert_run(
-                conn, run_id=run_id, key=binding.key if binding else "", action=action,
-                service=service, actor_hash=journal.actor_hash(actor),
-                params_digest=journal.digest(params),
-                state=journal.RUNNING, started_at=now,
-                decision_ref=binding.decision_ref if binding else "")
-            journal.append_step(conn, run_id, journal.STEP_START, _start_word(owned), at=now)
-            journal.append_step(conn, run_id, journal.STEP_CALL, journal.CALL_MARKED, at=now)
-        ok, _ = self._write(begin, owned=owned, what=f"run for {action}")
-        if ok:
-            return Run(run_id, owned)
-        return Run(run_id, owned, refused=True) if owned else None
-
-    @staticmethod
-    def _mark_late(conn: sqlite3.Connection, run: Run) -> None:
-        """For an unmarked run, inside the transaction that records what its
-        call did: move it START → RUNNING and write its ``call`` step as
-        ``began_before_recorded``, at the instant the call began. A run already
-        moved (or gone) is left as it is; the caller's own transition decides."""
-        if run.marked:
-            return
-        if journal.transition(conn, run.run_id, journal.START, journal.RUNNING, at=run.began_at):
-            conn.execute("UPDATE workflow_runs SET service = ?, params_digest = ? "
-                         "WHERE run_id = ?", (run.service, run.params_digest, run.run_id))
-            journal.append_step(conn, run.run_id, journal.STEP_CALL, journal.CALL_LATE,
-                                at=run.began_at)
+                # Shadow: another process bound the key between the lookup and
+                # now. The run is recorded with the key, as a replay's is.
+                run.binds_key = False
+            journal.insert_run(tx, run_id=run.run_id, action=run.action, service=run.service,
+                               actor_hash=run.actor_hash, params_digest=run.params_digest,
+                               state=journal.RUNNING, started_at=run.started_at, key=run.key,
+                               decision_ref=run.decision_ref)
+            journal.step(tx, run.run_id, 1, journal.STEP_START, "opened", at=run.started_at)
+            journal.step(tx, run.run_id, 2, journal.STEP_CALL, "began", at=now)
+            return True
+        ok, opened = self._write(work, owned=run.owned, what=f"run for {run.action}")
+        if ok and opened:
+            run.seq, run.state = 2, journal.RUNNING
+            self._open.add(run.run_id)
+            return True
+        run.state = UNRECORDED
+        if not run.owned:
+            run.written = False       # shadow: the call goes ahead, as with the mode off
+            return True
+        if ok:                        # the key was bound by another request first
+            bound = keys.lookup(self._db, run.key)
+            run.answer = self._replay(run, *bound) if bound else self._not_run(run.action)
+        else:
+            run.answer = self._not_run(run.action)
+        return False
 
     async def call(self, run: Run, make_call: Callable[[], Awaitable[Any]]) -> Any:
-        """Await the effect call, recording a raise (FAIL) or a call that never
-        answered (it stays RUNNING, marked unknown). The call's result and its
-        exceptions reach the caller untouched."""
+        """Await the effect call. A raise is recorded (FAIL, step ``raise``) and
+        re-raised; a cancellation leaves no answer (FAIL, ``unknown_effect``)."""
         try:
-            return await make_call()
-        except asyncio.CancelledError:
-            self._no_answer(run, "cancelled")
-            raise
+            result = await make_call()
         except Exception as exc:
-            self._raised(run, exc)
+            self._fail(run, journal.STEP_RAISE, "raised", "raised:" + type(exc).__name__)
             raise
         except BaseException:
-            self._no_answer(run, "interrupted")
+            self._fail(run, journal.STEP_UNKNOWN, "cancelled", "call_interrupted")
             raise
+        run.answered = True
+        return result
 
-    def finish_dispatch(self, run: Run, *, answer: str, refused: bool, result: Any,
-                        attestation: Callable[[], dict] | None,
-                        feed: Callable[[], dict] | None,
-                        envelope: Callable[[], str] | None = None) -> bool:
-        """Record the answer and the run's terminal state, and — in the same
-        transaction — the attestation and feed entry the dispatcher would
-        deliver, built by the dispatcher's own builders (*attestation*, *feed*;
-        None for none). True only when this engine now owns their delivery
-        (mode on, written): the dispatcher then does not deliver them itself.
-        False in shadow, and when mode on could not write them — the database,
-        or a builder that raised — so the legacy path delivers them exactly
-        once either way, exactly as it does with the mode off.
+    async def broken(self, run: Run, exc: BaseException, *, answer: str = "") -> None:
+        """The dispatch raised: before the call (ABORT), in it (already FAIL),
+        or after the call answered and before the run ended (FAIL). *answer* is
+        the error the dispatcher answers with: for a keyed run that ended FAIL
+        it is the first answer, and a replay gets it. What the outbox had been
+        handed for the run is delivered the legacy way, as the dispatcher had
+        already delivered it with the mode off."""
+        if run.state == journal.START:
+            self.abort(run, "raised_before_call")
+            return
+        if run.state == journal.RUNNING:
+            self._fail(run, journal.STEP_RAISE,
+                       "raised_after_answer" if run.answered else "raised",
+                       "raised:" + type(exc).__name__)
+        if answer:
+            self.failed_with(run, answer)
+        if run.legacy:
+            await self.deliver_legacy(run)
 
-        For a keyed request's run, the same transaction also records on its key
-        the HTTP answer the bridge will send — built from *envelope*, the
-        dispatcher's own answer, by the bridge's own builder — so a response
-        lost after this commit is still answered to the replay, with its
-        status. The bridge replaces it with the answer it actually sent."""
+    def interrupted(self, run: Run) -> None:
+        """The dispatch was cut off (cancelled, interrupted) outside the call:
+        before it (ABORT) or after it answered (FAIL, ``unknown_effect``: the
+        answer was never given)."""
+        if run.state == journal.START:
+            self.abort(run, "interrupted_before_call")
+        elif run.state == journal.RUNNING:
+            self._fail(run, journal.STEP_UNKNOWN, "interrupted",
+                       "interrupted_after_answer" if run.answered else "call_interrupted")
+
+    def _fail(self, run: Run, name: str, state: str, detail: str) -> None:
+        if run.state != journal.RUNNING:
+            return
         now = self._clock()
-        recorded_answer = None
-        binding = run.bound
-        if (binding is not None and binding.answer_of is not None and envelope is not None
-                and binding.run_id == run.run_id):
-            try:
-                status, body = binding.answer_of(envelope())
-                recorded_answer = (int(status), _recordable(body))
-            except Exception:
-                logger.warning("Durable %s: run %s's answer could not be built at its end; the "
-                               "request records it when it answers", self.mode, run.run_id,
-                               exc_info=True)
+        seq = run.next_seq()
 
-        def finish(conn):
-            self._mark_late(conn, run)
-            journal.append_step(conn, run.run_id, journal.STEP_RETURN, answer, at=now,
-                                payload_digest=journal.digest(result), tx_hash=_tx_of(result))
-            to = journal.FAIL if refused else journal.COMPLETE
-            if not journal.transition(conn, run.run_id, journal.RUNNING, to, at=now):
-                raise sqlite3.IntegrityError(f"run {run.run_id} was not RUNNING")
-            if attestation is not None:
-                outbox.enqueue(conn, run_id=run.run_id, kind="attest", payload=attestation(),
-                               deliver=run.owned, now=now)
-            if feed is not None:
-                outbox.enqueue(conn, run_id=run.run_id, kind="feed", payload=feed(),
-                               deliver=run.owned, now=now)
-            if recorded_answer is not None:
-                keys.record_response(conn, key=binding.key, run_id=run.run_id,
-                                     status=recorded_answer[0], body=recorded_answer[1])
-        ok, _ = self._write(finish, owned=run.owned, what=f"run {run.run_id} terminal")
-        if not ok:
-            if run.owned:
-                logger.warning("Durable on: run %s's delivery stays with the legacy path", run.run_id)
+        def work(tx: Tx) -> None:
+            if not journal.move(tx, run.run_id, journal.RUNNING, journal.FAIL, at=now):
+                raise _Closed(run.run_id)
+            journal.step(tx, run.run_id, seq, name, state, at=now, detail=detail)
+        run.state = journal.FAIL
+        if run.written:
+            self._end(run, work, what=f"run {run.run_id} FAIL")
+        else:
+            self._open.discard(run.run_id)
+
+    def failed_with(self, run: Run, envelope: str) -> None:
+        """A keyed run that ended FAIL answered *envelope*: that is its first
+        answer, and a replay gets it (mode on)."""
+        if not (run.binds_key and run.owned and run.written and run.state == journal.FAIL):
+            return
+        digest = journal.text_digest(envelope)
+
+        def work(tx: Tx) -> None:
+            keys.answered(tx, key=run.key, run_id=run.run_id, response_digest=digest)
+        ok, _ = self._write(work, owned=True, what=f"answer for run {run.run_id}")
+        if ok:
+            self.answers.put(run.key, envelope)
+
+    def takes_delivery(self, run: Run | None) -> bool:
+        """Does the outbox deliver this run's attestation and feed entry (mode
+        on, the run written)? Otherwise the legacy path delivers them."""
+        return run is not None and run.owned and run.written and run.state == journal.RUNNING
+
+    def hold(self, run: Run, kind: str, build: Callable[[], Any],
+             deliver: Callable[[Any], Awaitable[outbox.Delivery]], *,
+             legacy: Callable[[], Any]) -> None:
+        """Keep a deep copy of the payload *build* makes, for the outbox, and
+        the closure that delivers it, and *legacy* — the dispatcher's own
+        delivery — for when the outbox does not take it: the payload could not
+        be built or copied (the legacy path then fails or succeeds exactly as it
+        does with the mode off), or the end of the run could not be written."""
+        run.legacy[kind] = legacy
+        try:
+            run.deliveries[kind] = (copy.deepcopy(build()), deliver)
+        except Exception as exc:  # noqa: BLE001 — the legacy path delivers it, as with the mode off
+            logger.warning("Durable on: run %s's %s is delivered the legacy way: %s",
+                           run.run_id, kind, exc)
+
+    def record(self, run: Run, kind: str, build: Callable[[], Any]) -> None:
+        """Shadow: note the payload the legacy path is delivering, digested when
+        the run ends. A payload that cannot be built is not recorded."""
+        try:
+            run.recorded[kind] = journal.digest(build())
+        except Exception:  # noqa: BLE001 — a record never breaks the dispatch
+            pass
+
+    async def deliver_legacy(self, run: Run) -> None:
+        """Deliver the legacy way — once — whatever ``hold`` took that the
+        outbox did not."""
+        legacies, run.legacy = dict(run.legacy), {}
+        run.deliveries.clear()
+        for kind in ("attest", "feed"):
+            deliver = legacies.get(kind)
+            if deliver is None:
+                continue
+            outcome = deliver()
+            if asyncio.iscoroutine(outcome):
+                await outcome
+
+    async def deliver_attestation(self, record: dict) -> outbox.Delivery:
+        """Deliver one attestation (``_attestation_of``'s record) through the
+        batch processor's submission path — the call a flush makes for each
+        attestation — and read the answer the way the batch processor does:
+        landed, or sent and not confirmed (never sent again), is delivered;
+        anything else the processor would re-queue is retried."""
+        from runtime.protocols.outcome_truth import SUCCESS, report_of
+
+        processor = self.attestations
+        if processor is None:
+            return outbox.Delivery(outbox.GIVEN_UP, "no_attestation_client")
+        entry = {"id": journal.new_run_id(), "queued_at": self._clock(), **record}
+        results = await processor._submit_batch([entry])
+        result = results[0] if results else None
+        if isinstance(result, dict) and report_of(result) is SUCCESS:
+            return outbox.Delivery(outbox.DELIVERED, "landed")
+        if (isinstance(result, dict) and result.get("broadcast") is True
+                and result.get("settled") is not True):
+            return outbox.Delivery(outbox.DELIVERED, "sent_unconfirmed")
+        status = str(result.get("status") or "") if isinstance(result, dict) else ""
+        return outbox.Delivery(outbox.RETRY, status if status in (
+            "skipped", "failed", "unknown", "error", "pending") else "not_landed")
+
+    def feed_deliverer(self, feed_engine: Any) -> Callable[[dict], Awaitable[outbox.Delivery]]:
+        """Deliver one feed entry through *feed_engine*'s ``ingest``, the call
+        the dispatcher's task made. Once: the feed engine answers a failure it
+        swallowed with an event that has no summary, and cannot say whether the
+        row was stored before it failed, so that answer is given up, not retried."""
+        async def deliver(entry: dict) -> outbox.Delivery:
+            event = await feed_engine.ingest(**entry)
+            if getattr(event, "summary", None) == "":
+                return outbox.Delivery(outbox.GIVEN_UP, "feed_reported_failure")
+            return outbox.Delivery(outbox.DELIVERED, "ingested")
+        return deliver
+
+    def finish(self, run: Run, *, word: str, result: Any, envelope: str) -> bool:
+        """End the run COMPLETE with the answer's word, and — in the same
+        transaction — its outbox rows and its key's answer digest. True when the
+        outbox now delivers what ``hold`` took (those kinds leave ``run.legacy``);
+        otherwise whatever ``hold`` took is the caller's to deliver the legacy
+        way (``end`` does), exactly once either way. An end that cannot be
+        written is kept and written again by the loop, without the outbox rows
+        (their deliveries went the legacy way)."""
+        if run.state != journal.RUNNING:
             return False
-        if run.owned and (attestation is not None or feed is not None):
+        now = self._clock()
+        run.state = journal.COMPLETE
+        if not run.written:
+            self._open.discard(run.run_id)
+            return False
+        try:
+            seq = run.next_seq()
+            result_digest = journal.digest(result)
+            owned_rows = {kind: journal.digest(held) for kind, (held, _d) in run.deliveries.items()}
+            answer_digest = journal.text_digest(envelope)
+        except Exception as exc:  # noqa: BLE001 — a record never breaks the dispatch
+            logger.warning("Durable %s: run %s's end not written: %s", self.mode, run.run_id, exc)
+            self._open.discard(run.run_id)
+            return False
+        rows: dict[str, int] = {}
+
+        def work(tx: Tx, *, with_rows: bool = True) -> None:
+            if not journal.move(tx, run.run_id, journal.RUNNING, journal.COMPLETE, at=now):
+                raise _Closed(run.run_id)
+            journal.step(tx, run.run_id, seq, journal.STEP_RETURN, word, at=now,
+                         detail="sha256:" + result_digest)
+            if with_rows:
+                for kind, digest in owned_rows.items():
+                    rows[kind] = outbox.insert(tx, run_id=run.run_id, kind=kind,
+                                               payload_digest=digest, now=now, deliver=True)
+            for kind, digest in run.recorded.items():
+                outbox.insert(tx, run_id=run.run_id, kind=kind, payload_digest=digest,
+                              now=now, deliver=False)
+            if run.binds_key:
+                keys.answered(tx, key=run.key, run_id=run.run_id, response_digest=answer_digest)
+        def remember() -> None:
+            if run.binds_key and run.owned:
+                self.answers.put(run.key, envelope)
+        if not self._end(run, work, what=f"run {run.run_id} COMPLETE",
+                         later=lambda tx: work(tx, with_rows=False), then=remember):
+            return False
+        remember()
+        for kind, (held, deliver) in run.deliveries.items():
+            self.loop.hold(rows[kind], outbox.Held(
+                run_id=run.run_id, kind=kind, payload_digest=owned_rows[kind],
+                deliver=_bound(deliver, held)))
+            run.legacy.pop(kind, None)
+        if rows:
             self.loop.wake()
-        return run.owned
+        return bool(rows)
 
-    def _raised(self, run: Run, exc: BaseException) -> None:
-        now = self._clock()
+    async def end(self, run: Run, *, word: str, result: Any, envelope: str) -> None:
+        """``finish``, then the legacy delivery of whatever the outbox did not take."""
+        self.finish(run, word=word, result=result, envelope=envelope)
+        if run.legacy:
+            await self.deliver_legacy(run)
 
-        def raised(conn):
-            self._mark_late(conn, run)
-            journal.append_step(conn, run.run_id, journal.STEP_RAISE, "raised", at=now,
-                                payload_digest=journal.digest(type(exc).__name__))
-            journal.transition(conn, run.run_id, journal.RUNNING, journal.FAIL, at=now)
-        self._write(raised, owned=run.owned, what=f"run {run.run_id} FAIL")
+    def _end(self, run: Run, work: Callable[[Tx], None], *, what: str,
+             later: Callable[[Tx], None] | None = None,
+             then: Callable[[], None] | None = None) -> bool:
+        """Write a run's end. When it cannot be written now, the end is kept
+        (*later*, or *work*) and written again every tick, and the run stays
+        held, so recovery never closes a run whose end this process knows."""
+        try:
+            journal.transaction(self._db, work, wait=run.owned)
+        except _Closed:
+            logger.warning("Durable %s: %s found the run already closed", self.mode, what)
+            self._open.discard(run.run_id)
+            return False
+        except Exception as exc:  # noqa: BLE001 — a record never breaks the dispatch
+            logger.warning("Durable %s: %s not written yet: %s", self.mode, what, exc)
+            if len(self._pending) < MAX_PENDING_ENDS:
+                self._pending[run.run_id] = (later or work, then)
+            else:
+                self._open.discard(run.run_id)
+            return False
+        self._open.discard(run.run_id)
+        return True
 
-    def _no_answer(self, run: Run, why: str) -> None:
-        now = self._clock()
-
-        def unknown(conn):
-            self._mark_late(conn, run)
-            journal.append_step(conn, run.run_id, journal.STEP_UNKNOWN, why, at=now)
-        self._write(unknown, owned=run.owned, what=f"run {run.run_id} unknown effect")
+    def _write_pending(self) -> None:
+        for run_id, (work, then) in list(self._pending.items()):
+            try:
+                journal.transaction(self._db, work, wait=(self.mode == "on"))
+            except _Closed:
+                then = None
+            except Exception:  # noqa: BLE001 — the next tick tries again
+                continue
+            self._pending.pop(run_id, None)
+            self._open.discard(run_id)
+            if then is not None:
+                then()
 
     # ── the twin tools ───────────────────────────────────────────────────
 
-    def begin_tool(self, tool_name: str, arguments: Any, caller_identity: str) -> Run | None:
-        """Record a twin tool's platform-key signing call as RUNNING before the
-        tool runs. None for anything else (a read, another tool).
-
-        The run's action is ``<tool>.<verb>`` for a verb the tool declares
-        (runtime/security/action_map.py SIGNING_ACTIONS) and
-        ``<tool>.undeclared`` for any other: the verb is the model's own
-        ``arguments["action"]`` string, unbounded, and an undeclared one is
-        treated as signing, so it is kept only inside the parameters' digest,
-        never written out."""
+    async def run_tool(self, tool_name: str, arguments: Any, caller_identity: str,
+                       make_call: Callable[[], Awaitable[Any]]) -> Any:
+        """Journal a twin tool's platform-key signing call around *make_call*;
+        any other call is made as it is. In mode on a signing call whose run
+        cannot be written is not made (NotRecorded). The call's result and its
+        exceptions reach the caller untouched."""
         from runtime.security.action_map import SIGNING_ACTIONS, TWIN_TOOLS, canonical_action
 
         if tool_name not in TWIN_TOOLS:
-            return None
-        _label, signs = canonical_action(tool_name, arguments)
-        if not signs:
-            return None
+            return await make_call()
         args = arguments if isinstance(arguments, dict) else {}
+        _label, signs = canonical_action(tool_name, args)
+        if not signs:
+            return await make_call()
         verb = str(args.get("action") or "").strip().lower()
-        label = f"{tool_name}.{verb if verb in SIGNING_ACTIONS[tool_name] else 'undeclared'}"
-        owned = self.owns(TWINS)
-        run_id = journal.new_run_id()
-        now = self._clock()
-
-        def begin(conn):
-            journal.insert_run(
-                conn, run_id=run_id, action=label, service=tool_name,
-                actor_hash=journal.actor_hash(caller_identity),
-                params_digest=journal.digest(args), state=journal.RUNNING, started_at=now)
-            journal.append_step(conn, run_id, journal.STEP_START, _start_word(owned), at=now)
-            journal.append_step(conn, run_id, journal.STEP_CALL, journal.CALL_MARKED, at=now)
-        ok, _ = self._write(begin, owned=owned, what=f"run for {label}")
-        if ok:
-            return Run(run_id, owned)
-        return Run(run_id, owned, refused=True) if owned else None
-
-    async def call_tool(self, run: Run, make_call: Callable[[], Awaitable[Any]]) -> Any:
-        """Await the tool; record its answer as the tool dispatcher reads it
-        (``report_of``: success / failure / unknown), a raise (FAIL), or a
-        timeout or cancellation (no answer: the run stays RUNNING)."""
-        from runtime.protocols.outcome_truth import FAILURE, report_of
-
+        # The verb is the model's own string: written only when the tool declares it.
+        action = f"{tool_name}.{verb if verb in SIGNING_ACTIONS[tool_name] else 'undeclared'}"
+        run = Run(run_id=journal.new_run_id(), action=action, service=tool_name,
+                  actor_hash=journal.actor_hash(caller_identity),
+                  params_digest=journal.digest({k: v for k, v in args.items()
+                                                if k not in ("caller_identity", "caller_source")}),
+                  started_at=self._clock(), owned=self.owns(TWINS))
+        if not self.open(run):
+            raise NotRecorded(
+                "the platform could not record this signing call before making it, so it was "
+                "not made; nothing was executed and it is safe to try again")
         try:
             result = await make_call()
-        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
-            self._no_answer(run, "timed_out" if isinstance(exc, asyncio.TimeoutError)
-                            else "cancelled")
+        except asyncio.TimeoutError:
+            self._fail(run, journal.STEP_UNKNOWN, "timed_out", "call_timed_out")
             raise
         except Exception as exc:
-            self._raised(run, exc)
+            self._fail(run, journal.STEP_RAISE, "raised", "raised:" + type(exc).__name__)
             raise
         except BaseException:
-            self._no_answer(run, "interrupted")
+            self._fail(run, journal.STEP_UNKNOWN, "cancelled", "call_interrupted")
             raise
+        run.answered = True
         try:
-            word = report_of(result)
-        except Exception:
+            from runtime.protocols.outcome_truth import report_of
+            word = str(report_of(result))
+        except Exception:  # noqa: BLE001 — classification never fails a call
             word = "unknown"
-        now = self._clock()
-
-        def finish(conn):
-            journal.append_step(conn, run.run_id, journal.STEP_RETURN, str(word), at=now,
-                                payload_digest=journal.digest(result), tx_hash=_tx_of(result))
-            journal.transition(conn, run.run_id, journal.RUNNING,
-                               journal.FAIL if word == FAILURE else journal.COMPLETE, at=now)
-        self._write(finish, owned=run.owned, what=f"run {run.run_id} terminal")
+        self.finish(run, word=word, result=result, envelope="")
         return result
-
-    # ── the bridge's Idempotency-Key ─────────────────────────────────────
-
-    def bridge_claim(self, *, client_key: Any, action: str, params: Any, service: str,
-                     actor: str, actor_scope: str, decision_ref: str = "") -> BridgeClaim:
-        """Claim *client_key* for this request, or say what it is bound to."""
-        owned = self.owns(STATE_MODIFYING)
-        if client_key is None:
-            return BridgeClaim("none", action=action, decision_ref=decision_ref)
-        if not keys.valid_client_key(client_key):
-            return BridgeClaim("invalid", honoured=owned, action=action, decision_ref=decision_ref)
-        key = keys.scoped_key(BRIDGE_ACTION_SURFACE, actor_scope, client_key)
-        run_id = journal.new_run_id()
-        now = self._clock()
-
-        def claim(conn):
-            request = keys.request_digest({"action": action, "params": params})
-            bound = keys.claim(conn, key=key, request_digest=request, run_id=run_id, now=now)
-            if bound.outcome == keys.MISS:
-                journal.insert_run(
-                    conn, run_id=run_id, key=key, action=action, service=service,
-                    actor_hash=journal.actor_hash(actor), params_digest=journal.digest(params),
-                    state=journal.START, started_at=now, decision_ref=decision_ref)
-                journal.append_step(conn, run_id, journal.STEP_START, _start_word(owned), at=now)
-                return bound, journal.START
-            run = journal.get_run(conn, bound.run_id)
-            return bound, (run["state"] if run else None)
-        ok, res = self._write(claim, owned=owned, what="idempotency key")
-        if not ok:
-            return BridgeClaim("unrecorded", honoured=owned, key=key, action=action,
-                               decision_ref=decision_ref)
-        bound, state = res
-        return BridgeClaim(
-            bound.outcome, honoured=owned and bound.outcome != keys.MISS, key=key,
-            run_id=bound.run_id, run_state=state, status=bound.status,
-            response=bound.response, action=action, decision_ref=decision_ref)
-
-    @contextlib.contextmanager
-    def bound(self, claim: BridgeClaim, *,
-              answer_of: Callable[[str], tuple[int, Any]] | None = None):
-        """While the bridge runs a request, tell the dispatcher which run and
-        key it belongs to, where to mark that its call was reached, and — with
-        *answer_of*, the bridge's own builder of its HTTP answer from the
-        dispatcher's answer — how the run's end can record that answer."""
-        if claim.outcome in ("none", "invalid") or not claim.key:
-            yield
-            return
-        token = _binding.set(Binding(
-            key=claim.key, run_id=claim.run_id if claim.outcome == keys.MISS else None,
-            action=claim.action, decision_ref=claim.decision_ref, mark=claim.mark,
-            answer_of=answer_of))
-        try:
-            yield
-        finally:
-            _binding.reset(token)
-
-    def bridge_finish(self, claim: BridgeClaim, *, status: int, body: bytes | str | None) -> None:
-        """After the request answered, record its answer on its key (secret-named
-        fields withheld), for 24 hours — replacing the one its run's end may
-        have recorded — with one exception: a run still in START whose effect
-        call this request provably never reached ends ABORT and gives its key
-        back.
-
-        "Provably" is the request's CallMark, set by the dispatcher before the
-        call whether or not the RUNNING mark could be written, read while this
-        engine is still the installed one (a dispatcher that found no engine
-        could have called without marking anything). A run still in START that
-        was reached — its RUNNING mark and its answer both dropped by an engine
-        that does not own it — is marked RUNNING late and given an
-        ``unknown_effect``/``no_answer_recorded`` step: its call began, and the
-        journal does not hold what it answered."""
-        if claim.outcome != keys.MISS or not claim.run_id:
-            return
-        owned = self.owns(STATE_MODIFYING)
-        run_id, key = claim.run_id, claim.key
-        now = self._clock()
-        mark = claim.mark
-        not_reached = not mark.reached and current() is self
-
-        def finish(conn):
-            run = journal.get_run(conn, run_id)
-            if run is None:
-                return None
-            if run["state"] == journal.START:
-                if not_reached:
-                    journal.transition(conn, run_id, journal.START, journal.ABORT, at=now)
-                    journal.append_step(conn, run_id, journal.STEP_ABORT, "not_attempted", at=now)
-                    keys.release(conn, key=key, run_id=run_id)
-                    return "released"
-                if mark.reached and journal.transition(conn, run_id, journal.START,
-                                                       journal.RUNNING, at=mark.at):
-                    conn.execute("UPDATE workflow_runs SET service = ?, params_digest = ? "
-                                 "WHERE run_id = ?", (mark.service, mark.params_digest, run_id))
-                    journal.append_step(conn, run_id, journal.STEP_CALL, journal.CALL_LATE,
-                                        at=mark.at)
-                    journal.append_step(conn, run_id, journal.STEP_UNKNOWN,
-                                        journal.NO_ANSWER_RECORDED, at=now)
-                elif not mark.reached:
-                    journal.append_step(conn, run_id, journal.STEP_UNKNOWN,
-                                        journal.NOT_KNOWN_IF_CALLED, at=now)
-            keys.record_response(conn, key=key, run_id=run_id, status=status,
-                                 body=_recordable(body), replace=True)
-            return "recorded"
-        self._write(finish, owned=owned, what=f"answer for run {run_id}")
 
     # ── maintenance and the loop ─────────────────────────────────────────
 
-    def maintain(self) -> dict | None:
-        """Close what a dead process left behind and drop answers past their
-        24 hours. Runs on every loop tick, in shadow and on."""
+    def maintain(self) -> dict[str, list[str]]:
+        """Close what a process that is gone left open (journal.recover), and
+        give back the key of a run that ended before its call. Runs every tick,
+        in shadow and on; a tick with nothing to close takes no write lock."""
+        if self._pending:
+            self._write_pending()
         now = self._clock()
-        if not self._maintenance_due(now):
-            return {"runs": {"aborted": [], "undetermined": [], "unknown": []},
-                    "outbox": {"held": [], "requeued": []}, "answers_dropped": 0}
-
-        def work(conn):
-            runs = journal.recover_runs(conn, now=now)
-            for run_id in runs["aborted"]:
-                keys.release_for_run(conn, run_id)
-            rows = outbox.recover_attempts(conn, now=now)
-            dropped = keys.drop_expired_answers(conn, now=now)
-            return {"runs": runs, "outbox": rows, "answers_dropped": dropped}
-        ok, res = self._write(work, owned=(self.mode == "on"), what="maintenance")
-        if not ok:
-            return None
-        runs = res["runs"]
-        if runs["aborted"] or runs["undetermined"] or runs["unknown"]:
-            logger.warning("Durable: %d abandoned run(s) ended ABORT before their call began; "
-                           "%d run(s) left in START by an engine that did not own them, whose "
-                           "call may have begun, stay START; %d run(s) with no recorded answer "
-                           "stay RUNNING; none is run again: %s",
-                           len(runs["aborted"]), len(runs["undetermined"]), len(runs["unknown"]),
-                           ", ".join(runs["undetermined"] + runs["unknown"]) or "-")
-        if res["outbox"]["held"]:
-            logger.error("Durable: %d attestation(s) interrupted mid-delivery are HELD, not sent "
-                         "again: outbox rows %s", len(res["outbox"]["held"]),
-                         ", ".join(str(i) for i in res["outbox"]["held"]))
-        return res
-
-    def _maintenance_due(self, now: float) -> bool:
-        """Read-only: is there anything for maintain() to write? A tick with
-        nothing to do takes no write lock."""
-        cutoff = now - journal.ABANDONED_AFTER_S
-        probes = (
-            ("SELECT 1 FROM workflow_runs r WHERE r.state IN ('START', 'RUNNING') "
-             "AND r.state = ? AND r.started_at < ? "
-             "AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.run_id "
-             "AND s.kind = ?) LIMIT 1", (journal.START, cutoff, journal.STEP_UNKNOWN)),
-            ("SELECT 1 FROM workflow_runs r WHERE r.state IN ('START', 'RUNNING') "
-             "AND r.state = ? AND r.started_at < ? "
-             "AND NOT EXISTS (SELECT 1 FROM workflow_steps s WHERE s.run_id = r.run_id "
-             "AND s.kind = ?) LIMIT 1", (journal.RUNNING, cutoff, journal.STEP_UNKNOWN)),
-            ("SELECT 1 FROM outbox WHERE state IN ('pending', 'attempting') "
-             "AND state = ? AND next_at < ? LIMIT 1", (outbox.ATTEMPTING, now)),
-            ("SELECT 1 FROM idempotency_keys WHERE response IS NOT NULL AND expires_at < ? "
-             "LIMIT 1", (now,)),
-        )
         try:
-            return any(self._db.fetchall_sync(sql, args) for sql, args in probes)
-        except (sqlite3.Error, RuntimeError):
-            return False
+            found = journal.abandoned(self._db, now=now, held=frozenset(self._open),
+                                      older_than_s=self._abandoned_after_s)
+        except Exception:  # noqa: BLE001
+            return {"aborted": [], "failed": []}
+        if not found:
+            return {"aborted": [], "failed": []}
+
+        def work(tx: Tx) -> dict[str, list[str]]:
+            closed = journal.recover(tx, found, now=now)
+            for run_id, _state, key in found:
+                if key and run_id in closed["aborted"]:
+                    keys.release(tx, key=key, run_id=run_id)
+            return closed
+        ok, closed = self._write(work, owned=(self.mode == "on"), what="recovery")
+        if not ok:
+            return {"aborted": [], "failed": []}
+        for k in ("aborted", "failed"):
+            self.recovered[k].extend(closed[k])
+        if closed["aborted"] or closed["failed"]:
+            logger.warning("Durable: closed %d run(s) a stopped process left open: %d ABORT "
+                           "(their call never began), %d FAIL with an unknown effect (none is "
+                           "run again): %s", len(closed["aborted"]) + len(closed["failed"]),
+                           len(closed["aborted"]), len(closed["failed"]),
+                           ", ".join(closed["aborted"] + closed["failed"]))
+        return closed
 
     def start(self) -> None:
         self.loop.start()
@@ -669,31 +722,62 @@ class DurableEngine:
     async def stop(self) -> None:
         await self.loop.stop()
 
+    def healthy(self) -> bool:
+        return self.loop.healthy()
+
     def health(self) -> dict:
-        """For /ready and the operator's log: whether the loop runs, and the
-        outbox by state."""
+        """For the operator's log (never a response body)."""
         try:
-            by_state = outbox.counts(self._db)
-        except (sqlite3.Error, RuntimeError):
-            by_state = {}
-        return {"mode": self.mode, "canary": self.canary, "loop_alive": self.loop.alive,
-                "outbox": by_state}
+            rows = outbox.counts(self._db)
+        except Exception:  # noqa: BLE001
+            rows = {}
+        return {"mode": self.mode, "canary": list(self.canary), "loop_alive": self.loop.alive,
+                "last_tick_at": self.loop.last_tick_at, "open_runs": len(self._open),
+                "ends_not_written": len(self._pending),
+                "held_payloads": self.loop.held_count(), "outbox": rows}
 
 
-def build_engine(config: Any, db: Any, *, feed_engine: Any = None,
-                 clock: Callable[[], float] = time.time) -> DurableEngine | None:
-    """The engine this config asks for, or None for mode off. Its deliverers are
-    the batch processor's submission path (attestations) and the social feed
-    engine (feed entries), when there is one."""
+def _bound(fn: Callable[[Any], Awaitable[Any]], arg: Any) -> Callable[[], Awaitable[Any]]:
+    """Each attempt is handed its own deep copy of the held payload: nothing
+    one attempt (or the client it calls) does to what it was handed reaches the
+    next attempt, and the held payload stays the one whose digest was written."""
+    async def call() -> Any:
+        return await fn(copy.deepcopy(arg))
+    return call
+
+
+class _Closed(RuntimeError):
+    """A run's end found the run no longer RUNNING (another process closed it)."""
+
+
+def build_engine(config: Any, db: Any, *, clock: Callable[[], float] = time.time
+                 ) -> DurableEngine | None:
+    """The engine this config asks for, or None for mode off. In mode on,
+    attestations are delivered through a batch processor of the engine's own
+    (the submission path a flush uses)."""
     mode = durable_mode(config)
     if mode == "off":
         return None
-    from runtime.blockchain.services.attestation.batch_processor import BatchProcessor
+    attestations = None
+    if mode == "on":
+        from runtime.blockchain.services.attestation.batch_processor import BatchProcessor
+        attestations = BatchProcessor(config if isinstance(config, dict) else {})
+    return DurableEngine(db, mode=mode, clock=clock, attestations=attestations,
+                         abandoned_after_s=abandoned_window(config))
 
-    deliverers: dict[str, outbox.Deliverer] = {
-        "attest": outbox.attestation_deliverer(BatchProcessor(config if isinstance(config, dict) else {})),
-    }
-    if feed_engine is not None:
-        deliverers["feed"] = outbox.feed_deliverer(feed_engine, db)
-    return DurableEngine(db, mode=mode, canary=durable_canary(config), clock=clock,
-                         deliverers=deliverers)
+
+def abandoned_window(config: Any) -> float:
+    """How long an open run another process holds may stay open before recovery
+    closes it: the longest the gateway lets a request run (its
+    ``gateway.request_timeout_seconds``, 120 s by default), doubled, plus a
+    minute — never under ``journal.ABANDONED_AFTER_S``. With the request timeout
+    turned off (0) no request is bounded, and the window is an hour."""
+    gateway = config.get("gateway") if isinstance(config, dict) else None
+    raw = gateway.get("request_timeout_seconds", 120) if isinstance(gateway, dict) else 120
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        timeout = 120.0
+    if timeout <= 0:
+        return 3600.0
+    return max(journal.ABANDONED_AFTER_S, 2 * timeout + 60.0)

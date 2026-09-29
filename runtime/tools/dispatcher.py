@@ -422,32 +422,21 @@ class ToolDispatcher:
         from runtime.blockchain.sponsorship import (
             SponsorshipDenied, set_caller_identity, reset_caller_identity,
         )
-
-        # ENGINES PHASE 2 — DURABLE EXECUTION, the canary's first stage. With
-        # engines.durable.mode off (the default) no engine is installed and the
-        # tool is called exactly as before. In shadow and on, a twin tool's
-        # platform-key signing call (runtime/security/action_map.py
-        # SIGNING_ACTIONS) is written to the run journal as RUNNING before the
-        # tool runs, and its answer, its raise, or its timeout after. In mode on
-        # a signing call whose run cannot be recorded is not made.
-        _durable = _durable_wiring.current()
-        _run = (_durable.begin_tool(tool_name, arguments, caller_identity)
-                if _durable is not None else None)
-        if _run is not None and _run.refused:
-            return ToolOutcome.failure(
-                f"Error: '{tool_name}' was not run: the platform could not record this "
-                "signing call before making it. Nothing was executed; it is safe to try again.",
-                code="durable_unavailable", ref=ref,
-            )
-
         _identity_token = set_caller_identity(caller_identity)
+        # Engines Phase 2 — durable execution. None with engines.durable.mode
+        # off (the default): the tool is called exactly as before. In shadow and
+        # on, a twin tool's platform-key signing call is journaled around the
+        # call; in mode on one whose run cannot be recorded is not made
+        # (runtime/durable/wiring.py DurableEngine.run_tool).
+        _durable = _durable_wiring.current()
 
         try:
-            if _run is None:
+            if _durable is None:
                 result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
             else:
-                result = await _durable.call_tool(
-                    _run, lambda: asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT))
+                result = await _durable.run_tool(
+                    tool_name, arguments, caller_identity,
+                    lambda: asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT))
             result_str = str(result)
             logger.info(f"Tool result: {tool_name} -> {result_str[:200]}{'...' if len(result_str) > 200 else ''}")
             # Read the tool's own verdict from the STRUCTURE it returned, while
