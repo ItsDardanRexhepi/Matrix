@@ -434,8 +434,9 @@ check behind it:
   default, and is not closed until that gate, G6, holds. The other two exit gates hold at `on`.
   G7, the plan's crash matrix at its ten Phase 2 cells (the bridge request
   at W2 and W4, the dispatch at W1, W2 and W4, the attestation at W1, W2 and
-  W3, the feed entry at W1 and W2), is 100 seeded crashes a cell and 20
-  killed processes, each followed by a fresh process on the same file: no
+  W3, the feed entry at W1 and W2), is 100 seeded crashes a cell, 20 of them
+  child interpreters killed at the instant, each recovered over the same file
+  by a fresh engine holding nothing in memory: no
   run is lost and no effect is made without its record, recovery continues
   nothing, no effect happens twice, and two recoveries of one file reach
   the same state (`tests/baseline/durable_g7_crash_matrix.json`, which also

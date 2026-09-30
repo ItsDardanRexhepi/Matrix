@@ -909,6 +909,6 @@
    "keyed": 1
   }
  },
- "rule": "G7: 100 seeded injections in each of the plan's ten Phase 2 cells (X1 at W2 and W4, X2 at W1, W2 and W4, X6 at W1, W2 and W3, X7 at W1 and W2), each a kill and a fresh process on the same SQLite file, and in every one L (no lost run, and no effect without its record), U (recovery continues nothing and a replay the gate refuses makes no effect), D (no effect twice) and R (two independent recoveries from the same file reach the same state, and a second pass changes nothing) hold.",
+ "rule": "G7: 100 seeded injections in each of the plan's ten Phase 2 cells (X1 at W2 and W4, X2 at W1, W2 and W4, X6 at W1, W2 and W3, X7 at W1 and W2), each a death at its instant (the file's committed state, or for two a cell a child interpreter killed there) and a recovery over the same SQLite file by a fresh engine holding nothing in memory, and in every one L (no lost run, and no effect without its record), U (recovery continues nothing and a replay the gate refuses makes no effect), D (no effect twice) and R (two independent recoveries from the same file reach the same state, and a second pass changes nothing) hold.",
  "scope": "100 injections in each of 10 cells (1000 in all), over the 184 state-modifying names ACTION_MAP serves; 2 more per cell in a real process (20 in all). In process: no network, no chain, no gateway HTTP layer (the gate is the request's blocked flag)."
 }

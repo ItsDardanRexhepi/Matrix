@@ -982,8 +982,10 @@ def test_a_process_killed_at_the_instant_recovers_with_l_u_d_r(cell):
 # ── the artefact ────────────────────────────────────────────────────────────
 
 RULE = ("G7: 100 seeded injections in each of the plan's ten Phase 2 cells (X1 at W2 and W4, X2 "
-        "at W1, W2 and W4, X6 at W1, W2 and W3, X7 at W1 and W2), each a kill and a fresh process "
-        "on the same SQLite file, and in every one L (no lost run, and no effect without its "
+        "at W1, W2 and W4, X6 at W1, W2 and W3, X7 at W1 and W2), each a death at its instant (the "
+        "file's committed state, or for two a cell a child interpreter killed there) and a recovery "
+        "over the same SQLite file by a fresh engine holding nothing in memory, and in every one L "
+        "(no lost run, and no effect without its "
         "record), U (recovery continues nothing and a replay the gate refuses makes no effect), "
         "D (no effect twice) and R (two independent recoveries from the same file reach the same "
         "state, and a second pass changes nothing) hold.")
