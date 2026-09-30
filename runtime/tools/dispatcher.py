@@ -19,6 +19,7 @@ from typing import Any, Callable, Awaitable
 # which is the exact defect this engagement keeps finding.
 from gateway.error_contract import classify as _classify_exception
 from runtime.auth.identity import canonical_identity
+from runtime.durable import wiring as _durable_wiring
 from runtime.security import CALLER_IDENTITY_KEY, agent_access_allowed
 
 logger = logging.getLogger(__name__)
@@ -488,9 +489,20 @@ class ToolDispatcher:
             SponsorshipDenied, set_caller_identity, reset_caller_identity,
         )
         _identity_token = set_caller_identity(caller_identity)
+        # Engines Phase 2 — durable execution. None with engines.durable.mode
+        # off (the default): the tool is called exactly as before. In shadow and
+        # on, a twin tool's platform-key signing call is journaled around the
+        # call; in mode on one whose run cannot be recorded is not made
+        # (runtime/durable/wiring.py DurableEngine.run_tool).
+        _durable = _durable_wiring.current()
 
         try:
-            result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
+            if _durable is None:
+                result = await asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT)
+            else:
+                result = await _durable.run_tool(
+                    tool_name, arguments, caller_identity,
+                    lambda: asyncio.wait_for(handler(**arguments), timeout=TOOL_TIMEOUT))
             result_str = str(result)
             logger.info(f"Tool result: {tool_name} -> {result_str[:200]}{'...' if len(result_str) > 200 else ''}")
             # Read the tool's own verdict from the STRUCTURE it returned, while

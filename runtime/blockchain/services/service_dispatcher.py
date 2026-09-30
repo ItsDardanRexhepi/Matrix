@@ -25,6 +25,9 @@ from typing import Any, Callable
 # importing it here at module level closes no cycle — verified by importing this
 # module first in a bare interpreter.
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+# Engines Phase 2 — durable execution. `current()` is None with
+# engines.durable.mode off (the default), and then nothing below changes.
+from runtime.durable import wiring as _durable_wiring
 
 logger = logging.getLogger(__name__)
 
@@ -1206,6 +1209,21 @@ ACTION_TO_FEED_EVENT: dict[str, str] = {
 # catalog.install_action_map() refuses to overwrite existing mappings — which
 # keeps DISPATCH safe, not the catalog: a refused row is still published.
 # ---------------------------------------------------------------------------
+def _run_service_label(action: str, override: Any) -> str:
+    """The service a durable run records: the one ACTION_MAP names, or — when
+    the caller overrode it with another — a digest of the override, because
+    platform_action's ``service`` is the model's own string."""
+    default = ACTION_MAP[action][0]
+    if not override or override == default:
+        return default
+    return "sha256:" + hashlib.sha256(str(override).encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def _publish_feed(feed_engine: Any, entry: dict[str, Any]) -> None:
+    """The legacy feed publish: fire and forget."""
+    asyncio.create_task(feed_engine.ingest(**entry))
+
+
 def _report_catalog_conflicts(skipped: dict[str, str]) -> None:
     """A catalog row that disagrees with ACTION_MAP is a published lie.
 
@@ -1574,6 +1592,27 @@ class ServiceDispatcher:
         if service:
             target_service = service
 
+        # ── ENGINES PHASE 2: DURABLE EXECUTION ────────────────────────────
+        # With engines.durable.mode off (the default) no engine is installed,
+        # `_run` stays None, and every line of this method runs as it did
+        # before the engine existed. In shadow and on, a state-modifying
+        # dispatch gets a run (runtime/durable): opened here, in memory; written
+        # as RUNNING immediately before the service is called, or as ABORT if
+        # the call never begins; ended COMPLETE or FAIL after. In mode on the run
+        # is the only lifecycle path — a dispatch whose run cannot be written is
+        # not run, its attestation and feed entry go to the outbox, and a
+        # replayed Idempotency-Key is answered from the first request's run
+        # (`_run.answer`) without calling anything. The gate has already
+        # answered before this method is called; nothing here asks it or
+        # changes what it said.
+        _durable = _durable_wiring.current()
+        _run = None
+        if _durable is not None and action in _STATE_MODIFYING_ACTIONS:
+            _run = _durable.begin(action, _run_service_label(action, service),
+                                  caller_identity, params)
+            if _run.answer is not None:
+                return _run.answer
+
         logger.info(
             "Dispatching action=%s -> %s.%s  params=%s  caller=%s",
             action, target_service, method_name, list(params.keys()),
@@ -1592,6 +1631,8 @@ class ServiceDispatcher:
                     "Service '%s' unavailable: %s — returning degraded response",
                     target_service, exc,
                 )
+                if _run is not None:
+                    _durable.abort(_run, "service_unavailable")
                 return json.dumps({
                     "status": "error",
                     OUTCOME_FIELD: FAILURE,
@@ -1610,6 +1651,8 @@ class ServiceDispatcher:
                 # "not_found", which a route relays as the caller's 404.
                 logger.error("ACTION_MAP drift: %s -> %s.%s does not exist",
                              action, target_service, method_name)
+                if _run is not None:
+                    _durable.abort(_run, "no_such_method")
                 return json.dumps({
                     "status": "error",
                     OUTCOME_FIELD: FAILURE,
@@ -1671,6 +1714,8 @@ class ServiceDispatcher:
                 inspect.signature(method).bind(**params)
             except TypeError as exc:
                 logger.error("Bad params for %s.%s: %s", target_service, method_name, exc)
+                if _run is not None:
+                    _durable.abort(_run, "invalid_parameters")
                 return json.dumps({
                     "status": "error",
                     OUTCOME_FIELD: FAILURE,
@@ -1681,7 +1726,12 @@ class ServiceDispatcher:
             except ValueError:
                 pass  # no introspectable signature; the call decides
 
-            result = await method(**params)
+            if _run is not None and not _durable.open(_run):
+                return _run.answer
+            if _run is None:
+                result = await method(**params)
+            else:
+                result = await _durable.call(_run, lambda: method(**params))
 
             # 17-D (evidence half). WHO the record says acted.
             #
@@ -1782,8 +1832,26 @@ class ServiceDispatcher:
                 _verdict = _record_verdict(result)
                 _happened = _verdict == RECORD_SETTLED
                 _shadow_the_verdict(action, target_service, _actor, params, result, _verdict)
+                # Mode on, the run written: the outbox delivers this run's
+                # attestation and feed entry (deep copies), not this method.
+                # With no run (the mode off) nothing here is built.
+                _owned = _run is not None and _durable.takes_delivery(_run)
+                _attestation = None if _run is None else functools.partial(
+                    self._attestation_of, action, target_service, params, actor=_actor,
+                    actor_source=_actor_source, actor_claimed=_claimed_actor)
 
-                if _happened:
+                if _happened and _owned:
+                    _durable.hold(
+                        _run, "attest", functools.partial(self._queued_attestation, _attestation),
+                        _durable.deliver_attestation,
+                        legacy=functools.partial(
+                            self._attest_action, action, target_service, params, result,
+                            actor=_actor, actor_source=_actor_source,
+                            actor_claimed=_claimed_actor),
+                    )
+                elif _happened:
+                    if _run is not None:
+                        _durable.record(_run, "attest", _attestation)
                     await self._attest_action(
                         action, target_service, params, result, actor=_actor,
                         actor_source=_actor_source, actor_claimed=_claimed_actor,
@@ -1846,16 +1914,24 @@ class ServiceDispatcher:
                     }
                     if _claimed_actor:
                         _detail["actor_claimed"] = _claimed_actor
-                    asyncio.create_task(
-                        self._feed_engine.ingest(
-                            action=action,
-                            actor=_actor,
-                            detail=_detail,
-                            component=_component_id,
-                            tx_hash=_tx,
-                            value_usd=_value,
-                        )
+                    _entry = dict(
+                        action=action,
+                        actor=_actor,
+                        detail=_detail,
+                        component=_component_id,
+                        tx_hash=_tx,
+                        value_usd=_value,
                     )
+                    if _owned:
+                        _durable.hold(
+                            _run, "feed", lambda: _entry,
+                            _durable.feed_deliverer(self._feed_engine),
+                            legacy=functools.partial(_publish_feed, self._feed_engine, _entry),
+                        )
+                    else:
+                        if _run is not None:
+                            _durable.record(_run, "feed", lambda: _entry)
+                        asyncio.create_task(self._feed_engine.ingest(**_entry))
 
             # THE ENVELOPE SAYS WHAT IT IS CARRYING.
             #
@@ -1878,7 +1954,7 @@ class ServiceDispatcher:
             # that separates them, it lives here, and it is passed rather than
             # re-derived.
             elapsed = round(time.time() - start, 3)
-            return json.dumps({
+            _answer = json.dumps({
                 "status": "ok",
                 OUTCOME_FIELD: report_of(
                     result,
@@ -1889,19 +1965,27 @@ class ServiceDispatcher:
                 "result": self._serialise(result),
                 "elapsed_ms": int(elapsed * 1000),
             })
+            if _run is not None:
+                # The run ends COMPLETE; what the outbox did not take (the end
+                # could not be written) is delivered the legacy way, once.
+                await _durable.end(_run, word=_verdict, result=result, envelope=_answer)
+            return _answer
 
         except NotImplementedError as exc:
             logger.warning("Action %s not implemented: %s", action, exc)
-            return json.dumps({
+            _answer = json.dumps({
                 "status": "error",
                 OUTCOME_FIELD: FAILURE,
                 "error_category": "not_implemented",
                 "degraded": True,
                 "error": f"Action '{action}' is not implemented in this build: {exc}",
             })
+            if _run is not None:
+                await _durable.broken(_run, exc, answer=_answer)
+            return _answer
         except Exception as exc:
             logger.exception("Action %s failed", action)
-            return json.dumps({
+            _answer = json.dumps({
                 "status": "error",
                 OUTCOME_FIELD: FAILURE,
                 "error_category": "service_error",
@@ -1909,6 +1993,15 @@ class ServiceDispatcher:
                 "service": target_service,
                 "error": f"Action '{action}' failed: {exc}",
             })
+            if _run is not None:
+                await _durable.broken(_run, exc, answer=_answer)
+            return _answer
+        except BaseException:
+            # Cancelled or interrupted (the request timed out, the gateway is
+            # stopping): the run ends before this propagates, so none is left open.
+            if _run is not None:
+                _durable.interrupted(_run)
+            raise
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -2024,6 +2117,77 @@ class ServiceDispatcher:
             _status, _tx or "<none>",
         )
 
+    def _attestation_of(
+        self,
+        action: str,
+        service_name: str,
+        params: dict,
+        *,
+        actor: str = "",
+        actor_source: str = "",
+        actor_claimed: str = "",
+    ) -> dict[str, Any]:
+        """The attestation of a state-modifying action: ``schema_uid``, ``data``
+        and ``recipient``, as ``_attest_action`` hands them to the attestation
+        service — and, in engines.durable mode on, as the outbox holds them.
+
+        NEW-42 (instance 1 of 2): the call passed `schema_name=`, but
+        AttestationService.attest takes `schema_uid`. EVERY call raised
+        TypeError and was swallowed by `_attest_action`'s `except` as a
+        WARNING, so NO state-modifying action on the platform had ever been
+        attested. Signature drift plus a silent swallow — the NEW-9 shape. ""
+        resolves to the primary platform schema via `_resolve_schema`, which is
+        what this call always meant.
+
+        17-D. THE ATTESTATION NAMES THE ACTOR. This payload recorded action,
+        service, a params hash and a timestamp — everything except WHO. An
+        attestation that a right was granted, with the grantor unrecoverable (a
+        hash is not a name), is the evidence half of the same defect the
+        authority half fixes upstream. Empty string is written when the entry
+        point bound no identity: the record says "unknown", which is a fact,
+        rather than omitting the field, which reads as "not applicable".
+
+        `recipient` is deliberately UNCHANGED. In EAS the recipient is the
+        SUBJECT of the attestation, not its author; repointing it at the caller
+        would silently redefine what all ~182 attested actions assert to third
+        parties, which is a product decision and a separate change. The actor
+        is carried in the payload, where the authorship claim belongs.
+        """
+        return {
+            "schema_uid": "",
+            "data": {
+                "action": action,
+                "service": service_name,
+                "actor": actor or "",
+                "actor_source": actor_source or "unauthenticated",
+                # ALWAYS PRESENT, unlike the feed's copy. This is the audit
+                # record: "" here is the positive fact that the request made no
+                # claim the resolved identity contradicts, where an omitted key
+                # would read as "this build did not look".
+                "actor_claimed": actor_claimed or "",
+                "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
+                "timestamp": int(time.time()),
+            },
+            "recipient": self._platform_wallet or "0x0",
+        }
+
+    def _queued_attestation(self, build: Any) -> dict[str, Any]:
+        """The record engines.durable mode on holds for its outbox: *build*'s
+        record with its schema resolved by the attestation service
+        ``_attest_action`` hands the record to — the same service instance, and
+        the same resolution, it applies before it queues one. A record that
+        service would refuse (a schema that is not configured is refused, not
+        attested against a placeholder) raises here, so the outbox never holds
+        it and the legacy path refuses and logs it exactly as with the mode
+        off: the outbox sends only what the legacy path would have queued."""
+        record = build()
+        service = self._get_registry().get("attestation")
+        resolved = service._resolve_schema(record["schema_uid"])
+        if not isinstance(resolved, str):
+            raise TypeError("the attestation service resolved the schema to "
+                            f"{type(resolved).__name__}, not a UID")
+        return {**record, "schema_uid": resolved}
+
     async def _attest_action(
         self,
         action: str,
@@ -2035,50 +2199,18 @@ class ServiceDispatcher:
         actor_source: str = "",
         actor_claimed: str = "",
     ) -> None:
-        """Record an EAS attestation for a state-modifying action."""
+        """Record an EAS attestation for a state-modifying action: queued on
+        the attestation service of this dispatcher's registry."""
         try:
             registry = self._get_registry()
             attestation_svc = registry.get("attestation")
-            # NEW-42 (instance 1 of 2): this passed `schema_name=`, but
-            # AttestationService.attest takes `schema_uid`. EVERY call raised
-            # TypeError and was swallowed by the `except` below as a WARNING,
-            # so NO state-modifying action on the platform has ever been
-            # attested. Signature drift plus a silent swallow — the NEW-9
-            # shape. "" resolves to the primary platform schema via
-            # `_resolve_schema`, which is what this call always meant.
-            # 17-D. THE ATTESTATION NOW NAMES THE ACTOR.
-            #
-            # This payload recorded action, service, a params hash and a
-            # timestamp — everything except WHO. An attestation that a right
-            # was granted, with the grantor unrecoverable (a hash is not a
-            # name), is the evidence half of the same defect the authority half
-            # fixes upstream. Empty string is written when the entry point bound
-            # no identity: the record says "unknown", which is a
-            # fact, rather than omitting the field, which reads as "not
-            # applicable".
-            #
-            # `recipient` is deliberately UNCHANGED. In EAS the recipient is the
-            # SUBJECT of the attestation, not its author; repointing it at the
-            # caller would silently redefine what all ~182 attested actions
-            # assert to third parties, which is a product decision and a
-            # separate change. The actor is carried in the payload, where the
-            # authorship claim belongs.
+            record = self._attestation_of(
+                action, service_name, params, actor=actor, actor_source=actor_source,
+                actor_claimed=actor_claimed)
             await attestation_svc.attest(
-                schema_uid="",
-                data={
-                    "action": action,
-                    "service": service_name,
-                    "actor": actor or "",
-                    "actor_source": actor_source or "unauthenticated",
-                    # ALWAYS PRESENT, unlike the feed's copy. This is the audit
-                    # record: "" here is the positive fact that the request made
-                    # no claim the resolved identity contradicts, where an
-                    # omitted key would read as "this build did not look".
-                    "actor_claimed": actor_claimed or "",
-                    "params_hash": str(hash(json.dumps(params, sort_keys=True, default=str))),
-                    "timestamp": int(time.time()),
-                },
-                recipient=self._platform_wallet or "0x0",
+                schema_uid=record["schema_uid"],
+                data=record["data"],
+                recipient=record["recipient"],
             )
         except Exception:
             # Attestation failure must not break the primary action

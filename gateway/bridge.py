@@ -28,6 +28,7 @@ from typing import Any
 from aiohttp import web
 
 from gateway.error_contract import client_error, dispatcher_failure, refusal_http_status
+from runtime.durable.wiring import caller_scope as _durable_scope, keyed as _durable_keyed
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, report_of
 
 logger = logging.getLogger(__name__)
@@ -1068,11 +1069,19 @@ class BridgeRoutes:
             # linked a wallet to was GATED as B and EXECUTED as W: the service
             # decided ownership for the account that linked, not the one that
             # asked. The dispatcher now gets exactly the identity the gate saw.
-            result = await dispatcher.execute(
-                action,
-                params=params,
-                caller_identity=identity,
-            )
+            # Engines Phase 2: with engines.durable.mode shadow or on, the
+            # dispatcher is told this request's Idempotency-Key header, whose it
+            # is (the credential's own subject, which linking a wallet does not
+            # change) and the gate decision it passed (runtime/durable/wiring.py
+            # keyed). With the mode off (the default) no engine is installed and
+            # `keyed` reads and computes nothing.
+            with _durable_keyed(request, decision=decision, scope=lambda: _durable_scope(
+                    self._server, request, caller_kind, identity)):
+                result = await dispatcher.execute(
+                    action,
+                    params=params,
+                    caller_identity=identity,
+                )
         except Exception as e:
             # RUN-5: was the raw exception as the response body. And this
             # caught TypeError as "Invalid parameters" (422, the raw binding
