@@ -343,7 +343,10 @@ def measure_main_off_pair(scratch: str) -> dict:
     pairs: list[dict] = []
     for k in range(MAIN_PAIRS):
         pair: dict[str, float] = {}
-        for which, tree in (("main", main_tree), ("this_tree", ROOT)):
+        # Which tree runs first alternates from one pair to the next, so a
+        # host that drifts during a pair moves neither side's figures alone.
+        order = (("main", main_tree), ("this_tree", ROOT))
+        for which, tree in (order if k % 2 == 0 else order[::-1]):
             got = _measure_off_in(tree, Path(scratch) / f"{which}-{k}.json")
             assert got["durable_package_present"] is (which == "this_tree"), (
                 f"{tree} {'has' if got['durable_package_present'] else 'lacks'} runtime/durable: "
@@ -362,8 +365,9 @@ def measure_main_off_pair(scratch: str) -> dict:
         "this_tree": this,
         "ratio_this_tree_to_main": {"p50": round(this["p50_us"] / main["p50_us"], 3),
                                     "p95": round(this["p95_us"] / main["p95_us"], 3)},
-        # Each run of the base tree against the run of this tree that follows
-        # it: how far one draw moves the ratio.
+        # Each run of the base tree against the run of this tree beside it
+        # (first on even pairs, second on odd ones): how far one draw moves
+        # the ratio.
         "pairs": pairs,
         "ratio_p95_per_pair": {"min": per_pair[0], "median": statistics.median(per_pair),
                                "max": per_pair[-1]},
@@ -421,7 +425,8 @@ def measure() -> dict:
                        "collects), alternating a checkout of the base tree and this tree, "
                        f"{MAIN_PAIRS} runs each, samples pooled; ratio_this_tree_to_main compares "
                        "those two, pairs and ratio_p95_per_pair give each run of the base tree "
-                       "against the run of this tree after it, ratio_cell_off_to_main compares "
+                       "against the run of this tree beside it, the base tree first on even "
+                       "pairs and second on odd ones, ratio_cell_off_to_main compares "
                        "the in-process off cell (taken between shadow and on blocks) with the "
                        "base tree. Not timed: pre_action, which no durable code runs in, and the "
                        "HTTP route itself. Host-dependent."),

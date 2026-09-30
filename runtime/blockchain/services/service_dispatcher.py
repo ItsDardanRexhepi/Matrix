@@ -1834,9 +1834,9 @@ class ServiceDispatcher:
                 _shadow_the_verdict(action, target_service, _actor, params, result, _verdict)
                 # Mode on, the run written: the outbox delivers this run's
                 # attestation and feed entry (deep copies), not this method.
-                _owned = _durable is not None and _durable.takes_delivery(_run)
-
-                _attestation = functools.partial(
+                # With no run (the mode off) nothing here is built.
+                _owned = _run is not None and _durable.takes_delivery(_run)
+                _attestation = None if _run is None else functools.partial(
                     self._attestation_of, action, target_service, params, actor=_actor,
                     actor_source=_actor_source, actor_claimed=_claimed_actor)
 
