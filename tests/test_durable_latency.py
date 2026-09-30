@@ -326,7 +326,8 @@ def measure_main_off_pair(scratch: str) -> dict:
     main = _percentiles(pooled["main"])
     this = _percentiles(pooled["this_tree"])
     return {
-        "main_commit": _git(main_tree, "rev-parse", "--short", "HEAD"),
+        # By subject: an id does not survive a rewrite of the history.
+        "main_commit": _git(main_tree, "log", "-1", "--format=%s", "HEAD"),
         "main": main,
         "this_tree": this,
         "ratio_this_tree_to_main": {"p50": round(this["p50_us"] / main["p50_us"], 3),
@@ -337,9 +338,10 @@ def measure_main_off_pair(scratch: str) -> dict:
 # ── the artefact ────────────────────────────────────────────────────────────
 
 def _measured_where() -> dict:
-    """tests/test_engines_baseline.py's _measured_where."""
+    """tests/test_engines_baseline.py's _measured_where, naming the commit by
+    its subject rather than its id."""
     try:
-        head = _git(ROOT, "rev-parse", "--short", "HEAD")
+        head = _git(ROOT, "log", "-1", "--format=%s", "HEAD")
         dirty = bool(_git(ROOT, "status", "--porcelain", "--untracked-files=no"))
     except (OSError, subprocess.SubprocessError):
         head, dirty = "", None

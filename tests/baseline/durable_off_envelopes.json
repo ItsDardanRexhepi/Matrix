@@ -282,9 +282,9 @@
   "unconfirmed": "e664618b40a49515dcb698ef5a3902a2b1e785f5d1837a4f02dad26c9a967a18"
  },
  "instrument": "tests/test_durable_off_and_shadow.py measure(), run in a separate interpreter importing runtime from a checkout of main: ServiceDispatcher.execute over a stand-in registry defined in that file (every method keyword-only, about half declaring caller_identity), no evidence-shadow sink, a stand-in feed engine attached",
- "main_commit": "58b8b4d",
+ "main_commit": "Merge audit-remediation-2026-07: the cited commit ids are those of the rewritten history",
  "measured": {
-  "on_top_of": "58b8b4d",
+  "on_top_of": "Merge audit-remediation-2026-07: the cited commit ids are those of the rewritten history",
   "with_uncommitted_changes": false
  },
  "measured_at": "main",

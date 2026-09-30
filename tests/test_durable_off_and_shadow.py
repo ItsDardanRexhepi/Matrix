@@ -24,7 +24,7 @@ replaced by their shape) and every feed ``ingest``. It uses only
 THE GOLDEN, ``tests/baseline/durable_off_envelopes.json``, was written by
 running ``measure`` in a separate interpreter whose import path is a checkout of
 main (``runtime.durable`` absent there, recorded as such), and names main's
-commit. It keeps one digest per action and one per case — so a difference names
+commit by its subject. It keeps one digest per action and one per case — so a difference names
 both the action and the answer that moved — the totals per case, and a readable
 sample. To re-measure: ``ENGINES_BASELINE=write DURABLE_OFF_MAIN_TREE=<a
 checkout of main>``; with ``ENGINES_BASELINE=write`` alone the golden is left
@@ -448,7 +448,8 @@ def _write_golden_from_main(main_tree: Path) -> None:
     def git(*args):
         return subprocess.run(["git", "-C", str(main_tree), *args], capture_output=True,
                               text=True, timeout=60).stdout.strip()
-    commit = git("rev-parse", "--short", "HEAD")
+    # By subject: an id does not survive a rewrite of the history.
+    commit = git("log", "-1", "--format=%s", "HEAD")
     assert measured.pop("durable_package_present") is False, (
         f"{main_tree} has runtime/durable: it is not main")
     golden = {

@@ -392,7 +392,8 @@ def _where() -> dict:
         return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
                               timeout=60).stdout.strip()
     try:
-        head = git("rev-parse", "--short", "HEAD")
+        # By subject: an id does not survive a rewrite of the history.
+        head = git("log", "-1", "--format=%s", "HEAD")
         dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
     except (OSError, subprocess.SubprocessError):
         head, dirty = "", None

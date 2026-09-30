@@ -97,7 +97,7 @@
    "p50_us": 45.7,
    "p95_us": 87.8
   },
-  "main_commit": "58b8b4d",
+  "main_commit": "Merge audit-remediation-2026-07: the cited commit ids are those of the rewritten history",
   "ratio_cell_off_to_main": {
    "p50": 1.105,
    "p95": 1.323
