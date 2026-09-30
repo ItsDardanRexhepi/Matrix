@@ -24,9 +24,11 @@ the way a live gateway does without its deliveries landing inside a sample.
 
 THE BASE TREE. The off figure of (a) is also taken on the base tree — a
 checkout of the branch this work merges into, which has no ``runtime/durable``
-— by the same function, run in a separate interpreter importing ``runtime``
-from that checkout, and, with the same instrument, on this tree, alternating
-the two, so ``main_off`` and its ratio compare like with like. The functions that run there use only
+— by the same function, in an interpreter importing ``runtime`` from that
+checkout, and with the same instrument on this tree, in a second interpreter:
+both run at once and take turns block by block, so the host's load, whatever
+else it is doing, falls on both alike, and ``main_off`` and its ratio compare
+like with like. The functions that run there use only
 ``ServiceDispatcher``, ``ACTION_MAP`` and ``_STATE_MODIFYING_ACTIONS``, which
 the base tree has; nothing from ``runtime.durable`` is imported at module level.
 
@@ -53,15 +55,17 @@ THE BUDGET. G6 asks that a phase keep a dispatch's p95 within +10 percent of
 the base tree's, a bound left to the project owner to confirm; this file
 records the figures and asserts no bound. Shadow and on are over it: they put a
 journaled dispatch's p95 at several times the same dispatch's with the mode
-off. Off is a difference of about a microsecond on a call of about sixteen, in
-either direction from one run to the next (``main_off.pairs``), which this
-instrument does not resolve against a 10 percent bound. The budget is the
-owner's decision and still open. Durable execution can merge dark, with the mode
+off. For off the artefact says what the draw gave, and how far the ratio moved
+from one stretch of the run to the next (``main_off.stretches``); on a host
+busy with other work (``host``) the stopwatch does not resolve a difference of
+a microsecond or two against a 10 percent bound. The budget is the owner's
+decision and still open. Durable execution can merge dark, with the mode
 off by default, and its phase is not closed until G6 holds.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gc
 import json
 import os
@@ -73,6 +77,7 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -92,8 +97,7 @@ N = 5000
 ROUNDS = 50
 BLOCK = N // ROUNDS
 WARM_UP = 200
-#: Interpreter runs per tree for main_off, alternating main and this tree.
-MAIN_PAIRS = 5
+
 
 WALLET = "0x" + "ab" * 20
 SCOPE = f"operator|{WALLET}"
@@ -168,22 +172,34 @@ async def time_execute(d: ServiceDispatcher, count: int, start: int) -> list[flo
     return samples
 
 
-def measure_main_off(n: int = N) -> dict:
-    """Surface (a) in mode off, in this interpreter, with the tree it imports:
-    a warm-up, then ``n`` samples. Run on the base tree and on this tree alike."""
+def serve_blocks() -> None:
+    """Surface (a) in mode off, in a child interpreter importing ``runtime``
+    from the tree it was started in: a warm-up, a ``G6 ready`` line saying
+    whether ``runtime.durable`` exists there, then, for every block number read
+    on stdin, one block of ``BLOCK`` dispatches timed call by call and written
+    back as a ``G6 `` line of samples; ``stop`` ends it. Run on the base tree
+    and on this tree alike, both at once, so the parent can alternate them
+    block by block."""
     import importlib.util
 
-    async def run() -> list[float]:
+    async def run() -> None:
         d = stand_in_dispatcher()
         await time_execute(d, WARM_UP, 0)
-        samples: list[float] = []
-        for r in range(n // BLOCK):
-            if r % len(SURFACES) == 0:
+        present = importlib.util.find_spec("runtime.durable") is not None
+        sys.stdout.write("G6 " + json.dumps({"durable_package_present": present}) + "\n")
+        sys.stdout.flush()
+        start = WARM_UP
+        while True:
+            line = sys.stdin.readline().strip()
+            if not line or line == "stop":
+                return
+            if int(line) % len(SURFACES) == 0:
                 gc.collect()
-            samples += await time_execute(d, BLOCK, WARM_UP + r * BLOCK)
-        return samples
-    return {"samples": asyncio.run(run()),
-            "durable_package_present": importlib.util.find_spec("runtime.durable") is not None}
+            samples = await time_execute(d, BLOCK, start)
+            start += BLOCK
+            sys.stdout.write("G6 " + json.dumps(samples) + "\n")
+            sys.stdout.flush()
+    asyncio.run(run())
 
 
 # ── the in-process measure (this tree only) ─────────────────────────────────
@@ -299,11 +315,15 @@ async def measure_in_process(scratch: str) -> dict:
 
 # ── main_off ────────────────────────────────────────────────────────────────
 
-_RUN_ONE = ("import importlib.util, json, sys\n"
-            "spec = importlib.util.spec_from_file_location('durable_g6_measure', sys.argv[1])\n"
-            "m = importlib.util.module_from_spec(spec)\n"
-            "spec.loader.exec_module(m)\n"
-            "open(sys.argv[2], 'w').write(json.dumps(m.measure_main_off()))\n")
+_SERVE = ("import importlib.util, sys\n"
+          "spec = importlib.util.spec_from_file_location('durable_g6_measure', sys.argv[1])\n"
+          "m = importlib.util.module_from_spec(spec)\n"
+          "spec.loader.exec_module(m)\n"
+          "m.serve_blocks()\n")
+#: Blocks each tree times for main_off, and the stretches they are cut into to
+#: show how far the ratio moves while the host does other work.
+MAIN_BLOCKS = 250
+MAIN_STRETCHES = 5
 
 
 def _git(tree: Path, *args: str) -> str:
@@ -325,39 +345,66 @@ def _main_tree() -> Path:
                          "git worktree on branch main")
 
 
-def _measure_off_in(tree: Path, out: Path) -> dict:
+def _serve(tree: Path):
     env = {k: v for k, v in os.environ.items() if k != "MATRIX_DURABLE_MODE"}
     env["PYTHONPATH"] = str(tree)
-    env["PYTHONDONTWRITEBYTECODE"] = "1"   # measure main, never write into it
-    done = subprocess.run([sys.executable, "-c", _RUN_ONE, str(Path(__file__).resolve()),
-                           str(out)], cwd=str(tree), env=env, capture_output=True, text=True,
-                          timeout=600)
-    assert done.returncode == 0, f"measuring off in a separate interpreter failed:\n" \
-                                 f"{done.stderr[-4000:]}"
-    return json.loads(out.read_text(encoding="utf-8"))
+    env["PYTHONDONTWRITEBYTECODE"] = "1"   # measure the base tree, never write into it
+    return subprocess.Popen([sys.executable, "-c", _SERVE, str(Path(__file__).resolve())],
+                            cwd=str(tree), env=env, stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
 
 
-def measure_main_off_pair(scratch: str) -> dict:
+def _answer(proc) -> Any:
+    """The next ``G6 `` line the child wrote (anything else it printed is not
+    the instrument's)."""
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            raise AssertionError("a G6 child ended before it answered")
+        if line.startswith("G6 "):
+            return json.loads(line[3:])
+
+
+def measure_main_off_interleaved() -> dict:
+    """Surface (a) in mode off on the base tree and on this tree, both
+    interpreters running at once and taking turns block by block — a block of
+    one, then a block of the other, the first of each turn alternating — so the
+    host's load, whatever other work it is doing, falls on both alike within a
+    few milliseconds."""
     main_tree = _main_tree()
-    pooled: dict[str, list[float]] = {"main": [], "this_tree": []}
-    pairs: list[dict] = []
-    for k in range(MAIN_PAIRS):
-        pair: dict[str, float] = {}
-        # Which tree runs first alternates from one pair to the next, so a
-        # host that drifts during a pair moves neither side's figures alone.
-        order = (("main", main_tree), ("this_tree", ROOT))
-        for which, tree in (order if k % 2 == 0 else order[::-1]):
-            got = _measure_off_in(tree, Path(scratch) / f"{which}-{k}.json")
-            assert got["durable_package_present"] is (which == "this_tree"), (
-                f"{tree} {'has' if got['durable_package_present'] else 'lacks'} runtime/durable: "
-                f"it is not {which.replace('_', ' ')}")
-            pooled[which] += got["samples"]
-            pair[f"{which}_p95_us"] = _percentiles(got["samples"])["p95_us"]
-        pair["ratio_p95"] = round(pair["this_tree_p95_us"] / pair["main_p95_us"], 3)
-        pairs.append(pair)
-    main = _percentiles(pooled["main"])
-    this = _percentiles(pooled["this_tree"])
-    per_pair = sorted(p["ratio_p95"] for p in pairs)
+    procs = {"main": _serve(main_tree), "this_tree": _serve(ROOT)}
+    try:
+        for which, proc in procs.items():
+            ready = _answer(proc)
+            assert ready["durable_package_present"] is (which == "this_tree"), (
+                f"the {which.replace('_', ' ')} checkout "
+                f"{'has' if ready['durable_package_present'] else 'lacks'} runtime/durable")
+        blocks: dict[str, list[list[float]]] = {"main": [], "this_tree": []}
+        for b in range(MAIN_BLOCKS):
+            turn = ("main", "this_tree") if b % 2 == 0 else ("this_tree", "main")
+            for which in turn:
+                procs[which].stdin.write(f"{b}\n")
+                procs[which].stdin.flush()
+                blocks[which].append(_answer(procs[which]))
+    finally:
+        for proc in procs.values():
+            with contextlib.suppress(Exception):
+                proc.stdin.write("stop\n")
+                proc.stdin.flush()
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=30)
+            if proc.poll() is None:
+                proc.kill()
+    main = _percentiles([x for block in blocks["main"] for x in block])
+    this = _percentiles([x for block in blocks["this_tree"] for x in block])
+    per = MAIN_BLOCKS // MAIN_STRETCHES
+    stretches = []
+    for k in range(MAIN_STRETCHES):
+        m = _percentiles([x for block in blocks["main"][k * per:(k + 1) * per] for x in block])
+        t = _percentiles([x for block in blocks["this_tree"][k * per:(k + 1) * per] for x in block])
+        stretches.append({"main_p95_us": m["p95_us"], "this_tree_p95_us": t["p95_us"],
+                          "ratio_p95": round(t["p95_us"] / m["p95_us"], 3)})
+    ratios = sorted(x["ratio_p95"] for x in stretches)
     return {
         # By subject: an id does not survive a rewrite of the history.
         "main_commit": _git(main_tree, "log", "-1", "--format=%s", "HEAD"),
@@ -365,12 +412,11 @@ def measure_main_off_pair(scratch: str) -> dict:
         "this_tree": this,
         "ratio_this_tree_to_main": {"p50": round(this["p50_us"] / main["p50_us"], 3),
                                     "p95": round(this["p95_us"] / main["p95_us"], 3)},
-        # Each run of the base tree against the run of this tree beside it
-        # (first on even pairs, second on odd ones): how far one draw moves
-        # the ratio.
-        "pairs": pairs,
-        "ratio_p95_per_pair": {"min": per_pair[0], "median": statistics.median(per_pair),
-                               "max": per_pair[-1]},
+        # The blocks cut into stretches in order: how far the ratio moves
+        # from one stretch of the run to the next.
+        "stretches": stretches,
+        "ratio_p95_per_stretch": {"min": ratios[0], "median": statistics.median(ratios),
+                                  "max": ratios[-1]},
     }
 
 
@@ -399,7 +445,7 @@ def measure() -> dict:
     load_before = _load()
     with tempfile.TemporaryDirectory() as scratch:
         cells = asyncio.run(measure_in_process(scratch))
-        main_off = measure_main_off_pair(scratch)
+        main_off = measure_main_off_interleaved()
     load_after = _load()
     off = cells["execute"]["off"]
     main = main_off["main"]
@@ -428,16 +474,18 @@ def measure() -> dict:
                        "running, ticked between blocks outside the stopwatch so every held "
                        "delivery is handed off; stand-in services, feed and attestation client "
                        "that answer at once — the platform's own cost, no chain, no network. "
-                       "main_off: surface execute in mode off, measure_main_off() in a separate "
-                       "interpreter per run (gc.collect() every third block, as often as a round "
-                       "collects), alternating a checkout of the base tree and this tree, "
-                       f"{MAIN_PAIRS} runs each, samples pooled; ratio_this_tree_to_main compares "
-                       "those two, pairs and ratio_p95_per_pair give each run of the base tree "
-                       "against the run of this tree beside it, the base tree first on even "
-                       "pairs and second on odd ones, ratio_cell_off_to_main compares "
-                       "the in-process off cell (taken between shadow and on blocks) with the "
-                       "base tree. Not timed: pre_action, which no durable code runs in, and the "
-                       "HTTP route itself. Host-dependent."),
+                       "main_off: surface execute in mode off, serve_blocks() in two "
+                       "interpreters running at once, one importing a checkout of the base tree "
+                       f"and one this tree, taking turns block by block ({MAIN_BLOCKS} blocks of "
+                       f"{BLOCK} each, the first of each turn alternating, gc.collect() every "
+                       "third block as a round collects), samples pooled per tree; "
+                       "ratio_this_tree_to_main compares those two, stretches and "
+                       f"ratio_p95_per_stretch the same over {MAIN_STRETCHES} consecutive "
+                       "stretches of the run, and ratio_cell_off_to_main the in-process off cell "
+                       "(timed between shadow and on blocks, in the interpreter whose engines "
+                       "write) against the base tree. Not timed: pre_action, which no durable "
+                       "code runs in, and the HTTP route itself. Host-dependent: host gives the "
+                       "processor count and the load averages."),
         "measured": _measured_where(),
         "host": {"machine": platform.machine(), "system": platform.system(),
                  "python": platform.python_version(), "cpus": os.cpu_count(),
@@ -493,14 +541,16 @@ def test_g6_latency_added_per_dispatch_is_recorded():
             expected = round(over[f"{p}_us"] / main_off["main"][f"{p}_us"], 3)
             assert abs(main_off[ratio][p] - expected) < 0.0015, (
                 f"main_off {ratio} {p} is {main_off[ratio][p]}, the figures give {expected}")
-    pairs = main_off["pairs"]
-    assert len(pairs) == MAIN_PAIRS, f"{len(pairs)} pairs, the instrument runs {MAIN_PAIRS}"
-    for pair in pairs:
-        assert abs(pair["ratio_p95"] - pair["this_tree_p95_us"] / pair["main_p95_us"]) < 0.0015
-    ratios = sorted(pair["ratio_p95"] for pair in pairs)
-    assert main_off["ratio_p95_per_pair"] == {
+    stretches = main_off["stretches"]
+    assert len(stretches) == MAIN_STRETCHES, (
+        f"{len(stretches)} stretches, the instrument cuts {MAIN_STRETCHES}")
+    for stretch in stretches:
+        assert abs(stretch["ratio_p95"]
+                   - stretch["this_tree_p95_us"] / stretch["main_p95_us"]) < 0.0015, stretch
+    ratios = sorted(stretch["ratio_p95"] for stretch in stretches)
+    assert main_off["ratio_p95_per_stretch"] == {
         "min": ratios[0], "median": statistics.median(ratios), "max": ratios[-1]}, (
-        main_off["ratio_p95_per_pair"])
+        main_off["ratio_p95_per_stretch"])
 
 
 # ── always on: what the figures rest on ─────────────────────────────────────
