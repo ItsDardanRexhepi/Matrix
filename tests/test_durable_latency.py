@@ -338,14 +338,10 @@ def measure_main_off_pair(scratch: str) -> dict:
 # ── the artefact ────────────────────────────────────────────────────────────
 
 def _measured_where() -> dict:
-    """tests/test_engines_baseline.py's _measured_where, naming the commit by
-    its subject rather than its id."""
-    try:
-        head = _git(ROOT, "log", "-1", "--format=%s", "HEAD")
-        dirty = bool(_git(ROOT, "status", "--porcelain", "--untracked-files=no"))
-    except (OSError, subprocess.SubprocessError):
-        head, dirty = "", None
-    return {"on_top_of": head or "unknown", "with_uncommitted_changes": dirty}
+    """The commit this tree is at, by subject, and whether it is clean. Imported
+    here, not at the top: this module is also run at main, which lacks it."""
+    from tests.durable_measured_at import measured_at
+    return measured_at(ROOT)
 
 
 def _added(cells: dict) -> dict:
@@ -418,7 +414,8 @@ def test_g6_latency_added_per_dispatch_is_recorded():
     assert g6["gate"] == "G6", g6.get("gate")
     for field in ("rule", "scope", "instrument"):
         assert isinstance(g6.get(field), str) and g6[field], f"G6 does not say its {field}"
-    assert set(g6["measured"]) == {"on_top_of", "with_uncommitted_changes"}, g6["measured"]
+    from tests import durable_measured_at
+    durable_measured_at.check(g6["measured"], ARTEFACT.name)
     assert set(g6["host"]) == {"machine", "system", "python"}, g6["host"]
     assert set(g6["cells"]) == set(SURFACES), f"G6 surfaces: {sorted(g6['cells'])}"
     for surface in SURFACES:
@@ -432,7 +429,9 @@ def test_g6_latency_added_per_dispatch_is_recorded():
                 assert isinstance(added.get(p), (int, float)) and abs(added[p] - expected) < 0.05, (
                     f"added {surface}/{mode} {p} is {added.get(p)}, the cells give {expected}")
     main_off = g6["main_off"]
-    assert main_off["main_commit"], "main_off does not name main's commit"
+    subjects = durable_measured_at.history_subjects()
+    assert main_off["main_commit"] and (subjects is None or main_off["main_commit"] in subjects), (
+        f"main_off does not name, by subject, a commit of this history: {main_off['main_commit']!r}")
     _check_cell("main_off/main", main_off["main"])
     _check_cell("main_off/this_tree", main_off["this_tree"])
     for ratio, over in (("ratio_this_tree_to_main", main_off["this_tree"]),

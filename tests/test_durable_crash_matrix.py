@@ -103,6 +103,7 @@ from test_durable_harness import (  # noqa: E402
 )
 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher  # noqa: E402
 from runtime.durable import journal, keys, wiring  # noqa: E402
+from tests import durable_measured_at  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tests" / "baseline"
@@ -963,19 +964,6 @@ PROPERTY_TEXT = {
 }
 
 
-def _measured_where() -> dict:
-    def git(*args):
-        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
-                              timeout=60).stdout.strip()
-    try:
-        # By subject: an id does not survive a rewrite of the history.
-        head = git("log", "-1", "--format=%s", "HEAD")
-        dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
-    except (OSError, subprocess.SubprocessError):
-        head, dirty = "", None
-    return {"on_top_of": head or "unknown", "with_uncommitted_changes": dirty}
-
-
 def measure() -> dict:
     cells = {CELLS[c]: {path: _tally(rs) for path, rs in cell_results(c).items()}
              for c in sorted(CELLS)}
@@ -986,7 +974,7 @@ def measure() -> dict:
         tally["exit_status"] = dict(Counter(str(s) for s in statuses))
         real[CELLS[c]] = tally
     return {"gate": "G7", "rule": RULE, "instrument": INSTRUMENT, "scope": SCOPE_TEXT,
-            "properties": PROPERTY_TEXT, "measured": _measured_where(),
+            "properties": PROPERTY_TEXT, "measured": durable_measured_at.measured_at(),
             "cells": cells, "real_process": real}
 
 
@@ -1000,7 +988,7 @@ def test_the_g7_artefact():
     committed = json.loads(path.read_text(encoding="utf-8"))
     for field_name in ("gate", "rule", "instrument", "scope", "properties", "measured"):
         assert field_name in committed, f"{ARTEFACT} has no {field_name!r}"
-    assert set(committed["measured"]) == {"on_top_of", "with_uncommitted_changes"}
+    durable_measured_at.check(committed["measured"], ARTEFACT)
     recomputed = json.loads(json.dumps(measured))
     for part in ("cells", "real_process"):
         assert committed[part] == recomputed[part], (

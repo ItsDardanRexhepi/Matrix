@@ -2,8 +2,9 @@
 
 THE CORPUS is every state-modifying name the service dispatcher serves
 (``STATE_MODIFYING``: ``_STATE_MODIFYING_ACTIONS`` that ``ACTION_MAP`` routes).
-For each name, two Idempotency-Keys, each with a body of its own carrying a
-unique ``marker``:
+For each name, ``KEYS_PER_PHASE`` Idempotency-Keys in each of two phases, each
+key with a body of its own carrying a unique ``marker``, so that the corpus
+holds at least the 1,000 replayed bodies G8 is judged over (``G8_BODIES``):
 
 * ``sequential`` — the body is POSTed, answered, then POSTed again;
 * ``concurrent`` — the body is POSTed twice at once (``asyncio.gather``), and
@@ -48,7 +49,6 @@ import asyncio
 import collections
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -65,6 +65,7 @@ from test_durable_harness import (  # noqa: E402
     installed, rows,
 )
 from runtime.durable import journal, keys, outbox, wiring  # noqa: E402
+from tests import durable_measured_at  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 ARTEFACT = ROOT / "tests" / "baseline" / "durable_g8_replay.json"
@@ -72,6 +73,11 @@ WRITE = os.environ.get("ENGINES_BASELINE", "").strip().lower() == "write"
 
 OPERATOR_KEY = "g8-operator-key"
 PHASES = ("sequential", "concurrent")
+#: Keys per name in each phase: enough that the corpus holds at least
+#: G8_BODIES bodies over the state-modifying names.
+KEYS_PER_PHASE = 3
+#: How many replayed bodies the exit gate G8 is judged over, at least.
+G8_BODIES = 1_000
 #: How long a held call waits for the other request before it is let go anyway
 #: (a bound, not a sleep: the release normally comes within a few milliseconds).
 HOLD_BOUND_S = 5.0
@@ -258,11 +264,11 @@ async def _run_corpus(mode: str, scratch: Path) -> dict:
                 server._durable_engine.attestations = MarkedAttestations(world)
                 for action in STATE_MODIFYING:
                     world.services.answers[action] = dict(SETTLED)
-                    for phase in PHASES:
-                        marker = f"g8|{mode}|{phase}|{action}"
+                    for phase, k in ((p, k) for p in PHASES for k in range(KEYS_PER_PHASE)):
+                        marker = f"g8|{mode}|{phase}|{action}|{k}"
                         params = _params(marker)
                         world.by_hash[_params_hash(params)] = marker
-                        key = f"g8-{phase}-{action}"
+                        key = f"g8-{phase}-{action}-{k}"
                         if phase == "sequential":
                             answers = [await _post(client, action, params, key, world)
                                        for _ in range(2)]
@@ -387,19 +393,6 @@ def _measured(mode: str) -> tuple[dict, list[dict], dict]:
     return _CACHE[mode]
 
 
-def _where() -> dict:
-    def git(*args):
-        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
-                              timeout=60).stdout.strip()
-    try:
-        # By subject: an id does not survive a rewrite of the history.
-        head = git("log", "-1", "--format=%s", "HEAD")
-        dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
-    except (OSError, subprocess.SubprocessError):
-        head, dirty = "", None
-    return {"on_top_of": head or "unknown", "with_uncommitted_changes": dirty}
-
-
 def _artefact() -> dict:
     on, _p, _r = _measured("on")
     shadow, _p, _r = _measured("shadow")
@@ -417,13 +410,14 @@ def _artefact() -> dict:
                        "the chain (the outbox's attestation submission), the legacy attestation "
                        "service and the feed, and an allow-all gate that counts its calls. The "
                        "outbox loop is drained after the corpus. Counts only: no timings."),
-        "scope": ("every name in _STATE_MODIFYING_ACTIONS that ACTION_MAP routes; per name two "
-                  "Idempotency-Keys with a body each: 'sequential' (POST, answer, POST again) "
-                  "and 'concurrent' (two POSTs gathered, the call that reaches the service held "
-                  "open until the other request is answered or also reaches it). Twin tools "
-                  "are not in this corpus."),
-        "measured": _where(),
-        "corpus": {"actions": len(STATE_MODIFYING), "keys_per_action": len(PHASES),
+        "scope": ("every name in _STATE_MODIFYING_ACTIONS that ACTION_MAP routes; per name "
+                  f"{KEYS_PER_PHASE} Idempotency-Keys in each of two phases, with a body each: "
+                  "'sequential' (POST, answer, POST again) and 'concurrent' (two POSTs "
+                  "gathered, the call that reaches the service held open until the other "
+                  "request is answered or also reaches it). Twin tools are not in this corpus."),
+        "measured": durable_measured_at.measured_at(),
+        "corpus": {"actions": len(STATE_MODIFYING),
+                   "keys_per_action": len(PHASES) * KEYS_PER_PHASE,
                    "posts_per_key": 2, "service_answer": "settled",
                    "names": list(STATE_MODIFYING)},
         "on": on,
@@ -438,7 +432,7 @@ def test_mode_on_acts_at_most_once_per_key_over_the_whole_corpus():
     assert raw["loop_alive"], "the outbox loop was not running when the corpus ended"
     assert raw["unmapped_hashes"] == 0, (
         "an attestation could not be traced to the body it attests (params_hash unknown)")
-    assert summary["bodies"] == len(STATE_MODIFYING) * len(PHASES)
+    assert summary["bodies"] == len(STATE_MODIFYING) * len(PHASES) * KEYS_PER_PHASE
     assert raw["gate_calls"] == summary["posts"], (
         f"the gate was asked {raw['gate_calls']} times for {summary['posts']} posts: "
         "a replay skipped the gate")
@@ -545,11 +539,12 @@ def test_g8_artefact():
                             encoding="utf-8")
     assert ARTEFACT.is_file(), f"{ARTEFACT} missing — run with ENGINES_BASELINE=write"
     committed = json.loads(ARTEFACT.read_text(encoding="utf-8"))
-    where = committed.pop("measured", None)
-    assert isinstance(where, dict) and set(where) == {"on_top_of", "with_uncommitted_changes"}, (
-        f"the artefact does not say where it was measured: {where}")
+    durable_measured_at.check(committed.pop("measured", None), ARTEFACT.name)
     measured.pop("measured")
     assert committed == json.loads(json.dumps(measured)), (
         "durable_g8_replay.json no longer matches what the corpus does. If the change is "
         "intended, rewrite it with ENGINES_BASELINE=write and say why in the commit.")
     assert committed["on"]["duplicate_actions"] == 0, "the committed G8 artefact records duplicates"
+    assert committed["corpus"]["posts_per_key"] == 2 and committed["on"]["bodies"] >= G8_BODIES, (
+        f"G8 is judged over at least {G8_BODIES:,} replayed bodies; the artefact holds "
+        f"{committed['on']['bodies']:,}")

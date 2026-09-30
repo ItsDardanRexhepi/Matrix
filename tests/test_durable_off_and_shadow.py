@@ -445,19 +445,15 @@ def _write_golden_from_main(main_tree: Path) -> None:
         assert done.returncode == 0, f"measuring at main failed:\n{done.stderr[-4000:]}"
         measured = json.loads(out.read_text(encoding="utf-8"))
 
-    def git(*args):
-        return subprocess.run(["git", "-C", str(main_tree), *args], capture_output=True,
-                              text=True, timeout=60).stdout.strip()
     # By subject: an id does not survive a rewrite of the history.
-    commit = git("log", "-1", "--format=%s", "HEAD")
+    from tests.durable_measured_at import measured_at
+    where = measured_at(main_tree)
     assert measured.pop("durable_package_present") is False, (
         f"{main_tree} has runtime/durable: it is not main")
     golden = {
         "measured_at": "main",
-        "main_commit": commit,
-        "measured": {"on_top_of": commit,
-                     "with_uncommitted_changes": bool(git("status", "--porcelain",
-                                                          "--untracked-files=no"))},
+        "main_commit": where["on_top_of"],
+        "measured": where,
         "rule": ("engines.durable.mode off is byte-identical to main: every recorded field of "
                  "every call below, recomputed on this branch with MATRIX_DURABLE_MODE unset and "
                  "no engine installed, equals what main produced"),
@@ -529,7 +525,10 @@ def test_the_golden_is_well_formed_and_records_what_it_claims():
     for key in ("measured_at", "main_commit", "measured", "rule", "instrument", "scope",
                 "digest_by_action", "digest_by_case", "totals", "sample", "unknown_action"):
         assert key in golden, f"the golden has no {key!r}"
-    assert set(golden["measured"]) == {"on_top_of", "with_uncommitted_changes"}
+    from tests import durable_measured_at
+    durable_measured_at.check(golden["measured"], GOLDEN.name)
+    assert golden["main_commit"] == golden["measured"]["on_top_of"], (
+        "the golden names one commit as main's and was measured at another")
     assert len(golden["digest_by_action"]) == golden["actions"] == len(ACTIONS)
     settled = golden["totals"]["settled"]
     # The stand-ins reached every path the golden claims to cover.
