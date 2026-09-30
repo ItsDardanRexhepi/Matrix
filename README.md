@@ -374,12 +374,12 @@ check behind it:
   does one a build of this work from before the renumbering left with the
   tables recorded as 10. What the mode costs is measured, not assumed
   (`tests/baseline/durable_g6_latency.json`, 5,000 calls a cell, on the
-  machine it names). At `off`, a dispatch's p95 is 1.025 times main's,
+  machine it names). At `off`, a dispatch's p95 is 1.051 times main's,
   measured like for like, within the +10 percent latency budget. `shadow`
   and `on` write a run of two transactions around each journaled dispatch,
   which puts its p95 at several times that of the same dispatch at `off`:
-  about 8.5 times for the service dispatcher (18.0 to 154.4 microseconds at
-  `on`), 9.6 times for the bridge's keyed sequence and 3 times for a twin
+  about 8.4 times for the service dispatcher (18.0 to 151.0 microseconds at
+  `on`), 9.5 times for the bridge's keyed sequence and 3 times for a twin
   tool's signing call. That is over the budget, and the budget is the
   project owner's decision, still open: this phase of the engines work can
   merge dark, with the mode `off` by default, and is not closed until that

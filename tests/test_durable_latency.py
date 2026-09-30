@@ -43,7 +43,7 @@ write), and none for a call they do not journal.
 THE BUDGET. G6 asks that a phase keep a dispatch's p95 within +10 percent of
 main's, a bound left to the project owner to confirm; this file records the
 figures and asserts no bound. As the committed artefact records them, mode off
-is within it (this tree's p95 1.025 times main's, like for like), and shadow
+is within it (this tree's p95 1.051 times main's, like for like), and shadow
 and on are not: they put a journaled dispatch's p95 at several times the same
 dispatch's with the mode off. The budget is the owner's decision and still
 open. Durable execution can merge dark, with the mode off by default, and its
