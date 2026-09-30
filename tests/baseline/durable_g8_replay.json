@@ -194,7 +194,7 @@
  "gate": "G8",
  "instrument": "POST /bridge/v1/action through GatewayServer under aiohttp's test client with the operator key, the real ServiceDispatcher, durable engine and outbox loop over a scratch SQLite database; stand-in services that log each effect with the body's marker and answer settled, stand-ins for the chain (the outbox's attestation submission), the legacy attestation service and the feed, and an allow-all gate that counts its calls. The outbox loop is drained after the corpus. Counts only: no timings.",
  "measured": {
-  "on_top_of": "A durable gate artefact must name a commit of this history, measured clean, and G8 is judged over 1,104 replayed bodies",
+  "on_top_of": "A database whose version 10 was the durable tables takes the one-spelling rewrite once, in migration 11",
   "with_uncommitted_changes": false
  },
  "on": {

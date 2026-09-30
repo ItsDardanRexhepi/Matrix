@@ -2,32 +2,32 @@
  "added": {
   "execute": {
    "on": {
-    "p50_us": 107.8,
-    "p95_us": 136.4
+    "p50_us": 107.0,
+    "p95_us": 133.0
    },
    "shadow": {
-    "p50_us": 105.5,
-    "p95_us": 133.4
+    "p50_us": 104.6,
+    "p95_us": 131.2
    }
   },
   "execute_keyed": {
    "on": {
-    "p50_us": 133.7,
-    "p95_us": 166.9
+    "p50_us": 132.9,
+    "p95_us": 161.4
    },
    "shadow": {
-    "p50_us": 132.0,
-    "p95_us": 165.7
+    "p50_us": 130.7,
+    "p95_us": 162.8
    }
   },
   "tool_twin_signing": {
    "on": {
-    "p50_us": 80.0,
-    "p95_us": 103.0
+    "p50_us": 79.5,
+    "p95_us": 100.6
    },
    "shadow": {
-    "p50_us": 89.0,
-    "p95_us": 113.2
+    "p50_us": 88.7,
+    "p95_us": 111.5
    }
   }
  },
@@ -35,52 +35,52 @@
   "execute": {
    "off": {
     "n": 5000,
-    "p50_us": 14.3,
+    "p50_us": 14.2,
     "p95_us": 18.0
    },
    "on": {
     "n": 5000,
-    "p50_us": 122.1,
-    "p95_us": 154.4
+    "p50_us": 121.2,
+    "p95_us": 151.0
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 119.8,
-    "p95_us": 151.4
+    "p50_us": 118.8,
+    "p95_us": 149.2
    }
   },
   "execute_keyed": {
    "off": {
     "n": 5000,
-    "p50_us": 15.3,
-    "p95_us": 19.4
+    "p50_us": 15.1,
+    "p95_us": 19.0
    },
    "on": {
     "n": 5000,
-    "p50_us": 149.0,
-    "p95_us": 186.3
+    "p50_us": 148.0,
+    "p95_us": 180.4
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 147.3,
-    "p95_us": 185.1
+    "p50_us": 145.8,
+    "p95_us": 181.8
    }
   },
   "tool_twin_signing": {
    "off": {
     "n": 5000,
-    "p50_us": 50.2,
-    "p95_us": 57.2
+    "p50_us": 49.9,
+    "p95_us": 56.7
    },
    "on": {
     "n": 5000,
-    "p50_us": 130.2,
-    "p95_us": 160.2
+    "p50_us": 129.4,
+    "p95_us": 157.3
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 139.2,
-    "p95_us": 170.4
+    "p50_us": 138.6,
+    "p95_us": 168.2
    }
   }
  },
@@ -94,26 +94,26 @@
  "main_off": {
   "main": {
    "n": 15000,
-   "p50_us": 13.2,
-   "p95_us": 16.3
+   "p50_us": 12.9,
+   "p95_us": 15.8
   },
   "main_commit": "Merge audit-remediation-2026-07: the security scan reads the one-spelling migration clean",
   "ratio_cell_off_to_main": {
-   "p50": 1.083,
-   "p95": 1.104
+   "p50": 1.101,
+   "p95": 1.139
   },
   "ratio_this_tree_to_main": {
-   "p50": 1.038,
-   "p95": 1.025
+   "p50": 1.047,
+   "p95": 1.051
   },
   "this_tree": {
    "n": 15000,
-   "p50_us": 13.7,
-   "p95_us": 16.7
+   "p50_us": 13.5,
+   "p95_us": 16.6
   }
  },
  "measured": {
-  "on_top_of": "A durable gate artefact must name a commit of this history, measured clean, and G8 is judged over 1,104 replayed bodies",
+  "on_top_of": "A database whose version 10 was the durable tables takes the one-spelling rewrite once, in migration 11",
   "with_uncommitted_changes": false
  },
  "rule": "the latency engines.durable adds to one dispatch, in microseconds: for each surface, added = the mode's p50 (p95) minus mode off's p50 (p95), measured in the same rounds. A p95 difference is a difference of percentiles, not a percentile of per-call differences.",
