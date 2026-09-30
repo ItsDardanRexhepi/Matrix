@@ -59,10 +59,20 @@ and `recipient` to a method that takes `from_addr` and `to_addr`, so a body
 with the four fields and a numeric amount is answered 400; the OpenAPI spec
 promised "200 Transfer accepted". The row and the spec were then corrected to
 "whatever the body, a caller it admits is answered 400", which an amount that
-is not a number, answered 500, made untrue. The last test drives each payment
-route the map names through the gateway with well-formed and malformed bodies,
-holds the row and the spec to each answer, and holds the spec entries of the
-routes that record to saying so.
+is not a number, answered 500, made untrue. The repair said "one whose amount
+is not a number is answered 500", which an amount of "NaN", "10" or true,
+answered 400, made untrue; and "with a numeric amount, is answered 400", which
+an integer amount too large for a float, answered 500, made untrue too. The
+last test drives each payment route the map names through the gateway with
+well-formed and malformed bodies, amounts of every kind included, reads every
+answer the row and the spec state against every body of the kind they name,
+and holds the spec entries of the routes that record to saying so.
+
+Course 01's expected answer had Trinity offer to record a stablecoin transfer
+without saying, as her prompt and the chat welcome do, that the empty ledger
+refuses every one; and send_payment()'s docstring had Neo's `stablecoin` tool
+send "a token", when it sends only a stablecoin it lists for the network and
+refuses any other. A test holds each.
 
 What this cannot see: a claim about moving money worded outside the patterns,
 and one in a Python file outside the SDK and the examples (the strings the
@@ -493,6 +503,56 @@ def test_the_readme_names_the_tools_that_send_and_the_ledgers_that_record():
     assert not wrong, "\n".join(wrong)
 
 
+_NAMES_WHAT_THE_STABLECOIN_TOOL_SENDS = re.compile(r"\ba stablecoin it lists for the network\b")
+
+
+def _says_the_stablecoin_tool_sends_any_token(flat: str) -> list[str]:
+    """Each sentence of *flat* that names the `stablecoin` tool and sends a
+    token without saying the tool sends only a stablecoin it lists."""
+    return [s for s in re.split(r"(?<=[.;])\s", flat)
+            if "`stablecoin`" in s and re.search(r"\bsen(?:d|ds|ding|t)\b", s)
+            and re.search(r"\b(?:a|any|an erc-20) tokens?\b|\btokens\b", s)
+            and not _NAMES_WHAT_THE_STABLECOIN_TOOL_SENDS.search(s)]
+
+
+def test_the_sdk_says_the_stablecoin_tool_sends_only_the_stablecoins_it_lists():
+    """send_payment()'s docstring said it asks Neo to send "a token with his
+    `stablecoin` tool". The tool sends only the stablecoins it lists for the
+    network it is configured for and refuses any other with "Unknown
+    stablecoin", as it is driven here, with a chain configured so the refusal is
+    the token's. The docstring names each tool the SDK asks for and what the
+    `stablecoin` one sends, and no public text, the SDKs and their READMEs
+    included, has the tool send a token without saying which."""
+    from runtime.blockchain.stablecoins import STABLECOIN_ADDRESSES
+    from sdk.client import MatrixClient
+
+    problems, facts = _measure()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    tool = facts["tools"]["stablecoin"]
+    for network, listed in STABLECOIN_ADDRESSES.items():
+        driven = tool({"blockchain": {"rpc_url": "http://127.0.0.1:9", "paymaster_private_key": "unused",
+                                      "platform_wallet": _A, "network": network}})
+        unlisted = next(t for t in ("USDT", "WETH") if t not in listed)
+        answer = json.loads(asyncio.run(driven.execute(action="transfer", token=unlisted, to=_B, amount="1")))
+        assert answer.get("ok") is False and "Unknown stablecoin" in answer.get("error", ""), (network, answer)
+        assert all(driven._get_token_address(t) for t in listed), (network, "a listed token is not found")
+
+    doc = inspect.getdoc(MatrixClient.send_payment) or ""
+    wrong = [f"send_payment() does not name `{t}`" for t in sorted(facts["sdk_tools"]) if f"`{t}`" not in doc]
+    if "stablecoin" in facts["sdk_tools"] and not _NAMES_WHAT_THE_STABLECOIN_TOOL_SENDS.search(doc):
+        wrong.append(f"send_payment() does not say what the `stablecoin` tool sends: {doc!r}")
+    old = ("Ask Neo to send ETH with his `payment` tool, or a token with his `stablecoin` tool, from the "
+           "platform wallet.")
+    assert _says_the_stablecoin_tool_sends_any_token(_flat(old)), "the scan reads less"
+    texts = _public_texts()
+    assert {"README.md", "sdk/README.md", "sdk-js/README.md", "sdk/client.py",
+            "sdk-js/src/client.ts"} <= {rel for rel, _ in texts}, "the scan reads less now"
+    for rel, flat in texts:
+        wrong += [f"{rel}: ...{s[max(0, s.find('`stablecoin`') - 120):s.find('`stablecoin`') + 40]!r}"
+                  for s in _says_the_stablecoin_tool_sends_any_token(flat)]
+    assert not wrong, "\n".join(wrong)
+
+
 def test_no_runtime_text_says_a_recorded_payment_was_sent():
     """The strings the agents and the feed read about the recording capabilities,
     and the services' own docstrings, say they record."""
@@ -777,6 +837,66 @@ def test_the_chat_welcome_says_what_the_pages_payments_answer():
     assert not wrong, "\n".join(wrong)
 
 
+def _payments_items(raw: str) -> list[str]:
+    """Each **Payments** item in *raw*, to the end of its line, a line inside a
+    JSON string (an escaped newline) included."""
+    return [re.split(r"\n|\\n", raw[m.start():], maxsplit=1)[0] for m in re.finditer(r"\*\*Payments\*\*", raw)]
+
+
+def _offers_a_transfer_it_cannot_record(item: str) -> bool:
+    return bool(re.search(r"\bstablecoin transfer", item, re.I)) \
+        and not re.search(r"\brefused for insufficient balance\b", item)
+
+
+def test_each_payments_offer_that_names_a_stablecoin_transfer_says_the_ledger_refuses_it(monkeypatch):
+    """Course 01's expected answer had Trinity list "Recording a cross-border
+    payment or a stablecoin transfer" as something the platform can do. No
+    deployment records a stablecoin transfer: the ledger starts empty, and its
+    one funding helper, set_balance, refuses to run outside the tests unless
+    MATRIX_ALLOW_TEST_MINT is 1, so every transfer is refused for insufficient
+    balance. Trinity's prompt and the chat welcome say so; each **Payments**
+    item in a public text that names a stablecoin transfer is held to it."""
+    import sys
+
+    from runtime.blockchain.services.stablecoin.service import StablecoinService
+
+    problems, _facts = _measure()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    for name in ("PYTEST_CURRENT_TEST", "MATRIX_ALLOW_TEST_MINT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delitem(sys.modules, "pytest")
+    try:
+        StablecoinService(_config()).set_balance(_A, "USDC", 5)
+        funded_outside = True
+    except RuntimeError:
+        funded_outside = False
+    monkeypatch.setenv("MATRIX_ALLOW_TEST_MINT", "1")
+    allowed = StablecoinService(_config())
+    allowed.set_balance(_A, "USDC", 5)  # the gate can say yes, so its no means something
+    assert not funded_outside, "set_balance funds the ledger outside the tests now; re-derive this check"
+
+    old = ("1. **Payments**: Recording a cross-border payment or a stablecoin transfer. Nothing is sent, "
+           "and no value moves\\n2. **Smart Contracts**: Convert")
+    assert [_offers_a_transfer_it_cannot_record(i) for i in _payments_items(old)] == [True], "the check reads less"
+    out = subprocess.check_output(["git", "ls-files", *_PUBLIC], cwd=ROOT, text=True)
+    offering, wrong = set(), []
+    for rel in sorted(set(out.splitlines())):
+        if rel in _NOT_READ or rel.startswith("tests/") or not (ROOT / rel).is_file():
+            continue
+        try:
+            raw = (ROOT / rel).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for item in _payments_items(raw):
+            if re.search(r"\bstablecoin transfer", item, re.I):
+                offering.add(rel)
+            if _offers_a_transfer_it_cannot_record(item):
+                wrong.append(f"{rel}: {item[:160]!r}")
+    assert {"agents/trinity/identity.md", "web/index.html",
+            "education/course-01-intro-to-the-matrix/SOLUTIONS.md"} <= offering, sorted(offering)
+    assert not wrong, "\n".join(wrong)
+
+
 # ── The payment routes the capability map names, driven through the gateway ─
 
 # A value for each body field a payment route's handler requires or its service
@@ -788,19 +908,55 @@ _FIELD_VALUES = {
 }
 _NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 # What the row and the spec entry of a route that records nothing say, with the
-# number of fields its handler requires in words and each answer measured.
+# number of fields its handler requires in words and the answer measured.
 _RECORDS_NOTHING = "records nothing, whatever the body"
-_WELL_FORMED = ("a caller it admits who sends the {n} fields its handler requires, with a numeric amount, "
-                "is answered {status}")
-_LACKS_ONE = "a body that lacks one of them is answered {status}"
-_NOT_A_NUMBER = "one whose amount is not a number is answered {status}"
-# The kinds of body each spec response of such a route names, and what each is.
-_KINDS = {
-    "the {n} fields with a numeric amount": ("handler's", "both"),
-    "a body that lacks one of them": ("service's", "empty"),
-    "a body that is not json": ("not JSON",),
-    "an amount that is not a number": ("amount a word", "amount null"),
-    "a body that is a json number, boolean or null": ("a number", "true", "null"),
+_IN_RANGE = "the {n} fields with an amount that is a number between -1e308 and 1e308"
+_WELL_FORMED = ("a caller it admits who sends the {n} fields its handler requires, with an amount that is a "
+                "number between -1e308 and 1e308, is answered {status}")
+# The kinds of body the spec's responses name. Each response lists kinds
+# separated by semicolons, every body of a kind listed under a status must be
+# answered that status, and every kind here must be listed.
+_KINDS = (
+    "a body that is not json",
+    "a json object that lacks one of the {n} fields",
+    _IN_RANGE,
+    "a body that is a json number, boolean or null",
+    "the {n} fields with an amount that is null, a list or an object",
+)
+# Kinds the row and the spec once named, kept so that a text naming one again is
+# read against every body of it. Driven, each was answered both 400 and 500: an
+# integer amount too large for a float (10**400) is a number and is answered
+# 500; a body that is a JSON number lacks the fields and is answered 500; and an
+# amount of "10", "NaN" or true is not a number and is answered 400.
+_KINDS_ONCE_NAMED = (
+    "the {n} fields with an amount that is a number",
+    "a body that lacks one of the {n} fields",
+    "the {n} fields with an amount that is not a number",
+)
+# Each sentence of the form "... is answered NNN" the row or the spec entry may
+# say, and the kind of body it speaks of. Any other sentence of that form stops
+# the test: what it claims has not been read against the route.
+_CLAIMS = {
+    _WELL_FORMED: _IN_RANGE,
+    "a caller it admits who sends the {n} fields its handler requires, with a numeric amount, is answered {status}":
+        "the {n} fields with an amount that is a number",
+    "a body that lacks one of them is answered {status}": "a body that lacks one of the {n} fields",
+    "one whose amount is not a number is answered {status}": "the {n} fields with an amount that is not a number",
+}
+# Amounts as spelled in the body, and the kinds each makes a body with the
+# handler's other fields one of. NaN and Infinity are no JSON spelling, but
+# Python's json reads them, and so does the gateway; 1e400 is how JSON can
+# spell a number no float holds.
+_A_NUMBER = "the {n} fields with an amount that is a number"
+_NOT_A_NUMBER = "the {n} fields with an amount that is not a number"
+_NULL_LIST_OBJECT = "the {n} fields with an amount that is null, a list or an object"
+_AMOUNTS = {
+    **{raw: (_IN_RANGE, _A_NUMBER) for raw in (
+        "10.5", "0", "-5", "1e-300", "1e308", "-1e308", "1" + "0" * 308, "-1" + "0" * 308, str(2 ** 53 + 1))},
+    **{raw: (_A_NUMBER,) for raw in ("1" + "0" * 400, "-1" + "0" * 400, "1e400", "-1e400")},
+    **{raw: () for raw in ("NaN", "Infinity", "-Infinity")},
+    **{raw: (_NOT_A_NUMBER,) for raw in ('"ten"', '""', '"10"', '" 1e3 "', '"NaN"', '"Infinity"', "true", "false")},
+    **{raw: (_NOT_A_NUMBER, _NULL_LIST_OBJECT) for raw in ("null", "[1]", "[]", '{"value": 10}', "{}")},
 }
 
 
@@ -841,36 +997,61 @@ def _held(service) -> dict:
     return copy.deepcopy({k: v for k, v in vars(service).items() if isinstance(v, (dict, list, set))})
 
 
-def _bodies(required: list[str], takes) -> dict[str, str]:
-    """Each body a payment route is driven with, as the JSON text sent."""
+def _bodies(required: list[str], takes) -> dict[str, tuple[str, frozenset[str]]]:
+    """Each body a payment route is driven with: the text sent, and the kinds of
+    body it is one of."""
     handler_body = {f: _FIELD_VALUES[f] for f in required}
     service_body = {p: _FIELD_VALUES[p] for p in takes if p in _FIELD_VALUES}
-    bodies = {"handler's": handler_body, "service's": service_body,
-              "both": {**service_body, **handler_body}, "empty": {},
-              "a number": 5, "true": True, "null": None, "a list": [1, 2], "a string": "x",
-              "a list of its field names": list(required)}
+    lacks = "a body that lacks one of the {n} fields"
+    in_range = (_IN_RANGE, _A_NUMBER) if "amount" in required else ()
+    bodies: dict[str, tuple[str, frozenset[str]]] = {}
+
+    def add(label: str, body, *kinds: str) -> None:
+        bodies[label] = (json.dumps(body), frozenset(kinds))
+
+    add("handler's", handler_body, *in_range)
+    add("both", {**service_body, **handler_body}, *in_range)
+    add("service's", service_body, "a json object that lacks one of the {n} fields", lacks)
+    add("empty", {}, "a json object that lacks one of the {n} fields", lacks)
+    for field in required:
+        add(f"lacks {field}", {k: v for k, v in handler_body.items() if k != field},
+            "a json object that lacks one of the {n} fields", lacks)
+    for label, body in (("a number", 5), ("a fraction", 5.5), ("true", True), ("false", False), ("null", None)):
+        add(label, body, "a body that is a json number, boolean or null", lacks)
+    for label, body in (("a list", [1, 2]), ("an empty list", []), ("a string", "x"), ("an empty string", "")):
+        add(label, body, lacks)
+    add("a list of its field names", list(required))
+    add("a string of its field names", " ".join(required))
     if "amount" in required:
-        bodies.update({"amount a word": {**handler_body, "amount": "ten"},
-                       "amount null": {**handler_body, "amount": None}})
-    texts = {label: json.dumps(body) for label, body in bodies.items()}
-    texts["not JSON"] = "{not json"
-    return texts
+        spelled = json.dumps({**handler_body, "amount": "AMOUNT"})
+        for raw, kinds in _AMOUNTS.items():
+            label = f"amount {raw}" if len(raw) < 24 else f"amount {raw[:3]}... ({len(raw)} characters)"
+            bodies[label] = (spelled.replace('"AMOUNT"', raw), frozenset(kinds))
+    for label, text in (("not JSON", "{not json"), ("an empty body", ""), ("whitespace", "  \n"),
+                        ("single quotes", "{'amount': 10}")):
+        bodies[label] = (text, frozenset({"a body that is not json"}))
+    return bodies
 
 
 def test_each_payment_route_the_capability_map_names_is_described_by_its_answer():
     """Each POST route a Payments row names is driven, as the operator and
     (where the route admits one) as a session, with the body its handler
     requires, with the service method's own field names, with both, with none,
-    with an amount that is not a number, and with bodies that are not JSON
-    objects or not JSON at all. A route that records is answered 200 with a
-    record that moved nothing, and its spec entry documents 200 and says it
-    records and that no value moves. A route whose service holds the same after
-    every one of those bodies, although the service called with its own field
-    names does record, records nothing: its row and its spec entry say so, say
-    what each kind of body is answered, name the fields the handler passes that
-    the method does not take and the ones the method takes instead, and the spec
-    documents exactly the answers measured. A row that says a capability is
-    refused for insufficient balance is held to the registry's answer for it."""
+    with each field left out, with amounts of every JSON kind (numbers in and
+    out of a float's range, NaN and Infinity, strings, booleans, null, lists and
+    objects), and with bodies that are not JSON objects or not JSON at all. A
+    route that records is answered 200 with a record that moved nothing, and its
+    spec entry documents 200 and says it records and that no value moves. A
+    route whose service holds the same after every one of those bodies, although
+    the service called with its own field names does record, records nothing:
+    its row and its spec entry say so, say what the handler's own fields with a
+    number in range are answered, and name the fields the handler passes that
+    the method does not take and the ones the method takes instead. Every other
+    "is answered" they say is read against every body of the kind it names; the
+    spec documents exactly the statuses measured, and each response names only
+    kinds of body every one of which was answered it. A row that says a
+    capability is refused for insufficient balance is held to the registry's
+    answer for it."""
     import time
 
     import yaml
@@ -914,7 +1095,7 @@ def test_each_payment_route_the_capability_map_names_is_described_by_its_answer(
                 for who, headers in callers.items():
                     if who == "session" and not session_may_reach(path):
                         continue
-                    for label, text in bodies.items():
+                    for label, (text, _kinds) in bodies.items():
                         response = await client.post(path, data=text,
                                                      headers={**headers, "Content-Type": "application/json"})
                         try:
@@ -952,24 +1133,32 @@ def test_each_payment_route_the_capability_map_names_is_described_by_its_answer(
                                  "re-derive this check")
                     continue
                 refused += 1
-                by_kind = {}
-                for kind, labels in _KINDS.items():
-                    got = {answers[(who, label)][0] for (who, label) in answers if label in labels}
-                    if len(got) != 1:
-                        wrong.append(f"{path}: the bodies of one kind ({kind}) answered {sorted(got)}; "
-                                     "re-derive this check")
-                        continue
-                    by_kind[kind] = got.pop()
-                if len(by_kind) != len(_KINDS):
-                    continue
                 n = _NUMBER_WORDS[len(required)]
+                # What every body of each kind was answered, by either caller.
+                got = {kind.format(n=n): {s for (_who, label), (s, _) in answers.items() if kind in bodies[label][1]}
+                       for kind in _KINDS + _KINDS_ONCE_NAMED}
+                for kind in _KINDS:
+                    if len(got[kind.format(n=n)]) != 1:
+                        wrong.append(f"{path}: the bodies of one kind ({kind.format(n=n)}) answered "
+                                     f"{sorted(got[kind.format(n=n)])}; re-derive this check")
+                in_range = got[_IN_RANGE.format(n=n)]
                 for text, where in ((row, "row"), (spec_flat, "spec entry")):
-                    for phrase in (_RECORDS_NOTHING,
-                                   _WELL_FORMED.format(n=n, status=by_kind["the {n} fields with a numeric amount"]),
-                                   _LACKS_ONE.format(status=by_kind["a body that lacks one of them"]),
-                                   _NOT_A_NUMBER.format(status=by_kind["an amount that is not a number"])):
-                        if phrase not in text:
+                    said = text.lower()
+                    for phrase in (_RECORDS_NOTHING, _WELL_FORMED.format(n=n, status=min(in_range, default=0))):
+                        if phrase not in said:
                             wrong.append(f"the {where} for {path} does not say {phrase!r}")
+                    # Every "is answered NNN" is a sentence this check reads, and
+                    # every body of the kind it names was answered that status.
+                    for m in re.finditer(r"\bis answered (\d{3})\b", said):
+                        status = int(m.group(1))
+                        claimed = [kind.format(n=n) for claim, kind in _CLAIMS.items()
+                                   if said[:m.end()].endswith(claim.format(n=n, status=status))]
+                        if not claimed:
+                            wrong.append(f"the {where} for {path} says ...{said[max(0, m.start() - 120):m.end()]!r}, "
+                                         "which this check does not read")
+                        elif got[claimed[0]] != {status}:
+                            wrong.append(f"the {where} for {path} says {claimed[0]!r} is answered {status}; "
+                                         f"its bodies were answered {sorted(got[claimed[0]])}")
                     for field in unbound + instead:
                         if f"`{field}`" not in text:
                             wrong.append(f"the {where} for {path} does not name `{field}`")
@@ -977,10 +1166,20 @@ def test_each_payment_route_the_capability_map_names_is_described_by_its_answer(
                     wrong.append(f"the row does not say POST {path} {_RECORDS_NOTHING}")
                 if set(documented) != {str(s) for s in statuses}:
                     wrong.append(f"{path} answers {sorted(statuses)}; its spec entry documents {sorted(documented)}")
-                for kind, status in by_kind.items():
-                    said = documented.get(str(status), {}).get("description", "").lower()
-                    if kind.format(n=n) not in said:
-                        wrong.append(f"{path}'s spec response {status} does not name {kind.format(n=n)!r}")
+                listed = set()
+                for code, response in documented.items():
+                    for item in response.get("description", "").lower().split(";"):
+                        kind = item.strip().rstrip(".")
+                        listed.add(kind)
+                        if kind not in got:
+                            wrong.append(f"{path}'s spec response {code} names {kind!r}, which this check does not "
+                                         "drive")
+                        elif got[kind] != {int(code)}:
+                            wrong.append(f"{path}'s spec response {code} names {kind!r}, whose bodies were "
+                                         f"answered {sorted(got[kind])}")
+                for kind in _KINDS:
+                    if kind.format(n=n) not in listed:
+                        wrong.append(f"{path}'s spec responses do not name {kind.format(n=n)!r}")
                 if not unbound:
                     wrong.append(f"{path} passes nothing {service_name}.{method} refuses; re-derive this check")
 

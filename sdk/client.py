@@ -305,7 +305,7 @@ class MatrixClient:
         )
 
     async def send_payment(self, to: str, amount: str, token: str = "ETH") -> dict:
-        """Ask Neo to send ETH with his `payment` tool, or a token with his `stablecoin` tool, from the platform wallet. Gas is paid by the platform within its sponsorship policy."""
+        """Ask Neo to send ETH with his `payment` tool, or with his `stablecoin` tool a stablecoin it lists for the network, from the platform wallet. Gas is paid by the platform within its sponsorship policy."""
         if token == "ETH":
             return await self.ablockchain("payment", action="send_eth", to=to, amount=amount)
         return await self.ablockchain("stablecoin", action="transfer", token=token, to=to, amount=amount)

@@ -26,7 +26,7 @@ python -c "import json; data=json.load(open('exercise1_response.json')); print(d
 
 ```json
 {
-  "response": "I'm Trinity, and I can help you with a wide range of blockchain operations on Base. Here's what The Matrix can do:\n\n1. **Payments**: Recording a cross-border payment or a stablecoin transfer. Nothing is sent, and no value moves\n2. **Smart Contracts**: Convert structured descriptions (pseudocode), Solidity or Vyper into Solidity with a Glasswing audit report\n3. **DeFi**: Token swaps, loans against collateral, and staking\n4. **NFTs**: Create, mint, and manage NFTs with on-chain royalties\n5. **DAOs**: Set up governance structures with voting and treasury management\n...",
+  "response": "I'm Trinity, and I can help you with a wide range of blockchain operations on Base. Here's what The Matrix can do:\n\n1. **Payments**: Recording a cross-border payment or a stablecoin transfer. Nothing is sent, and no value moves. The stablecoin ledger starts empty, so a transfer there is refused for insufficient balance\n2. **Smart Contracts**: Convert structured descriptions (pseudocode), Solidity or Vyper into Solidity with a Glasswing audit report\n3. **DeFi**: Token swaps, loans against collateral, and staking\n4. **NFTs**: Create, mint, and manage NFTs with on-chain royalties\n5. **DAOs**: Set up governance structures with voting and treasury management\n...",
   "tool_calls": [],
   "session_id": "exercise-1",
   "agent": "trinity",

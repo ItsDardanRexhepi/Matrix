@@ -538,21 +538,21 @@ paths:
       summary: Component 7 — stablecoin transfer (records nothing; answers 400 or 500)
       description: |
         This route records nothing, whatever the body: a caller it admits who
-        sends the four fields its handler requires, with a numeric amount, is
-        answered 400, because the handler, which requires `sender`,
-        `recipient`, `amount` and `token`, passes `sender` and `recipient` to
-        the stablecoin service's transfer, which takes `from_addr` and
-        `to_addr`; a body that lacks one of them is answered 400, and one whose
-        amount is not a number is answered 500. The `transfer_stablecoin`
-        capability is served through `POST /api/v1/capabilities/{id}/invoke`.
+        sends the four fields its handler requires, with an amount that is a
+        number between -1e308 and 1e308, is answered 400, because the handler,
+        which requires `sender`, `recipient`, `amount` and `token`, passes
+        `sender` and `recipient` to the stablecoin service's transfer, which
+        takes `from_addr` and `to_addr`. Each response below names only kinds
+        of body that are always given it. The `transfer_stablecoin` capability
+        is served through `POST /api/v1/capabilities/{id}/invoke`.
       responses:
         "400":
-          description: The four fields with a numeric amount, a body that lacks one of them, or a body that is not JSON
+          description: A body that is not JSON; a JSON object that lacks one of the four fields; the four fields with an amount that is a number between -1e308 and 1e308
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ErrorResponse"}
         "500":
-          description: An amount that is not a number, or a body that is a JSON number, boolean or null
+          description: A body that is a JSON number, boolean or null; the four fields with an amount that is null, a list or an object
 
   /api/v1/attestation/verify/{uid}:
     get:
