@@ -372,6 +372,111 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             lambda conn: _one_spelling_for_stored_callers(conn),
         ],
     ),
+    # Numbered 11, after the one-spelling rewrite of stored callers (10). The
+    # runner applies every version a database has not recorded, so a second
+    # migration under one number is never applied to a database that recorded
+    # the first, and a fresh database cannot record both. These tables were
+    # numbered 10 before main's rewrite took that number; a database a build
+    # from then opened is given the rewrite by this migration's last step.
+    (
+        11,
+        ("durable execution — workflow_runs, workflow_steps, outbox, idempotency_keys: "
+         "written only while engines.durable.mode is shadow or on"),
+        [
+            # The run journal (runtime/durable/journal.py): one row per
+            # state-modifying ServiceDispatcher.execute and per twin tool
+            # signing call, written only while engines.durable.mode is "shadow"
+            # or "on". `state` is the LIFECYCLE, never a verdict: START (the run
+            # is opened, its call not begun), RUNNING (the call began: from here
+            # it may have acted), then COMPLETE (the call returned an answer,
+            # whatever that answer says), FAIL (the call raised, or the run
+            # ended with no answer recorded — its effect is unknown) or ABORT
+            # (the run ended before its call began). `key` is the scoped
+            # idempotency key digest ("" for none), `decision_ref` the gate
+            # decision's id where the entry point has one. The caller and the
+            # parameters are sha256 digests (the digest evidence_shadow writes):
+            # no raw address and no raw parameter reaches any of these tables.
+            """
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                run_id         TEXT PRIMARY KEY,
+                key            TEXT NOT NULL DEFAULT '',
+                action         TEXT NOT NULL,
+                service        TEXT NOT NULL DEFAULT '',
+                actor_hash     TEXT NOT NULL DEFAULT '',
+                params_digest  TEXT NOT NULL,
+                state          TEXT NOT NULL
+                               CHECK (state IN ('START', 'RUNNING', 'COMPLETE', 'ABORT', 'FAIL')),
+                decision_ref   TEXT NOT NULL DEFAULT '',
+                started_at     REAL NOT NULL,
+                terminal_at    REAL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_workflow_runs_open
+                ON workflow_runs (started_at) WHERE state IN ('START', 'RUNNING')
+            """,
+            # Each run's history, appended and never rewritten. `name` is the
+            # step (start, call, return, raise, abort, unknown_effect, or
+            # outbox:<kind>), `state` a word from a fixed vocabulary (the
+            # dispatcher's settled / broadcast / refused, the tool dispatcher's
+            # success / failure / unknown, …), `detail` a fixed word, a
+            # "sha256:" digest or "raised:" and an exception's class name —
+            # never an exception's message or free text a caller wrote.
+            """
+            CREATE TABLE IF NOT EXISTS workflow_steps (
+                run_id  TEXT NOT NULL,
+                seq     INTEGER NOT NULL,
+                name    TEXT NOT NULL,
+                state   TEXT NOT NULL,
+                detail  TEXT NOT NULL DEFAULT '',
+                at      REAL NOT NULL,
+                PRIMARY KEY (run_id, seq)
+            )
+            """,
+            # The transactional outbox (runtime/durable/outbox.py): a run's
+            # attestation and feed entry, written in the SAME transaction as
+            # the run's terminal state. The row holds a digest of its payload,
+            # never the payload: the payload is held by the process that wrote
+            # the row, and only a row whose payload that process holds, with
+            # that digest, is ever delivered. `done_at` is when the row was
+            # handed off (by the loop in mode on; by the legacy path, at once,
+            # in shadow). A row whose `done_at` and `next_at` are both NULL was
+            # given up; why is on its run's outbox:<kind> step.
+            """
+            CREATE TABLE IF NOT EXISTS outbox (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                payload_digest  TEXT NOT NULL,
+                attempts        INTEGER NOT NULL DEFAULT 0,
+                next_at         REAL,
+                done_at         REAL
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_outbox_due
+                ON outbox (next_at) WHERE done_at IS NULL AND next_at IS NOT NULL
+            """,
+            # Idempotency keys (runtime/durable/keys.py). `key` is a sha256 of
+            # the surface, the caller the gate saw and the client's
+            # Idempotency-Key — never the raw key. The first request under a key
+            # binds it to its run; `response_digest` is the digest of the answer
+            # that request got. The answer itself is held in memory by the
+            # process that gave it, never here.
+            """
+            CREATE TABLE IF NOT EXISTS idempotency_keys (
+                key              TEXT PRIMARY KEY,
+                run_id           TEXT NOT NULL,
+                response_digest  TEXT NOT NULL DEFAULT '',
+                created_at       REAL NOT NULL
+            )
+            """,
+            # A database whose version 10 is the four tables above, recorded by
+            # a build from before they were renumbered, takes the rewrite of
+            # stored callers here, once (see below).
+            lambda conn: _one_spelling_where_ten_was_the_durable_tables(conn),
+        ],
+    ),
 ]
 
 # ── Migration 10: a caller stored in one spelling ────────────────────
@@ -554,6 +659,34 @@ def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
             f"{_is_other_spelling('follower')} OR {_is_other_spelling('followee')} "
             "OR follower = followee")
     _one_spelling(conn, "plugin_purchases", "wallet_address", or_ignore=True)
+
+
+# ── Migration 11: a version 10 that was the durable tables ───────────
+#
+# The durable tables of migration 11 were numbered 10 before the rewrite above
+# took that number. A database a build from then opened recorded version 10
+# with the durable tables' description and never took the rewrite, and the
+# runner, which applies only the versions a database has not recorded, would
+# never give it one. Migration 11's last step gives it the rewrite then, once,
+# in the same transaction as the tables, and records version 10 as the rewrite
+# it now holds. On every other database version 10 is the rewrite already, or
+# not yet recorded and applied before 11, and this step does nothing. Like the
+# shadow logs of 8 and 9, the durable tables keep a caller only as a sha256
+# digest, which the rewrite cannot reach; nothing reads one to decide anything.
+
+_DURABLE_TABLES_DESCRIPTION = "durable execution"
+
+
+def _one_spelling_where_ten_was_the_durable_tables(conn: sqlite3.Connection) -> None:
+    import time as _time
+
+    row = conn.execute("SELECT description FROM schema_version WHERE version = 10").fetchone()
+    if row is None or not str(row[0]).startswith(_DURABLE_TABLES_DESCRIPTION):
+        return
+    _one_spelling_for_stored_callers(conn)
+    rule = next(description for version, description, _ in MIGRATIONS if version == 10)
+    conn.execute("UPDATE schema_version SET description = ?, applied_at = ? WHERE version = 10",
+                 (rule, _time.time()))
 
 
 # The schema_version table itself is bootstrapped by the Database class
