@@ -8,12 +8,13 @@ Pipeline stages:
     1. Exporter      — receives and unpacks exported component bundles
     2. Sanitizer     — re-validates that no private data leaked through
     3. ApprovalGate  — verifies the OTP-verified owner's approval before deploy
-    4. Deployer      — installs the component into the live runtime
+    4. Deployer      — writes the component into the runtime service directory
     5. MobileConverter — converts deployed components for MTRX iOS app
     6. Manifest      — tracks every component's lifecycle status
 
 Owner approval is phone-OTP based (runtime/security/owner.py) — Telegram is gone.
-All attestations are recorded on-chain via EAS (Ethereum Attestation Service).
+Nothing here signs, sends or attests on chain: the deployer hashes each
+deployment's record, and no EAS attestation is made.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ EAS_CONTRACT = "0x4200000000000000000000000000000000000021"
 # schema UID is a chain-specific keccak256 bytes32, NOT an easscan display number
 # like "348"; a fabricated default would name a nonexistent schema. The bridge
 # signs nothing with it: bridge/deployer.py copies it into the record it hashes
-# for a deployment's UID. The platform reads its core schema from
+# for a deployment, and attests nothing. The platform reads its core schema from
 # config["blockchain"]["eas_schema"] (AttestationService and EASClient), and the
 # attestation service refuses an empty or malformed one.
 EAS_SCHEMA_UID: str = ""

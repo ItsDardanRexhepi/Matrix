@@ -28,6 +28,11 @@ blockchain.schemas: the patterns now read every such wording, and schemas.py's
 texts are held to naming blockchain.eas_schema wherever they name
 blockchain.schemas.
 
+The bridge's docstrings said its attestations are recorded on-chain via EAS,
+and its deployer reported attested=True, beside a comment saying the bridge
+signs nothing. The deployer is driven, and the bridge's texts and what the
+deployer reports are read against what it does: it hashes a record.
+
 What this cannot see: a line whose code reference is not written as
 (`file.py` `function`) or names the function outside the parentheses in another
 form than `Class.method`, and a text that puts the primary schema in
@@ -336,7 +341,7 @@ def test_the_schema_module_says_its_primary_entry_is_not_read_from_blockchain_sc
 # real registered UID via config["blockchain"]["schemas"]["primary"] and resolve
 # it through ...get_schema_uid". Nothing in the bridge resolves a schema: the
 # constant is the empty string, nothing assigns it, and bridge/deployer.py only
-# copies it into the record it hashes for a deployment's UID; nothing in bridge/
+# copies it into the record it hashes for a deployment; nothing in bridge/
 # signs, sends or attests. The comment is read against that code.
 
 _SIGNING_CALLS = {"attest", "batch_attest", "send_transaction", "send_raw_transaction",
@@ -398,18 +403,8 @@ def _the_bridge_schema_facts() -> list[str]:
               and getattr(n.target, "id", None) == "EAS_SCHEMA_UID" and isinstance(n.value, ast.Constant)]
     if values != [""]:
         problems.append(f"EAS_SCHEMA_UID is {values}")
-    deployer = ast.parse((ROOT / "bridge" / "deployer.py").read_text(encoding="utf-8"))
-    attest = next((n for n in ast.walk(deployer) if isinstance(n, ast.AsyncFunctionDef)
-                   and n.name == "_attest_deployment"), None)
-    copies = attest is not None and any(
-        isinstance(n, ast.Dict) and any(isinstance(k, ast.Constant) and k.value == "schema_uid"
-                                        and getattr(v, "id", None) == "EAS_SCHEMA_UID"
-                                        for k, v in zip(n.keys, n.values))
-        for n in ast.walk(attest))
-    hashes = attest is not None and any(isinstance(n, ast.Attribute) and n.attr == "sha256"
-                                        for n in ast.walk(attest))
-    if not (copies and hashes):
-        problems.append("bridge/deployer.py _attest_deployment no longer hashes a record holding the schema")
+    if _the_record_hashing_method() is None:
+        problems.append("no method of bridge/deployer.py hashes a record holding the schema now")
     from runtime.blockchain.services.attestation.service import AttestationService
     for empty in ("", "YOUR_EAS_SCHEMA_UID", "0x1234"):
         try:
@@ -418,6 +413,22 @@ def _the_bridge_schema_facts() -> list[str]:
         except ValueError:
             pass
     return problems
+
+
+def _the_record_hashing_method() -> str | None:
+    """The name of the one method in bridge/deployer.py that copies
+    EAS_SCHEMA_UID into a record and hashes it with sha256."""
+    deployer = ast.parse((ROOT / "bridge" / "deployer.py").read_text(encoding="utf-8"))
+    found = []
+    for fn in ast.walk(deployer):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        copies = any(isinstance(n, ast.Dict) and any(
+            isinstance(k, ast.Constant) and k.value == "schema_uid" and getattr(v, "id", None) == "EAS_SCHEMA_UID"
+            for k, v in zip(n.keys, n.values)) for n in ast.walk(fn))
+        if copies and any(isinstance(n, ast.Attribute) and n.attr == "sha256" for n in ast.walk(fn)):
+            found.append(fn.name)
+    return found[0] if len(found) == 1 else None
 
 
 def _the_bridge_schema_comment() -> str:
@@ -447,3 +458,126 @@ def test_the_bridges_schema_comment_says_what_the_bridge_does_with_it():
     if re.search(r"get_schema_uid|\bsupply\b", comment, re.I):
         wrong.append("the comment still tells the reader to supply or resolve the bridge's schema")
     assert not wrong, "\n".join(wrong) + "\n" + comment
+
+
+# ── What the bridge says it does with a deployment ──────────────────────────
+#
+# The bridge's docstring said "All attestations are recorded on-chain via EAS",
+# the deployer's that it "installs approved components into the live runtime",
+# "registers the component with the ServiceRegistry, and records an EAS
+# attestation on-chain", that it deploys only a component with "A valid
+# manifest entry", and its usage note "Component is live"; its hashing
+# method's docstring said "In production this calls the EAS contract on Base
+# mainnet"; the manifest listed an attestation stage after deployment. The
+# method logged "EAS attestation recorded", and the deployment it returned said
+# attested=True and told the owner "EAS Attested: True". Nothing in bridge/
+# signs, sends or attests (measured above): the method hashes a record with
+# sha256, the deployer writes files and looks for no manifest entry, and the
+# service registry's map of services is fixed in its source, so it does not
+# list what the deployer writes.
+
+_SAYS_MORE_THAN_IT_DOES = re.compile(
+    r"\b(?:records?|recorded|makes?|made|creates?|writes?) (?:an |the |one )?EAS attestations?\b"
+    r"|\battestations? (?:are|is|were|was) recorded on-?chain\b|\bEAS attestation (?:recorded|made|written)\b"
+    r"|\bcalls the EAS contract\b|\battested on-?chain\b|\battested:?\s*=?\s*true\b"
+    r"|\bregisters? (?:the|each|a) component with the ServiceRegistry\b|\bdeployment\s*->\s*attestation\b"
+    r"|\binto the live runtime\b|\bcomponent is live\b|\bvalid manifest entry\b", re.I)
+_OLD_BRIDGE_COPY = (
+    "All attestations are recorded on-chain via EAS (Ethereum Attestation Service).",
+    "component with the ServiceRegistry, and records an EAS attestation on-chain.",
+    "Deployment targets the Matrix runtime service directory, registers the\ncomponent with the ServiceRegistry",
+    "Record an EAS attestation for this deployment.",
+    "In production this calls the EAS contract on Base mainnet.",
+    "EAS attestation recorded: schema=%s, attester=%s, uid=%s",
+    "EAS Attested: True",
+    "export -> sanitization -> approval -> deployment -> attestation -> ios_packaging",
+    "Component Deployer — installs approved components into the live runtime.",
+    "# Component is live",
+    "Only deploys components that have: ... 3. A valid manifest entry",
+)
+
+
+def _joined(text: str) -> str:
+    """*text* with its lines joined, and a comment's "#" dropped, so a phrase
+    wrapped across lines reads as one."""
+    return re.sub(r"\s*\n\s*#*\s*", " ", text)
+
+
+def _deploy_one(scratch: Path):
+    """(result, owner messages, log lines) of deploying a clean, approved
+    component into *scratch*."""
+    import asyncio
+    import logging
+
+    from bridge.approval_gate import ApprovalDecision, ApprovalStatus
+    from bridge.deployer import ComponentDeployer
+    from bridge.exporter import ExportBundle
+    from bridge.sanitizer import SanitizationResult
+
+    class _Owner:
+        def __init__(self):
+            self.messages: list[str] = []
+
+        async def broadcast(self, message, **_kwargs):
+            self.messages.append(message)
+
+    class _Lines(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.DEBUG)
+            self.lines: list[str] = []
+
+        def emit(self, record):
+            self.lines.append(record.getMessage())
+
+    owner, lines = _Owner(), _Lines()
+    log = logging.getLogger("bridge.deployer")
+    level = log.level
+    log.addHandler(lines)
+    log.setLevel(logging.DEBUG)
+    try:
+        bundle = ExportBundle(component_name="probe_component", version="1.0.0",
+                              source_files={"service.py": "VALUE = 1\n"}, metadata={}, content_hash="ab" * 32)
+        result = asyncio.run(ComponentDeployer(runtime_dir=str(scratch), notifier=owner).deploy(
+            bundle, SanitizationResult(component_name="probe_component", is_clean=True),
+            ApprovalDecision(component_name="probe_component", version="1.0.0", status=ApprovalStatus.APPROVED)))
+    finally:
+        log.removeHandler(lines)
+        log.setLevel(level)
+    return result, owner.messages, lines.lines
+
+
+def test_the_bridge_says_it_attests_nothing(tmp_path):
+    from runtime.blockchain.services.registry import ServiceRegistry
+
+    problems = _the_bridge_schema_facts()
+    assert not problems, "re-derive this check: " + "; ".join(problems)
+    for old in _OLD_BRIDGE_COPY:
+        assert _SAYS_MORE_THAN_IT_DOES.search(_joined(old)), old
+    result, messages, lines = _deploy_one(tmp_path)
+    assert result.success and (tmp_path / "probe_component" / "service.py").is_file(), result.to_dict()
+    assert "probe_component" not in ServiceRegistry({}).list_services()
+    deployer = ast.parse((ROOT / "bridge" / "deployer.py").read_text(encoding="utf-8"))
+    assert not [n for n in ast.walk(deployer) if isinstance(n, (ast.Name, ast.Attribute))
+                and getattr(n, "id", getattr(n, "attr", "")) in ("ServiceRegistry", "_SERVICE_MAP")], (
+        "the deployer reaches the service registry now; re-derive this check")
+    assert not [n for n in ast.walk(deployer) if isinstance(n, (ast.Import, ast.ImportFrom))
+                and "manifest" in (getattr(n, "module", None) or " ".join(a.name for a in n.names))], (
+        "the deployer reads the manifest now; re-derive this check")
+    marks = [n for rel, text in _tracked_texts() if rel.endswith(".py") and not rel.startswith("tests/")
+             for n in ast.walk(ast.parse(text)) if isinstance(n, ast.Call)
+             and getattr(n.func, "attr", getattr(n.func, "id", None)) == "update_deployment"
+             and any(isinstance(a, ast.Constant) and a.value == "attested" for a in [*n.args, *(
+                 k.value for k in n.keywords)])]
+    assert not marks, "a caller marks a manifest entry attested now; re-derive this check"
+    wrong = []
+    if result.attested or result.attestation_uid:
+        wrong.append(f"a deployment nothing attested answered {result.to_dict()}")
+    for text in messages + lines:
+        if _SAYS_MORE_THAN_IT_DOES.search(text):
+            wrong.append(f"the deployer says: {text!r}")
+    read = [rel for rel, _ in _tracked_texts() if rel.startswith("bridge/")]
+    assert {"bridge/__init__.py", "bridge/deployer.py", "bridge/manifest.py"} <= set(read), read
+    for rel, text in _tracked_texts():
+        if rel.startswith("bridge/"):
+            wrong += [f"{rel}: {m.group(0)!r}" for m in _SAYS_MORE_THAN_IT_DOES.finditer(_joined(text))]
+    assert not wrong, "\n".join(wrong)
