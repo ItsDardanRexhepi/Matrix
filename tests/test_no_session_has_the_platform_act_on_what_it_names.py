@@ -156,7 +156,8 @@ attribute any method of the class writes, a property, an element of a
 a parameter or return annotation, and the arguments every call it places
 hands a parameter, to a fixed point. It reaches, too, what a callable held to
 be called later holds: a method or a function taken as a value and kept on
-``self`` or in a class attribute (by any method of the class family), in a
+``self`` or in a class attribute (set in the class body, or through ``self``
+by any method of the class family), in a
 module name, handed to a parameter that another object keeps, or run by a
 lambda or a def inside the method, alone or inside a dict, a list, a partial
 or any other value. A module name holds every value written into it: by the
@@ -217,9 +218,10 @@ a mapping holds which callable (a call on any element reaches every callable
 the mapping holds); a write into a module name, a class attribute or a held
 table made from another module (``front.HOOKS.append(...)``, or a name
 imported from it), through an alias of it or through a parameter a function
-writes into; a class attribute written through the class's name outside its
-body and its methods (``Front.sink = fn`` at module level or in a function,
-``setattr(Front, "sink", fn)``); a mutator other than the seven named (a
+writes into; any write of a class attribute other than the class body's and
+a method's through ``self`` (through the class's name, ``cls``, ``type(self)``
+or ``setattr``, inside a method or outside one: ``Front.sink = fn``,
+``cls.sink = fn``, ``setattr(Front, "sink", fn)``); a mutator other than the seven named (a
 queue's ``put_nowait``, ``heapq.heappush``); a call made on an HTTP library
 bound by ``__import__`` or ``importlib.import_module`` (a client built from it
 inside ``with`` is read); a ``getattr`` by a computed name in code no action

@@ -487,8 +487,10 @@ check behind it:
   statement or function of that module writes it there, by assignment or
   through `update`, `append`, `extend`, `insert`, `setdefault`, `add` or
   `__setitem__`; a write from another module, through an alias or through
-  a parameter, another mutator, and a class attribute written through the
-  class's name outside its body and methods, are not read),
+  a parameter, another mutator, and any write of a class attribute other
+  than the class body's and a method's through `self` - through the
+  class's name, `cls`, `type(self)` or `setattr`, inside a method or
+  outside one - are not read),
   in a lambda or handed to another object that holds it; an attribute
   `getattr` or `setattr` names by a constant is read as that attribute. It
   fails on any action that reaches what the walks find and is not refused,

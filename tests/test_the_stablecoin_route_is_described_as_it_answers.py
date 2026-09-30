@@ -53,7 +53,8 @@ dark by default, as schema migration 11") the second fails, naming the README
 and docs/api-reference.md, which said a body with the four fields is answered
 400 whatever its amount; it passes here. The review of that change found the
 second accepting the wording "an amount that is a number" without driving it:
-an integer beyond the largest float is a number, and is answered 500. Laid
+an integer beyond the largest float, of up to 4,300 digits, is a number, and is
+answered 500. Laid
 over the commit that made that change ("The texts say which amount the
 stablecoin route answers 400 for, and the gas sentences main merged say what
 the signer does") the second fails, naming the README and
@@ -234,8 +235,8 @@ ANSWERED_400_UNREAD = {
 }
 _FOUR_FIELDS_ANSWERED = re.compile(r"four fields[^.]*?\banswered (\d{3})", re.IGNORECASE)
 _WHICH_AMOUNT = re.compile(r"an amount that is a number between -1e308 and 1e308", re.IGNORECASE)
-#: The wording a number without its range: an integer beyond the largest float
-#: is a number, and is answered 500.
+#: The wording a number without its range: an integer beyond the largest float,
+#: of up to 4,300 digits, is a number, and is answered 500.
 _A_BARE_NUMBER = re.compile(r"an amount that is a number(?! between -1e308 and 1e308)",
                             re.IGNORECASE)
 
