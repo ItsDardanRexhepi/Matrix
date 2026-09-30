@@ -31,11 +31,17 @@ the service's in-memory ledger (tests/test_stablecoin_transfer_is_recorded_not_s
 reads that), and a text that describes the route without naming its path.
 
 THE SECOND TEST reads what the texts say the route ANSWERS. A body with the
-four fields is answered 400 only when its amount is a number: an amount that
-is null, a list, an object or a string that is not a number reaches the
-handler's float() and is answered 500. So each sentence that says what a body
-with the four fields is answered must say which amount, and each kind of body
-gateway/openapi.yaml names under a status is driven and must get that status.
+four fields is answered 400 when the handler's float() reads its amount: a
+number between -1e308 and 1e308 among others (true, false and a string such
+as "5" too). It is answered 500 when float() raises: an amount that is null,
+a list, an object, a string float() cannot read as a number, or an integer
+beyond the largest float (about 1.8e308, of either sign), which is a number.
+So each sentence that says a body with the four fields is answered 400 must
+say which amount, as a number between -1e308 and 1e308, and no text may say
+"an amount that is a number" without that range; each kind of body
+gateway/openapi.yaml names under a status is driven and must get that status,
+and the spec names under each status exactly the kinds driven here; and each
+amount the README and docs/api-reference.md say is answered 500 is driven.
 
 CONTROL. Both tests are [control]s. Laid over the commit before it ("The
 README says which refused actions the component registry still offers") the
@@ -43,7 +49,13 @@ first fails, naming the six texts; it passes here. Laid over the merge of
 main into this branch ("Merge main into fix/oldq-census: durable execution,
 dark by default, as schema migration 11") the second fails, naming the README
 and docs/api-reference.md, which said a body with the four fields is answered
-400 whatever its amount; it passes here.
+400 whatever its amount; it passes here. The review of that change found the
+second accepting the wording "an amount that is a number" without driving it:
+an integer beyond the largest float is a number, and is answered 500. Laid
+over the commit that made that change ("The texts say which amount the
+stablecoin route answers 400 for, and the gas sentences main merged say what
+the signer does") the second fails, naming the README and
+docs/api-reference.md, which gave that wording; it passes here.
 """
 from __future__ import annotations
 
@@ -188,7 +200,7 @@ OPENAPI_KINDS = {
         "a body that is not JSON": b"not json",
         "a JSON object that lacks one of the four fields": dict(_FOUR),
         "the four fields with an amount that is a number between -1e308 and 1e308":
-            [{**_FOUR, "amount": a} for a in (1, 0, -1, 1e308, -1e308, 2.5)],
+            [{**_FOUR, "amount": a} for a in (1, 0, -1, 1e308, -1e308, 2.5, 10**308, -(10**308))],
     },
     "500": {
         "a body that is a JSON number, boolean or null": [5, True, None],
@@ -196,8 +208,19 @@ OPENAPI_KINDS = {
             [{**_FOUR, "amount": a} for a in (None, [1], {})],
     },
 }
+#: The amounts the README and docs/api-reference.md say are answered 500
+#: beside those the spec names, driven.
+ANSWERED_500 = {
+    "a string float() cannot read as a number": ("abc", "", "0x10"),
+    "an integer beyond the largest float (about 1.8e308, of either sign)":
+        (2 * 10**308, 10**309, -(10**309)),
+}
 _FOUR_FIELDS_ANSWERED = re.compile(r"four fields[^.]*?\banswered (\d{3})", re.IGNORECASE)
-_WHICH_AMOUNT = re.compile(r"an amount that is a number", re.IGNORECASE)
+_WHICH_AMOUNT = re.compile(r"an amount that is a number between -1e308 and 1e308", re.IGNORECASE)
+#: The wording a number without its range: an integer beyond the largest float
+#: is a number, and is answered 500.
+_A_BARE_NUMBER = re.compile(r"an amount that is a number(?! between -1e308 and 1e308)",
+                            re.IGNORECASE)
 
 
 async def _answers(monkeypatch, tmp_path, bodies: list) -> list[int]:
@@ -227,10 +250,12 @@ async def _answers(monkeypatch, tmp_path, bodies: list) -> list[int]:
 
 async def test_each_answer_the_texts_give_the_route_is_the_one_it_gives(monkeypatch, tmp_path):
     """[control] Every kind of body the spec names under a status is driven
-    with the operator's key and gets it; a body with the four fields and an
-    amount that is null, a list or a string that is not a number is answered
-    500; and every sentence that says what a body with the four fields is
-    answered says which amount."""
+    with the operator's key and gets it, and the spec names exactly those; a
+    body with the four fields and an amount that is null, a list, a string
+    that is not a number or an integer beyond the largest float is answered
+    500; and every sentence that says a body with the four fields is
+    answered 400 says which amount, a number between -1e308 and 1e308, as no
+    text leaves that range off."""
     import yaml
 
     wrong = []
@@ -243,7 +268,21 @@ async def test_each_answer_the_texts_give_the_route_is_the_one_it_gives(monkeypa
     other = await _answers(monkeypatch, tmp_path / "other", [{**_FOUR, "amount": a}
                                                              for a in (None, "abc", [1])])
     assert set(other) == {500}, f"an amount that is not a number was answered {other}"
+    for kind, amounts in ANSWERED_500.items():
+        got = await _answers(monkeypatch, tmp_path / f"500-{len(kind)}",
+                             [{**_FOUR, "amount": a} for a in amounts])
+        if set(got) != {500}:
+            wrong.append(f"the README says an amount that is {kind} is answered 500; it was answered {got}")
+        for rel in ("README.md", "docs/api-reference.md"):
+            if kind not in " ".join(" ".join(_passages((REPO / rel).read_text())).split()):
+                wrong.append(f"{rel} does not say, where it names the route, that an amount that "
+                             f"is {kind} is answered 500")
     spec = yaml.safe_load((REPO / "gateway" / "openapi.yaml").read_text())["paths"][ROUTE]["post"]
+    for status, kinds in OPENAPI_KINDS.items():
+        named = spec["responses"][status]["description"]
+        if " ".join(named.split()).lower() != "; ".join(kinds).lower():
+            wrong.append(f"gateway/openapi.yaml names under {status} other kinds of body than "
+                         f"are driven here: {named!r}")
     texts = {"gateway/openapi.yaml": " ".join(
         [spec["summary"], spec["description"]]
         + [f"{code}: {r['description']}" for code, r in spec["responses"].items()])}
@@ -253,7 +292,11 @@ async def test_each_answer_the_texts_give_the_route_is_the_one_it_gives(monkeypa
     for rel, text in texts.items():
         flat = " ".join(text.split())
         for claim in _FOUR_FIELDS_ANSWERED.finditer(flat):
-            if not _WHICH_AMOUNT.search(claim.group(0)):
+            if (not _WHICH_AMOUNT.search(claim.group(0)) if claim.group(1) == "400"
+                    else "amount" not in claim.group(0).lower()):
                 wrong.append(f"{rel} says a body with the four fields is answered "
                              f"{claim.group(1)} without saying which amount: {claim.group(0)[:160]}")
+        for bare in _A_BARE_NUMBER.finditer(flat):
+            wrong.append(f"{rel} says {bare.group(0)!r} without its range: "
+                         f"{flat[max(0, bare.start() - 60):bare.end() + 40]}")
     assert not wrong, "\n".join(wrong)

@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,258 tests, run against the versions
+automated suite of 6,282 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -475,40 +475,50 @@ check behind it:
   signing census reads them, walks every HTTP request a services-layer
   method sends, through the shapes it names, and reads what rides in each
   part of each of those requests: a value the request wrote, the
-  platform's configuration, a credential read from it. It follows each
-  method a dispatch can run to what that method hands the call on to
-  inside the services layer: another method of its class, a function, a
-  method of another service or of an object the service holds, the
-  object's class read from what builds it and carried through the forms
-  its docstring names, and a method or a function held on `self`, in a
-  class or a module table, in a lambda or handed to another object that
-  holds it. It fails on any action that reaches what the walks find and
-  is not refused, handed on, bound, held or listed with its reason; on an
-  action that reaches a request whose URL or method the request writes,
-  or that carries a platform credential beside a header, a query name or
-  a body the request writes (or, on anything but a read, a query value),
-  and is not refused, handed on, bound or held, whether or not it is
-  listed as a read; on a table entry the walks do not find; on a call in
-  that reach on an object it cannot place whose method has the name of
-  one that reaches a send; and on a call through a callable held on
-  `self` that it cannot place. A read that carries a platform credential
+  platform's configuration, a credential read from it (a mapping or a
+  sequence splatted into the call counted in every part it could fill,
+  unless it is written out key by key). It follows each method a dispatch
+  can run to what that method hands the call on to inside the services
+  layer: another method of its class, a function, a method of another
+  service or of an object the service holds, the object's class read from
+  what builds it and carried through the forms its docstring names, and a
+  method or a function held on `self`, in a class attribute or a module
+  name (whatever statement of the module, or function, writes it there),
+  in a lambda or handed to another object that holds it; an attribute
+  `getattr` or `setattr` names by a constant is read as that attribute. It
+  fails on any action that reaches what the walks find and is not refused,
+  handed on, bound, held or listed with its reason; on an action that
+  reaches a request whose URL or method the request writes, or that
+  carries a platform credential beside a header, a query name or a body
+  the request writes (or, on anything but a read, a query value), and is
+  not refused, handed on, bound or held, whether or not it is listed as a
+  read; on a table entry the walks do not find; on a call in that reach on
+  an object it cannot place whose method has the name of one that reaches
+  a send; and on a call through a callable held on `self` or in a module
+  name that it cannot place. Anywhere in the services layer, it fails on
+  an attribute or a name looked up or written by what it cannot read
+  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...), on a
+  decorator it does not read, and on an HTTP library used or imported
+  other than by its own name. A read that carries a platform credential
   and only query values the request writes, to an address the platform
   fixes, is kept for a session and listed with its reason: the weather
-  reading and the cross-chain message tracker. It does not read an
-  amount, an object handed in from outside the services layer, code
-  outside it, or a shape it does not name.
+  reading and the cross-chain message tracker. It does not read an amount,
+  an object handed in from outside the services layer, code outside it, or
+  a shape it does not name.
   `POST /api/v1/stablecoin/transfer` is not a session route, and
-  `transfer_stablecoin` is refused to a session at every dispatcher
-  with it: each takes its sender from the request, and nothing binds that
+  `transfer_stablecoin` is refused to a session at every dispatcher with
+  it: each takes its sender from the request, and nothing binds that
   sender to the caller. The route records nothing, for any caller: its
-  handler hands the service's transfer `sender` and `recipient`, which it
-  does not take (it takes `from_addr` and `to_addr`), so a body with the
-  four fields the handler requires and an amount that is a number is
-  answered 400, and one whose amount is null, a list, an object or a
-  string that is not a number is answered 500. The capability
-  records only on the service's in-memory ledger, which starts empty and
-  which only a test helper funds, so for the operator's key it answers
-  that the balance is insufficient. The component registry the app reads offers
+  handler hands the service's transfer `sender` and `recipient`, which
+  it does not take (it takes `from_addr` and `to_addr`), so a body with
+  the four fields the handler requires and an amount that is a number
+  between -1e308 and 1e308 is answered 400, and one whose amount is
+  null, a list, an object, a string float() cannot read as a number, or
+  an integer beyond the largest float (about 1.8e308, of either sign) is
+  answered 500. The capability records only on the service's in-memory
+  ledger, which starts empty and which only a test helper funds, so for
+  the operator's key it answers that the balance is insufficient. The
+  component registry the app reads offers
   none of the actions `runtime/access_policy.py` refuses a session, itself
   or with what it hands the call to; it still offers 22 actions whose
   dedicated routes a session is refused, `transfer_stablecoin` among them,

@@ -67,6 +67,21 @@ driven end to end to the platform's signature. This docstring said a call the
 walk cannot place is recorded, and a call through a ``self`` attribute was
 not.
 
+THE FOURTH DEFECT (the review of the third change). Three shapes still passed
+the census silently, and a sentence of this docstring said more than the walk
+read. It said the walk reaches what a callable kept in a module name holds,
+and the walk read a module name only from an assignment at the top of the
+module: a method appended to a module-level list by a statement, and called
+from a loop over it, was not followed. ``getattr(obj, "send")`` with a
+constant name was neither followed nor recorded. And a request whose URL or
+method the request writes through a ``**`` splat, with no platform credential,
+was read as a body the request writes, which is of the class only with a
+credential. In the services layer's code none of the three reaches a
+signature, a payee or a send the census did not already find: with the walk
+read in full, what every pair reaches, and which requests are of the class,
+are as they were; only the request the oracle's custom type sends, of the
+class already, is now read with the request writing every part of it.
+
 THE CHANGE. ``runtime/access_policy.py`` refuses a session each pair in
 ``REFUSED_TO_A_SESSION``, at every door a session reaches: capability invoke,
 ``/bridge/v1/action``, and the tool dispatcher for ``request_execution`` and
@@ -103,15 +118,22 @@ request names:
     and called by a verb (``get``, ``post``, ``put``, ``patch``, ``delete``,
     ``head``, ``options``; ``request``, ``stream`` or ``send`` with the verb
     as a constant first argument, and otherwise as a verb it cannot read), and
-    a verb called on ``httpx``, ``requests`` or ``aiohttp`` itself. It reports
-    a client factory used any other way, a client name used other than by a
-    verb, and an import of another network library (``urllib``, ``http``,
-    ``socket``, ``websockets``, ``websocket``);
+    a verb called on ``httpx``, ``requests`` or ``aiohttp`` itself, by its own
+    name (a lazy import that returns the library is read where what it returns
+    is bound to that name). It reports a client factory used any other way, a
+    client name used other than by a verb, the library used other than
+    through an attribute of its own name, imported under another name, or a
+    name imported from it other than a client factory, and an import of
+    another network library (``urllib``, ``http``, ``socket``,
+    ``websockets``, ``websocket``);
   * what rides in each of those requests (``Rides``, and the account of it
     beside it below): for its URL, its method, the names and the values of its
     query, its headers and its body, whether a value the request wrote, the
     platform's configuration, or a credential read from it reaches that part,
-    the client's own arguments included. A request is of the class a session
+    the client's own arguments included. A mapping handed to the call with
+    ``**`` is read key by key where it is written out; any other mapping, and a
+    sequence handed with ``*``, may fill any argument, so what reaches it
+    reaches every part. A request is of the class a session
     may not have the platform send when the request writes any part of its URL
     or its method; or when a platform credential rides with it and the request
     writes a header, a query parameter's name or any part of the body, or,
@@ -137,15 +159,32 @@ be called later holds: a method or a function taken as a value and kept on
 ``self`` or in a class attribute (by any method of the class family), in a
 module name, handed to a parameter that another object keeps, or run by a
 lambda or a def inside the method, alone or inside a dict, a list, a partial
-or any other value. A call it cannot place is recorded: a call on an object
-whose class it cannot place, and a call through a ``self`` attribute that
-holds nothing it can place. One whose method has the name of a function that
-reaches a payee, an asset, a contract or a send, a method looked up by a name
-computed at run time, and a call through a ``self`` attribute, fail the
+or any other value. A module name holds every value written into it: by the
+module's statements at any depth (an assignment of any form, a ``for`` or
+``with`` target, ``n[k] = v``, ``n.append(v)`` and the other mutators), by a
+statement of a class body that writes into it, and by any function or lambda
+that declares it ``global`` or writes into it without binding it; and a call
+the module or a class body makes hands a parameter what it passes, as a
+function's call does. An attribute ``getattr`` or ``setattr`` names by a
+constant is read as that attribute (``_NamedByAConstant``). A call it cannot
+place is recorded: a call on an object whose class it cannot place, and a
+call through a ``self`` attribute or a module name that holds nothing it can
+place, made on it, on an element of it, or through a local name read out of
+it. One whose method has the name of a function that reaches a payee, an
+asset, a contract or a send, a method looked up by a name computed at run
+time, and a call through a ``self`` attribute or a module name, fail the
 census where any dispatchable pair reaches them. A class name defined twice,
 a base the walk does not read, an ACTION_MAP pair that names no def the walk
 reads, a service class that binds an action's method name any other way, and
-one that answers an attribute at run time (``__getattr__``) fail it too.
+one that answers an attribute at run time (``__getattr__``) fail it too; and,
+anywhere in the layer, an attribute or a name looked up or written by what
+the walk cannot read (``setattr`` by a computed name, ``vars``, ``globals``,
+``locals``, ``__dict__``, ``__getattribute__``, ``__setattr__``,
+``attrgetter``, ``methodcaller``) and a decorator other than those it reads
+(``property``, ``staticmethod``, ``classmethod``, ``abstractmethod``,
+``dataclass``, ``lru_cache`` and a property's ``setter``, among
+``_READ_DECORATORS``), which could hand the function it decorates to code
+that keeps it.
 
 A call into a held method (the oracle's ``request``) is followed, for a
 session, unless every call on that edge hands the held parameter a constant
@@ -169,19 +208,35 @@ request means beyond where its value comes from (a query value under a name
 the code fixes is kept whatever the name is for); a credential configured
 under a name that does not say it is one and riding only in a URL; an object
 handed in from outside the services layer, and code outside it (a call on
-such an object is recorded, and fails the census by the rules above); a
-request sent by any shape not named above; code replaced at run time. What a
-parameter carries is read for every call together, not call by call, so a
-value one caller hands a helper is taken as what every caller hands it. A
-dedicated ``/api/v1`` route a session reaches runs what its handler pins
-(checked below against the routes the gateway builds, and followed through
-the layer), not what a request names.
+such an object is recorded, and so is a call of one kept on ``self`` or in a
+module name, and each fails the census by the rules above; a call of one a
+parameter or a local name holds, read out of neither, is not); which key of
+a mapping holds which callable (a call on any element reaches every callable
+the mapping holds); a request sent by any shape not named above; code
+replaced at run time. What a parameter carries is read for every call
+together, not call by call, so a value one caller hands a helper is taken as
+what every caller hands it. A dedicated ``/api/v1`` route a session reaches
+runs what its handler pins (checked below against the routes the gateway
+builds, and followed through the layer), not what a request names.
 
-CONTROL. Of this file's 89 tests, 55 are marked [control] and 34 [guard].
+CONTROL. Of this file's 113 tests, 76 are marked [control] and 37 [guard].
 
-Laid over the merge of main into this branch (the commit "Merge main into
+This change reads the services layer as it was; it changes no module of it.
+Run with the walk as it stood at the head the review of the third change read
+("The texts say which amount the stablecoin route answers 400 for, and the gas
+sentences main merged say what the signer does"), 21 fail, each a control
+this change adds: the six planted shapes a module name is written in or an
+attribute named (_WRITTEN_OR_NAMED_SHAPES), the two ``**`` splats, the three
+calls of a callable read out of a holder that holds nothing it can place, the
+seven shapes it cannot read that the guards now report (_UNREAD_PLANTS), and
+the three plants of the review of the third change among the review's
+plants. The other 55 controls and the 37 guards pass there and here. All 113
+pass here.
+
+The change before this one (89 tests: 55 controls and 34 guards), laid over
+the merge of main into this branch (the commit "Merge main into
 fix/oldq-census: durable execution, dark by default, as schema migration
-11"), 8 fail, each a control, each on redstone_request: the class control
+11"), failed 8, each a control, each on redstone_request: the class control
 (the census listed it as a read), the RedStone drive (the bridge answered 200
 and the platform's key went out, from the bridge and from request_execution,
 in a GET at the path the request wrote), the door drive, both chat drives and
@@ -191,15 +246,15 @@ controls were run with the census as it stood there: it reached none of the
 six planted shapes a callable is held in (_HELD_CALLABLE_SHAPES), recorded
 no call through a ``self`` attribute, and reported nothing for four of the
 eleven plants of the review (the three a callable is held in, and the read at
-a path the request writes, listed as a read); those eleven fail there. It
+a path the request writes, listed as a read); those eleven failed there. It
 reported the other seven, as the review found, and each of those seven fails
-here when the part of the census that catches it is taken out: the address
-walk, the payee listing, the placing of a constructor, of a local name, the
-computed-name rule, the name rule, the HTTP walk. The other 29 controls pass
-there as the change before left them. The 34 guards pass there and here. All
-89 pass here.
+when the part of the census that catches it is taken out: the address walk,
+the payee listing, the placing of a constructor, of a local name, the
+computed-name rule, the name rule, the HTTP walk. The other 29 controls
+passed there as the change before left them, and its 34 guards passed there
+and at its head.
 
-The change before this one was measured the same way: this file as it left
+The change before that was measured the same way: this file as it left
 it, 50 tests, laid over the merge of main before it ("Merge main into
 fix/oldq-census: one spelling for a caller, schema migration 10, a fault that
 binds under OBSERVE, and test prose that names a commit by subject") failed
@@ -243,6 +298,51 @@ READ_VERBS = frozenset({"get", "head", "options"})
 #: What an HTTP library offers besides a client and a verb: a timeout, errors.
 _HTTP_NON_SENDERS = frozenset({"ClientTimeout", "Timeout", "HTTPStatusError", "RequestError",
                                "TimeoutException", "ClientError", "ConnectError"})
+
+
+def _constant_name(node) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.isidentifier()
+
+
+class _NamedByAConstant(ast.NodeTransformer):
+    """An attribute a constant names is the attribute it names: ``getattr(x,
+    "name")`` is read as ``x.name`` (with a default, ``x.name or default``),
+    and the statement ``setattr(x, "name", v)`` as ``x.name = v``. What is
+    looked up or written by a name computed at run time is not rewritten (see
+    test_no_attribute_is_named_by_what_the_walk_cannot_read)."""
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        f, args = node.func, node.args
+        if (isinstance(f, ast.Name) and f.id == "getattr" and not node.keywords
+                and len(args) in (2, 3) and _constant_name(args[1])):
+            attr = ast.Attribute(value=args[0], attr=args[1].value, ctx=ast.Load())
+            value = attr if len(args) == 2 else ast.BoolOp(op=ast.Or(), values=[attr, args[2]])
+            return ast.copy_location(value, node)
+        return node
+
+    def visit_Expr(self, node):
+        self.generic_visit(node)
+        call = node.value
+        if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                and call.func.id == "setattr" and not call.keywords and len(call.args) == 3
+                and _constant_name(call.args[1])):
+            target = ast.Attribute(value=call.args[0], attr=call.args[1].value, ctx=ast.Store())
+            return ast.copy_location(ast.Assign(targets=[target], value=call.args[2]), node)
+        return node
+
+
+def read_source(tree):
+    """*tree* (or the source text) as the census reads it: _NamedByAConstant."""
+    tree = ast.parse(tree) if isinstance(tree, str) else tree
+    return ast.fix_missing_locations(_NamedByAConstant().visit(tree))
+
+
+def service_trees() -> dict:
+    """file -> the module as the census reads it, for every module under
+    runtime/blockchain/services/."""
+    return {str(path.relative_to(ROOT)): read_source(path.read_text(encoding="utf-8"))
+            for path in sorted(SERVICES.rglob("*.py"))}
 
 
 def _is_factory(func) -> bool:
@@ -291,18 +391,59 @@ def http_sends(fn) -> list[tuple[int, str]]:
     return out
 
 
-def http_unread(tree) -> list[tuple[int, str]]:
-    """(line, why) for each network use in *tree* the walk does not read."""
+def returns_a_library(trees) -> set:
+    """The names of the functions that return an HTTP library itself (a lazy
+    import): the walk reads what they return where it is bound to the
+    library's own name."""
+    return {fn.name for tree in trees for fn in ast.walk(tree) if isinstance(fn, _FN)
+            for n in signing._own_nodes(fn) if isinstance(n, ast.Return)
+            and isinstance(n.value, ast.Name) and n.value.id in HTTP_MODULES}
+
+
+def http_unread(tree, returners=None) -> list[tuple[int, str]]:
+    """(line, why) for each network use in *tree* the walk does not read.
+    *returners*: returns_a_library over every module read with it."""
     out = []
+    returners = returns_a_library([tree]) if returners is None else returners
     factories_read = {id(item.context_expr.func)
                       for n in ast.walk(tree) if isinstance(n, (ast.With, ast.AsyncWith))
                       for item in n.items if isinstance(item.context_expr, ast.Call)}
+    through = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    parents = {id(c): p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+    # The library tested (``httpx is None``), or returned by a lazy import.
+    through |= {id(c) for p in ast.walk(tree) if isinstance(p, ast.Compare)
+                for c in [p.left, *p.comparators] if isinstance(c, ast.Name)}
+    through |= {id(n.value) for fn in ast.walk(tree) if isinstance(fn, _FN) and fn.name in returners
+                for n in signing._own_nodes(fn) if isinstance(n, ast.Return) and n.value is not None}
     for n in ast.walk(tree):
+        if isinstance(n, ast.Call):
+            name = getattr(n.func, "attr", getattr(n.func, "id", None))
+            held = parents.get(id(n))
+            if name in returners and not (
+                    isinstance(held, (ast.Assign, ast.AnnAssign))
+                    and all(isinstance(t, ast.Name) and t.id in HTTP_MODULES
+                            for t in (held.targets if isinstance(held, ast.Assign) else [held.target]))):
+                out.append((n.lineno, f"{name}() returns an HTTP library, held where the walk does "
+                                      "not read it by the library's own name"))
         if isinstance(n, (ast.Import, ast.ImportFrom)):
             names = [a.name for a in n.names] if isinstance(n, ast.Import) else [n.module or ""]
             for name in names:
                 if name.split(".")[0] in UNREAD_LIBRARIES:
                     out.append((n.lineno, f"a network library the walk does not read ({name})"))
+            # The walk reads an HTTP library by its own name, and a client
+            # factory by a name that ends like one.
+            if isinstance(n, ast.Import):
+                out += [(n.lineno, f"{a.name} imported as {a.asname}") for a in n.names
+                        if a.name.split(".")[0] in HTTP_MODULES and a.asname
+                        and a.asname != a.name]
+            elif (n.module or "").split(".")[0] in HTTP_MODULES:
+                out += [(n.lineno, f"{a.name} imported from {n.module}") for a in n.names
+                        if a.name not in _HTTP_NON_SENDERS
+                        and not ((a.asname or a.name).endswith(CLIENT_FACTORIES)
+                                 and a.name.endswith(CLIENT_FACTORIES))]
+        elif (isinstance(n, ast.Name) and n.id in HTTP_MODULES and isinstance(n.ctx, ast.Load)
+              and id(n) not in through):
+            out.append((n.lineno, f"{n.id} used other than through an attribute"))
         elif isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in HTTP_MODULES:
             if n.attr in _HTTP_NON_SENDERS or n.attr in HTTP_VERBS | VERB_ARGUMENT:
                 continue
@@ -350,6 +491,43 @@ _LIBRARY_BASES = frozenset({"object", "Exception", "ValueError", "RuntimeError",
 _PROPERTIES = frozenset({"property", "cached_property"})
 
 
+def _written(scope) -> list:
+    """(name, value, target) for each write into a name in *scope*'s own body
+    (a module's, a class body's, a function's or a lambda's, at any depth of
+    its statements, not inside a def, a lambda or a class within it): every
+    form that binds the name (an assignment, annotated or augmented or
+    unpacking, ``:=``, a ``for`` or ``with`` target), with *target* None, and
+    every write into what it holds (``n[k] = v``, ``n.attr = v``, ``n.append(v)``
+    and the other mutators), with *target* the subscript, attribute or call."""
+    out = []
+    for n in signing._own_nodes(scope):
+        if isinstance(n, ast.Assign):
+            pairs = [(t, n.value) for t in n.targets]
+        elif isinstance(n, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)) and n.value is not None:
+            pairs = [(n.target, n.value)]
+        elif isinstance(n, (ast.For, ast.AsyncFor)):
+            pairs = [(n.target, n.iter)]
+        elif isinstance(n, (ast.With, ast.AsyncWith)):
+            pairs = [(i.optional_vars, i.context_expr) for i in n.items if i.optional_vars is not None]
+        elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr in signing.MUTATORS):
+            root = signing._root(n.func.value)
+            if root and root[0] == "name":
+                out.append((root[1], ast.Tuple(elts=[*n.args, *(k.value for k in n.keywords)],
+                                               ctx=ast.Load()), n))
+            continue
+        else:
+            continue
+        for t, value in pairs:
+            out += [(name, value, None) for name in signing._stored(t)]
+            for sub in ast.walk(t):
+                if isinstance(sub, (ast.Subscript, ast.Attribute)) and isinstance(sub.ctx, ast.Store):
+                    root = signing._root(sub)
+                    if root and root[0] == "name":
+                        out.append((root[1], value, sub))
+    return out
+
+
 class Layer:
     """Every top-level class and function under runtime/blockchain/services/,
     what each ``self`` attribute, parameter and return can hold of those
@@ -359,9 +537,7 @@ class Layer:
         from runtime.blockchain.services.registry import _SERVICE_MAP
         self.service_class = {svc: cls for svc, (_m, cls) in _SERVICE_MAP.items()}
         self.service_class.update(services or {})
-        if trees is None:
-            trees = {str(path.relative_to(ROOT)): ast.parse(path.read_text(encoding="utf-8"))
-                     for path in sorted(SERVICES.rglob("*.py"))}
+        trees = service_trees() if trees is None else {rel: read_source(t) for rel, t in trees.items()}
         self.trees = trees
         self.classes: dict = {}
         self.duplicates: list = []
@@ -760,44 +936,110 @@ class Layer:
             return set()
         return self.module_held(*imported, seen | {(rel, name)})
 
+    def _context_units(self, rel: str) -> tuple:
+        """(the unit of *rel*'s module level, {class: the unit of its body})."""
+        empty = ast.parse("def _():\n    pass\n").body[0]
+        return (((rel, "<module>"), empty, None, rel, {}),
+                {node.name: ((rel, f"{node.name}.<class>"), empty, node.name, rel, {})
+                 for node in self.trees[rel].body if isinstance(node, ast.ClassDef)})
+
+    def outside_units(self, rel: str):
+        """(node, unit) for each node of *rel* that no top-level function or
+        method holds: the statements of the module and of its classes' bodies,
+        at any depth, and what a lambda among them runs; *unit* is the
+        module's, or the class body's."""
+        tree = self.trees[rel]
+        units = {id(fn) for _key, fn, _cls, r in self.units if r == rel}
+        module_unit, class_units = self._context_units(rel)
+
+        def walk(node, unit):
+            for child in ast.iter_child_nodes(node):
+                if id(child) in units:
+                    continue
+                inner = class_units[child.name] if (node is tree and isinstance(child, ast.ClassDef)) \
+                    else unit
+                yield child, inner
+                yield from walk(child, inner)
+        yield from walk(tree, module_unit)
+
+    def name_writes(self) -> list:
+        """(table, where, value, target, unit) for each write into a module name
+        or a class attribute by its name: ``("module", (file, name))`` or
+        ``("class", (class, name))``. Read from the statements of a module at
+        any depth (every name they bind or write into is the module's), of a
+        top-level class's body (a name it binds is the class's; a name it only
+        writes into, the module's), and of every function and lambda, nested
+        ones included, into a name it declares ``global``, or writes into and
+        does not bind. *target* is the subscript or attribute written, or None
+        for a binding."""
+        out = []
+        unit_of = {id(fn): (key, fn, cls, r, signing._bindings(fn))
+                   for key, fn, cls, r in self.units}
+        for rel, tree in self.trees.items():
+            module_unit, class_units = self._context_units(rel)
+            out += [("module", (rel, name), value, target, module_unit)
+                    for name, value, target in _written(tree)]
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    written = _written(node)
+                    bound = {name for name, _v, target in written if target is None}
+                    out += [("class", (node.name, name), value, target, class_units[node.name])
+                            if name in bound else
+                            ("module", (rel, name), value, target, class_units[node.name])
+                            for name, value, target in written]
+
+            def walk(node, local, unit):
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, (*_FN, ast.Lambda)):
+                        inner = unit_of.get(id(child), unit)
+                        declared = {g for n in signing._own_nodes(child) if isinstance(n, ast.Global)
+                                    for g in n.names}
+                        a = child.args
+                        own = {x.arg for x in a.posonlyargs + a.args + a.kwonlyargs}
+                        own |= {x.arg for x in (a.vararg, a.kwarg) if x is not None}
+                        own = (own | set(signing._bindings(child))) - declared
+                        for name, value, target in _written(child):
+                            if name in declared or (target is not None and name not in local | own):
+                                out.append(("module", (rel, name), value, target, inner))
+                        walk(child, local | own, inner)
+                    else:
+                        inner = (class_units[child.name] if node is tree and isinstance(child, ast.ClassDef)
+                                 else unit)
+                        walk(child, local, inner)
+            walk(tree, frozenset(), module_unit)
+        return out
+
     def _read_callables(self):
         """({(class, attribute): functions}, {(file, name): functions}): what
         each ``self`` or class attribute and each module name holds, from every
         value written to it, to a fixed point."""
         self.callables, self.module_callables, self.param_callables = {}, {}, {}
-        empty = ast.parse("def _():\n    pass\n").body[0]
-        writes = []     # (table, key, value, unit)
-        for rel, tree in self.trees.items():
-            for node in tree.body:
-                if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-                    unit = ((rel, "<module>"), empty, None, rel, {})
-                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                    for t in targets:
-                        writes += [("module", (rel, name), node.value, unit)
-                                   for name in signing._stored(t)]
-                elif isinstance(node, ast.ClassDef):
-                    unit = ((rel, f"{node.name}.<class>"), empty, node.name, rel, {})
-                    for n in node.body:
-                        if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None:
-                            targets = n.targets if isinstance(n, ast.Assign) else [n.target]
-                            for t in targets:
-                                writes += [("class", (node.name, name), n.value, unit)
-                                           for name in signing._stored(t)]
+        writes = [(table, where, value, unit)       # (table, key, value, unit)
+                  for table, where, value, _target, unit in self.name_writes()]
+        self.module_variables = {where for table, where, *_rest in writes if table == "module"}
+
+        def handed(n, unit):
+            # A callable handed to a parameter is held by that parameter.
+            for target, tfn, bound in self.callees(n, unit):
+                names = [a.arg for a in tfn.args.posonlyargs + tfn.args.args]
+                if bound and not any(isinstance(d, ast.Name) and d.id == "staticmethod"
+                                     for d in tfn.decorator_list):
+                    names = names[1:]
+                for name, arg in zip(names, n.args):
+                    if not isinstance(arg, ast.Starred):
+                        writes.append(("param", (target, name), arg, unit))
+                writes.extend(("param", (target, kw.arg), kw.value, unit)
+                              for kw in n.keywords if kw.arg)
+
+        for rel in self.trees:
+            for n, unit in self.outside_units(rel):
+                if isinstance(n, ast.Call):
+                    handed(n, unit)
         for key, fn, cls, rel in self.units:
             unit = (key, fn, cls, rel, signing._bindings(fn))
             for n in ast.walk(fn):
                 if isinstance(n, ast.Call):
-                    # A callable handed to a parameter is held by that parameter.
-                    for target, tfn, bound in self.callees(n, unit):
-                        names = [a.arg for a in tfn.args.posonlyargs + tfn.args.args]
-                        if bound and not any(isinstance(d, ast.Name) and d.id == "staticmethod"
-                                             for d in tfn.decorator_list):
-                            names = names[1:]
-                        for name, arg in zip(names, n.args):
-                            if not isinstance(arg, ast.Starred):
-                                writes.append(("param", (target, name), arg, unit))
-                        writes += [("param", (target, kw.arg), kw.value, unit)
-                                   for kw in n.keywords if kw.arg]
+                    handed(n, unit)
                 if not cls:
                     continue
                 if isinstance(n, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and n.value is not None:
@@ -823,6 +1065,51 @@ class Layer:
         self._taken_memo = {}
         return self.callables, self.module_callables
 
+    # -- a callable held where the walk can place nothing ---------------------
+
+    def module_variable(self, rel: str, name: str, seen=frozenset()):
+        """(file, name) of the module name *name* means in *rel* when it is one
+        something writes (not a def, a class or an import alone), or None."""
+        if (rel, name) in self.module_variables:
+            return (rel, name)
+        imported = self.imports.get(rel, {}).get(name)
+        if imported is None or (rel, name) in seen:
+            return None
+        return self.module_variable(*imported, seen | {(rel, name)})
+
+    def holders(self, expr, unit, handed=frozenset(), seen=frozenset()) -> set:
+        """The ``self`` attributes and module names a callable *expr* is read
+        out of: itself, an element of it (a subscript, ``get``, ``pop``, a
+        loop over it or over its ``values()`` or ``items()``), through local
+        names; *handed* are names a caller hands in (parameters)."""
+        key, fn, cls, rel, bindings = unit
+        if isinstance(expr, (ast.Await, ast.Starred, ast.Subscript)):
+            return self.holders(expr.value, unit, handed, seen)
+        if isinstance(expr, (ast.BoolOp, ast.IfExp, ast.Tuple, ast.List)):
+            parts = ([expr.body, expr.orelse] if isinstance(expr, ast.IfExp)
+                     else expr.values if isinstance(expr, ast.BoolOp) else expr.elts)
+            return set().union(*(self.holders(p, unit, handed, seen) for p in parts))
+        if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute)
+                and expr.func.attr in ("get", "pop", "setdefault", "values", "items", "copy")):
+            return self.holders(expr.func.value, unit, handed, seen)
+        if (isinstance(expr, ast.Attribute) and isinstance(expr.value, ast.Name)
+                and expr.value.id in ("self", "cls") and cls):
+            return set() if expr.attr in self.methods(cls) else {("self", expr.attr)}
+        if isinstance(expr, ast.Name):
+            if expr.id in bindings:
+                return set() if expr.id in seen else set().union(*(
+                    self.holders(v, unit, handed, seen | {expr.id}) for v in bindings[expr.id]
+                    if not isinstance(v, signing._Opaque)))
+            where = None if expr.id in handed else self.module_variable(rel, expr.id)
+            return {("module", where)} if where else set()
+        return set()
+
+    def holds_nothing(self, holder, cls) -> bool:
+        kind, where = holder
+        if kind == "self":
+            return not set().union(*(self.callables.get((c, where), set()) for c in self.family(cls)))
+        return not self.module_callables.get(where)
+
     # -- what each function reaches -----------------------------------------
 
     def _read_edges(self):
@@ -836,6 +1123,23 @@ class Layer:
             lost: list = []
             clients = _clients(fn)
             parents = {id(c): p for p in ast.walk(fn) for c in ast.iter_child_nodes(p)}
+            handed = _all_params(fn) | {x for n in ast.walk(fn) if isinstance(n, (ast.Lambda, *_FN))
+                                        and n is not fn for x in _all_params(n)}
+            for n in ast.walk(fn):
+                # A call through a name or an element of one (not ``self.x(...)``,
+                # read below) that reaches nothing the walk can place, read out
+                # of a self attribute or a module name that holds nothing it
+                # can place: a callable handed in from outside the layer.
+                base = n.func if isinstance(n, ast.Call) else None
+                while isinstance(base, ast.Subscript):
+                    base = base.value
+                if (isinstance(base, ast.Name) and base.id not in ("self", "cls")
+                        and not self.callees(n, unit) and not self.refs(n.func, unit)):
+                    for holder in sorted(self.holders(n.func, unit, handed)):
+                        if self.holds_nothing(holder, cls):
+                            name = (f"self.{holder[1]}" if holder[0] == "self"
+                                    else f"module.{holder[1][1]}")
+                            lost.append((n.lineno, name, ast.unparse(n.func)[:120]))
 
             def site(node):
                 parent = parents.get(id(node))
@@ -1154,6 +1458,15 @@ class Rides:
         taken = set()
         for key, unit in self.units.items():
             taken |= self._taken_as_values(unit)
+        # What the statements of a module or a class body take as a value: a
+        # table of methods, a method handed to a function the module calls.
+        for rel in layer.trees:
+            outside = list(layer.outside_units(rel))
+            skip = {id(n.func) for n, _u in outside if isinstance(n, ast.Call)}
+            skip |= {id(n.value) for n, _u in outside if isinstance(n, ast.Attribute)}
+            for n, unit in outside:
+                if isinstance(n, (ast.Name, ast.Attribute)) and id(n) not in skip:
+                    taken |= layer._taken(n, unit)
         both = (frozenset({REQUEST}), frozenset({REQUEST}))
         for key, unit in self.units.items():
             fn = unit[1]
@@ -1166,21 +1479,14 @@ class Rides:
             for name in self.params[key]:
                 self._add(self.P, (key, name), seed[1])
                 self._add2(self.K, (key, name), seed)
-        empty = ast.parse("def _():\n    pass\n").body[0]
+        # What reaches a module name or a class attribute: every value written
+        # into it (Layer.name_writes), and a key written under, where the code
+        # does not fix it.
         self.statics = []
-        for rel, tree in layer.trees.items():
-            for node in tree.body:
-                if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-                    unit = ((rel, "<module>"), empty, None, rel, {})
-                    for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
-                        self.statics += [((rel, name), node.value, unit) for name in signing._stored(t)]
-                elif isinstance(node, ast.ClassDef):
-                    unit = ((rel, f"{node.name}.<class>"), empty, node.name, rel, {})
-                    for n in node.body:
-                        if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None:
-                            for t in (n.targets if isinstance(n, ast.Assign) else [n.target]):
-                                self.statics += [((node.name, name), n.value, unit)
-                                                 for name in signing._stored(t)]
+        for _table, where, value, target, unit in layer.name_writes():
+            self.statics.append((where, value, unit))
+            if isinstance(target, ast.Subscript) and not isinstance(target.slice, ast.Constant):
+                self.statics.append((where, target.slice, unit))
         self._solve()
 
     def _taken_as_values(self, unit) -> set:
@@ -1545,34 +1851,51 @@ class Rides:
     def carried(self, key, call, verb, factory) -> Carried:
         unit = self.units[key]
         url, method, query, headers, body = [], [], [], [], []
-        args = list(call.args)
-        if call.func.attr in VERB_ARGUMENT and args:
-            method.append(args.pop(0))
-        if args:
-            url.append(args.pop(0))
-        body += args
-        keywords = list(call.keywords)
+        anywhere: list = []     # what may fill any argument: a splat the walk cannot place
+        roles = ([method] if call.func.attr in VERB_ARGUMENT else []) + [url]
+        positional = [(call.args, roles)] + ([(factory.args, [url])] if factory is not None else [])
+        for args, places in positional:
+            for i, arg in enumerate(args):
+                if isinstance(arg, ast.Starred):
+                    # ``*args`` fills this place and any after it.
+                    anywhere.append(arg.value)
+                    break
+                (places[i] if i < len(places) else body).append(arg)
+        keywords = [(kw.arg, kw.value) for kw in call.keywords]
         if factory is not None:
-            keywords += factory.keywords
-            url += factory.args[:1]
-        for kw in keywords:
-            if kw.arg is None:
-                body.append(kw.value)
-            elif kw.arg == "method":
-                method.append(kw.value)
-            elif kw.arg in _URL_ARGUMENTS:
-                url.append(kw.value)
-            elif kw.arg in _QUERY_ARGUMENTS:
-                query.append(kw.value)
-            elif kw.arg in _HEADER_ARGUMENTS:
-                headers.append(kw.value)
-            elif kw.arg not in _INERT_ARGUMENTS:
-                body.append(kw.value)
+            keywords += [(kw.arg, kw.value) for kw in factory.keywords]
+        while keywords:
+            name, value = keywords.pop(0)
+            if name is None:
+                # ``**mapping``: a dict written out is read key by key; any
+                # other mapping may name any argument, so what reaches its
+                # names or its values reaches every part.
+                if isinstance(value, ast.Dict):
+                    for k, v in zip(value.keys, value.values):
+                        if k is None:
+                            keywords.append((None, v))
+                        elif isinstance(k, ast.Constant) and isinstance(k.value, str):
+                            keywords.append((k.value, v))
+                        else:
+                            anywhere += [k, v]
+                else:
+                    anywhere.append(value)
+            elif name == "method":
+                method.append(value)
+            elif name in _URL_ARGUMENTS:
+                url.append(value)
+            elif name in _QUERY_ARGUMENTS:
+                query.append(value)
+            elif name in _HEADER_ARGUMENTS:
+                headers.append(value)
+            elif name not in _INERT_ARGUMENTS:
+                body.append(value)
 
         def union(exprs, read=None):
             return _NOTHING.union(*((read or self.origins)(x, unit) for x in exprs))
-        shapes = [self.keyed(q, unit) for q in query]
-        header_shapes = [self.keyed(h, unit) for h in headers]
+        spread = _NOTHING.union(*(n | v for n, v in (self.keyed(x, unit) for x in anywhere)))
+        shapes = [self.keyed(q, unit) for q in query] + [(spread, spread)]
+        header_shapes = [self.keyed(h, unit) for h in headers] + [(spread, spread)]
         header_parts = _NOTHING.union(*(n | v for n, v in header_shapes))
         # A configured value under a header or query name that says it is a
         # credential is one, whatever the name it was configured under.
@@ -1583,10 +1906,10 @@ class Rides:
                         and CONFIGURATION in self.origins(v, unit)
                         for k, v in zip(x.keys, x.values)):
                     header_parts |= {CREDENTIAL}
-        return Carried(verb, union(url), union(method),
+        return Carried(verb, union(url) | spread, union(method) | spread,
                        _NOTHING.union(*(n for n, _v in shapes)),
                        _NOTHING.union(*(v for _n, v in shapes)),
-                       header_parts, union(body))
+                       header_parts, union(body) | spread)
 
     def sends(self) -> dict:
         """(file, qualified name) -> [Carried] for every function that sends."""
@@ -1611,9 +1934,7 @@ def _layer() -> Layer:
 def all_http_sends(trees: dict | None = None) -> dict:
     """(file, qualified name) -> [(line, verb)] for every top-level function or
     method under the services directory that sends."""
-    if trees is None:
-        trees = {str(path.relative_to(ROOT)): ast.parse(path.read_text(encoding="utf-8"))
-                 for path in sorted(SERVICES.rglob("*.py"))}
+    trees = service_trees() if trees is None else trees
     out = {}
     for rel, tree in sorted(trees.items()):
         for qual, fn, _cls, outer in signing._functions(tree):
@@ -1961,19 +2282,142 @@ def test_a_held_value_runs_no_request_of_the_class():
                 assert hits, (pair, value, "reaches no request of the class")
 
 
+#: Decorators the walk reads: each leaves the def it decorates the function a
+#: call of its name runs, and holds it nowhere else.
+_READ_DECORATORS = frozenset({"property", "cached_property", "staticmethod", "classmethod",
+                              "abstractmethod", "dataclass", "lru_cache", "cache", "wraps",
+                              "total_ordering"})
+#: What looks an attribute or a name up, or writes one, by a name computed at
+#: run time (``getattr`` is read call by call, in _read_edges).
+_NAME_LOOKUP_CALLS = frozenset({"setattr", "delattr", "vars", "globals", "locals",
+                                "attrgetter", "methodcaller"})
+_NAME_LOOKUP_ATTRIBUTES = frozenset({"__dict__", "__getattribute__", "__setattr__",
+                                     "attrgetter", "methodcaller"})
+
+
+def unread_decorators(layer: Layer) -> list[str]:
+    """Each decorator in the layer the walk does not read: one that could
+    hand the function it decorates to code that holds it for later."""
+    out = []
+    for rel, tree in layer.trees.items():
+        for n in ast.walk(tree):
+            if not isinstance(n, (*_FN, ast.ClassDef)):
+                continue
+            for d in n.decorator_list:
+                f = d.func if isinstance(d, ast.Call) else d
+                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+                if isinstance(f, ast.Attribute) and name in ("setter", "getter", "deleter"):
+                    continue
+                if (name in _READ_DECORATORS and not layer.function(rel, name)
+                        and not layer.class_named(rel, name)):
+                    continue
+                out.append(f"{rel}:{d.lineno} @{ast.unparse(d)}")
+    return out
+
+
+def unread_lookups(tree) -> list[tuple[int, str]]:
+    """(line, text) for each lookup or write of an attribute or a name by a
+    name the walk cannot read, in *tree* as the census reads it."""
+    out = []
+    for n in ast.walk(tree):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id in _NAME_LOOKUP_CALLS):
+            out.append((n.lineno, ast.unparse(n)[:120]))
+        elif isinstance(n, ast.Attribute) and n.attr in _NAME_LOOKUP_ATTRIBUTES:
+            out.append((n.lineno, ast.unparse(n)[:120]))
+    return out
+
+
+def test_no_attribute_is_named_by_what_the_walk_cannot_read():
+    """[guard] Fail closed: the walk reads an attribute ``getattr`` or
+    ``setattr`` names by a constant as that attribute, and records a
+    ``getattr`` by a computed name where a function makes it; any other
+    lookup or write by a name (``setattr`` by a computed name, ``vars``,
+    ``globals``, ``__dict__``, ``attrgetter``, ...) is reported, and so is a
+    decorator it does not read."""
+    layer = _layer()
+    found = [f"{rel}:{line} {text}" for rel, tree in layer.trees.items()
+             for line, text in unread_lookups(tree)]
+    assert found == [], found
+    assert unread_decorators(layer) == [], unread_decorators(layer)
+
+
+#: What the census cannot read, planted: shape -> (source, the report that
+#: names it). Each is reported by a guard above.
+_UNREAD_PLANTS = {
+    "the HTTP library under another name": (
+        "import httpx as h\n"
+        "async def send(url):\n"
+        "    return await h.post(url)\n", "http"),
+    "a verb imported from the HTTP library": (
+        "from httpx import post\n"
+        "async def send(url):\n"
+        "    return await post(url)\n", "http"),
+    "the HTTP library handed to a function": (
+        "import httpx\n"
+        "async def send(url):\n"
+        "    return await relay(httpx, url)\n", "http"),
+    "a lazy import of the HTTP library held under another name": (
+        "def _library():\n"
+        "    import httpx\n"
+        "    return httpx\n"
+        "async def send(url):\n"
+        "    h = _library()\n"
+        "    return await h.post(url)\n", "http"),
+    "setattr by a computed name": (
+        "class Front:\n"
+        "    def __init__(self, config, name, fn):\n"
+        "        setattr(self, name, fn)\n", "lookup"),
+    "an attribute read out of vars()": (
+        "class Front:\n"
+        "    async def go(self, name, **p):\n"
+        "        return await vars(self)[name](**p)\n", "lookup"),
+    "a decorator that registers the function it decorates": (
+        "HOOKS = []\n"
+        "def register(fn):\n"
+        "    HOOKS.append(fn)\n"
+        "    return fn\n"
+        "class Front:\n"
+        "    @register\n"
+        "    async def go(self, **p):\n"
+        "        return None\n", "decorator"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_UNREAD_PLANTS))
+def test_the_census_reports_what_it_cannot_read(shape):
+    """[control] Each shape planted is reported: by the network guard (an HTTP
+    library the walk would not read by its own name), by the lookup guard (an
+    attribute named by what the walk cannot read) or by the decorator guard.
+    At the head the review of the third change read ("The texts say which
+    amount the stablecoin route answers 400 for, and the gas sentences main
+    merged say what the signer does") none was reported: there was no lookup
+    or decorator guard, and the network guard read an HTTP library only
+    through an attribute of its own name."""
+    source, report = _UNREAD_PLANTS[shape]
+    tree = read_source(source)
+    if report == "http":
+        assert http_unread(tree), shape
+    elif report == "lookup":
+        assert unread_lookups(tree), shape
+    else:
+        assert unread_decorators(_planted_layer(source)), shape
+
+
 def _unplaced_self_calls(layer: Layer, derived: Derived) -> list[str]:
-    """Calls through a ``self`` attribute that holds nothing the walk can
-    place, in what a dispatchable pair reaches."""
+    """Calls through a ``self`` attribute or a module name that holds nothing
+    the walk can place (directly, through an element of it, or through a
+    local name read out of it), in what a dispatchable pair reaches."""
     reached = set().union(*(layer.reach(node) for node in derived.pairs.values()))
     return sorted(f"{f}:{line} {q}: {text}" for (f, q) in reached
                   for line, name, text in layer.unplaced.get((f, q), [])
-                  if name.startswith("self."))
+                  if name.startswith(("self.", "module.")))
 
 
 def test_no_callable_held_on_self_is_one_the_walk_cannot_place():
-    """[guard] Fail closed: a call through a ``self`` attribute holding a
-    callable the walk cannot place (one handed in from outside the layer) is
-    reported where a dispatchable pair reaches it."""
+    """[guard] Fail closed: a call through a ``self`` attribute or a module
+    name holding a callable the walk cannot place (one handed in from outside
+    the layer) is reported where a dispatchable pair reaches it."""
     assert _unplaced_self_calls(_layer(), derive()) == []
 
 
@@ -2056,6 +2500,24 @@ class Front:
         async with httpx.AsyncClient() as client:
             return await client.get(self._cfg()["base"] + "/status",
                                     headers={"Authorization": self._key})
+
+    async def a_url_through_a_written_out_splat(self, **p):
+        async with httpx.AsyncClient() as client:
+            return await client.get(**{"url": p["url"]})
+
+    async def a_method_through_a_splat_of_a_name(self, **p):
+        options = {"url": p["url"], "method": p.get("verb", "GET")}
+        async with httpx.AsyncClient() as client:
+            return await client.request(**options)
+
+    async def a_url_through_a_starred_argument(self, **p):
+        async with httpx.AsyncClient() as client:
+            return await client.get(*p["where"])
+
+    async def a_key_through_a_splat_beside_a_body(self, **p):
+        auth = {"headers": {"Authorization": self._key}}
+        async with httpx.AsyncClient() as client:
+            return await client.post(self._cfg()["base"], json=p, **auth)
 '''
 #: method -> (of the class, carries a platform credential).
 _PLANTED_SEND_SHAPES = {
@@ -2072,7 +2534,33 @@ _PLANTED_SEND_SHAPES = {
     "a_query_value_under_a_fixed_name": (False, True),
     "a_body_with_no_credential": (False, False),
     "nothing_it_writes": (False, True),
+    "a_url_through_a_starred_argument": (True, False),
+    "a_key_through_a_splat_beside_a_body": (True, True),
 }
+
+
+#: The same, through a ``**`` splat with no platform credential: what the
+#: review of the third change planted past the walk, which read a ``**`` splat
+#: as the body only (a body the request writes is of the class only with a
+#: credential).
+_PLANTED_SPLAT_SHAPES = {
+    "a_url_through_a_written_out_splat": (True, False),
+    "a_method_through_a_splat_of_a_name": (True, False),
+}
+
+
+def _planted_carried(method):
+    if not _PLANTED_SENDS_READ:
+        rel = "runtime/blockchain/services/planted/front.py"
+        layer = Layer({rel: ast.parse(_PLANTED_SENDS)}, services={"front": "Front"})
+        entries = {layer.methods("Front")[m][0]
+                   for m in {**_PLANTED_SEND_SHAPES, **_PLANTED_SPLAT_SHAPES}}
+        _PLANTED_SENDS_READ.append(Rides(layer, entries).sends())
+    sends = _PLANTED_SENDS_READ[0]
+    site = ("runtime/blockchain/services/planted/front.py",
+            "Front._send" if method == "the_key_handed_to_a_helper" else f"Front.{method}")
+    (carried,) = sends[site]
+    return carried
 
 
 @pytest.mark.parametrize("method", sorted(_PLANTED_SEND_SHAPES))
@@ -2080,18 +2568,26 @@ def test_the_walk_reads_what_a_planted_request_carries(method):
     """[guard] Each shape a request carries what the request writes in, or a
     credential, planted: the walk of what rides reads whether it is of the
     class and whether a credential rides with it."""
-    if not _PLANTED_SENDS_READ:
-        rel = "runtime/blockchain/services/planted/front.py"
-        layer = Layer({rel: ast.parse(_PLANTED_SENDS)}, services={"front": "Front"})
-        entries = {layer.methods("Front")[m][0] for m in _PLANTED_SEND_SHAPES}
-        _PLANTED_SENDS_READ.append(Rides(layer, entries).sends())
-    sends = _PLANTED_SENDS_READ[0]
+    carried = _planted_carried(method)
     of_the_class, credential = _PLANTED_SEND_SHAPES[method]
-    site = ("runtime/blockchain/services/planted/front.py",
-            "Front._send" if method == "the_key_handed_to_a_helper" else f"Front.{method}")
-    (carried,) = sends[site]
     assert bool(carried.why()) is of_the_class and carried.credential is credential, (
         method, carried, carried.why())
+
+
+@pytest.mark.parametrize("method", sorted(_PLANTED_SPLAT_SHAPES))
+def test_the_walk_reads_what_a_splat_carries_into_a_request(method):
+    """[control] A splat in a request, planted: a mapping written out with
+    ``**`` is read key by key, and any other mapping or ``*`` sequence may
+    fill any argument, so what reaches it reaches every part. The walk at the
+    head the review read ("The texts say which amount the stablecoin route
+    answers 400 for, and the gas sentences main merged say what the signer
+    does") read a ``**`` splat as the body only, and found neither of these of
+    the class."""
+    carried = _planted_carried(method)
+    of_the_class, credential = _PLANTED_SPLAT_SHAPES[method]
+    assert bool(carried.why()) is of_the_class and carried.credential is credential, (
+        method, carried, carried.why())
+    assert REQUEST in carried.url, (method, carried)
 
 
 _PLANTED_SENDS_READ: list = []
@@ -2169,9 +2665,10 @@ def test_the_oracle_wrappers_reach_nothing_for_a_session():
 
 def test_no_network_use_in_the_services_is_one_the_walk_does_not_read():
     """[guard] Fail closed: a client or a library the walk does not read is reported."""
-    unread = [f"{path.relative_to(ROOT)}:{line} {why}"
-              for path in sorted(SERVICES.rglob("*.py"))
-              for line, why in http_unread(ast.parse(path.read_text(encoding="utf-8")))]
+    trees = service_trees()
+    returners = returns_a_library(trees.values())
+    unread = [f"{rel}:{line} {why}" for rel, tree in trees.items()
+              for line, why in http_unread(tree, returners)]
     assert unread == [], unread
 
 
@@ -2338,6 +2835,50 @@ _PLANTED_HAND_ONS = {
         "        self._middle.set_sink(Back(config).send)\n"
         "    async def go(self, **p):\n"
         "        return await self._middle.fire(p)\n"),
+    # What the review of the third change planted past the walk, and what the
+    # same reading found beside them: a module name written by a statement,
+    # and an attribute named by a constant.
+    "a module-level list a statement appends to, called from a loop": (
+        "HOOKS = []\n"
+        "HOOKS.append(Back.send)\n"
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        for hook in HOOKS:\n"
+        "            return await hook(Back(self.config), **p)\n"),
+    "a method getattr names by a constant": (
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        return await getattr(Back(self.config), 'send')(**p)\n"),
+    "a method setattr puts on self by a constant name": (
+        "class Front:\n"
+        "    def __init__(self, config):\n"
+        "        setattr(self, '_send', Back(config).send)\n"
+        "    async def go(self, **p):\n"
+        "        return await self._send(**p)\n"),
+    "a module-level table a function registers into, called by the module": (
+        "TABLE = {}\n"
+        "def register(name, fn):\n"
+        "    TABLE[name] = fn\n"
+        "register('send', Back.send)\n"
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        return await TABLE['send'](Back(self.config), **p)\n"),
+    "a module name a function declares global and writes": (
+        "SINK = None\n"
+        "def install():\n"
+        "    global SINK\n"
+        "    SINK = Back.send\n"
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        return await SINK(Back(self.config), **p)\n"),
+    "a module-level table written inside a try": (
+        "try:\n"
+        "    SENDERS = {'send': Back.send}\n"
+        "except ImportError:\n"
+        "    SENDERS = {}\n"
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        return await SENDERS['send'](Back(self.config), **p)\n"),
 }
 #: The shapes a callable is held in, planted: the walk at the merge of main
 #: into this branch ("Merge main into fix/oldq-census: durable execution, dark
@@ -2346,6 +2887,16 @@ _HELD_CALLABLE_SHAPES = frozenset({
     "a bound method of another service held on self", "a lambda held on self",
     "a module-level table of methods", "a def inside __init__ held on self",
     "a class-level table of methods", "a method handed to another object, which holds it"})
+#: The shapes a module name is written in, or an attribute named, planted:
+#: the walk at the head the review of the third change read ("The texts say
+#: which amount the stablecoin route answers 400 for, and the gas sentences
+#: main merged say what the signer does") reached none of them.
+_WRITTEN_OR_NAMED_SHAPES = frozenset({
+    "a module-level list a statement appends to, called from a loop",
+    "a method getattr names by a constant", "a method setattr puts on self by a constant name",
+    "a module-level table a function registers into, called by the module",
+    "a module name a function declares global and writes",
+    "a module-level table written inside a try"})
 _PLANTED_BACK = (
     "import httpx\n"
     "class Back:\n"
@@ -2376,7 +2927,9 @@ def test_the_walk_follows_a_planted_hand_on(shape):
     censuses name the shapes they read and claim no more, ...") followed
     ``self``, ``cls`` and module names only, and reached none of them; the
     walk at the merge of main into this branch reached none of the six a
-    callable is held in (_HELD_CALLABLE_SHAPES)."""
+    callable is held in (_HELD_CALLABLE_SHAPES), and the walk at the head
+    the review of the third change read, none of the six a module name is
+    written in or an attribute named (_WRITTEN_OR_NAMED_SHAPES)."""
     layer = _planted_layer(_PLANTED_HAND_ONS[shape])
     start = layer.methods("Front")["go"][0]
     assert ("runtime/blockchain/services/planted/back.py", "Back.send") in layer.reach(start), (
@@ -2410,6 +2963,50 @@ def test_the_walk_records_a_callable_held_on_self_it_cannot_place():
     assert [name for _line, name, _text in layer.unplaced[key]] == ["self._callback"]
 
 
+#: A callable handed in from outside the layer, held on ``self`` or in a module
+#: name, and called through a local name or an element: shape -> (the planted
+#: source, what the walk records).
+_HELD_FROM_OUTSIDE = {
+    "a module name a setter writes, called through a local": (
+        "SINK = None\n"
+        "def set_sink(sink):\n"
+        "    global SINK\n"
+        "    SINK = sink\n"
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        sink = SINK\n"
+        "        return await sink(**p)\n", "module.SINK"),
+    "a module-level list a function appends to, called from a loop": (
+        "HOOKS = []\n"
+        "def add_hook(hook):\n"
+        "    HOOKS.append(hook)\n"
+        "class Front:\n"
+        "    async def go(self, **p):\n"
+        "        for hook in HOOKS:\n"
+        "            await hook(**p)\n", "module.HOOKS"),
+    "a self attribute called through a local": (
+        "class Front:\n"
+        "    def __init__(self, config, callback):\n"
+        "        self._callback = callback\n"
+        "    async def go(self, **p):\n"
+        "        callback = self._callback\n"
+        "        return await callback(**p)\n", "self._callback"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_HELD_FROM_OUTSIDE))
+def test_the_walk_records_a_callable_it_cannot_place_read_out_of_a_holder(shape):
+    """[control] The call is recorded, so the census can fail on it
+    (test_no_callable_held_on_self_is_one_the_walk_cannot_place). The walk at
+    the head the review of the third change read recorded a call through a
+    ``self`` attribute only when made on the attribute itself, and none of
+    these."""
+    source, recorded = _HELD_FROM_OUTSIDE[shape]
+    layer = _planted_layer(source)
+    key = layer.methods("Front")["go"][0]
+    assert [name for _line, name, _text in layer.unplaced[key]] == [recorded], layer.unplaced[key]
+
+
 def test_a_dispatch_table_of_bound_methods_is_followed():
     """[guard] The oracle reaches its handlers through a dict of bound methods."""
     layer = _layer()
@@ -2440,7 +3037,10 @@ def test_the_second_name_of_the_compute_job_is_found():
 # fail on: a pair that reaches a platform-signed payee, asset or contract, or
 # an HTTP send, that nothing decides or lists; a pair that reaches a request of
 # the class; a call it cannot place, by the name rule. An eleventh is the shape
-# of redstone_request, planted as a listed read.
+# of redstone_request, planted as a listed read. The last three are what the
+# review of the third change planted past its census: a list of methods a
+# module-level statement appends to, a method getattr names by a constant,
+# and a listed read whose URL the request writes through a ``**`` splat.
 
 _PLANTED_SERVICE = "runtime/blockchain/services/relay/service.py"
 _PLANTED_RELAY = '''\
@@ -2454,6 +3054,8 @@ from runtime.blockchain.services.storage.service import DecentralizedStorageServ
 TRANSFER = [{"name": "transfer", "type": "function", "inputs": [
     {"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}]}]
 _TABLE = {"breed": NFTLendingService.breed_nft}
+_HOOKS = []
+_HOOKS.append(NFTLendingService.breed_nft)
 
 
 class RelayService:
@@ -2502,9 +3104,21 @@ class RelayService:
         token = self._web3.load_contract(self.config["relay"]["token"], TRANSFER)
         tx = token.functions.transfer(p.get("to"), 1).build_transaction({})
         return await self._web3.send_transaction(tx)
+
+    async def relay_module_list(self, **p):
+        for hook in _HOOKS:
+            return await hook(NFTLendingService(self.config), **p)
+
+    async def relay_getattr_constant(self, **p):
+        return await getattr(NFTLendingService(self.config), "breed_nft")(**p)
+
+    async def fresh_read_through_a_splat(self, **p):
+        async with httpx.AsyncClient() as client:
+            return await client.get(**{"url": p["url"]})
 '''
 #: shape -> (the planted action, what the census reports for it). The first
-#: three passed the census the review ran; the other seven failed it.
+#: three passed the census the review ran, the next seven failed it, and the
+#: last three passed the census the review of the third change ran.
 _PLANTS = {
     "a bound method of another service held on self": ("relay_held_on_self", "open"),
     "a lambda held on self": ("relay_lambda_on_self", "open"),
@@ -2519,8 +3133,15 @@ _PLANTS = {
     "the same transfer, its address listed as a payee": ("fresh_transfer", "open"),
     "a listed read at a path the request writes, with the platform's key": (
         "fresh_read_at_a_written_path", "class"),
+    # The review of the third change: three shapes that passed its census.
+    "a module-level list a statement appends to, called from a loop": (
+        "relay_module_list", "open"),
+    "a method getattr names by a constant": ("relay_getattr_constant", "open"),
+    "a listed read whose URL the request writes through a ** splat": (
+        "fresh_read_through_a_splat", "class"),
 }
-_PLANTED_READ = {("relay", "fresh_read_at_a_written_path"): "a GET of a public package"}
+_PLANTED_READ = {("relay", "fresh_read_at_a_written_path"): "a GET of a public package",
+                 ("relay", "fresh_read_through_a_splat"): "a GET of a public package"}
 _PLANTED: list = []
 
 
@@ -2528,9 +3149,8 @@ def _planted_census():
     """(layer, derived, the address walk's rows) over the tree with the
     planted service beside it; derived once."""
     if not _PLANTED:
-        trees = {str(path.relative_to(ROOT)): ast.parse(path.read_text(encoding="utf-8"))
-                 for path in sorted(SERVICES.rglob("*.py"))}
-        trees[_PLANTED_SERVICE] = ast.parse(_PLANTED_RELAY)
+        trees = service_trees()
+        trees[_PLANTED_SERVICE] = read_source(_PLANTED_RELAY)
         layer = Layer(trees, services={"relay": "RelayService"})
         names = {n.name for n in ast.parse(_PLANTED_RELAY).body[-1].body
                  if isinstance(n, _FN) and not n.name.startswith("_")}
@@ -2551,7 +3171,7 @@ def census_findings(layer: Layer, derived: Derived, listed: dict) -> list[str]:
     out += [f"class {pair}" for pair in sorted(derived.classed)
             if pair not in decided and not _already_refused(pair)]
     out += [f"lost {text}" for text in _lost_calls(layer, derived)]
-    out += [f"held on self {text}" for text in _unplaced_self_calls(layer, derived)]
+    out += [f"held {text}" for text in _unplaced_self_calls(layer, derived)]
     return out
 
 
@@ -2561,10 +3181,13 @@ def test_the_census_fails_on_what_the_review_planted(shape):
     as it is. At the merge of main into this branch ("Merge main into
     fix/oldq-census: durable execution, dark by default, as schema migration
     11") the census reported nothing for the three a callable is held in and
-    for the read at a written path. Each of the other seven stops being
+    for the read at a written path. Each of the next seven stops being
     reported when the part of the census that catches it is taken out (the
     address walk, the HTTP walk, the constructor, local-name and computed-name
-    reading, and the name rule)."""
+    reading, and the name rule). At the head the review of the third change
+    read ("The texts say which amount the stablecoin route answers 400 for,
+    and the gas sentences main merged say what the signer does") the census
+    reported nothing for the last three."""
     layer, derived, unlisted, rows = _planted_census()
     action, report = _PLANTS[shape]
     pair = ("relay", action)
