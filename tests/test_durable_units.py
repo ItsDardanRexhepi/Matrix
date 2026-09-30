@@ -5,8 +5,10 @@ The end-to-end tests drive a dispatch through all of these at once; a defect in
 one part can hide behind another there. These pin each part's own contract,
 measured against the real code over a real platform ``Database``:
 
-  * migration 11 creates exactly the four tables the spec names, with exactly
-    its columns and the CHECK on a run's state, and applying it again — to a
+  * migration 11 creates exactly the four tables, with exactly the columns
+    this build writes (``WRITTEN_COLUMNS``, which the engine checks a database
+    against before it runs over it: ``wiring.TABLE_COLUMNS``) and the CHECK on
+    a run's state, and applying it again — to a
     fresh database, to one reopened, to one whose version row was lost —
     changes nothing it already holds; the tables of earlier migrations are left
     exactly as they were;
@@ -15,8 +17,9 @@ measured against the real code over a real platform ``Database``:
     any of them — digests and fixed words only;
   * ``journal.move`` is a compare-and-set and refuses every transition outside
     ``TRANSITIONS``; ``journal.recover`` closes START → ABORT and RUNNING →
-    FAIL (``unknown_effect``) only for runs older than the window that no live
-    engine holds, and a second pass changes nothing;
+    FAIL (``unknown_effect``), and a START whose steps say its call began as
+    FAIL, only for runs older than the window that no live engine holds, and a
+    second pass changes nothing;
   * ``keys.scoped`` keeps surface, scope and key apart (no two triples collide
     by concatenation), ``valid_client_key`` holds its bounds, ``AnswerCache``
     forgets by age and pushes out the oldest answer first;
@@ -56,14 +59,22 @@ from test_durable_harness import (  # noqa: E402
 
 TABLES = ("workflow_runs", "workflow_steps", "outbox", "idempotency_keys")
 
-SPEC_COLUMNS = {
+#: The columns this build writes. They are the plan's Phase 2 list (the
+#: migration plan's Phase 2 entry) with its digests-only rule applied and with
+#: what nothing here writes left out: the outbox keeps ``payload_digest``, not
+#: ``payload``, and has two kinds, attest and feed — nothing delivers the
+#: plan's ``notify`` yet; a step is ``name``, ``state`` and ``detail`` in place
+#: of the plan's ``kind``, ``payload_digest`` and ``tx_hash``, because a step
+#: records the lifecycle only and a transaction hash is evidence, a later phase;
+#: and a key's ``first_seen`` is ``created_at``.
+WRITTEN_COLUMNS = {
     "workflow_runs": ["run_id", "key", "action", "service", "actor_hash", "params_digest",
                       "state", "decision_ref", "started_at", "terminal_at"],
     "workflow_steps": ["run_id", "seq", "name", "state", "detail", "at"],
     "outbox": ["id", "run_id", "kind", "payload_digest", "attempts", "next_at", "done_at"],
     "idempotency_keys": ["key", "run_id", "response_digest", "created_at"],
 }
-SPEC_PRIMARY_KEYS = {"workflow_runs": ["run_id"], "outbox": ["id"], "idempotency_keys": ["key"]}
+PRIMARY_KEYS = {"workflow_runs": ["run_id"], "outbox": ["id"], "idempotency_keys": ["key"]}
 
 
 #: The durable tables' migration: numbered after the one-spelling rewrite of
@@ -84,15 +95,17 @@ def _schema(db) -> dict[str, str]:
 # ── migration 11 ────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("table", TABLES)
-def test_each_v11_table_has_exactly_the_spec_columns(tmp_path, table):
+def test_each_v11_table_has_exactly_the_columns_this_build_writes(tmp_path, table):
     db = open_db(tmp_path / "a.db")
     info = db.fetchall_sync(f"PRAGMA table_info({table})")
     names = [r["name"] for r in info]
-    assert names == SPEC_COLUMNS[table], (
-        f"{table} has columns {names}; the spec names exactly {SPEC_COLUMNS[table]}")
-    if table in SPEC_PRIMARY_KEYS:
+    assert names == WRITTEN_COLUMNS[table], (
+        f"{table} has columns {names}; this build writes exactly {WRITTEN_COLUMNS[table]}")
+    assert tuple(names) == wiring.TABLE_COLUMNS[table], (
+        f"the engine checks {table} against {wiring.TABLE_COLUMNS[table]}, not its columns")
+    if table in PRIMARY_KEYS:
         pk = [r["name"] for r in sorted(info, key=lambda r: r["pk"]) if r["pk"]]
-        assert pk == SPEC_PRIMARY_KEYS[table], f"{table}'s primary key is {pk}"
+        assert pk == PRIMARY_KEYS[table], f"{table}'s primary key is {pk}"
 
 
 def test_a_run_state_outside_the_five_is_refused_by_the_table_itself(tmp_path):

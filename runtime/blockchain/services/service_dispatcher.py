@@ -1842,7 +1842,8 @@ class ServiceDispatcher:
 
                 if _happened and _owned:
                     _durable.hold(
-                        _run, "attest", _attestation, _durable.deliver_attestation,
+                        _run, "attest", functools.partial(self._queued_attestation, _attestation),
+                        _durable.deliver_attestation,
                         legacy=functools.partial(
                             self._attest_action, action, target_service, params, result,
                             actor=_actor, actor_source=_actor_source,
@@ -2169,6 +2170,23 @@ class ServiceDispatcher:
             },
             "recipient": self._platform_wallet or "0x0",
         }
+
+    def _queued_attestation(self, build: Any) -> dict[str, Any]:
+        """The record engines.durable mode on holds for its outbox: *build*'s
+        record with its schema resolved by the attestation service
+        ``_attest_action`` hands the record to — the same service instance, and
+        the same resolution, it applies before it queues one. A record that
+        service would refuse (a schema that is not configured is refused, not
+        attested against a placeholder) raises here, so the outbox never holds
+        it and the legacy path refuses and logs it exactly as with the mode
+        off: the outbox sends only what the legacy path would have queued."""
+        record = build()
+        service = self._get_registry().get("attestation")
+        resolved = service._resolve_schema(record["schema_uid"])
+        if not isinstance(resolved, str):
+            raise TypeError("the attestation service resolved the schema to "
+                            f"{type(resolved).__name__}, not a UID")
+        return {**record, "schema_uid": resolved}
 
     async def _attest_action(
         self,

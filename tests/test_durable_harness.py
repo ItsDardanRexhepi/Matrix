@@ -74,6 +74,22 @@ class Effects:
                    and (marker is None or (len(e) > 2 and e[2] == marker)))
 
 
+#: The UID the stand-in attestation service resolves the primary schema to.
+PRIMARY_SCHEMA = "0x" + "77" * 32
+
+
+def resolve_schema(schema_uid: str) -> str:
+    """The stand-in attestation service's schema resolution, by the rule the
+    real one applies (``AttestationService._resolve_schema``): "" and "primary"
+    are the primary schema, a well-formed bytes32 UID is itself, and anything
+    else is refused with ValueError."""
+    uid = PRIMARY_SCHEMA if schema_uid in ("", "primary") else str(schema_uid)
+    if not (uid.startswith("0x") and len(uid) == 66
+            and all(c in "0123456789abcdefABCDEF" for c in uid[2:])):
+        raise ValueError(f"EAS schema is not configured: {schema_uid!r}")
+    return uid
+
+
 class Services:
     """A service registry where every method of every service records its
     effect and answers ``answers[action]`` (default: settled), raises when the
@@ -133,7 +149,8 @@ class Services:
 
         def get(name):
             if name == "attestation":
-                return SimpleNamespace(**{**by_service.get("attestation", {}), "attest": attest})
+                return SimpleNamespace(**{**by_service.get("attestation", {}), "attest": attest,
+                                          "_resolve_schema": resolve_schema})
             return SimpleNamespace(**by_service.get(name, {}))
         return SimpleNamespace(get=get)
 

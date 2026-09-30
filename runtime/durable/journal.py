@@ -28,7 +28,8 @@ between, and a START that is never followed by its call is written as START and
 ABORT together, with the step that says why. Only a run another process left
 behind can be found in START or RUNNING; recovery (``recover``) closes it the
 only ways that are true: START → ABORT (its call never began) and RUNNING →
-FAIL with ``unknown_effect`` (it may have acted).
+FAIL with ``unknown_effect`` (it may have acted) — and a START whose own steps
+say its call began, which this engine never writes, as a run whose call began.
 
 Every write here takes a transaction handle (``transaction``), so a caller
 composes a transition with its steps, its outbox rows and its idempotency key
@@ -266,6 +267,12 @@ def recover(tx: Tx, found: list[tuple[str, str, str]], *, now: float) -> dict[st
     * RUNNING → FAIL, step ``unknown_effect``/``no_answer_recorded``: the call
       began and no answer was recorded, so it may have acted. It is not retried,
       and a key bound to it stays bound, so a replay never runs it again.
+    * A run found in START whose own steps say its call began (a ``call`` step)
+      is not one this engine wrote — it writes RUNNING and that step together —
+      and is closed as a run whose call began: START → RUNNING → FAIL in the
+      same transaction, step ``unknown_effect``/``no_answer_recorded`` with
+      ``detail`` ``call_step_found``. Its key stays bound, as a RUNNING run's
+      does, so a row moved back to START never frees a key for a second run.
 
     Deterministic and idempotent: each close is a compare-and-set, so a second
     pass, or another process's, changes nothing."""
@@ -273,7 +280,13 @@ def recover(tx: Tx, found: list[tuple[str, str, str]], *, now: float) -> dict[st
     failed: list[str] = []
     for run_id, state, _key in found:
         seq = next_seq(tx, run_id)
-        if state == START and move(tx, run_id, START, ABORT, at=now):
+        if state == START and call_began(tx, run_id):
+            if move(tx, run_id, START, RUNNING, at=now) and move(tx, run_id, RUNNING, FAIL,
+                                                                 at=now):
+                step(tx, run_id, seq, STEP_UNKNOWN, "no_answer_recorded", at=now,
+                     detail="call_step_found")
+                failed.append(run_id)
+        elif state == START and move(tx, run_id, START, ABORT, at=now):
             step(tx, run_id, seq, STEP_ABORT, "not_attempted", at=now,
                  detail="left_open_past_window")
             aborted.append(run_id)
@@ -282,3 +295,9 @@ def recover(tx: Tx, found: list[tuple[str, str, str]], *, now: float) -> dict[st
                  detail="left_open_past_window")
             failed.append(run_id)
     return {"aborted": aborted, "failed": failed}
+
+
+def call_began(tx: Tx, run_id: str) -> bool:
+    """Does *run_id* hold a ``call`` step — the one written with RUNNING?"""
+    return tx.one("SELECT 1 FROM workflow_steps WHERE run_id = ? AND name = ? LIMIT 1",
+                  (run_id, STEP_CALL)) is not None

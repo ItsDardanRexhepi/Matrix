@@ -35,8 +35,22 @@ harness's stand-ins for the services, the chain and the feed:
 * THE MODE AND /ready. ``durable_mode`` reads the config, the environment wins,
   anything unknown is off; ``/ready`` is 200 while the outbox loop runs and 503
   once it is stopped, cancelled or stale; with the mode off nothing durable is
-  checked; the gateway stops and uninstalls its own engine — only its own — on
+  checked, and in shadow nothing durable ever takes the instance out of
+  rotation; the gateway stops and uninstalls its own engine — only its own — on
   cleanup.
+* A CONFIGURED ON IS NEVER SILENTLY OFF. An empty ``blockchain`` section still
+  builds the engine; an engine that cannot be built, for that or any reason, or
+  over tables of another shape, refuses every action it would own and leaves
+  ``/ready`` at 503; in shadow the gateway then serves as with the mode off.
+* THE CANARY. ``engines.durable.canary`` names the stages mode on covers, first
+  stage first; the first alone owns the twin signing calls and not the
+  dispatcher; anything out of order owns nothing.
+* ROWS ALTERED BY HAND. A bound run's parameter digest rewritten to another
+  body's is a conflict for that body, never the first answer; a run moved back
+  to START whose steps say its call began keeps its key and never runs again.
+* WHAT THE OUTBOX SENDS. Only what the legacy path would have queued: a record
+  the attestation service refuses is refused the same way; an attestation the
+  sponsorship policy refused is given up, not retried.
 
 Why: mode on is the one mode in which the engine holds authority. Every place
 it holds some — whether a call is made, who delivers its records, what a
@@ -60,7 +74,7 @@ sys.path.insert(0, "tests")
 
 from test_durable_harness import (  # noqa: E402
     ACTION_MAP, BROADCAST, OTHER, REFUSED, SETTLED, WALLET, Attestations, Boom, Clock, Effects,
-    Services, bridge_like, drain, engine, installed, open_db, params_for, rows,
+    Services, bridge_like, drain, engine, installed, open_db, params_for, resolve_schema, rows,
 )
 from test_durable_harness import dispatcher as _harness_dispatcher  # noqa: E402
 from runtime.durable import journal, keys, outbox, wiring  # noqa: E402
@@ -106,7 +120,7 @@ def dispatcher(effects: Effects, services: Services | None = None):
 
     def get(name):
         if name == "attestation":
-            return SimpleNamespace(attest=attest)
+            return SimpleNamespace(attest=attest, _resolve_schema=resolve_schema)
         return registry.get(name)
     fixed = SimpleNamespace(get=get)
     d._get_registry = lambda: fixed
@@ -467,9 +481,12 @@ class Gate:
 
 
 @contextlib.asynccontextmanager
-async def gateway(tmp_path, monkeypatch, *, mode: str | None = "on", db_name: str = "a.db"):
+async def gateway(tmp_path, monkeypatch, *, mode: str | None = "on", db_name: str = "a.db",
+                  durable: dict | None = None, extra: dict | None = None):
     """A GatewayServer in *mode* with the harness's stand-ins in place of the
-    services, the chain and the feed; yields ``(server, client, world)``."""
+    services, the chain and the feed; yields ``(server, client, world)``.
+    *durable* adds keys to ``engines.durable``; *extra* adds top-level config
+    sections."""
     from aiohttp.test_utils import TestClient, TestServer
 
     from gateway.server import GatewayServer
@@ -480,7 +497,8 @@ async def gateway(tmp_path, monkeypatch, *, mode: str | None = "on", db_name: st
     config = {**SWEEP_CONFIG, "memory_dir": str(tmp_path),
               "database": {"path": f"{tmp_path}/{db_name}"}}
     if mode is not None:
-        config["engines"] = {"durable": {"mode": mode}}
+        config["engines"] = {"durable": {"mode": mode, **(durable or {})}}
+    config.update(extra or {})
     server = GatewayServer(config)
     server.react_loop.router.health_check = AsyncMock(return_value={"stand_in": True})
     effects = Effects()
@@ -850,3 +868,319 @@ async def test_the_gateway_stops_and_uninstalls_its_own_engine_and_only_its_own(
     finally:
         await stranger_db.close()
     assert wiring.current() is before
+
+
+# ── a configured on is never silently off ──────────────────────────────────
+
+async def test_mode_on_with_an_empty_blockchain_section_builds_and_a_replay_runs_once(
+        tmp_path, monkeypatch):
+    """``blockchain:`` with no value loads as None. The engine is built from
+    such a config all the same, so a replayed key is answered, not run again."""
+    async with gateway(tmp_path, monkeypatch, extra={"blockchain": None}) as (server, client, w):
+        eng = server._durable_engine
+        assert eng is not None and not eng.fault and wiring.current() is eng, (
+            f"mode on with an empty blockchain section built no engine: {eng and eng.fault}")
+        ready = await client.get("/ready")
+        assert ready.status == 200, await ready.text()
+        first_status, first = await _post(client, params_for(ACTION, 1), key="empty-chain")
+        again_status, again = await _post(client, params_for(ACTION, 1), key="empty-chain")
+    assert first_status == again_status == 200 and again["data"] == first["data"], (first, again)
+    assert w.effects.count("service") == 1, f"the replay ran again: {w.effects.log}"
+
+
+async def test_mode_on_whose_engine_cannot_be_built_refuses_its_actions_and_is_not_ready(
+        tmp_path, monkeypatch):
+    """Whatever keeps the engine from being built, a configured on does not
+    serve as off: the actions it would own are refused as a run that cannot be
+    written is refused — not called, "was not run" — and /ready answers 503."""
+    def cannot_build(config):
+        raise RuntimeError("the stand-in batch processor cannot be built")
+    monkeypatch.setattr(
+        "runtime.blockchain.services.attestation.batch_processor.BatchProcessor", cannot_build)
+    async with gateway(tmp_path, monkeypatch) as (server, client, w):
+        eng = server._durable_engine
+        assert eng is not None and eng.fault and wiring.current() is eng, (
+            "a configured on whose engine could not be built installed no engine")
+        ready = await client.get("/ready")
+        assert ready.status == 503 and set(await ready.json()) == {"ready", "ref"}, (
+            ready.status, await ready.text())
+        answers = [await _post(client, params_for(ACTION, 1), key="unbuilt") for _ in range(2)]
+        answers.append(await _post(client, params_for(ACTION, 2), key=None))
+    for status, body in answers:
+        assert status == 503 and body.get("code") == "service_unavailable" and "data" not in body, (
+            status, body)
+    assert w.effects.count("service") == 0, (
+        f"an action ran with the configured engine not built: {w.effects.log}")
+
+
+async def test_an_engine_that_cannot_be_built_does_not_make_a_twin_signing_call(
+        tool_dispatcher):
+    calls = _nft(tool_dispatcher, "returns")
+    unbuilt = DurableEngine.unbuilt(mode="on", canary=wiring.CANARY, fault="stand-in fault")
+    assert not unbuilt.healthy()
+    with installed(unbuilt):
+        outcome = await tool_dispatcher.dispatch(
+            "nft", {"action": "mint", "to": WALLET}, agent_name="neo",
+            caller_identity=WALLET, caller_source="session")
+        read = await tool_dispatcher.dispatch(
+            "nft", {"action": "get_owner", "token_id": 1}, agent_name="neo",
+            caller_identity=WALLET, caller_source="session")
+    assert [c["action"] for c in calls] == ["get_owner"], (
+        f"a signing call was made with the engine not built: {calls}")
+    assert outcome.ok is False and "not made" in outcome.model_text, outcome
+    assert read.ok is True, read
+
+
+@pytest.mark.parametrize("mode", ["on", "shadow"])
+def test_tables_of_another_shape_are_never_run_over(mode, tmp_path):
+    """A database an earlier, unreleased build of this work created keeps its
+    durable tables in that build's shape: ``CREATE TABLE IF NOT EXISTS`` leaves
+    them. No engine runs over them — in on the unbuilt engine refuses, in
+    shadow the build raises and the gateway records nothing."""
+    path = tmp_path / "old-shape.db"
+    raw = sqlite3.connect(str(path))
+    raw.execute("CREATE TABLE idempotency_keys (key TEXT PRIMARY KEY, run_id TEXT, first_seen "
+                "REAL, response_digest TEXT, request_digest TEXT, status TEXT, response TEXT, "
+                "expires_at REAL)")
+    raw.commit()
+    raw.close()
+
+    async def check():
+        database = open_db(path)
+        try:
+            problems = wiring.table_problems(database)
+            assert problems and problems[0].startswith("idempotency_keys has (key, run_id, "
+                                                       "first_seen"), problems
+            config = {"engines": {"durable": {"mode": mode}}}
+            if mode == "shadow":
+                with pytest.raises(wiring.NotBuilt):
+                    wiring.build_engine(config, database)
+                return
+            eng = wiring.build_engine(config, database)
+            assert eng is not None and eng.fault and not eng.healthy(), eng
+            effects = Effects()
+            with installed(eng):
+                answer = json.loads(await bridge_like(dispatcher(effects), ACTION,
+                                                      params_for(ACTION, 1), key="old-shape"))
+            assert answer.get("error_category") == "service_unavailable", answer
+            assert effects.count("service") == 0, effects.log
+        finally:
+            await database.close()
+    asyncio.run(check())
+
+
+def test_the_tables_this_build_writes_are_the_shape_the_engine_checks(tmp_path):
+    async def check():
+        database = open_db(tmp_path / "fresh.db")
+        try:
+            assert wiring.table_problems(database) == []
+        finally:
+            await database.close()
+    asyncio.run(check())
+
+
+# ── shadow never takes an instance out of rotation ─────────────────────────
+
+async def test_shadow_answers_ready_whatever_its_loop_does(tmp_path, monkeypatch):
+    """In shadow the engine owns nothing: its only effect is rows written, so
+    a stopped or stale loop leaves /ready as the mode off leaves it."""
+    async with gateway(tmp_path, monkeypatch, mode="shadow") as (server, client, w):
+        eng = server._durable_engine
+        assert eng is not None and eng.mode == "shadow"
+        assert (await client.get("/ready")).status == 200
+        await eng.loop.stop()
+        assert (await client.get("/ready")).status == 200, (
+            "a stopped shadow loop took the instance out of rotation")
+        eng.start()
+        eng.loop.last_tick_at = eng.loop.last_progress_at = time.time() - 100_000
+        assert (await client.get("/ready")).status == 200, (
+            "a stale shadow loop took the instance out of rotation")
+
+
+async def test_shadow_whose_engine_cannot_be_built_serves_as_off(tmp_path, monkeypatch):
+    def cannot_build(config, db, **kwargs):
+        raise RuntimeError("the stand-in engine cannot be built")
+    monkeypatch.setattr(wiring, "build_engine", cannot_build)
+    before = wiring.current()
+    async with gateway(tmp_path, monkeypatch, mode="shadow") as (server, client, w):
+        assert server._durable_engine is None and wiring.current() is before
+        assert (await client.get("/ready")).status == 200
+        answers = [await _post(client, params_for(ACTION, 1), key="shadow-unbuilt")
+                   for _ in range(2)]
+    assert all(status == 200 and body["ok"] is True for status, body in answers), answers
+    assert w.effects.count("service") == 2, "shadow with no engine did not run as off does"
+    assert all(w.table(t) == [] for t in DURABLE_TABLES)
+
+
+# ── the canary moves in stages ─────────────────────────────────────────────
+
+@pytest.mark.parametrize("config, env, expected", [
+    ({}, None, wiring.CANARY),
+    ({"engines": {"durable": {"canary": "twins"}}}, None, ("twins",)),
+    ({"engines": {"durable": {"canary": " Twins , State_Modifying "}}}, None, wiring.CANARY),
+    ({"engines": {"durable": {"canary": ["twins", "state_modifying"]}}}, None, wiring.CANARY),
+    ({"engines": {"durable": {"canary": "state_modifying"}}}, None, ()),
+    ({"engines": {"durable": {"canary": "state_modifying,twins"}}}, None, ()),
+    ({"engines": {"durable": {"canary": "everything"}}}, None, ()),
+    ({"engines": {"durable": {"canary": []}}}, None, ()),
+    ({"engines": {"durable": {"canary": 7}}}, None, ()),
+    ({"engines": {"durable": {"canary": "twins,state_modifying"}}}, "twins", ("twins",)),
+    ({"engines": {"durable": {"canary": "twins"}}}, "", ("twins",)),
+])
+def test_the_canary_is_its_first_stages_in_order_and_anything_else_owns_nothing(
+        config, env, expected, monkeypatch):
+    monkeypatch.delenv("MATRIX_DURABLE_CANARY", raising=False)
+    if env is not None:
+        monkeypatch.setenv("MATRIX_DURABLE_CANARY", env)
+    assert wiring.durable_canary(config) == expected, (config, env)
+
+
+async def test_the_first_stage_owns_the_twin_signing_calls_and_not_the_dispatcher(
+        db, clock, tool_dispatcher, monkeypatch):
+    """With the canary at its first stage, mode on refuses a twin signing call
+    it cannot record, and a state-modifying dispatch is recorded but not owned:
+    a replayed key runs again, as with the mode off."""
+    eng = wiring.build_engine({"engines": {"durable": {"mode": "on", "canary": "twins"}}}, db,
+                              clock=clock)
+    assert eng.canary == ("twins",) and eng.owns(wiring.TWINS) \
+        and not eng.owns(wiring.STATE_MODIFYING)
+    eng.attestations = Attestations(Effects())
+    effects = Effects()
+    d = dispatcher(effects)
+    with installed(eng):
+        answers = [await bridge_like(d, ACTION, params_for(ACTION, 1), key="stage-one")
+                   for _ in range(2)]
+        calls = _nft(tool_dispatcher, "returns")
+
+        def unwritable(db_, work, *, wait):
+            raise sqlite3.OperationalError("database is locked")
+        monkeypatch.setattr(journal, "transaction", unwritable)
+        outcome = await tool_dispatcher.dispatch(
+            "nft", {"action": "mint", "to": WALLET}, agent_name="neo",
+            caller_identity=WALLET, caller_source="session")
+    assert all(json.loads(a)["status"] == "ok" for a in answers), answers
+    assert effects.count("service", ACTION, 1) == 2, (
+        f"the dispatcher's stage moved before it was named: {effects.log}")
+    assert calls == [] and outcome.ok is False, "the first stage did not own the twin call"
+
+
+async def test_both_stages_own_the_dispatcher_too(db, clock):
+    eng = wiring.build_engine({"engines": {"durable": {"mode": "on",
+                                                       "canary": "twins,state_modifying"}}},
+                              db, clock=clock)
+    eng.attestations = Attestations(Effects())
+    effects = Effects()
+    d = dispatcher(effects)
+    with installed(eng):
+        answers = [await bridge_like(d, ACTION, params_for(ACTION, 1), key="stage-two")
+                   for _ in range(2)]
+    assert answers[0] == answers[1] and effects.count("service", ACTION, 1) == 1, effects.log
+
+
+# ── rows altered by hand ────────────────────────────────────────────────────
+
+async def test_a_bound_row_altered_to_match_another_request_never_hands_it_the_first_answer(
+        db, clock):
+    """The first run's parameter digest rewritten to the second body's: the
+    second body, sent under the same key, is a conflict — never the first
+    answer, and never run."""
+    effects = Effects()
+    d = dispatcher(effects)
+    with installed(eng := engine(db, "on", clock, effects)):
+        first = await bridge_like(d, ACTION, params_for(ACTION, 1), key="altered")
+        await eng.loop.tick()
+        db.execute_sync("UPDATE workflow_runs SET params_digest = ?",
+                        (journal.digest(params_for(ACTION, 2)),))
+        second = json.loads(await bridge_like(d, ACTION, params_for(ACTION, 2), key="altered"))
+    assert json.loads(first)["status"] == "ok"
+    assert second.get("error_category") == "idempotency_conflict", second
+    assert effects.count("service", ACTION, 2) == 0 and effects.count("service") == 1, effects.log
+
+
+async def test_a_run_moved_back_to_start_keeps_its_key_and_never_runs_again(db, clock):
+    """A RUNNING run whose process is gone, its row moved back to START by
+    hand: its steps say its call began, so recovery closes it FAIL with its key
+    still bound, and the replay runs nothing."""
+    effects = Effects()
+    services = Services(effects)
+    d = dispatcher(effects, services)
+    hold = asyncio.Event()
+    services.gates[ACTION] = hold
+    with installed(engine(db, "on", clock, effects)):
+        first = asyncio.ensure_future(bridge_like(d, ACTION, params_for(ACTION, 1),
+                                                  key="moved-back"))
+        for _ in range(50):
+            await asyncio.sleep(0)
+            if [r["state"] for r in rows(db, "workflow_runs")] == [journal.RUNNING]:
+                break
+        first.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await first
+    # The process that held it is gone: a new engine over the same file, and
+    # the row made to look as if its call never began.
+    (run,) = rows(db, "workflow_runs")
+    db.execute_sync("UPDATE workflow_runs SET state = 'START', terminal_at = NULL")
+    db.execute_sync("DELETE FROM workflow_steps WHERE run_id = ? AND name != 'start' "
+                    "AND name != 'call'", (run["run_id"],))
+    later = Clock(clock.now + journal.ABANDONED_AFTER_S + 1)
+    hold.set()          # a replay that did run would reach its effect, not wait
+    with installed(eng := engine(db, "on", later, effects)):
+        closed = eng.maintain()
+        again = json.loads(await bridge_like(d, ACTION, params_for(ACTION, 1), key="moved-back"))
+    assert closed == {"aborted": [], "failed": [run["run_id"]]}, closed
+    (after,) = rows(db, "workflow_runs")
+    assert after["state"] == journal.FAIL, after
+    assert [(s["name"], s["detail"]) for s in journal.get_steps(db, run["run_id"])][-1] == (
+        journal.STEP_UNKNOWN, "call_step_found")
+    assert [k["run_id"] for k in rows(db, "idempotency_keys")] == [run["run_id"]], (
+        "recovery released the key of a run whose call began")
+    assert again.get("error_category") == "idempotency_answer_not_held", again
+    assert effects.count("service", ACTION, 1) == 0, (
+        f"the replay of a run moved back to START ran it: {effects.log}")
+
+
+# ── the outbox sends only what the legacy path would have queued ───────────
+
+async def test_a_record_the_attestation_service_refuses_is_refused_the_same_way_in_mode_on(
+        db, clock):
+    """A schema that is not configured: the attestation service refuses the
+    record before it queues it, and the dispatcher logs that. In mode on the
+    outbox never holds it, so nothing is sent — as with the mode off."""
+    def refusing(schema_uid):
+        raise ValueError("EAS schema is not configured")
+
+    async def run(mode):
+        effects = Effects()
+        d = dispatcher(effects)
+        inner = d._get_registry()
+
+        async def attest(**kwargs):
+            refusing(kwargs.get("schema_uid", ""))
+        service = SimpleNamespace(attest=attest, _resolve_schema=refusing)
+        registry = SimpleNamespace(
+            get=lambda name: service if name == "attestation" else inner.get(name))
+        d._get_registry = lambda: registry
+        eng = None if mode == "off" else engine(db, mode, clock, effects)
+        with installed(eng):
+            answer = await bridge_like(d, ACTION, params_for(ACTION, 1), key=f"schema-{mode}")
+            if eng is not None:
+                await eng.loop.tick()
+        return json.loads(answer), effects
+    off_answer, off_effects = await run("off")
+    on_answer, on_effects = await run("on")
+    assert off_answer["status"] == on_answer["status"] == "ok"
+    assert on_effects.count("attest_sent") == off_effects.count("attest_sent") == 0, (
+        f"mode on sent an attestation the service refuses: {on_effects.log}")
+    assert on_effects.count("attest") == off_effects.count("attest") == 0
+    assert [r["kind"] for r in rows(db, "outbox")] == ["feed"], rows(db, "outbox")
+
+
+async def test_an_attestation_the_policy_refused_is_given_up_not_retried(db, clock):
+    effects = Effects()
+    chain = Attestations(effects)
+    chain.answers = [{"status": "refused", "sponsorship_refused": True,
+                      "sponsorship": {"code": "not_allowlisted"}}]
+    eng = DurableEngine(db, mode="on", clock=clock, attestations=chain)
+    delivery = await eng.deliver_attestation({"schema_uid": "0x" + "77" * 32,
+                                              "data": {"action": ACTION}, "recipient": WALLET})
+    assert (delivery.outcome, delivery.detail) == (outbox.GIVEN_UP, "refused_by_policy")

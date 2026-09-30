@@ -280,19 +280,23 @@ dispatcher the same way.
 `engines.durable.mode` is `shadow` or `on`; at `off`, the default, the header
 is not read. A key is scoped to its caller (the kind of credential, and the
 subject a session was issued to or, for the operator key, the user it names),
-and it is read after the security gate: a replay is gated again like any
-request. At `shadow`
+in the platform's one spelling of a caller: every spelling of one wallet
+address is one caller, and an `apple:` subject or a name is kept as given, so
+two that differ only in case are two callers with two scopes. It is read after
+the security gate: a replay is gated again like any request. At `shadow`
 the key is recorded against the first request that used it and nothing
-changes: a replay runs again. At `on`, a state-modifying action runs once
-under a key. A later request with the same key and body runs nothing and gets
+changes: a replay runs again. At `on`, with the canary at its second stage
+(`engines.durable.canary`, both stages by default), a state-modifying action
+runs once under a key. A later request with the same key and body runs nothing and gets
 the first answer, byte for byte, while the process that gave it still holds it
 (up to 24 hours, the latest 4,096 answers); otherwise it answers **422** with
 `code` `idempotency_in_progress` (the first has not answered yet),
 `idempotency_conflict` (the key was used for another action or other
 parameters) or `idempotency_answer_not_held`. A key that is not 1 to 255
 printable ASCII characters, with no leading or trailing space, answers
-**400** `validation`, and an action whose run cannot be recorded first is not
-run and answers **503** `service_unavailable`.
+**400** `validation`, and an action whose run cannot be recorded first — or
+any action the engine owns when it could not be built — is not run and answers
+**503** `service_unavailable`.
 
 A refusal the service RETURNS — `not_deployed` above all — is not one of those
 statuses, and this route answered `200 {"status": "ok"}` over it while the

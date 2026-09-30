@@ -20,7 +20,10 @@ stand-ins for the services, the chain and the feed:
 2. HOSTILE ROWS. An outbox row the engine did not write for a payload it holds
    (an unknown run, a real run with a forged digest, a duplicate of a delivered
    row, a row for a FAIL run, a held row tampered with) is delivered to nobody
-   and never calls a service: it is given up.
+   and never calls a service: it is given up. Rows of its own changed by hand
+   are pinned in tests/test_durable_on.py (a bound run's parameters rewritten,
+   a run moved back to START); the one change no table can stand against, the
+   key's own row deleted, is stated in the README, not claimed away here.
 3. A RAISED SINK. ``journal.transaction`` raising at each write point (open,
    the key bind, finish, fail, abort, the key's answer, recovery, the outbox's
    claim, settle and give-up) never makes a second service call and never a
@@ -32,7 +35,8 @@ stand-ins for the services, the chain and the feed:
    access policy, the vocabulary or a service, or calls a gate function.
 6. THE GATE IS NOT BYPASSED. Through the real bridge, a request the gate blocks
    opens no run and binds no key, and a replay the gate refuses is refused.
-7. The three invariant test files are byte-identical to main.
+7. The three invariant test files are byte-identical to the target branch's
+   copies, wherever this runs.
 
 Why: mode on hands the engine lifecycle authority, and these are the ways that
 authority could leak into a decision it does not own — a live dict shared with
@@ -46,6 +50,7 @@ import asyncio
 import contextlib
 import copy
 import gc
+import hashlib
 import json
 import sqlite3
 import subprocess
@@ -62,7 +67,7 @@ sys.path.insert(0, "tests")
 
 from test_durable_harness import (  # noqa: E402
     ACTION_MAP, STATE_MODIFYING, WALLET, Attestations, Boom, Clock, Effects, Feed, Services,
-    bridge_like, engine, installed, open_db, open_runs, params_for, rows, snapshot,
+    bridge_like, engine, installed, open_db, open_runs, params_for, resolve_schema, rows, snapshot,
 )
 from test_durable_harness import dispatcher as _harness_dispatcher  # noqa: E402
 from runtime.durable import journal, keys, outbox, wiring  # noqa: E402
@@ -123,7 +128,7 @@ def dispatcher(effects: Effects, services: Services | None = None, *,
         if name in unavailable:
             raise KeyError(f"service {name!r} is not registered")
         if name == "attestation":
-            return SimpleNamespace(attest=attest)
+            return SimpleNamespace(attest=attest, _resolve_schema=resolve_schema)
         return inner.get(name)
     registry = SimpleNamespace(get=get)
     d._get_registry = lambda: registry
@@ -854,8 +859,14 @@ async def test_concurrent_requests_under_one_key_call_once(db, clock):
 
 # ── 5. nothing in runtime/durable reaches for authority ─────────────────────
 
+#: What runtime/durable may import beyond the standard library and itself: the
+#: outcome vocabulary it reads words from, the twin tools' signing list, the
+#: batch processor whose submission path delivers an attestation, and the one
+#: spelling of a caller (runtime/auth/identity.py), which scopes a key and
+#: decides nothing.
 ALLOWED_IMPORTS = ("runtime.protocols.outcome_truth", "runtime.security.action_map",
-                   "runtime.blockchain.services.attestation.batch_processor")
+                   "runtime.blockchain.services.attestation.batch_processor",
+                   "runtime.auth.identity")
 GATE_FUNCTIONS = {"gate_action", "evaluate", "pre_action"}
 
 
@@ -869,7 +880,7 @@ def _imports(tree: ast.AST) -> list[str]:
     return found
 
 
-def test_runtime_durable_imports_only_the_stdlib_itself_and_three_named_modules():
+def test_runtime_durable_imports_only_the_stdlib_itself_and_four_named_modules():
     sources = sorted(DURABLE_DIR.glob("*.py"))
     assert {p.name for p in sources} >= {"journal.py", "outbox.py", "keys.py", "wiring.py"}
     offending = []
@@ -1027,13 +1038,62 @@ INVARIANT_FILES = ("tests/test_a_broadcast_is_not_a_settlement.py",
                    "tests/test_gate_fault_fail_direction.py")
 
 
+#: sha256 of each invariant file as the target branch holds it, for a checkout
+#: in which no ref of that branch can be read. Kept equal to the branch's own
+#: copy by the test below wherever the branch can be read, so it never goes
+#: stale unnoticed.
+INVARIANT_DIGESTS = {
+    "tests/test_a_broadcast_is_not_a_settlement.py":
+        "35d3c399849645d281c091718038addab3431769e15386a30feabbea4fb10f98",
+    "tests/test_a_record_says_what_happened.py":
+        "a921361c6b153cb9ac8b9c2df7eb509e511018aa9e8189b5b5da3a62f3dbb499",
+    "tests/test_gate_fault_fail_direction.py":
+        "903867fc56550e4f8bdfeabc5f32b945e5719d6900630690dd8cb606b0f40bf0",
+}
+#: Where the target branch is looked for: the local branch, then the ref a
+#: CI checkout with its whole history has (``fetch-depth: 0`` fetches every
+#: branch as a remote ref and creates no local one).
+TARGET_REFS = ("refs/heads/main", "refs/remotes/origin/main")
+
+
+def _target_copy(path: str) -> bytes | None:
+    for ref in TARGET_REFS:
+        try:
+            shown = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=REPO,
+                                   capture_output=True, timeout=30)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return None
+        if shown.returncode == 0:
+            return shown.stdout
+    return None
+
+
 @pytest.mark.parametrize("path", INVARIANT_FILES)
-def test_an_invariant_test_file_is_byte_identical_to_main(path):
-    try:
-        shown = subprocess.run(["git", "show", f"main:{path}"], cwd=REPO, capture_output=True,
-                               timeout=30)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pytest.skip("git is not available")
-    if shown.returncode != 0:
-        pytest.skip(f"main is not available here: {shown.stderr.decode(errors='replace')[:200]}")
-    assert (REPO / path).read_bytes() == shown.stdout, f"{path} differs from main"
+def test_an_invariant_test_file_is_byte_identical_to_the_target_branch(path):
+    """Phase 2 leaves the invariant test files as they are. Compared with the
+    target branch's copy wherever a ref of it can be read (locally, and in CI,
+    whose test job fetches the whole history), and otherwise with the recorded
+    digest of it — never skipped."""
+    here = (REPO / path).read_bytes()
+    target = _target_copy(path)
+    if target is not None:
+        assert hashlib.sha256(target).hexdigest() == INVARIANT_DIGESTS[path], (
+            f"INVARIANT_DIGESTS[{path!r}] is not the target branch's copy: record "
+            f"{hashlib.sha256(target).hexdigest()}")
+        assert here == target, f"{path} differs from the target branch's copy"
+    else:
+        assert hashlib.sha256(here).hexdigest() == INVARIANT_DIGESTS[path], (
+            f"{path} differs from the target branch's copy as recorded")
+
+
+def test_ci_reads_the_whole_history_so_the_history_checks_bind_there():
+    """The invariant files' comparison and the artefacts' provenance check
+    (tests/durable_measured_at.py) read the history, which a shallow checkout
+    does not have: the CI job that runs the suite fetches all of it."""
+    import yaml
+
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    steps = workflow["jobs"]["test"]["steps"]
+    checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout"))
+    assert str(checkout.get("with", {}).get("fetch-depth")) == "0", checkout
+    assert any("pytest tests/" in str(s.get("run", "")) for s in steps), steps

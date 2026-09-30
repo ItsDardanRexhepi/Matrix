@@ -17,15 +17,20 @@ the twin tools' dispatch) consult.
   an end that cannot be written at once is kept and written again each tick.
 * ``on`` — for the actions in the canary, the run is the only lifecycle path:
   the run is written before the effect call begins, and an action whose run
-  cannot be written is not run; the outbox loop sends its attestation (retried
-  with backoff while the chain has not confirmed it) and publishes its feed
+  cannot be written is not run; the outbox loop sends its attestation (tried
+  again with backoff only while an answer says it did not land and was not
+  sent; one sent and not confirmed is never sent again) and publishes its feed
   entry (once); a replayed Idempotency-Key gets the first answer and runs
-  nothing.
+  nothing. An engine that cannot be built in mode on is replaced by one over
+  no database: every action it would own is refused, as a run that cannot be
+  written is, and ``healthy`` is False, so ``/ready`` says so.
 
-THE CANARY, in the order it moved: first the twin tools' platform-key signing
+THE CANARY, in the order it moves: first the twin tools' platform-key signing
 calls (``runtime/security/action_map.py`` ``SIGNING_ACTIONS``), then every
 state-modifying name the service dispatcher serves (``_STATE_MODIFYING_ACTIONS``).
-``CANARY`` names the stages mode on covers.
+``CANARY`` names the stages; ``engines.durable.canary`` (or
+``MATRIX_DURABLE_CANARY``) names how many of them mode on covers, first stage
+first, and by default covers both.
 
 WHAT THE ENGINE NEVER DOES, IN ANY MODE. It never decides whether an action is
 allowed: every entry point's gate has answered before any of this runs, and a
@@ -90,6 +95,33 @@ def durable_mode(config: Any) -> str:
     return mode
 
 
+def durable_canary(config: Any) -> tuple[str, ...]:
+    """The stages of the canary mode on covers: ``MATRIX_DURABLE_CANARY``, then
+    ``engines.durable.canary``, then all of ``CANARY``. A value names stages
+    first to last, as a comma-separated string or a list — ``"twins"`` covers
+    the twin tools' signing calls alone, ``"twins,state_modifying"`` both — and
+    must be the canary's first stages in order: a later stage never moves
+    before an earlier one. Anything else is logged and read as no stage, so
+    mode on then owns nothing and records as shadow does: an unrecognised
+    switch never moves lifecycle authority."""
+    engines = config.get("engines") if isinstance(config, dict) else None
+    durable = engines.get("durable") if isinstance(engines, dict) else None
+    configured = durable.get("canary") if isinstance(durable, dict) else None
+    raw = os.environ.get("MATRIX_DURABLE_CANARY") or configured
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return CANARY
+    parts: list[str] | None = None
+    if isinstance(raw, str):
+        parts = [p.strip().lower() for p in raw.split(",")]
+    elif isinstance(raw, (list, tuple)) and all(isinstance(p, str) for p in raw):
+        parts = [p.strip().lower() for p in raw]
+    if parts and tuple(parts) == CANARY[:len(parts)]:
+        return tuple(parts)
+    logger.warning("Unknown engines.durable.canary %r (the stages, first to last, are %s); "
+                   "mode on owns no stage.", raw, ", ".join(CANARY))
+    return ()
+
+
 # ── the process-wide engine ─────────────────────────────────────────────────
 
 _engine: "DurableEngine | None" = None
@@ -152,7 +184,13 @@ def caller_scope(server: Any, request: Any, caller_kind: str, identity: str) -> 
     """Whose an Idempotency-Key is on the bridge: the credential's kind and its
     own subject — the SIWE address or ``apple:<sub>`` a session was issued to,
     which linking a wallet does not change — or, with no session, the identity
-    the gate saw (the operator naming the user it acts for). Lowercased."""
+    the gate saw (the operator naming the user it acts for). In the platform's
+    one spelling of a caller (``runtime/auth/identity.py``): a wallet address
+    in any case is one caller, and anything else — ``apple:<sub>``, a label —
+    is kept exactly as given, so two subjects that differ only in case are two
+    callers with two scopes."""
+    from runtime.auth.identity import canonical_identity
+
     subject = ""
     lookup = getattr(server, "_wallet_session_from_request", None)
     if callable(lookup):
@@ -162,7 +200,7 @@ def caller_scope(server: Any, request: Any, caller_kind: str, identity: str) -> 
             session = None
         if isinstance(session, dict):
             subject = str(session.get("address") or "")
-    return f"{caller_kind or 'unknown'}|{(subject or identity or '').strip().lower()}"
+    return f"{caller_kind or 'unknown'}|{canonical_identity(str(subject or identity or ''))}"
 
 
 # ── a run, while this process holds it ─────────────────────────────────────
@@ -226,6 +264,8 @@ class DurableEngine:
         self._db = db
         self.mode = mode
         self.canary = tuple(canary)
+        #: Why this engine could not be built, when it could not (``unbuilt``).
+        self.fault = ""
         self._clock = clock
         self._abandoned_after_s = abandoned_after_s
         #: The batch processor whose submission path delivers attestations.
@@ -309,20 +349,33 @@ class DurableEngine:
         return run
 
     def _replay(self, run: Run, bound_run_id: str, response_digest: str) -> str:
-        """What a request whose key is already bound is answered (mode on)."""
+        """What a request whose key is already bound is answered (mode on).
+
+        The request is compared with the first one twice: with the run the key
+        is bound to, as the table holds it, and — when this process still holds
+        the first answer — with the request that answer was given to, as this
+        process remembers it. A row altered to match a different request
+        therefore still meets a conflict wherever the answer is held, and where
+        it is not held the replay is told so: either way nothing runs, and no
+        request is handed an answer that was given to another."""
         first = journal.get_run(self._db, bound_run_id)
+        conflict = envelope_error(
+            "idempotency_conflict", "This Idempotency-Key was used for a different request; "
+            "this one was not run.")
         if first is None or (first["action"], first["params_digest"]) != (run.action,
                                                                           run.params_digest):
-            return envelope_error(
-                "idempotency_conflict", "This Idempotency-Key was used for a different request; "
-                "this one was not run.")
+            return conflict
         if first["state"] in journal.OPEN:
             return envelope_error(
                 "idempotency_in_progress", "The first request with this Idempotency-Key has not "
                 "answered yet; this one was not run.", run_state=first["state"])
-        held = self.answers.get(run.key)
-        if held is not None and response_digest and journal.text_digest(held) == response_digest:
-            return held
+        held = self.answers.held(run.key)
+        if held is not None:
+            answer, request = held
+            if request != _request_of(run):
+                return conflict
+            if response_digest and journal.text_digest(answer) == response_digest:
+                return answer
         return envelope_error(
             "idempotency_answer_not_held", "The first request with this Idempotency-Key ended; "
             "its answer is no longer held, and this one was not run.", run_state=first["state"])
@@ -459,7 +512,7 @@ class DurableEngine:
             keys.answered(tx, key=run.key, run_id=run.run_id, response_digest=digest)
         ok, _ = self._write(work, owned=True, what=f"answer for run {run.run_id}")
         if ok:
-            self.answers.put(run.key, envelope)
+            self.answers.put(run.key, envelope, request=_request_of(run))
 
     def takes_delivery(self, run: Run | None) -> bool:
         """Does the outbox deliver this run's attestation and feed entry (mode
@@ -503,11 +556,14 @@ class DurableEngine:
                 await outcome
 
     async def deliver_attestation(self, record: dict) -> outbox.Delivery:
-        """Deliver one attestation (``_attestation_of``'s record) through the
-        batch processor's submission path — the call a flush makes for each
-        attestation — and read the answer the way the batch processor does:
-        landed, or sent and not confirmed (never sent again), is delivered;
-        anything else the processor would re-queue is retried."""
+        """Deliver one attestation (``_attestation_of``'s record, its schema
+        resolved by the attestation service the legacy path hands it to)
+        through the batch processor's submission path — the call a flush makes
+        for each attestation — and read the answer the way the batch processor
+        does (``BatchProcessor._reconcile``): landed, or sent and not confirmed
+        (never sent again), is delivered; refused by the sponsorship policy
+        (nothing signed, not owed again) is given up; anything else the
+        processor would re-queue is retried."""
         from runtime.protocols.outcome_truth import SUCCESS, report_of
 
         processor = self.attestations
@@ -518,6 +574,8 @@ class DurableEngine:
         result = results[0] if results else None
         if isinstance(result, dict) and report_of(result) is SUCCESS:
             return outbox.Delivery(outbox.DELIVERED, "landed")
+        if isinstance(result, dict) and result.get("sponsorship_refused") is True:
+            return outbox.Delivery(outbox.GIVEN_UP, "refused_by_policy")
         if (isinstance(result, dict) and result.get("broadcast") is True
                 and result.get("settled") is not True):
             return outbox.Delivery(outbox.DELIVERED, "sent_unconfirmed")
@@ -579,7 +637,7 @@ class DurableEngine:
                 keys.answered(tx, key=run.key, run_id=run.run_id, response_digest=answer_digest)
         def remember() -> None:
             if run.binds_key and run.owned:
-                self.answers.put(run.key, envelope)
+                self.answers.put(run.key, envelope, request=_request_of(run))
         if not self._end(run, work, what=f"run {run.run_id} COMPLETE",
                          later=lambda tx: work(tx, with_rows=False), then=remember):
             return False
@@ -727,7 +785,8 @@ class DurableEngine:
         return closed
 
     def start(self) -> None:
-        self.loop.start()
+        if not self.fault:
+            self.loop.start()
 
     async def stop(self) -> None:
         """Stop the loop, then a last attempt to write what this process knows
@@ -737,7 +796,9 @@ class DurableEngine:
         self.loop.settle_unsettled()
 
     def healthy(self) -> bool:
-        return self.loop.healthy()
+        """False for an engine that could not be built, and while the loop is
+        not running or not making progress."""
+        return not self.fault and self.loop.healthy()
 
     def health(self) -> dict:
         """For the operator's log (never a response body)."""
@@ -745,10 +806,31 @@ class DurableEngine:
             rows = outbox.counts(self._db)
         except Exception:  # noqa: BLE001
             rows = {}
-        return {"mode": self.mode, "canary": list(self.canary), "loop_alive": self.loop.alive,
+        return {"mode": self.mode, "canary": list(self.canary), "fault": self.fault,
+                "loop_alive": self.loop.alive,
                 "last_tick_at": self.loop.last_tick_at, "open_runs": len(self._open),
                 "ends_not_written": len(self._pending),
                 "held_payloads": self.loop.held_count(), "outbox": rows}
+
+    @classmethod
+    def unbuilt(cls, *, mode: str, canary: tuple[str, ...], fault: str,
+                clock: Callable[[], float] = time.time) -> "DurableEngine":
+        """The engine installed when the one the config asks for could not be
+        built: the same engine over a database that refuses every statement.
+        Every path it takes is one the engine already takes when a run cannot
+        be written — an action it owns is not run and answers
+        ``service_unavailable`` ("was not run"), a twin signing call it owns is
+        not made, an action it does not own runs as with the mode off — and
+        its loop never starts, so ``healthy`` is False."""
+        engine = cls(_Unwritable(fault), mode=mode, canary=canary, clock=clock)
+        engine.fault = fault or "not built"
+        return engine
+
+
+def _request_of(run: Run) -> str:
+    """The request a first answer was given to, as this process remembers it:
+    a digest of the action and the parameters' digest, never the parameters."""
+    return journal.text_digest(f"{run.action}\x00{run.params_digest}")
 
 
 def _bound(fn: Callable[[Any], Awaitable[Any]], arg: Any) -> Callable[[], Awaitable[Any]]:
@@ -764,20 +846,95 @@ class _Closed(RuntimeError):
     """A run's end found the run no longer RUNNING (another process closed it)."""
 
 
+class _Unwritable:
+    """A database that refuses every statement: what an engine that could not
+    be built runs over."""
+
+    def __init__(self, fault: str) -> None:
+        self._fault = fault
+
+    def _refuse(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(f"durable execution could not be built: {self._fault}")
+
+    execute_sync = fetchall_sync = _refuse
+
+
+class NotBuilt(RuntimeError):
+    """The engine the config asks for cannot run over this database."""
+
+
 def build_engine(config: Any, db: Any, *, clock: Callable[[], float] = time.time
                  ) -> DurableEngine | None:
     """The engine this config asks for, or None for mode off. In mode on,
     attestations are delivered through a batch processor of the engine's own
-    (the submission path a flush uses)."""
+    (the submission path a flush uses).
+
+    An engine is built only over the four tables in the shape this build writes
+    (``table_problems``). In mode on, an engine that cannot be built — for that
+    or any other reason — is replaced by ``DurableEngine.unbuilt``, which
+    refuses what it would have owned and is never healthy: a configured on is
+    never silently off. In shadow the fault is raised, and the caller serves as
+    with the mode off: recording is all shadow does."""
     mode = durable_mode(config)
     if mode == "off":
         return None
-    attestations = None
-    if mode == "on":
-        from runtime.blockchain.services.attestation.batch_processor import BatchProcessor
-        attestations = BatchProcessor(config if isinstance(config, dict) else {})
-    return DurableEngine(db, mode=mode, clock=clock, attestations=attestations,
-                         abandoned_after_s=abandoned_window(config))
+    canary = durable_canary(config)
+    try:
+        problems = table_problems(db)
+        if problems:
+            raise NotBuilt(
+                "the durable tables in this database are not the ones this build writes ("
+                + "; ".join(problems) + "); a database an earlier, unreleased build of durable "
+                "execution created holds them in another shape and is not healed: discard it")
+        attestations = None
+        if mode == "on":
+            from runtime.blockchain.services.attestation.batch_processor import BatchProcessor
+            attestations = BatchProcessor(_with_sections(config, "blockchain"))
+        return DurableEngine(db, mode=mode, canary=canary, clock=clock,
+                             attestations=attestations,
+                             abandoned_after_s=abandoned_window(config))
+    except Exception as exc:
+        if mode != "on":
+            raise
+        logger.error("Durable execution (mode on) could not be built: %s. The actions it would "
+                     "own are refused until it is, and /ready answers 503.", exc, exc_info=True)
+        return DurableEngine.unbuilt(mode=mode, canary=canary,
+                                     fault=f"{type(exc).__name__}: {exc}", clock=clock)
+
+
+def _with_sections(config: Any, *names: str) -> dict:
+    """*config* as a dict whose named sections are dicts: a section the config
+    leaves empty (``blockchain:`` with no value) is read as no settings, the
+    way an absent one is, rather than failing the reader."""
+    out = dict(config) if isinstance(config, dict) else {}
+    for name in names:
+        if not isinstance(out.get(name), dict):
+            out[name] = {}
+    return out
+
+
+#: The columns this build writes, table by table, in order (database migration 11).
+TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
+    "workflow_runs": ("run_id", "key", "action", "service", "actor_hash", "params_digest",
+                      "state", "decision_ref", "started_at", "terminal_at"),
+    "workflow_steps": ("run_id", "seq", "name", "state", "detail", "at"),
+    "outbox": ("id", "run_id", "kind", "payload_digest", "attempts", "next_at", "done_at"),
+    "idempotency_keys": ("key", "run_id", "response_digest", "created_at"),
+}
+
+
+def table_problems(db: Any) -> list[str]:
+    """Each durable table in *db* whose columns are not the ones this build
+    writes, in order: an earlier, unreleased build of this work created the
+    tables in other shapes, and ``CREATE TABLE IF NOT EXISTS`` leaves a table
+    it finds as it is. Empty when all four are as written. Read-only."""
+    problems: list[str] = []
+    for table, columns in TABLE_COLUMNS.items():
+        found = tuple(r[0] for r in db.fetchall_sync(
+            "SELECT name FROM pragma_table_info(?) ORDER BY cid", (table,)))
+        if found != columns:
+            problems.append(f"{table} has ({', '.join(found) or 'no table'})")
+    return problems
 
 
 def abandoned_window(config: Any) -> float:

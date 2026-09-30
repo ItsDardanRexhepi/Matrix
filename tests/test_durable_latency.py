@@ -41,14 +41,23 @@ no transaction; shadow and on open exactly two transactions per journaled
 dispatch (shadow never waiting for the database, on waiting like any platform
 write), and none for a call they do not journal.
 
+WHAT IS NOT MEASURED. The plan's G6 names three surfaces: ``pre_action``,
+``execute`` and the whole ``POST /bridge/v1/action`` route. No durable code
+runs in ``pre_action`` (the gate has answered before any of it), and it is not
+timed here; the route is not timed through HTTP either: surface (b) is the
+route's sequence after the gate, at the dispatcher. The stand-ins answer at
+once, so a real service's own latency, which would dilute the ratio, is not in
+the figures, and the outbox loop's deliveries are not inside any timed call.
+
 THE BUDGET. G6 asks that a phase keep a dispatch's p95 within +10 percent of
-main's, a bound left to the project owner to confirm; this file records the
-figures and asserts no bound. As the committed artefact records them, mode off
-is within it (this tree's p95 1.051 times main's, like for like), and shadow
-and on are not: they put a journaled dispatch's p95 at several times the same
-dispatch's with the mode off. The budget is the owner's decision and still
-open. Durable execution can merge dark, with the mode off by default, and its
-phase is not closed until G6 holds.
+the base tree's, a bound left to the project owner to confirm; this file
+records the figures and asserts no bound. Shadow and on are over it: they put a
+journaled dispatch's p95 at several times the same dispatch's with the mode
+off. Off is a difference of about a microsecond on a call of about sixteen, in
+either direction from one run to the next (``main_off.pairs``), which this
+instrument does not resolve against a 10 percent bound. The budget is the
+owner's decision and still open. Durable execution can merge dark, with the mode
+off by default, and its phase is not closed until G6 holds.
 """
 from __future__ import annotations
 
@@ -84,7 +93,7 @@ ROUNDS = 50
 BLOCK = N // ROUNDS
 WARM_UP = 200
 #: Interpreter runs per tree for main_off, alternating main and this tree.
-MAIN_PAIRS = 3
+MAIN_PAIRS = 5
 
 WALLET = "0x" + "ab" * 20
 SCOPE = f"operator|{WALLET}"
@@ -107,12 +116,17 @@ def _percentiles(samples: list[float]) -> dict:
 
 
 class _Service:
-    """Every method of every service answers ``answer`` at once."""
+    """Every method of every service answers ``answer`` at once; as the
+    attestation service, it resolves every schema to one well-formed UID."""
 
     def __init__(self, answer: dict) -> None:
         async def returns_at_once(**kwargs):
             return dict(answer)
         self._method = returns_at_once
+
+    @staticmethod
+    def _resolve_schema(schema_uid: str) -> str:
+        return "0x" + "77" * 32
 
     def __getattr__(self, name):
         return self._method
@@ -326,15 +340,21 @@ def _measure_off_in(tree: Path, out: Path) -> dict:
 def measure_main_off_pair(scratch: str) -> dict:
     main_tree = _main_tree()
     pooled: dict[str, list[float]] = {"main": [], "this_tree": []}
+    pairs: list[dict] = []
     for k in range(MAIN_PAIRS):
+        pair: dict[str, float] = {}
         for which, tree in (("main", main_tree), ("this_tree", ROOT)):
             got = _measure_off_in(tree, Path(scratch) / f"{which}-{k}.json")
             assert got["durable_package_present"] is (which == "this_tree"), (
                 f"{tree} {'has' if got['durable_package_present'] else 'lacks'} runtime/durable: "
                 f"it is not {which.replace('_', ' ')}")
             pooled[which] += got["samples"]
+            pair[f"{which}_p95_us"] = _percentiles(got["samples"])["p95_us"]
+        pair["ratio_p95"] = round(pair["this_tree_p95_us"] / pair["main_p95_us"], 3)
+        pairs.append(pair)
     main = _percentiles(pooled["main"])
     this = _percentiles(pooled["this_tree"])
+    per_pair = sorted(p["ratio_p95"] for p in pairs)
     return {
         # By subject: an id does not survive a rewrite of the history.
         "main_commit": _git(main_tree, "log", "-1", "--format=%s", "HEAD"),
@@ -342,6 +362,11 @@ def measure_main_off_pair(scratch: str) -> dict:
         "this_tree": this,
         "ratio_this_tree_to_main": {"p50": round(this["p50_us"] / main["p50_us"], 3),
                                     "p95": round(this["p95_us"] / main["p95_us"], 3)},
+        # Each run of the base tree against the run of this tree that follows
+        # it: how far one draw moves the ratio.
+        "pairs": pairs,
+        "ratio_p95_per_pair": {"min": per_pair[0], "median": statistics.median(per_pair),
+                               "max": per_pair[-1]},
     }
 
 
@@ -393,10 +418,13 @@ def measure() -> dict:
                        "that answer at once — the platform's own cost, no chain, no network. "
                        "main_off: surface execute in mode off, measure_main_off() in a separate "
                        "interpreter per run (gc.collect() every third block, as often as a round "
-                       "collects), alternating a checkout of main and this tree, "
+                       "collects), alternating a checkout of the base tree and this tree, "
                        f"{MAIN_PAIRS} runs each, samples pooled; ratio_this_tree_to_main compares "
-                       "those two, ratio_cell_off_to_main compares the in-process off cell (taken "
-                       "between shadow and on blocks) with main. Host-dependent."),
+                       "those two, pairs and ratio_p95_per_pair give each run of the base tree "
+                       "against the run of this tree after it, ratio_cell_off_to_main compares "
+                       "the in-process off cell (taken between shadow and on blocks) with the "
+                       "base tree. Not timed: pre_action, which no durable code runs in, and the "
+                       "HTTP route itself. Host-dependent."),
         "measured": _measured_where(),
         "host": {"machine": platform.machine(), "system": platform.system(),
                  "python": platform.python_version()},
@@ -450,6 +478,14 @@ def test_g6_latency_added_per_dispatch_is_recorded():
             expected = round(over[f"{p}_us"] / main_off["main"][f"{p}_us"], 3)
             assert abs(main_off[ratio][p] - expected) < 0.0015, (
                 f"main_off {ratio} {p} is {main_off[ratio][p]}, the figures give {expected}")
+    pairs = main_off["pairs"]
+    assert len(pairs) == MAIN_PAIRS, f"{len(pairs)} pairs, the instrument runs {MAIN_PAIRS}"
+    for pair in pairs:
+        assert abs(pair["ratio_p95"] - pair["this_tree_p95_us"] / pair["main_p95_us"]) < 0.0015
+    ratios = sorted(pair["ratio_p95"] for pair in pairs)
+    assert main_off["ratio_p95_per_pair"] == {
+        "min": ratios[0], "median": statistics.median(ratios), "max": ratios[-1]}, (
+        main_off["ratio_p95_per_pair"])
 
 
 # ── always on: what the figures rest on ─────────────────────────────────────

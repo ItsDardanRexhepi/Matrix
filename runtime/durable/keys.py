@@ -16,7 +16,9 @@ depends on the run:
   holds it; otherwise an answer saying the run's state and that the first
   answer is not held — never a second run;
 * the key was bound to a different action or different parameters →
-  ``conflict``.
+  ``conflict``: as the run's row says, and, while this process holds the first
+  answer, as the request that answer was given to says, so a row altered to
+  match another request never hands that request the first answer.
 
 WHAT IS STORED. The table holds the key digest, the run, a digest of the first
 answer and when the key was bound: no raw address, no raw parameter, no answer.
@@ -24,8 +26,10 @@ The first answer itself is held in memory (``AnswerCache``), by the process
 that gave it, for 24 hours or until 4,096 newer answers push it out — which is
 why an answer can be "not held" after a restart. A key is never released once
 its run's call began, so a replay can never act twice; it is released only with
-a run that ended before its call began (ABORT), because such a request acted on
-nothing and binding its key would refuse a retry that is safe.
+a run recovery closes ABORT — one left in START whose steps hold no ``call``
+step — because such a request acted on nothing and binding its key would refuse
+a retry that is safe. A run in START whose steps say its call began is closed
+FAIL, and its key stays bound.
 """
 
 from __future__ import annotations
@@ -85,30 +89,37 @@ def release(tx: Tx, *, key: str, run_id: str) -> None:
 
 
 class AnswerCache:
-    """The first answer given under each key, in memory: bounded in number and
-    in age, oldest pushed out first."""
+    """The first answer given under each key, in memory, with a digest of the
+    request it was given to: bounded in number and in age, oldest pushed out
+    first. The request is kept beside the answer so a replay is compared with
+    what this process remembers, not only with what the table says."""
 
     def __init__(self, *, size: int = ANSWER_CACHE_SIZE, ttl_s: float = ANSWER_TTL_S,
                  clock=time.time) -> None:
         self._size = size
         self._ttl = ttl_s
         self._clock = clock
-        self._held: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._held: OrderedDict[str, tuple[str, str, float]] = OrderedDict()
 
-    def put(self, key: str, answer: str) -> None:
-        self._held[key] = (answer, self._clock() + self._ttl)
+    def put(self, key: str, answer: str, *, request: str = "") -> None:
+        self._held[key] = (answer, request, self._clock() + self._ttl)
         self._held.move_to_end(key)
         while len(self._held) > self._size:
             self._held.popitem(last=False)
 
-    def get(self, key: str) -> str | None:
+    def held(self, key: str) -> tuple[str, str] | None:
+        """``(answer, request)`` held under *key*, or None."""
         found = self._held.get(key)
         if found is None:
             return None
-        if found[1] < self._clock():
+        if found[2] < self._clock():
             del self._held[key]
             return None
-        return found[0]
+        return found[0], found[1]
+
+    def get(self, key: str) -> str | None:
+        found = self.held(key)
+        return None if found is None else found[0]
 
     def __len__(self) -> int:
         return len(self._held)

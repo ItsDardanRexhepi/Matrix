@@ -723,10 +723,13 @@ class GatewayServer:
           no caller is handed a gate), or the loop that writes its state back is
           missing or has stopped. Fatal everywhere: it is not a posture a
           deployment chooses.
-        * **The durable outbox loop is not running** (engines Phase 2, only
-          with ``engines.durable.mode`` shadow or on): the loop that delivers
-          the outbox and closes runs a stopped process left open has died or
-          stopped ticking. With the mode off there is no loop and no check.
+        * **Durable execution is not running** (engines Phase 2, only with
+          ``engines.durable.mode`` on, the one mode in which it owns
+          anything): the engine could not be built (its actions are then
+          refused), or the loop that delivers the outbox and closes runs a
+          stopped process left open has died or stopped ticking. With the mode
+          off there is no engine, and in shadow its only effect is rows
+          written, so neither is checked.
 
         THE BODY DELIBERATELY CARRIES NO DETAIL. The first version of this
         endpoint returned each check with its values — `"backend": "noop"`,
@@ -771,12 +774,15 @@ class GatewayServer:
         if not gate_up:
             failed.append("security_gate")
 
-        # Engines Phase 2: with engines.durable.mode shadow or on, the outbox
-        # loop must be running and ticking; with the mode off there is no loop
-        # and nothing is checked.
+        # Engines Phase 2: with engines.durable.mode on, the engine must have
+        # been built and its outbox loop must be running and ticking. With the
+        # mode off there is no engine, and in shadow the engine owns nothing:
+        # its only effect is rows written, so it never takes an instance out of
+        # rotation.
         durable_engine = getattr(self, "_durable_engine", None)
         durable_health = None
-        if durable_engine is not None and not durable_engine.healthy():
+        if (durable_engine is not None and durable_engine.mode == "on"
+                and not durable_engine.healthy()):
             failed.append("durable_outbox_loop")
             durable_health = durable_engine.health()
 
@@ -2379,7 +2385,14 @@ class GatewayServer:
         engines.durable.mode once; under "shadow" or "on" build the engine over
         the platform database, install it process-wide and start its one outbox
         loop, and say so at boot. Under "off" this installs nothing, starts
-        nothing and logs nothing; the four tables still exist, empty."""
+        nothing and logs nothing; the four tables still exist, empty.
+
+        A configured "on" is never silently off: when its engine cannot be
+        built, ``build_engine`` hands back one that refuses every action it
+        would own and is never healthy, and that is what is installed, so the
+        actions are refused and /ready answers 503. A "shadow" engine that
+        cannot be built is left out and the gateway serves as with the mode
+        off, because recording is all shadow does."""
         self._durable_engine = None
         try:
             from runtime.durable import wiring as durable
@@ -2388,15 +2401,19 @@ class GatewayServer:
                 return
             engine = durable.build_engine(self.config, self.react_loop.memory.db)
         except Exception:
-            # The engine is optional; serving is not. The gateway runs as it
-            # would with the mode off, and says so.
-            logger.exception("Durable execution could not be built; running with the mode off")
+            logger.exception("Durable execution (shadow) could not be built; nothing is "
+                             "recorded and the gateway serves as with the mode off")
             return
         durable.install(engine)
         engine.start()
         self._durable_engine = engine
+        if engine.fault:
+            logger.error("Engines: durable mode=%s could not be built (%s): the actions of its "
+                         "canary (%s) are refused, and /ready answers 503", engine.mode,
+                         engine.fault, ", ".join(engine.canary) or "no stage")
+            return
         logger.info("Engines: durable mode=%s (canary: %s): run journal, outbox loop and "
-                    "idempotency keys%s", engine.mode, ", ".join(engine.canary),
+                    "idempotency keys%s", engine.mode, ", ".join(engine.canary) or "no stage",
                     "; the legacy path still delivers and nothing is refused"
                     if engine.mode == "shadow" else "")
 

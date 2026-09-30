@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,815 tests, run against the versions
+automated suite of 5,872 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -362,41 +362,79 @@ check behind it:
   dispatcher delivers get `outbox` rows; an `Idempotency-Key` sent to
   `POST /bridge/v1/action` is recorded in `idempotency_keys` against the
   first run that used it; and every answer is the one `off` gives, a replay
-  included. At `on`, for those actions, the run is the only way they run: it
-  is written before the action is called, and an action whose run cannot be
-  written is not called. The outbox's one loop sends the attestation,
-  retrying with backoff while the chain has not confirmed it, and publishes
-  the feed entry once; a replayed `Idempotency-Key` runs nothing and gets the
-  first answer, or, when that answer is no longer held (it is kept in memory
-  by the process that gave it, for up to 24 hours and at most the latest
-  4,096), an error that says so. A run whose process died mid-call is closed
-  FAIL with its effect marked unknown, and is never run again. The four
-  tables hold digests and fixed words, never a raw address, parameter or
-  answer. Nothing in it asks or overrides the security gate. The dedicated
-  `/api/v1` service routes call services without the dispatcher and are not
-  journaled; `POST /api/v1/capabilities/{id}/invoke` goes through the
-  dispatcher and is, without reading an `Idempotency-Key`. With the mode at
-  `shadow` or `on`, `GET /ready` answers 503 while the loop is not running
-  or has stopped making progress. The four tables are schema migration 11,
-  after the one-spelling rewrite of stored callers (10): a database left at
-  either earlier schema gets the tables, and the rewrite exactly once, and so
-  does one a build of this work from before the renumbering left with the
-  tables recorded as 10. What the mode costs is measured, not assumed
+  included. Rows written, and the time it takes to write them (below), are
+  shadow's only effects: it refuses nothing, and `GET /ready` does not read
+  it, so a shadow instance whose engine or loop fails keeps serving as `off`
+  would, and says so in its log. At `on`, for
+  the actions of the canary, the run is the only way they run: it is written
+  before the action is called, and an action whose run cannot be written is
+  not called. The canary moves in two stages, first the blockchain tools'
+  signing calls, then every state-modifying action of the service
+  dispatcher; `engines.durable.canary` (or `MATRIX_DURABLE_CANARY`) says how
+  far it has moved, `twins` for the first stage alone or
+  `twins,state_modifying`, the default, for both, and any other value moves
+  nothing. The outbox's one loop sends the attestation, trying again with
+  backoff, up to five attempts in all, only while an answer says it did not
+  land and was not sent (one sent and not confirmed is never sent again),
+  and publishes the feed entry once. It sends only a record the attestation
+  service would have queued: one the service refuses, such as one under a
+  schema that is not configured, is refused as it is at `off`. A replayed
+  `Idempotency-Key` runs nothing and gets the first answer, or, when that
+  answer is no longer held (it is kept in memory by the process that gave
+  it, for up to 24 hours and at most the latest 4,096), an error that says
+  so. A key belongs to the kind of credential and its subject, in the
+  platform's one spelling of a caller: every spelling of one wallet address
+  is one caller, and an `apple:` subject or a name is kept as given. A run
+  whose process died mid-call is closed FAIL with its effect marked
+  unknown, and is never run again. At `on`, an engine that cannot be built
+  does not leave the gateway serving as `off`: every action it would own is
+  refused, as one whose run cannot be written is, and `GET /ready` answers
+  503, as it does while the loop is not running or has stopped making
+  progress. The four tables hold digests and fixed words, never a raw
+  address, parameter or answer. A row the engine did not write, or one of
+  its own changed by hand, never makes it call or deliver anything a second
+  time or hand a request another request's answer: a row it does not hold
+  is given up undelivered, a replay is compared with the request its held
+  answer was given to as well as with the row, and a run moved back to
+  START whose steps say its call began keeps its key. What no table can
+  stand against is the key's own row being deleted: whoever can write the
+  database can make a replay run again. Nothing in it asks or overrides
+  the security gate. The dedicated `/api/v1` service routes call services
+  without the dispatcher and are not journaled; `POST
+  /api/v1/capabilities/{id}/invoke` goes through the dispatcher and is,
+  without reading an `Idempotency-Key`. The four tables are schema
+  migration 11, after the one-spelling rewrite of stored callers (10): a
+  database left at either earlier schema gets the tables, and the rewrite
+  exactly once, and so does one a build of this work from before the
+  renumbering left with the tables recorded as 10 and nothing recorded as
+  11. Two other kinds of database come only from unreleased builds of this
+  work and are not healed: one that recorded 11 after that, which never
+  takes the rewrite, and one whose tables an earlier build created in
+  another shape, which the engine will not run over. Discard either. What
+  the mode costs is measured, not assumed
   (`tests/baseline/durable_g6_latency.json`, 5,000 calls a cell, on the
-  machine it names). At `off`, a dispatch's p95 is 1.051 times main's,
-  measured like for like, within the +10 percent latency budget. `shadow`
-  and `on` write a run of two transactions around each journaled dispatch,
-  which puts its p95 at several times that of the same dispatch at `off`:
-  about 8.4 times for the service dispatcher (18.0 to 151.0 microseconds at
-  `on`), 9.5 times for the bridge's keyed sequence and 3 times for a twin
-  tool's signing call. That is over the budget, and the budget is the
-  project owner's decision, still open: this phase of the engines work can
-  merge dark, with the mode `off` by default, and is not closed until that
-  gate, G6, holds. The other two exit gates hold at `on`: a crash at any of
-  four points (G7: 448 injections and 6 killed processes) leaves no run
-  open, calls no service twice and delivers no record twice
-  (`tests/baseline/durable_g7_crash_matrix.json`), and 1,104 bodies each
-  sent twice to `POST /bridge/v1/action` (G8) act once each
+  machine it names, over stand-in services that answer at once, with the
+  outbox loop's deliveries outside the timed calls). It times the service
+  dispatcher, the bridge's keyed sequence after the gate and a twin tool's
+  signing call; not the gate, where no durable code runs, and not the HTTP
+  route. `shadow` and `on` write a run of two transactions around each
+  journaled dispatch, which puts its p95 at several times that of the same
+  dispatch at `off`, over the +10 percent latency budget; at `off` the
+  difference from the tree this work merges into is about a microsecond
+  either way, which this instrument does not resolve against a 10 percent
+  bound. The artefact gives the figures and the machine. The
+  budget is the project owner's decision, still open: this phase of the
+  engines work can merge dark, with the mode `off` by default, and is not
+  closed until that gate, G6, holds. The other two exit gates hold at `on`.
+  G7, the plan's crash matrix at its ten Phase 2 cells (the bridge request
+  at W2 and W4, the dispatch at W1, W2 and W4, the attestation at W1, W2 and
+  W3, the feed entry at W1 and W2), is 100 seeded crashes a cell and 20
+  killed processes, each followed by a fresh process on the same file: no
+  run is lost and no effect is made without its record, recovery continues
+  nothing, no effect happens twice, and two recoveries of one file reach
+  the same state (`tests/baseline/durable_g7_crash_matrix.json`, which also
+  says what the plan asks that the matrix does not measure). G8: 1,104
+  bodies each sent twice to `POST /bridge/v1/action` act once each
   (`tests/baseline/durable_g8_replay.json`)
 
 What activates the moment a chain is configured: on-chain attestations,
@@ -544,9 +582,9 @@ the one an orchestrator should point at: it answers 503 when no provider
 answered, when the platform is running in production with security in
 observe-only mode, when the security gate the gateway builds at startup did
 not come up or the loop that writes its state back has stopped, or, with
-`engines.durable.mode` at `shadow` or `on`, when the durable outbox loop has
-stopped or stopped making progress, and it deliberately tells you nothing
-else. Which check failed is in the log against the request id, because a
+`engines.durable.mode` at `on`, when durable execution could not be built or
+its outbox loop has stopped or stopped making progress, and it deliberately
+tells you nothing else. Which check failed is in the log against the request id, because a
 readiness endpoint that announces what is not enforcing is telling whoever
 asks where to push.
 

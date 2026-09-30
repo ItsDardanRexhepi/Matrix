@@ -62,7 +62,7 @@ sys.path.insert(0, "tests")
 
 from test_durable_harness import (  # noqa: E402
     ACTION_MAP, SETTLED, STATE_MODIFYING, WALLET, Attestations, Effects, Services, dispatcher,
-    installed, rows,
+    installed, resolve_schema, rows,
 )
 from runtime.durable import journal, keys, outbox, wiring  # noqa: E402
 from tests import durable_measured_at  # noqa: E402
@@ -143,6 +143,7 @@ class World:
             methods = dict(by_service.get(name, {}))
             if name == "attestation":
                 methods["attest"] = attest
+                methods["_resolve_schema"] = resolve_schema
             return SimpleNamespace(**methods)
         return SimpleNamespace(get=get)
 

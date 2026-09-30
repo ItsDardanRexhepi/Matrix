@@ -27,7 +27,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, "tests")
 
-from runtime.durable import journal, outbox, wiring  # noqa: E402
+from runtime.durable import journal, keys, outbox, wiring  # noqa: E402
 from runtime.durable.outbox import Delivery, Held, OutboxLoop  # noqa: E402
 from test_durable_harness import (  # noqa: E402
     Clock, Effects, bridge_like, dispatcher, drain, engine, installed, open_db, open_runs,
@@ -270,13 +270,34 @@ def test_a_keys_scope_is_the_sessions_own_subject_not_the_wallet_it_resolves_to(
     apple = SimpleNamespace(_wallet_session_from_request=lambda r: {"address": "apple:Sub-1"})
     before_link = wiring.caller_scope(apple, request, "session", "apple:Sub-1")
     after_link = wiring.caller_scope(apple, request, "session", "0x" + "AB" * 20)
-    assert before_link == after_link == "session|apple:sub-1"
+    assert before_link == after_link == "session|apple:Sub-1"
     siwe = SimpleNamespace(_wallet_session_from_request=lambda r: {"address": "0x" + "CD" * 20})
     assert wiring.caller_scope(siwe, request, "session", "0x" + "CD" * 20) == (
         "session|0x" + "cd" * 20)
     no_session = SimpleNamespace(_wallet_session_from_request=lambda r: None)
-    assert wiring.caller_scope(no_session, request, "operator", "0xAb") == "operator|0xab"
+    assert wiring.caller_scope(no_session, request, "operator", "0x" + "Ab" * 20) == (
+        "operator|0x" + "ab" * 20)
+    assert wiring.caller_scope(no_session, request, "operator", "0xAb") == "operator|0xAb"
     assert wiring.caller_scope(object(), request, "", "") == "unknown|"
+
+
+def test_a_keys_scope_keeps_the_one_spelling_rule_two_subjects_apart():
+    """The scope is the caller in the platform's one spelling
+    (runtime/auth/identity.py): every spelling of one wallet address is one
+    caller, and two subjects that are not addresses and differ only in case are
+    two callers, so neither can be answered from the other's key."""
+    request = object()
+
+    def scope(subject, kind="session"):
+        server = SimpleNamespace(_wallet_session_from_request=lambda r: {"address": subject})
+        return wiring.caller_scope(server, request, kind, subject)
+    assert scope("apple:000123.ABCDEF") != scope("apple:000123.abcdef")
+    assert scope("0x" + "AB" * 20) == scope("0x" + "ab" * 20) == scope("0X" + "aB" * 20)
+    no_session = SimpleNamespace(_wallet_session_from_request=lambda r: None)
+    assert (wiring.caller_scope(no_session, request, "operator", "user-A")
+            != wiring.caller_scope(no_session, request, "operator", "user-a"))
+    assert keys.scoped(wiring.BRIDGE_ACTION, scope("apple:000123.ABCDEF"), "k-1") != keys.scoped(
+        wiring.BRIDGE_ACTION, scope("apple:000123.abcdef"), "k-1")
 
 
 async def test_a_retry_after_linking_a_wallet_is_the_same_key(tmp_path):
