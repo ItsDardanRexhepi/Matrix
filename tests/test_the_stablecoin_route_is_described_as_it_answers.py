@@ -212,8 +212,23 @@ OPENAPI_KINDS = {
 #: beside those the spec names, driven.
 ANSWERED_500 = {
     "a string float() cannot read as a number": ("abc", "", "0x10"),
-    "an integer beyond the largest float (about 1.8e308, of either sign)":
-        (2 * 10**308, 10**309, -(10**309)),
+    "an integer of up to 4,300 digits beyond the largest float (about 1.8e308, of either sign)":
+        (2 * 10**308, 10**309, -(10**309), 10**4299, -(10**4299)),
+}
+
+
+def _literal_amount(digits: int) -> bytes:
+    """The four fields with an integer amount of *digits* digits, written out:
+    json.dumps cannot write an integer of more than 4,300 digits."""
+    head = json.dumps(_FOUR)[:-1]
+    return f'{head}, "amount": 1{"0" * (digits - 1)}}}'.encode()
+
+
+#: Amounts the parser refuses before the handler reads them: an integer of
+#: more digits than Python's integer-string limit (4,300) is not read as JSON.
+ANSWERED_400_UNREAD = {
+    "an integer of more digits is refused as not JSON and answered 400":
+        [_literal_amount(4301), _literal_amount(5000)],
 }
 _FOUR_FIELDS_ANSWERED = re.compile(r"four fields[^.]*?\banswered (\d{3})", re.IGNORECASE)
 _WHICH_AMOUNT = re.compile(r"an amount that is a number between -1e308 and 1e308", re.IGNORECASE)
@@ -252,8 +267,9 @@ async def test_each_answer_the_texts_give_the_route_is_the_one_it_gives(monkeypa
     """[control] Every kind of body the spec names under a status is driven
     with the operator's key and gets it, and the spec names exactly those; a
     body with the four fields and an amount that is null, a list, a string
-    that is not a number or an integer beyond the largest float is answered
-    500; and every sentence that says a body with the four fields is
+    that is not a number or an integer of up to 4,300 digits beyond the
+    largest float is answered 500, and one of more digits is refused as not
+    JSON and answered 400; and every sentence that says a body with the four fields is
     answered 400 says which amount, a number between -1e308 and 1e308, as no
     text leaves that range off."""
     import yaml
@@ -277,6 +293,13 @@ async def test_each_answer_the_texts_give_the_route_is_the_one_it_gives(monkeypa
             if kind not in " ".join(" ".join(_passages((REPO / rel).read_text())).split()):
                 wrong.append(f"{rel} does not say, where it names the route, that an amount that "
                              f"is {kind} is answered 500")
+    for kind, bodies in ANSWERED_400_UNREAD.items():
+        got = await _answers(monkeypatch, tmp_path / f"400u-{len(kind)}", bodies)
+        if set(got) != {400}:
+            wrong.append(f"the README says {kind}; it was answered {got}")
+        for rel in ("README.md", "docs/api-reference.md"):
+            if kind not in " ".join(" ".join(_passages((REPO / rel).read_text())).split()):
+                wrong.append(f"{rel} does not say, where it names the route, that {kind}")
     spec = yaml.safe_load((REPO / "gateway" / "openapi.yaml").read_text())["paths"][ROUTE]["post"]
     for status, kinds in OPENAPI_KINDS.items():
         named = spec["responses"][status]["description"]

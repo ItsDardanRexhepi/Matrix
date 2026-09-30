@@ -161,9 +161,10 @@ module name, handed to a parameter that another object keeps, or run by a
 lambda or a def inside the method, alone or inside a dict, a list, a partial
 or any other value. A module name holds every value written into it: by the
 module's statements at any depth (an assignment of any form, a ``for`` or
-``with`` target, ``n[k] = v``, ``n.append(v)`` and the other mutators), by a
-statement of a class body that writes into it, and by any function or lambda
-that declares it ``global`` or writes into it without binding it; and a call
+``with`` target, ``n[k] = v``, ``n.append(v)`` and the mutators ``update``,
+``extend``, ``insert``, ``setdefault`` and ``add``), by a statement of a class
+body that writes into it, and by any function or lambda of that module that
+declares it ``global`` or writes into it without binding it; and a call
 the module or a class body makes hands a parameter what it passes, as a
 function's call does. An attribute ``getattr`` or ``setattr`` names by a
 constant is read as that attribute (``_NamedByAConstant``). A call it cannot
@@ -212,7 +213,13 @@ such an object is recorded, and so is a call of one kept on ``self`` or in a
 module name, and each fails the census by the rules above; a call of one a
 parameter or a local name holds, read out of neither, is not); which key of
 a mapping holds which callable (a call on any element reaches every callable
-the mapping holds); a request sent by any shape not named above; code
+the mapping holds); a write into a module name, a class attribute or a held
+table made from another module (``front.HOOKS.append(...)``, or a name
+imported from it), through an alias of it or through a parameter a function
+writes into; a mutator other than those named (a queue's ``put_nowait``,
+``heapq.heappush``); an HTTP library bound by ``__import__`` or
+``importlib.import_module``; an attribute looked up by what the walk cannot
+read in code no action reaches; a request sent by any shape not named above; code
 replaced at run time. What a parameter carries is read for every call
 together, not call by call, so a value one caller hands a helper is taken as
 what every caller hands it. A dedicated ``/api/v1`` route a session reaches
@@ -498,7 +505,8 @@ def _written(scope) -> list:
     form that binds the name (an assignment, annotated or augmented or
     unpacking, ``:=``, a ``for`` or ``with`` target), with *target* None, and
     every write into what it holds (``n[k] = v``, ``n.attr = v``, ``n.append(v)``
-    and the other mutators), with *target* the subscript, attribute or call."""
+    and the other mutators ``signing.MUTATORS`` names), with *target* the
+    subscript, attribute or call."""
     out = []
     for n in signing._own_nodes(scope):
         if isinstance(n, ast.Assign):

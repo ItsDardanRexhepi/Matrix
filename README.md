@@ -483,7 +483,10 @@ check behind it:
   service or of an object the service holds, the object's class read from
   what builds it and carried through the forms its docstring names, and a
   method or a function held on `self`, in a class attribute or a module
-  name (whatever statement of the module, or function, writes it there),
+  name (whatever statement or function of that module writes it there; a
+  write from another module, through an alias or through a parameter, and
+  a mutator outside `update`, `append`, `extend`, `insert`, `setdefault`
+  and `add`, is not read),
   in a lambda or handed to another object that holds it; an attribute
   `getattr` or `setattr` names by a constant is read as that attribute. It
   fails on any action that reaches what the walks find and is not refused,
@@ -495,11 +498,13 @@ check behind it:
   read; on a table entry the walks do not find; on a call in that reach on
   an object it cannot place whose method has the name of one that reaches
   a send; and on a call through a callable held on `self` or in a module
-  name that it cannot place. Anywhere in the services layer, it fails on
-  an attribute or a name looked up or written by what it cannot read
-  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...), on a
-  decorator it does not read, and on an HTTP library used or imported
-  other than by its own name. A read that carries a platform credential
+  name that it cannot place. In code an action reaches, it fails on an
+  attribute or a name looked up or written by what it cannot read
+  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...).
+  Anywhere in the services layer, it fails on a decorator it does not
+  read and on an HTTP library an import statement binds under another
+  name; one bound by `__import__` or `importlib.import_module` is not
+  read. A read that carries a platform credential
   and only query values the request writes, to an address the platform
   fixes, is kept for a session and listed with its reason: the weather
   reading and the cross-chain message tracker. It does not read an amount,
@@ -514,8 +519,9 @@ check behind it:
   the four fields the handler requires and an amount that is a number
   between -1e308 and 1e308 is answered 400, and one whose amount is
   null, a list, an object, a string float() cannot read as a number, or
-  an integer beyond the largest float (about 1.8e308, of either sign) is
-  answered 500. The capability records only on the service's in-memory
+  an integer of up to 4,300 digits beyond the largest float (about
+  1.8e308, of either sign) is answered 500; an integer of more digits is
+  refused as not JSON and answered 400. The capability records only on the service's in-memory
   ledger, which starts empty and which only a test helper funds, so for
   the operator's key it answers that the balance is insufficient. The
   component registry the app reads offers
