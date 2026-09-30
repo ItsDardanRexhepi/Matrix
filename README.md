@@ -23,12 +23,12 @@ What you can do on The Matrix:
 - Record payments today, and send them once settlement is built: the stablecoin-transfer capability records a transfer on its service's in-memory ledger with a tiered fee (0.1% or less by default), and the cross-border payment capability records the payment instruction, keeping no balances, with a flat 0.5% fee. Both answer `recorded_unsettled` — no value moves and no transaction is sent — and a cross-border payment the compliance check stops answers `compliance_hold`. The stablecoin ledger starts empty and only a test helper funds it, so a transfer there is refused for insufficient balance. Neo's own chain tools are a different path, and they do send: with a chain configured, and within the sponsorship policy, `payment` sends ETH or an ERC-20 token and `stablecoin` a stablecoin it lists for the network, each from the platform wallet's own balance and with no fee, and other Neo tools sign ETH and token transfers from that wallet too. Naming Neo takes the operator key on a gateway that has one set, and the Python SDK's `send_payment()` is a chat message asking Neo to use `payment` for ETH and `stablecoin` for a token. The fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
 - Build blockchain applications and games with less hand-written Solidity — write the contract as structured pseudocode, read the Solidity draft it generates, compile and deploy it yourself
-- Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
+- Issue a tokenized security and list it on the exchange's order book, wherever the offering is lawfully available to you; buying one is refused until a settlement path exists (`buy_security` is catalogued `available: false`), so no trade settles on chain yet
 - Access parametric insurance that pays automatically when the data it watches meets the condition, no claims, no adjusters, no waiting
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
 - Verify the complete history of any product, property, or asset before you buy it
 - Participate in governance and voting that is tamper-proof, transparent, and permanently recorded on-chain
-- Watch the platform come alive through the real-time social feed — every deployment, swap, mint, and vote, ranked and streamed live
+- Watch the platform come alive through the real-time social feed — every swap, mint and vote, ranked and streamed live
 - And much more — open source, yours to run, yours to change
 
 The ones that write to a chain run against a blockchain you configure, and until you configure one, each says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't. The ones that keep their own records, like the payment ledgers above, run with or without a chain and say that nothing moved.
@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,282 tests, run against the versions
+automated suite of 6,288 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -685,8 +685,9 @@ check behind it:
   default, and is not closed until that gate, G6, holds. The other two exit gates hold at `on`.
   G7, the plan's crash matrix at its ten Phase 2 cells (the bridge request
   at W2 and W4, the dispatch at W1, W2 and W4, the attestation at W1, W2 and
-  W3, the feed entry at W1 and W2), is 100 seeded crashes a cell, 20 of them
-  child interpreters killed at the instant, each recovered over the same file
+  W3, the feed entry at W1 and W2), is 100 seeded crashes a cell, and two more
+  a cell (20 in all) child interpreters killed at the instant, each recovered
+  over the same file
   by a fresh engine holding nothing in memory: no
   run is lost and no effect is made without its record, recovery continues
   nothing, no effect happens twice, and two recoveries of one file reach
@@ -934,8 +935,10 @@ launch:
 
 - **Env-only secrets, and a census that finds the ones that escape** —
   `runtime/config/validation.py` strips placeholder values (`YOUR_`,
-  `CHANGE-ME`, … in either spelling) and, with `MATRIX_ENV=production`,
-  refuses to start if a required secret is missing from the environment.
+  `CHANGE-ME`, … in either spelling) from the env-only secret entries it
+  lists, warns about every other placeholder at startup, and, with
+  `MATRIX_ENV=production`, refuses to start if a required secret is missing
+  from the environment.
   It also walks the loaded config for secret-shaped settings and reports
   any that no env-only entry covers — in production that refusal stops
   the boot, so a new third-party key cannot quietly live in the
@@ -988,8 +991,12 @@ launch:
   stack: namespace, configmap, secret template, PVC, deployment with
   liveness / readiness / startup probes, service, and ingress.
 - **OpenTelemetry bridge** — `runtime/monitoring/otel.py` is a
-  soft-failing OTLP push exporter. Set `monitoring.otel.endpoint`
-  (or `OTEL_EXPORTER_OTLP_ENDPOINT`) to enable it.
+  soft-failing OTLP push exporter. It runs only with
+  `monitoring.otel.enabled` set to true and an endpoint in
+  `monitoring.otel.endpoint` (or `MATRIX_OTEL_ENDPOINT`), and only when the
+  `opentelemetry` packages, which no requirements file installs, are
+  installed; otherwise it stays a no-op, with a warning in the log when it
+  was enabled and could not start.
 - **Foundry contract tests** — `foundry.toml` pins solc 0.8.20 and
   `scripts/build-contracts.sh` is a one-shot bootstrap that installs
   forge-std + OpenZeppelin, compiles, and runs every test under
@@ -1093,8 +1100,9 @@ See `/glasswing` for the badge registry.
 
 ## Learn
 
-Three courses, free and open source in `education/`, exercises and
-solutions included; nothing sells them:
+Three courses, free and open source in `education/`; nothing sells them.
+Course 01 ships exercises and solutions, course 02 a vulnerable-and-fixed
+contract pair to work through, and course 03 its lessons alone:
 
 - **Introduction to The Matrix** — Build plugins, deploy contracts with your own wallet, use the SDK
 - **Smart Contract Security** — Reentrancy, access control, Glasswing methodology
