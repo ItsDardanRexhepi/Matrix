@@ -267,8 +267,10 @@ dispatcher the same way.
 
 `POST /bridge/v1/action` reads an `Idempotency-Key` header only while
 `engines.durable.mode` is `shadow` or `on`; at `off`, the default, the header
-is not read. A key is scoped to the credential that sent it, and it is read
-after the security gate: a replay is gated again like any request. At `shadow`
+is not read. A key is scoped to its caller (the kind of credential, and the
+subject a session was issued to or, for the operator key, the user it names),
+and it is read after the security gate: a replay is gated again like any
+request. At `shadow`
 the key is recorded against the first request that used it and nothing
 changes: a replay runs again. At `on`, a state-modifying action runs once
 under a key. A later request with the same key and body runs nothing and gets
