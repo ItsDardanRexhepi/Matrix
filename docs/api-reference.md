@@ -265,6 +265,22 @@ message, a service's exception text) the body is the redacted
 `{error, code, ref}` shape instead. `POST /bridge/v1/action` relays the
 dispatcher the same way.
 
+`POST /bridge/v1/action` reads an `Idempotency-Key` header only while
+`engines.durable.mode` is `shadow` or `on`; at `off`, the default, the header
+is not read. A key is scoped to the credential that sent it, and it is read
+after the security gate: a replay is gated again like any request. At `shadow`
+the key is recorded against the first request that used it and nothing
+changes: a replay runs again. At `on`, a state-modifying action runs once
+under a key. A later request with the same key and body runs nothing and gets
+the first answer, byte for byte, while the process that gave it still holds it
+(up to 24 hours, the latest 4,096 answers); otherwise it answers **422** with
+`code` `idempotency_in_progress` (the first has not answered yet),
+`idempotency_conflict` (the key was used for another action or other
+parameters) or `idempotency_answer_not_held`. A key that is not 1 to 255
+printable ASCII characters, with no leading or trailing space, answers
+**400** `validation`, and an action whose run cannot be recorded first is not
+run and answers **503** `service_unavailable`.
+
 A refusal the service RETURNS — `not_deployed` above all — is not one of those
 statuses, and this route answered `200 {"status": "ok"}` over it while the
 dedicated `/api/v1` route for the same service answered `503`. The envelope

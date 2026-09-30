@@ -50,7 +50,9 @@ The `liveness` and `startup` probes hit `/health`, which answers 200
 whenever the process can serve and is intentionally cheap and auth-free.
 The `readiness` probe hits `/ready`, which answers 503 when this instance
 should not take traffic: no model provider answered, or the security gate
-the gateway builds at startup is not up (README → Check platform health).
+the gateway builds at startup is not up, or, with `engines.durable.mode` at
+`shadow` or `on`, the durable outbox loop has stopped (README → Check platform
+health).
 Startup probe gives the gateway up to 2 minutes to come up before
 liveness takes over.
 

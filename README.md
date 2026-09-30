@@ -368,7 +368,26 @@ check behind it:
   journaled; `POST /api/v1/capabilities/{id}/invoke` goes through the
   dispatcher and is, without reading an `Idempotency-Key`. With the mode at
   `shadow` or `on`, `GET /ready` answers 503 while the loop is not running
-  or has stopped making progress
+  or has stopped making progress. The four tables are schema migration 11,
+  after the one-spelling rewrite of stored callers (10): a database left at
+  either earlier schema gets the tables, and the rewrite exactly once. What
+  the mode costs is measured, not assumed
+  (`tests/baseline/durable_g6_latency.json`, 5,000 calls a cell, on the
+  machine it names). At `off`, a dispatch's p95 is 1.025 times main's,
+  measured like for like, within the +10 percent latency budget. `shadow`
+  and `on` write a run of two transactions around each journaled dispatch,
+  which puts its p95 at several times that of the same dispatch at `off`:
+  about 8.5 times for the service dispatcher (18.0 to 154.4 microseconds at
+  `on`), 9.6 times for the bridge's keyed sequence and 3 times for a twin
+  tool's signing call. That is over the budget, and the budget is the
+  project owner's decision, still open: this phase of the engines work can
+  merge dark, with the mode `off` by default, and is not closed until that
+  gate, G6, holds. The other two exit gates hold at `on`: a crash at any of
+  four points (G7: 448 injections and 6 killed processes) leaves no run
+  open, calls no service twice and delivers no record twice
+  (`tests/baseline/durable_g7_crash_matrix.json`), and 1,104 bodies each
+  sent twice to `POST /bridge/v1/action` (G8) act once each
+  (`tests/baseline/durable_g8_replay.json`)
 
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
