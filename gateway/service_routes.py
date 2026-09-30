@@ -36,6 +36,7 @@ from gateway.event_broadcaster import (
     BroadcasterCapacityError,
     EventBroadcaster,
 )
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -1189,7 +1190,7 @@ class ServiceRoutes:
         # body value that contradicts it is refused, not preferred.
         identity = self._sponsorship_identity(request)
         body_sender = str(body.get("sender", "") or "").strip()
-        if identity and body_sender and body_sender.lower() != identity.lower():
+        if identity and body_sender and not same_caller(body_sender, identity):
             logger.warning(
                 "paymaster sign refused: body sender does not match the "
                 "identity bound to this request")

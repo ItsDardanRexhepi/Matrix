@@ -7,10 +7,12 @@ representations other people rely on, and stopping new false ones does not
 retract the old.
 
 21-A  `services.creator_platforms.enabled` had ZERO READERS while the shipped
-      example config writes it `false`. Measured at 3ff5a029: 42 of 44 services
-      have that key with zero readers; 13 are set false by the example. All
-      three actions are in ACTION_MAP and _STATE_MODIFYING_ACTIONS, and
-      `available=False` in catalog.py does not unreach them.
+      example config writes it `false`. Measured at the commit "20-J: two
+      overstatements in the remediation's own prose, corrected in place": 42 of
+      44 services have that key with zero readers; 13 are set false by the
+      example. All three actions are in ACTION_MAP and
+      _STATE_MODIFYING_ACTIONS, and `available=False` in catalog.py does not
+      unreach them.
 21-B  The caller picked which contract the platform paymaster signed against,
       and named the byline and target publication.
 21-C  "minted" was returned on broadcast alone; "published" on any 2xx without

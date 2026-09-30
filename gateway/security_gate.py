@@ -49,12 +49,16 @@ def bind_request_security(
 ) -> None:
     """Bind the security context for the current request task.
 
-    ``identity`` is the wallet address the action is attributed to; ``app_attest``
+    ``identity`` is the wallet address the action is attributed to, bound in the
+    one spelling the platform names a caller by (runtime/auth/identity.py), so
+    every spelling of one wallet is attributed to the same caller; ``app_attest``
     is the client's App Attest assertion block (or None). Read later via
     ``current_request_security`` at each gate call site.
     """
+    from runtime.auth.identity import canonical_identity
+
     ctx: dict[str, Any] = {
-        "wallet": identity or "",
+        "wallet": canonical_identity(identity) or "",
         "apple_id": apple_id or "",
         "session_id": session_id or "",
     }
@@ -99,11 +103,16 @@ async def gate_action(
     """Run one action through the Morpheus gate and return its decision dict.
 
     Pure contract call: builds ``{action_type, type, parameters}`` and the context,
-    then calls the process-wide gate via the public seam. If the seam can't be
-    reached or the gate faults, returns an OBSERVE allow — the gate itself
-    fail-closes the money path internally, so a gateway-side fault never silently
-    moves funds; it only declines to add a second, redundant block here.
+    then calls the process-wide gate via the public seam.
+
+    While the gateway's gate is not up (still starting, or its start failed) the
+    seam hands out no gate, and every action is refused here, reads included,
+    without asking anything else in the gate's place: a decision about this
+    request belongs with the gate, and there is none to make it. A gate that is
+    up and faults on one call is a different case; see the except branch.
     """
+    from runtime.security import SecurityGateUnavailable, get_morpheus_security  # public seam
+
     ctx = dict(context) if context is not None else current_request_security()
     action = {
         "action_type": action_type,
@@ -111,9 +120,12 @@ async def gate_action(
         "parameters": parameters or {},
     }
     try:
-        from runtime.security import get_morpheus_security  # public seam
         gate = get_morpheus_security()
         return await gate.evaluate(action, ctx)
+    except SecurityGateUnavailable:
+        logger.error("security gate not up; refused (action=%s)", action_type)
+        return {"allow": False, "would_block": True, "route": "gate-not-up",
+                "reason": _GENERIC_DENY}
     except Exception:
         # The gate is unreachable / faulted. Fail by ACTION TYPE, not blanket-allow:
         # a value-moving (or unknown) action must NOT proceed ungated — fail CLOSED

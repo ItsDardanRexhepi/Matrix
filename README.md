@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,378 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,505 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -195,7 +195,22 @@ What works today, no chain required:
   happened to it. A denial by the security gate, a gate that could not be
   reached, an executor that was not wired and an execution that threw are
   each reported as the refusal they are, and when Neo does run, the
-  hand-off relays Neo's own verdict rather than its own opinion of it
+  hand-off relays Neo's own verdict rather than its own opinion of it.
+  Every tool call asks the security seam with the caller identity the
+  request's entry point bound, never one the model wrote into its
+  arguments, and the hand-off's gate is told the same identity, so a
+  decision the core makes about who is calling can bind at both. On every
+  chat entrance that identity comes from the session the caller presents;
+  only an operator integration may name the user it acts for, and an
+  anonymous caller has none. A wallet address has one spelling wherever
+  the platform names a caller (`0x` and its digits in lower case,
+  `runtime/auth/identity.py`), so a wallet that signs in with its address
+  in another case is still the same caller, an owner a record holds in
+  another case is still its owner, what the gateway stored under a wallet
+  before that rule is rewritten in it the first time the gateway opens its
+  database (one wallet stored under two spellings becomes one, its turns in
+  order), and the gateway starts the security core's gate only when the
+  core names a caller by the same rule
 - **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
 - **All 45 blockchain services** — return a standardised
   `{"status": "not_deployed", ...}` response with a deployment guide
@@ -472,12 +487,14 @@ The `models` map in `/health` says which providers **answered**, not which ones
 you configured a key for — each one is asked, with a short timeout, and they are
 all asked at once so the probe costs one timeout rather than five. `/ready` is
 the one an orchestrator should point at: it answers 503 when no provider
-answered, or when the platform is running in production with security in
-observe-only mode, or, with `engines.durable.mode` at `shadow` or `on`, when
-the durable outbox loop has stopped or stopped making progress, and it
-deliberately tells you nothing else. Which check
-failed is in the log against the request id, because a readiness endpoint that
-announces what is not enforcing is telling whoever asks where to push.
+answered, when the platform is running in production with security in
+observe-only mode, when the security gate the gateway builds at startup did
+not come up or the loop that writes its state back has stopped, or, with
+`engines.durable.mode` at `shadow` or `on`, when the durable outbox loop has
+stopped or stopped making progress, and it deliberately tells you nothing
+else. Which check failed is in the log against the request id, because a
+readiness endpoint that announces what is not enforcing is telling whoever
+asks where to push.
 
 **Get platform status** (it needs the API key; `/health` and `/ready` do not)
 ```bash
@@ -578,10 +595,26 @@ launch:
 - **No production boot without enforcement** — with
   `MATRIX_ENV=production`, which `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
-  gateway refuses to start on the no-op security backend. The
-  `Dockerfile` installs only the public requirements, so a production
-  image needs the separately installed security core as well
-  (`CREDENTIALS_NEEDED.md`, section 5).
+  gateway refuses to start on the no-op security backend, and refuses
+  to start when the security core is installed but its gate cannot be
+  built or cannot load its saved state at startup, or when the core does
+  not name a caller the way the platform does. The gate is built
+  once, by the gateway, from its whole configuration. Outside production
+  a gate that did not come up leaves the gateway running and not ready,
+  and the platform hands no caller a gate and asks no other policy in its
+  place: every request the gate would decide is refused, reads included,
+  and so is every agent tool call, until a gateway starts with the gate
+  up. A gate that did come up and then faults on a single call is a
+  different case. With the security core installed, a call the gate could
+  not decide is refused under ENFORCE, reads included; under OBSERVE it is
+  refused when it could move value or change state, and a plain read goes
+  through. When the gate raises instead of answering, the HTTP gate and the
+  tool-call check refuse the call if it could move value and a plain read goes
+  through, in either mode; Trinity's hand-off to Neo refuses every request it
+  escalates then, reads included. The `Dockerfile`
+  installs only the public requirements, so a production image needs the
+  separately installed security core as well (`CREDENTIALS_NEEDED.md`,
+  section 5).
 - **Caddy reverse proxy** — `docker-compose.prod.yml` + `Caddyfile`
   give you automatic HTTPS via Let's Encrypt, security headers, and
   WebSocket-aware proxying on top of the base `docker-compose.yml`.

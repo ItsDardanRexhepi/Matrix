@@ -17,6 +17,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 # Valid rights types
@@ -207,7 +209,7 @@ class RightsManagement:
                 if _prior is None:
                     continue          # a NEW right type — permitted by design
                 _owner = str(_prior.get("set_by") or "")
-                if not (_set_by and _owner.lower() == _set_by.lower()):
+                if not (_set_by and same_caller(_owner, _set_by)):
                     raise PermissionError(
                         f"the '{_rt}' right on {collection} #{token_id} was "
                         f"granted by {_owner or '<an unidentified caller>'} "

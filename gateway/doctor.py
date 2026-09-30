@@ -157,6 +157,15 @@ def check_security_backend(config: dict) -> tuple:
         installed = False
 
     if SECURITY_BACKEND == "morpheus_security":
+        from runtime.security import backend_names_callers_as_the_platform_does
+
+        if not backend_names_callers_as_the_platform_does():
+            # The gateway will not start this core's gate (the seam's rule
+            # check), so READY would describe a gateway that is not going to run.
+            return ("security backend", STUB,
+                    "morpheus_security is loaded but does not name a caller the "
+                    "way the platform does (canonical_identity, "
+                    "runtime/auth/identity.py); the gateway will not start its gate")
         return ("security backend", READY,
                 "morpheus_security ACTIVE (real enforcement available)")
 

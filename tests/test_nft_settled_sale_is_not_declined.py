@@ -105,9 +105,10 @@ def test_the_trap_is_documented_where_the_next_reader_meets_it():
 
 def test_the_call_site_enumeration_is_cited_by_method_not_line_number():
     """22-E / §AY. The §AK.2 block previously cited ":310 / :470 / :591".
-    Re-derived by AST at 84a6c3e the sites are :462, :622, :817 — THE COUNT WAS
-    RIGHT AND EVERY LINE NUMBER WAS STALE, drifted +152/+152/+226 by fixes
-    inserted above them.
+    Re-derived by AST at the commit "21-S: 21-I's offload moved the cost rather
+    than removing it" the sites are :462, :622, :817 — THE COUNT WAS RIGHT AND
+    EVERY LINE NUMBER WAS STALE, drifted +152/+152/+226 by fixes inserted above
+    them.
 
     A line number is an address into a file that changes; a method name is an
     address into a structure that does not. This test re-derives the count so
