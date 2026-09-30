@@ -1041,14 +1041,29 @@ INVARIANT_FILES = ("tests/test_a_broadcast_is_not_a_settlement.py",
 #: sha256 of each invariant file as the target branch holds it, for a checkout
 #: in which no ref of that branch can be read. Kept equal to the branch's own
 #: copy by the test below wherever the branch can be read, so it never goes
-#: stale unnoticed.
+#: stale unnoticed. An entry in CHANGED_BEFORE_THE_TARGET records instead the
+#: copy the target branch holds once that change reaches it.
 INVARIANT_DIGESTS = {
     "tests/test_a_broadcast_is_not_a_settlement.py":
-        "35d3c399849645d281c091718038addab3431769e15386a30feabbea4fb10f98",
+        "0da6aa91ad04bcfe39516e5937108bb1440b38284eebc297d76b94e03af38630",
     "tests/test_a_record_says_what_happened.py":
         "a921361c6b153cb9ac8b9c2df7eb509e511018aa9e8189b5b5da3a62f3dbb499",
     "tests/test_gate_fault_fail_direction.py":
         "903867fc56550e4f8bdfeabc5f32b945e5719d6900630690dd8cb606b0f40bf0",
+}
+#: An invariant file a branch merged with this work changes on purpose, for a
+#: reason of its own, before the target branch holds that change: path ->
+#: (sha256 of the target branch's copy it replaces, why). While the target
+#: branch still holds exactly that copy, this branch's copy must be the one
+#: INVARIANT_DIGESTS records; any other copy on either side still fails. The
+#: durable work itself changes none of them.
+CHANGED_BEFORE_THE_TARGET = {
+    "tests/test_a_broadcast_is_not_a_settlement.py": (
+        "35d3c399849645d281c091718038addab3431769e15386a30feabbea4fb10f98",
+        "its pinned counts of bare broadcasts, re-derived when eight services-layer "
+        "senders stopped signing a call or a message the request composed and refuse "
+        "before anything is built (27 to 19 functions and action names, 26 to 18 "
+        "senders that do not wait for a receipt)"),
 }
 #: Where the target branch is looked for: the local branch, then the ref a
 #: CI checkout with its whole history has (``fetch-depth: 0`` fetches every
@@ -1073,10 +1088,17 @@ def test_an_invariant_test_file_is_byte_identical_to_the_target_branch(path):
     """Phase 2 leaves the invariant test files as they are. Compared with the
     target branch's copy wherever a ref of it can be read (locally, and in CI,
     whose test job fetches the whole history), and otherwise with the recorded
-    digest of it — never skipped."""
+    digest of it — never skipped. A change CHANGED_BEFORE_THE_TARGET records is
+    held to its recorded copy while the target branch holds exactly the copy it
+    replaces."""
     here = (REPO / path).read_bytes()
     target = _target_copy(path)
-    if target is not None:
+    changed = CHANGED_BEFORE_THE_TARGET.get(path)
+    if target is not None and changed and hashlib.sha256(target).hexdigest() == changed[0]:
+        assert hashlib.sha256(here).hexdigest() == INVARIANT_DIGESTS[path], (
+            f"{path} differs from the copy recorded for the change the target branch does "
+            f"not hold yet ({changed[1]})")
+    elif target is not None:
         assert hashlib.sha256(target).hexdigest() == INVARIANT_DIGESTS[path], (
             f"INVARIANT_DIGESTS[{path!r}] is not the target branch's copy: record "
             f"{hashlib.sha256(target).hexdigest()}")

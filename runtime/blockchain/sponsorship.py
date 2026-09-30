@@ -680,11 +680,12 @@ def describe_gas_policy(config: dict) -> dict:
     same key resolver (`resolve_paymaster_key`, `is_placeholder_value`) as the
     signers, and states the policy as MeteredSigner applies it:
 
-      * with a daily cap, every platform-signed operation is checked against the
-        allowlist (by its `<capability>.<method>` name), the cap, and an
-        attributable identity, and refused otherwise;
-      * with no cap, MeteredSigner does not consult the policy at all, so the
-        allowlist applies only to user operations sent to /api/v1/paymaster/sign.
+      * an allowlist, when one is configured, is read for every platform-signed
+        operation (by its `<capability>.<method>` name), with or without a cap,
+        and for user operations sent to /api/v1/paymaster/sign;
+      * with a daily cap, every platform-signed operation is also checked
+        against the cap and an attributable identity, and refused otherwise;
+      * with neither, MeteredSigner does not consult the policy at all.
 
     tests/test_gas_claims_follow_the_sponsorship_policy.py measures each of
     those against SponsorshipPolicy and MeteredSigner for five configurations,
@@ -719,8 +720,8 @@ def describe_gas_policy(config: dict) -> dict:
                      "rolling 24 hours. An operation the platform would sign for you is "
                      "refused, with the reason, rather than charged to you when "
                      + ", when ".join(reasons[:-1]) + ", or when " + reasons[-1]
-                     + ". Attestations you ask for, through an agent tool "
-                     "or the attestation capabilities, are metered the same way. Not "
+                     + ". Attestations you ask for through an agent tool are metered "
+                     "the same way; the attestation capabilities are refused. Not "
                      "counted against the cap: the platform's own records (its record of "
                      "each capability call, records it writes after another operation), "
                      "which the platform pays for without metering.")
@@ -728,19 +729,23 @@ def describe_gas_policy(config: dict) -> dict:
         statement = ("The platform pays gas for operations it signs for you; this "
                      "deployment sets no daily cap.")
         if allowed is not None:
-            statement += (f" Its action allowlist ({listed}) is applied only to app-signed "
-                          "user operations sent to /api/v1/paymaster/sign, not to "
-                          "operations the platform signs.")
+            statement += (f" It pays only for the actions its allowlist names ({listed}): an "
+                          "operation the platform would sign for you, and an app-signed user "
+                          "operation sent to /api/v1/paymaster/sign, whose action is not on "
+                          "that list is refused, with the reason. Not checked against the "
+                          "list: the platform's own records (its record of each capability "
+                          "call, records it writes after another operation).")
     capped = sponsored and cap is not None
+    binds = sponsored and (cap is not None or allowed is not None)
     return {
         "sponsored": sponsored,
         "daily_cap_usd": cap,
         "cap_window": "rolling 24h" if cap is not None else None,
         "allowed_actions": allowed,
-        "allowlist_applies_to_platform_signed": bool(capped and allowed is not None),
+        "allowlist_applies_to_platform_signed": bool(sponsored and allowed is not None),
         "identity_required": capped,
         "unmetered_operations": (sorted(UNMETERED_PLATFORM_OPERATIONS)
-                                 if capped else []),
+                                 if binds else []),
         "statement": statement,
     }
 
@@ -834,7 +839,8 @@ def resolve_caller_identity() -> str:
 # `eas.attest` / `eas.attest_time_critical` / `eas.revoke`. A tool attestation
 # now passes its own `<capability>.<method>` to EASClient.attest, the three
 # capabilities reach metered entry points (AttestationService.attest_for_caller,
-# batch_attest, revoke — `attestation.<method>`), a batch is bounded, and
+# batch_attest, revoke — metered as `attestation.attest`,
+# `attestation.batch_attest` and `attestation.revoke`), a batch is bounded, and
 # `eas.revoke` is gone: nothing revokes on the platform's own behalf.
 # tests/test_platform_attestations_are_metered.py fails on an unmetered one.
 #
@@ -981,7 +987,15 @@ class MeteredSigner:
         return (gas * price / 1e18) * float(self._eth_usd)
 
     def sign_transaction(self, tx):
-        if not self._metered or self._policy is None or not self._policy.enforces_a_cap:
+        # THE ALLOWLIST IS READ WITH OR WITHOUT A CAP. This returned early
+        # whenever no daily cap was set, before the policy was consulted at
+        # all, so an operator who configured `allowed_actions` and no cap had
+        # every capability signature signed whatever the list said. With no
+        # cap and no allowlist `authorize_and_reserve` allows without touching
+        # the ledger, so an operator who configured nothing sees no change.
+        if not self._metered or self._policy is None:
+            return self._account.sign_transaction(tx)
+        if not self._policy.enforces_a_cap and self._policy.allowed_actions is None:
             return self._account.sign_transaction(tx)
 
         decision = self._policy.authorize_and_reserve(

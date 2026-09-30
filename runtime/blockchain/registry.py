@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # All blockchain capability classes
 CAPABILITY_CLASSES = [
-    SmartContracts,     # 1. Deploy, interact, verify smart contracts
+    SmartContracts,     # 1. Compile, read, verify smart contracts (signs nothing)
     DeFi,              # 2. Lending, borrowing, yield, liquidity
     NFTs,              # 3. ERC-721/1155 mint, transfer, manage
     Tokenization,      # 4. ERC-20 token creation and management

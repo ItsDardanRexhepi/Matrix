@@ -43,6 +43,15 @@ The platform's own records (the dispatcher's record of each capability call,
 records services write after another operation) remain unmetered by design:
 metering them against one caller's cap would charge that caller for another's
 record.
+
+The `eas` tool's `attest`, `batch_attest` and `revoke`, and the attestation
+capabilities at every door, are refused outright, whoever asks
+(runtime/blockchain/eas_manager.py; REFUSED_ON_REQUEST in
+runtime/access_policy.py): the platform's key signs no attestation a request
+composes. So property 3 reads, through the tool, that nothing it is asked for
+reaches the signer at all, and the tool sweep's planted premise names the tools
+that still attest; property 6 drives the service's own methods, which the
+platform's code still calls in process.
 """
 
 from __future__ import annotations
@@ -91,7 +100,7 @@ def test_the_tool_sweep_sees_the_tools():
         source = path.read_text(encoding="utf-8")
         if "(BlockchainInterface)" in source and ".attest(" in source:
             tools.append(path.stem)
-    assert {"eas_manager", "agent_identity", "insurance", "securities"} <= set(tools), tools
+    assert {"agent_identity", "insurance", "securities"} <= set(tools), tools
 
 
 def test_every_tool_attestation_names_its_metered_operation():
@@ -205,19 +214,20 @@ async def test_a_tool_attestation_is_refused_by_a_capped_policy_and_a_platform_r
 async def test_the_eas_tool_under_a_cap_signs_nothing_it_cannot_attribute(monkeypatch, tmp_path):
     """The behaviour, through the tool the model calls: with a $50 cap and no
     signed-in identity, `eas` attest must not sign or send. Before attestations
-    were metered it signed as the exempt `eas.attest` and sent."""
+    were metered it signed as the exempt `eas.attest` and sent. It is now
+    refused before the policy is asked: the tool signs no attestation a
+    request composes."""
     from runtime.blockchain.eas_manager import EASManager
-    from runtime.blockchain.sponsorship import SponsorshipDenied
 
     signed_by: list = []
     sent: list = []
     _fake_signing(monkeypatch, signed_by)
     config = _eas_config(tmp_path, {"daily_cap_usd": 50})
     _eas_client(monkeypatch, config, sent)
-    with pytest.raises(SponsorshipDenied):
-        await EASManager(config).execute(action="attest", data={"action": "anything"},
-                                         recipient=ADDR)
-    assert sent == [] and signed_by == [], "the tool's attestation was signed unmetered"
+    out = json.loads(await EASManager(config).execute(
+        action="attest", data={"action": "anything"}, recipient=ADDR))
+    assert out.get("ok") is False and out.get("code") == "denied", out
+    assert sent == [] and signed_by == [], "the tool's attestation was signed"
 
 
 async def test_a_tool_refusal_reaches_the_agent_as_a_refusal(monkeypatch, tmp_path):
@@ -240,6 +250,8 @@ async def test_a_tool_refusal_reaches_the_agent_as_a_refusal(monkeypatch, tmp_pa
 # ── 3. the `eas` tool meters each entry and bounds a batch ──────────────────
 
 async def test_the_eas_tool_meters_attest_and_bounds_a_batch(monkeypatch, tmp_path):
+    """Nothing the tool is asked to attest, one or a batch of any length, or
+    to revoke, reaches the signer: each is refused before it is built."""
     from runtime.blockchain.eas_client import EASClient, MAX_ATTESTATIONS_PER_BATCH
     from runtime.blockchain.eas_manager import EASManager
 
@@ -252,14 +264,15 @@ async def test_the_eas_tool_meters_attest_and_bounds_a_batch(monkeypatch, tmp_pa
 
     monkeypatch.setattr(EASClient, "attest", _attest)
     tool = EASManager(_eas_config(tmp_path, {"daily_cap_usd": 50}))
-    await tool.execute(action="attest", data={"action": "x"})
-    await tool.execute(action="batch_attest", attestations=[{"action": "x"}] * 2)
-    assert seen == ["eas_manager.attest", "eas_manager.batch_attest", "eas_manager.batch_attest"]
-
-    seen.clear()
-    out = json.loads(await tool.execute(
-        action="batch_attest", attestations=[{"action": "x"}] * (MAX_ATTESTATIONS_PER_BATCH + 1)))
-    assert out["ok"] is False and out["code"] == "batch_too_large" and seen == [], out
+    answers = [json.loads(await tool.execute(action="attest", data={"action": "x"})),
+               json.loads(await tool.execute(action="batch_attest",
+                                             attestations=[{"action": "x"}] * 2)),
+               json.loads(await tool.execute(
+                   action="batch_attest",
+                   attestations=[{"action": "x"}] * (MAX_ATTESTATIONS_PER_BATCH + 1))),
+               json.loads(await tool.execute(action="revoke", attestation_uid="0x" + "44" * 32))]
+    assert all(a.get("ok") is False and a.get("code") == "denied" for a in answers), answers
+    assert seen == [], seen
 
 
 # ── 4. no caller's attestation is listed as unmetered ───────────────────────
@@ -522,8 +535,9 @@ async def test_the_eas_tool_reports_the_entries_signed_before_a_refusal(monkeypa
     monkeypatch.setattr(EASClient, "attest", _attest)
     out = json.loads(await EASManager(_eas_config(tmp_path, {"daily_cap_usd": 50})).execute(
         action="batch_attest", attestations=[{"action": f"a{i}"} for i in range(5)]))
-    assert [r["status"] for r in out["batch_results"]] == ["attested", "attested", "refused"], out
-    assert out["not_attempted"] == 2 and calls == ["a0", "a1", "a2"], out
+    # Refused whole before the first entry: there is no part-way to report.
+    assert out.get("ok") is False and out.get("code") == "denied", out
+    assert calls == [], calls
 
 
 async def test_the_batch_capability_refuses_before_writing_when_the_policy_refuses_the_caller(

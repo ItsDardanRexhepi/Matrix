@@ -1,8 +1,14 @@
 """
-EAS Manager — high-level attestation management for The Matrix.
+EAS Manager — attestation management for The Matrix.
 
-Wraps the EAS client to provide schema creation, attestation querying,
-batch attestations, and revocation. Gas is paid by the platform within its sponsorship policy.
+Creates schemas and answers queries. It does not sign attestations or
+revocations on request: every attestation the platform makes is signed with
+the platform's key, so one whose action, agent and recipient the request
+writes is the platform vouching for whatever it was told, and a revocation of
+an attestation the request names voids a record about somebody else. The
+platform attests what it does when it does it; revoking is not a request's to
+make (register entry::B3-ATTEST-SIBLING, entry::U-ATTEST-AXIS). Gas is paid by
+the platform within its sponsorship policy.
 """
 
 import json
@@ -23,7 +29,10 @@ class EASManager(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Manage EAS attestations: create schemas, attest actions, query attestations, revoke. Gas is paid by the platform within its sponsorship policy."
+        return ("Manage EAS attestations: create a schema, query an attestation. attest, "
+                "batch_attest and revoke are refused: the platform key signs no attestation "
+                "whose content a request writes, and revokes none a request names. "
+                "Gas is paid by the platform within its sponsorship policy.")
 
     @property
     def parameters(self) -> dict:
@@ -125,18 +134,18 @@ class EASManager(BlockchainInterface):
                 code="capability_error")
 
     async def _attest(self, params: dict) -> str:
-        """Create an attestation. Gas is paid by the platform within its sponsorship policy."""
-        from runtime.blockchain.eas_client import EASClient
-        client = EASClient(self.config)
-        data = params.get("data", {})
-        result = await client.attest(
-            action=data.get("action", "custom"),
-            agent=data.get("agent", "neo"),
-            details=data,
-            recipient=params.get("recipient", "0x0000000000000000000000000000000000000000"),
-            operation="eas_manager.attest",
-        )
-        return json.dumps(result, indent=2, default=str)
+        """REFUSED. This signed, with the platform key, an attestation whose
+        action and agent were ``data.action`` / ``data.agent`` and whose
+        recipient was ``recipient`` — every part of it as the request wrote it:
+        a public statement that "agent morpheus approved a withdrawal for
+        0x…", composed by whoever asked. The same statement agent_identity's
+        attest_action made, one tool over. Nothing here to sign.
+        """
+        return refusal(
+            "The platform key does not sign an attestation whose action, agent and "
+            "recipient are whatever the request says; the platform attests an action "
+            "when it executes it. Nothing was attested.",
+            code="denied")
 
     async def _query(self, params: dict) -> str:
         """Query an attestation by UID."""
@@ -148,113 +157,21 @@ class EASManager(BlockchainInterface):
         })
 
     async def _revoke(self, params: dict) -> str:
-        """Revoke an attestation on-chain via EAS. Gas is paid by the platform within its sponsorship policy."""
-        try:
-            from web3 import Web3
-
-            self._require_config("rpc_url", "paymaster_private_key", "platform_wallet")
-            bc = self.config["blockchain"]
-
-            uid = params.get("attestation_uid", "")
-            if not uid:
-                return json.dumps({"status": "error", "error": "attestation_uid is required"})
-
-            eas_contract = bc.get("eas_contract", "")
-            eas_schema = bc.get("eas_schema", "")
-            if not eas_contract or not eas_schema:
-                return json.dumps({
-                    "status": "error",
-                    "error": "blockchain.eas_contract and blockchain.eas_schema must be configured.",
-                }, indent=2)
-
-            eas_revoke_abi = [{
-                "inputs": [{
-                    "components": [
-                        {"name": "schema", "type": "bytes32"},
-                        {"components": [
-                            {"name": "uid", "type": "bytes32"},
-                            {"name": "value", "type": "uint256"},
-                        ], "name": "data", "type": "tuple"},
-                    ],
-                    "name": "request",
-                    "type": "tuple",
-                }],
-                "name": "revoke",
-                "outputs": [],
-                "stateMutability": "payable",
-                "type": "function",
-            }]
-
-            eas = self.web3.eth.contract(
-                address=Web3.to_checksum_address(eas_contract),
-                abi=eas_revoke_abi,
-            )
-            account = await self._platform_signer("eas_manager.revoke")
-
-            schema_bytes = bytes.fromhex(eas_schema.replace("0x", ""))
-            uid_bytes = bytes.fromhex(uid.replace("0x", ""))
-
-            tx = eas.functions.revoke(
-                (schema_bytes, (uid_bytes, 0))
-            ).build_transaction({
-                "from": bc["platform_wallet"],
-                "chainId": self.chain_id,
-                "gas": 200000,
-                "gasPrice": self.web3.eth.gas_price,
-                "nonce": self.web3.eth.get_transaction_count(bc["platform_wallet"]),
-            })
-
-            signed = account.sign_transaction(tx)
-            tx_hash = self.web3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = await self._receipt(tx_hash, "eas_manager.revoke")
-            if receipt is None:
-                return self._unconfirmed(tx_hash, **{"uid": uid})
-
-            return json.dumps({
-                "status": "revoked" if receipt["status"] == 1 else "failed",
-                "uid": uid,
-                "tx_hash": tx_hash.hex(),
-                "gas_paid_by": "platform (The Matrix)",
-            }, indent=2)
-        except Exception as e:
-            return refusal(
-                f"Revocation failed: {e}",
-                code="capability_error")
+        """REFUSED. This revoked, with the platform key, whichever attestation
+        the request named. EAS lets the attester revoke, and the platform is
+        the attester of every record it signs — somebody's identity
+        registration, an insurance policy that insurance.get_policy verifies
+        by its uid — so a request could void a record about somebody else.
+        """
+        return refusal(
+            "The platform key does not revoke an attestation because a request names "
+            "it: the record may be about somebody else. Nothing was revoked.",
+            code="denied")
 
     async def _batch_attest(self, params: dict) -> str:
-        """Create multiple attestations. Each entry is metered as
-        `eas_manager.batch_attest` by the sponsorship policy, and a batch longer
-        than MAX_ATTESTATIONS_PER_BATCH is refused whole."""
-        from runtime.blockchain.eas_client import EASClient, MAX_ATTESTATIONS_PER_BATCH
-        attestations = params.get("attestations", [])
-        if not isinstance(attestations, list):
-            return refusal("attestations must be a list", code="invalid_arguments")
-        if len(attestations) > MAX_ATTESTATIONS_PER_BATCH:
-            return refusal(
-                f"a batch may hold at most {MAX_ATTESTATIONS_PER_BATCH} attestations; "
-                f"this one holds {len(attestations)}",
-                code="batch_too_large")
-        results = []
-        client = EASClient(self.config)
-        for index, att in enumerate(attestations):
-            try:
-                result = await client.attest(
-                    action=att.get("action", "custom"),
-                    agent=att.get("agent", "neo"),
-                    details=att,
-                    operation="eas_manager.batch_attest",
-                )
-            except SponsorshipDenied as denied:
-                if not results:
-                    raise  # nothing was written: the refusal is the whole answer
-                # The entries before this one were signed and sent. Report them,
-                # and the refusal, rather than an error that hides them.
-                results.append({"status": "refused", "reason": denied.decision.reason,
-                                "code": denied.decision.code})
-                return json.dumps({
-                    "batch_results": results, "count": len(results),
-                    "not_attempted": len(attestations) - index - 1,
-                    "refused_at": index,
-                }, indent=2, default=str)
-            results.append(result)
-        return json.dumps({"batch_results": results, "count": len(results)}, indent=2, default=str)
+        """REFUSED, as ``_attest`` is: each entry's action and agent were the
+        request's, one platform-signed attestation per entry."""
+        return refusal(
+            "The platform key does not sign attestations whose action and agent are "
+            "whatever the request says, one or many; nothing was attested.",
+            code="denied")

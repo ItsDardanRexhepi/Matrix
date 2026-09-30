@@ -303,6 +303,10 @@ class EASClient:
                 "attester": attestation[7],
                 "recipient": attestation[6],
                 "time": attestation[2],
+                # What the attestation SAYS. Existing and unrevoked is not the
+                # same as saying what a caller claims it says; a reader that
+                # checks a statement needs its bytes (agent_identity.verify).
+                "data": "0x" + attestation[9].hex() if isinstance(attestation[9], (bytes, bytearray)) else str(attestation[9]),
                 "network": self.config.get("blockchain", {}).get("network", "base-sepolia"),
             }
         except ValueError as e:

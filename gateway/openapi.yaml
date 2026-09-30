@@ -535,16 +535,21 @@ paths:
 
   /api/v1/stablecoin/transfer:
     post:
-      summary: Component 7 — stablecoin transfer (records nothing; answers 400 or 500)
+      summary: Component 7 — stablecoin transfer (operator key only; records nothing; answers 400 or 500)
       description: |
-        This route records nothing, whatever the body: a caller it admits who
-        sends the four fields its handler requires, with an amount that is a
-        number between -1e308 and 1e308, is answered 400, because the handler,
-        which requires `sender`, `recipient`, `amount` and `token`, passes
-        `sender` and `recipient` to the stablecoin service's transfer, which
-        takes `from_addr` and `to_addr`. Each response below names only kinds
-        of body that are always given it. The `transfer_stablecoin` capability
-        is served through `POST /api/v1/capabilities/{id}/invoke`.
+        This route admits the operator key only: a user session gets 403,
+        and `transfer_stablecoin` is refused to a session at every
+        dispatcher, because each takes its sender from the request and
+        nothing binds that sender to the caller. It records nothing,
+        whatever the body: a caller it admits who sends the four fields
+        its handler requires, with an amount that is a number between
+        -1e308 and 1e308, is answered 400, because the handler, which
+        requires `sender`, `recipient`, `amount` and `token`, passes
+        `sender` and `recipient` to the stablecoin service's transfer,
+        which takes `from_addr` and `to_addr`. Each response below names
+        only kinds of body that are always given it. The
+        `transfer_stablecoin` capability is served, to the operator key,
+        through `POST /api/v1/capabilities/{id}/invoke`.
       responses:
         "400":
           description: A body that is not JSON; a JSON object that lacks one of the four fields; the four fields with an amount that is a number between -1e308 and 1e308

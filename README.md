@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 5,879 tests, run against the versions
+automated suite of 6,288 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -283,6 +283,264 @@ check behind it:
   old one stops the pipeline before a single address is configured or a
   single transfer is sent. Deploying it is now a deliberate act by hand,
   which is the only kind of act it should ever have been
+- **What a tool brings back is marked as data, not orders.** When an
+  agent reads a page, a file or another service, the text reaches the model
+  inside an envelope that names the tool, says the content is untrusted
+  and not an instruction, and closes on a random marker the content cannot
+  know, so nothing inside it can pass itself off as being outside it. That
+  is a label, not a lock: a model can still be talked into things by text
+  it was told not to trust, and what is enforced — the security gate,
+  which tools each agent may hold, the shell's refusal outside a declared
+  development environment — is enforced elsewhere
+- **No request can have the platform's key sign or revoke an attestation
+  it wrote.** An attestation that an agent did something is written when
+  the platform executes the action, never composed from a request. The
+  agent-identity tool and the general attestation tool (`eas`) sign none
+  on demand, and `eas` revokes none because a request names it. The
+  services layer's attestation actions (`create_attestation`,
+  `batch_attest`, `revoke_attestation`) are refused the same way at every
+  door that dispatches them — capability invoke, `/bridge/v1/action`,
+  Trinity's escalation to Neo and Neo's `platform_action` — whoever is
+  asking, the operator key included; so are two more that signed a
+  statement the request wrote: `submit_retropgf`, an application attested
+  under the platform's own schema by default, and `issue_kyc_credential`,
+  which read the verification it attested from the request itself. Nor
+  can a request aim the platform's key at the EAS contract directly:
+  `smart_contract`'s `send`, which signed any call the request composed,
+  the EAS contract's own `attest` and `revoke` included, is refused by the
+  tool and, before the tool runs, by the tool dispatcher, whoever asks. A
+  test drives that call through the tool, the dispatcher, all four chat
+  entrances with the operator key, capability invoke, `/bridge/v1/action`
+  and both hand-offs, under the default sponsorship policy, and reads what
+  reaches the chain. A registration names one of the
+  platform's own three agents, and verifying one checks that the
+  attestation is the platform's own registration of that agent, not merely
+  one that exists. Every other attestation a blockchain tool signs has a
+  fixed statement, and the address it is about — an identity
+  registration, an achievement, an IP registration, an investor
+  whitelisting — can be no address but the one your session is bound to;
+  the same holds for a DeFi supply or borrow made for you, and for the
+  account an NFT or game-item transfer moves from. A cross-border
+  payment's compliance record names no address at all, since that call
+  pays nobody. Tests trace, in the source, each value that reaches the
+  statement or the subject of an attestation these tools make back to a
+  constant or to the request as it was written, through the shapes they
+  name (a field of the request, local names bound by an assignment, a loop,
+  `with` or `match`, the `self` attributes the module writes, conversions),
+  and report as a failure a value in any other form; report a request
+  written into before its field is read — directly, or through a name bound
+  to it by an assignment, an `and`/`or`, a conditional or a `match` capture
+  — or handed to code they do not read; report each way of reaching the
+  attestation they name and cannot read; walk every call the platform's
+  wallet signs (next point); and drive every one of those doors. They read
+  the shapes they name and no others, and do not claim those are every
+  shape: reviews have found shapes past them before, and each found is now
+  named and planted. Four limits, stated: the next
+  point's (a timelock's or a governor's inner call, which that contract
+  makes as itself); a record about your own
+  address is still your word (the platform checks no achievement and no
+  investor's eligibility); the records the services layer writes about
+  operations it ran (a cross-border payment, an insurance claim, a
+  royalty) carry what that operation was asked, and no test walks those
+  yet; and a reading of the source cannot see code replaced while the
+  platform runs
+- **No request composes a call or a message in a transaction the
+  platform's wallet signs, in the shapes a test reads.** Every transaction
+  the platform's wallet signs, as that test reads it, calls a function
+  named in its own code (or, with `conversion.auto_deploy` on, deploys a contract the
+  conversion pipeline generated and its audit passed), and none carries
+  a call or a message the request wrote — calldata for another call, a
+  cross-chain message — except the limit named below (an attestation's
+  statement is the point above). The few request-written bytes a signed
+  call does carry are listed in the test by name, each with the reason
+  it is neither (an address encoded as bytes; the input an automation
+  job hands the contract the request named for it). A request may supply
+  other arguments. At the blockchain tools the ones that must be your own
+  address are checked, as above. In the services layer a test lists every
+  address it reads a request supplying to a call the platform signs, 26,
+  each with what it is — 14 name who receives, holds or is credited with
+  what the platform's own call pays, lends, stakes, delegates, mints or
+  creates (a reward's recipient, a loan's on-behalf-of account, a keeper
+  job's upkeep, a restaking receiver, a payment channel's partner among
+  them), 8 name which of the platform's own tokens or contracts the call
+  uses, 2 name the contract the call itself is sent to (a breeding
+  contract and a Sound.xyz drop), and 2 sit behind a pair every door
+  refuses; two more, a token bridge's receiver and a Stargate recipient,
+  travel encoded as bytes and are listed with them. A new one fails the
+  test until it is read. A user session is refused every action the next
+  point's test finds reaching one of them, by its own method or by one it
+  hands the call to, or held to its own address (next point); for the
+  operator's key they are the platform's value moving where a request
+  says, which is the security gate's to evaluate and which, with no
+  enforcement core installed, it observes and does not refuse. The `smart_contract` tool compiles, reads and verifies
+  and signs nothing: its `send` let a request pick the contract, the
+  function, the arguments and the value, and the tool dispatcher now
+  refuses it before the tool runs, for every caller. A token-bound account's
+  `execute_as_tba` is refused: it signed the request's call, a
+  delegatecall if asked, from the platform's wallet and with the
+  platform's ETH, to whatever contract the request named as the account.
+  The four cross-chain message sends (`send_cross_chain_message`,
+  `bridge_hyperlane`, `bridge_wormhole`, `bridge_axelar`) are refused,
+  because the receiving chain reads the platform's wallet as their
+  sender, and a CCIP token bridge carries no message: it refuses a
+  request that brings one. Nor does the platform's wallet hand an account
+  to a new owner or a new key: `recover_wallet` and `create_session_key`
+  sent their module call from the platform's wallet with the addresses the
+  request named, so the platform's standing with the module, not the
+  account holder's, authorized it. `execute_as_tba`, the four sends and
+  those two are each refused in the service and at every door, whoever
+  asks, and the component registry the app reads offers none of them, nor
+  any other action every door refuses. A configured
+  sponsorship allowlist binds with or without a daily cap. A test walks
+  every `sign_transaction` and `send_transaction` call in `runtime/` and
+  `gateway/`, follows each bytes input a named function carries through
+  the binding forms it names, and fails on one it cannot read as a
+  constant unless it is listed with its reason; it fails on a transaction
+  written into through any target or method it names, or handed on — to a
+  call, a container, an attribute or another name, directly or through
+  `or` or a conditional — before it is signed; and every other key
+  signature there is listed where it is made. It reads the shapes it names
+  and no others, and does not claim those are every shape. The limits, stated: `governance`'s timelock schedule and execute
+  and a `dao` proposal carry an inner call the request wrote, which the
+  timelock or governor makes as itself under whatever role the platform
+  holds there, a deployment fact this repository cannot see; those are
+  Neo's tools, which no chat without the operator key reaches. The
+  paymaster signs, with a platform key, a digest of a user operation the
+  request composes, which commits the paymaster's deposit to that
+  operation's gas and makes the platform the sender of nothing: the
+  operation runs only if its own account's validation accepts it, and
+  without a session the daily cap is metered against an address the
+  caller writes. And a function the code names can be sent to a contract
+  the request names, whose own code then runs with the platform's wallet
+  as its caller: the test reads that contract where the function builds
+  it from what it was handed, and lists the two it finds (a user session
+  is refused both, next point); one stored on `self` by another request,
+  or taken from another object's state, it does not read. A platform
+  credential other than the wallet's key — the operator's MPC cluster, a
+  publishing account, a storage node, a provider account — signs or
+  publishes off the chain, which this test does not read. The next
+  point's test walks every HTTP request a services-layer method sends, in
+  the shapes it names, and a user session is refused each action it finds
+  reaching one a platform credential makes on what the request names; the
+  operator's key keeps those over `/bridge/v1/action` and Neo's
+  `platform_action`
+- **A user session does not have the platform act on what it names.** In
+  the services layer the platform's wallet signs, and credentials the
+  operator configured act, for whoever reaches them. A user session — the
+  app's credential — and chat acting for one (Trinity's hand-off to Neo,
+  and `platform_action`) are refused, at capability invoke,
+  `/bridge/v1/action` and the tool dispatcher, each action the test below
+  finds, in the shapes it reads, in which the platform's wallet or a
+  platform credential would sign, pay, publish or authorise while the
+  request names the payee, the account, the asset, the contract the call
+  is sent to, the key, the digest or the content, or in which the
+  platform's server would send, with a platform credential, a request
+  whose address, method, headers, query names or body the request writes:
+  the platform's funds
+  sent to a payee the request names or spent on an asset it names (a
+  compute reward's recipient, a token bridge's receiver, a Stargate
+  recipient, a loan's on-behalf-of account, a keeper job's upkeep, a
+  restaking receiver or operator, a payment channel's partner, a delegate,
+  an auction's or a bribe's token, a token-bound account's NFT among
+  them); a call from the platform's wallet to a breeding contract the
+  request names (`breed_nft`); a threshold
+  signature the operator's MPC cluster makes over the request's digest
+  under the key id it names (`mpc_sign`); a post under the platform's
+  publishing account, a cast through a Farcaster signer the platform's key
+  reaches, a write to the platform's storage node or database, a job or a
+  lease on its provider account, a payment from its payment node, a KYC
+  applicant opened or read with its KYC credential; and an oracle request
+  that would have the platform's server send what the request wrote to
+  the address it names (`custom`) or read its sports provider, with its
+  key, at a path the request writes; a read of the RedStone gateway with
+  the platform's API key at the data-service path the request writes
+  (`redstone_request`); an oracle type sent as anything but
+  a price, a weather reading or randomness, of whatever type, is refused,
+  not raised on. The refusal is decided on the method an action reaches,
+  not on the name it is called by: an action whose method hands the call
+  on, inside the services layer, to one of those is refused with it —
+  `compute_job_submit` is privacy's own name for the compute job, and
+  privacy's `decentralized_store` and `ipfs_pin` hand the call to the
+  Filecoin store — and so is a
+  `platform_action` `service` override onto such a method. The operator's
+  key keeps each of them over `/bridge/v1/action` and Neo's
+  `platform_action`; capability invoke runs, for any caller, only what the
+  catalog marks available, and it marks only those three of them so.
+  Where the one address a request names is the one the platform acts for
+  and it spends only gas on it — a Lens profile, a social or creator
+  token, a Push subscription — the action is kept for a session and bound:
+  it must name the session's own address, and a session bound to no wallet
+  is refused. The list is derived, not only written: a test takes every
+  address a request supplies to a call the services layer signs, as the
+  signing census reads them, walks every HTTP request a services-layer
+  method sends, through the shapes it names, and reads what rides in each
+  part of each of those requests: a value the request wrote, the
+  platform's configuration, a credential read from it (a mapping or a
+  sequence splatted into the call counted in every part it could fill,
+  unless it is written out key by key). It follows each method a dispatch
+  can run to what that method hands the call on to inside the services
+  layer: another method of its class, a function, a method of another
+  service or of an object the service holds, the object's class read from
+  what builds it and carried through the forms its docstring names, and a
+  method or a function held on `self`, in a class attribute or in a
+  module name. A module name is read from the statements and functions of
+  its module that write it, by assignment or through `update`, `append`,
+  `extend`, `insert`, `setdefault`, `add` or `__setitem__`; a write from
+  another module, through an alias or through a parameter, or by another
+  mutator, is not read. A class attribute is read from the class body and
+  from a method's assignment through `self` (plain, annotated or chained,
+  or `setattr(self, ...)`); a write through the class's own name by code
+  of its module (`Front.sink = fn` or `setattr(Front, "sink", fn)`, in a
+  method or outside one) is read as a write into the module name `Front`, so it is
+  followed by code an action reaches that uses that name and not through
+  `self` alone; and a write through `cls`, `type(self)` or
+  `self.__class__`, or through `self` by unpacking or as a `for` or `with`
+  target, is not read. It reaches, too, what is
+  in a lambda or handed to another object that holds it; an attribute
+  `getattr` or `setattr` names by a constant is read as that attribute. It
+  fails on any action that reaches what the walks find and is not refused,
+  handed on, bound, held or listed with its reason; on an action that
+  reaches a request whose URL or method the request writes, or that
+  carries a platform credential beside a header, a query name or a body
+  the request writes (or, on anything but a read, a query value), and is
+  not refused, handed on, bound or held, whether or not it is listed as a
+  read; on a table entry the walks do not find; on a call in that reach on
+  an object it cannot place whose method has the name of one that reaches
+  a send; and on a call through a callable held on `self` or in a module
+  name that it cannot place. In code an action reaches, it fails on a
+  `getattr` by a computed name. Anywhere in the services layer, it fails
+  on an attribute or a name written or looked up by what it cannot read
+  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...), on a
+  decorator it does not read and on an HTTP library an import statement
+  binds under another name; a call made on a library bound by
+  `__import__` or `importlib.import_module` is not read (a client built
+  from it inside `with` is). A read that carries a platform credential
+  and only query values the request writes, to an address the platform
+  fixes, is kept for a session and listed with its reason: the weather
+  reading and the cross-chain message tracker. It does not read an amount,
+  an object handed in from outside the services layer, code outside it, or
+  a shape it does not name.
+  `POST /api/v1/stablecoin/transfer` is not a session route, and
+  `transfer_stablecoin` is refused to a session at every dispatcher with
+  it: each takes its sender from the request, and nothing binds that
+  sender to the caller. The route records nothing, for any caller: its
+  handler hands the service's transfer `sender` and `recipient`, which
+  it does not take (it takes `from_addr` and `to_addr`), so a body with
+  the four fields the handler requires and an amount that is a number
+  between -1e308 and 1e308 is answered 400, and one whose amount is
+  null, a list, an object, a string float() cannot read as a number, or
+  an integer of up to 4,300 digits beyond the largest float (about
+  1.8e308, of either sign) is answered 500; an integer of more digits is
+  refused as not JSON and answered 400. The capability records only on the service's in-memory
+  ledger, which starts empty and which only a test helper funds, so for
+  the operator's key it answers that the balance is insufficient. The
+  component registry the app reads offers
+  none of the actions `runtime/access_policy.py` refuses a session, itself
+  or with what it hands the call to; it still offers 22 actions whose
+  dedicated routes a session is refused, `transfer_stablecoin` among them,
+  and every dispatcher refuses a session each of those as its route does.
+  The capability invoke route runs nothing the catalog marks unavailable,
+  whoever asks
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
@@ -441,9 +699,12 @@ check behind it:
   run is lost and no effect is made without its record, recovery continues
   nothing, no effect happens twice, and two recoveries of one file reach
   the same state (`tests/baseline/durable_g7_crash_matrix.json`, which also
-  says what the plan asks that the matrix does not measure). G8: 1,104
-  bodies each sent twice to `POST /bridge/v1/action` act once each
-  (`tests/baseline/durable_g8_replay.json`)
+  says what the plan asks that the matrix does not measure). G8: of 1,104
+  bodies each sent twice to `POST /bridge/v1/action`, the 1,032 of the
+  172 actions a request may have dispatched act once each, and the 72 of
+  the twelve every door refuses on request (`REFUSED_ON_REQUEST` in
+  `runtime/access_policy.py`) are answered 403 before the gate and act not
+  at all (`tests/baseline/durable_g8_replay.json`)
 
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service
@@ -483,7 +744,8 @@ remittances, and state channels), cross-chain (CCIP, Hyperlane,
 Wormhole, Stargate, Axelar),
 staking & restaking (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool),
 privacy & ZK (ZK proofs, and MPC signing, social recovery and session
-keys, all three catalogued as not yet available), oracles (Chainlink,
+keys, all three catalogued as not yet available, and the last two
+refused at every door), oracles (Chainlink,
 Pyth, RedStone, API3, Keepers), storage (IPFS, Filecoin, Ceramic,
 OrbitDB), compute & DePIN (Akash, device rentals), real-world assets
 (tokenization, supply chain, carbon credits, insurance), markets
@@ -514,19 +776,24 @@ sponsored. What is checked depends on who signs:
   silently granted;
 - a transaction the platform signs itself for a capability, including
   the ones the services send through the shared web3 manager, is checked
-  against the allowlist, the cap and a signed-in identity only when a
-  daily cap is set, and one that fails is refused with the reason rather
-  than charged to the user. With no cap it is signed without a limit and
-  without reading the allowlist. With a cap and an allowlist, list
-  `web3.send_transaction` or those will be refused;
+  against the allowlist whenever one is configured, with or without a
+  daily cap, and, when a cap is set, against the cap and a signed-in
+  identity; one that fails is refused with the reason rather than
+  charged to the user. With neither an allowlist nor a cap it is signed
+  without a limit. With an allowlist, list `web3.send_transaction` or
+  those will be refused;
 - an attestation you ask for is metered the same way, under its own
-  `<capability>.<method>` name and against your identity: the
-  `create_attestation`, `batch_attest` and `revoke_attestation`
-  capabilities, queued or immediate, and 13 actions of Neo's blockchain
-  tools `eas`, `agent_identity`, `identity`, `crossborder_payment`,
-  `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain`.
-  One request may ask for at most 20, and a cap reached part-way through
-  a batch is reported with the entries already written;
+  `<capability>.<method>` name and against your identity: 10 actions of
+  Neo's blockchain tools `agent_identity`, `identity`,
+  `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`,
+  `securities` and `supply_chain`. The `create_attestation`,
+  `batch_attest` and `revoke_attestation` capabilities are refused at
+  every door, whoever asks, and are metered, as `attestation.attest`,
+  `attestation.batch_attest` and `attestation.revoke`, only where the
+  platform's own code calls them in process; the `eas`
+  tool's `attest`, `batch_attest` and `revoke` are refused too. The
+  platform's key signs no attestation a request composes and revokes
+  none a request names;
 - the platform's own records are exempt from the policy. They are listed
   by name in `UNMETERED_PLATFORM_OPERATIONS`
   (`runtime/blockchain/sponsorship.py`), so the exemptions can be read

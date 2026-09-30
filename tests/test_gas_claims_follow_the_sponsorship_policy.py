@@ -25,12 +25,15 @@ Two kinds of control, neither keyed on the prose it judges:
     Only because that is refused may no public surface promise unconditional
     sponsorship.
 
-The description itself is measured against the signer: with no cap,
-MeteredSigner does not consult the policy, so the allowlist binds only
-/api/v1/paymaster/sign; with a cap, the allowlist binds platform-signed
-operations by their `<capability>.<method>` names (which the example config's
-["transfer", "swap"] does not contain), and an unattributable request is
-refused. The platform key is read under both names Web3Manager accepts.
+The description itself is measured against the signer: an allowlist, when one
+is configured, binds platform-signed operations by their
+`<capability>.<method>` names (which the example config's ["transfer", "swap"]
+does not contain), with or without a cap, as it binds /api/v1/paymaster/sign;
+with a cap, an unattributable request is refused as well; with neither,
+MeteredSigner does not consult the policy. Which way the allowlist binds is
+measured, not assumed, and the published prose is scanned for the sentence
+that would be false under what was measured. The platform key is read under
+both names Web3Manager accepts.
 """
 
 from __future__ import annotations
@@ -447,28 +450,83 @@ _ALLOWLIST_ON_PLATFORM = re.compile(
     r"platform[- ](?:signed|signs)|signed by the platform|platform would sign")
 _ALLOWLIST_QUALIFIED = re.compile(
     r"only when|no cap|cap is (?:also )?set|when (?:it|that policy|the policy) sets a|paymaster/sign")
+# The sentence that is false when the signer reads the allowlist with no cap:
+# that the allowlist binds platform-signed operations only under a cap, or is
+# not read for them without one.
+_ALLOWLIST_ONLY_UNDER_A_CAP = re.compile(
+    r"without reading the allowlist|allowlist[^.]*\bonly when a (?:daily )?cap is set|"
+    r"only when a (?:daily )?cap is set[^.]*allowlist|"
+    r"allowlist (?:applies|is applied|binds)[^.]*only to (?:app-signed )?user operations|"
+    r"binds them only when it sets a (?:per-identity )?daily cap|"
+    # The allowlist listed among what a cap brings, or no cap said to leave
+    # the signer unlimited or unread (the forms main's gas wording used).
+    r"with an? (?:per-identity )?(?:daily )?cap (?:set|configured), (?:an operation|a request) "
+    r"past (?:the cap|it), (?:not on|off) the (?:action )?allowlist|"
+    r"with no (?:daily )?cap,? the platform signs without a limit|"
+    r"no (?:daily )?cap[^.]*\bsigner (?:does not|doesn't|never) (?:consult|read)|"
+    r"on the queued path(?![^.]*with a cap)[^.]*(?:off|not on|the) (?:action )?allowlist")
+#: Where the code says what gas it pays: the docstrings and comments of the
+#: modules that sign and meter, and of every other tracked module there.
+_CODE_PROSE_ROOTS = ("runtime/", "gateway/")
+
+
+def _code_prose(source: str) -> str:
+    """A module's docstrings and comments, as one text."""
+    import ast
+    import io
+    import tokenize
+    parts = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node)
+            if doc:
+                parts.append(doc)
+    comments = []
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type == tokenize.COMMENT:
+            comments.append(tok.string.lstrip("#").strip())
+        elif comments and tok.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT):
+            parts.append(" ".join(comments))
+            comments = []
+    if comments:
+        parts.append(" ".join(comments))
+    return "\n\n".join(parts)
 
 
 def _prose_sentences() -> list[tuple[str, str]]:
-    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html", "*.py"], cwd=ROOT,
+                                  text=True)
     sentences = []
     for rel in out.splitlines():
         if (rel.startswith(("tests/", "contracts/")) or rel in _NOT_EDITABLE_HERE
                 or rel == "CHANGELOG.md" or not (ROOT / rel).is_file()):
             continue
-        text = re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))
+        if rel.endswith(".py"):
+            if not rel.startswith(_CODE_PROSE_ROOTS):
+                continue
+            text = _code_prose((ROOT / rel).read_text(encoding="utf-8"))
+        else:
+            text = re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))
         flat = re.sub(r"\s*\n\s*(?:>\s*)?", " ", text)
         sentences.extend((rel, s) for s in re.split(r"(?<=[.!?])\s+", flat))
     return sentences
 
 
-def _cap_and_allowlist_offenders(sentences) -> list[str]:
+def _cap_and_allowlist_offenders(sentences, allowlist_binds_without_a_cap=False) -> list[str]:
     offenders = []
     for rel, sentence in sentences:
         low = sentence.lower()
         if _CAP_PROMISE.search(low) and not _CAP_CONDITION.search(low):
             offenders.append(f"{rel}: cap promised unconditionally: {sentence.strip()[:160]}")
-        if ("allowlist" in low and _ALLOWLIST_ON_PLATFORM.search(low)
+        if allowlist_binds_without_a_cap:
+            if _ALLOWLIST_ONLY_UNDER_A_CAP.search(low):
+                offenders.append(f"{rel}: allowlist said to bind platform-signed operations "
+                                 f"only under a cap: {sentence.strip()[:160]}")
+        elif ("allowlist" in low and _ALLOWLIST_ON_PLATFORM.search(low)
                 and not _ALLOWLIST_QUALIFIED.search(low)):
             offenders.append(f"{rel}: allowlist said to bind platform-signed operations "
                              f"without the cap condition: {sentence.strip()[:160]}")
@@ -487,14 +545,65 @@ def test_the_cap_and_allowlist_scan_catches_the_old_sentences():
     fixed = [("z.md", "Gas is sponsored within the policy — a per-identity daily cap when one is "
                       "set, up to a per-identity daily cap when one is set.")]
     assert not _cap_and_allowlist_offenders(fixed)
+    # Under a signer that reads the allowlist with no cap, the sentences that
+    # said it did not are the ones caught, and the sentence that says it does
+    # is not.
+    uncapped_old = [
+        ("x.md", "That policy binds them only when it sets a per-identity daily cap: then "
+                 "an operation past the cap, not on the action allowlist, or not attributable "
+                 "to a signed-in identity is refused rather than charged to the user."),
+        ("y.md", "With no cap set, the allowlist applies only to app-signed user operations "
+                 "sent to `/api/v1/paymaster/sign`, and the platform signs a capability's "
+                 "transaction without reading the allowlist."),
+    ]
+    assert len(_cap_and_allowlist_offenders(uncapped_old, allowlist_binds_without_a_cap=True)) == 2
+    uncapped_fixed = [("z.md", "An action allowlist, when the policy sets one, binds the "
+                               "platform's signature with or without a daily cap: an operation "
+                               "not on the list is refused.")]
+    assert not _cap_and_allowlist_offenders(uncapped_fixed, allowlist_binds_without_a_cap=True)
 
 
-def test_no_published_prose_promises_a_cap_or_an_allowlist_the_policy_may_not_apply():
-    # The measured premises: with no cap the describer reports none, and with an
-    # allowlist and no cap the allowlist does not bind platform-signed operations.
+def test_the_scan_catches_the_gas_wording_main_merged():
+    """The sentences main's gas wording left in the code's own prose and the
+    API reference, false under a signer that reads the allowlist with no cap,
+    are caught; and the code's docstrings and comments are read at all. At the
+    merge of main into this branch ("Merge main into fix/oldq-census: durable
+    execution, dark by default, as schema migration 11") the scan read no .py
+    file; with this scan, the prose test above fails there on five passages
+    in runtime/blockchain/__init__.py,
+    runtime/blockchain/services/attestation/service.py and
+    docs/api-reference.md, and passes once they say what the signer does."""
+    merged = [
+        ("runtime/blockchain/__init__.py", "Gas for an operation the platform signs is paid by "
+         "the platform within the deployment's sponsorship policy: with a per-identity daily "
+         "cap set, a request past it, off the action allowlist, or not attributable to a "
+         "signed-in identity is refused rather than charged to the user; with no cap, the "
+         "platform signs without a limit; with no paymaster key, nothing is sponsored."),
+        ("runtime/blockchain/services/attestation/service.py", "With no cap the signer does "
+         "not consult the policy, and neither does this."),
+        ("runtime/blockchain/services/attestation/service.py", "On the queued path the "
+         "allowlist, the identity requirement and whether the caller has any cap left are "
+         "checked when the write is queued (`_precheck`)."),
+        ("docs/api-reference.md", "Gas is paid by the platform only when an operator "
+         "configures the paymaster, and then within the sponsorship policy: with a daily cap "
+         "set, an operation past the cap, not on the action allowlist, or not attributable to "
+         "a signed-in identity is refused rather than charged."),
+    ]
+    assert len(_cap_and_allowlist_offenders(merged, allowlist_binds_without_a_cap=True)) == 4
+    read = {rel for rel, _s in _prose_sentences()}
+    assert {"runtime/blockchain/sponsorship.py", "runtime/blockchain/__init__.py",
+            "runtime/blockchain/services/attestation/service.py"} <= read
+
+
+def test_no_published_prose_promises_a_cap_or_an_allowlist_the_policy_may_not_apply(tmp_path):
+    # The measured premises: with no cap the describer reports none, and whether
+    # the allowlist binds platform-signed operations with no cap is what the
+    # signer does, measured, and what the describer says.
     assert describe_gas_policy(UNCAPPED)["daily_cap_usd"] is None
-    assert describe_gas_policy(UNCAPPED_ALLOWLIST)["allowlist_applies_to_platform_signed"] is False
-    offenders = _cap_and_allowlist_offenders(_prose_sentences())
+    binds = _measured(UNCAPPED_ALLOWLIST, tmp_path)["platform_signed_unlisted_refused"]
+    assert describe_gas_policy(UNCAPPED_ALLOWLIST)["allowlist_applies_to_platform_signed"] is binds
+    offenders = _cap_and_allowlist_offenders(_prose_sentences(),
+                                             allowlist_binds_without_a_cap=binds)
     assert not offenders, "\n".join(offenders)
 
 

@@ -106,7 +106,8 @@ contract {symbol}Security is ERC20, Ownable {{
             "total_supply": supply,
             "source": source,
             "features": ["whitelist-only transfers", "account freezing", "owner controls"],
-            "note": "Deploy via smart_contract capability. Gas is paid by the platform within its sponsorship policy.",
+            "note": ("Nothing was deployed. The platform does not deploy contracts: compile "
+                     "this with smart_contract's compile action and deploy it with your own signer."),
         }, indent=2)
 
     async def _whitelist(self, params: dict) -> str:

@@ -36,6 +36,7 @@ from typing import Any
 
 from runtime.models.router import ModelRouter
 from runtime.tools.dispatcher import ToolDispatcher
+from runtime.tools.untrusted import wrap_tool_output
 from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
 from runtime.protocols import outcome_truth as _truth
@@ -456,8 +457,15 @@ class ReActLoop:
                 #   client_preview — for a CLIENT. Redacted, with the ref.
                 #   outcome.ok     — stated by the dispatcher, never inferred.
                 tool_result_str = outcome.model_text
+                # What the tool RETURNED is text from outside the platform: the
+                # model gets it inside an envelope that names the tool, says it
+                # is data and not an instruction, and closes on a nonce the text
+                # cannot know (register entry::TOOL-OUTPUT-INJECT). Morpheus's
+                # note is the platform's own and stays outside the envelope.
+                # Provenance, not a sandbox — runtime/tools/untrusted.py.
+                model_view = wrap_tool_output(tool_name, tool_result_str)
                 display_result = (
-                    morpheus_prefix + tool_result_str if morpheus_prefix else tool_result_str
+                    morpheus_prefix + model_view if morpheus_prefix else model_view
                 )
                 client_preview = (
                     morpheus_prefix + outcome.client_preview

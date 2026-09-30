@@ -970,6 +970,14 @@ class BridgeRoutes:
         # `send_payment`. The refusal is keyed on the (service, method) the
         # action resolves to, so every dispatcher gives one answer; the operator
         # key is unaffected.
+        # What no caller may have dispatched, the operator key included
+        # (runtime/access_policy.py REFUSED_ON_REQUEST): the attestation
+        # service signing or revoking what the request composed.
+        from runtime.access_policy import refused_on_request
+        refused_for_all = refused_on_request(action)
+        if refused_for_all:
+            return MobileResponse.error(refused_for_all, 403)
+
         caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
         if caller_kind and caller_kind != "operator":
             # One refusal for every dispatcher and every credential tier.
@@ -977,6 +985,15 @@ class BridgeRoutes:
             refused = caller_refused_route(caller_kind, action)
             if refused:
                 return MobileResponse.error(caller_refusal_message(caller_kind, refused), 403)
+            # The platform's wallet or a platform credential acting on what the
+            # request names (runtime/access_policy.py REFUSED_TO_A_SESSION), and
+            # the few actions held to the session's own address.
+            from runtime.access_policy import refused_to_the_caller
+            refused = refused_to_the_caller(
+                caller_kind, action, params=params,
+                identity=getattr(self._server, "_session_identity", lambda _r: "")(request))
+            if refused:
+                return MobileResponse.error(refused, 403)
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.

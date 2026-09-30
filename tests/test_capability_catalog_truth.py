@@ -1063,7 +1063,10 @@ async def test_an_anonymous_chat_is_refused_what_its_routes_refuse_and_a_session
     # The operations the reviewer probed are in the script.
     for a in ("transfer_stablecoin", "swap_tokens", "buy_marketplace", "stake", "mint_nft"):
         assert a in state_changing, a
-    session_refused = set(_actions_reaching_a_refused_pair())
+    from runtime.access_policy import refused_to_the_caller
+    session_refused = set(_actions_reaching_a_refused_pair()) | {
+        a for a in sd.ACTION_MAP
+        if refused_to_the_caller("session", a, params={}, identity="apple:sub")}
 
     server = _session_server(tmp_path, SWEEP_CONFIG)
 
@@ -1114,7 +1117,8 @@ async def test_an_anonymous_chat_is_refused_what_its_routes_refuse_and_a_session
                     assert resp.status == 200, await resp.text()
             reached = sorted(c.split("@")[0] for c in recorder.calls)
             if kind == "session":
-                # Signed-in callers keep every operation their routes grant them.
+                # Signed-in callers keep every operation their routes grant them,
+                # but what runtime/access_policy.py refuses a session.
                 assert reached == expected_for_session, (
                     label, sorted(set(expected_for_session) - set(reached)),
                     sorted(set(reached) - set(expected_for_session)))

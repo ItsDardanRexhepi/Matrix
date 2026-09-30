@@ -36,7 +36,10 @@ the corpus reaches the effect path at all.
 
 A body the gateway refuses before the dispatcher (for a reason that has nothing
 to do with durability) is recorded in the artefact under ``refused``, never
-dropped from the count, and must have made no effect.
+dropped from the count, and must have made no effect. The actions no request
+may have dispatched, whoever sends it (``REFUSED_ON_REQUEST`` in
+runtime/access_policy.py), are those, and they are refused before the gate is
+asked: every other post, each replay included, is put to the gate.
 
 THE ARTEFACT, ``tests/baseline/durable_g8_replay.json``: deterministic counts
 only (no timings). ``ENGINES_BASELINE=write`` measures and rewrites it; without
@@ -434,9 +437,22 @@ def test_mode_on_acts_at_most_once_per_key_over_the_whole_corpus():
     assert raw["unmapped_hashes"] == 0, (
         "an attestation could not be traced to the body it attests (params_hash unknown)")
     assert summary["bodies"] == len(STATE_MODIFYING) * len(PHASES) * KEYS_PER_PHASE
-    assert raw["gate_calls"] == summary["posts"], (
-        f"the gate was asked {raw['gate_calls']} times for {summary['posts']} posts: "
-        "a replay skipped the gate")
+    # A body no request may have dispatched, whoever sends it (runtime/access_
+    # policy.py REFUSED_ON_REQUEST), is answered 403 by the door before the
+    # gate is asked, the first post and the replay alike; every other post is
+    # put to the gate, a replay included.
+    from runtime.access_policy import refused_on_request
+    refused_on_every_door = {b["action"] for b in raw["answers"] if refused_on_request(b["action"])}
+    before_the_gate = sum(len(b["answers"]) for b in raw["answers"]
+                          if b["action"] in refused_on_every_door)
+    assert set(summary["refused"]) == refused_on_every_door, (
+        f"refused {sorted(summary['refused'])}, refused on request "
+        f"{sorted(refused_on_every_door)}")
+    assert all(s == 403 for b in raw["answers"] if b["action"] in refused_on_every_door
+               for s, _body in b["answers"]), "a body refused on request was answered otherwise"
+    assert raw["gate_calls"] == summary["posts"] - before_the_gate, (
+        f"the gate was asked {raw['gate_calls']} times for {summary['posts']} posts, "
+        f"{before_the_gate} of them refused on request before it: a replay skipped the gate")
     problems = []
     for row in per_body:
         e, where = row["effects"], f"{row['action']} ({row['phase']})"

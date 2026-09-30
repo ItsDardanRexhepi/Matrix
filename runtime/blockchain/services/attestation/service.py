@@ -49,14 +49,17 @@ class AttestationService:
       UNMETERED_PLATFORM_OPERATIONS);
     - `attest_for_caller`, `batch_attest` and `revoke` are the attestation
       capabilities (`create_attestation`, `batch_attest`, `revoke_attestation`
-      in ACTION_MAP): a caller composes the write, so it is metered under
-      `attestation.<method>` like any other platform-signed operation — the
-      allowlist, the per-identity daily cap and the identity requirement
-      apply, and a refusal raises SponsorshipDenied. On the queued path the
-      allowlist, the identity requirement and whether the caller has any cap
-      left are checked when the write is queued (`_precheck`); the full policy,
-      the cap at the write's real price included, is applied when its batch
-      signs, against the identity it was queued under.
+      in ACTION_MAP): a caller composes the write, so it is metered like any
+      other platform-signed operation, under `attestation.attest`,
+      `attestation.batch_attest` and `attestation.revoke` — the allowlist
+      when one is set, and the per-identity daily cap and the identity
+      requirement when a cap is set, apply, and a refusal raises
+      SponsorshipDenied. On the queued path, with a
+      cap set, the allowlist, the identity requirement and whether the caller
+      has any cap left are checked when the write is queued (`_precheck`); the
+      full policy, the allowlist with or without a cap and the cap at the
+      write's real price, is applied when its batch signs, against the
+      identity it was queued under.
 
     NOT provided (NEW-48b / NEW-50, both removed as fabrications):
     - Querying attestations. There is no EAS subgraph reader in this repo.
@@ -151,9 +154,10 @@ class AttestationService:
         the caller (`caller_identity` as the dispatcher injects it, else the
         identity bound to the current dispatch). Raises SponsorshipDenied when
         the sponsorship policy refuses it: on the time-critical path at
-        signing; on the queued path when it is queued, if it is off the
-        allowlist, has no identity, or the caller has no cap left (see
-        `_precheck`). A queued write the batch's metered signature refuses is
+        signing; on the queued path, with a cap set, when it is queued, if it
+        is off the allowlist, has no identity, or the caller has no cap left
+        (see `_precheck`). A queued write the batch's metered signature
+        refuses, one off a configured allowlist with no cap set among them, is
         logged and dropped, not raised here.
         """
         return await self._attest(schema_uid, data, recipient, time_critical,
@@ -173,8 +177,9 @@ class AttestationService:
         refused now rather than dropped later. It takes no budget. A caller with
         some cap left is queued, and the batch meters the write at its real
         price when it signs, so a write that would cross the cap is refused
-        there and dropped. With no cap the signer does not consult the policy,
-        and neither does this.
+        there and dropped. With no cap set this returns before reading the
+        policy; the signer still reads a configured allowlist when the batch
+        signs, so a write off it is refused there and dropped.
 
         The reservation below is priced at $0 and the policy refuses only when
         `spent + est > cap`; while the cap is unchanged the ledger never holds
