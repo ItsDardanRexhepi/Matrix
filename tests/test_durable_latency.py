@@ -389,10 +389,18 @@ def _added(cells: dict) -> dict:
                 for m in ("shadow", "on")} for s in SURFACES}
 
 
+def _load() -> list[float]:
+    """The host's 1, 5 and 15 minute load averages: how busy the machine the
+    stopwatch ran on was with other work."""
+    return [round(x, 2) for x in os.getloadavg()]
+
+
 def measure() -> dict:
+    load_before = _load()
     with tempfile.TemporaryDirectory() as scratch:
         cells = asyncio.run(measure_in_process(scratch))
         main_off = measure_main_off_pair(scratch)
+    load_after = _load()
     off = cells["execute"]["off"]
     main = main_off["main"]
     main_off["ratio_cell_off_to_main"] = {"p50": round(off["p50_us"] / main["p50_us"], 3),
@@ -432,7 +440,8 @@ def measure() -> dict:
                        "HTTP route itself. Host-dependent."),
         "measured": _measured_where(),
         "host": {"machine": platform.machine(), "system": platform.system(),
-                 "python": platform.python_version()},
+                 "python": platform.python_version(), "cpus": os.cpu_count(),
+                 "load_average_before": load_before, "load_average_after": load_after},
         "cells": cells,
         "added": _added(cells),
         "main_off": main_off,
@@ -459,7 +468,8 @@ def test_g6_latency_added_per_dispatch_is_recorded():
         assert isinstance(g6.get(field), str) and g6[field], f"G6 does not say its {field}"
     from tests import durable_measured_at
     durable_measured_at.check(g6["measured"], ARTEFACT.name)
-    assert set(g6["host"]) == {"machine", "system", "python"}, g6["host"]
+    assert set(g6["host"]) == {"machine", "system", "python", "cpus", "load_average_before",
+                               "load_average_after"}, g6["host"]
     assert set(g6["cells"]) == set(SURFACES), f"G6 surfaces: {sorted(g6['cells'])}"
     for surface in SURFACES:
         assert set(g6["cells"][surface]) == set(MODES), f"{surface}: {sorted(g6['cells'][surface])}"
