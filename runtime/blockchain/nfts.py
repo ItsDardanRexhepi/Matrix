@@ -1,7 +1,7 @@
 """
 NFTs — mint, transfer, and manage NFTs on Base L2.
 
-Supports ERC-721 and ERC-1155 standards. All gas fees are covered by the platform.
+Supports ERC-721 and ERC-1155 standards. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -32,7 +32,7 @@ class NFTs(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Mint, transfer, and manage NFTs (ERC-721/ERC-1155) on Base L2. All gas fees covered by the platform."
+        return "Mint, transfer, and manage NFTs (ERC-721/ERC-1155) on Base L2. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -73,7 +73,7 @@ class NFTs(BlockchainInterface):
         return await handler(kwargs)
 
     async def _mint(self, params: dict) -> str:
-        """Mint an NFT. Gas covered by platform."""
+        """Mint an NFT. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -132,7 +132,7 @@ class NFTs(BlockchainInterface):
                 code="capability_error")
 
     async def _transfer(self, params: dict) -> str:
-        """Transfer an NFT. Gas covered by platform."""
+        """Transfer an NFT. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -226,7 +226,7 @@ class NFTs(BlockchainInterface):
                 code="capability_error")
 
     async def _deploy_collection(self, params: dict) -> str:
-        """Deploy a new ERC-721 collection. Gas covered by platform."""
+        """Deploy a new ERC-721 collection. Gas is paid by the platform within its sponsorship policy."""
         name = params.get("name", "The Matrix Collection")
         symbol = params.get("symbol", "MTRX")
         source = f'''// SPDX-License-Identifier: MIT
@@ -251,5 +251,5 @@ contract {symbol}NFT is ERC721URIStorage, Ownable {{
             "name": name,
             "symbol": symbol,
             "source": source,
-            "note": "Use smart_contract deploy action to deploy this contract. Gas covered by platform.",
+            "note": "Use smart_contract deploy action to deploy this contract. Gas is paid by the platform within its sponsorship policy.",
         }, indent=2)

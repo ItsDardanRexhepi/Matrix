@@ -14,15 +14,15 @@ On The Matrix, if you can think it, you can achieve it.
 
 What you can do on The Matrix:
 
-- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan and gas-optimisation pass — the generated interface, state, and function signatures, ready for you to fill in the logic. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
+- Scaffold a Solidity contract from a structured declaration (pseudocode, Solidity, or Vyper), with an automatic security scan — the generated interface, state, and function signatures, a draft for you to read, fill in and compile. The platform does not deploy it for you: you deploy it with your own wallet, so the contract is yours from the first block
 - Borrow against crypto you already hold — no bank, no credit check, no gatekeeping. You supply collateral to a lending pool and draw a loan against it; how much you can draw follows from what you put up, and the interest accrues on-chain where you can watch it. The collateral is what secures the loan, which is why nobody has to score you
 - Create NFTs and register your creative work with an on-chain royalty that every marketplace honouring the ERC-2981 standard pays you on resale
 - Co-own property, vehicles, and real-world assets with anyone in the world, with the ownership split, the payouts, and the transfer rules written into the contract itself
 - Own and control your digital identity, share only what you choose, with whom you choose, for as long as you choose
 - Convert your business into a DAO with transparent governance, on-chain voting, and automatic treasury management
-- Send money anywhere in the world in seconds, with no platform fee taken from the transfer, and network gas sponsored within the policy the operator configures
+- Record payments today, and send them once settlement is built: the stablecoin-transfer capability records a transfer on its service's in-memory ledger with a tiered fee (0.1% or less by default), and the cross-border payment capability records the payment instruction, keeping no balances, with a flat 0.5% fee. Both answer `recorded_unsettled` — no value moves and no transaction is sent — and a cross-border payment the compliance check stops answers `compliance_hold`. The stablecoin ledger starts empty and only a test helper funds it, so a transfer there is refused for insufficient balance. Neo's own chain tools are a different path, and they do send: with a chain configured, and within the sponsorship policy, `payment` sends ETH or an ERC-20 token and `stablecoin` a stablecoin it lists for the network, each from the platform wallet's own balance and with no fee, and other Neo tools sign ETH and token transfers from that wallet too. Naming Neo takes the operator key on a gateway that has one set, and the Python SDK's `send_payment()` is a chat message asking Neo to use `payment` for ETH and `stablecoin` for a token. The fees the code is known to take are listed under Fees in `docs/blockchain.md`, and network gas is sponsored within the policy the operator configures
 - Register and protect your intellectual property with an immutable on-chain timestamp that proves what you had and when you had it
-- Build blockchain applications and games without hand-writing Solidity — describe what you want, read the contract it generates, deploy it yourself
+- Build blockchain applications and games with less hand-written Solidity — write the contract as structured pseudocode, read the Solidity draft it generates, compile and deploy it yourself
 - Trade tokenized securities around the clock, settling on-chain in the time a block takes, wherever the offering is lawfully available to you
 - Access parametric insurance that pays automatically when the data it watches meets the condition, no claims, no adjusters, no waiting
 - Stake your assets and earn the yield the protocol actually pays, shown to you before you commit
@@ -31,7 +31,7 @@ What you can do on The Matrix:
 - Watch the platform come alive through the real-time social feed — every deployment, swap, mint, and vote, ranked and streamed live
 - And much more — open source, yours to run, yours to change
 
-Every one of those runs against a blockchain you configure. Until you configure one, each service says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't.
+The ones that write to a chain run against a blockchain you configure, and until you configure one, each says so plainly rather than inventing a result: no fabricated addresses, no invented transaction hashes, no number that looks like your balance but isn't. The ones that keep their own records, like the payment ledgers above, run with or without a chain and say that nothing moved.
 
 Your companions Trinity, Morpheus, and Neo are with you every step of the way.
 
@@ -78,7 +78,7 @@ If you ever catch this repository claiming something it cannot do, that is a bug
 
 **Trinity** faces the world. She is the primary interface for every user. Warm, capable, present. She speaks your language and handles everything you need in plain conversation.
 
-**Morpheus** appears at the moments that matter. Never in casual conversation. Before every irreversible action. When something significant happens to you. He tells the truth clearly and waits.
+**Morpheus** appears at the moments that matter. Never in casual conversation. The first time you use a kind of capability, and on an action that cannot be undone. When something significant happens to you. He tells the truth clearly and stops: his note is added to the result of the call it concerns, so it reaches you with that result, after the call has run, and nothing waits for an answer to it.
 
 ---
 
@@ -159,7 +159,9 @@ proxied through another company. The ones marked OpenAI-compatible in
 (`/chat/completions`), which is why they need no bespoke client; Anthropic,
 Gemini, NVIDIA and Ollama each keep their own, because their format differs.
 `custom` reaches any endpoint that speaks that format, so a provider missing
-from this table is still usable today.
+from this table is still usable today. Each client sends the platform's tools
+in its provider's own format, whichever of the two shapes a tool is registered
+in (`tool_function` in `runtime/models/model_interface.py`).
 
 Keeping your model current, after setup:
 
@@ -183,9 +185,13 @@ provider".
 The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
-insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,509 tests,
-run against the versions `requirements.txt` locks.
+insurance, compute, AI, energy, legal, and social — is listed in one
+service registry (`runtime/blockchain/services/registry.py`).
+`ServiceDispatcher`, the agents' way in, reaches 44 of them;
+the forty-fifth, real-estate escrow, is reached only by its own routes,
+which answer 403 while it is disabled. All of it is exercised by an
+automated suite of 5,815 tests, run against the versions
+`requirements.txt` locks.
 
 What works today, no chain required:
 
@@ -211,11 +217,14 @@ What works today, no chain required:
   database (one wallet stored under two spellings becomes one, its turns in
   order), and the gateway starts the security core's gate only when the
   core names a caller by the same rule
-- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → optimised Solidity → Glasswing security audit → compile artifacts
-- **All 45 blockchain services** — return a standardised
-  `{"status": "not_deployed", ...}` response with a deployment guide
-  whenever the chain is not yet configured. No fake addresses, no
-  fabricated transaction hashes. That refusal survives the trip out: the
+- **Contract Conversion pipeline** — pseudocode/Solidity/Vyper → generated Solidity draft → Glasswing security audit; it compiles and deploys the result only where an operator turns on `conversion.auto_deploy`
+- **Blockchain services, with no chain configured** — answer with what
+  happened rather than a success: a stake returns a standardised
+  `{"status": "not_deployed", ...}` response with a deployment guide, a
+  cross-border payment is recorded and says nothing moved
+  (`recorded_unsettled`), and a swap quote is computed from the service's
+  own pools. No fake addresses, no fabricated transaction hashes. A
+  not_deployed refusal survives the trip out: the
   HTTP answer is a 503, not a 200, and every envelope the gateway builds
   states the verdict of the action in a `call_outcome` field of its own
   rather than letting its own `ok` stand in for it — on both `/api/v1`
@@ -413,21 +422,31 @@ Every tool call an agent makes passes through the Unified Rexhepi Framework befo
 
 ## Web3 Capability Surface
 
-**195 capabilities across 21 categories** — smart contracts, DeFi,
-DeFi advanced (perps, options, synthetics, orderbook), NFTs, NFT
-finance (lending, fractionalization, ERC-6551), identity (DID, KYC),
-governance (DAOs, veTokens, quadratic voting, RetroPGF), social
-(Lens, Farcaster, Push, creator coins), creator platforms (Sound.xyz,
-Mirror, Paragraph), payments (streaming, escrow, channels), cross-chain
-(CCIP, Hyperlane, Wormhole, Stargate, Axelar), staking & restaking
-(EigenLayer, Symbiotic, Karak, Lido, Rocket Pool), privacy & ZK
-(including MPC signing, session keys and social recovery, all three
-catalogued as not yet available), oracles (Chainlink, Pyth,
-RedStone, API3, Keepers), storage (IPFS, Arweave, Filecoin, Ceramic,
-OrbitDB), compute & DePIN (Akash, Gensyn, Render), real-world assets,
-markets (prediction, auction), gaming, and infrastructure. The 21st
-category, security & wallets, has no capabilities in it yet. The 195
-are served by 43 of the 45 services in the service registry.
+**195 capabilities across 20 categories** — smart contracts
+(conversion to Solidity scaffolding, a conversion fee quote, templates),
+DeFi (loans against collateral, token swaps), DeFi advanced (an
+orderbook and Pyth pull prices), NFTs (minting, trading, rights,
+royalties, fractionalization, rentals, soulbound), NFT finance
+(NFT-backed loans, breeding, ERC-6551 accounts), identity (DIDs,
+credentials, reputation, KYC, agent registry, attestations), governance
+(DAOs, proposals, multisig, veTokens, quadratic voting, RetroPGF,
+disputes), social (profiles, messaging, Lens, Farcaster, Push, creator
+coins), creator platforms (Sound.xyz, Mirror, Paragraph, IP licensing),
+payments (records of payments, stablecoin transfers and cross-border
+remittances, and state channels), cross-chain (CCIP, Hyperlane,
+Wormhole, Stargate, Axelar),
+staking & restaking (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool),
+privacy & ZK (ZK proofs, and MPC signing, social recovery and session
+keys, all three catalogued as not yet available), oracles (Chainlink,
+Pyth, RedStone, API3, Keepers), storage (IPFS, Filecoin, Ceramic,
+OrbitDB), compute & DePIN (Akash, device rentals), real-world assets
+(tokenization, supply chain, carbon credits, insurance), markets
+(prediction markets, auctions, fundraising, securities, marketplace,
+loyalty, subscriptions), gaming, and infrastructure (AI agents, models,
+training data). Many are catalogued with `available: false`;
+`docs/blockchain.md` lists every capability by category and says which.
+The catalog also declares a Security & Wallets category that holds none.
+The 195 are served by 43 of the 45 services in the service registry.
 
 Every capability is catalogued in `runtime/capabilities/catalog.py`.
 Browse them at runtime, with the gateway API key setup generated
@@ -435,14 +454,12 @@ Browse them at runtime, with the gateway API key setup generated
 
 ```bash
 curl http://localhost:18790/api/v1/capabilities -H "Authorization: Bearer YOUR_API_KEY"             # list all
-curl http://localhost:18790/api/v1/capabilities/categories -H "Authorization: Bearer YOUR_API_KEY"  # 21 buckets
+curl http://localhost:18790/api/v1/capabilities/categories -H "Authorization: Bearer YOUR_API_KEY"  # 21 buckets, one (Security & Wallets) empty
 ```
 
 Gas is sponsored by the platform paymaster **within the policy the
-operator configures** — an allowlist of actions and a per-identity daily
-cap. Inside that policy a user pays no gas, and an operator who
-configures no policy sponsors everything. What is checked depends on who
-signs:
+operator configures**, and with no paymaster key configured nothing is
+sponsored. What is checked depends on who signs:
 
 - a smart-account operation the paymaster signs
   (`POST /api/v1/paymaster/sign`) is checked against the allowlist, with
@@ -451,29 +468,39 @@ signs:
   silently granted;
 - a transaction the platform signs itself for a capability, including
   the ones the services send through the shared web3 manager, is checked
-  against the allowlist and the cap only when a daily cap is set. With no
-  cap it is signed whatever the allowlist says. With a cap and an
-  allowlist, list `web3.send_transaction` or those will be refused;
-- a few signing paths are exempt from the policy altogether. They are
-  listed by name in `UNMETERED_PLATFORM_OPERATIONS`
-  (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
-  rather than guessed at. Three of them, an EAS attestation, a
-  time-critical one and a revocation, are signed with the platform key
-  whatever the allowlist and the cap say, and these reach them: the
+  against the allowlist, the cap and a signed-in identity only when a
+  daily cap is set, and one that fails is refused with the reason rather
+  than charged to the user. With no cap it is signed without a limit and
+  without reading the allowlist. With a cap and an allowlist, list
+  `web3.send_transaction` or those will be refused;
+- an attestation you ask for is metered the same way, under its own
+  `<capability>.<method>` name and against your identity: the
   `create_attestation`, `batch_attest` and `revoke_attestation`
-  capabilities; the service dispatcher's own record of each
-  state-modifying action it completes, queued and signed once 50 have
-  gathered (with `engines.durable.mode` at `on`, sent by the durable
-  outbox loop as soon as its run ends instead); `convert_contract`'s attestation of a contract it deployed,
-  with `conversion.auto_deploy` on; the real-estate routes' attestations,
-  with `services.real_estate.enabled` set; and 13 actions of Neo's
-  blockchain tools `eas`, `agent_identity`, `identity`,
-  `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`,
-  `securities` and `supply_chain`, each signed when it is called.
-  `docs/blockchain.md` lists every path by file and function, and the
-  callers that reach the same code and sign nothing.
+  capabilities, queued or immediate, and 13 actions of Neo's blockchain
+  tools `eas`, `agent_identity`, `identity`, `crossborder_payment`,
+  `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain`.
+  One request may ask for at most 20, and a cap reached part-way through
+  a batch is reported with the entries already written;
+- the platform's own records are exempt from the policy. They are listed
+  by name in `UNMETERED_PLATFORM_OPERATIONS`
+  (`runtime/blockchain/sponsorship.py`), so the exemptions can be read
+  rather than guessed at, and are signed with the platform key whatever
+  the allowlist and the cap say: the service dispatcher's own record of
+  each state-modifying action it completes, queued and signed once 50
+  have gathered (with `engines.durable.mode` at `on`, sent by the durable
+  outbox loop as soon as its run ends instead); `convert_contract`'s attestation of a contract it
+  deployed, with `conversion.auto_deploy` on; and the real-estate routes'
+  attestations, with `services.real_estate.enabled` set. The list also
+  holds `GasSponsor.sponsor_transaction`, which signs whatever it is
+  handed and which nothing calls. `docs/blockchain.md` lists every path by
+  file and function, and the callers that reach the same code and sign
+  nothing.
 
-Capabilities return
+Some operations carry a platform fee: the platform contracts pay theirs
+to each contract's `platformFeeRecipient`, which `scripts/deploy_all.py`
+sets to the configured NeoSafe address. The fees the code is known to
+take, with their rates, are listed under Fees in `docs/blockchain.md`,
+checked against the code by a test that finds a fee by its name. Capabilities return
 `{"status": "not_deployed", ...}` until contracts are deployed, keeping
 every flow safe to exercise offline.
 
@@ -492,10 +519,17 @@ curl -X POST http://localhost:18790/chat \
 
 **Convert a contract**
 ```bash
-curl -X POST http://localhost:18790/chat \
+curl -X POST http://localhost:18790/api/v1/contracts/convert \
   -H "Content-Type: application/json" \
-  -d '{"agent": "trinity", "message": "Convert this rental agreement into a smart contract: Monthly rent of $2000, 12 month term, $4000 security deposit, late fee of $100 after 5 days"}'
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"source_lang": "pseudocode", "source_code": "contract Rental\n    state landlord: address\n    state tenant: address\n    state monthlyRent: uint256\n\n    function constructor(tenantAddr: address, rent: uint256)\n        landlord = msg.sender\n        tenant = tenantAddr\n        monthlyRent = rent\n\n    payable function payRent()\n        require(msg.sender == tenant, \"Only tenant can pay rent\")\n        require(msg.value == monthlyRent, \"Must pay exact rent\")\n"}'
 ```
+
+`YOUR_API_KEY` is the key setup generated (`gateway.api_key`). The
+converter reads structured pseudocode, Solidity or Vyper, not a
+description in prose; it answers with the Solidity draft and Glasswing's
+report on it. Unless the operator has turned on `conversion.auto_deploy`,
+it deploys nothing.
 
 **Check platform health**
 ```bash
@@ -539,7 +573,7 @@ User → MTRX iOS App → Bridge (/bridge/v1/) → Gateway → ReAct Loop → Pr
                                                               (Omega: built, never called)
                                                                          ↓
                                                               45 Blockchain Services
-                                                              200+ Platform Actions
+                                                              253 Platform Actions
 ```
 
 ---
@@ -550,15 +584,15 @@ All examples live in `examples/`. Each calls the platform's services, through th
 
 | Script | Description |
 |---|---|
-| `01_contract_conversion.py` | Plain English to audited Solidity, ready for you to deploy with your own wallet |
-| `02_defi_loan.py` | Collateralised DeFi lending — deposit, borrow, repay, withdraw |
-| `03_nft_with_royalties.py` | Mint an NFT, list it, sell it with automatic royalty enforcement |
-| `04_parametric_insurance.py` | Weather-based crop insurance with oracle-triggered automatic payouts |
+| `01_contract_conversion.py` | A rental agreement written as pseudocode, converted to a Solidity draft with its Glasswing report, for you to compile and deploy with your own wallet |
+| `02_defi_loan.py` | Collateralised DeFi lending: create a loan, read it back, repay it |
+| `03_nft_with_royalties.py` | An ERC-721 collection with an EIP-2981 royalty: create it, mint, list and sell a token |
+| `04_parametric_insurance.py` | Crop insurance: a policy, the weather oracle's reading, and a claim the service judges against oracle data it fetches itself |
 | `05_marketplace_flow.py` | List, search and buy: the sale is recorded with its fee split; no escrow, and nothing moves on chain |
-| `06_eas_attestation_chain.py` | Writing EAS attestations, batching them and verifying one |
-| `07_revenue_to_neosafe.py` | Recording fees against the NeoSafe multisig wallet with `NeoSafeRouter`, which it calls directly; the gateway does not call it yet |
-| `08_oracle_routing.py` | Multi-source oracle routing with fallback and aggregation |
-| `09_full_user_journey.py` | Every major platform capability in a single coherent user flow |
+| `06_eas_attestation_chain.py` | Attest sample records through the attestation capabilities (where `blockchain.eas_schema` is a well-formed bytes32 UID, queued unless time-critical), batch them, verify one |
+| `07_revenue_to_neosafe.py` | Inject a fee into a generated contract, record sample fees with the NeoSafe router (in memory, nothing moves), and where the platform's fees actually go |
+| `08_oracle_routing.py` | The oracle gateway: price feeds, a weather reading and a VRF request |
+| `09_full_user_journey.py` | One user through seven services (DID, DAO, tokenization, NFT, governance, fundraising, staking) |
 
 ---
 
@@ -609,9 +643,13 @@ launch:
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
-- **Per-wallet rate limiting** — three-tier token bucket (wallet → API
-  key → IP). Limits are configurable under
-  `gateway.rate_limits.wallet`.
+- **Per-wallet rate limiting** — three token buckets, keyed by the
+  wallet session, then the operator key, then the client IP. Each has
+  its own limit: `gateway.rate_limit_rpm_wallet` and
+  `gateway.rate_limit_burst_wallet`; `…_authenticated` for the operator
+  key, which `gateway.rate_limit_rpm` and `gateway.rate_limit_burst`
+  also set and which the wallet bucket follows when it has no limit of
+  its own; and `…_anonymous` per IP.
 - **No production boot without enforcement** — with
   `MATRIX_ENV=production`, which `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set and `docker-compose.yml` defaults to, the
@@ -712,7 +750,7 @@ The gateway serves a built-in web interface:
 
 - `http://localhost:18790` — Landing page
 - `http://localhost:18790/chat` — Web chat with Trinity
-- `http://localhost:18790/audit` — Glasswing security audit service
+- `http://localhost:18790/audit` — Glasswing audit: what the scan checks and the report it returns
 - `http://localhost:18790/marketplace` — Plugin marketplace
 - `http://localhost:18790/glasswing` — Glasswing security hub and badge registry
 - `http://localhost:18790/learn` — Educational courses and certifications
@@ -722,46 +760,55 @@ The gateway serves a built-in web interface:
 ## Professional Services
 
 - **Glasswing Security Audit** — the automated scan itself is in this
-  repository and runs locally as part of the conversion pipeline, free. The
-  paid hosted service at `/audit` is **not live**: no audit backend is wired
-  into the gateway, so `POST /audit/request` answers `503 not_available`
-  rather than taking an order it cannot fill. The prices on that page
-  describe the intended service, not one you can buy today.
-- **Contract Conversion** — likewise: the pipeline is here and free to run;
-  the hosted service page describes an offering that is not yet accepting
-  work.
+  repository and runs locally as part of the conversion pipeline, free. A
+  paid hosted audit is **not live**: no audit backend is wired into the
+  gateway, so `POST /audit/request` answers `503 not_available` rather than
+  taking an order it cannot fill. The page at `/audit` describes the scan
+  and the report it returns; it offers no tiers and takes no order.
+- **Contract Conversion** — likewise: the pipeline is here and free to run
+  (`POST /api/v1/contracts/convert`). The page at `/services/conversion`
+  describes what a conversion returns; it offers no plans and takes no
+  order.
 
 ## Glasswing Security Badges
 
-`POST /badge/issue` audits a contract's source with Glasswing and, on a
-pass, records a security badge with a page (`/badge/{badge_id}`), a status
-endpoint and an embed snippet. No EAS attestation is written for a badge
-yet, so the gateway that issued it is the only place to check one. The
-registry at `/badges` is public, but the badge page, its status, its embed
-and `/badge/widget.js` are not in the gateway's public set: with an API key
-set, a visitor without the key is answered 401 on each. A badge expires
-after one year; `BadgeManager` has a renewal method, but no route calls it.
+A contract whose source passes the platform's own Glasswing audit can be
+issued a security badge with `POST /badge/issue` (behind the gateway's API
+key); the gateway audits the source itself, so a request cannot supply the
+verdict. A badge is a record in the gateway's database, stored with a hash of
+that audit report, with a page (`/badge/{badge_id}`), a status endpoint and an
+embed snippet. No EAS attestation is written for a badge, so the gateway that
+issued it is the only place to check one. The registry at `/badges` is public,
+but the badge page, its status, its embed and `/badge/widget.js` are not in the
+gateway's public set: with an API key set, a visitor without the key is
+answered 401 on each. A badge expires after one year; `BadgeManager` has a
+renewal method, but no route calls it.
 
 See `/glasswing` for the badge registry.
 
 ## Learn
 
-Three comprehensive courses for developers at every level:
+Three courses, free and open source in `education/`, exercises and
+solutions included; nothing sells them:
 
-- **Introduction to The Matrix** ($49) — Build plugins, deploy contracts with your own wallet, use the SDK
-- **Smart Contract Security** ($79) — Reentrancy, access control, Glasswing methodology
-- **DeFi from Scratch** ($49) — Loans, NFTs, DAOs, staking, explained simply
+- **Introduction to The Matrix** — Build plugins, deploy contracts with your own wallet, use the SDK
+- **Smart Contract Security** — Reentrancy, access control, Glasswing methodology
+- **DeFi from Scratch** — Loans, NFTs, DAOs, staking, explained simply
 
-See `/learn` for details or browse the open source content in `education/`.
+See `/learn` for details.
 
 ## Get Certified
 
-The gateway runs three certification exams (`GET /certification/tracks`,
-`POST /certification/start`, `POST /certification/submit`). A passing score
-records a certificate with an ID that `GET /certification/{cert_id}` looks
-up. No on-chain attestation is written for a certificate yet, and the
-gateway takes no payment for an exam; the prices are the ones the tracks
-list:
+The gateway has three certification tracks (`GET /certification/tracks`,
+`POST /certification/start`, `POST /certification/submit`). It serves no
+exam questions yet: `start` opens an attempt and answers with the track's
+intended question count and time limit, and `submit` scores the answers
+against the track's 10 sample questions in
+`runtime/certification/assessments.py`, with no time limit enforced. A
+passing score records a certificate with an ID that `GET /certification/{cert_id}` looks
+up. No on-chain attestation is written for a certificate: the record has an
+`eas_uid` field that nothing fills. The exam routes take no payment; the
+prices below are the intended fees, as the tracks list them:
 
 - **Certified Developer** ($149) — Plugins, SDK, deploying what the pipeline generates
 - **Certified Security Auditor** ($249) — Glasswing methodology, vulnerability analysis
@@ -771,11 +818,15 @@ list:
 
 ## Plugin Development
 
-Build plugins for The Matrix. The marketplace quotes paid plugins with a
-90/10 split, 90% to the developer (`PLATFORM_COMMISSION` in
-`runtime/marketplace/plugin_store.py`), but a paid plugin cannot be bought
-yet: nothing on this server records a paid purchase, takes a payment or pays
-a developer. A free plugin is recorded as owned when it is bought.
+Build plugins for The Matrix. The plugin loader (`runtime/plugins/loader.py`)
+can import a package from `plugins/installed/`, but nothing in the gateway loads
+one: placing a package there runs nothing today. You can load one yourself with
+`PluginLoader.load_all()`. The marketplace lists plugins and does not install
+them. A paid plugin cannot be bought yet: no purchase path completes one, so the
+purchase route answers `501` for a paid plugin, and nothing on this server takes
+a payment or pays a developer. The platform commission on paid plugins is an
+operator setting (`plugin_marketplace.commission_rate`); the published Terms of
+Service state 10%.
 
 ```bash
 # See the example plugin
@@ -785,17 +836,17 @@ cat runtime/plugins/example_plugin.py
 cat docs/PLUGIN_DEVELOPMENT.md
 ```
 
-Submit a plugin with `POST /marketplace/plugins/submit`. A submission is
-stored as pending; nothing here reviews or approves one yet, so it does not
-appear in the listing.
+Submit a listing with `POST /marketplace/plugins/submit` and the gateway's API
+key (the `/marketplace` page cannot submit one). The listing is stored as
+`pending`; nothing in this gateway reviews, approves or activates it.
 
 ---
 
 ## JavaScript SDK
 
-```bash
-npm install @the-matrix/sdk
-```
+`sdk-js/` is not published to npm. Build it from your clone (`cd sdk-js &&
+npm install && npm run build`) and install it into your app from that
+directory (`npm install <path to your clone>/sdk-js`).
 
 ```typescript
 import { MatrixClient } from '@the-matrix/sdk';

@@ -108,57 +108,6 @@ a:hover{text-decoration:underline}
   border:1px solid var(--border-green);
 }
 
-/* ── Pricing Cards ── */
-.pricing-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-  gap:20px;margin-bottom:48px;
-}
-.price-card{
-  padding:32px 28px;border-radius:var(--radius);
-  background:var(--bg-card);border:1px solid var(--border);
-  position:relative;transition:border-color .3s,transform .2s;
-}
-.price-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
-.price-card.featured{border-color:var(--green-dim)}
-.price-card.featured::before{
-  content:"MOST POPULAR";position:absolute;top:-11px;left:50%;
-  transform:translateX(-50%);
-  padding:3px 14px;border-radius:10px;
-  font-size:.62rem;font-weight:700;letter-spacing:1px;
-  background:var(--green);color:var(--bg);
-}
-.price-tier{font-size:.88rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
-.price-amount{
-  font-size:2.2rem;font-weight:700;color:var(--green);
-  text-shadow:var(--green-glow);margin-bottom:4px;
-}
-.price-amount span{font-size:.82rem;color:var(--text-muted);font-weight:400}
-.price-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:20px}
-.price-features{list-style:none;margin-bottom:24px}
-.price-features li{
-  font-size:.78rem;color:var(--text);
-  padding:6px 0;border-bottom:1px solid rgba(30,30,30,.6);
-  display:flex;align-items:flex-start;gap:8px;
-}
-.price-features li::before{
-  content:">";color:var(--green);font-weight:700;flex-shrink:0;
-}
-.price-btn{
-  display:block;width:100%;padding:12px;
-  border:1px solid var(--green);border-radius:6px;
-  background:transparent;color:var(--green);
-  font-family:inherit;font-size:.82rem;font-weight:600;
-  cursor:pointer;transition:all .2s;text-align:center;
-  text-decoration:none;
-}
-.price-btn:hover{background:var(--green);color:var(--bg);text-decoration:none}
-.price-card.featured .price-btn{
-  background:var(--green);color:var(--bg);
-}
-.price-card.featured .price-btn:hover{
-  background:var(--green-dim);
-}
-
 /* ── Badge Preview Section ── */
 .badge-section{
   padding:64px 24px;
@@ -280,7 +229,6 @@ a:hover{text-decoration:underline}
   .nav-toggle{display:block}
   .hero h1{font-size:1.4rem}
   .hero{padding:56px 16px 48px}
-  .pricing-grid{grid-template-columns:1fr}
   .vuln-grid{grid-template-columns:1fr 1fr}
   .badge-features{grid-template-columns:1fr}
   .registry{overflow-x:auto}
@@ -297,7 +245,6 @@ a:hover{text-decoration:underline}
   <div class="nav-links" id="navLinks">
     <a href="/">Home</a>
     <a href="/chat">Chat</a>
-    <a href="/pricing">Pricing</a>
     <a href="/audit">Audit</a>
     <a href="/marketplace">Marketplace</a>
     <a href="/glasswing" class="active">Glasswing</a>
@@ -308,106 +255,58 @@ a:hover{text-decoration:underline}
 <header class="hero">
   <div class="hero-badge">Glasswing Security Engine v1.0</div>
   <h1 style="margin-top:20px"><em>Glasswing</em> Smart Contract<br>Security</h1>
-  <p>Protecting users and protocols with automated vulnerability detection, manual expert review, and on-chain verified security badges. 12 attack classes. One comprehensive audit.</p>
+  <p>Protecting users and protocols with automated vulnerability detection and security badges issued on the platform's own audit of a contract's source.</p>
 </header>
 
 <!-- How Glasswing Works: 12 Vulnerability Checks -->
 <section class="section" id="how-it-works">
   <h2 class="section-title">How Glasswing Works</h2>
-  <p class="section-sub">Every contract is scanned across 12 vulnerability classes</p>
+  <p class="section-sub">Every contract source Glasswing audits is checked for these 12 vulnerability classes, the pattern checks <code>runtime/security/audit.py</code> runs</p>
   <div class="vuln-grid">
-    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy detection</div>
-    <div class="vuln-item"><div class="vuln-num">2</div>Integer overflow / underflow</div>
-    <div class="vuln-item"><div class="vuln-num">3</div>Unchecked external calls</div>
-    <div class="vuln-item"><div class="vuln-num">4</div>Access control violations</div>
-    <div class="vuln-item"><div class="vuln-num">5</div>Front-running vulnerabilities</div>
-    <div class="vuln-item"><div class="vuln-num">6</div>Denial of service vectors</div>
-    <div class="vuln-item"><div class="vuln-num">7</div>Gas optimization issues</div>
-    <div class="vuln-item"><div class="vuln-num">8</div>Logic errors and edge cases</div>
-    <div class="vuln-item"><div class="vuln-num">9</div>Oracle manipulation risks</div>
-    <div class="vuln-item"><div class="vuln-num">10</div>Flash loan attack vectors</div>
-    <div class="vuln-item"><div class="vuln-num">11</div>MEV extraction vulnerabilities</div>
-    <div class="vuln-item"><div class="vuln-num">12</div>Upgrade proxy safety</div>
+    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy</div>
+    <div class="vuln-item"><div class="vuln-num">2</div>Unchecked external call return values</div>
+    <div class="vuln-item"><div class="vuln-num">3</div>tx.origin used for authorization</div>
+    <div class="vuln-item"><div class="vuln-num">4</div>Unprotected selfdestruct</div>
+    <div class="vuln-item"><div class="vuln-num">5</div>Delegatecall usage</div>
+    <div class="vuln-item"><div class="vuln-num">6</div>Unbounded loop over a dynamic array</div>
+    <div class="vuln-item"><div class="vuln-num">7</div>Integer overflow (Solidity below 0.8.0)</div>
+    <div class="vuln-item"><div class="vuln-num">8</div>Floating pragma version</div>
+    <div class="vuln-item"><div class="vuln-num">9</div>Unprotected ether: ETH received but not withdrawable</div>
+    <div class="vuln-item"><div class="vuln-num">10</div>Missing access control on mint, burn, pause, unpause, upgrade, setOwner or transferOwnership</div>
+    <div class="vuln-item"><div class="vuln-num">11</div>Front-running exposure</div>
+    <div class="vuln-item"><div class="vuln-num">12</div>Block timestamp dependence</div>
   </div>
 </section>
 
-<!-- Audit Pricing -->
-<section class="section" id="pricing">
-  <h2 class="section-title">Audit Pricing</h2>
-  <p class="section-sub">Choose the depth of analysis your project requires</p>
-  <div class="pricing-grid">
-
-    <!-- Standard -->
-    <div class="price-card">
-      <div class="price-tier">Standard Audit</div>
-      <div class="price-amount">$299 <span>per audit</span></div>
-      <div class="price-desc">Automated 12-point scan with full PDF report</div>
-      <ul class="price-features">
-        <li>Automated 12-point vulnerability scan</li>
-        <li>Severity classification (Critical / High / Medium / Low)</li>
-        <li>PDF report delivered within 48 hours</li>
-        <li>Remediation guidance per finding</li>
-      </ul>
-      <a class="price-btn" href="/audit">Get Started</a>
-    </div>
-
-    <!-- Advanced -->
-    <div class="price-card featured">
-      <div class="price-tier">Advanced Audit</div>
-      <div class="price-amount">$599 <span>per audit</span></div>
-      <div class="price-desc">Automated scan plus manual review with detailed recommendations</div>
-      <ul class="price-features">
-        <li>Everything in Standard, plus:</li>
-        <li>Manual expert code review</li>
-        <li>Detailed remediation recommendations</li>
-        <li>Gas optimisation analysis</li>
-        <li>Code quality scoring</li>
-        <li>Delivered within 1 week</li>
-      </ul>
-      <a class="price-btn" href="/audit">Get Started</a>
-    </div>
-
-    <!-- Enterprise -->
-    <div class="price-card">
-      <div class="price-tier">Enterprise Audit</div>
-      <div class="price-amount">$999 <span>per audit</span></div>
-      <div class="price-desc">Full audit with ongoing monitoring and first-year badge included</div>
-      <ul class="price-features">
-        <li>Everything in Advanced, plus:</li>
-        <li>Ongoing contract monitoring</li>
-        <li>Priority re-audit after fixes</li>
-        <li>Executive summary for stakeholders</li>
-        <li>First-year Glasswing Verified badge included</li>
-        <li>Dedicated support channel</li>
-      </ul>
-      <a class="price-btn" href="/audit">Get Started</a>
-    </div>
-
-  </div>
+<!-- What an audit returns -->
+<section class="section" id="report">
+  <h2 class="section-title">What an Audit Returns</h2>
+  <p class="section-sub">One automated scan: the 12 checks above, run on the source it is given</p>
+  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a one-line description of the problem (most checks also suggest a fix; the locked-ether, selfdestruct and timestamp checks do not), the line and the code it points at. Nobody reviews the report by hand. Ordering an audit is not live: this gateway has no audit service behind its audit routes (they answer 503), so nothing here takes an order or a payment. The scan does run on a contract tool call that carries source code, and when a badge is issued (below).</p>
 </section>
 
 <!-- Glasswing Verified Badge -->
 <section class="badge-section" id="badge">
   <div class="badge-section-inner">
     <h2 class="section-title">Glasswing Verified Badge</h2>
-    <p class="section-sub">Verifiable proof your contract passed a professional security audit</p>
+    <p class="section-sub">A record that your contract's source passed the platform's automated Glasswing audit</p>
 
     <div class="badge-features">
       <div class="badge-feature">
-        <div class="badge-feature-title">On-Chain Verification</div>
-        <div class="badge-feature-desc">Every badge is backed by an EAS (Ethereum Attestation Service) attestation, providing tamper-proof on-chain proof of your audit status.</div>
+        <div class="badge-feature-title">Bound to an Audit</div>
+        <div class="badge-feature-desc">A badge is issued only on the platform's own Glasswing audit of the submitted source, and its record keeps a hash of that audit report. Badges are kept in this gateway's database; they are not written on-chain.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Embeddable Widget</div>
-        <div class="badge-feature-desc">Add a single script tag to your project's website. The widget automatically displays your badge status and links to the full verification page.</div>
+        <div class="badge-feature-desc">A single script tag shows the badge's status on your project's website, with a link to its page. The script and the status it reads are not in the gateway's public set: on a gateway with an API key set, both answer 401 to your site's visitors, and the widget does not load there.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Annual Renewal</div>
-        <div class="badge-feature-desc">Badges are valid for one year. Renew for $99/year with a fresh audit to keep your verified status current. First year included with Enterprise audit.</div>
+        <div class="badge-feature-desc">Badges are valid for one year. No gateway route renews a badge yet, so an expired badge is re-earned by issuing a new one on a fresh audit of the source.</div>
       </div>
       <div class="badge-feature">
         <div class="badge-feature-title">Public Registry</div>
-        <div class="badge-feature-desc">All verified contracts appear in the public badge registry below, giving users confidence that your protocol has been professionally audited.</div>
+        <div class="badge-feature-desc">All verified contracts appear in the public badge registry below, showing that the source you submitted passed the platform's automated Glasswing audit.</div>
       </div>
     </div>
 
@@ -439,15 +338,15 @@ a:hover{text-decoration:underline}
 
 <!-- CTA -->
 <section class="cta-section">
-  <a class="cta-btn" href="/audit">Get Your Contract Audited</a>
-  <div class="cta-sub">Start with a free preview scan &mdash; no payment required until you see findings.</div>
+  <a class="cta-btn" href="/audit">About the Audit</a>
+  <div class="cta-sub">Ordering an audit is not live on this gateway. Issuing a badge (<code>POST /badge/issue</code>, which audits the source itself) and badge pages need the gateway's API key where one is set, so a browser cannot reach them there.</div>
 </section>
 
 <!-- Footer -->
 <footer class="footer">
   <ul class="footer-links">
     <li><a href="https://github.com/ItsDardanRexhepi/TheMatrix" target="_blank">GitHub</a></li>
-    <li><a href="/docs">API Docs</a></li>
+    <li><a href="https://github.com/ItsDardanRexhepi/Matrix/blob/main/docs/api-reference.md" target="_blank">API Docs</a></li>
     <li><a href="/chat">Chat</a></li>
     <li><a href="/marketplace">Marketplace</a></li>
     <li><a href="/audit">Audit</a></li>
@@ -487,7 +386,7 @@ a:hover{text-decoration:underline}
       })
       .catch(function() {
         document.getElementById("registryLoading").textContent =
-          "No verified contracts to display yet. Be the first to get audited.";
+          "The badge registry could not be loaded.";
       });
   }
 
@@ -497,7 +396,7 @@ a:hover{text-decoration:underline}
     if (!badges.length) {
       container.innerHTML =
         '<div class="registry-empty">No verified contracts yet. ' +
-        '<a href="/audit">Get your contract audited</a> to be the first.</div>';
+        'Ordering an audit is not live on this gateway.</div>';
       return;
     }
 

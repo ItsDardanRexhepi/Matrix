@@ -3,7 +3,7 @@
 The artefacts under tests/baseline/ that engines Phase 2 writes (G6
 durable_g6_latency.json, G7 durable_g7_crash_matrix.json, G8
 durable_g8_replay.json, and the mode-off golden durable_off_envelopes.json,
-measured at main) each record ``measured``: the commit the figures were taken
+measured on the base tree) each record ``measured``: the commit the figures were taken
 at, by its subject, and whether that tree had uncommitted changes. A subject
 is carried across a rewrite of the history where an id is not.
 
@@ -13,8 +13,9 @@ history does not hold, with uncommitted changes: figures from a tree no one
 can check out again. ``check`` refuses both, wherever the history is here to
 read: the commit must be one of HEAD's, and its tree must have been clean.
 
-Nothing here imports the platform, so the modules that are also run at main
-to measure it can call this lazily, from the side that runs in this tree.
+Nothing here imports the platform, so the modules that are also run on the
+base tree (a checkout of the branch this work merges into, which has no
+runtime/durable) to measure it can call this lazily, from the side that runs in this tree.
 """
 
 from __future__ import annotations

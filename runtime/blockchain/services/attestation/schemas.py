@@ -4,11 +4,13 @@ Schema definitions for EAS attestations across the Matrix platform.
 Each component type maps to a schema UID registered on-chain. EAS schema UIDs
 are keccak256 hashes produced by the SchemaRegistry — they are chain-specific
 and CANNOT be guessed or reused across chains. The defaults here are therefore
-intentionally EMPTY: every UID must be supplied via config
+intentionally EMPTY. A component's UID is supplied via config
 (``blockchain.schemas.<component>``) as the real registered bytes32 for the
-target chain. ``get_schema_uid`` FAILS CLOSED on an empty/malformed UID rather
-than attesting against a placeholder. Register with
-``scripts/register_eas_schemas.py`` and paste the resulting UIDs into config.
+target chain, and ``get_schema_uid`` FAILS CLOSED on an empty/malformed UID
+rather than attesting against a placeholder. The primary schema's UID is not
+read from there: AttestationService and EASClient read it from
+``blockchain.eas_schema``. Register with ``scripts/register_eas_schemas.py``
+and paste the resulting UIDs into config.
 """
 
 from __future__ import annotations
@@ -20,11 +22,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Primary platform schema UID — EMPTY by default; supply the real
-# registered bytes32 via config["blockchain"]["schemas"]["primary"].
-PRIMARY_SCHEMA_UID: str = ""  # config-required (blockchain.schemas.primary); no fabricated default
+# registered bytes32 via config["blockchain"]["eas_schema"], which is where
+# AttestationService and EASClient read the core schema from.
+PRIMARY_SCHEMA_UID: str = ""  # config-required (blockchain.eas_schema); no fabricated default
 
-# Platform schemas — maps component names to default schema UIDs.
-# In production these are overridden via config["blockchain"]["schemas"].
+# Platform schemas — maps component names to default schema UIDs. A
+# component's entry is overridden via config["blockchain"]["schemas"]. The
+# "primary" entry is not read through here: AttestationService resolves
+# "primary" from config["blockchain"]["eas_schema"] and never asks
+# get_schema_uid for it.
 PLATFORM_SCHEMAS: dict[str, str] = {
     # Core platform schema — config-required (no fabricated default).
     "primary": PRIMARY_SCHEMA_UID,

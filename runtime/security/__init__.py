@@ -4,8 +4,9 @@ This package is a BOUNDARY, not an implementation. It exposes the security
 contract the open platform calls (the Morpheus gate, OTP, owner verification)
 and binds it to the private ``morpheus_security`` package **if that package is
 installed**. If it is not — an open-source clone, or local dev — the seam falls
-back to an inert OBSERVE no-op: every action is allowed and logged, nothing is
-enforced. The platform boots either way.
+back to an inert OBSERVE no-op: every action is allowed, nothing is enforced,
+and nothing is logged per action; the seam logs once, at import, that the
+backend is the no-op. The platform boots either way.
 
 A developer reading this repo can see that security IS invoked and where; the
 rules for HOW it decides (detection, classification, bans, owner/OTP internals,
@@ -87,8 +88,10 @@ except (ImportError, ModuleNotFoundError):
         ENFORCE = "enforce"
 
     class _NoopMorpheus:
-        """Inert gate: allows everything, enforces nothing. Logs that it ran so
-        the invocation is observable, but it makes no security decision."""
+        """Inert gate: allows everything, enforces nothing and records
+        nothing. `evaluate()` answers an allow in OBSERVE mode without
+        logging; the seam logs once, at import, that the backend is the
+        no-op. It makes no security decision."""
 
         mode = MorpheusMode.OBSERVE
 

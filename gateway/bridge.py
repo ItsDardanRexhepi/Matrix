@@ -34,6 +34,11 @@ from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, rep
 logger = logging.getLogger(__name__)
 
 
+def _gas_sponsorship_configured(config: dict) -> bool:
+    from runtime.blockchain.sponsorship import describe_gas_policy
+    return bool(describe_gas_policy(config)["sponsored"])
+
+
 class MobileResponse:
     """Consistent response envelope for mobile clients."""
 
@@ -207,7 +212,7 @@ SERVICE_CATALOG = [
         "id": "payments",
         "name": "Payments",
         "icon": "creditcard",
-        "description": "Send money anywhere instantly. Zero fees.",
+        "description": "Quote and record cross-border payments. A platform fee is deducted (0.5% unless the operator sets another rate; the quote shows it). Recorded payments are not settled yet, so no money moves.",
         "category": "finance",
         "actions": ["send_payment", "get_payment_quote", "create_payment"],
     },
@@ -1250,7 +1255,9 @@ class BridgeRoutes:
             "features": {
                 "glasswing_audit": True,
                 "eas_attestations": True,
-                "gas_sponsorship": True,
+                # Derived, not asserted: the app used to be told sponsorship
+                # was on whatever the deployment configured.
+                "gas_sponsorship": _gas_sponsorship_configured(self._config),
                 "managed_agents": True,
             },
             "endpoints": {

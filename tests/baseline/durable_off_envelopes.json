@@ -59,7 +59,7 @@
   "contribute_to_campaign": "62bbc4e0afd810a49395d0eaabe7b0afadcb931ec136d1eaa403c939ad1fa24e",
   "convert_contract": "a8b5df61117836b8244c6036038cc401c071afd66fa28125050245e1798114cc",
   "cover_renew": "a17d16e797433596fe631d86baacf4121894908acd0c1b61fab262f5e826d3e5",
-  "create_attestation": "eacef4fc82a72be72604a402e8cca3282d0db64c94136ada0aa0d34848055fe4",
+  "create_attestation": "9fa3b401147838068e373217cb9ba7bd994f7ffffa02bfa77a483c518a04e58e",
   "create_auction": "f0a86946c83e233eebc3628f106bbe54fe2fc410c3ea43c01e0ee08ae3d37081",
   "create_brand_campaign": "12179541e3012016b2f95286875f0814725a92380c3b09708c00cf52436e0a0e",
   "create_campaign": "1ca5cfaddc156a4a1235c2bfc2bd00ff4d8f9efac540ef0d56b5f76ef563dda9",
@@ -269,22 +269,22 @@
   "zk_proof_generate": "d974322a8b3c61dca427090d5d34d266ad73e516973e5275c9669ca8896d7281"
  },
  "digest_by_case": {
-  "anonymous": "61b394424dd2bffccddd5c17d1db6927716666218ed5ab2faf7b6d1a261262f7",
-  "broadcast": "0eda6d5b3ea1c1916b755af06deb023fbc80dc5bf595264a66fe47c6ad674c5f",
-  "no_method": "da92aa87a6eb7f428d47f30d708e64255080c2e8dfb625da1abbe121329bd3ba",
-  "not_implemented": "c65efd671d431597212862e356ecf3aae6c9cdca57db3083325811e620ce2d87",
-  "raises": "79538243e7ce6beb016a43817c240d1eb9679a329c022be4d4b37ad02828bf6a",
-  "refused": "0a588cd40dc3a46d439eae5db4a0ec6d17d1ebd28eee9e1532f9cd4cf2e02824",
-  "settled": "d3085b2efce49eead9009df3857ad154bd32470f9617fdb24814e75624a6feb6",
-  "text_answer": "ee457c12fa6ebf30a688144741caadb022130da12e1dc83b59bf7266cfafd672",
+  "anonymous": "0a0a1705d87ce7a94b6020ba3687e9023f50c87c2eef7dbf88be6caeaff33b72",
+  "broadcast": "cedfe2569f27968ffe9bf860e81521bae13ef2fa29cdb576e967aff391c57a05",
+  "no_method": "c5293fb1791a3b82f81ecf73a3996ec6d82091ec638b1f96829ec44925948d1e",
+  "not_implemented": "38ecd5984b563339b8489719940974e631b43a2cbc0fb3211f41e596342596d3",
+  "raises": "d9c86b47d2fc046ca6e855093d2673944c7a02514a0007a55b86684ab4e5773e",
+  "refused": "0f730f94f0969018edb50dd77762689bbb873b79a11fac01ad1aacd3321f5da3",
+  "settled": "68832f11a9fdd8f22a3b46c314f3f85ed00b2601a6bf83d54c4ecb65bb3b1c15",
+  "text_answer": "a671cdad5a21b9be7c677ad9bab943ab79e1941c4411bcca92e84d577cc755c9",
   "unavailable": "c2ca75e075dd85e7b554eb195c673fbc24833543e359e79cb7385e61ade7849f",
   "unbound": "f25e415ab0db3eed85e977e8f6ddefa5f0cbe919a85cddd54d57849967249a89",
-  "unconfirmed": "e664618b40a49515dcb698ef5a3902a2b1e785f5d1837a4f02dad26c9a967a18"
+  "unconfirmed": "b06e63cafaf3498d8ca6dbd9c5eed84fbc2a01bb84134eb6387f23cd68ecd4c3"
  },
  "instrument": "tests/test_durable_off_and_shadow.py measure(), run in a separate interpreter importing runtime from a checkout of main: ServiceDispatcher.execute over a stand-in registry defined in that file (every method keyword-only, about half declaring caller_identity), no evidence-shadow sink, a stand-in feed engine attached",
- "main_commit": "Merge audit-remediation-2026-07: the security scan reads the one-spelling migration clean",
+ "main_commit": "Merge audit-remediation-2026-07: a public sentence says what the code does, and a test reads it against the code",
  "measured": {
-  "on_top_of": "Merge audit-remediation-2026-07: the security scan reads the one-spelling migration clean",
+  "on_top_of": "Merge audit-remediation-2026-07: a public sentence says what the code does, and a test reads it against the code",
   "with_uncommitted_changes": false
  },
  "measured_at": "main",
@@ -901,8 +901,6 @@
       "actor_source": "handoff",
       "params": {
        "amount": 5,
-       "caller_identity": "",
-       "caller_source": "handoff",
        "marker": "anonymous",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -942,8 +940,6 @@
        "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
        "params": {
         "amount": 5,
-        "caller_identity": "",
-        "caller_source": "handoff",
         "marker": "anonymous",
         "to": "0xabababababababababababababababababababab",
         "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -957,11 +953,9 @@
     "refusal_record": [],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "",
-       "caller_source": "handoff",
        "marker": "anonymous",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -981,8 +975,6 @@
       "actor_source": "authenticated",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "broadcast",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -999,11 +991,9 @@
     "refusal_record": [],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "broadcast",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1016,7 +1006,7 @@
     "attest_action": [],
     "attestation": [],
     "broadcast_record": [],
-    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": false, \"error\": \"Service 'attestation' has no method 'attest'\"}",
+    "envelope": "{\"status\": \"error\", \"call_outcome\": \"failure\", \"error_category\": \"service_error\", \"degraded\": false, \"error\": \"Service 'attestation' has no method 'attest_for_caller'\"}",
     "feed": [],
     "refusal_record": [],
     "service": []
@@ -1030,11 +1020,9 @@
     "refusal_record": [],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "not_implemented",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1052,11 +1040,9 @@
     "refusal_record": [],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "raises",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1079,8 +1065,6 @@
       "actor_source": "authenticated",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "refused",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1094,11 +1078,9 @@
     ],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "refused",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1116,8 +1098,6 @@
       "actor_source": "authenticated",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "settled",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1157,8 +1137,6 @@
        "actor_claimed": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
        "params": {
         "amount": 5,
-        "caller_identity": "0xabababababababababababababababababababab",
-        "caller_source": "authenticated",
         "marker": "settled",
         "to": "0xabababababababababababababababababababab",
         "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1172,11 +1150,9 @@
     "refusal_record": [],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "settled",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1199,8 +1175,6 @@
       "actor_source": "authenticated",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "text_answer",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1211,11 +1185,9 @@
     ],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "text_answer",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1253,8 +1225,6 @@
       "actor_source": "authenticated",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "unconfirmed",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
@@ -1273,11 +1243,9 @@
     "refusal_record": [],
     "service": [
      {
-      "method": "attest",
+      "method": "attest_for_caller",
       "params": {
        "amount": 5,
-       "caller_identity": "0xabababababababababababababababababababab",
-       "caller_source": "authenticated",
        "marker": "unconfirmed",
        "to": "0xabababababababababababababababababababab",
        "wallet": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"

@@ -12,14 +12,14 @@ broadcast the chain has not confirmed, a ``not_deployed`` refusal, a plain-text
 answer, a raise, a ``NotImplementedError``, the service unavailable, the method
 missing, parameters that do not bind, and a settled success with no identity —
 against a stand-in registry defined HERE (not the shared durable harness: the
-golden must come from running this same code at main, where nothing durable
+golden must come from running this same code on the base tree, where nothing durable
 exists). Per call it records the envelope byte for byte with ``elapsed_ms``
 removed, what the service was handed, every ``_attest_action`` /
 ``_record_broadcast`` / ``_attest_refusal`` call (arguments normalised: the
 attestation's ``timestamp`` and its per-process salted ``params_hash`` are
 replaced by their shape) and every feed ``ingest``. It uses only
 ``ServiceDispatcher``, ``ACTION_MAP``, ``_STATE_MODIFYING_ACTIONS`` and
-``set_evidence_shadow_sink``, which exist identically on main.
+``set_evidence_shadow_sink``, which exist identically on the base tree.
 
 THE GOLDEN, ``tests/baseline/durable_off_envelopes.json``, was written by
 running ``measure`` in a separate interpreter whose import path is a checkout of
@@ -65,7 +65,7 @@ from typing import Any
 
 import pytest
 
-# Only what main has: this module is imported at main to write the golden.
+# Only what the base tree has: this module is imported there to write the golden.
 from runtime.blockchain.services import service_dispatcher as dispatch
 from runtime.blockchain.services.service_dispatcher import (
     ACTION_MAP, ServiceDispatcher, _STATE_MODIFYING_ACTIONS,
@@ -418,10 +418,10 @@ def off_records():
     return asyncio.run(measure_records(STATE_MODIFYING))
 
 
-# ── OFF: HEAD equals the golden measured at main ────────────────────────────
+# ── OFF: HEAD equals the golden measured on the base tree ───────────────────
 
 def _read_golden() -> dict:
-    assert GOLDEN.is_file(), (f"{GOLDEN} is missing — measure it at main with "
+    assert GOLDEN.is_file(), (f"{GOLDEN} is missing — measure it on the base tree with "
                               f"ENGINES_BASELINE=write {MAIN_TREE_ENV}=<a checkout of main>")
     return json.loads(GOLDEN.read_text(encoding="utf-8"))
 
@@ -442,7 +442,7 @@ def _write_golden_from_main(main_tree: Path) -> None:
         done = subprocess.run([sys.executable, "-c", code, str(Path(__file__).resolve()), str(out)],
                               cwd=str(main_tree), env=env, capture_output=True, text=True,
                               timeout=600)
-        assert done.returncode == 0, f"measuring at main failed:\n{done.stderr[-4000:]}"
+        assert done.returncode == 0, f"measuring on the base tree failed:\n{done.stderr[-4000:]}"
         measured = json.loads(out.read_text(encoding="utf-8"))
 
     # By subject: an id does not survive a rewrite of the history.
@@ -484,7 +484,7 @@ async def test_mode_off_at_head_equals_the_golden_measured_at_main(no_mode_env, 
         _write_golden_from_main(Path(main_tree))
     golden = _read_golden()
     assert golden["measured_at"] == "main" and golden["main_commit"], (
-        "the golden does not say it was measured at main")
+        "the golden does not say it was measured on the base tree")
 
     attempted: list[str] = []
 
@@ -506,7 +506,7 @@ async def test_mode_off_at_head_equals_the_golden_measured_at_main(no_mode_env, 
     assert head["actions"] == golden["actions"] and \
         head["state_modifying"] == golden["state_modifying"], (
             f"ACTION_MAP has {head['actions']} names ({head['state_modifying']} state-modifying) "
-            f"at HEAD, {golden['actions']} ({golden['state_modifying']}) at main")
+            f"at HEAD, {golden['actions']} ({golden['state_modifying']}) on the base tree")
     moved_actions = sorted(a for a in set(head["digest_by_action"]) | set(golden["digest_by_action"])
                            if head["digest_by_action"].get(a) != golden["digest_by_action"].get(a))
     moved_cases = sorted(c for c in golden["digest_by_case"]
@@ -534,7 +534,7 @@ def test_the_golden_is_well_formed_and_records_what_it_claims():
     # The stand-ins reached every path the golden claims to cover.
     assert settled["service"] == len(ACTIONS), settled
     assert settled["attest_action"] == settled["attestation"] > 0, (
-        "no settled state-modifying call reached the attestation service at main")
+        "no settled state-modifying call reached the attestation service on the base tree")
     assert settled["feed"] == settled["attest_action"], settled
     assert golden["totals"]["broadcast"]["broadcast_record"] > 0
     assert golden["totals"]["refused"]["refusal_record"] > 0

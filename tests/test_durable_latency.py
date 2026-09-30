@@ -22,12 +22,13 @@ on every mode alike. The outbox loop is not running while a block is timed; it
 ticks between blocks, outside the stopwatch, so mode on reaches a steady state
 the way a live gateway does without its deliveries landing inside a sample.
 
-MAIN. The off figure of (a) is also taken at main — the same function, run in a
-separate interpreter importing ``runtime`` from a checkout of main — and, with
-the same instrument, on this tree, alternating the two, so ``main_off`` and its
-ratio compare like with like. The functions that run there use only
+THE BASE TREE. The off figure of (a) is also taken on the base tree — a
+checkout of the branch this work merges into, which has no ``runtime/durable``
+— by the same function, run in a separate interpreter importing ``runtime``
+from that checkout, and, with the same instrument, on this tree, alternating
+the two, so ``main_off`` and its ratio compare like with like. The functions that run there use only
 ``ServiceDispatcher``, ``ACTION_MAP`` and ``_STATE_MODIFYING_ACTIONS``, which
-main has; nothing from ``runtime.durable`` is imported at module level.
+the base tree has; nothing from ``runtime.durable`` is imported at module level.
 
 Stopwatch figures are host-dependent, so, as with B4 in
 tests/test_engines_baseline.py, they are measured only with
@@ -66,7 +67,7 @@ from types import SimpleNamespace
 
 import pytest
 
-# Only what main has: the off measure of surface (a) runs at main.
+# Only what the base tree has: the off measure of surface (a) also runs there.
 from runtime.blockchain.services.service_dispatcher import (
     ACTION_MAP, ServiceDispatcher, _STATE_MODIFYING_ACTIONS,
 )
@@ -155,7 +156,7 @@ async def time_execute(d: ServiceDispatcher, count: int, start: int) -> list[flo
 
 def measure_main_off(n: int = N) -> dict:
     """Surface (a) in mode off, in this interpreter, with the tree it imports:
-    a warm-up, then ``n`` samples. Run at main and at this tree alike."""
+    a warm-up, then ``n`` samples. Run on the base tree and on this tree alike."""
     import importlib.util
 
     async def run() -> list[float]:
@@ -348,7 +349,7 @@ def measure_main_off_pair(scratch: str) -> dict:
 
 def _measured_where() -> dict:
     """The commit this tree is at, by subject, and whether it is clean. Imported
-    here, not at the top: this module is also run at main, which lacks it."""
+    here, not at the top: this module is also run on the base tree, which lacks it."""
     from tests.durable_measured_at import measured_at
     return measured_at(ROOT)
 

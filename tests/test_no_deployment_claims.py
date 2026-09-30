@@ -280,3 +280,160 @@ def test_no_skill_offers_contract_deployment():
                     offenders.append(f"{path.name}:{n}: tells the model to deploy")
     assert not offenders, (
         "a skill offers contract deployment:\n" + "\n".join(offenders))
+
+
+# ── CLAIM surfaces in prose: the courses and pages a person follows ─────────
+#
+# Course 01's module 05 said a description is "converted, audited, and deployed
+# automatically", that "Neo deploys the contract and returns the transaction
+# hash and contract address" after Morpheus "appears to confirm the
+# deployment", and showed a deployment result; its README promised "a deployed
+# smart contract", exercise 3 asked for "the contract address from the
+# deployment", the learn page offered to "deploy a smart contract", the
+# differentiators page said a user "can deploy a smart contract by describing"
+# it, and the API reference's SDK samples asked "Deploy a smart contract for
+# me". The deploy route answers 501, and conversion deploys only when an
+# operator turns on conversion.auto_deploy, off by default.
+
+import re  # noqa: E402
+import subprocess  # noqa: E402
+
+_PROSE_DEPLOY_CLAIMS = [
+    r"\bneo deploys\b",
+    r"(?:converted|generated),? audited,? and deployed",
+    r"deployed automatically",
+    r"contract address from the deployment",
+    r"the deployment \(to testnet\) succeeds",
+    r"\ba deployed smart contract\b",
+    r"you will have [^.]*\bdeployed a smart contract",
+    r"can deploy a smart contract by describing",
+    r"deploy a smart contract for me",
+    r"morpheus (?:appears|will intervene)[^.]*\bto confirm\b",
+]
+_LEGAL_OR_HISTORY = {"CHANGELOG.md", "web/terms.html", "web/privacy.html"}
+
+
+def _flat_prose(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).lower()
+
+
+def test_the_prose_deploy_scan_catches_the_old_copy():
+    old = ("describe a smart contract in plain English and have it converted, audited, and "
+           "deployed automatically. Once the audit passes, Morpheus appears to confirm the "
+           "deployment. After you confirm, Neo deploys the contract. By the end, you will have "
+           "built a working plugin, deployed a smart contract. 3. A deployed smart contract on "
+           "Base Sepolia. Note the contract address from the deployment. The deployment (to "
+           "testnet) succeeds. A user can deploy a smart contract by describing what they want. "
+           'client.chat("Deploy a smart contract for me")')
+    hits = {p for p in _PROSE_DEPLOY_CLAIMS if re.search(p, _flat_prose(old))}
+    assert hits == set(_PROSE_DEPLOY_CLAIMS), set(_PROSE_DEPLOY_CLAIMS) - hits
+    assert not [p for p in _PROSE_DEPLOY_CLAIMS if re.search(p, _flat_prose(
+        "Compile it, then deploy it to Base Sepolia from your own wallet; the platform "
+        "deploys nothing unless an operator turns on conversion.auto_deploy."))]
+
+
+def test_no_course_or_page_says_the_platform_deploys_a_contract_for_you():
+    from runtime.blockchain.services.contract_conversion.service import ContractConversionService
+
+    # The measured premises: the deploy route answers 501, and a gateway that
+    # sets nothing does not deploy what it converts.
+    routes = (ROOT / "gateway" / "service_routes.py").read_text(encoding="utf-8")
+    handler = routes[routes.index("async def _handle_contract_deploy"):]
+    handler = handler[:handler.index("\n    async def ", 1)]
+    assert "status=501" in handler, "the deploy route answers something other than 501 now"
+    assert ContractConversionService({"blockchain": {}})._auto_deploy is False
+
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel in _LEGAL_OR_HISTORY or rel.startswith("tests/") or not (ROOT / rel).is_file():
+            continue
+        flat = _flat_prose((ROOT / rel).read_text(encoding="utf-8"))
+        for pattern in _PROSE_DEPLOY_CLAIMS:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 30]}...")
+    assert not offenders, "\n".join(offenders)
+
+
+def test_no_a2a_listing_offers_contract_deployment():
+    """GET /a2a/services is public, and it listed Neo's "Smart Contract
+    Deployment: Deploy and verify smart contracts on Base and other EVM
+    chains". The platform deploys nothing; a listing is an offer."""
+    from runtime.a2a.marketplace import BUILTIN_SERVICES
+
+    offenders = []
+    for svc in BUILTIN_SERVICES:
+        text = " ".join([svc.get("name", ""), svc.get("description", ""),
+                         " ".join(svc.get("capabilities", []))]).lower()
+        if re.search(r"\bdeploy(?:s|ment|ing)?\b|contract_deployment", text) and "deploys nothing" not in text:
+            offenders.append(f"{svc.get('agent_id')}: {svc.get('name')}: {svc.get('description')}")
+    assert not offenders, "\n".join(offenders)
+
+
+# ── Offers in the agents' own prompts, the chat page and sample requests ────
+#
+# Trinity's system prompt (agents/trinity/identity.md) mapped "Deploy my
+# contract" to a `deploy_contract` action that is not in ACTION_MAP, listed
+# "deploy, interact with, upgrade" smart contracts, "deploy new tokens", "App
+# Deployment — deploy decentralised applications, manage hosting, configure
+# domains" and "verify contract source code on block explorers", and its worked
+# example converted a contract "to Solana", which the converter does not target.
+# The chat page's welcome offered "Smart contract deployment, conversion, and
+# analysis". Course 01's gateway and SDK modules, the SDK's client docstring and
+# the landing page used "Deploy an ERC-20 token", "Deploy a token", "Deploy a
+# smart contract" and "Deploy a staking contract" as sample requests.
+
+_PROMPT_TABLE_ACTION = re.compile(r"^\|[^|\n]*\|\s*`(\w+)`\s*\|", re.M)
+_OFFER_PATTERNS = [
+    r"smart contract\W{1,4} deployment, conversion",
+    r"deploy decentrali[sz]ed applications",
+    r"verify contract source code on block explorers",
+    r"deploy, interact with, upgrade",
+    r"deploy new tokens",
+    r"converted to solana",
+]
+_SAMPLE_DEPLOY_REQUEST = re.compile(
+    r"[\"'“](?:please )?deploy (?:an? |my |the )?(?:erc-?20 |erc-?721 |staking |nft )?"
+    r"(?:token|smart contract|contract|staking contract|collection)\b", re.I)
+_NEGATION = re.compile(r"deploys no contract|platform deploys nothing|not implemented|none: the platform", re.I)
+
+
+def test_the_offer_scan_catches_the_old_copy():
+    old = ('- **Smart contract** deployment, conversion, and analysis '
+           '| App Deployment — deploy decentralised applications | Contract Verification — verify '
+           'contract source code on block explorers | deploy, interact with, upgrade, and manage | '
+           'deploy new tokens | "Your contract has been converted to Solana."')
+    flat = _flat_prose(old)
+    assert {p for p in _OFFER_PATTERNS if re.search(p, flat)} == set(_OFFER_PATTERNS)
+    samples = ('-d \'{"message": "Deploy an ERC-20 token called TestCoin"}\' | client.chat("Deploy a '
+               'smart contract", agent="neo") | "Deploy a token" | ws.send("Deploy a staking contract")')
+    assert len(_SAMPLE_DEPLOY_REQUEST.findall(samples)) == 4
+
+
+def test_every_action_an_agent_prompt_names_is_dispatchable():
+    from runtime.blockchain.services.service_dispatcher import ACTION_MAP
+    missing = []
+    for path in sorted((ROOT / "agents").glob("*/*.md")):
+        for m in _PROMPT_TABLE_ACTION.finditer(path.read_text(encoding="utf-8")):
+            if m.group(1) not in ACTION_MAP:
+                missing.append(f"{path.relative_to(ROOT)}: `{m.group(1)}` is not in ACTION_MAP")
+    assert not missing, "\n".join(missing)
+
+
+def test_no_prompt_page_or_sample_offers_deployment():
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html", "sdk/*.py", "sdk-js/*.ts"],
+                                  cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel in _LEGAL_OR_HISTORY or rel.startswith("tests/") or not (ROOT / rel).is_file():
+            continue
+        raw = (ROOT / rel).read_text(encoding="utf-8")
+        flat = _flat_prose(raw)
+        for pattern in _OFFER_PATTERNS:
+            for m in re.finditer(pattern, flat):
+                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 30]}...")
+        for m in _SAMPLE_DEPLOY_REQUEST.finditer(raw):
+            around = raw[max(0, m.start() - 200):m.end() + 200]
+            if not _NEGATION.search(around):
+                offenders.append(f"{rel}: sample request {m.group(0)!r}")
+    assert not offenders, "\n".join(offenders)

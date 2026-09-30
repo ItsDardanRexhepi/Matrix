@@ -479,14 +479,13 @@ body{
 
 I'm **Trinity** -- your blockchain operations agent. I can help you with:
 
-- **Smart contract** deployment, conversion, and analysis
-- **DeFi** operations: swaps, liquidity, yield farming
+- **Smart contract** conversion (pseudocode, Solidity or Vyper to a Solidity draft) and a Glasswing scan; you deploy the result yourself
+- **DeFi** operations: swaps, liquidity, loans and staking
 - **NFT** minting, marketplace listings, and metadata
 - **DAO** creation, governance, and proposal management
-- **Token** launches, airdrops, and vesting schedules
-- **Cross-chain** bridges, portfolio tracking, and more
+- **Payments**: recording a cross-border payment or a stablecoin transfer. Nothing is sent: each answers \`recorded_unsettled\`, and no value moves. The stablecoin ledger starts empty, so a transfer there is refused for insufficient balance; and this page does not sign in, so on a gateway with an operator key set it is refused both
 
-Type a question or describe what you want to build. I'll handle the rest.`;
+A service whose contract is not deployed on this gateway answers \`not_deployed\`, and nothing happens on-chain.`;
     addMessage("agent", welcomeText);
   })();
 

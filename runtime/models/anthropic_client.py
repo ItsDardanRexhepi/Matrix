@@ -13,7 +13,7 @@ import os
 
 import aiohttp
 
-from runtime.models.model_interface import ModelInterface, ModelResponse
+from runtime.models.model_interface import ModelInterface, ModelResponse, tool_function
 
 logger = logging.getLogger(__name__)
 
@@ -63,19 +63,19 @@ class AnthropicClient(ModelInterface):
         if system_text.strip():
             payload["system"] = system_text.strip()
         if tools:
-            # Tools arrive in OpenAI function-calling shape
-            # ({"type":"function","function":{"name","description","parameters"}}).
-            # Convert to Anthropic's flat {name, description, input_schema}; tolerate
-            # an already-flat tool too. Without this the direct t["name"] raised
-            # KeyError 'name', making every tool-enabled chat fall through to the
+            # Tools arrive flat or in the function-calling shape
+            # ({"type":"function","function":{"name","description","parameters"}});
+            # tool_function reads both. Anthropic takes a flat {name, description,
+            # input_schema}. A direct t["name"] raised KeyError 'name' on the
+            # second shape, making every tool-enabled chat fall through to the
             # offline fallback instead of reaching Anthropic.
             converted = []
             for t in tools:
-                fn = t.get("function", t)
+                fn = tool_function(t)
                 converted.append({
                     "name": fn["name"],
-                    "description": fn.get("description", ""),
-                    "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+                    "description": fn["description"],
+                    "input_schema": fn["parameters"] or {"type": "object", "properties": {}},
                 })
             payload["tools"] = converted
 
