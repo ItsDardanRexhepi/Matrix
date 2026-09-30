@@ -41,12 +41,18 @@ cross-border sends"; the page's chat carries no credential, so on a gateway with
 an operator key set it is refused every payment action, and elsewhere the
 cross-border payment records and the empty stablecoin ledger refuses the
 transfer. The pattern for "send tokens" needed "to", "across" or "globally"
-after it, and none named "cross-border sends". The capability map's row for the
-stablecoin transfer named POST /api/v1/stablecoin/transfer, which records
-nothing: its handler passes `sender` and `recipient` to a method that takes
-`from_addr` and `to_addr`, so every body is answered 400; the OpenAPI spec
-promised "200 Transfer accepted". The last test drives each payment route the
-map names through the gateway and holds the row and the spec to the answer.
+after it, and none named "cross-border sends".
+
+The capability map's row for the stablecoin transfer named POST
+/api/v1/stablecoin/transfer, which records nothing: its handler passes `sender`
+and `recipient` to a method that takes `from_addr` and `to_addr`, so a body
+with the four fields and a numeric amount is answered 400; the OpenAPI spec
+promised "200 Transfer accepted". The row and the spec were then corrected to
+"whatever the body, a caller it admits is answered 400", which an amount that
+is not a number, answered 500, made untrue. The last test drives each payment
+route the map names through the gateway with well-formed and malformed bodies,
+holds the row and the spec to each answer, and holds the spec entries of the
+routes that record to saying so.
 
 What this cannot see: a claim about moving money worded outside the patterns.
 """
@@ -683,7 +689,22 @@ _FIELD_VALUES = {
     "agent_id": _A, "amount": 10, "token": "USDC", "purpose": "p", "source_currency": "USDC",
     "destination_currency": "USDT", "from_currency": "USDC", "to_currency": "USDT",
 }
-_EVERY_BODY_REFUSED = "records nothing: whatever the body, a caller it admits is answered 400"
+_NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+# What the row and the spec entry of a route that records nothing say, with the
+# number of fields its handler requires in words and each answer measured.
+_RECORDS_NOTHING = "records nothing, whatever the body"
+_WELL_FORMED = ("a caller it admits who sends the {n} fields its handler requires, with a numeric amount, "
+                "is answered {status}")
+_LACKS_ONE = "a body that lacks one of them is answered {status}"
+_NOT_A_NUMBER = "one whose amount is not a number is answered {status}"
+# The kinds of body each spec response of such a route names, and what each is.
+_KINDS = {
+    "the {n} fields with a numeric amount": ("handler's", "both"),
+    "a body that lacks one of them": ("service's", "empty"),
+    "a body that is not json": ("not JSON",),
+    "an amount that is not a number": ("amount a word", "amount null"),
+    "a body that is a json number, boolean or null": ("a number", "true", "null"),
+}
 
 
 def _handler_contract(handler) -> tuple[list[str], str, str, list[str]]:
@@ -717,16 +738,42 @@ def _result_of(payload: dict) -> dict:
     return payload
 
 
+def _held(service) -> dict:
+    """What a service instance holds: its dicts, lists and sets, copied."""
+    import copy
+    return copy.deepcopy({k: v for k, v in vars(service).items() if isinstance(v, (dict, list, set))})
+
+
+def _bodies(required: list[str], takes) -> dict[str, str]:
+    """Each body a payment route is driven with, as the JSON text sent."""
+    handler_body = {f: _FIELD_VALUES[f] for f in required}
+    service_body = {p: _FIELD_VALUES[p] for p in takes if p in _FIELD_VALUES}
+    bodies = {"handler's": handler_body, "service's": service_body,
+              "both": {**service_body, **handler_body}, "empty": {},
+              "a number": 5, "true": True, "null": None, "a list": [1, 2], "a string": "x",
+              "a list of its field names": list(required)}
+    if "amount" in required:
+        bodies.update({"amount a word": {**handler_body, "amount": "ten"},
+                       "amount null": {**handler_body, "amount": None}})
+    texts = {label: json.dumps(body) for label, body in bodies.items()}
+    texts["not JSON"] = "{not json"
+    return texts
+
+
 def test_each_payment_route_the_capability_map_names_is_described_by_its_answer():
-    """Each POST route a Payments row names is driven with the body its handler
-    requires, with the service method's own field names, with both and with
-    none, as the operator and (where the route admits one) as a session. A route
-    that records is answered 200 with a record that moved nothing, and the spec
-    documents 200. A route that answers 400 to every one of those has its row and
-    its spec entry say it records nothing, name the fields the handler passes
-    that the method does not take and the ones the method takes instead, and
-    document only 400. A row that says a capability is refused for insufficient
-    balance is held to the registry's answer for it."""
+    """Each POST route a Payments row names is driven, as the operator and
+    (where the route admits one) as a session, with the body its handler
+    requires, with the service method's own field names, with both, with none,
+    with an amount that is not a number, and with bodies that are not JSON
+    objects or not JSON at all. A route that records is answered 200 with a
+    record that moved nothing, and its spec entry documents 200 and says it
+    records and that no value moves. A route whose service holds the same after
+    every one of those bodies, although the service called with its own field
+    names does record, records nothing: its row and its spec entry say so, say
+    what each kind of body is answered, name the fields the handler passes that
+    the method does not take and the ones the method takes instead, and the spec
+    documents exactly the answers measured. A row that says a capability is
+    refused for insufficient balance is held to the registry's answer for it."""
     import time
 
     import yaml
@@ -741,7 +788,6 @@ def test_each_payment_route_the_capability_map_names_is_described_by_its_answer(
     server = _gateway(_KEY)
     app = server.create_app()
     handlers = {(r.method, r.resource.canonical): r.handler for r in app.router.routes() if r.resource}
-    registry = _dispatcher()._get_registry()
     named = [(row, m.group(1)) for row in _payments_rows()
              for m in re.finditer(r"\bPOST (/api/v1/[\w/{}-]+)", row)]
     assert len(named) >= 3, named
@@ -756,24 +802,34 @@ def test_each_payment_route_the_capability_map_names_is_described_by_its_answer(
             callers = {"operator": {"Authorization": f"Bearer {_KEY}"},
                        "session": {"Authorization": "Bearer money-routes-session"}}
             for row, path in named:
-                required, service, method, passed = _handler_contract(handlers[("POST", path)])
-                takes = inspect.signature(getattr(registry.get(service), method)).parameters
+                handler = handlers[("POST", path)]
+                required, service_name, method, passed = _handler_contract(handler)
+                service = handler.__self__._get_registry().get(service_name)
+                takes = inspect.signature(getattr(service, method)).parameters
                 unbound = [p for p in passed if p not in takes]
                 instead = [p for p, param in takes.items()
                            if param.default is inspect.Parameter.empty and p not in passed]
-                handler_body = {f: _FIELD_VALUES[f] for f in required}
-                service_body = {p: _FIELD_VALUES[p] for p in takes if p in _FIELD_VALUES}
-                answers = {}
+                if hasattr(service, "set_balance"):
+                    service.set_balance(_A, "USDC", 1_000)  # so a transfer it binds could record
+                before = _held(service)
+                bodies = _bodies(required, takes)
+                answers: dict[tuple[str, str], tuple[int, dict]] = {}
                 for who, headers in callers.items():
                     if who == "session" and not session_may_reach(path):
                         continue
-                    for label, body in (("handler's", handler_body), ("service's", service_body),
-                                        ("both", {**service_body, **handler_body}), ("empty", {})):
-                        response = await client.post(path, json=body, headers=headers)
-                        answers[(who, label)] = (response.status, await response.json())
-                documented = set(spec[path]["post"]["responses"])
+                    for label, text in bodies.items():
+                        response = await client.post(path, data=text,
+                                                     headers={**headers, "Content-Type": "application/json"})
+                        try:
+                            payload = json.loads(await response.text())
+                        except ValueError:
+                            payload = {}
+                        answers[(who, label)] = (response.status, payload if isinstance(payload, dict) else {})
                 entry = spec[path]["post"]
-                spec_text = f"{entry.get('summary', '')} {entry.get('description', '')}"
+                documented = entry["responses"]
+                spec_text = " ".join([entry.get("summary", ""), entry.get("description", "")]
+                                     + [r.get("description", "") for r in documented.values()])
+                spec_flat = re.sub(r"\s+", " ", spec_text)
                 status, payload = answers[("operator", "handler's")]
                 if status == 200:
                     recorded += 1
@@ -781,26 +837,57 @@ def test_each_payment_route_the_capability_map_names_is_described_by_its_answer(
                     if result.get("status") not in ("recorded_unsettled", "pending") \
                             or result.get("value_moved"):
                         wrong.append(f"{path} answered {result}, and its row says it records")
-                    if _EVERY_BODY_REFUSED in row or "200" not in documented:
+                    if _RECORDS_NOTHING in row or "200" not in documented:
                         wrong.append(f"{path} records, and its row or its spec entry says otherwise")
-                elif {s for s, _ in answers.values()} == {400}:
-                    refused += 1
-                    if f"POST {path} {_EVERY_BODY_REFUSED}" not in row:
-                        wrong.append(f"{path} answers 400 to every body; its row does not say so")
-                    if documented != {"400"} or "records nothing" not in spec_text:
-                        wrong.append(f"{path} answers 400 to every body; its spec entry says "
-                                     f"{sorted(documented)}")
-                    for text, where in ((row, "row"), (spec_text, "spec entry")):
-                        for field in unbound + instead:
-                            if f"`{field}`" not in text:
-                                wrong.append(f"the {where} for {path} does not name `{field}`")
-                    if not unbound:
-                        wrong.append(f"{path} passes nothing {service}.{method} refuses; "
-                                     "re-derive this check")
-                else:
+                    if not re.search(r"\brecord", spec_flat, re.I) or "no value moves" not in spec_flat:
+                        wrong.append(f"{path} records and moves no value; its spec entry says {spec_flat!r}")
+                    continue
+                statuses = {s for s, _ in answers.values()}
+                if 200 in statuses or _held(service) != before:
                     wrong.append(f"{path} answered {sorted((k, s) for k, (s, _) in answers.items())}; "
                                  "re-derive this check")
+                    continue
+                # The service, called with its own field names, does record: an
+                # unchanged service after the route means the route recorded nothing.
+                await getattr(service, method)(**{p: _FIELD_VALUES[p] for p in takes if p in _FIELD_VALUES})
+                if _held(service) == before:
+                    wrong.append(f"{service_name}.{method} records nothing when called directly; "
+                                 "re-derive this check")
+                    continue
+                refused += 1
+                by_kind = {}
+                for kind, labels in _KINDS.items():
+                    got = {answers[(who, label)][0] for (who, label) in answers if label in labels}
+                    if len(got) != 1:
+                        wrong.append(f"{path}: the bodies of one kind ({kind}) answered {sorted(got)}; "
+                                     "re-derive this check")
+                        continue
+                    by_kind[kind] = got.pop()
+                if len(by_kind) != len(_KINDS):
+                    continue
+                n = _NUMBER_WORDS[len(required)]
+                for text, where in ((row, "row"), (spec_flat, "spec entry")):
+                    for phrase in (_RECORDS_NOTHING,
+                                   _WELL_FORMED.format(n=n, status=by_kind["the {n} fields with a numeric amount"]),
+                                   _LACKS_ONE.format(status=by_kind["a body that lacks one of them"]),
+                                   _NOT_A_NUMBER.format(status=by_kind["an amount that is not a number"])):
+                        if phrase not in text:
+                            wrong.append(f"the {where} for {path} does not say {phrase!r}")
+                    for field in unbound + instead:
+                        if f"`{field}`" not in text:
+                            wrong.append(f"the {where} for {path} does not name `{field}`")
+                if f"POST {path} {_RECORDS_NOTHING}" not in row:
+                    wrong.append(f"the row does not say POST {path} {_RECORDS_NOTHING}")
+                if set(documented) != {str(s) for s in statuses}:
+                    wrong.append(f"{path} answers {sorted(statuses)}; its spec entry documents {sorted(documented)}")
+                for kind, status in by_kind.items():
+                    said = documented.get(str(status), {}).get("description", "").lower()
+                    if kind.format(n=n) not in said:
+                        wrong.append(f"{path}'s spec response {status} does not name {kind.format(n=n)!r}")
+                if not unbound:
+                    wrong.append(f"{path} passes nothing {service_name}.{method} refuses; re-derive this check")
 
+            registry = _dispatcher()._get_registry()
             for row in _payments_rows():
                 if not re.search(r"\brefused for insufficient balance\b", row):
                     continue
