@@ -266,9 +266,12 @@ class OutboxLoop:
         now = self._clock()
         self.settle_unsettled()
         self._renew(now)
+        # The column list is this constant and the only other interpolation is
+        # a run of "?" placeholders, one per id: no value is ever written into
+        # the statement itself.
         cols = "id, run_id, kind, payload_digest, attempts, next_at"
         for row in [tuple(r) for r in self._db.fetchall_sync(
-                f"SELECT {cols} FROM outbox WHERE done_at IS NULL AND next_at IS NOT NULL "
+                f"SELECT {cols} FROM outbox WHERE done_at IS NULL AND next_at IS NOT NULL "  # nosec B608
                 "AND next_at < ? ORDER BY next_at, id LIMIT ?",
                 (now - self._abandoned_after_s, 1000))]:
             if row[0] not in self._held:
@@ -279,7 +282,7 @@ class OutboxLoop:
         for i in range(0, len(held_ids), 500):
             chunk = held_ids[i:i + 500]
             rows += [tuple(r) for r in self._db.fetchall_sync(
-                f"SELECT {cols} FROM outbox WHERE id IN ({', '.join('?' for _ in chunk)}) "
+                f"SELECT {cols} FROM outbox WHERE id IN ({', '.join('?' for _ in chunk)}) "  # nosec B608
                 "AND done_at IS NULL AND next_at IS NOT NULL AND next_at <= ?",
                 (*chunk, now))]
         rows = sorted(rows, key=lambda r: (r[5], r[0]))[:BATCH]
@@ -314,15 +317,16 @@ class OutboxLoop:
         if not ids and not waiting:
             return
 
+        # Only "?" placeholders, one per id, are interpolated below.
         def work(tx: Tx) -> None:
             for i in range(0, len(ids), 500):
                 chunk = ids[i:i + 500]
-                tx.run(f"UPDATE outbox SET next_at = ? WHERE id IN ({', '.join('?' for _ in chunk)}) "
+                tx.run(f"UPDATE outbox SET next_at = ? WHERE id IN ({', '.join('?' for _ in chunk)}) "  # nosec B608
                        "AND done_at IS NULL AND next_at IS NOT NULL AND next_at < ?",
                        (now, *chunk, now))
             for i in range(0, len(waiting), 500):
                 chunk = waiting[i:i + 500]
-                tx.run(f"UPDATE outbox SET next_at = ? WHERE id IN ({', '.join('?' for _ in chunk)}) "
+                tx.run(f"UPDATE outbox SET next_at = ? WHERE id IN ({', '.join('?' for _ in chunk)}) "  # nosec B608
                        "AND done_at IS NULL AND next_at IS NOT NULL AND next_at < ?",
                        (now + LEASE_S, *chunk, now + LEASE_S / 2))
         try:
