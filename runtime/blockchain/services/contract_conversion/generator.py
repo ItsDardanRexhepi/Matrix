@@ -1,13 +1,16 @@
 """
-ContractGenerator — generate optimised Solidity from the intermediate
-representation (IR) produced by :class:`SourceParser`.
+ContractGenerator — generate Solidity from the intermediate representation
+(IR) produced by :class:`SourceParser`.
 
-Injects gas optimisation patterns specifically for Base L2:
-  - Tight variable packing
-  - Custom errors instead of require strings
-  - Unchecked arithmetic where safe
-  - Calldata instead of memory for external params
-  - Short-circuiting storage reads
+The per-chain options (``_CHAIN_OPTIMISATIONS``) turn on four rewrites:
+  - storage packing: state variables are sorted by type size
+  - custom errors: an ``error`` is declared for each require message; the
+    require statements themselves are left as they are
+  - calldata: external functions take their parameters as calldata
+  - loop increments: ``_apply_unchecked_increments`` rewrites a ``for``
+    header's ``i++``
+``optimizer_runs`` is carried in the options and read by nothing here. The
+output is a draft: nothing in this module compiles it.
 """
 
 from __future__ import annotations
@@ -48,7 +51,7 @@ _CHAIN_OPTIMISATIONS: dict[str, dict[str, Any]] = {
 
 
 class ContractGenerator:
-    """Generate optimised Solidity source from an IR dict.
+    """Generate Solidity source from an IR dict.
 
     Parameters
     ----------

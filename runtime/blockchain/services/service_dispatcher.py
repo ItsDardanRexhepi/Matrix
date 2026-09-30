@@ -139,7 +139,7 @@ ACTION_MAP: dict[str, tuple[str, str]] = {
     "get_stablecoin_fee": ("stablecoin", "get_fee"),
 
     # --- Attestation (Component 8) ---
-    "create_attestation": ("attestation", "attest"),
+    "create_attestation": ("attestation", "attest_for_caller"),
     "verify_attestation": ("attestation", "verify"),
     "revoke_attestation": ("attestation", "revoke"),
     # NEW-48b: "query_attestations" REMOVED — attestation.query returned the
@@ -1261,8 +1261,9 @@ class ServiceDispatcher:
                 "SMART CONTRACTS:\n"
                 "  convert_contract — Convert a contract between chains. "
                     "params: {source_code, source_lang, target_chain}\n"
-                "  estimate_contract_cost — Estimate deployment cost. "
-                    "params: {source_code, target_chain}\n"
+                "  estimate_contract_cost — Quote the conversion tier fee for a "
+                    "contract (a quote only: nothing collects it, and it is not a gas "
+                    "or deployment estimate). params: {source_code}\n"
                 "  list_templates — Browse available contract templates.\n\n"
 
                 "DEFI & LOANS:\n"
@@ -1290,10 +1291,10 @@ class ServiceDispatcher:
                 "  add_liquidity, remove_liquidity, get_dex_positions\n\n"
 
                 "PAYMENTS & TRANSFERS:\n"
-                "  send_payment — Send tokens to someone. "
-                    "params: {recipient, amount, currency}\n"
+                "  send_payment — Record a cross-border payment (recorded, not settled: "
+                    "no value moves). params: {sender, recipient, amount, from_currency, to_currency}\n"
                 "  get_payment_quote — Get a cross-border payment quote. "
-                    "params: {amount, currency, destination_country}\n"
+                    "params: {amount, from_currency, to_currency}\n"
                 "  create_payment, complete_payment\n\n"
 
                 "STAKING:\n"

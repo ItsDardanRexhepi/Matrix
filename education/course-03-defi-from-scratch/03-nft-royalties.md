@@ -38,7 +38,7 @@ When a marketplace sells an NFT, it calls this function to determine how much ro
 
 ## Creating an NFT with Automatic Royalties on The Matrix
 
-Through The Matrix, creating an NFT with royalties is a conversation:
+Through The Matrix, creating an NFT with royalties is meant to be a conversation. The exchange below is that intended flow. Today the NFT service's collection factory is not wired in, so asking for a collection answers `not_deployed` and nothing in this exchange happens yet:
 
 ```
 You: Create an NFT collection called "Cityscapes" with a 7.5% 
@@ -51,14 +51,14 @@ Trinity: I'll create a Cityscapes NFT collection with these parameters:
   - Royalty: 7.5% on all secondary sales, paid to your wallet
   - First mint: 100 editions
   
-  [Morpheus confirms the deployment]
+  (If Morpheus has a note for this action, it arrives with the result. Nothing waits for an answer to it.)
   
   Collection deployed. Your first 100 NFTs have been minted.
   Contract address: 0x...
   Royalty receiver: 0x... (your wallet)
 ```
 
-Behind the scenes, Neo deploys an ERC-721 contract with EIP-2981 implemented. The royalty percentage and receiver address are set in the contract and apply to every token in the collection. Each time one of your NFTs is resold on a marketplace that respects EIP-2981, 7.5% of the sale price is sent to your wallet automatically.
+Behind the scenes, Neo asks the NFT service to create the collection through its factory: an ERC-721 contract with EIP-2981 implemented, once that factory is deployed and wired in. The royalty percentage and receiver address are set in the contract and apply to every token in the collection. Each time one of your NFTs is resold on a marketplace that respects EIP-2981, 7.5% of the sale price is sent to your wallet automatically.
 
 ## Why On-Chain Enforcement Matters
 

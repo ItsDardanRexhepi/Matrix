@@ -5,6 +5,11 @@ The README said "50+ blockchain services" in three places, the architecture
 diagram among them, while runtime/blockchain/services/registry.py has 45. It
 said "221 capabilities" while runtime/capabilities/catalog.py has 195. A number written by hand goes stale
 without anyone touching it, so each one is compared with the code here.
+
+The catalog declares 21 categories, and one of them (Security & Wallets) holds
+no capability, so "195 capabilities across N categories" is held to the
+categories that hold one, and the categories route's bucket count to the
+categories declared.
 """
 from __future__ import annotations
 
@@ -19,10 +24,12 @@ def _measured() -> dict[str, int]:
     from runtime.blockchain.services.registry import _SERVICE_MAP
     from runtime.capabilities.catalog import CAPABILITIES, CATEGORIES
 
+    held = {c["category"] for c in CAPABILITIES}
     return {
         "services": len(_SERVICE_MAP),
         "capabilities": len(CAPABILITIES),
         "categories": len(CATEGORIES),
+        "held categories": sum(1 for c in CATEGORIES if c["id"] in held),
         "backing": len({c["service"] for c in CAPABILITIES}),
     }
 
@@ -45,8 +52,9 @@ def test_every_capability_and_category_count_is_the_catalog():
     for caps, cats in headline:
         assert int(caps.replace(",", "")) == m["capabilities"], (
             f"the README says {caps} capabilities; the catalog has {m['capabilities']}")
-        assert int(cats) == m["categories"], (
-            f"the README says {cats} categories; the catalog defines {m['categories']}")
+        assert int(cats) == m["held categories"], (
+            f"the README says {cats} capabilities' categories; the catalog's capabilities "
+            f"are in {m['held categories']} of the {m['categories']} it declares")
 
     served = re.search(r"The (\d+)\s+are served by (\d+) of the (\d+) services", README)
     assert served, "the README no longer says how many services back the catalog"

@@ -1,8 +1,13 @@
 """
 SwapRouter — multi-hop swap routing for the Matrix native DEX.
 
-Checks Uniswap pools first, falls back to native pools.
-Calculates price impact and enforces slippage protection.
+Routes through the service's in-memory pools only (direct, then through one or
+two bridge tokens); there is no Uniswap integration, and ``dex.uniswap_enabled``
+is read and not used. Calculates price impact and flags a route over the limit.
+
+Each route carries ``fees``: one entry per hop with the pool, the token the fee
+is taken in (that hop's input token) and the amount. They are not summed: on a
+routed swap they are amounts of different tokens.
 """
 
 from __future__ import annotations
@@ -16,13 +21,19 @@ logger = logging.getLogger(__name__)
 _BRIDGE_TOKENS = ["ETH", "WETH", "USDC", "USDT", "DAI"]
 
 
+def _hop_fee(pool_id: str, token_in: str, result: dict) -> dict:
+    """One pool's fee: taken from the hop's input, so it is in that token."""
+    return {"pool_id": pool_id, "token": token_in, "amount": result["fee_amount"]}
+
+
 class SwapRouter:
-    """Multi-hop swap router with Uniswap-first strategy.
+    """Multi-hop swap router over the service's in-memory pools.
 
     Config keys (under ``config["dex"]``):
         max_hops (int): Maximum route hops (default 3).
         max_price_impact (float): Max price impact % (default 5.0).
-        uniswap_enabled (bool): Try Uniswap first (default True).
+        uniswap_enabled (bool): Read and logged; nothing uses it. There is no
+            Uniswap integration.
     """
 
     def __init__(self, config: dict, pool_manager: Any) -> None:
@@ -46,7 +57,7 @@ class SwapRouter:
         """Find the best swap route from token_in to token_out.
 
         Strategy:
-        1. Check for direct pool (Uniswap first, then native).
+        1. Check for a direct native pool.
         2. Try single-hop via bridge tokens.
         3. Try multi-hop (up to max_hops).
 
@@ -132,7 +143,7 @@ class SwapRouter:
             "expected_output": result["amount_out"],
             "effective_price": result["effective_price"],
             "price_impact_pct": result["price_impact_pct"],
-            "total_fees": result["fee_amount"],
+            "fees": [_hop_fee(pool["pool_id"], token_in, result)],
             "source": "native",
             "token_in": token_in,
             "token_out": token_out,
@@ -164,7 +175,6 @@ class SwapRouter:
             return None
 
         total_impact = result1["price_impact_pct"] + result2["price_impact_pct"]
-        total_fees = result1["fee_amount"] + result2["fee_amount"]
         effective_price = result2["amount_out"] / amount if amount > 0 else 0
 
         return {
@@ -174,7 +184,8 @@ class SwapRouter:
             "expected_output": result2["amount_out"],
             "effective_price": effective_price,
             "price_impact_pct": total_impact,
-            "total_fees": total_fees,
+            "fees": [_hop_fee(pool1["pool_id"], token_in, result1),
+                     _hop_fee(pool2["pool_id"], bridge, result2)],
             "source": "native",
             "token_in": token_in,
             "token_out": token_out,
@@ -211,7 +222,6 @@ class SwapRouter:
             return None
 
         total_impact = r1["price_impact_pct"] + r2["price_impact_pct"] + r3["price_impact_pct"]
-        total_fees = r1["fee_amount"] + r2["fee_amount"] + r3["fee_amount"]
         effective_price = r3["amount_out"] / amount if amount > 0 else 0
 
         return {
@@ -221,7 +231,9 @@ class SwapRouter:
             "expected_output": r3["amount_out"],
             "effective_price": effective_price,
             "price_impact_pct": total_impact,
-            "total_fees": total_fees,
+            "fees": [_hop_fee(pool1["pool_id"], token_in, r1),  # type: ignore[index]
+                     _hop_fee(pool2["pool_id"], bridge1, r2),  # type: ignore[index]
+                     _hop_fee(pool3["pool_id"], bridge2, r3)],  # type: ignore[index]
             "source": "native",
             "token_in": token_in,
             "token_out": token_out,

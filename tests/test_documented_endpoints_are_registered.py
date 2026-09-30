@@ -1,0 +1,634 @@
+"""Every endpoint the public docs and SDK tell a client to call is one the
+gateway actually registers.
+
+The API reference kept `POST /subscription/checkout` and
+`POST /subscription/webhook` (and `GET /subscription/status`) after the Stripe
+integration was removed and subscriptions moved to Apple IAP. A client
+following the reference, or the JavaScript SDK's `subscriptionStatus()` and
+`checkout()`, got a 404 from aiohttp's router. The same drift had spread: the
+reference documented audit, marketplace, A2A, extensions and social paths that
+were renamed or never existed; README pointed at `/pricing` and
+`POST /referral/generate`; the capability map listed gateway endpoints for
+capabilities that are served only through the registry, or not at all.
+
+The truth side is derived from source, never from a doc: the registered set is
+`scripts/generate_route_table.collect()`, which parses every `add_*` call and
+route tuple in the gateway (the same extraction docs/ROUTES.md is generated and
+CI-checked from). The doc side is every `METHOD /path` and every
+`localhost:18790/path` in the public docs, and every `${baseUrl}/path` the JS
+SDK fetches. Path parameters compare by position, not by name.
+
+The web pages the gateway serves are clients too, and the most direct ones: a
+page that links or fetches a path sends the visitor's browser there. The
+plugin-submission form (`fetch("/marketplace/submit")`), the conversion order
+form (`fetch('/services/conversion/request')`) and `href="/pricing"` and
+`href="/docs"` links all answered 404, and none of them is `METHOD /path` text.
+Tracked `web/*.html` and `web/*.js` are read for root-relative
+`href`/`src`/`action` attributes, the first literal argument of `fetch()` /
+`new EventSource()`, and `*_URL = '/path'` constants. A literal cut off by
+string concatenation (`"/badge/" + id`) must be a prefix of a registered route.
+
+Two files are legal copy that this repository may not edit without counsel
+(web/terms.html, web/privacy.html). Their unregistered links are listed
+exactly, and the test fails if the list stops matching — in either direction —
+so a counsel fix removes the entry rather than leaving a stale exemption.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import generate_route_table  # noqa: E402
+
+# Historical or third-party documents: a changelog records removed routes on
+# purpose, and the ABI note documents external protocol APIs, not this gateway.
+_NOT_A_CLIENT_CONTRACT = {"CHANGELOG.md", "docs/ROUTES.md", "ABI_VERIFICATION_NEEDED.md"}
+
+_INLINE = re.compile(r"\b(GET|POST|PUT|DELETE|PATCH)`?\s*(?:\|\s*)?`?(/[A-Za-z0-9_{}/.$-]*)")
+_LOCAL_URL = re.compile(r"localhost:18790(/[A-Za-z0-9_{}/.$-]*)")
+_SDK_FETCH = re.compile(r"\$\{this\.baseUrl\}(/[A-Za-z0-9_{}/.$-]*)")
+
+
+def _norm(path: str) -> str:
+    path = path.split("?")[0].rstrip(".,;:)")
+    path = re.sub(r"\$\{[^}]+\}", "{}", path)
+    path = re.sub(r"\{[^}]+\}", "{}", path)
+    return path.rstrip("/") or "/"
+
+
+def _registered() -> tuple[set[tuple[str, str]], set[str]]:
+    routes, _public = generate_route_table.collect()
+    pairs = {(m, _norm(p)) for m, p, *_ in routes}
+    return pairs, {p for _, p in pairs}
+
+
+def _documented() -> list[tuple[str, str, str]]:
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html", "*.ts"],
+                                  cwd=ROOT, text=True)
+    found = []
+    for rel in out.splitlines():
+        if rel in _NOT_A_CLIENT_CONTRACT or not (ROOT / rel).is_file():
+            continue
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        for m in _INLINE.finditer(text):
+            path = _norm(m.group(2))
+            if path != "/":
+                found.append((rel, m.group(1), path))
+        for m in _LOCAL_URL.finditer(text):
+            path = _norm(m.group(1))
+            if path != "/":
+                found.append((rel, "ANY", path))
+        if rel.endswith(".ts"):
+            for m in _SDK_FETCH.finditer(text):
+                found.append((rel, "ANY", _norm(m.group(1))))
+    return found
+
+
+def test_the_extraction_sees_the_documented_surface():
+    """Planted positive, both sides: the scanner finds endpoints in the docs, and
+    a path that is not registered is not in the registered set."""
+    documented = _documented()
+    pairs, paths = _registered()
+    assert len(documented) > 40
+    assert ("POST", "/chat") in pairs
+    assert "/subscription/checkout" not in paths
+
+
+def test_every_documented_endpoint_is_registered():
+    pairs, paths = _registered()
+    missing = sorted({
+        f"{rel}: {method} {path}"
+        for rel, method, path in _documented()
+        if (method == "ANY" and path not in paths)
+        or (method != "ANY" and (method, path) not in pairs)
+    })
+    assert not missing, "documented but not registered (a client gets 404):\n" + "\n".join(missing)
+
+
+# ── Web pages served by the gateway ─────────────────────────────────────────
+
+_LEGAL_COPY = {"web/terms.html", "web/privacy.html"}
+# Unregistered paths in legal copy, left for counsel to change. Each is listed
+# for counsel; that memo is counsel's and is kept outside this repository.
+_LEGAL_COPY_PENDING_REDLINE = {
+    ("web/privacy.html", "/pricing"),
+    ("web/terms.html", "/pricing"),
+}
+
+_WEB_ATTR = re.compile(r"""\b(?:href|src|action)\s*=\s*(["'])(/(?!/)[^"'\s>]*)""")
+_WEB_CALL = re.compile(r"""\b(?:fetch|EventSource)\(\s*(["'`])(/(?!/)[^"'`\s]*)""")
+_WEB_CONST = re.compile(r"""\b[A-Z_]*URL\s*=\s*(["'`])(/(?!/)[^"'`\s]*)""")
+_WEB_TEMPLATE = re.compile(r"""\bfetch\(\s*`\$\{[^}]+\}(/[^`\s]*)`""")
+
+
+def _web_links(rel: str, text: str) -> list[tuple[str, str, bool]]:
+    """(rel, path, is_prefix) for every root-relative client target in a page."""
+    found = []
+    for pattern in (_WEB_ATTR, _WEB_CALL, _WEB_CONST, _WEB_TEMPLATE):
+        for m in pattern.finditer(text):
+            raw = m.group(m.lastindex)
+            end = m.end(m.lastindex)
+            tail = text[end:end + 12].lstrip()
+            # quote or template close followed by concatenation → a prefix
+            is_prefix = bool(re.match(r"""["'`]?\s*\+""", tail)) or "${" in raw
+            raw = raw.split("${")[0]
+            path = raw.split("?")[0].split("#")[0]
+            if is_prefix:
+                found.append((rel, path, True))
+            else:
+                found.append((rel, _norm(path), False))
+    return found
+
+
+def _web_pages() -> list[str]:
+    out = subprocess.check_output(["git", "ls-files", "web/*.html", "web/*.js"],
+                                  cwd=ROOT, text=True)
+    return [rel for rel in out.splitlines() if (ROOT / rel).is_file()]
+
+
+def _unregistered_web_links() -> set[tuple[str, str]]:
+    _pairs, paths = _registered()
+    missing = set()
+    for rel in _web_pages():
+        for _rel, path, is_prefix in _web_links(rel, (ROOT / rel).read_text(encoding="utf-8")):
+            if is_prefix:
+                ok = any(p.startswith(path) or p == _norm(path) for p in paths)
+            else:
+                ok = path in paths
+            if not ok:
+                missing.add((rel, path))
+    return missing
+
+
+def test_the_web_extraction_sees_links_fetches_and_prefixes():
+    """Planted positive: each extraction shape is seen, and a concatenated
+    literal is a prefix, not a whole path."""
+    page = (
+        '<a href="/pricing">x</a> <form action="/nope/form">'
+        'fetch("/marketplace/submit", {method:"POST"}); '
+        "fetch('/badge/' + id + '/status'); new EventSource('/social/feed/stream'); "
+        "const FEED_URL = '/social/feed'; fetch(`${baseUrl()}/chat/stream`); "
+        '<a href="https://example.com/x">external</a> <a href="//cdn/x">proto</a>'
+    )
+    links = {(p, pre) for _r, p, pre in _web_links("planted.html", page)}
+    assert ("/pricing", False) in links
+    assert ("/nope/form", False) in links
+    assert ("/marketplace/submit", False) in links
+    assert ("/badge/", True) in links
+    assert ("/social/feed/stream", False) in links
+    assert ("/social/feed", False) in links
+    assert ("/chat/stream", False) in links
+    assert not any("example.com" in p or p.startswith("//") for p, _ in links)
+    assert len(_web_pages()) >= 10
+
+
+def test_every_web_page_link_and_fetch_is_registered():
+    missing = {m for m in _unregistered_web_links() if m[0] not in _LEGAL_COPY}
+    assert not missing, (
+        "served web pages send a browser to paths the gateway does not register "
+        "(the visitor gets 404):\n" + "\n".join(f"{r}: {p}" for r, p in sorted(missing)))
+
+
+_FETCH_METHOD = re.compile(r"""\bmethod\s*:\s*["'`](\w+)["'`]""", re.I)
+_FORM_METHOD = re.compile(r"""\bmethod\s*=\s*["'](\w+)["']""", re.I)
+
+
+def _call_options(text: str, pos: int) -> str | None:
+    """The `{...}` options argument that follows a call's first argument, found
+    by brace matching, or None when the call has no second argument."""
+    i = pos
+    while i < len(text) and text[i] in " \t\n":
+        i += 1
+    if i >= len(text) or text[i] != ",":
+        return None
+    i += 1
+    while i < len(text) and text[i] in " \t\n":
+        i += 1
+    if i >= len(text) or text[i] != "{":
+        return None
+    depth = 0
+    for j in range(i, min(len(text), i + 2000)):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[i:j + 1]
+    return text[i:i + 2000]
+
+
+def _web_requests(rel: str, text: str) -> list[tuple[str, str]]:
+    """(METHOD, path) for every whole-path client request a page makes: links,
+    scripts and images are GET, a form uses its method attribute, a fetch the
+    `method` in its options (GET when none), an EventSource GET."""
+    found = []
+    for m in _WEB_ATTR.finditer(text):
+        path = _norm(m.group(2).split("?")[0].split("#")[0])
+        method = "GET"
+        tag_start = text.rfind("<", 0, m.start())
+        tag = text[tag_start:text.find(">", m.end()) + 1]
+        if tag.lower().startswith("<form"):
+            fm = _FORM_METHOD.search(tag)
+            method = fm.group(1).upper() if fm else "GET"
+        found.append((method, path))
+    for pattern in (_WEB_CALL, _WEB_TEMPLATE):
+        for m in pattern.finditer(text):
+            raw = m.group(m.lastindex)
+            end = m.end(m.lastindex)
+            if re.match(r"""["'`]?\s*\+""", text[end:end + 12].lstrip()) or "${" in raw:
+                continue  # a prefix; its method is checked with the whole path elsewhere
+            method = "GET"
+            options = _call_options(text, end + 1)  # past the closing quote
+            if options is not None:
+                fm = _FETCH_METHOD.search(options)
+                method = fm.group(1).upper() if fm else "GET"
+            found.append((method, _norm(raw.split("?")[0].split("#")[0])))
+    return found
+
+
+def test_the_web_method_extraction_sees_fetch_options_and_form_methods():
+    page = ('<a href="/x">x</a> <form action="/f" method="post"></form> '
+            'fetch("/p", {method: "POST", body: "{}"}); fetch("/g"); '
+            "fetch(`${base()}/t`, {headers: {}, method: 'PUT'});")
+    got = set(_web_requests("planted.html", page))
+    assert got == {("GET", "/x"), ("POST", "/f"), ("POST", "/p"), ("GET", "/g"), ("PUT", "/t")}, got
+
+
+def test_every_web_page_request_uses_a_registered_method():
+    pairs, paths = _registered()
+    wrong = sorted({f"{rel}: {method} {path}"
+                    for rel in _web_pages() if rel not in _LEGAL_COPY
+                    for method, path in _web_requests(rel, (ROOT / rel).read_text(encoding="utf-8"))
+                    if path in paths and (method, path) not in pairs})
+    assert not wrong, "served pages call registered paths with a method the gateway does not register:\n" + "\n".join(wrong)
+
+
+def test_legal_copy_unregistered_links_match_the_pending_redline():
+    legal = {m for m in _unregistered_web_links() if m[0] in _LEGAL_COPY}
+    assert legal == _LEGAL_COPY_PENDING_REDLINE, (
+        "legal-copy links no longer match the redline list; update "
+        f"_LEGAL_COPY_PENDING_REDLINE. found={sorted(legal)} "
+        f"listed={sorted(_LEGAL_COPY_PENDING_REDLINE)}")
+
+
+# ── Registered is not the same as reachable ────────────────────────────────
+#
+# The audit routes are registered, so everything above passes them, while
+# `GatewayServer.audit_service` is set to None and never assigned: both
+# handlers answer 503 whatever the request carries. Course-02 showed an
+# invented report from POST /audit/request, and web/audit.html sold three
+# priced tiers whose form posted there. The class is wider than that one
+# shape: a route a client can never succeed with. The capability map listed
+# POST /api/v1/contracts/deploy, /governance/multisig/approve,
+# /social/gate/create, /social/message/send and /compute/arweave/store as
+# working capabilities while each handler in gateway/service_routes.py answers
+# 501 on every path through it, and the `_not_impl` tuple routes answer 501 by
+# construction. Three shapes are found from source, each with the status it
+# answers:
+#   * a gateway/server.py handler gated on an attribute nothing assigns (503);
+#   * a gateway/service_routes.py `_handle_*` whose every `return` answers 501
+#     (a `_require` refusal before it is a 400, not a success);
+#   * a `("METHOD", "/path", NI("..."))` entry of the route-completion table.
+# Then:
+#   * a served page may not fetch it or post a form to it;
+#   * a doc that names it must say the status it answers in the same section.
+# A handler that answers 501 on one branch and succeeds on another (batch mint
+# with `items`, a community with `rules`) is reachable and is not listed.
+#
+# Separately, a served page that fetches a key-gated route cannot succeed from
+# a browser on a gateway that sets a key (pages carry no key). Such a page must
+# handle the 401 itself rather than read it as "not found".
+
+import ast  # noqa: E402
+
+_SERVER = ROOT / "gateway" / "server.py"
+_SERVICE_ROUTES = ROOT / "gateway" / "service_routes.py"
+_NI_ROUTE = re.compile(r'\(\s*"(POST|GET|DELETE|PUT|PATCH)"\s*,\s*"(/[^"]+)"\s*,\s*NI\(')
+
+
+def _always_unavailable_handlers() -> set[str]:
+    """Handlers whose body opens with `if not self.X: return ... 503` where X is
+    assigned nowhere in gateway/server.py except to None."""
+    source = _SERVER.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assigned: dict[str, list[bool]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                for sub in ast.walk(target):
+                    if (isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name)
+                            and sub.value.id == "self"):
+                        is_none = isinstance(node.value, ast.Constant) and node.value.value is None
+                        assigned.setdefault(sub.attr, []).append(is_none)
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "setattr":
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                assigned.setdefault(str(node.args[1].value), []).append(False)
+    out = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("handle_")):
+            continue
+        for stmt in node.body[:3]:
+            if (isinstance(stmt, ast.If) and isinstance(stmt.test, ast.UnaryOp)
+                    and isinstance(stmt.test.op, ast.Not)
+                    and isinstance(stmt.test.operand, ast.Attribute)
+                    and isinstance(stmt.test.operand.value, ast.Name)
+                    and stmt.test.operand.value.id == "self"
+                    and "503" in (ast.get_source_segment(source, stmt) or "")):
+                attr = stmt.test.operand.attr
+                if all(assigned.get(attr, [True])):
+                    out.add(node.name)
+    return out
+
+
+def _returned_status(node: ast.Return):
+    """The `status=` a `return web.json_response(...)` answers with; None when
+    the statement returns something else."""
+    call = node.value
+    if not isinstance(call, ast.Call):
+        return None
+    for kw in call.keywords:
+        if kw.arg == "status" and isinstance(kw.value, ast.Constant):
+            return kw.value.value
+    return None
+
+
+def _unconditional_501_handlers() -> set[str]:
+    """`_handle_*` coroutines in gateway/service_routes.py whose every return
+    statement answers 501."""
+    tree = ast.parse(_SERVICE_ROUTES.read_text(encoding="utf-8"))
+    out = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("_handle_")):
+            continue
+        returns = [n for n in ast.walk(node) if isinstance(n, ast.Return)]
+        if returns and all(_returned_status(r) == 501 for r in returns):
+            out.add(node.name)
+    return out
+
+
+def _always_unavailable_routes() -> set[tuple[str, str, int]]:
+    """(method, path, status) for every route a client can never succeed with."""
+    status = {h: 503 for h in _always_unavailable_handlers()}
+    status.update({h: 501 for h in _unconditional_501_handlers()})
+    routes, _public = generate_route_table.collect()
+    out = {(m, _norm(p), status[h]) for m, p, h, *_ in routes if h in status}
+    out |= {(m, _norm(p), 501)
+            for m, p in _NI_ROUTE.findall(_SERVICE_ROUTES.read_text(encoding="utf-8"))}
+    return out
+
+
+def test_the_unavailable_route_finder_sees_the_audit_routes():
+    """Planted positive from the tree itself: the audit handlers are gated on an
+    attribute nothing assigns; the badge handlers are gated on one that is."""
+    handlers = _always_unavailable_handlers()
+    assert {"handle_audit_request", "handle_audit_report"} <= handlers
+    assert "handle_badge_status" not in handlers
+    assert ("POST", "/audit/request", 503) in _always_unavailable_routes()
+
+
+def test_the_unavailable_route_finder_sees_the_unconditional_501_handlers():
+    """Planted positives from the tree: four capability-map routes whose handler
+    answers 501 on every path, and the `_not_impl` table; negatives: handlers
+    that answer 501 on one branch and succeed on another."""
+    handlers = _unconditional_501_handlers()
+    assert {"_handle_contract_deploy", "_handle_arweave_store", "_handle_social_gate",
+            "_handle_social_message_send"} <= handlers, handlers
+    assert not {"_handle_snapshot_vote", "_handle_community_create",
+                "_handle_contract_convert"} & handlers, handlers
+    routes = _always_unavailable_routes()
+    assert ("POST", "/api/v1/contracts/deploy", 501) in routes
+    assert ("GET", "/api/v1/storage/files", 501) in routes, "the NI table is not read"
+    assert not any(p == "/api/v1/contracts/convert" for _m, p, _s in routes)
+
+
+def test_no_served_page_sends_a_browser_to_a_route_that_always_answers_503_or_501():
+    dead = {p for _m, p, _s in _always_unavailable_routes()}
+    offenders = []
+    for rel in _web_pages():
+        for _rel, path, is_prefix in _web_links(rel, (ROOT / rel).read_text(encoding="utf-8")):
+            if not is_prefix and path in dead:
+                offenders.append(f"{rel}: {path}")
+    assert not offenders, (
+        "served pages send a browser to routes whose handler always answers 503 or 501:\n"
+        + "\n".join(offenders))
+
+
+def _markdown_sections(text: str) -> list[str]:
+    return re.split(r"(?m)^(?=#{1,4}\s)", text)
+
+
+def test_docs_that_name_an_always_unavailable_route_say_the_status_it_answers():
+    dead = {}
+    for _m, p, status in _always_unavailable_routes():
+        dead.setdefault(p, set()).add(str(status))
+    out = subprocess.check_output(["git", "ls-files", "*.md"], cwd=ROOT, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel in _NOT_A_CLIENT_CONTRACT or not (ROOT / rel).is_file():
+            continue
+        for section in _markdown_sections((ROOT / rel).read_text(encoding="utf-8")):
+            named = {_norm(m.group(2)) for m in _INLINE.finditer(section)}
+            named |= {_norm(m.group(1)) for m in _LOCAL_URL.finditer(section)}
+            for path in sorted(named & set(dead)):
+                if not any(status in section for status in dead[path]):
+                    heading = section.strip().splitlines()[0][:80] if section.strip() else ""
+                    offenders.append(f"{rel} [{heading}]: {path} answers {'/'.join(sorted(dead[path]))}")
+    assert not offenders, (
+        "docs name routes whose handler always answers 503 or 501 without saying so:\n"
+        + "\n".join(offenders))
+
+
+def _page_fetches(rel: str, text: str) -> list[tuple[str, bool]]:
+    found = []
+    for pattern in (_WEB_CALL, _WEB_TEMPLATE):
+        for m in pattern.finditer(text):
+            raw = m.group(m.lastindex)
+            end = m.end(m.lastindex)
+            tail = text[end:end + 12].lstrip()
+            is_prefix = bool(re.match(r"""["'`]?\s*\+""", tail)) or "${" in raw
+            path = raw.split("${")[0].split("?")[0].split("#")[0]
+            found.append((path if is_prefix else _norm(path), is_prefix))
+    return found
+
+
+def test_pages_that_fetch_a_key_gated_route_handle_the_401():
+    _routes, public = generate_route_table.collect()
+    public = {_norm(p) for p in public}
+    offenders = []
+    for rel in _web_pages():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        gated = [p for p, pre in _page_fetches(rel, text)
+                 if not (p in public or (pre and any(q.startswith(p) for q in public)))]
+        if gated and not re.search(r"status\s*={2,3}\s*401", text):
+            offenders.append(f"{rel}: fetches {sorted(set(gated))} with no 401 branch")
+    assert not offenders, "\n".join(offenders)
+
+
+# ── Sibling axis: "via capability registry" must name a registry capability ──
+#
+# The capability map sends a client to the registry for rows it has no route
+# for (`POST /api/v1/capabilities/{id}/invoke`). Six of those rows (options,
+# synthetics, leverage, invoice factoring, private voting, confidential
+# compute) named capabilities runtime/capabilities/catalog.py does not have, so
+# the registry answered 404 for them exactly as the router did for the
+# unregistered paths above. A row matches when every significant word of its
+# name (a parenthetical aside dropped; "A / B Noun" read as "A Noun", "B Noun")
+# appears in one capability's id, name, service and method.
+
+_STOP = {"a", "an", "the", "with", "on", "via", "and", "to", "of", "for", "by", "through"}
+
+
+def _stem(word: str) -> str:
+    for suffix in ("ation", "ing", "ment", "ed", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[:-len(suffix)]
+    return word
+
+
+def _tokens(text: str) -> set[str]:
+    return {_stem(w) for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _STOP}
+
+
+def _row_names(name: str) -> list[str]:
+    name = re.sub(r"\(.*?\)", "", name)
+    parts = [p.strip() for p in name.split("/")]
+    if len(parts) == 1:
+        return parts
+    tail = " ".join(parts[-1].split()[1:])
+    return [p + (" " + tail if tail and len(p.split()) == 1 else "") for p in parts[:-1]] + [parts[-1]]
+
+
+def _registry_rows_without_a_capability(text: str, capabilities: list[set[str]]) -> list[str]:
+    missing = []
+    for line in text.splitlines():
+        if not (line.startswith("| ") and "via capability registry" in line):
+            continue
+        name = line.strip().strip("|").split("|")[0].strip()
+        for part in _row_names(name):
+            if not any(_tokens(part) <= cap for cap in capabilities):
+                missing.append(f"{name!r} ({part!r})")
+    return missing
+
+
+def _registry_capabilities() -> list[set[str]]:
+    from runtime.capabilities.catalog import CAPABILITIES
+    return [_tokens(" ".join([c["id"].replace("_", " "), c["name"], c["service"], c["method"]]))
+            for c in CAPABILITIES]
+
+
+def test_the_registry_row_matcher_is_not_vacuous():
+    caps = _registry_capabilities()
+    planted = ("| Liquid Stake (Lido) | x | Free | via capability registry | Lido |\n"
+               "| Register / Update / Deregister Agent | x | Pro | via capability registry | c |\n"
+               "| Options Trade | x | Pro | via capability registry | Lyra |\n")
+    assert _registry_rows_without_a_capability(planted, caps) == ["'Options Trade' ('Options Trade')"]
+
+
+def test_every_capability_map_registry_row_names_a_registry_capability():
+    text = (ROOT / "docs" / "COMPLETE_CAPABILITY_MAP.md").read_text(encoding="utf-8")
+    missing = _registry_rows_without_a_capability(text, _registry_capabilities())
+    assert not missing, ("capability map rows point at the registry for capabilities it does "
+                         "not have (invoke answers 404):\n" + "\n".join(missing))
+
+
+# ── Reachable by whom ───────────────────────────────────────────────────────
+#
+# docs/api-reference.md said the buyer of POST
+# /marketplace/plugins/{plugin_id}/purchase is "the caller's session identity".
+# The route is not in gateway/session_routes.py, so with the gateway's key set a
+# wallet session is answered 403 there and only the operator's key reaches it,
+# with the buyer taken from its X-Wallet-Address header. A section that names a
+# session as the caller has to document a route a session reaches.
+
+_SESSION_ACTOR = re.compile(
+    r"(?:the caller's|a caller's|the) (?:wallet |user )?session(?:'s)? identity"
+    r"|identity of the (?:caller's )?(?:wallet |user )?session", re.I)
+_REFERENCE_SECTION = re.compile(r"^#{2,4} `(GET|POST|PUT|DELETE|PATCH) (/[^`\s]*)`", re.M)
+
+
+def _reference_sections() -> list[tuple[str, str, str]]:
+    text = (ROOT / "docs" / "api-reference.md").read_text(encoding="utf-8")
+    heads = list(_REFERENCE_SECTION.finditer(text))
+    out = []
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        body = text[m.end():end]
+        body = body[:re.search(r"^#{1,4} ", body, re.M).start()] if re.search(
+            r"^#{1,4} ", body, re.M) else body
+        out.append((m.group(1), m.group(2).split("?")[0], " ".join(body.split())))
+    return out
+
+
+def test_the_session_actor_scan_sees_the_old_sentence():
+    old = ("No body: the plugin comes from the path, and the buyer is the caller's "
+           "session identity (or, on the operator's key, the X-Wallet-Address header).")
+    assert _SESSION_ACTOR.search(old)
+    assert not _SESSION_ACTOR.search("A wallet session is answered 403 here; the buyer is "
+                                     "the X-Wallet-Address header the operator sends.")
+    assert any(path == "/marketplace/plugins/{plugin_id}/purchase"
+               for _m, path, _b in _reference_sections()), "the reference was not read"
+
+
+def test_a_route_documented_as_used_by_a_session_is_one_a_session_reaches():
+    from gateway.session_routes import session_may_reach
+
+    assert session_may_reach("/api/v1/marketplace/buy"), "precondition: the session table is read"
+    offenders = [f"{method} {path}" for method, path, body in _reference_sections()
+                 if _SESSION_ACTOR.search(body) and not session_may_reach(path)]
+    assert not offenders, (
+        "docs/api-reference.md names a wallet session as the caller of routes a session "
+        "is answered 403 on (gateway/session_routes.py): " + ", ".join(offenders))
+
+
+# ── The certification bank's answers ────────────────────────────────────────
+#
+# The developer track asked which endpoint converts a contract and marked
+# "POST /api/convert" correct. That path is not registered; the converter is at
+# POST /api/v1/contracts/convert. A certification answer is a client contract
+# too: whoever passes the question has learned the path.
+
+def test_every_route_a_certification_answer_names_is_registered():
+    from runtime.certification.assessments import SAMPLE_QUESTIONS
+
+    pairs, _paths = _registered()
+    problems, seen = [], 0
+    for track, questions in SAMPLE_QUESTIONS.items():
+        for q in questions:
+            answer = q["options"][q["correct_index"]].strip()
+            m = re.fullmatch(r"(GET|POST|PUT|DELETE|PATCH) (/\S+)", answer)
+            texts = [(m.group(1), m.group(2))] if m else []
+            texts += [(mm.group(1), mm.group(2)) for mm in _INLINE.finditer(q["question"])]
+            for method, path in texts:
+                seen += 1
+                if (method, _norm(path)) not in pairs:
+                    problems.append(f"{track}: {q['question'][:70]!r} answers {method} {path}, "
+                                    "which the gateway does not register")
+    assert seen, "no certification answer names a route; the reader sees nothing"
+    assert not problems, "\n".join(problems)
+
+
+def test_the_purchase_section_names_the_session_the_buyer_rule_prefers():
+    """_caller_identity takes a presented session's identity before the
+    X-Wallet-Address header, so an operator request that also carries
+    X-Wallet-Session buys as that session. The reference named only the
+    header."""
+    import ast as _ast
+
+    source = (ROOT / "gateway" / "server.py").read_text(encoding="utf-8")
+    fn = next(n for n in _ast.walk(_ast.parse(source))
+              if isinstance(n, _ast.FunctionDef) and n.name == "_caller_identity")
+    session_line = min(n.lineno for n in _ast.walk(fn) if isinstance(n, _ast.Call)
+                       and getattr(n.func, "attr", "") == "_session_identity")
+    header_line = min(n.lineno for n in _ast.walk(fn) if isinstance(n, _ast.Constant)
+                      and n.value == "X-Wallet-Address")
+    assert session_line < header_line, "precondition: the session is consulted before the header"
+    section = next(body for _m, path, body in _reference_sections()
+                   if path == "/marketplace/plugins/{plugin_id}/purchase")
+    assert "X-Wallet-Session" in section and "X-Wallet-Address" in section, section

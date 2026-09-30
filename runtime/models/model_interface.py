@@ -12,6 +12,20 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+def tool_function(schema: dict) -> dict:
+    """The name, description and parameters of one tool schema, in either shape
+    the platform registers a tool: flat ``{"name", "description", "parameters"}``,
+    or the function-calling shape ``{"type": "function", "function": {...}}``.
+    runtime/tools/dispatcher.py registers both (platform_action,
+    request_execution and security_audit in the second), and every client reads
+    its tools through this, so none fails on a tool or sends one without its
+    name. A schema with no name raises KeyError: a nameless tool is a
+    registration fault, and sending it would not make it callable."""
+    fn = schema["function"] if isinstance(schema.get("function"), dict) else schema
+    return {"name": fn["name"], "description": fn.get("description", ""),
+            "parameters": fn.get("parameters", {})}
+
+
 @dataclass
 class ModelResponse:
     """Standardized response from any model provider."""

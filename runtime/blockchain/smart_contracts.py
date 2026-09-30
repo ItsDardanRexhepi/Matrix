@@ -3,7 +3,7 @@ Smart Contracts — deploy, interact with, and verify smart contracts on Base L2
 
 Supports Solidity compilation via solcx, deployment with gas sponsorship,
 contract interaction (read/write), and source verification.
-All gas is covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -218,7 +218,7 @@ class SmartContracts(BlockchainInterface):
                 code="capability_error")
 
     async def _send(self, params: dict) -> str:
-        """Write to a contract. Gas covered by platform."""
+        """Write to a contract. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

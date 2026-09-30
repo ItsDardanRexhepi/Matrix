@@ -13,7 +13,7 @@ import os
 
 import aiohttp
 
-from runtime.models.model_interface import ModelInterface, ModelResponse
+from runtime.models.model_interface import ModelInterface, ModelResponse, tool_function
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +32,7 @@ class NVIDIAClient(ModelInterface):
         formatted = [{"role": m.role, "content": m.content or ""} for m in messages]
         payload: dict = {"model": self.model, "messages": formatted, "max_tokens": 4096}
         if tools:
-            payload["tools"] = [
-                {"type": "function", "function": {"name": t["name"], "description": t.get("description", ""), "parameters": t.get("parameters", {})}}
-                for t in tools
-            ]
+            payload["tools"] = [{"type": "function", "function": tool_function(t)} for t in tools]
 
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         async with aiohttp.ClientSession() as session:

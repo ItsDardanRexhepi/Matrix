@@ -150,7 +150,7 @@
       "policy": { "allowed_actions": ["transfer", "swap"], "daily_cap_usd": 50 }
     },
     "schemas": {
-      "//": "EAS schema UIDs are chain-specific keccak256 SchemaRegistry hashes (bytes32), NOT easscan display numbers like '348'. Register per chain with scripts/register_eas_schemas.py and paste the resulting UIDs here. Empty/malformed values fail closed (no attestation against a placeholder). 'primary' overrides blockchain.eas_schema for the core schema.",
+      "//": "EAS schema UIDs are chain-specific keccak256 SchemaRegistry hashes (bytes32), NOT easscan display numbers like '348'. Register per chain with scripts/register_eas_schemas.py and paste the resulting UIDs here. Empty/malformed values fail closed (no attestation against a placeholder). The core schema is read from blockchain.eas_schema, not from the 'primary' entry here, which nothing reads.",
       "primary": "0x42e29fbfef86deaa4f27a5e364f818ee736badfbc40904bd261b508308372d0a",
       "identity": "0x620c47f46c463bca27a27a89604509546f225960c99912fd9f10615a38047e0a",
       "payments": "0xa8fa684437236a3c2311d59f7d235a56b8a15da3f44611eac09b32b9451b0aa6",
