@@ -652,9 +652,12 @@ check behind it:
   run is lost and no effect is made without its record, recovery continues
   nothing, no effect happens twice, and two recoveries of one file reach
   the same state (`tests/baseline/durable_g7_crash_matrix.json`, which also
-  says what the plan asks that the matrix does not measure). G8: 1,104
-  bodies each sent twice to `POST /bridge/v1/action` act once each
-  (`tests/baseline/durable_g8_replay.json`)
+  says what the plan asks that the matrix does not measure). G8: of 1,104
+  bodies each sent twice to `POST /bridge/v1/action`, the 1,032 of the
+  172 actions a request may have dispatched act once each, and the 72 of
+  the twelve every door refuses on request (`REFUSED_ON_REQUEST` in
+  `runtime/access_policy.py`) are answered 403 before the gate and act not
+  at all (`tests/baseline/durable_g8_replay.json`)
 
 What activates the moment a chain is configured: on-chain attestations,
 paymaster gas sponsorship within the configured policy, and live service

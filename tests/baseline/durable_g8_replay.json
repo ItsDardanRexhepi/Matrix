@@ -194,17 +194,19 @@
  "gate": "G8",
  "instrument": "POST /bridge/v1/action through GatewayServer under aiohttp's test client with the operator key, the real ServiceDispatcher, durable engine and outbox loop over a scratch SQLite database; stand-in services that log each effect with the body's marker and answer settled, stand-ins for the chain (the outbox's attestation submission), the legacy attestation service and the feed, and an allow-all gate that counts its calls. The outbox loop is drained after the corpus. Counts only: no timings.",
  "measured": {
-  "on_top_of": "A configured mode on whose build itself raises installs the engine that refuses, not no engine",
+  "on_top_of": "Merge main into fix/oldq-census: durable execution, dark by default, as schema migration 11",
   "with_uncommitted_changes": false
  },
  "on": {
   "answers": {
    "concurrent": {
-    "200": 552,
-    "422 idempotency_in_progress": 552
+    "200": 516,
+    "403": 72,
+    "422 idempotency_in_progress": 516
    },
    "sequential": {
-    "200": 1104
+    "200": 1032,
+    "403": 72
    }
   },
   "attestations_per_run_max": 1,
@@ -212,20 +214,20 @@
   "duplicate_actions": 0,
   "effects": {
    "attest": 0,
-   "attest_sent": 1104,
-   "feed": 1104,
-   "service": 1104
+   "attest_sent": 1032,
+   "feed": 1032,
+   "service": 1032
   },
   "feed_per_run_max": 1,
-  "gate_calls": 2208,
-  "keys_bound": 1104,
+  "gate_calls": 2064,
+  "keys_bound": 1032,
   "markers_acting_more_than_once": 0,
   "outbox": {
    "attest": {
-    "handed_off": 1104
+    "handed_off": 1032
    },
    "feed": {
-    "handed_off": 1104
+    "handed_off": 1032
    }
   },
   "outbox_per_run_max": {
@@ -240,11 +242,132 @@
    "service": 1
   },
   "posts": 2208,
-  "refused": {},
-  "replays_byte_identical": 552,
-  "runs": 1104,
+  "refused": {
+   "batch_attest": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "bridge_axelar": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "bridge_hyperlane": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "bridge_wormhole": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "create_attestation": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "create_session_key": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "execute_as_tba": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "issue_kyc_credential": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "recover_wallet": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "revoke_attestation": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "send_cross_chain_message": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "submit_retropgf": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   }
+  },
+  "replays_byte_identical": 516,
+  "runs": 1032,
   "runs_by_state": {
-   "COMPLETE": 1104
+   "COMPLETE": 1032
   }
  },
  "rule": "engines.durable.mode = on: 0 duplicate actions over the corpus \u2014 service effects per marker == 1, attestations per run <= 1, feed entries per run <= 1, one run per Idempotency-Key, for every key sent twice in sequence and every key sent twice concurrently; a body the gateway refused has 0 effects. Shadow is the contrast: a replay runs again there, as with the mode off.",
@@ -252,31 +375,33 @@
  "shadow": {
   "answers": {
    "concurrent": {
-    "200": 1104
+    "200": 1032,
+    "403": 72
    },
    "sequential": {
-    "200": 1104
+    "200": 1032,
+    "403": 72
    }
   },
   "attestations_per_run_max": 1,
   "bodies": 1104,
-  "duplicate_actions": 1104,
+  "duplicate_actions": 1032,
   "effects": {
-   "attest": 2208,
+   "attest": 2064,
    "attest_sent": 0,
-   "feed": 2208,
-   "service": 2208
+   "feed": 2064,
+   "service": 2064
   },
   "feed_per_run_max": 1,
-  "gate_calls": 2208,
-  "keys_bound": 1104,
-  "markers_acting_more_than_once": 1104,
+  "gate_calls": 2064,
+  "keys_bound": 1032,
+  "markers_acting_more_than_once": 1032,
   "outbox": {
    "attest": {
-    "handed_off": 2208
+    "handed_off": 2064
    },
    "feed": {
-    "handed_off": 2208
+    "handed_off": 2064
    }
   },
   "outbox_per_run_max": {
@@ -291,10 +416,131 @@
    "service": 2
   },
   "posts": 2208,
-  "refused": {},
-  "runs": 2208,
+  "refused": {
+   "batch_attest": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "bridge_axelar": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "bridge_hyperlane": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "bridge_wormhole": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "create_attestation": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "create_session_key": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "execute_as_tba": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "issue_kyc_credential": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "recover_wallet": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "revoke_attestation": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "send_cross_chain_message": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   },
+   "submit_retropgf": {
+    "concurrent": [
+     "403",
+     "403"
+    ],
+    "sequential": [
+     "403",
+     "403"
+    ]
+   }
+  },
+  "runs": 2064,
   "runs_by_state": {
-   "COMPLETE": 2208
+   "COMPLETE": 2064
   }
  }
 }
