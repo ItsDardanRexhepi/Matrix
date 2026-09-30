@@ -419,10 +419,14 @@ check behind it:
   signing call; not the gate, where no durable code runs, and not the HTTP
   route. `shadow` and `on` write a run of two transactions around each
   journaled dispatch, which puts its p95 at several times that of the same
-  dispatch at `off`, over the +10 percent latency budget; at `off` the
-  difference from the tree this work merges into is about a microsecond
-  either way, which this instrument does not resolve against a 10 percent
-  bound. The artefact gives the figures and the machine. The
+  dispatch at `off`: at `on` about 8.6 times for the service dispatcher
+  (17.8 to 152.5 microseconds), 9.7 times for the bridge's keyed sequence
+  and 2.8 times for a twin tool's signing call, and 8.4, 9.4 and 3.0 times
+  at `shadow`. That is over the +10 percent latency budget. At `off` a dispatch costs about a microsecond more than on
+  the tree this work merges into, timed in two interpreters taking turns
+  block by block: 1.062 times its p95 (16.2 to 17.2 microseconds), between
+  1.037 and 1.068 over five stretches of the run, and 1.099 for the `off`
+  cell timed between `shadow` and `on` blocks, within the budget. The
   budget is the project owner's decision, still open: this phase of the
   engines work can merge dark, with the mode `off` by default, and is not
   closed until that gate, G6, holds. The other two exit gates hold at `on`.

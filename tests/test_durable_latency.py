@@ -55,11 +55,11 @@ THE BUDGET. G6 asks that a phase keep a dispatch's p95 within +10 percent of
 the base tree's, a bound left to the project owner to confirm; this file
 records the figures and asserts no bound. Shadow and on are over it: they put a
 journaled dispatch's p95 at several times the same dispatch's with the mode
-off. For off the artefact says what the draw gave, and how far the ratio moved
-from one stretch of the run to the next (``main_off.stretches``); on a host
-busy with other work (``host``) the stopwatch does not resolve a difference of
-a microsecond or two against a 10 percent bound. The budget is the owner's
-decision and still open. Durable execution can merge dark, with the mode
+off. Off, timed on both trees at once, costs about a microsecond on a call of
+about sixteen, and the committed draw has it within the bound
+(``main_off.ratio_this_tree_to_main``, with ``main_off.stretches`` for how far
+it moved during the run, and ``host`` for how busy the machine was). The
+budget is the owner's decision and still open. Durable execution can merge dark, with the mode
 off by default, and its phase is not closed until G6 holds.
 """
 from __future__ import annotations
