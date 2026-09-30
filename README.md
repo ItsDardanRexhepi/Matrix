@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,508 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,509 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -370,8 +370,9 @@ check behind it:
   `shadow` or `on`, `GET /ready` answers 503 while the loop is not running
   or has stopped making progress. The four tables are schema migration 11,
   after the one-spelling rewrite of stored callers (10): a database left at
-  either earlier schema gets the tables, and the rewrite exactly once. What
-  the mode costs is measured, not assumed
+  either earlier schema gets the tables, and the rewrite exactly once, and so
+  does one a build of this work from before the renumbering left with the
+  tables recorded as 10. What the mode costs is measured, not assumed
   (`tests/baseline/durable_g6_latency.json`, 5,000 calls a cell, on the
   machine it names). At `off`, a dispatch's p95 is 1.025 times main's,
   measured like for like, within the +10 percent latency budget. `shadow`

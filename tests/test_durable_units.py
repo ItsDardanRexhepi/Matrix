@@ -71,7 +71,7 @@ SPEC_PRIMARY_KEYS = {"workflow_runs": ["run_id"], "outbox": ["id"], "idempotency
 DURABLE_VERSION = 11
 
 
-def _v11_statements() -> list[str]:
+def _v11_statements() -> list:
     return [stmts for version, _d, stmts in database_module.MIGRATIONS
             if version == DURABLE_VERSION][0]
 
@@ -141,7 +141,10 @@ def test_migration_11_is_additive_and_idempotent(tmp_path, monkeypatch):
 
     # Its statements run again by hand, and its version row lost and re-applied.
     for stmt in _v11_statements():
-        again.execute_sync(stmt)
+        if callable(stmt):
+            stmt(again._conn)
+        else:
+            again.execute_sync(stmt)
     again.execute_sync("DELETE FROM schema_version WHERE version = ?", (DURABLE_VERSION,))
     third = open_db(path)
     assert third.schema_version == DURABLE_VERSION

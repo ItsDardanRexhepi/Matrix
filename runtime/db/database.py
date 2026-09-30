@@ -375,7 +375,9 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
     # Numbered 11, after the one-spelling rewrite of stored callers (10). The
     # runner applies every version a database has not recorded, so a second
     # migration under one number is never applied to a database that recorded
-    # the first, and a fresh database cannot record both.
+    # the first, and a fresh database cannot record both. These tables were
+    # numbered 10 before main's rewrite took that number; a database a build
+    # from then opened is given the rewrite by this migration's last step.
     (
         11,
         ("durable execution — workflow_runs, workflow_steps, outbox, idempotency_keys: "
@@ -469,6 +471,10 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
                 created_at       REAL NOT NULL
             )
             """,
+            # A database whose version 10 is the four tables above, recorded by
+            # a build from before they were renumbered, takes the rewrite of
+            # stored callers here, once (see below).
+            lambda conn: _one_spelling_where_ten_was_the_durable_tables(conn),
         ],
     ),
 ]
@@ -653,6 +659,34 @@ def _one_spelling_for_stored_callers(conn: sqlite3.Connection) -> None:
             f"{_is_other_spelling('follower')} OR {_is_other_spelling('followee')} "
             "OR follower = followee")
     _one_spelling(conn, "plugin_purchases", "wallet_address", or_ignore=True)
+
+
+# ── Migration 11: a version 10 that was the durable tables ───────────
+#
+# The durable tables of migration 11 were numbered 10 before the rewrite above
+# took that number. A database a build from then opened recorded version 10
+# with the durable tables' description and never took the rewrite, and the
+# runner, which applies only the versions a database has not recorded, would
+# never give it one. Migration 11's last step gives it the rewrite then, once,
+# in the same transaction as the tables, and records version 10 as the rewrite
+# it now holds. On every other database version 10 is the rewrite already, or
+# not yet recorded and applied before 11, and this step does nothing. Like the
+# shadow logs of 8 and 9, the durable tables keep a caller only as a sha256
+# digest, which the rewrite cannot reach; nothing reads one to decide anything.
+
+_DURABLE_TABLES_DESCRIPTION = "durable execution"
+
+
+def _one_spelling_where_ten_was_the_durable_tables(conn: sqlite3.Connection) -> None:
+    import time as _time
+
+    row = conn.execute("SELECT description FROM schema_version WHERE version = 10").fetchone()
+    if row is None or not str(row[0]).startswith(_DURABLE_TABLES_DESCRIPTION):
+        return
+    _one_spelling_for_stored_callers(conn)
+    rule = next(description for version, description, _ in MIGRATIONS if version == 10)
+    conn.execute("UPDATE schema_version SET description = ?, applied_at = ? WHERE version = 10",
+                 (rule, _time.time()))
 
 
 # The schema_version table itself is bootstrapped by the Database class
