@@ -40,7 +40,7 @@ THE DOORS, each driven:
                            Trinity for a session and as Neo for the operator.
 
 THE CHANGE. The tool refuses ``send`` before anything is built or signed (this
-branch, 7abfa21), and the tool dispatcher refuses it too, for every caller, the
+branch, the commit "No request chooses the call the platform's key signs: smart_contract no longer writes, and a configured allowlist binds with or without a cap"), and the tool dispatcher refuses it too, for every caller, the
 operator key included, before the handler runs
 (``runtime/access_policy.py`` ``REFUSED_TOOL_CALLS``). The action-dispatching
 doors cannot name the tool at all: capability invoke, ``/bridge/v1/action``,
@@ -54,18 +54,21 @@ service registry maps, and each of those is a class in a module of
 the default policy: a read through the same tool, and a named function the
 source writes.
 
-CONTROL, measured on this file's 28 tests at The Matrix ``main`` 58b8b4d, at
-fix/oldq-census a710052 and here. The 14 marked [control] fail on ``main``,
+CONTROL, measured on this file's 28 tests on The Matrix ``main`` at
+the commit "Merge audit-remediation-2026-07: the cited commit ids are those of the rewritten history", at
+the commit "No request composes a call or a message the platform's key signs: the services layer's execute-as-account, message sends and request-written attestations are refused"
+(below, "the refusal in the services layer") and here. The 14 marked [control]
+fail on ``main``,
 each because the platform wallet signed the request's attest or revoke on the
 EAS contract (the tool, the dispatcher for both callers, and all four chat
-entrances), and pass at a710052 and here. The 3 marked [control:door] fail on
-``main`` and at a710052, where the tool refused but the dispatcher still ran
+entrances), and pass at the refusal in the services layer and here. The 3
+marked [control:door] fail on ``main`` and at the refusal in the services layer, where the tool refused but the dispatcher still ran
 its handler, and pass here. The 11 marked [guard] pass at all three: no
 action-dispatching door reaches the tool, no name one resolves can be a tool,
 a session's chat never held it, a
 read still reads, and a platform-composed transfer still signs under the
 default policy (on ``main`` too, so the probe sees a signature when there is
-one). 17 fail on ``main``, 3 at a710052, none here.
+one). 17 fail on ``main``, 3 at the refusal in the services layer, none here.
 """
 
 from __future__ import annotations

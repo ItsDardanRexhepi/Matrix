@@ -22,6 +22,7 @@ from .joint_ownership import JointOwnership
 from .legal_bridge import LegalBridge
 from .pooled_purchase import PooledPurchase
 from .tokenizers import get_tokenizer
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ class RWAService:
         """
         token = self._get_token(token_id)
 
-        if token["owner"] != from_addr:
+        if not same_caller(token["owner"], from_addr):
             raise ValueError(
                 f"Token {token_id} is owned by {token['owner']}, not {from_addr}"
             )

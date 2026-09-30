@@ -21,8 +21,8 @@ caller would leave only freezing yourself or granting yourself the role. They
 are Neo's tools, and a chat caller without the operator key never holds them —
 driven below through the tool dispatcher.
 
-CONTROL. At fix/oldq-census 67f3ad6 the tests marked [control] fail; the tests
-marked [guard] pass before and after.
+CONTROL. At the commit "Every twin attestation is the platform's own statement: eas no longer signs or revokes on request, and each attestation's subject is the caller or nobody"
+the tests marked [control] fail; the tests marked [guard] pass before and after.
 """
 
 from __future__ import annotations

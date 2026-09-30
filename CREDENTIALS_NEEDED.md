@@ -104,7 +104,25 @@ you set in this repository.
   That is a normal state for local and testnet use.
 - Under `MATRIX_ENV=production` the gateway refuses to start on the no-op
   backend, and names the cause. The readiness probe (`GET /ready`) fails on it
-  too, as a second line of defence. `docker-compose.prod.yml` and
+  too, as a second line of defence.
+- With the core installed, the gateway builds the security gate at startup and
+  loads its saved state before it serves, and first checks that the core names a
+  caller the way the platform does (`runtime/auth/identity.py`; the core exports
+  its rule as `canonical_identity`). A core that does not is not started: what it
+  holds about a caller under another spelling of the same wallet would bind for
+  nobody once the platform names that caller in one spelling. If any of these
+  steps fails, a production gateway refuses to start and names the cause; any
+  other gateway runs with
+  `GET /ready` failing, and no request is handed a gate, or decided by
+  another policy, in its place: every request the gate would decide is
+  refused, reads included, and so is every agent tool call. A gate that did
+  come up and then cannot decide a single call refuses it under ENFORCE,
+  reads included; under OBSERVE it refuses the call when it could move value
+  or change state and lets a plain read through. When the gate raises instead
+  of answering, the HTTP gate and the tool-call check refuse the call if it
+  could move value and let a plain read through, in either mode; Trinity's
+  hand-off to Neo refuses every request it escalates then, reads included.
+  `docker-compose.prod.yml` and
   `k8s/deployment.yaml` set `MATRIX_ENV=production`, `docker-compose.yml`
   defaults to it, and the image this repository's `Dockerfile` builds installs
   only the public requirements, so on those routes a gateway without the core
@@ -209,8 +227,10 @@ gate → tool → chain**. To exercise it end-to-end on Base Sepolia:
      verify it on `sepolia.basescan.org`.
    - *Agent-routed:* `POST /chat` as Trinity with a read request → returns data.
      Ask for an execution → Trinity calls `request_execution` → the Morpheus gate
-     evaluates (OBSERVE: logs, allows) → Neo executes via the service dispatcher →
-     EAS attestation is written. Inspect the gateway logs for the
+     evaluates (under OBSERVE it logs its verdict and lets the call through,
+     except that a gate fault on a call that could move value or change state,
+     or App Attest when it is enforced, still refuses it) → Neo executes via
+     the service dispatcher → EAS attestation is written. Inspect the gateway logs for the
      `trinity->morpheus->neo` hand-off and the attestation tx.
 6. **Confirm the boundary:** a `/chat` as Trinity asking to run a state-changing
    `platform_action` directly returns `[DENIED]` (she must use the hand-off) — proof

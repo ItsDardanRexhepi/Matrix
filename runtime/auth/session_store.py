@@ -17,6 +17,7 @@ import logging
 import time
 from typing import Any
 
+from runtime.auth.identity import canonical_identity
 from runtime.db.database import Database
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ class WalletSessionStore:
 
     so existing callers (gateway/server.py, gateway/bridge.py) keep
     working without changes to their access patterns.
+
+    ``address`` is held in the one spelling the platform names a caller by
+    (runtime/auth/identity.py): a wallet address in lower case, whatever case
+    it was signed in with, and a row written before that rule is read back the
+    same way. One wallet is one subject, not one per spelling.
     """
 
     def __init__(self, db: Database) -> None:
@@ -54,7 +60,7 @@ class WalletSessionStore:
             if r["expires_at"] <= now:
                 continue
             self._cache[r["token"]] = {
-                "address": r["address"],
+                "address": canonical_identity(r["address"]),
                 "issued_at": r["issued_at"],
                 "expires_at": r["expires_at"],
             }
@@ -99,6 +105,7 @@ class WalletSessionStore:
         issued_at: float,
         expires_at: float,
     ) -> dict[str, Any]:
+        address = canonical_identity(address)
         record = {
             "address": address,
             "issued_at": issued_at,
@@ -229,7 +236,7 @@ class AppleUserStore:
             self._cache[r["sub"]] = {
                 "first_seen": r["first_seen"],
                 "last_seen": r["last_seen"],
-                "wallet_address": r["wallet_address"] or "",
+                "wallet_address": canonical_identity(r["wallet_address"] or ""),
             }
         self._loaded = True
         logger.info("Loaded %d Apple users", len(self._cache))
@@ -269,7 +276,9 @@ class AppleUserStore:
         return is_new
 
     async def link_wallet(self, sub: str, wallet_address: str) -> None:
-        """Bind a wallet the user has proven (SIWE) to their Apple identity."""
+        """Bind a wallet the user has proven (SIWE) to their Apple identity,
+        in the one spelling (runtime/auth/identity.py)."""
+        wallet_address = canonical_identity(wallet_address)
         now = time.time()
         record = self._cache.setdefault(
             sub, {"first_seen": now, "last_seen": now, "wallet_address": ""})

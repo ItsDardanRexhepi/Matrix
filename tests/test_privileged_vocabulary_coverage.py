@@ -40,9 +40,12 @@ This file measures that gap before anything is changed to close it:
     gate sites consult one vocabulary lands — at which point strict makes the
     unexpected pass a failure until the marker is removed.
 
-Nothing here says which labels the core classifies, or how many; the core is
-asked, label by label, through the one method (``_requires_morpheus``) the
-repository's own seam test already calls.
+Nothing here says which labels the core classifies, or how many; the gate is
+asked, label by label, through ``evaluate``, the way the repository's own seam
+test asks it (tests/test_twins_seam.py): a decision's ``route`` says whether
+the gate evaluated the call, and ``pass_through`` is one it did not
+(runtime/security/SECURITY_INTERFACE.md). A label the core classifies is one
+its gate evaluates.
 
 It also holds the vocabulary table itself to its Phase 1 contract: it covers
 exactly the dispatchable names, a name reads iff the dispatcher calls it a read,
@@ -76,8 +79,10 @@ SERVICE_ROUTES = ROOT / "gateway" / "service_routes.py"
 SECURITY_GATE = ROOT / "gateway" / "security_gate.py"
 VOCABULARY = ROOT / "runtime" / "security" / "vocabulary.py"
 
-#: The public denominators, measured at The Matrix c637715 (the tables this
-#: branch leaves as they were).
+#: The public denominators, measured at The Matrix at the commit "Merge
+#: audit-remediation-2026-07: no personal address, local path or private detail
+#: in the shipped files, and the compose stack passes the secrets the documents
+#: name" (the tables this branch leaves as they were).
 MEASURED = {
     "action_map_literal": 193,
     "action_map_runtime": 253,
@@ -164,10 +169,63 @@ def funnel_aliases() -> dict[str, str]:
     raise AssertionError("aliases literal not found in action_type_for")
 
 
+#: The route of a decision the gate did not evaluate
+#: (runtime/security/SECURITY_INTERFACE.md).
+PASSED_THROUGH = "pass_through"
+
+
+def _labels_asked() -> set[str]:
+    """Every label this file asks the gate about."""
+    state_modifying = set(_literal_keys(DISPATCHER, "_STATE_MODIFYING_ACTIONS")) | set(
+        sd._STATE_MODIFYING_ACTIONS)
+    return ({react_label(n) for n in state_modifying}
+            | {funnel_label(*p) for p in funnel_state_modifying_pairs()}
+            | {CANONICAL[n] for n in sd._STATE_MODIFYING_ACTIONS})
+
+
+async def _routes(labels: set[str]) -> dict[str, str | None]:
+    """The route the installed gate takes for each label, each asked for a
+    fresh caller, so nothing one answer records about a caller shapes another."""
+    import secrets
+    import tempfile
+
+    import runtime.security as seam
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seam.reset_morpheus_security()
+        try:
+            gate = seam.get_morpheus_security(
+                {"memory_dir": tmp, "database": {"path": str(Path(tmp) / "gate.db")}})
+            await gate.initialize()
+            read = await gate.evaluate({"action_type": "balance"},
+                                       {"wallet_address": "0x" + secrets.token_hex(20)})
+            assert read.get("allow") is True and not read.get("would_block"), (
+                "the gate refuses a read for a fresh caller, so its routes would say nothing")
+            routes = {}
+            for label in sorted(labels):
+                decision = await gate.evaluate(
+                    {"action_type": label}, {"wallet_address": "0x" + secrets.token_hex(20)})
+                routes[label] = decision.get("route")
+            return routes
+        finally:
+            seam.reset_morpheus_security()
+
+
 def classifier():
-    """The security core's own classifier, or a skip where it is not installed."""
-    morpheus = pytest.importorskip("morpheus_security.morpheus")
-    return morpheus.MorpheusSecurity._requires_morpheus
+    """Whether the installed gate classifies a label, or a skip where it is not
+    installed. A label it classifies is one it evaluates rather than passes
+    through: the gate is built through the seam with no host, the way a script
+    builds it, and asked through ``evaluate``, as tests/test_twins_seam.py asks
+    it. Every label this file asks about is asked once, in one event loop."""
+    import asyncio
+
+    pytest.importorskip("morpheus_security")
+    import runtime.security as seam
+
+    if seam.MorpheusSecurity.__module__.split(".")[0] == "runtime":
+        pytest.skip("the seam is not bound to the installed security core")
+    routes = asyncio.run(_routes(_labels_asked()))
+    return lambda label: routes[label] != PASSED_THROUGH
 
 
 def measure(classified=None) -> dict[str, int]:

@@ -179,9 +179,11 @@ WHAT THIS DOES NOT COVER, stated.
 
 CONTROL. Of this file's 96 tests, 56 are marked [control] and 40 [guard]. The
 product's controls are measured by laying this file over each commit: at
-fix/oldq-census 420a88a 32 fail; at d3dcf89 the 24 from the services section
-on (the first round's 8 — the tool's five, the allowlist's two and the census
-of outer functions — were fixed at 7abfa21); at the dispatcher's refusal of
+the commit "Verifying an agent reads what the attestation says, a platform-signed transfer moves only the caller's own asset, and the census sees what a review planted past it"
+32 fail; at the commit "Commit ids this branch's own test docstrings cite are those of the rewritten history"
+(below, "the rewritten-id commit") the 24 from the services section on (the
+first round's 8 — the tool's five, the allowlist's two and the census of outer
+functions — were fixed at the commit "No request chooses the call the platform's key signs: smart_contract no longer writes, and a configured allowlist binds with or without a cap"); at the dispatcher's refusal of
 ``send`` ("No door has the platform's key sign a contract call the request
 composed") 10, the ones the recovery and the session key make fail: their own
 two, the door and table controls that now name them, and the address listing.
@@ -197,7 +199,7 @@ written through another target or name and of bytes rebound through
 value changed through another name before it is read ...", each pass there
 with nothing reported, and their guard passes. All 96 pass here, and the
 guards pass at every commit above. On 15 of the planted shapes the census as
-it stood at d3dcf89 reported nothing.
+it stood at the rewritten-id commit reported nothing.
 """
 
 from __future__ import annotations

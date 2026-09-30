@@ -1,6 +1,7 @@
 """22-A — the royalty destination could be redirected by anyone.
 
-MEASURED at pin 84a6c3e through the real ServiceDispatcher, under THE SHIPPED
+MEASURED at the commit "21-S: 21-I's offload moved the cost rather than
+removing it" through the real ServiceDispatcher, under THE SHIPPED
 CONFIG. `configure_nft_royalty` is one of only SIX of seventeen nft actions
 that executes at all — the rest crash or refuse — so this was live in the
 deployment we ship:

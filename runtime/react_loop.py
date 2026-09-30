@@ -428,16 +428,19 @@ class ReActLoop:
                 # dispatcher enforces the per-agent tool boundary regardless of prompt.
                 # The caller identity travels the same way: from the entry
                 # point's context, never from the model's arguments (§CD sibling
-                # axis of the identity class). That does not make it
-                # authenticated. On /bridge/v1/chat it is the wallet linked to
-                # the SIWE session; on /chat it is the request body's `wallet`
-                # (or `wallet_address`) field as the caller wrote it, session
-                # or not (gateway/server.py handle_chat); /chat/stream and /ws
-                # thread none. ServiceDispatcher.execute records whatever
-                # arrives here as the caller, labelled "authenticated" (17-J).
-                # On /chat that record is Neo's, who takes the operator key
-                # there; Trinity's state-changing actions go through
-                # runtime/agents/handoff.py with no identity at all.
+                # axis of the identity class). On every chat entrance (/chat,
+                # /chat/stream, /ws, /bridge/v1/chat) it is derived from the
+                # presented session (gateway/server.py _chat_user_context); only
+                # an operator-key request may name, in its body, the user it
+                # acts for, and an anonymous caller has none.
+                # ServiceDispatcher.execute records whatever arrives here as the
+                # caller, labelled "authenticated" (17-J). On /chat that record
+                # is Neo's, who takes the operator key there; Trinity's
+                # state-changing actions go through runtime/agents/handoff.py,
+                # whose gate is handed this identity while Neo's execution runs
+                # under its declared agent source. The dispatcher also hands it
+                # to the security seam at the tool boundary, so a decision about
+                # this caller can be made there.
                 _uc = context.metadata.get("user_context") or {}
                 outcome = await self.dispatcher.dispatch(
                     tool_name, arguments, agent_name=context.agent_name,

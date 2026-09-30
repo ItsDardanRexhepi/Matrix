@@ -5,7 +5,9 @@
 key: an ABSENT key contributed 0 to the conservation check and a FULL SHARE to
 the schedule that spends the money.
 
-MEASURED at pin e6cbc018 with two milestones, the second omitting the key:
+MEASURED at the commit "19-D: an unauthenticated caller could render
+/social/feed permanently invalid" with two milestones, the second omitting the
+key:
 
     guard sees 100                 -> passes
     stored          [100, 50.0]    =  150%

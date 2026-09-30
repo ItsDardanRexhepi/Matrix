@@ -1,10 +1,11 @@
 """Who a conversation belongs to must not live in an evictable cache.
 
-7ffe8de bounded the conversation caches and said eviction loses nothing. It
-lost the owner. ``claim_conversation`` wrote the claim to disk only when the
-conversation already had stored rows; a signed-in caller's FIRST turn in a new
-conversation was protected only by the in-memory entry while its model call
-ran. Enough other conversations loaded in that window (the default cap is
+The commit "The conversation working set is bounded in conversations, and
+eviction loses nothing" bounded the conversation caches and said eviction loses
+nothing. It lost the owner. ``claim_conversation`` wrote the claim to disk only
+when the conversation already had stored rows; a signed-in caller's FIRST turn
+in a new conversation was protected only by the in-memory entry while its model
+call ran. Enough other conversations loaded in that window (the default cap is
 1024: ordinary traffic, or an anonymous flood) dropped the entry, the turn was
 then saved with the owner re-read from disk — "" — and the next anonymous
 caller naming the id was handed the history. A SIWE subject's default id is
@@ -673,8 +674,10 @@ async def test_restoring_a_missing_state_row_revives_no_turn_whose_erasure_was_p
 # and went on: it removed the push tokens and the session and answered 200
 # {"success": true} with the account's conversations, scoped memory and claim
 # all still stored — and the session gone, so the client could not retry. A
-# retention value float() rejected was one way in (fixed in 7254f38); a store
-# that raises for any other reason was still answered the same way.
+# retention value float() rejected was one way in (fixed in the commit
+# "Corrects 4580977's message: a bad retention value rolled the account's
+# erasure back, and the log was not pruned by every erasure"); a store that
+# raises for any other reason was still answered the same way.
 
 async def test_a_deletion_whose_erasure_fails_is_answered_as_a_failure_and_can_be_retried():
     from runtime.notifications.token_store import PushTokenStore

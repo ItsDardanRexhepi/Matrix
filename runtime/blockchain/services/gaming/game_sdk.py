@@ -12,6 +12,8 @@ import time
 import uuid
 from typing import Any
 
+from runtime.auth.identity import same_caller
+
 logger = logging.getLogger(__name__)
 
 
@@ -206,7 +208,7 @@ class GameSDK:
 
         # Find existing entry
         for entry in lb:
-            if entry["player"] == player:
+            if same_caller(entry["player"], player):
                 entry["value"] += value
                 entry["updated_at"] = int(time.time())
                 return

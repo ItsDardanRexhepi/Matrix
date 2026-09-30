@@ -113,14 +113,16 @@ spelled in a shape it does not name is not read, and nothing here claims the
 list is every shape Python allows. Reviews have found shapes past it before
 (the control history below); each is now named and planted.
 
-CONTROL. At The Matrix ``main`` 91a89fb, and on the first repair (fix/oldq-census
-faad66f), the 12 tests marked [control] before the planted-shape section fail;
+CONTROL. On The Matrix ``main`` at the commit "Merge audit-remediation-2026-07: links point at the repository's current name, and the quick start and Homebrew notes say what is true",
+and on the first repair (the commit "What a tool returns reaches the model marked as untrusted data, and the platform key signs no attestation whose subject the request writes"),
+the 12 tests marked [control] before the planted-shape section fail;
 the 9 marked [guard] pass before and after — they pin what must keep working
 (the caller's own address, an absent field, a payment to somebody else) and
-that the census can see what it looks for. At 67f3ad6 the four [control] tests
-in the planted-shape section's first part fail and its [guard] passes; at
-7abfa21 the two in its second part fail. At a710052 the ten [control] tests of
-the last section fail (the nine shapes and an EAS write outside the client) and
+that the census can see what it looks for. At the commit "Every twin attestation is the platform's own statement: eas no longer signs or revokes on request, and each attestation's subject is the caller or nobody"
+the four [control] tests in the planted-shape section's first part fail and its
+[guard] passes; at the commit "No request chooses the call the platform's key signs: smart_contract no longer writes, and a configured allowlist binds with or without a cap"
+the two in its second part fail. At the commit "No request composes a call or a message the platform's key signs: the services layer's execute-as-account, message sends and request-written attestations are refused"
+the ten [control] tests of the last section fail (the nine shapes and an EAS write outside the client) and
 three of its four [guard] tests pass; the fourth, which holds ``NAMED_LOOKUPS``
 to what the walk finds, tests the listing this change adds and cannot run there.
 The seventeen [control] shapes of the last section, run with the census as it
@@ -1553,11 +1555,13 @@ def test_the_census_reads_what_the_client_writes_on_chain():
 
 # ── what a review planted that the walk above did not see ────────────────
 #
-# Three shapes re-opened the class and passed the census at fix/oldq-census
-# 67f3ad6: execute rewriting the field before the method reads it, ``attest``
+# Three shapes re-opened the class and passed the census at the commit "Every
+# twin attestation is the platform's own statement: eas no longer signs or
+# revokes on request, and each attestation's subject is the caller or nobody":
+# execute rewriting the field before the method reads it, ``attest``
 # reached through an alias, and a recipient carried on ``self`` from one method
 # to another. An attestation outside any tool method was not seen either. Each
-# test below plants one; at 67f3ad6 each fails [control], because the walk
+# test below plants one; at that commit each fails [control], because the walk
 # reports no problem.
 
 _PLANTED_HEAD = (
@@ -1661,7 +1665,9 @@ def test_the_hardened_census_still_passes_a_clean_site():
 
 # ── two more shapes a later review planted past the walk ─────────────────
 #
-# At fix/oldq-census 7abfa21 both of these passed the census with no problem
+# At the commit "No request chooses the call the platform's key signs:
+# smart_contract no longer writes, and a configured allowlist binds with or
+# without a cap" both of these passed the census with no problem
 # reported, although the commit before it said the walk reported every place
 # it could not follow the request.
 
@@ -1700,8 +1706,10 @@ def test_the_census_sees_an_attestation_inside_a_nested_function():
 
 # ── nine more places the walk could not follow the request ───────────────
 #
-# At fix/oldq-census a710052 each shape below passed the census with no problem
-# reported: a name bound by ``with ... as``, by a ``match`` pattern or by
+# At the commit "No request composes a call or a message the platform's key
+# signs: the services layer's execute-as-account, message sends and
+# request-written attestations are refused" each shape below passed the census
+# with no problem reported: a name bound by ``with ... as``, by a ``match`` pattern or by
 # ``except ... as``; the request stored on ``self`` by ``setattr`` or through
 # ``self.__dict__``; ``attest`` reached by ``__getattribute__``, by a name built
 # at run time or by ``operator.methodcaller``; and a decorator between
@@ -1881,8 +1889,8 @@ def test_the_twins_reach_no_attestation_the_walk_does_not_read():
             if mod.startswith("runtime.") and not (
                     mod.startswith("runtime.blockchain.") and mod.count(".") == 2):
                 outside.setdefault(mod, set()).add(path.name)
-    assert set(outside) <= {"runtime.access_policy", "runtime.protocols.outcome_truth",
-                            "runtime.security.audit"}, outside
+    assert set(outside) <= {"runtime.access_policy", "runtime.auth.identity",
+                            "runtime.protocols.outcome_truth", "runtime.security.audit"}, outside
     for mod in outside:
         source = (ROOT / (mod.replace(".", "/") + ".py")).read_text(encoding="utf-8")
         tree = ast.parse(source)

@@ -9,9 +9,9 @@ the caller IS, regardless of what the prompt says.
 
 This module is the coarse PUBLIC floor. The authoritative, finer-grained policy
 (exact per-agent sets, ban/freeze integration, the closed-source nuance) lives in
-the private ``morpheus_security.agent_access`` package and supersedes this when it
-is installed. The security seam (``runtime.security.agent_access_allowed``) binds
-the two: private if present, else this default. Either way the boundary holds.
+the private security package and supersedes this when it is installed. The
+security seam (``runtime.security.agent_access_allowed``) binds the two: private
+if present, else this default. Either way the boundary holds.
 
 Assigned tool sets (documented for review):
   - Neo     — FULL execution set: every tool, every action. The invisible engine.
@@ -368,19 +368,13 @@ _SESSION_ORACLE = (
     "request reads the provider with the platform's key at a path the request "
     "writes. The operator's key keeps them. Nothing was sent.")
 
-_ADDRESS_CHARS = frozenset("0123456789abcdef")
-
-
-def _is_address(value: object) -> bool:
-    text = str(value or "")
-    return (len(text) == 42 and text[:2] in ("0x", "0X")
-            and set(text[2:].lower()) <= _ADDRESS_CHARS)
-
-
 def _unbound(fields: tuple[str, ...], params: object, identity: object) -> str | None:
-    """Why *params* do not hold the request to the caller's own address."""
-    own = str(identity or "").strip()
-    if not _is_address(own):
+    """Why *params* do not hold the request to the caller's own address. The
+    caller and each field are compared in the one spelling the platform names
+    a caller by (runtime/auth/identity.py)."""
+    from runtime.auth.identity import is_wallet_address, same_caller
+    own = identity
+    if not is_wallet_address(own):
         return ("A user session names only its own address here, and this "
                 "session is bound to no wallet address. Nothing was signed.")
     if not isinstance(params, dict):
@@ -389,7 +383,7 @@ def _unbound(fields: tuple[str, ...], params: object, identity: object) -> str |
     if not named:
         return (f"A user session names its own address as {' or '.join(fields)}; "
                 "this request names none. Nothing was signed.")
-    other = [f for f, v in named if str(v).strip().lower() != own.lower()]
+    other = [f for f, v in named if not same_caller(v, own)]
     if other:
         return (f"A user session names only its own address as {', '.join(other)}: "
                 "the platform acts for the address the session is bound to, not "

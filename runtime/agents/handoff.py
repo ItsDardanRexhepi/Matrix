@@ -16,10 +16,12 @@ Trinity never gains Neo's tools — she only ever holds this single, gated chann
 A denied request comes back as a controlled refusal, never an execution.
 
 This is the public wiring of the hand-off; the Morpheus gate's decision logic is
-the closed-source security layer (consulted through the seam). Default OBSERVE
-(the gate logs/classifies but does not hard-block until human review enables
-ENFORCE); the hand-off STRUCTURE — escalate, gate, route-to-Neo — is enforced
-here regardless of mode.
+the closed-source security layer (consulted through the seam). The gate runs in
+OBSERVE until human review enables ENFORCE. Under OBSERVE a verdict's deny is
+not applied, but a fault on a call that could move value or change state and
+App Attest, when it is enforced, still deny; the hand-off refuses on every deny
+it is handed, and on a gate it cannot reach, in either mode. The hand-off
+STRUCTURE — escalate, gate, route-to-Neo — is enforced here regardless of mode.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import logging
 from typing import Any
 
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, report_of
+from runtime.security import CALLER_IDENTITY_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +91,10 @@ class AgentHandoff:
                 "reason": refused,
             }
 
-        # 1. Morpheus security gate (authoritative server-side). OBSERVE by default:
-        #    it logs/classifies and (in ENFORCE) can deny. We honour an explicit deny.
+        # 1. Morpheus security gate (authoritative server-side). OBSERVE by
+        #    default, where a fault on a call that could move value or change
+        #    state and App Attest, when it is enforced, still deny; ENFORCE
+        #    denies on its verdict too. We honour every deny, whichever the mode.
         decision: dict[str, Any] = {}
         try:
             from runtime.security import get_morpheus_security
@@ -130,9 +135,11 @@ class AgentHandoff:
                 "morpheus": decision,
             }
         try:
-            # 17-J: this chain has no human caller — Trinity -> Morpheus -> Neo is
-            # agent-to-agent, with no HTTP request, session or wallet anywhere in
-            # the path. `caller_identity` is correctly "", and DECLARING the
+            # 17-J: Neo's execution is agent-to-agent — Trinity -> Morpheus -> Neo —
+            # and runs under that declared source with `caller_identity` "". The
+            # caller the chat bound, when there is one, is handed to the GATE
+            # above (as_tool); who Neo's execution is recorded as acting for is a
+            # separate question this channel does not answer, and DECLARING the
             # source is what stops that "" being read as a dropped identity.
             result = await self._dispatcher.execute(
                 action, None, params, caller_source="agent_handoff",
@@ -162,12 +169,31 @@ class AgentHandoff:
             "result": result,
         }
 
-    async def as_tool(self, action: str = "", params: dict | None = None, **extra: Any) -> str:
+    async def as_tool(
+        self,
+        action: str = "",
+        params: dict | None = None,
+        *,
+        caller_identity: str = "",
+        **extra: Any,
+    ) -> str:
         """Tool-handler shape: returns a JSON string for the ReAct loop. ``params``
-        may arrive as a dict or be spread across keyword args."""
+        may arrive as a dict or be spread across keyword args.
+
+        ``caller_identity`` is the caller the entry point bound. The dispatcher
+        injects it because this signature names it, after stripping any value
+        the model wrote under that name, so it is never model-authored. It is
+        handed to the gate that decides on the inner action, which used to be
+        asked with no idea who was calling, only that Trinity was relaying, in
+        the one spelling the platform names a caller by.
+        """
+        from runtime.auth.identity import canonical_identity
+
         merged = dict(params or {})
         merged.update({k: v for k, v in extra.items() if k not in ("action", "params")})
-        outcome = await self.escalate(action, merged)
+        caller_identity = canonical_identity(caller_identity)
+        context = {CALLER_IDENTITY_KEY: caller_identity} if caller_identity else None
+        outcome = await self.escalate(action, merged, context)
         return json.dumps(outcome, default=str)
 
     @property

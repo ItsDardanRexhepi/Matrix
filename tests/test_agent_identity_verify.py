@@ -109,7 +109,9 @@ def test_an_identity_read_under_any_spelling_is_that_agents():
 # EASClient.attest returns a uid), and anybody can make an attestation on EAS,
 # under any schema, saying anything. verify() checked only that the uid existed
 # and was not revoked, so it answered "verified" for any agent the caller named,
-# from an attestation the platform never made. At fix/oldq-census 67f3ad6 the
+# from an attestation the platform never made. At the commit "Every twin
+# attestation is the platform's own statement: eas no longer signs or revokes
+# on request, and each attestation's subject is the caller or nobody" the
 # four [control] tests below fail; the [guard] passes before and after.
 
 def _verify_with(monkeypatch, found, **params):

@@ -3,26 +3,24 @@
 The 20 blockchain capability classes (``runtime/blockchain/registry.py``)
 register as tools named ``smart_contract``, ``defi``, ``stablecoin``, … and take
 their real verb in ``arguments["action"]``. The seam used to hand the security
-gate ``action_type = tool_name``, so the gate — which classifies by verb —
-saw ``smart_contract`` for a contract deployment signed with the platform key
-and ``stablecoin`` for an ERC-20 approve, and 18 of the 20 tools passed by
-name (Matrix register entry::TWINS-CRITICAL, entry::TWINS-MORPHEUS-BYNAME,
-standing rule §DL.4: never classify on a field the dangerous value is not in).
+gate ``action_type = tool_name``: the name of the tool that was called, not
+what the call does. A contract deployment signed with the platform key reached
+the gate as ``smart_contract`` and an ERC-20 approve as ``stablecoin``
+(register entry::TWINS-CRITICAL, standing rule §DL.4: never classify on a field
+the dangerous value is not in).
 
-This table maps every declared (tool, action) to the canonical action type the
-gate already knows for value movement where one fits, and names every other
-platform-key-signed action ``send_transaction`` — which is what it is: a
-transaction signed and broadcast with the platform's key. Reads keep their
-own verb. The gate's vocabulary itself is not ours to change (Morpheus is
-report-only in the audit); ``test_twins_seam.py`` pins that every signing
-entry is a verb the gate requires evaluation for, when the package is present.
+This table maps every declared (tool, action) to a plain word for the action
+the call performs where one fits, and names every other platform-key-signed
+action ``send_transaction`` — which is what it is: a transaction signed and
+broadcast with the platform's key. Reads keep their own verb. What the gate
+decides from the label is the gate's; ``test_twins_seam.py`` checks the labels
+against the installed gate, when the package is present.
 """
 from __future__ import annotations
 
 from typing import Any
 
-# Canonical verbs the gate treats as fund-moving (its vocabulary, read from the
-# private package, not imported from it).
+# The label for a platform-key-signed action no more specific word describes.
 _TX = "send_transaction"
 
 # tool -> action -> canonical action type. Every signing action is here; a
