@@ -391,14 +391,15 @@ check behind it:
   refused, as one whose run cannot be written is, and `GET /ready` answers
   503, as it does while the loop is not running or has stopped making
   progress. The four tables hold digests and fixed words, never a raw
-  address, parameter or answer. A row the engine did not write, or one of
-  its own changed by hand, never makes it call or deliver anything a second
-  time or hand a request another request's answer: a row it does not hold
-  is given up undelivered, a replay is compared with the request its held
-  answer was given to as well as with the row, and a run moved back to
-  START whose steps say its call began keeps its key. What no table can
-  stand against is the key's own row being deleted: whoever can write the
-  database can make a replay run again. Nothing in it asks or overrides
+  address, parameter or answer. A row the engine did not write never makes
+  it call or deliver anything: an outbox row it does not hold is given up
+  undelivered. Its own rows changed by hand are met where a change can be
+  seen: a replay is compared with the request its held answer was given to
+  as well as with the row, so it is never handed another request's answer,
+  and a run moved back to START whose steps say its call began keeps its
+  key. What no table can stand against is what was written being removed,
+  the key's own row or the step that says a call began: whoever can write
+  the database can make a replay run again. Nothing in it asks or overrides
   the security gate. The dedicated `/api/v1` service routes call services
   without the dispatcher and are not journaled; `POST
   /api/v1/capabilities/{id}/invoke` goes through the dispatcher and is,
