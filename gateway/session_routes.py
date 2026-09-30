@@ -91,7 +91,7 @@ USER_SESSION_ROUTES: frozenset[str] = frozenset({
 })
 
 # Called by the app, present on the server, deliberately NOT session-reachable:
-#   /api/v1/stablecoin/transfer — records a transfer from the sender the body names, which nothing binds to the caller; its handler hands the service names it does not take, and the contract the app's call would bind to is held (tests/test_route_binding_detector.py)
+#   /api/v1/stablecoin/transfer — takes its sender from the body, which nothing binds to the caller; it records nothing (its handler hands the service names it does not take), and the contract the app's call would bind to is held (tests/test_route_binding_detector.py)
 #   /memory/read — reads an AGENT's memory, shared across every user (register §D3.6)
 #   /memory/write — writes an AGENT's memory, shared across every user (register §D3.6)
 EXCLUDED_FROM_SESSION: frozenset[str] = frozenset({

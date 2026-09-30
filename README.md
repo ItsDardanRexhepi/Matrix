@@ -184,7 +184,7 @@ The Matrix is **build-complete and offline-ready**. The complete Web3
 surface — 45 blockchain services spanning DeFi, NFT, identity,
 governance, payments, privacy, prediction markets, supply chain,
 insurance, compute, AI, energy, legal, and social — is wired through
-`ServiceDispatcher` and exercised by an automated suite of 5,622 tests,
+`ServiceDispatcher` and exercised by an automated suite of 5,623 tests,
 run against the versions `requirements.txt` locks.
 
 What works today, no chain required:
@@ -470,10 +470,16 @@ check behind it:
   reach on an object it cannot place whose method has the name of one
   that reaches a send. It does not read an amount, an object handed in
   from outside the services layer, code outside it, or a shape it does
-  not name. `POST /api/v1/stablecoin/transfer` is not a session route: it
-  records a transfer from the sender the body names, which nothing binds
-  to the caller, and `transfer_stablecoin` is refused to a session at
-  every dispatcher with it. The component registry the app reads offers
+  not name. `POST /api/v1/stablecoin/transfer` is not a session route,
+  and `transfer_stablecoin` is refused to a session at every dispatcher
+  with it: each takes its sender from the request, and nothing binds that
+  sender to the caller. The route records nothing, for any caller: its
+  handler hands the service's transfer `sender` and `recipient`, which it
+  does not take (it takes `from_addr` and `to_addr`), so a body with the
+  four fields the handler requires is answered 400. The capability
+  records only on the service's in-memory ledger, which starts empty and
+  which only a test helper funds, so for the operator's key it answers
+  that the balance is insufficient. The component registry the app reads offers
   none of the actions `runtime/access_policy.py` refuses a session, itself
   or with what it hands the call to; it still offers 22 actions whose
   dedicated routes a session is refused, `transfer_stablecoin` among them,

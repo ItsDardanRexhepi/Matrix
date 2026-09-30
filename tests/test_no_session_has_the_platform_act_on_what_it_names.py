@@ -1551,8 +1551,12 @@ async def test_a_session_records_no_stablecoin_transfer_from_an_address_it_names
 
 
 async def test_the_operator_still_reaches_the_stablecoin_transfer(dispatched, tmp_path):
-    """[guard] The operator's key still reaches the route's handler, which
-    answers as it did (the binding it holds is unchanged), and the dispatcher."""
+    """[guard] The operator's key is still let through to the route's handler
+    (not answered 401, 403, 404 or 405 at the door), and the dispatcher still
+    runs transfer_stablecoin for it. What the handler then answers, and that
+    the public texts say so, is
+    tests/test_the_stablecoin_route_is_described_as_it_answers.py's to check,
+    so a repair of the handler does not fail this guard."""
     from aiohttp.test_utils import TestClient, TestServer
 
     server = signing._server(tmp_path)
@@ -1561,7 +1565,8 @@ async def test_the_operator_still_reaches_the_stablecoin_transfer(dispatched, tm
         bridge = await client.post("/bridge/v1/action", headers=OPERATOR,
                                    json={"action": "transfer_stablecoin", "params": TRANSFER,
                                          "session_id": "s1"})
-    assert route.status == 400 and bridge.status == 200, (route.status, bridge.status)
+    assert route.status not in (401, 403, 404, 405) and bridge.status == 200, (
+        route.status, bridge.status)
     assert dispatched == ["transfer_stablecoin"], dispatched
 
 

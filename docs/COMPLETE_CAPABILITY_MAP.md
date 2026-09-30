@@ -230,7 +230,7 @@ The sections below organise every capability by its high-level category. Older c
 | Create Payment | Create a one-time payment | Free | POST /api/v1/payments/create | x402, native |
 | Authorize / Complete / Refund | Two-phase payment lifecycle | Free | via capability registry | x402 |
 | Send Payment | Send a payment to a wallet | Free | via capability registry | stablecoin |
-| Transfer Stablecoin | Record a stablecoin transfer on the platform's own ledger (recorded, not settled); the sender is the one the request names | Free | POST /api/v1/stablecoin/transfer · operator key only | USDC, USDT, DAI |
+| Transfer Stablecoin | Record a stablecoin transfer on the service's in-memory ledger (recorded, not settled: no value moves); the sender is the one the request names. The ledger starts empty and only a test helper funds it, so a transfer is refused for insufficient balance | Free | via capability registry, operator key only. POST /api/v1/stablecoin/transfer · operator key only; it records nothing: its handler passes `sender` and `recipient`, which the service's transfer does not take, so a body with the four fields it requires is answered 400 | USDC, USDT, DAI |
 | Payment Stream | Create a continuous payment stream over time | Pro | POST /api/v1/payments/stream/create | Sablier, Superfluid |
 | Recurring Payment | Set up a recurring payment schedule | Pro | POST /api/v1/payments/recurring/create | Superfluid, custom |
 | Escrow Milestone | Manage milestone-based escrow releases | Free | POST /api/v1/payments/escrow/milestone | custom |
