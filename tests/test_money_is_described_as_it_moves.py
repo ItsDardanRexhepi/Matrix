@@ -848,6 +848,11 @@ def _offers_a_transfer_it_cannot_record(item: str) -> bool:
         and not re.search(r"\brefused for insufficient balance\b", item)
 
 
+_SAYS_A_TRANSFER_IS_RECORDED = re.compile(
+    r"\brecord(?:s|ed|ing)?\b[^.]{0,90}\bstablecoin transfers?\b"
+    r"|\bstablecoin transfers?\b[^.]{0,60}\b(?:is|are) recorded\b", re.I)
+
+
 def test_each_payments_offer_that_names_a_stablecoin_transfer_says_the_ledger_refuses_it(monkeypatch):
     """Course 01's expected answer had Trinity list "Recording a cross-border
     payment or a stablecoin transfer" as something the platform can do. No
@@ -892,8 +897,16 @@ def test_each_payments_offer_that_names_a_stablecoin_transfer_says_the_ledger_re
                 offering.add(rel)
             if _offers_a_transfer_it_cannot_record(item):
                 wrong.append(f"{rel}: {item[:160]!r}")
+        # Outside a **Payments** item too: a document that says a stablecoin
+        # transfer is recorded says, somewhere in it, that the ledger refuses it.
+        flat = _flat(raw)
+        recorded = _SAYS_A_TRANSFER_IS_RECORDED.search(flat)
+        if recorded and not re.search(r"insufficient balance|ledger (?:that )?starts empty", flat, re.I):
+            wrong.append(f"{rel}: ...{flat[max(0, recorded.start() - 40):recorded.end() + 40]}...")
     assert {"agents/trinity/identity.md", "web/index.html",
             "education/course-01-intro-to-the-matrix/SOLUTIONS.md"} <= offering, sorted(offering)
+    assert _SAYS_A_TRANSFER_IS_RECORDED.search(
+        "create payments, and record stablecoin transfers and cross-border payments, which move no value")
     assert not wrong, "\n".join(wrong)
 
 
