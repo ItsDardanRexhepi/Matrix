@@ -386,8 +386,9 @@ credentials, reputation, KYC, agent registry, attestations), governance
 (DAOs, proposals, multisig, veTokens, quadratic voting, RetroPGF,
 disputes), social (profiles, messaging, Lens, Farcaster, Push, creator
 coins), creator platforms (Sound.xyz, Mirror, Paragraph, IP licensing),
-payments (payments, stablecoin transfers, cross-border remittance, state
-channels), cross-chain (CCIP, Hyperlane, Wormhole, Stargate, Axelar),
+payments (records of payments, stablecoin transfers and cross-border
+remittances, and state channels), cross-chain (CCIP, Hyperlane,
+Wormhole, Stargate, Axelar),
 staking & restaking (EigenLayer, Symbiotic, Karak, Lido, Rocket Pool),
 privacy & ZK (ZK proofs, and MPC signing, social recovery and session
 keys, all three catalogued as not yet available), oracles (Chainlink,

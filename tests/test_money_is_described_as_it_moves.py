@@ -41,7 +41,17 @@ cross-border sends"; the page's chat carries no credential, so on a gateway with
 an operator key set it is refused every payment action, and elsewhere the
 cross-border payment records and the empty stablecoin ledger refuses the
 transfer. The pattern for "send tokens" needed "to", "across" or "globally"
-after it, and none named "cross-border sends".
+after it, and none named "cross-border sends". Widened to every tense of "send"
+and "transfer", to the agent saying she sends, and to a recording capability
+named as a noun without saying it records, the scan found three more: Trinity's
+follow-up question "Who should I send this to?", the course's expected answer
+offering "Stablecoin transfers", and the README's list of "stablecoin
+transfers, cross-border remittance". It read only Markdown and HTML; it now
+reads the API spec, whose old "cross-border transfer" answered "Transfer
+accepted" it catches, the other YAML, JSON and text files, and the SDKs and the
+examples. It cannot tell Neo's tools, which do send, from a capability that
+records, so the Python SDK's send_payment() and its example, which said "Send a
+payment", now name the tool they ask Neo to use.
 
 The capability map's row for the stablecoin transfer named POST
 /api/v1/stablecoin/transfer, which records nothing: its handler passes `sender`
@@ -54,7 +64,9 @@ route the map names through the gateway with well-formed and malformed bodies,
 holds the row and the spec to each answer, and holds the spec entries of the
 routes that record to saying so.
 
-What this cannot see: a claim about moving money worded outside the patterns.
+What this cannot see: a claim about moving money worded outside the patterns,
+and one in a Python file outside the SDK and the examples (the strings the
+agents and the feed read are held by a test below).
 """
 
 from __future__ import annotations
@@ -75,16 +87,38 @@ _SENDS_MONEY = [
     r"send money anywhere",
     r"anywhere in the world in seconds",
     r"transfer capability deducts",
-    # The capability map's row for bridge_stargate, "Transfer stablecoins using
-    # Stargate", describes a capability the catalog marks unavailable; it is
-    # not an offer to send.
-    r"\btransfer stablecoins\b(?! using)",
-    # Trinity's prompt offered "send tokens, batch payments, ..." with nothing
-    # after "tokens", which the pattern once required to be "to", "across" or
-    # "globally"; the chat welcome offered "cross-border sends".
-    r"\bsend (?:a payment|payments|stablecoins|money|tokens)\b",
+    # Sending money, in any tense, with the money as the object. Trinity's
+    # prompt offered "send tokens, batch payments, ..." with nothing after
+    # "tokens", which the pattern once required to be "to", "across" or
+    # "globally", and a plant of "Trinity sends payments anywhere" passed a
+    # pattern that knew only "send". ETH is left out: Neo's tools do send it.
+    r"\b(?:send|sends|sending|sent) (?:a payment|payments|stablecoins?|money|tokens|usdc|usdt|dai)\b",
+    # Transferring it, in any tense. The capability map's row for
+    # bridge_stargate, "Transfer stablecoins using Stargate", describes a
+    # capability the catalog marks unavailable; it is not an offer to send.
+    r"\btransfer(?:s|red|ring)? (?:stablecoins|tokens|money|funds|usdc|usdt|dai)\b(?! using)",
+    # The agent saying she sends it: Trinity's prompt had her ask "Who should I
+    # send this to?", which names no money at all.
+    r"\b(?:should|shall|can|could|will|may) i (?:send|transfer)\b|\bi(?:['’]ll| will| can) (?:send|transfer)\b",
+    # A payment called one that went through: the API spec answered the
+    # cross-border route's 200 with "Transfer accepted". Told to the user, it is
+    # caught when addressed to them ("your USDC was sent"); "the money was sent"
+    # is not, since Trinity's prompt says she never tells the user it was.
+    r"\b(?:transfers?|payments?|remittances?) (?:accepted|sent|completed|executed|settled)\b",
+    r"\byour (?:money|payments?|transfers?|usdc|usdt|dai|stablecoins?|tokens|funds) (?:was|were|has been|have been) "
+    r"(?:sent|transferred|delivered|settled)\b",
+    # The chat welcome offered "cross-border sends".
     r"\bcross-border sends?\b",
 ]
+# A recording capability named as a noun is an offer to send unless the clause
+# it sits in says it is recorded, or it is an item of a list of what carries a
+# fee. The course's expected answer had Trinity offer "Stablecoin transfers and
+# token swaps"; the README listed "payments (payments, stablecoin transfers,
+# cross-border remittance, ...)"; the API spec called the cross-border route a
+# "cross-border transfer". "A platform fee (marketplace sales, staking rewards,
+# stablecoin transfers, ...)" and "record stablecoin transfers" are not offers.
+_OFFERED_AS_A_NOUN = re.compile(r"\bstablecoin transfers\b|\bcross-border (?:transfers?|remittances?)\b")
+_SAYS_IT_RECORDS = re.compile(r"\brecord|\bfees? \([^)]*$")
 # An offer of a payment operation no action performs, with the test the action
 # names are measured by: none of ACTION_MAP's names may match it.
 _NO_SUCH_ACTION = {
@@ -283,23 +317,69 @@ def _the_payments_bullet() -> str:
     return lines[0]
 
 
+def _offences(flat: str) -> list[str]:
+    """Each place in *flat* (a text run through _flat) where a payment is
+    offered as sent, transferred or performed by an action that does not exist."""
+    found = [m.group(0) for p in _SENDS_MONEY + [_A_UNIQUE_PATH.pattern] + list(_NO_SUCH_ACTION)
+             for m in re.finditer(p, flat, re.I)]
+    for m in _OFFERED_AS_A_NOUN.finditer(flat):
+        clause = re.split(r"[.;:!?](?:\s|$)", flat[max(0, m.start() - 80):m.start()])[-1]
+        if not _SAYS_IT_RECORDS.search(clause):
+            found.append(m.group(0))
+    return found
+
+
+# Texts that offered a recorded payment as sent, each caught by the scan: the
+# old copy of the README, landing page, capability map, action list, Trinity's
+# prompt, the chat welcome, the course's expected answer, the API spec and the
+# Python SDK, and variants planted by a review that the patterns once missed.
+_OLD_COPY = (
+    "Send money anywhere in the world in seconds.",
+    "The agent's stablecoin transfer takes nothing from it, the transfer capability deducts a small tiered fee.",
+    "Create payments, transfer stablecoins, and record cross-border payments.",
+    "| Send a payment to a wallet |", "| Send stablecoins globally |",
+    "| Send money across borders with FX conversion |", "send_payment — Send tokens to someone.",
+    "- **Payments & Transfers** — send tokens, batch payments, schedule recurring transfers, verify recipients",
+    "- **Payments**: stablecoin transfers and cross-border sends",
+    "- **Missing recipient**: \"Who should I send this to? I'll need a wallet address or ENS name.\"",
+    "I'll send it right away.",
+    "1. **Tokens**: Stablecoin transfers and token swaps",
+    "payments (payments, stablecoin transfers, cross-border remittance, state channels)",
+    "summary: Component 17 — cross-border transfer",
+    "\"200\":\n          description: Transfer accepted",
+    '"""Send a payment. Gas is paid by the platform within its sponsorship policy."""',
+    "# 3. Send a payment",
+    "Trinity sends payments anywhere.", "Trinity transfers stablecoins for you.",
+    "Your USDC was sent.", "The payment was settled: payment completed.",
+    "The one path that sends tokens on chain is Neo's `stablecoins` tool",
+)
+# Texts that say a payment is recorded, or name what carries a fee, which the
+# scan must let through.
+_RECORDING_COPY = (
+    "Record payments today, and send them once settlement is built: the stablecoin-transfer "
+    "capability records a payment.",
+    "Create payments, and record stablecoin transfers and cross-border payments, which move no value.",
+    "| Bridge via Stargate | Transfer stablecoins using Stargate |",
+    "- **Payments**: recording a cross-border payment or a stablecoin transfer. Nothing is sent",
+    "Some operations carry a platform fee (marketplace sales, staking rewards, stablecoin transfers, "
+    "cross-border payments and others)",
+    "Service fees (stablecoin transfers, cross-border payments, the service-ledger staking commission)",
+    "payments (records of payments, stablecoin transfers and cross-border remittances, and state channels)",
+    "- **Missing recipient**: \"Who is the payment to? I'll need their wallet address or ENS name to record it.\"",
+    "summary: Component 17 — record a cross-border payment (no value moves)",
+    "`payment` sends ETH or an ERC-20 token and `stablecoin` a stablecoin it lists for the network",
+    "Trinity never tells the user the money was sent.",
+)
+
+
 def test_the_scan_catches_the_old_copy():
-    old = _flat("Send money anywhere in the world in seconds. The agent's stablecoin transfer takes "
-                "nothing from it, the transfer capability deducts a small tiered fee. Create "
-                "payments, transfer stablecoins, and record cross-border payments. | Send a payment "
-                "to a wallet | Send stablecoins globally | Send money across borders with FX "
-                "conversion | send_payment — Send tokens to someone. - **Payments & Transfers** — send "
-                "tokens, batch payments, schedule recurring transfers, verify recipients - **Payments**: "
-                "stablecoin transfers and cross-border sends")
-    assert {p for p in _SENDS_MONEY if re.search(p, old)} == set(_SENDS_MONEY)
-    assert {p for p in _NO_SUCH_ACTION if re.search(p, old)} == set(_NO_SUCH_ACTION)
-    for line in ("- **Payments & Transfers** — send tokens, batch payments, schedule recurring "
-                 "transfers, verify recipients", "- **Payments**: stablecoin transfers and cross-border sends"):
-        assert any(re.search(p, _flat(line)) for p in _SENDS_MONEY), line
-    assert not [p for p in _SENDS_MONEY if re.search(p, _flat(
-        "Record payments today, and send them once settlement is built: the stablecoin-transfer "
-        "capability records a payment. Create payments, and record stablecoin transfers and "
-        "cross-border payments. | Bridge via Stargate | Transfer stablecoins using Stargate |"))]
+    for old in _OLD_COPY:
+        assert _offences(_flat(old)), f"the scan lets through: {old!r}"
+    everything = _flat(" ".join(_OLD_COPY))
+    assert {p for p in _SENDS_MONEY if re.search(p, everything)} == set(_SENDS_MONEY)
+    assert {p for p in _NO_SUCH_ACTION if re.search(p, everything)} == set(_NO_SUCH_ACTION)
+    for text in _RECORDING_COPY:
+        assert not _offences(_flat(text)), f"the scan refuses: {text!r}: {_offences(_flat(text))}"
     assert _A_UNIQUE_PATH.search("The one path that sends tokens on chain is Neo's `stablecoins` tool")
 
 
@@ -324,21 +404,38 @@ def _no_such_action_holds() -> list[str]:
     return problems
 
 
+# The documents and pages, the API spec and the other YAML, JSON and text files,
+# and every file of the two SDKs and the examples, whose docstrings and comments
+# a caller reads. The scan once read only Markdown and HTML.
+_PUBLIC = ("*.md", "*.html", "*.yaml", "*.yml", "*.txt", "*.json", "sdk/*", "sdk-js/*", "examples/*")
+
+
 def _public_texts() -> list[tuple[str, str]]:
-    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
-    return [(rel, _flat((ROOT / rel).read_text(encoding="utf-8"))) for rel in out.splitlines()
-            if rel not in _NOT_READ and not rel.startswith("tests/") and (ROOT / rel).is_file()]
+    out = subprocess.check_output(["git", "ls-files", *_PUBLIC], cwd=ROOT, text=True)
+    texts = []
+    for rel in sorted(set(out.splitlines())):
+        if rel in _NOT_READ or rel.startswith("tests/") or not (ROOT / rel).is_file():
+            continue
+        try:
+            texts.append((rel, _flat((ROOT / rel).read_text(encoding="utf-8"))))
+        except UnicodeDecodeError:
+            continue
+    return texts
 
 
 def test_no_public_text_says_a_payment_capability_sends_money():
     problems, _facts = _measure()
     problems += _no_such_action_holds()
     assert not problems, "re-derive this check: " + "; ".join(problems)
+    texts = _public_texts()
+    read = {rel for rel, _ in texts}
+    assert {"README.md", "gateway/openapi.yaml", "sdk/client.py", "sdk-js/src/client.ts",
+            "examples/README.md", "agents/trinity/identity.md", "web/index.html"} <= read, "the scan reads less now"
     offenders = []
-    for rel, flat in _public_texts():
-        for pattern in _SENDS_MONEY + [_A_UNIQUE_PATH.pattern] + list(_NO_SUCH_ACTION):
-            for m in re.finditer(pattern, flat, re.I):
-                offenders.append(f"{rel}: ...{flat[max(0, m.start() - 50):m.end() + 50]}...")
+    for rel, flat in texts:
+        for found in _offences(flat):
+            at = flat.find(found.lower())
+            offenders.append(f"{rel}: {found!r} ...{flat[max(0, at - 60):at + len(found) + 60]}...")
     assert not offenders, "\n".join(offenders)
 
 

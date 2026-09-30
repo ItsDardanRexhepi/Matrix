@@ -63,7 +63,7 @@ contract HelloMatrix {
     result = await client.convert_contract(contract_source, source_lang="solidity")
     print(f"Result: {str(result)[:200]}")
 
-    # 3. Send a payment
+    # 3. Ask Neo to send ETH from the platform wallet (his `payment` tool)
     print("\n── Send Payment ──")
     result = await client.send_payment(
         to="0x0000000000000000000000000000000000000001",
