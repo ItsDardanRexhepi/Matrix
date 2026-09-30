@@ -621,8 +621,8 @@
  "gate": "G7",
  "instrument": "tests/test_durable_crash_matrix.py: engines.durable.mode on, the real ServiceDispatcher and DurableEngine over the platform Database (SQLite, a scratch file per injection), driven through the bridge's sequence at the dispatcher (gate -> wiring.keyed -> execute) under an Idempotency-Key, over stand-in services, chain and feed that record every call and effect. A crash is the SQLite backup of the committed state at the instant plus the effects and calls made so far; a restart is a fresh Database and engine over it, the clock moved past abandoned_after_s, maintain() and one loop tick, then the same request twice under the same key. Seeded with random.Random('G7|cell|path|index'). real_process: a child interpreter over a real database file, ended with os._exit(137) at the instant, recovered by the parent.",
  "measured": {
-  "on_top_of": "4e62dd6",
-  "with_uncommitted_changes": true
+  "on_top_of": "A durable gate artefact must name a commit of this history, measured clean, and G8 is judged over 1,104 replayed bodies",
+  "with_uncommitted_changes": false
  },
  "properties": {
   "A": "every request answered what the spec says: the first answer byte for byte, idempotency_in_progress, idempotency_answer_not_held after a restart, or a normal dispatch when the key was never bound (not one of the four G7 properties; recorded alongside)",

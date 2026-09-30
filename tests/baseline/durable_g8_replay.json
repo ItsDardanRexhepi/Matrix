@@ -1,7 +1,7 @@
 {
  "corpus": {
   "actions": 184,
-  "keys_per_action": 2,
+  "keys_per_action": 6,
   "names": [
    "achievement_attest",
    "add_liquidity",
@@ -194,38 +194,38 @@
  "gate": "G8",
  "instrument": "POST /bridge/v1/action through GatewayServer under aiohttp's test client with the operator key, the real ServiceDispatcher, durable engine and outbox loop over a scratch SQLite database; stand-in services that log each effect with the body's marker and answer settled, stand-ins for the chain (the outbox's attestation submission), the legacy attestation service and the feed, and an allow-all gate that counts its calls. The outbox loop is drained after the corpus. Counts only: no timings.",
  "measured": {
-  "on_top_of": "4e62dd6",
-  "with_uncommitted_changes": true
+  "on_top_of": "A durable gate artefact must name a commit of this history, measured clean, and G8 is judged over 1,104 replayed bodies",
+  "with_uncommitted_changes": false
  },
  "on": {
   "answers": {
    "concurrent": {
-    "200": 184,
-    "422 idempotency_in_progress": 184
+    "200": 552,
+    "422 idempotency_in_progress": 552
    },
    "sequential": {
-    "200": 368
+    "200": 1104
    }
   },
   "attestations_per_run_max": 1,
-  "bodies": 368,
+  "bodies": 1104,
   "duplicate_actions": 0,
   "effects": {
    "attest": 0,
-   "attest_sent": 368,
-   "feed": 368,
-   "service": 368
+   "attest_sent": 1104,
+   "feed": 1104,
+   "service": 1104
   },
   "feed_per_run_max": 1,
-  "gate_calls": 736,
-  "keys_bound": 368,
+  "gate_calls": 2208,
+  "keys_bound": 1104,
   "markers_acting_more_than_once": 0,
   "outbox": {
    "attest": {
-    "handed_off": 368
+    "handed_off": 1104
    },
    "feed": {
-    "handed_off": 368
+    "handed_off": 1104
    }
   },
   "outbox_per_run_max": {
@@ -239,44 +239,44 @@
    "feed": 1,
    "service": 1
   },
-  "posts": 736,
+  "posts": 2208,
   "refused": {},
-  "replays_byte_identical": 184,
-  "runs": 368,
+  "replays_byte_identical": 552,
+  "runs": 1104,
   "runs_by_state": {
-   "COMPLETE": 368
+   "COMPLETE": 1104
   }
  },
  "rule": "engines.durable.mode = on: 0 duplicate actions over the corpus \u2014 service effects per marker == 1, attestations per run <= 1, feed entries per run <= 1, one run per Idempotency-Key, for every key sent twice in sequence and every key sent twice concurrently; a body the gateway refused has 0 effects. Shadow is the contrast: a replay runs again there, as with the mode off.",
- "scope": "every name in _STATE_MODIFYING_ACTIONS that ACTION_MAP routes; per name two Idempotency-Keys with a body each: 'sequential' (POST, answer, POST again) and 'concurrent' (two POSTs gathered, the call that reaches the service held open until the other request is answered or also reaches it). Twin tools are not in this corpus.",
+ "scope": "every name in _STATE_MODIFYING_ACTIONS that ACTION_MAP routes; per name 3 Idempotency-Keys in each of two phases, with a body each: 'sequential' (POST, answer, POST again) and 'concurrent' (two POSTs gathered, the call that reaches the service held open until the other request is answered or also reaches it). Twin tools are not in this corpus.",
  "shadow": {
   "answers": {
    "concurrent": {
-    "200": 368
+    "200": 1104
    },
    "sequential": {
-    "200": 368
+    "200": 1104
    }
   },
   "attestations_per_run_max": 1,
-  "bodies": 368,
-  "duplicate_actions": 368,
+  "bodies": 1104,
+  "duplicate_actions": 1104,
   "effects": {
-   "attest": 736,
+   "attest": 2208,
    "attest_sent": 0,
-   "feed": 736,
-   "service": 736
+   "feed": 2208,
+   "service": 2208
   },
   "feed_per_run_max": 1,
-  "gate_calls": 736,
-  "keys_bound": 368,
-  "markers_acting_more_than_once": 368,
+  "gate_calls": 2208,
+  "keys_bound": 1104,
+  "markers_acting_more_than_once": 1104,
   "outbox": {
    "attest": {
-    "handed_off": 736
+    "handed_off": 2208
    },
    "feed": {
-    "handed_off": 736
+    "handed_off": 2208
    }
   },
   "outbox_per_run_max": {
@@ -290,11 +290,11 @@
    "feed": 2,
    "service": 2
   },
-  "posts": 736,
+  "posts": 2208,
   "refused": {},
-  "runs": 736,
+  "runs": 2208,
   "runs_by_state": {
-   "COMPLETE": 736
+   "COMPLETE": 2208
   }
  }
 }

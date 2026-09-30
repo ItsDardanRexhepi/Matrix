@@ -2,32 +2,32 @@
  "added": {
   "execute": {
    "on": {
-    "p50_us": 320.8,
-    "p95_us": 527.3
+    "p50_us": 107.8,
+    "p95_us": 136.4
    },
    "shadow": {
-    "p50_us": 347.3,
-    "p95_us": 576.7
+    "p50_us": 105.5,
+    "p95_us": 133.4
    }
   },
   "execute_keyed": {
    "on": {
-    "p50_us": 395.9,
-    "p95_us": 753.2
+    "p50_us": 133.7,
+    "p95_us": 166.9
    },
    "shadow": {
-    "p50_us": 414.8,
-    "p95_us": 773.0
+    "p50_us": 132.0,
+    "p95_us": 165.7
    }
   },
   "tool_twin_signing": {
    "on": {
-    "p50_us": 272.6,
-    "p95_us": 451.1
+    "p50_us": 80.0,
+    "p95_us": 103.0
    },
    "shadow": {
-    "p50_us": 309.4,
-    "p95_us": 539.4
+    "p50_us": 89.0,
+    "p95_us": 113.2
    }
   }
  },
@@ -35,86 +35,86 @@
   "execute": {
    "off": {
     "n": 5000,
-    "p50_us": 50.5,
-    "p95_us": 116.2
+    "p50_us": 14.3,
+    "p95_us": 18.0
    },
    "on": {
     "n": 5000,
-    "p50_us": 371.3,
-    "p95_us": 643.5
+    "p50_us": 122.1,
+    "p95_us": 154.4
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 397.8,
-    "p95_us": 692.9
+    "p50_us": 119.8,
+    "p95_us": 151.4
    }
   },
   "execute_keyed": {
    "off": {
     "n": 5000,
-    "p50_us": 53.5,
-    "p95_us": 103.4
+    "p50_us": 15.3,
+    "p95_us": 19.4
    },
    "on": {
     "n": 5000,
-    "p50_us": 449.4,
-    "p95_us": 856.6
+    "p50_us": 149.0,
+    "p95_us": 186.3
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 468.3,
-    "p95_us": 876.4
+    "p50_us": 147.3,
+    "p95_us": 185.1
    }
   },
   "tool_twin_signing": {
    "off": {
     "n": 5000,
-    "p50_us": 53.4,
-    "p95_us": 121.2
+    "p50_us": 50.2,
+    "p95_us": 57.2
    },
    "on": {
     "n": 5000,
-    "p50_us": 326.0,
-    "p95_us": 572.3
+    "p50_us": 130.2,
+    "p95_us": 160.2
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 362.8,
-    "p95_us": 660.6
+    "p50_us": 139.2,
+    "p95_us": 170.4
    }
   }
  },
  "gate": "G6",
  "host": {
-  "machine": "x86_64",
+  "machine": "arm64",
   "python": "3.11.15",
-  "system": "Linux"
+  "system": "Darwin"
  },
  "instrument": "in-process time.perf_counter around one call, B4's percentile method; 50 rounds, each timing a block of 100 calls per surface per mode with the mode order rotating every round, after a discarded warm-up of 200 per cell; gc.collect() at the start of each round; one DurableEngine per mode over one scratch SQLite file (the platform Database, WAL), installed for its block only; the outbox loop not running, ticked between blocks outside the stopwatch so every held delivery is handed off; stand-in services, feed and attestation client that answer at once \u2014 the platform's own cost, no chain, no network. main_off: surface execute in mode off, measure_main_off() in a separate interpreter per run (gc.collect() every third block, as often as a round collects), alternating a checkout of main and this tree, 3 runs each, samples pooled; ratio_this_tree_to_main compares those two, ratio_cell_off_to_main compares the in-process off cell (taken between shadow and on blocks) with main. Host-dependent.",
  "main_off": {
   "main": {
    "n": 15000,
-   "p50_us": 45.7,
-   "p95_us": 87.8
+   "p50_us": 13.2,
+   "p95_us": 16.3
   },
-  "main_commit": "Merge audit-remediation-2026-07: the cited commit ids are those of the rewritten history",
+  "main_commit": "Merge audit-remediation-2026-07: the security scan reads the one-spelling migration clean",
   "ratio_cell_off_to_main": {
-   "p50": 1.105,
-   "p95": 1.323
+   "p50": 1.083,
+   "p95": 1.104
   },
   "ratio_this_tree_to_main": {
-   "p50": 1.061,
-   "p95": 1.081
+   "p50": 1.038,
+   "p95": 1.025
   },
   "this_tree": {
    "n": 15000,
-   "p50_us": 48.5,
-   "p95_us": 94.9
+   "p50_us": 13.7,
+   "p95_us": 16.7
   }
  },
  "measured": {
-  "on_top_of": "4e62dd6",
-  "with_uncommitted_changes": true
+  "on_top_of": "A durable gate artefact must name a commit of this history, measured clean, and G8 is judged over 1,104 replayed bodies",
+  "with_uncommitted_changes": false
  },
  "rule": "the latency engines.durable adds to one dispatch, in microseconds: for each surface, added = the mode's p50 (p95) minus mode off's p50 (p95), measured in the same rounds. A p95 difference is a difference of percentiles, not a percentile of per-call differences.",
  "scope": "execute: ServiceDispatcher.execute of every state-modifying ACTION_MAP name in turn (184), params {to, amount, marker}, the caller's identity bound, no Idempotency-Key. execute_keyed: the same inside wiring.keyed with a fresh Idempotency-Key per call (the bridge's sequence after the gate). tool_twin_signing: ToolDispatcher.dispatch('nft', {action: mint, ...}) as agent neo with a session identity. Every service answers a settled success at once; in shadow and on every dispatch writes one run (two transactions), and in on a settled execute also writes an attestation and a feed outbox row."
