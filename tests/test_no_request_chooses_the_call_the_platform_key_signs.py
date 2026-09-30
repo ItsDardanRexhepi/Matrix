@@ -75,6 +75,13 @@ to another name through ``or`` or a conditional, and bytes a def inside the
 method rebound through ``nonlocal``. Each is now reported. None is a shape any
 signing site in the tree uses. What follows names the shapes the walk reads.
 
+THE SIXTH (the review of the session refusal). ``nft_lending.breed_nft`` had
+the platform's wallet sign ``breed(parent_a, parent_b)`` to the breeding
+contract the request named, and nothing read which contract a named function
+is sent to. The address walk now reads it where the method builds the
+contract from what it was handed, and lists what it finds: that contract and
+the Sound.xyz drop ``mint_sound`` is sent to. A user session is refused both.
+
 THE CLASS, AND THE CENSUS. A platform signature on a call or a message the
 request composed: the platform wallet becomes the sender of words somebody else
 wrote. The walk reads every module under ``runtime/`` and ``gateway/``, finds
@@ -156,16 +163,22 @@ WHAT THIS DOES NOT COVER, stated.
     account, the target contract and a value recipient are not verified, and
     without a session the daily cap is metered against an address the caller
     writes (the module's own docstring says so).
-  * Which contract a named function is sent to. It can be one the request
-    names (an NFT's breed contract, a vault, a pool): the platform calls only
-    the function its code names, but that contract's own code then runs with
-    the platform's wallet as its caller and the platform paying its gas.
+  * Which contract a named function is sent to, beyond what the address walk
+    at the end of this file reads. The platform calls only the function its
+    code names, but the contract's own code then runs with the platform's
+    wallet as its caller and the platform paying its gas. The walk lists the
+    contract where the method builds it from what it was handed (two: a
+    breeding contract and a Sound.xyz drop), and does not read one stored on
+    ``self`` by another request or taken from another object's state.
   * Which of a named function's other arguments must be the caller's own. At
     the blockchain tools that is the seam's (``ACTION_BENEFICIARY_FIELDS``) and
     the gate's, and the address a payment, transfer or mint delivers to is not
-    bound. In the services layer nothing binds one: every address a request
-    supplies to a call it signs is listed at the end of this file with what it
-    is.
+    bound. In the services layer nothing binds one for the operator's key; for
+    a user session four actions are bound to its own address and the actions
+    that reach the others are refused (runtime/access_policy.py, read by
+    tests/test_no_session_has_the_platform_act_on_what_it_names.py). Every
+    address a request supplies to a call it signs, in the shapes the walk
+    reads, is listed at the end of this file with what it is.
   * A signing method reached through a name computed at run time, and code that
     is not in the source the walk reads (a method replaced at run time).
   * Any shape not named above. The walk reads the shapes it names and no
@@ -177,7 +190,7 @@ WHAT THIS DOES NOT COVER, stated.
     Which of those a user session may reach is read by
     tests/test_no_session_has_the_platform_act_on_what_it_names.py.
 
-CONTROL. Of this file's 96 tests, 56 are marked [control] and 40 [guard]. The
+CONTROL. Of this file's 98 tests, 57 are marked [control] and 41 [guard]. The
 product's controls are measured by laying this file over each commit: at
 the commit "Verifying an agent reads what the attestation says, a platform-signed transfer moves only the caller's own asset, and the census sees what a review planted past it"
 32 fail; at the commit "Commit ids this branch's own test docstrings cite are those of the rewritten history"
@@ -197,9 +210,13 @@ name ..."), each pass there with nothing reported. The eight shapes of a transac
 written through another target or name and of bytes rebound through
 ``nonlocal``, run with the census as it stood at "Both censuses report a
 value changed through another name before it is read ...", each pass there
-with nothing reported, and their guard passes. All 96 pass here, and the
-guards pass at every commit above. On 15 of the planted shapes the census as
-it stood at the rewritten-id commit reported nothing.
+with nothing reported, and their guard passes. The planted contract a
+request names, run with the address walk as it stood at the merge of main
+into this branch ("Merge main into fix/oldq-census: one spelling for a
+caller, ..."), reports nothing there, and the configured contract's guard
+passes there. All 98 pass here, and the guards pass at every commit above.
+On 15 of the planted shapes the census as it stood at the rewritten-id
+commit reported nothing.
 """
 
 from __future__ import annotations
@@ -1793,20 +1810,27 @@ def test_an_other_signature_is_seen():
 # The census above is about bytes: a call or a message. The arguments a
 # request may supply are not that class, and at the blockchain tools the seam
 # binds the ones that must be the caller's own. In the services layer nothing
-# binds one, and the review drove two of them to the platform's signature on
-# a hand-over of an account: the platform's wallet sending a recovery module
-# or a session-key module the account and the new owner or key the request
-# named, which takes the account wherever the module trusts the platform's
-# wallet (refused, above). So each
-# address a request supplies there is listed with what it is, and a new one
-# fails here until someone reads it: the platform's key handing over an
-# account the request names would be one.
+# binds one for the operator's key; for a user session, runtime/access_policy
+# .py binds four actions' addresses to the session's own
+# (BOUND_TO_THE_CALLER) and refuses each action
+# tests/test_no_session_has_the_platform_act_on_what_it_names.py finds
+# reaching one of the others. The review drove two of them to the platform's
+# signature on a hand-over of an account: the platform's wallet sending a
+# recovery module or a session-key module the account and the new owner or
+# key the request named, which takes the account wherever the module trusts
+# the platform's wallet (refused, above). So each address a request supplies
+# there is listed with what it is, and a new one fails here until someone
+# reads it: the platform's key handing over an account the request names
+# would be one.
 #
 # What this reads: the signed call's ABI inputs of type address (inside a
 # tuple and an array too) and a raw transaction's ``to``, where the method's
 # own parameters reach them, directly or through a local name bound by any
-# form. An address a service stores on ``self`` from one request and signs in
-# another is not followed here.
+# form; and, as the path ``(contract)``, the contract a named function is
+# sent to, where the expression that builds it reads them (a module or class
+# the method imports is not what it was handed). An address a service stores
+# on ``self`` from one request and signs in another, or takes from another
+# object's state, is not followed here.
 
 ADDRESS = re.compile(r"^address(\[\d*\])*$")
 _SERVICES = "runtime/blockchain/services/"
@@ -1815,6 +1839,8 @@ PAYEE = ("who receives, holds or is credited with what the platform's own call "
          "pays, lends, stakes, delegates, mints or creates")
 ASSET = ("which token, NFT or contract the platform's own call spends, stakes, "
          "lends against or binds, not who receives it")
+CONTRACT = ("which contract the platform's own call is sent to: its code runs with the "
+            "platform's wallet as the caller and the platform paying the gas")
 DOOR = "every door refuses the pair that reaches it (REFUSED_ON_REQUEST)"
 _SVC = "runtime/blockchain/services/{}/service.py".format
 
@@ -1827,9 +1853,11 @@ SERVICE_ADDRESSES = {
     (_SVC("ccip"), "CrossChainMessagingService.bridge_token_ccip", "ccipSend", "message.tokenAmounts"): ASSET,
     (_SVC("compute"), "DecentralizedComputeService.claim_compute_reward", "claimRewards", "recipient"): PAYEE,
     (_SVC("creator_platforms"), "CreatorPlatformsService.mint_sound", "mint", "to"): PAYEE,
+    (_SVC("creator_platforms"), "CreatorPlatformsService.mint_sound", "mint", "(contract)"): CONTRACT,
     (_SVC("nft_lending"), "NFTLendingService.borrow_against_nft", "borrow", "nftAsset"): ASSET,
     (_SVC("nft_lending"), "NFTLendingService.borrow_against_nft", "borrow", "onBehalfOf"): PAYEE,
     (_SVC("nft_lending"), "NFTLendingService.liquidate_nft_loan", "liquidate", "nftAsset"): ASSET,
+    (_SVC("nft_lending"), "NFTLendingService.breed_nft", "breed", "(contract)"): CONTRACT,
     (_SVC("oracles_plus"), "OraclesPlusService.register_keeper_job", "registerUpkeep",
      "requestParams.upkeepContract"): PAYEE,
     (_SVC("payment_channels"), "PaymentChannelsService.open_channel", "openChannel", "participant2"): PAYEE,
@@ -1872,13 +1900,35 @@ def _addresses_in(inp: dict, expr, path: str, bindings):
         yield path, expr
 
 
+def _imported_names(fn, outer) -> set[str]:
+    """The names *fn* and the defs around it bind by ``import``."""
+    return {(a.asname or a.name).split(".")[0] for f in (*outer, fn) for n in _own_nodes(f)
+            if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
+
+
+def _contract_of(call):
+    """What ``contract.functions.NAME(...)`` is called on, or None."""
+    f = call.func
+    if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Attribute):
+        return f.value.value
+    return None
+
+
 def _request_addresses(source: str, filename: str):
     """(function, signed function, input path) for each address a signed call
-    carries that the function's own parameters supply."""
+    carries that the function's own parameters supply, and, as the path
+    ``(contract)``, the contract a named function is sent to where that is
+    built from them. A module or class a function imports is not what it was
+    handed, so a contract built with ``Web3.to_checksum_address`` of a
+    configured address is not the request's."""
     tree = ast.parse(source, filename=filename)
     abis = _abis(tree)
     for qual, fn, _cls, outer in _functions(tree):
         ctx = _Ctx(fn, *_scope(fn, outer), frozenset(), frozenset())
+        imported = _imported_names(fn, outer)
+        read = ctx._replace(bindings={
+            name: values for name, values in ctx.bindings.items()
+            if not (name in imported and all(isinstance(v, _Opaque) for v in values))})
         for n in _own_nodes(fn):
             if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr in SIGNING_CALLS and n.args):
@@ -1889,6 +1939,9 @@ def _request_addresses(source: str, filename: str):
                     if isinstance(key, ast.Constant) and key.value == "to" and _draws(value, ctx):
                         yield qual, "(transaction)", "to"
             for name, call in _signs(arg, ctx)[2]:
+                target = _contract_of(call)
+                if target is not None and _draws(target, read):
+                    yield qual, name, "(contract)"
                 if any(isinstance(a, ast.Starred) for a in call.args) or call.keywords:
                     continue        # the census above reports these as unreadable
                 for inputs in (abis.get(name) or _GLOBAL_ABIS.get(name) or []):
@@ -1929,6 +1982,40 @@ def test_the_address_walk_sees_a_planted_account():
     rows = set(_request_addresses(source, "<planted>"))
     assert rows == {("M.recover", "initiateRecovery", "account"),
                     ("M.recover", "initiateRecovery", "newOwner")}, rows
+
+
+_BREED = ("BREED = [{'name': 'breed', 'type': 'function', 'inputs': ["
+          "{'name': 'a', 'type': 'uint256'}, {'name': 'b', 'type': 'uint256'}]}]\n")
+
+
+def test_the_address_walk_sees_a_contract_the_request_names():
+    """[control] The shape the review drove, planted: the platform's wallet
+    signs a named function on a contract the request names. The walk as it
+    stood at the merge of main into this branch ("Merge main into
+    fix/oldq-census: one spelling for a caller, ...") read no contract and
+    reported nothing."""
+    source = _BREED + (
+        "class M:\n"
+        "    async def breed(self, **params):\n"
+        "        target = params.get('breed_contract') or self._cfg().get('breed_contract')\n"
+        "        c = self._web3.load_contract(target, BREED)\n"
+        "        tx = c.functions.breed(1, 2).build_transaction({})\n"
+        "        await self._web3.send_transaction(tx)\n")
+    assert set(_request_addresses(source, "<planted>")) == {("M.breed", "breed", "(contract)")}
+
+
+def test_a_configured_contract_is_not_the_requests():
+    """[guard] A contract built from the configuration, through a class the
+    method imports, is not one the request names."""
+    source = _BREED + (
+        "class M:\n"
+        "    async def breed(self, a, b):\n"
+        "        from web3 import Web3\n"
+        "        c = self._w3.eth.contract(address=Web3.to_checksum_address(self.breed_contract),\n"
+        "                                  abi=BREED)\n"
+        "        tx = c.functions.breed(a, b).build_transaction({})\n"
+        "        await self._web3.send_transaction(tx)\n")
+    assert set(_request_addresses(source, "<planted>")) == set()
 
 
 

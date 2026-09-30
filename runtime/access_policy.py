@@ -280,11 +280,15 @@ def refused_on_request(action: object, service: object = None) -> str | None:
 # act_on_what_it_names.py derives it from two walks of the source: every
 # address a request supplies to a call the services layer signs
 # (tests/test_no_request_chooses_the_call_the_platform_key_signs.py
-# SERVICE_ADDRESSES, a payee or an asset, and the two payees encoded as
-# bytes), and every HTTP request a services-layer method sends. A pair either
-# walk finds must be here, bound or held below, or listed there with its
-# reason; the test fails on one that is none of these, and on an entry here
-# that neither walk finds.
+# SERVICE_ADDRESSES: a payee, an asset or the contract the call is sent to,
+# and the two payees encoded as bytes), and every HTTP request a
+# services-layer method sends. It follows each method a dispatch can run to
+# what that method hands the call on to inside the services layer, in the
+# shapes its docstring names: another method of its class, a function, a
+# method of another service or of an object the service holds. A pair either
+# walk finds must be here, bound or held below, handed on below, or listed
+# there with its reason; the test fails on one that is none of these, and on
+# an entry here that neither walk finds.
 _SESSION_PLATFORM_FUNDS = (
     "A user session does not have the platform's wallet act on a payee, an "
     "account or an asset the request names: the call would be sent from the "
@@ -297,6 +301,11 @@ _SESSION_PLATFORM_CREDENTIAL = (
     "would go out under the platform's own account with the signing cluster, "
     "the publisher, the storage node, the payment node or the provider. The "
     "operator's key keeps this action. Nothing was sent.")
+_SESSION_PLATFORM_CONTRACT = (
+    "A user session does not have the platform's wallet send a call to a "
+    "contract the request names: that contract's own code would run with the "
+    "platform's wallet as its caller, on the platform's gas. The operator's key "
+    "keeps this action. Nothing was signed.")
 REFUSED_TO_A_SESSION: dict[tuple[str, str], str] = {
     # The platform's wallet signs, with a payee or an asset the request names.
     ("advanced_governance", "delegate_voting"): _SESSION_PLATFORM_FUNDS,
@@ -318,6 +327,8 @@ REFUSED_TO_A_SESSION: dict[tuple[str, str], str] = {
     ("restaking", "restake_symbiotic"): _SESSION_PLATFORM_FUNDS,
     ("restaking", "withdraw_restake"): _SESSION_PLATFORM_FUNDS,
     ("tba", "create_tba"): _SESSION_PLATFORM_FUNDS,
+    # The platform's wallet signs a call to a contract the request names.
+    ("nft_lending", "breed_nft"): _SESSION_PLATFORM_CONTRACT,
     # A platform credential signs, publishes, pays or authorises what the
     # request names, over HTTP.
     ("compute", "rent_device"): _SESSION_PLATFORM_CREDENTIAL,
@@ -368,6 +379,37 @@ _SESSION_ORACLE = (
     "request reads the provider with the platform's key at a path the request "
     "writes. The operator's key keeps them. Nothing was sent.")
 
+# What a session is refused is decided on the method an action REACHES, not
+# on the name it is called by. A method that hands the call on, inside the
+# services layer, to a method a session is refused, bound or held on is
+# refused with it: a second action name, a wrapper, a delegating method of
+# another service. The table is what the walk in tests/test_no_session_has_
+# the_platform_act_on_what_it_names.py finds, and that test fails when the
+# two differ. A binding or a hold reads the fields of the method it is on,
+# which a method that hands the call on need not pass under the same names,
+# so what reaches one of those through another method is refused too, unless
+# every call it makes pins a value the hold allows. A hand-on to a pair every
+# door refuses on request (the attestation service's attest) is not listed:
+# every door refuses that pair where a request names it, and a service that
+# reaches it in process writes its own record of an operation it ran, a limit
+# the README states.
+HANDS_THE_CALL_TO: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {
+    # PrivacyService delegates to the storage and compute services.
+    ("privacy", "decentralized_store"): (("storage", "store_filecoin"),),
+    ("privacy", "pin_to_ipfs"): (("storage", "store_filecoin"),),
+    ("privacy", "submit_compute_job"): (("compute", "submit_compute_job"),),
+}
+
+
+def _handed_on(reached: tuple[str, str]) -> str:
+    """The refusal of a pair that hands the call on to *reached*."""
+    why = (REFUSED_TO_A_SESSION.get(reached)
+           or ("A user session is held to what it sends that method, and this "
+               "action does not send it under the same names. Nothing was sent."))
+    return (f"This action hands the call to {reached[0]}.{reached[1]}, which a user "
+            f"session is refused here. {why}")
+
+
 def _unbound(fields: tuple[str, ...], params: object, identity: object) -> str | None:
     """Why *params* do not hold the request to the caller's own address. The
     caller and each field are compared in the one spelling the platform names
@@ -399,9 +441,11 @@ def refused_to_the_caller(caller_kind: object, action: object, service: object =
 
     The operator (``"operator"``) and a dispatch with no HTTP caller (``""``)
     are never refused here. Every other kind is refused REFUSED_TO_A_SESSION's
-    pairs, held to its own address (*identity*) in BOUND_TO_THE_CALLER's, and
-    to the listed values in HELD_FOR_A_SESSION's. Resolved on the pair, the way
-    ServiceDispatcher.execute resolves it."""
+    pairs and every pair in HANDS_THE_CALL_TO (with the method it hands the
+    call to), held to its own address (*identity*) in BOUND_TO_THE_CALLER's,
+    and to the listed values in HELD_FOR_A_SESSION's: a held value of any
+    other type or value is refused, never raised on. Resolved on the pair, the
+    way ServiceDispatcher.execute resolves it."""
     if caller_kind in ("operator", ""):
         return None
     pair = dispatch_pair(action, service)
@@ -410,6 +454,9 @@ def refused_to_the_caller(caller_kind: object, action: object, service: object =
     refused = REFUSED_TO_A_SESSION.get(pair)
     if refused:
         return refused
+    handed = HANDS_THE_CALL_TO.get(pair)
+    if handed:
+        return _handed_on(handed[0])
     fields = BOUND_TO_THE_CALLER.get(pair)
     if fields:
         return _unbound(fields, params, identity)
@@ -417,7 +464,7 @@ def refused_to_the_caller(caller_kind: object, action: object, service: object =
     if held:
         field, allowed = held
         value = params.get(field) if isinstance(params, dict) else None
-        if value not in allowed:
+        if not (isinstance(value, str) and value in allowed):
             return _SESSION_ORACLE
     return None
 

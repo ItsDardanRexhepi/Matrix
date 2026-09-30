@@ -61,7 +61,6 @@ USER_SESSION_ROUTES: frozenset[str] = frozenset({
     "/api/v1/security/preflight",
     "/api/v1/social/feed/{wallet}",
     "/api/v1/social/post",
-    "/api/v1/stablecoin/transfer",
     "/api/v1/staking/stake",
     "/api/v1/staking/unstake",
     "/api/v1/subscriptions/subscribe",
@@ -92,9 +91,11 @@ USER_SESSION_ROUTES: frozenset[str] = frozenset({
 })
 
 # Called by the app, present on the server, deliberately NOT session-reachable:
+#   /api/v1/stablecoin/transfer — records a transfer from the sender the body names, which nothing binds to the caller; its handler hands the service names it does not take, and the contract the app's call would bind to is held (tests/test_route_binding_detector.py)
 #   /memory/read — reads an AGENT's memory, shared across every user (register §D3.6)
 #   /memory/write — writes an AGENT's memory, shared across every user (register §D3.6)
 EXCLUDED_FROM_SESSION: frozenset[str] = frozenset({
+    "/api/v1/stablecoin/transfer",
     "/memory/read",
     "/memory/write",
 })
@@ -126,6 +127,7 @@ CAPABILITIES_OFF_ALLOWLIST: dict[str, str] = {
     "snapshot_vote": "/api/v1/governance/snapshot/vote",
     "track_spending": "/api/v1/cashback/track",
     "transfer_custody": "/api/v1/supply-chain/custody/transfer",
+    "transfer_stablecoin": "/api/v1/stablecoin/transfer",
 }
 
 # The same refusal keyed on what a dispatch RUNS: every (service, method) whose
@@ -172,6 +174,7 @@ SERVICE_METHODS_OFF_ALLOWLIST: dict[str, str] = {
     "social.get_conversations": "/api/v1/messaging/conversations",
     "social.get_messages": "/api/v1/messaging/conversations/{conversationId}/messages",
     "social.share_proof": "/api/v1/social/message",
+    "stablecoin.transfer": "/api/v1/stablecoin/transfer",
     "supply_chain.log_event": "/api/v1/supply-chain/provenance/log",
     "supply_chain.transfer_custody": "/api/v1/supply-chain/custody/transfer",
     "supply_chain.verify_authenticity": "/api/v1/supply-chain/verify",

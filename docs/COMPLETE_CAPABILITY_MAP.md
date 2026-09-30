@@ -13,7 +13,7 @@ The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/
 - **195 capabilities** across **21 categories** (Security & Wallets has none yet), backed by **43 services** in `runtime/blockchain/services/`.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (`free` / `pro` / `enterprise`), `uses_paymaster` flag, `protocol` tag, and `available` flag.
 - Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them, and `POST /api/v1/capabilities/{id}/invoke` does not run one: it answers `503` with `"error": "unavailable"`, whoever asks. `/bridge/v1/action` and the chat agents' tools still dispatch one for a caller they otherwise allow. In the tables below, "via capability registry" names the catalog entry.
-- A row marked **operator key only** is refused to a user session, and to chat acting for one, at every door a session reaches, because the platform's wallet or a platform credential would sign, pay, publish or authorise what the request names; a row marked **a session names only its own address** is kept for a session and must name the address it is bound to. Both lists are in `runtime/access_policy.py` (`REFUSED_TO_A_SESSION`, `BOUND_TO_THE_CALLER`), and `tests/test_no_session_has_the_platform_act_on_what_it_names.py` derives them from the source. The generic oracle request (`oracle_request`, no row of its own) answers a session a price, a weather reading or randomness only (`HELD_FOR_A_SESSION`).
+- A row marked **operator key only** is refused to a user session, and to chat acting for one, at every door a session reaches: the platform's wallet or a platform credential would sign, pay, publish or authorise what the request names, by the row's own method or by the method it hands the call to (the row says which). Transfer Stablecoin's dedicated route is one a session may not reach, and its operation is refused to a session at every dispatcher with it. A row marked **a session names only its own address** is kept for a session and must name the address it is bound to. The lists are in `runtime/access_policy.py` (`REFUSED_TO_A_SESSION`, `HANDS_THE_CALL_TO`, `BOUND_TO_THE_CALLER`) and `gateway/session_routes.py`, and `tests/test_no_session_has_the_platform_act_on_what_it_names.py` derives the three tables from the source, through the shapes it names. The generic oracle request (`oracle_request`, no row of its own) answers a session a price, a weather reading or randomness only, and any other value of its type, of any type, is refused (`HELD_FOR_A_SESSION`).
 
 Discover and invoke them over HTTP:
 
@@ -136,7 +136,7 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|---|
 | Borrow Against NFT | Take a loan collateralised by an NFT | Pro | via capability registry · operator key only | BendDAO, NFTfi |
 | Liquidate NFT Loan | Liquidate a defaulted NFT loan | Pro | via capability registry · operator key only | BendDAO, NFTfi |
-| Breed NFT | Breed two NFTs to produce a new one | Free | via capability registry | custom |
+| Breed NFT | Breed two NFTs to produce a new one; the call goes from the platform's wallet to the breeding contract the request names | Free | via capability registry · operator key only | custom |
 | Create Token-bound Account | Deploy an ERC-6551 account for a token | Free | via capability registry · operator key only | ERC-6551 |
 | ~~Execute As TBA~~ **REFUSED** | Signed the request's call (a delegatecall if asked) from the platform's wallet, with the platform's ETH, to whatever contract the request named. Refused in the service and at every door. | — | via capability registry → refused | ERC-6551 |
 
@@ -230,7 +230,7 @@ The sections below organise every capability by its high-level category. Older c
 | Create Payment | Create a one-time payment | Free | POST /api/v1/payments/create | x402, native |
 | Authorize / Complete / Refund | Two-phase payment lifecycle | Free | via capability registry | x402 |
 | Send Payment | Send a payment to a wallet | Free | via capability registry | stablecoin |
-| Transfer Stablecoin | Send stablecoins globally with zero fees | Free | POST /api/v1/stablecoin/transfer | USDC, USDT, DAI |
+| Transfer Stablecoin | Record a stablecoin transfer on the platform's own ledger (recorded, not settled); the sender is the one the request names | Free | POST /api/v1/stablecoin/transfer · operator key only | USDC, USDT, DAI |
 | Payment Stream | Create a continuous payment stream over time | Pro | POST /api/v1/payments/stream/create | Sablier, Superfluid |
 | Recurring Payment | Set up a recurring payment schedule | Pro | POST /api/v1/payments/recurring/create | Superfluid, custom |
 | Escrow Milestone | Manage milestone-based escrow releases | Free | POST /api/v1/payments/escrow/milestone | custom |
@@ -276,8 +276,8 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Tier | Gateway Endpoint | Protocols |
 |---|---|---|---|---|
-| Decentralized Store | Store data on a decentralised storage network | Free | POST /api/v1/compute/store | IPFS, Arweave, Filecoin |
-| IPFS Pin | Pin content on IPFS for persistence | Free | POST /api/v1/compute/ipfs/pin | IPFS |
+| Decentralized Store | Store data on a decentralised storage network; hands the call to Filecoin Store | Free | POST /api/v1/compute/store · operator key only | IPFS, Arweave, Filecoin |
+| IPFS Pin | Pin content on IPFS for persistence; hands the call to Filecoin Store | Free | POST /api/v1/compute/ipfs/pin · operator key only | IPFS |
 | Arweave Store | Store data permanently on Arweave | Free | POST /api/v1/compute/arweave/store | Arweave |
 | Filecoin Store | Make a Filecoin storage deal | Free | via capability registry · operator key only | Filecoin |
 | Ceramic Stream | Create a mutable Ceramic stream | Free | via capability registry · operator key only | Ceramic |
@@ -292,7 +292,7 @@ The sections below organise every capability by its high-level category. Older c
 | Submit Compute Job | Submit a decentralised compute job | Pro | via capability registry · operator key only | Akash, Gensyn, Render |
 | Rent DePIN Device | Rent a device on a DePIN network | Pro | via capability registry · operator key only | custom |
 | Claim Compute Reward | Claim rewards for running compute workers | Free | via capability registry · operator key only | custom |
-| Legacy Compute Submit | Submit a job through the legacy compute pipeline | Pro | via capability registry | custom |
+| Legacy Compute Submit | Submit a job through the legacy compute pipeline; hands the call to Submit Compute Job | Pro | via capability registry · operator key only | custom |
 
 ---
 
