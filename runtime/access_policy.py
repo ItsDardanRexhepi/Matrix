@@ -274,26 +274,33 @@ def refused_on_request(action: object, service: object = None) -> str | None:
 # account), what is spent or bound (the asset), or what is signed or published
 # (a key id, a digest, content), a session would decide how the platform's own
 # standing is used: its funds, its signing cluster, its publishing account,
-# its storage node, its provider account. Those actions are refused to a
-# session, and to chat acting for one (request_execution and platform_action
-# with the session's credential), at every door a session reaches: capability
-# invoke, /bridge/v1/action and the tool dispatcher. The operator's key, and a
-# dispatch with no HTTP caller behind it, keep them. Any other caller kind (an
-# anonymous caller, a kind this module does not know) is refused them too.
+# its storage node, its provider account. So would a request the platform's
+# server sends whose address, method, headers, query names or body the
+# request writes, with a platform credential riding along (or, the address,
+# with none). Those actions are refused to a session, and to chat acting for
+# one (request_execution and platform_action with the session's credential),
+# at every door a session reaches: capability invoke, /bridge/v1/action and
+# the tool dispatcher. The operator's key, and a dispatch with no HTTP caller
+# behind it, keep them. Any other caller kind (an anonymous caller, a kind
+# this module does not know) is refused them too.
 #
 # The list is not kept by hand alone. tests/test_no_session_has_the_platform_
-# act_on_what_it_names.py derives it from two walks of the source: every
-# address a request supplies to a call the services layer signs
+# act_on_what_it_names.py derives it from the source: every address a request
+# supplies to a call the services layer signs
 # (tests/test_no_request_chooses_the_call_the_platform_key_signs.py
 # SERVICE_ADDRESSES: a payee, an asset or the contract the call is sent to,
-# and the two payees encoded as bytes), and every HTTP request a
-# services-layer method sends. It follows each method a dispatch can run to
-# what that method hands the call on to inside the services layer, in the
-# shapes its docstring names: another method of its class, a function, a
-# method of another service or of an object the service holds. A pair either
-# walk finds must be here, bound or held below, handed on below, or listed
-# there with its reason; the test fails on one that is none of these, and on
-# an entry here that neither walk finds.
+# and the two payees encoded as bytes), every HTTP request a services-layer
+# method sends, and what rides in each part of each of those requests: the
+# request's own values, the platform's configuration, a credential read from
+# it. It follows each method a dispatch can run to what that method hands the
+# call on to inside the services layer, in the shapes its docstring names:
+# another method of its class, a function, a method of another service or of
+# an object the service holds, a method or a function held on ``self``, in a
+# class or a module table, or in a lambda. A pair that reaches what the walks
+# find must be here, bound or held below, handed on below, or listed there as
+# a read with its reason, and a pair that reaches a request of that class
+# cannot be listed as a read; the test fails on one that is none of these,
+# and on an entry here that the walks do not find.
 _SESSION_PLATFORM_FUNDS = (
     "A user session does not have the platform's wallet act on a payee, an "
     "account or an asset the request names: the call would be sent from the "
@@ -311,6 +318,12 @@ _SESSION_PLATFORM_CONTRACT = (
     "contract the request names: that contract's own code would run with the "
     "platform's wallet as its caller, on the platform's gas. The operator's key "
     "keeps this action. Nothing was signed.")
+_SESSION_PLATFORM_SEND = (
+    "A user session does not have the platform's server send a request whose "
+    "address, method, headers, query names or body the request writes while a "
+    "platform credential rides with it: the provider would take whatever the "
+    "request chose as the platform's own call. The operator's key keeps this "
+    "action. Nothing was sent.")
 REFUSED_TO_A_SESSION: dict[tuple[str, str], str] = {
     # The platform's wallet signs, with a payee or an asset the request names.
     ("advanced_governance", "delegate_voting"): _SESSION_PLATFORM_FUNDS,
@@ -348,6 +361,10 @@ REFUSED_TO_A_SESSION: dict[tuple[str, str], str] = {
     ("storage", "ceramic_stream_create"): _SESSION_PLATFORM_CREDENTIAL,
     ("storage", "orbit_db_write"): _SESSION_PLATFORM_CREDENTIAL,
     ("storage", "store_filecoin"): _SESSION_PLATFORM_CREDENTIAL,
+    # The platform's server sends, with a platform credential, a request
+    # whose address the request writes: RedStone's gateway, with the
+    # platform's API key, at the data-service path the request names.
+    ("oracles_plus", "redstone_request"): _SESSION_PLATFORM_SEND,
 }
 
 # Where the one address the request names is the one the platform acts FOR,

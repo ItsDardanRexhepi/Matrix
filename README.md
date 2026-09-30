@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,217 tests, run against the versions
+automated suite of 6,256 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -433,7 +433,10 @@ check behind it:
   finds, in the shapes it reads, in which the platform's wallet or a
   platform credential would sign, pay, publish or authorise while the
   request names the payee, the account, the asset, the contract the call
-  is sent to, the key, the digest or the content: the platform's funds
+  is sent to, the key, the digest or the content, or in which the
+  platform's server would send, with a platform credential, a request
+  whose address, method, headers, query names or body the request writes:
+  the platform's funds
   sent to a payee the request names or spent on an asset it names (a
   compute reward's recipient, a token bridge's receiver, a Stargate
   recipient, a loan's on-behalf-of account, a keeper job's upkeep, a
@@ -449,7 +452,9 @@ check behind it:
   applicant opened or read with its KYC credential; and an oracle request
   that would have the platform's server send what the request wrote to
   the address it names (`custom`) or read its sports provider, with its
-  key, at a path the request writes; an oracle type sent as anything but
+  key, at a path the request writes; a read of the RedStone gateway with
+  the platform's API key at the data-service path the request writes
+  (`redstone_request`); an oracle type sent as anything but
   a price, a weather reading or randomness, of whatever type, is refused,
   not raised on. The refusal is decided on the method an action reaches,
   not on the name it is called by: an action whose method hands the call
@@ -467,20 +472,33 @@ check behind it:
   it must name the session's own address, and a session bound to no wallet
   is refused. The list is derived, not only written: a test takes every
   address a request supplies to a call the services layer signs, as the
-  signing census reads them, and walks every HTTP request a services-layer
-  method sends, through the shapes it names. It follows each method a
-  dispatch can run to what that method hands the call on to inside the
-  services layer: another method of its class, a function, and a method
-  of another service or of an object the service holds, the object's
-  class read from what builds it and carried through the forms its
-  docstring names. It fails on any action that reaches what either walk
-  finds and is not refused, handed on, bound, held or listed with its
-  reason, on a table entry the walks do not find, and on a call in that
-  reach on an object it cannot place whose method has the name of one
-  that reaches a send. It does not read an amount, an object handed in
-  from outside the services layer, code outside it, or a shape it does
-  not name. `POST /api/v1/stablecoin/transfer` is not a session route,
-  and `transfer_stablecoin` is refused to a session at every dispatcher
+  signing census reads them, walks every HTTP request a services-layer
+  method sends, through the shapes it names, and reads what rides in each
+  part of each of those requests: a value the request wrote, the
+  platform's configuration, a credential read from it. It follows each
+  method a dispatch can run to what that method hands the call on to
+  inside the services layer: another method of its class, a function, a
+  method of another service or of an object the service holds, the
+  object's class read from what builds it and carried through the forms
+  its docstring names, and a method or a function held on `self`, in a
+  class or a module table, in a lambda or handed to another object that
+  holds it. It fails on any action that reaches what the walks find and
+  is not refused, handed on, bound, held or listed with its reason; on an
+  action that reaches a request whose URL or method the request writes,
+  or that carries a platform credential beside a header, a query name or
+  a body the request writes (or, on anything but a read, a query value),
+  and is not refused, handed on, bound or held, whether or not it is
+  listed as a read; on a table entry the walks do not find; on a call in
+  that reach on an object it cannot place whose method has the name of
+  one that reaches a send; and on a call through a callable held on
+  `self` that it cannot place. A read that carries a platform credential
+  and only query values the request writes, to an address the platform
+  fixes, is kept for a session and listed with its reason: the weather
+  reading and the cross-chain message tracker. It does not read an
+  amount, an object handed in from outside the services layer, code
+  outside it, or a shape it does not name.
+  `POST /api/v1/stablecoin/transfer` is not a session route, and
+  `transfer_stablecoin` is refused to a session at every dispatcher
   with it: each takes its sender from the request, and nothing binds that
   sender to the caller. The route records nothing, for any caller: its
   handler hands the service's transfer `sender` and `recipient`, which it

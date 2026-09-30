@@ -3,7 +3,7 @@
   "platform": "The Matrix",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
-  "total_capabilities": 148,
+  "total_capabilities": 147,
   "total_categories": 17,
   "components": [
     {
@@ -321,7 +321,7 @@
     {
       "id": "oracles",
       "name": "Oracles & Data",
-      "description": "6 capabilities in the Oracles & Data category",
+      "description": "5 capabilities in the Oracles & Data category",
       "category": "oracles",
       "min_tier": "free",
       "limits": {
@@ -336,12 +336,11 @@
         "oracle_price_query",
         "oracle_vrf_request",
         "oracle_weather_query",
-        "pyth_pull",
-        "redstone_request"
+        "pyth_pull"
       ],
       "icon": "antenna.radiowaves.left.and.right",
       "available": true,
-      "capability_count": 6
+      "capability_count": 5
     },
     {
       "id": "real_world",
