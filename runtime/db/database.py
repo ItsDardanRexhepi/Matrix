@@ -362,8 +362,12 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             """,
         ],
     ),
+    # Numbered 11, after the one-spelling rewrite of stored callers (10). The
+    # runner applies every version a database has not recorded, so a second
+    # migration under one number is never applied to a database that recorded
+    # the first, and a fresh database cannot record both.
     (
-        10,
+        11,
         ("durable execution — workflow_runs, workflow_steps, outbox, idempotency_keys: "
          "written only while engines.durable.mode is shadow or on"),
         [

@@ -1,4 +1,4 @@
-"""The run journal: ``workflow_runs`` and ``workflow_steps`` (database migration 10).
+"""The run journal: ``workflow_runs`` and ``workflow_steps`` (database migration 11).
 
 A run is one state-modifying action the durable engine journals — a
 state-modifying ``ServiceDispatcher.execute`` or a twin tool's platform-key

@@ -1,4 +1,4 @@
-"""The transactional outbox (``outbox``, database migration 10) and THE ONE LOOP
+"""The transactional outbox (``outbox``, database migration 11) and THE ONE LOOP
 of the durable engine.
 
 WHAT IT REPLACES. The service dispatcher delivered a completed action's two side

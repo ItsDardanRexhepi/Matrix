@@ -1,4 +1,4 @@
-"""The idempotency store: ``idempotency_keys`` (database migration 10) and the
+"""The idempotency store: ``idempotency_keys`` (database migration 11) and the
 first answers this process gave.
 
 A client that sends ``Idempotency-Key`` on ``POST /bridge/v1/action`` promises

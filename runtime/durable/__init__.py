@@ -1,6 +1,6 @@
 """Durable execution — the LIFECYCLE of a state-modifying action, and only that.
 
-Four modules over four tables of the platform database (migration 10):
+Four modules over four tables of the platform database (migration 11):
 
 * ``journal`` — the run journal (``workflow_runs``, ``workflow_steps``): a run
   opened at dispatch, its steps, and its end in a terminal state;

@@ -5,7 +5,7 @@ The end-to-end tests drive a dispatch through all of these at once; a defect in
 one part can hide behind another there. These pin each part's own contract,
 measured against the real code over a real platform ``Database``:
 
-  * migration 10 creates exactly the four tables the spec names, with exactly
+  * migration 11 creates exactly the four tables the spec names, with exactly
     its columns and the CHECK on a run's state, and applying it again — to a
     fresh database, to one reopened, to one whose version row was lost —
     changes nothing it already holds; the tables of earlier migrations are left
@@ -66,8 +66,14 @@ SPEC_COLUMNS = {
 SPEC_PRIMARY_KEYS = {"workflow_runs": ["run_id"], "outbox": ["id"], "idempotency_keys": ["key"]}
 
 
-def _v10_statements() -> list[str]:
-    return [stmts for version, _d, stmts in database_module.MIGRATIONS if version == 10][0]
+#: The durable tables' migration: numbered after the one-spelling rewrite of
+#: stored callers, which is 10.
+DURABLE_VERSION = 11
+
+
+def _v11_statements() -> list[str]:
+    return [stmts for version, _d, stmts in database_module.MIGRATIONS
+            if version == DURABLE_VERSION][0]
 
 
 def _schema(db) -> dict[str, str]:
@@ -75,10 +81,10 @@ def _schema(db) -> dict[str, str]:
         "SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name")}
 
 
-# ── migration 10 ────────────────────────────────────────────────────────────
+# ── migration 11 ────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("table", TABLES)
-def test_each_v10_table_has_exactly_the_spec_columns(tmp_path, table):
+def test_each_v11_table_has_exactly_the_spec_columns(tmp_path, table):
     db = open_db(tmp_path / "a.db")
     info = db.fetchall_sync(f"PRAGMA table_info({table})")
     names = [r["name"] for r in info]
@@ -104,22 +110,22 @@ def test_a_run_state_outside_the_five_is_refused_by_the_table_itself(tmp_path):
         "a refused state reached the table")
 
 
-def test_migration_10_is_additive_and_idempotent(tmp_path, monkeypatch):
+def test_migration_11_is_additive_and_idempotent(tmp_path, monkeypatch):
     path = tmp_path / "a.db"
-    # A database at version 9, as main leaves it.
-    monkeypatch.setattr(database_module, "MIGRATIONS",
-                        [m for m in database_module.MIGRATIONS if m[0] < 10])
+    # A database at the version before this migration, as main leaves it.
+    earlier = [m for m in database_module.MIGRATIONS if m[0] < DURABLE_VERSION]
+    monkeypatch.setattr(database_module, "MIGRATIONS", earlier)
     before = open_db(path)
-    at_nine = _schema(before)
-    assert before.schema_version == 9
-    assert not set(TABLES) & set(at_nine), "a v10 table existed before migration 10 ran"
+    at_before = _schema(before)
+    assert before.schema_version == max(m[0] for m in earlier)
+    assert not set(TABLES) & set(at_before), "a v11 table existed before migration 11 ran"
     monkeypatch.undo()
 
     db = open_db(path)
     upgraded = _schema(db)
-    assert db.schema_version == 10
-    assert {k: v for k, v in upgraded.items() if k in at_nine} == at_nine, (
-        "migration 10 changed an object an earlier migration created")
+    assert db.schema_version == DURABLE_VERSION
+    assert {k: v for k, v in upgraded.items() if k in at_before} == at_before, (
+        "migration 11 changed an object an earlier migration created")
     assert set(TABLES) <= set(upgraded)
 
     db.execute_sync("INSERT INTO idempotency_keys (key, run_id, response_digest, created_at) "
@@ -129,23 +135,24 @@ def test_migration_10_is_additive_and_idempotent(tmp_path, monkeypatch):
 
     # Reopened: nothing re-applied.
     again = open_db(path)
-    assert again.fetchall_sync("SELECT COUNT(*) FROM schema_version WHERE version = 10")[0][0] == 1
+    assert again.fetchall_sync("SELECT COUNT(*) FROM schema_version WHERE version = ?",
+                               (DURABLE_VERSION,))[0][0] == 1
     assert _schema(again) == upgraded
 
     # Its statements run again by hand, and its version row lost and re-applied.
-    for stmt in _v10_statements():
+    for stmt in _v11_statements():
         again.execute_sync(stmt)
-    again.execute_sync("DELETE FROM schema_version WHERE version = 10")
+    again.execute_sync("DELETE FROM schema_version WHERE version = ?", (DURABLE_VERSION,))
     third = open_db(path)
-    assert third.schema_version == 10
-    assert _schema(third) == upgraded, "re-applying migration 10 changed the schema"
+    assert third.schema_version == DURABLE_VERSION
+    assert _schema(third) == upgraded, "re-applying migration 11 changed the schema"
     assert [r["key"] for r in rows(third, "idempotency_keys")] == ["k"], "a re-run lost a row"
     assert [r["run_id"] for r in rows(third, "workflow_runs")] == ["r"], "a re-run lost a row"
 
 
 def test_a_fresh_database_has_the_four_tables_empty(tmp_path):
     db = open_db(tmp_path / "a.db")
-    assert db.schema_version >= 10
+    assert db.schema_version >= DURABLE_VERSION
     for table in TABLES:
         assert rows(db, table) == [], f"a fresh database has rows in {table}"
 
