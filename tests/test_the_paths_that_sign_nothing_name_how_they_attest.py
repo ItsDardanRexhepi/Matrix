@@ -21,7 +21,12 @@ Where the primary schema is read from is scanned in every tracked text file.
 The scan once read three files, and the bridge's own comment on its schema
 constant still told the reader to supply the UID via
 config["blockchain"]["schemas"]["primary"], which nothing reads; that comment is
-now read against the bridge's code as well.
+now read against the bridge's code as well. The scan's patterns then matched
+those wordings only, and schemas.py's own docstring and the comment on its
+dict of schemas still said every UID, the primary's included, came from
+blockchain.schemas: the patterns now read every such wording, and schemas.py's
+texts are held to naming blockchain.eas_schema wherever they name
+blockchain.schemas.
 
 What this cannot see: a line whose code reference is not written as
 (`file.py` `function`) or names the function outside the parentheses in another
@@ -177,10 +182,28 @@ def test_each_path_that_signs_nothing_is_described_by_the_call_it_makes():
 # blockchain.schemas, and EASClient reads blockchain.eas_schema; the shipped
 # example config, whose schemas.primary is well formed and whose eas_schema is a
 # placeholder, has its primary schema refused.
+#
+# The patterns once matched those three wordings only. schemas.py kept "every
+# UID must be supplied via config (blockchain.schemas.<component>)" in its
+# docstring and "In production these are overridden via
+# config["blockchain"]["schemas"]" above a dict whose first entry is the
+# primary, and a planted "Put the core schema UID in blockchain.schemas.primary."
+# passed.
 
 _PRIMARY_FROM_SCHEMAS = re.compile(
-    r"'primary' overrides blockchain\.eas_schema|\(blockchain\.schemas\.primary\)"
-    r"|\[\"schemas\"\]\[\"primary\"\]|into config blockchain\.schemas\.<component>\.", re.I)
+    r"'primary' overrides blockchain\.eas_schema|into config blockchain\.schemas\.<component>\."
+    # The primary entry named as a setting, dotted or subscripted.
+    r"|\bblockchain\.schemas\.primary\b|\[[\"']schemas[\"']\]\s*\[[\"']primary[\"']\]"
+    # The primary, core or platform schema said to be set in blockchain.schemas.
+    r"|\b(?:primary|core|platform) schema(?: uid)?\b[^.]{0,40}\b(?:in|into|via|from|under)\s+(?:config\s+)?"
+    r"[(`]*blockchain\.schemas\b"
+    # Every UID said to come from blockchain.schemas, with no exception made for
+    # the primary's.
+    r"|\b(?:every|each|all)\b[^.]{0,60}?\buids?\b[^.]{0,80}?\bblockchain\.schemas"
+    r"(?!(?:\.<?\w+>?)?[^.]{0,30}\b(?:except|the primary)\b)"
+    # "These", the schemas of a dict that holds the primary, said to be overridden there.
+    r"|\b(?:these|they|all of them) are overridden via config\[[\"']blockchain[\"']\]\[[\"']schemas[\"']\]",
+    re.I)
 _HERE = Path(__file__).resolve().relative_to(ROOT).as_posix()
 
 
@@ -223,8 +246,27 @@ def test_the_primary_scan_catches_the_old_copy():
                 '# "348"; a fabricated default attests against a nonexistent schema. Supply the\n'
                 '# real registered UID via config["blockchain"]["schemas"]["primary"] and resolve',
                 'print(f"# {n} schemas. After registering, paste each returned")\n'
-                '    print(f"# bytes32 UID into config blockchain.schemas.<component>.\\n")'):
+                '    print(f"# bytes32 UID into config blockchain.schemas.<component>.\\n")',
+                "and CANNOT be guessed or reused across chains. The defaults here are therefore\n"
+                "intentionally EMPTY: every UID must be supplied via config\n"
+                "(``blockchain.schemas.<component>``) as the real registered bytes32 for the",
+                '# Platform schemas — maps component names to default schema UIDs.\n'
+                '# In production these are overridden via config["blockchain"]["schemas"].',
+                "Put the core schema UID in blockchain.schemas.primary.",
+                "Set the primary schema via `blockchain.schemas`.",
+                "config['blockchain']['schemas']['primary']",
+                "All schema UIDs are read from blockchain.schemas."):
         assert _PRIMARY_FROM_SCHEMAS.search(old), old
+    for text in ("Register with scripts/register_eas_schemas.py, then paste the resulting bytes32 UIDs into "
+                 "config blockchain.schemas (the primary schema's into blockchain.eas_schema, where the code "
+                 "reads it).",
+                 'print("# bytes32 UID into config blockchain.schemas.<component>, except the")\n'
+                 'print("# primary schema\'s, which goes in blockchain.eas_schema.\\n")',
+                 "The core schema is read from blockchain.eas_schema, not from the 'primary' entry here, "
+                 "which nothing reads.",
+                 "set blockchain.eas_schema (or blockchain.schemas.<component>) to the registered bytes32 UID",
+                 "A component's UID is supplied via config (``blockchain.schemas.<component>``)."):
+        assert not _PRIMARY_FROM_SCHEMAS.search(text), (text, _PRIMARY_FROM_SCHEMAS.search(text))
 
 
 def test_no_text_says_the_primary_schema_is_read_from_blockchain_schemas():
@@ -236,6 +278,56 @@ def test_no_text_says_the_primary_schema_is_read_from_blockchain_schemas():
     offenders = [f"{rel}:{text.count(chr(10), 0, m.start()) + 1}: {m.group(0)!r}" for rel, text in texts
                  for m in _PRIMARY_FROM_SCHEMAS.finditer(text)]
     assert not offenders, "\n".join(offenders)
+
+
+def _schemas_module_texts() -> dict[str, str]:
+    """schemas.py's module docstring and the comment directly above each of its
+    module-level assignments, by the name assigned."""
+    rel = "runtime/blockchain/services/attestation/schemas.py"
+    source = (ROOT / rel).read_text(encoding="utf-8")
+    tree, lines = ast.parse(source), source.splitlines()
+    texts = {"the module docstring": ast.get_docstring(tree) or ""}
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            target = node.targets[0] if isinstance(node, ast.Assign) else node.target
+            start = node.lineno - 1
+            while start and lines[start - 1].startswith("#"):
+                start -= 1
+            texts[getattr(target, "id", "?")] = " ".join(line.lstrip("# ") for line in lines[start:node.lineno - 1])
+    return texts
+
+
+def test_the_schema_module_says_its_primary_entry_is_not_read_from_blockchain_schemas():
+    """PLATFORM_SCHEMAS holds a "primary" entry beside the component ones, and
+    get_schema_uid reads blockchain.schemas for whatever name it is given, but
+    no caller asks it for the primary: the attestation service resolves
+    "primary" from blockchain.eas_schema before it looks there. So each text of
+    the module that says a UID comes from blockchain.schemas also says where
+    the primary's does."""
+    from runtime.blockchain.services.attestation import schemas
+    from runtime.blockchain.services.attestation.service import AttestationService
+
+    assert "primary" in schemas.PLATFORM_SCHEMAS, "the primary entry moved; re-derive this check"
+    assert _primary_is_read_from_eas_schema(), "the primary schema is read elsewhere now; re-derive this check"
+    well_formed = "0x" + "cd" * 32
+    config = {"blockchain": {"eas_schema": "", "schemas": {"payments": well_formed, "primary": well_formed}}}
+    assert schemas.get_schema_uid("payments", config) == well_formed
+    try:
+        AttestationService(config)._resolve_schema("primary")
+        raise AssertionError("the service resolved the primary from blockchain.schemas; re-derive this check")
+    except ValueError:
+        pass
+    callers = [n for rel, text in _tracked_texts() if rel.endswith(".py") and not rel.startswith("tests/")
+               for n in ast.walk(ast.parse(text)) if isinstance(n, ast.Call)
+               and getattr(n.func, "id", getattr(n.func, "attr", None)) == "get_schema_uid"
+               and n.args and isinstance(n.args[0], ast.Constant) and n.args[0].value in ("primary", "")]
+    assert not callers, "a caller asks get_schema_uid for the primary now; re-derive this check"
+    texts = _schemas_module_texts()
+    assert {"the module docstring", "PRIMARY_SCHEMA_UID", "PLATFORM_SCHEMAS"} <= set(texts), sorted(texts)
+    wrong = [f"{name}: {text!r}" for name, text in texts.items()
+             if re.search(r"blockchain(?:\.|\W+)schemas\b", text)
+             and not re.search(r"blockchain(?:\.|\W+)eas_schema\b", text)]
+    assert not wrong, "\n".join(wrong)
 
 
 # ── The bridge's schema constant ─────────────────────────────────────────────
