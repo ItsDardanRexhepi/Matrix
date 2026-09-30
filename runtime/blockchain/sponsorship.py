@@ -158,46 +158,12 @@ class SponsorshipPolicy:
     @classmethod
     def from_config(cls, config: dict) -> "SponsorshipPolicy":
         cfg = config or {}
-        bc = cfg.get("blockchain", {}) or {}
-        # Resolve the paymaster block through the ONE resolver that knows its
-        # two documented homes (top-level `paymaster` and `blockchain.paymaster`)
-        # rather than re-deriving it here. An earlier draft of this method read
-        # only the second, which silently dropped the allowlist for every
-        # deployment using the first — caught by tests/test_paymaster_route.py.
-        try:
-            from gateway.paymaster import paymaster_config
-            block = paymaster_config(cfg)
-        except Exception:  # gateway unavailable (runtime imported standalone)
-            block = (cfg.get("paymaster") or bc.get("paymaster") or {})
-        policy = (block.get("policy", {}) or {}) if isinstance(block, dict) else {}
-
-        allowed = policy.get("allowed_actions")
-        if allowed is not None and not isinstance(allowed, (list, tuple, set)):
-            logger.warning(
-                "paymaster.policy.allowed_actions is %s, not a list — ignoring it "
-                "rather than guessing an allowlist", type(allowed).__name__)
-            allowed = None
-
-        cap: Optional[float]
-        raw_cap = policy.get("daily_cap_usd")
-        if raw_cap in (None, ""):
-            cap = None
-        else:
-            try:
-                cap = float(raw_cap)
-            except (TypeError, ValueError):
-                # §DL: a malformed cap is not "no cap". Refusing to parse it into
-                # unlimited spend is the only safe reading.
-                logger.error(
-                    "paymaster.policy.daily_cap_usd is %r, which is not a number. "
-                    "Treating it as zero (deny) rather than as no cap.", raw_cap)
-                cap = 0.0
-
+        allowed, cap = policy_settings(cfg)
         db_cfg = cfg.get("database", {}) or {}
         base = Path(str(db_cfg.get("path", "data/the-matrix.db"))).expanduser()
         if not base.is_absolute():
             base = Path.cwd() / base
-        return cls(allowed_actions=list(allowed) if allowed is not None else None,
+        return cls(allowed_actions=allowed,
                    daily_cap_usd=cap,
                    db_path=base.with_name("sponsorship_spend.db"))
 
@@ -659,6 +625,126 @@ def summarize_labels(labels: Sequence[str]) -> str:
     return shown
 
 
+def policy_settings(config: dict) -> tuple[Optional[list], Optional[float]]:
+    """(allowed_actions, daily_cap_usd) exactly as the signer will read them.
+
+    Split out of `SponsorshipPolicy.from_config` so that DESCRIBING the policy
+    (describe_gas_policy) and ENFORCING it read one parser: a description that
+    re-derived the cap its own way could disagree with the enforcement it
+    describes, which is the defect it exists to remove.
+    """
+    cfg = config or {}
+    bc = cfg.get("blockchain", {}) or {}
+    # Resolve the paymaster block through the ONE resolver that knows its
+    # two documented homes (top-level `paymaster` and `blockchain.paymaster`)
+    # rather than re-deriving it here. An earlier draft of this method read
+    # only the second, which silently dropped the allowlist for every
+    # deployment using the first — caught by tests/test_paymaster_route.py.
+    try:
+        from gateway.paymaster import paymaster_config
+        block = paymaster_config(cfg)
+    except Exception:  # gateway unavailable (runtime imported standalone)
+        block = (cfg.get("paymaster") or bc.get("paymaster") or {})
+    policy = (block.get("policy", {}) or {}) if isinstance(block, dict) else {}
+
+    allowed = policy.get("allowed_actions")
+    if allowed is not None and not isinstance(allowed, (list, tuple, set)):
+        logger.warning(
+            "paymaster.policy.allowed_actions is %s, not a list — ignoring it "
+            "rather than guessing an allowlist", type(allowed).__name__)
+        allowed = None
+
+    cap: Optional[float]
+    raw_cap = policy.get("daily_cap_usd")
+    if raw_cap in (None, ""):
+        cap = None
+    else:
+        try:
+            cap = float(raw_cap)
+        except (TypeError, ValueError):
+            # §DL: a malformed cap is not "no cap". Refusing to parse it into
+            # unlimited spend is the only safe reading.
+            logger.error(
+                "paymaster.policy.daily_cap_usd is %r, which is not a number. "
+                "Treating it as zero (deny) rather than as no cap.", raw_cap)
+            cap = 0.0
+
+    return (list(allowed) if allowed is not None else None), cap
+
+
+def describe_gas_policy(config: dict) -> dict:
+    """What gas sponsorship this deployment actually provides, for a user.
+
+    Every tool that used to promise a user unconditional gas coverage returns
+    this instead. It reads the same settings parser (`policy_settings`) and the
+    same key resolver (`resolve_paymaster_key`, `is_placeholder_value`) as the
+    signers, and states the policy as MeteredSigner applies it:
+
+      * with a daily cap, every platform-signed operation is checked against the
+        allowlist (by its `<capability>.<method>` name), the cap, and an
+        attributable identity, and refused otherwise;
+      * with no cap, MeteredSigner does not consult the policy at all, so the
+        allowlist applies only to user operations sent to /api/v1/paymaster/sign.
+
+    tests/test_gas_claims_follow_the_sponsorship_policy.py measures each of
+    those against SponsorshipPolicy and MeteredSigner for five configurations,
+    including the example config's allowlisted policy. It reads configuration
+    only: no ledger is opened, no price is fetched.
+    """
+    from runtime.blockchain.web3_manager import is_placeholder_value, resolve_paymaster_key
+
+    cfg = config or {}
+    platform_signs = not is_placeholder_value(resolve_paymaster_key(cfg))
+    try:
+        from gateway.paymaster import paymaster_config, signer_configured
+        user_ops = bool(signer_configured(cfg) and paymaster_config(cfg).get("address"))
+    except Exception:  # gateway unavailable (runtime imported standalone)
+        user_ops = False
+    sponsored = platform_signs or user_ops
+    allowed, cap = policy_settings(cfg)
+    listed = ", ".join(str(a) for a in allowed) if allowed is not None else ""
+
+    if not sponsored:
+        statement = ("Gas sponsorship is not configured on this deployment, so the "
+                     "platform pays no gas here.")
+        cap = None
+        allowed = None
+    elif cap is not None:
+        scope = (f"only for the actions its allowlist names ({listed})"
+                 if allowed is not None else "for your operations")
+        reasons = (["its action is not on that list"] if allowed is not None else []) + [
+            "it would cross the cap",
+            "it cannot be attributed to a signed-in identity"]
+        statement = (f"The platform pays gas {scope}, up to ${cap:.2f} per identity in a "
+                     "rolling 24 hours. An operation the platform would sign for you is "
+                     "refused, with the reason, rather than charged to you when "
+                     + ", when ".join(reasons[:-1]) + ", or when " + reasons[-1]
+                     + ". Attestations you ask for, through an agent tool "
+                     "or the attestation capabilities, are metered the same way. Not "
+                     "counted against the cap: the platform's own records (its record of "
+                     "each capability call, records it writes after another operation), "
+                     "which the platform pays for without metering.")
+    else:
+        statement = ("The platform pays gas for operations it signs for you; this "
+                     "deployment sets no daily cap.")
+        if allowed is not None:
+            statement += (f" Its action allowlist ({listed}) is applied only to app-signed "
+                          "user operations sent to /api/v1/paymaster/sign, not to "
+                          "operations the platform signs.")
+    capped = sponsored and cap is not None
+    return {
+        "sponsored": sponsored,
+        "daily_cap_usd": cap,
+        "cap_window": "rolling 24h" if cap is not None else None,
+        "allowed_actions": allowed,
+        "allowlist_applies_to_platform_signed": bool(capped and allowed is not None),
+        "identity_required": capped,
+        "unmetered_operations": (sorted(UNMETERED_PLATFORM_OPERATIONS)
+                                 if capped else []),
+        "statement": statement,
+    }
+
+
 # ── who is spending ──────────────────────────────────────────────────────
 #
 # A ContextVar rather than a parameter on 17 files' `execute(**kwargs)`: the
@@ -731,25 +817,35 @@ def resolve_caller_identity() -> str:
 # Every platform signature in runtime/blockchain/ is produced here, and
 # tests/test_sponsorship_policy_is_enforced.py fails if a new one is not.
 #
-# The exemptions below sign with no policy check: no allowlist and no daily
-# cap. They are listed rather than simply absent so the set is reviewable — an
-# unlisted unmetered site fails the test.
+# The exemptions below are writes the platform signs with no policy check (no
+# allowlist and no daily cap): its own record-keeping, not sponsorship of a
+# caller's operation. Metering them against a per-CALLER daily cap would
+# charge one user's budget for another's record and would stop the audit trail
+# at the cap. They are listed rather than simply absent so the set is
+# reviewable — an unlisted unmetered site fails the test.
 #
-# Three are EAS writes signed with the platform key, and their call data is not
-# fixed. The catalog capabilities create_attestation and batch_attest reach
-# eas.attest (when the batch queue submits) and eas.attest_time_critical with a
-# recipient and payload fields the caller supplies, and revoke_attestation
-# reaches eas.revoke with the attestation uid and schema the caller names. The
-# service dispatcher's record of a completed action goes through the same
-# queue. EASClient.attest is also called directly by 13 actions of the agent's
-# blockchain tools (runtime/blockchain/*.py) and by the conversion pipeline for
-# a contract it deployed, and the real-estate service queues its own.
-# docs/blockchain.md lists every path. They are exempt so that one caller's
-# daily cap is not charged for another's attestation and the audit trail does
-# not stop at the cap; the cost is that whoever can reach those paths spends
-# the platform's gas with no cap. The fourth, gas_sponsor.sponsor, is
-# GasSponsor.sponsor_transaction, which signs and sends whatever transaction it
-# is handed; nothing in this tree calls it.
+# WHAT THEY COVER IS DECIDED BY THE ENTRY POINT, NOT BY THE CALL DATA. This
+# comment used to rest on the exempt writes carrying fixed call data the model
+# does not choose. That was false: the model-facing `eas` tool passed model-chosen action, agent and
+# recipient, over an unbounded batch, through `eas.attest`; eight more tools
+# (agent identity, cross-border, gaming, identity, insurance, IP, securities,
+# supply chain) attested the same way; and the attestation capabilities a caller composes
+# (`create_attestation`, `batch_attest`, `revoke_attestation`) signed as
+# `eas.attest` / `eas.attest_time_critical` / `eas.revoke`. A tool attestation
+# now passes its own `<capability>.<method>` to EASClient.attest, the three
+# capabilities reach metered entry points (AttestationService.attest_for_caller,
+# batch_attest, revoke — `attestation.<method>`), a batch is bounded, and
+# `eas.revoke` is gone: nothing revokes on the platform's own behalf.
+# tests/test_platform_attestations_are_metered.py fails on an unmetered one.
+#
+# What remains: `eas.attest` / `eas.attest_time_critical` as reached from
+# EASClient.attest with no `operation` and AttestationService.attest — the
+# service dispatcher's record of each state-modifying action it completes, the
+# conversion pipeline's record of a contract it deployed, and the real-estate
+# service's records on its own queue — and `gas_sponsor.sponsor`, which is
+# GasSponsor.sponsor_transaction: it signs and sends whatever transaction it is
+# handed, and nothing in this tree calls it. docs/blockchain.md lists every
+# path by file and function.
 #
 # AN EXEMPTION IS A CLAIM, AND ONE OF THEM WAS FALSE. `web3.platform_account`
 # was listed as "shared account handle; every USE of it is a call site metered on
@@ -766,9 +862,12 @@ def resolve_caller_identity() -> str:
 # allowlist that silently excluded the platform's busiest signing path was
 # exactly the failure this list exists to prevent.
 UNMETERED_PLATFORM_OPERATIONS = {
-    "eas.attest": "EAS attestation write (EASClient.attest), the batch queue's submissions included",
-    "eas.attest_time_critical": "the same write on the time-critical path (create_attestation, batch_attest)",
-    "eas.revoke": "revoking an attestation by the uid the caller names (revoke_attestation)",
+    "eas.attest": "EAS attestation written as the platform's own record "
+                  "(AttestationService.attest, or EASClient.attest with no "
+                  "operation): the dispatcher's record of a capability call, or "
+                  "a record a service writes after another operation; a "
+                  "caller's own attestation is metered instead",
+    "eas.attest_time_critical": "the same platform record on the time-critical path",
     "gas_sponsor.sponsor": "GasSponsor.sponsor_transaction: signs and sends the transaction it "
                            "is handed; nothing in this tree calls it",
 }
@@ -916,8 +1015,8 @@ async def platform_signer(config: dict, action: str, *, key: Optional[str] = Non
     from eth_account import Account
 
     cfg = config or {}
-    bc = cfg.get("blockchain", {}) or {}
-    raw_key = key if key is not None else bc.get("paymaster_private_key", "")
+    from runtime.blockchain.web3_manager import resolve_paymaster_key
+    raw_key = key if key is not None else resolve_paymaster_key(cfg)
     account = Account.from_key(raw_key)
 
     if not metered:

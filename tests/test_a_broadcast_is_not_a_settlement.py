@@ -885,6 +885,15 @@ def _attestation_dispatcher(monkeypatch, spies):
     monkeypatch.setattr(web3_module, "Web3", _Web3)
     monkeypatch.setattr(sponsorship, "unmetered_platform_signer",
                         lambda _key, _action: _PlatformAccount())
+
+    # A caller's attestation capability (`create_attestation`,
+    # `revoke_attestation`) signs through the metered signer; the platform's
+    # own record through the unmetered one. Both answer with the same account
+    # here: what these tests measure is what happens after the send.
+    async def _metered(_config, _action, **_kw):
+        return _PlatformAccount()
+
+    monkeypatch.setattr(sponsorship, "platform_signer", _metered)
     d = spies[0]
     svc = AttestationService(_EAS_CONFIG)
     svc._time_critical._web3 = node

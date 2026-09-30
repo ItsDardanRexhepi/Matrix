@@ -2,30 +2,28 @@
 
 ## Overview
 
-While curl and the MTRX CLI are useful for quick interactions, production applications need a programmatic interface. The Matrix provides official SDKs for Python and JavaScript that handle authentication, connection management, streaming, and error handling.
+curl is useful for quick interactions; an application wants a client library. This repository ships two: a Python client (`sdk/`) and a JavaScript/TypeScript client (`sdk-js/`). Both are thin wrappers over the gateway's HTTP routes from Module 03. Neither is published to a package registry, so you use them from your clone.
 
 ## Python SDK
 
 ### Installation
 
-The Python SDK is included with the Matrix repository. For standalone use:
+The Python client is the `sdk` package in this repository. Use it from your clone: run your script from the repository root, or install the clone into your environment with `pip install -e .` from that root (the `sdk` package is part of the repository's own distribution).
 
-```bash
-pip install the-matrix
-```
+Do not `pip install the-matrix` or `pip install matrix-sdk`: those names on PyPI belong to unrelated projects, and neither is this client.
 
 ### Connecting to the Gateway
 
 ```python
 from sdk import MatrixClient
 
-client = MatrixClient(
-    gateway_url="http://localhost:18790",
-    api_key="mtrx_k_your_api_key_here"
-)
+client = MatrixClient("http://localhost:18790")
+
+# With the gateway's operator key, for key-gated routes and for naming Neo:
+operator = MatrixClient("http://localhost:18790", api_key="YOUR_GATEWAY_KEY")
 ```
 
-The client verifies connectivity on initialization by calling `/health`. If the gateway is not reachable, it raises a `ConnectionError` immediately rather than failing on the first request.
+`api_key` is the gateway's operator key (`gateway.api_key`, or `MATRIX_API_KEY` on the gateway). When you give it, every request carries it as `Authorization: Bearer`. Without it the client reaches the public routes: the chat (as Trinity) and `/health`. The constructor makes no request; a gateway that is not reachable shows up as an error on the first call.
 
 ### Sending Chat Messages
 
@@ -35,77 +33,51 @@ from sdk import MatrixClient
 
 
 async def main():
-    client = MatrixClient(
-        gateway_url="http://localhost:18790",
-        api_key="mtrx_k_your_api_key_here"
-    )
+    client = MatrixClient("http://localhost:18790")
 
-    # Simple request-response
-    response = await client.chat("What is the current gas price on Base?")
+    response = await client.achat("What is the current gas price on Base?")
 
-    print(f"Request ID: {response.request_id}")
+    print(f"Agent: {response.agent}")
     print(f"Response: {response.text}")
-    print(f"Tools used: {response.tools_used}")
+    print(f"Tool calls: {len(response.tool_calls)}")
 
 
 asyncio.run(main())
 ```
 
-The `chat()` method sends a message to `/chat` and returns a `ChatResponse` object with typed attributes for `request_id`, `text`, `agent`, `tools_used`, and `timestamp`.
+`achat()` posts to `/chat` and returns a `ChatResponse` with `text`, `agent`, `tool_calls`, `session_id`, `provider` and the raw JSON in `raw`. `chat()` is the synchronous form for scripts that are not already running an event loop. `achat(message, agent="neo")` names Neo, which takes the operator key.
 
-### Handling Streaming Responses
-
-For real-time output, use the streaming interface:
+### Streaming
 
 ```python
 async def stream_example():
-    client = MatrixClient(
-        gateway_url="http://localhost:18790",
-        api_key="mtrx_k_your_api_key_here"
-    )
-
-    async for event in client.chat_stream("Explain how DeFi lending works"):
-        if event.type == "token":
-            print(event.content, end="", flush=True)
-        elif event.type == "tool_call":
-            print(f"\n[Neo invoking: {event.tool}]")
-        elif event.type == "tool_result":
-            print(f"[Tool complete: {event.tool}]")
-        elif event.type == "done":
-            print(f"\n\nRequest ID: {event.request_id}")
+    client = MatrixClient("http://localhost:18790")
+    async for text in client.astream_chat("Explain how DeFi lending works"):
+        print(text, end="", flush=True)
 ```
 
-The `chat_stream()` method returns an async generator that yields `StreamEvent` objects. Each event has a `type` field indicating whether it is a text token, a tool invocation, a tool result, or the final completion signal.
+`astream_chat()` reads `/chat/stream` and yields the text of each `token` event. The gateway runs the whole turn before it streams (Module 03), so the pieces arrive together at the end of the turn. If the stream route answers anything other than 200, the client falls back to one `/chat` call and yields its whole answer.
 
-### Error Handling
+### Errors
 
-```python
-from sdk import MatrixClient
-from sdk.exceptions import (
-    AuthenticationError,
-    RateLimitError,
-    TimeoutError,
-    GatewayError,
-)
+A response other than 200 is raised as an `Exception` whose message carries the status and the body, for example `HTTP 403: {"error": "forbidden", ...}` when you name Neo without the key, or `HTTP 429: {"error": "rate_limited", ...}` when you are over the limit. There are no typed exception classes and no automatic retries.
 
-try:
-    response = await client.chat("Deploy a token")
-except AuthenticationError:
-    print("Invalid or expired API key")
-except RateLimitError as e:
-    print(f"Rate limited. Retry after {e.retry_after} seconds")
-except TimeoutError:
-    print("Request timed out -- the operation may still be processing")
-except GatewayError as e:
-    print(f"Gateway error: {e.status_code} - {e.message}")
-```
+### Blockchain Helpers
+
+`convert_contract()`, `get_price()`, `send_payment()`, `mint_nft()`, `create_attestation()` and `ablockchain()` each send Neo a chat message asking him to use a tool, so each takes the operator key on a gateway that has one set, and each returns Neo's reply. `deploy_contract()` raises `NotImplementedError`: the platform deploys no contract for you.
 
 ## JavaScript SDK
 
 ### Installation
 
+The JavaScript client is `sdk-js/` in this repository, and it is not published to npm. Build it from your clone and install it from that directory:
+
 ```bash
-npm install @the-matrix/sdk
+cd sdk-js
+npm install
+npm run build
+cd ../your-app
+npm install ../path/to/your/clone/sdk-js
 ```
 
 ### Connecting and Sending Messages
@@ -113,104 +85,64 @@ npm install @the-matrix/sdk
 ```javascript
 import { MatrixClient } from "@the-matrix/sdk";
 
-const client = new MatrixClient({
-  gatewayUrl: "http://localhost:18790",
-  apiKey: "mtrx_k_your_api_key_here",
+const client = new MatrixClient("http://localhost:18790", {
+  apiKey: "YOUR_GATEWAY_KEY",   // optional: the operator key
 });
 
 async function main() {
   const response = await client.chat("What tokens are in my wallet?");
 
-  console.log(`Request ID: ${response.requestId}`);
-  console.log(`Response: ${response.text}`);
-  console.log(`Tools used: ${JSON.stringify(response.toolsUsed)}`);
+  console.log(`Response: ${response.response}`);
+  console.log(`Tool calls: ${JSON.stringify(response.tool_calls)}`);
 }
 
 main();
 ```
 
+The constructor also takes `walletSession` (a session token, sent as `X-Wallet-Session`), `defaultAgent` and `sessionId`. `chat()` returns the gateway's JSON: `response`, `tool_calls`, `session_id`, `agent` and `provider`. A failed request throws an `Error` naming the status.
+
 ### Streaming in JavaScript
 
 ```javascript
-const stream = client.chatStream("Create a DAO called BuilderDAO");
+const stream = await client.chatStream("Explain how DAOs vote");
 
 for await (const event of stream) {
-  switch (event.type) {
-    case "token":
-      process.stdout.write(event.content);
-      break;
-    case "tool_call":
-      console.log(`\n[Neo invoking: ${event.tool}]`);
-      break;
-    case "done":
-      console.log(`\nComplete: ${event.requestId}`);
-      break;
+  if (event.event === "token") {
+    process.stdout.write(String(event.data.text));
+  } else if (event.event === "done") {
+    console.log(`\nTools used: ${JSON.stringify(event.data.tool_calls)}`);
   }
 }
 ```
 
+The events are the gateway's: `start`, `token`, `done` and `error`. `stream.text()` collects the tokens into one string.
+
 ## WebSocket Connections
 
-Both SDKs support persistent WebSocket connections for session-based interactions:
-
-```python
-async def websocket_example():
-    client = MatrixClient(
-        gateway_url="http://localhost:18790",
-        api_key="mtrx_k_your_api_key_here"
-    )
-
-    async with client.connect_ws() as ws:
-        # Send multiple messages on the same connection
-        response1 = await ws.send("Check my wallet balance")
-        print(response1.text)
-
-        response2 = await ws.send("Now transfer 10 USDC to 0xabc...")
-        print(response2.text)
-
-        # Morpheus may intervene for the transfer
-        if response2.requires_confirmation:
-            print(f"Confirmation required: {response2.confirmation_prompt}")
-            await ws.confirm()  # or ws.cancel()
-```
-
-The WebSocket connection maintains context between messages within the same session. The server sends heartbeat pings every 30 seconds; the SDK handles pong responses automatically.
+The JavaScript SDK has a WebSocket client; the Python SDK does not.
 
 ```javascript
-const ws = await client.connectWs();
+import { MatrixWebSocket } from "@the-matrix/sdk";
 
-ws.on("message", (response) => {
-  console.log(response.text);
-});
+const ws = new MatrixWebSocket("http://localhost:18790");
+await ws.connect();
 
-ws.on("confirmation", (prompt) => {
-  console.log(`Confirm: ${prompt.description}`);
-  ws.confirm(); // or ws.cancel()
-});
+ws.on("token", (frame) => process.stdout.write(frame.text));
+ws.on("done", (frame) => console.log(`\n[${frame.agent}] done`));
+ws.on("error", (frame) => console.error(frame.error));
 
-await ws.send("Deploy a staking contract");
+ws.send("Check my wallet balance");
 ```
 
-## SDK Configuration Options
-
-Both SDKs accept the same configuration parameters:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `gateway_url` | `http://localhost:18790` | Gateway address |
-| `api_key` | Required | Your API key |
-| `timeout` | 30000 | Request timeout in milliseconds |
-| `max_retries` | 3 | Automatic retry count for transient errors |
-| `retry_delay` | 1000 | Base delay between retries in milliseconds |
+Each `send()` is one chat frame, and the answer comes back as `token` frames and a `done` frame on the same connection; `on("*", ...)` receives every frame. The WebSocket client sends no key, so it talks to Trinity. The server sends heartbeat pings every 30 seconds by default, and the runtime's WebSocket answers them.
 
 ## Key Takeaways
 
-- Python SDK: `from sdk import MatrixClient`
-- JavaScript SDK: `npm install @the-matrix/sdk`
-- Both support synchronous chat, streaming, and WebSocket connections
-- Streaming returns typed events: token, tool_call, tool_result, done
-- WebSocket connections maintain session context
-- Built-in error handling for auth, rate limiting, timeouts, and gateway errors
+- Both SDKs live in this repository and are not published: `sdk/` (Python) and `sdk-js/` (JavaScript)
+- Pass the operator key (`api_key` in Python, `apiKey` in JavaScript) for key-gated routes and for naming Neo
+- Streaming yields the gateway's token events after the turn has run
+- Errors are raised with the gateway's status and body; neither SDK retries
+- The WebSocket client is JavaScript-only and talks to Trinity
 
 ---
 

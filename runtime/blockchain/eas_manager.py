@@ -2,13 +2,14 @@
 EAS Manager — high-level attestation management for The Matrix.
 
 Wraps the EAS client to provide schema creation, attestation querying,
-batch attestations, and revocation. Gas covered by the platform.
+batch attestations, and revocation. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import SponsorshipDenied
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class EASManager(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Manage EAS attestations: create schemas, attest actions, query attestations, revoke. Gas covered by platform."
+        return "Manage EAS attestations: create schemas, attest actions, query attestations, revoke. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -57,7 +58,7 @@ class EASManager(BlockchainInterface):
             code="unknown_action")
 
     async def _create_schema(self, params: dict) -> str:
-        """Create a new EAS schema on-chain via the SchemaRegistry. Gas covered by platform."""
+        """Create a new EAS schema on-chain via the SchemaRegistry. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -124,7 +125,7 @@ class EASManager(BlockchainInterface):
                 code="capability_error")
 
     async def _attest(self, params: dict) -> str:
-        """Create an attestation. Gas covered by platform."""
+        """Create an attestation. Gas is paid by the platform within its sponsorship policy."""
         from runtime.blockchain.eas_client import EASClient
         client = EASClient(self.config)
         data = params.get("data", {})
@@ -133,6 +134,7 @@ class EASManager(BlockchainInterface):
             agent=data.get("agent", "neo"),
             details=data,
             recipient=params.get("recipient", "0x0000000000000000000000000000000000000000"),
+            operation="eas_manager.attest",
         )
         return json.dumps(result, indent=2, default=str)
 
@@ -146,7 +148,7 @@ class EASManager(BlockchainInterface):
         })
 
     async def _revoke(self, params: dict) -> str:
-        """Revoke an attestation on-chain via EAS. Gas covered by platform."""
+        """Revoke an attestation on-chain via EAS. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -220,16 +222,39 @@ class EASManager(BlockchainInterface):
                 code="capability_error")
 
     async def _batch_attest(self, params: dict) -> str:
-        """Create multiple attestations. Gas covered by platform."""
+        """Create multiple attestations. Each entry is metered as
+        `eas_manager.batch_attest` by the sponsorship policy, and a batch longer
+        than MAX_ATTESTATIONS_PER_BATCH is refused whole."""
+        from runtime.blockchain.eas_client import EASClient, MAX_ATTESTATIONS_PER_BATCH
         attestations = params.get("attestations", [])
+        if not isinstance(attestations, list):
+            return refusal("attestations must be a list", code="invalid_arguments")
+        if len(attestations) > MAX_ATTESTATIONS_PER_BATCH:
+            return refusal(
+                f"a batch may hold at most {MAX_ATTESTATIONS_PER_BATCH} attestations; "
+                f"this one holds {len(attestations)}",
+                code="batch_too_large")
         results = []
-        from runtime.blockchain.eas_client import EASClient
         client = EASClient(self.config)
-        for att in attestations:
-            result = await client.attest(
-                action=att.get("action", "custom"),
-                agent=att.get("agent", "neo"),
-                details=att,
-            )
+        for index, att in enumerate(attestations):
+            try:
+                result = await client.attest(
+                    action=att.get("action", "custom"),
+                    agent=att.get("agent", "neo"),
+                    details=att,
+                    operation="eas_manager.batch_attest",
+                )
+            except SponsorshipDenied as denied:
+                if not results:
+                    raise  # nothing was written: the refusal is the whole answer
+                # The entries before this one were signed and sent. Report them,
+                # and the refusal, rather than an error that hides them.
+                results.append({"status": "refused", "reason": denied.decision.reason,
+                                "code": denied.decision.code})
+                return json.dumps({
+                    "batch_results": results, "count": len(results),
+                    "not_attempted": len(attestations) - index - 1,
+                    "refused_at": index,
+                }, indent=2, default=str)
             results.append(result)
         return json.dumps({"batch_results": results, "count": len(results)}, indent=2, default=str)

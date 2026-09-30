@@ -98,56 +98,6 @@ body{
   border:1px solid var(--border-green);
 }
 
-/* ── Pricing Cards ── */
-.pricing-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-  gap:20px;margin-bottom:48px;
-}
-.price-card{
-  padding:32px 28px;border-radius:var(--radius);
-  background:var(--bg-card);border:1px solid var(--border);
-  position:relative;transition:border-color .3s,transform .2s;
-}
-.price-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
-.price-card.featured{border-color:var(--green-dim)}
-.price-card.featured::before{
-  content:"MOST POPULAR";position:absolute;top:-11px;left:50%;
-  transform:translateX(-50%);
-  padding:3px 14px;border-radius:10px;
-  font-size:.62rem;font-weight:700;letter-spacing:1px;
-  background:var(--green);color:var(--bg);
-}
-.price-tier{font-size:.88rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
-.price-amount{
-  font-size:2.2rem;font-weight:700;color:var(--green);
-  text-shadow:var(--green-glow);margin-bottom:4px;
-}
-.price-amount span{font-size:.82rem;color:var(--text-muted);font-weight:400}
-.price-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:20px}
-.price-features{list-style:none;margin-bottom:24px}
-.price-features li{
-  font-size:.78rem;color:var(--text);
-  padding:6px 0;border-bottom:1px solid rgba(30,30,30,.6);
-  display:flex;align-items:flex-start;gap:8px;
-}
-.price-features li::before{
-  content:">";color:var(--green);font-weight:700;flex-shrink:0;
-}
-.price-btn{
-  display:block;width:100%;padding:12px;
-  border:1px solid var(--green);border-radius:6px;
-  background:transparent;color:var(--green);
-  font-family:inherit;font-size:.82rem;font-weight:600;
-  cursor:pointer;transition:all .2s;text-align:center;
-}
-.price-btn:hover{background:var(--green);color:var(--bg)}
-.price-card.featured .price-btn{
-  background:var(--green);color:var(--bg);
-}
-.price-card.featured .price-btn:hover{
-  background:var(--green-dim);
-}
-
 /* ── Form ── */
 .audit-form-wrap{
   max-width:720px;margin:0 auto;
@@ -180,24 +130,6 @@ body{
 }
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:540px){.form-row{grid-template-columns:1fr}}
-
-.tier-select{display:flex;gap:10px;flex-wrap:wrap}
-.tier-option{flex:1;min-width:120px}
-.tier-option input{display:none}
-.tier-option label{
-  display:block;padding:14px 12px;text-align:center;
-  border:1px solid var(--border);border-radius:6px;
-  cursor:pointer;transition:all .2s;
-  font-size:.76rem;color:var(--text-muted);
-}
-.tier-option label strong{
-  display:block;font-size:.88rem;color:var(--text);margin-bottom:2px;
-}
-.tier-option input:checked+label{
-  border-color:var(--green);color:var(--green);
-  background:var(--green-subtle);
-}
-.tier-option label:hover{border-color:var(--border-green)}
 
 .form-submit{
   width:100%;padding:14px;margin-top:8px;
@@ -312,10 +244,8 @@ body{
 /* ── Responsive ── */
 @media(max-width:680px){
   .hero h1{font-size:1.4rem}
-  .pricing-grid{grid-template-columns:1fr}
   .vuln-grid{grid-template-columns:1fr 1fr}
   .form-row{grid-template-columns:1fr}
-  .tier-select{flex-direction:column}
 }
 </style>
 </head>
@@ -326,100 +256,52 @@ body{
   <a href="/" class="nav-logo">The Matrix<span>audit</span></a>
   <div class="nav-links">
     <a href="#vulnerability-coverage">Coverage</a>
-    <a href="#pricing">Pricing</a>
+    <a href="#report">Report</a>
     <a href="#submit">Submit</a>
-    <a href="/conversion-service.html">Conversion</a>
+    <a href="/services/conversion">Conversion</a>
   </div>
 </nav>
 
 <!-- Hero -->
 <header class="hero">
   <div class="hero-badge">Glasswing Security Engine v1.0</div>
-  <h1 style="margin-top:20px">Professional Smart Contract<br>Security Auditing<br><em>Powered by Glasswing</em></h1>
-  <p>Production-grade vulnerability detection across 12 attack classes. Get your contracts audited before deployment with automated scanning, manual review checklists, and remediation guidance.</p>
+  <h1 style="margin-top:20px">Automated Smart Contract<br>Security Scanning<br><em>Powered by Glasswing</em></h1>
+  <p>Automated vulnerability detection across 12 attack classes. Glasswing scans contract source before deployment and returns its findings, each with a one-line description.</p>
+  <p><strong>Ordering an audit is not live.</strong> This gateway has no audit service behind its audit routes (they answer 503), so nothing on this page takes an order or a payment, and no report is produced.</p>
 </header>
 
 <!-- Vulnerability Coverage -->
 <section class="section" id="vulnerability-coverage">
   <h2 class="section-title">12 Vulnerability Classes Checked</h2>
-  <p class="section-sub">Every audit scans for these attack vectors, ranked by severity</p>
+  <p class="section-sub">Every Glasswing audit runs these pattern checks (<code>runtime/security/audit.py</code>), in this order</p>
   <div class="vuln-grid">
-    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy attacks</div>
-    <div class="vuln-item"><div class="vuln-num">2</div>Integer overflow / underflow</div>
-    <div class="vuln-item"><div class="vuln-num">3</div>Access control violations</div>
-    <div class="vuln-item"><div class="vuln-num">4</div>Unchecked external calls</div>
-    <div class="vuln-item"><div class="vuln-num">5</div>Front-running susceptibility</div>
-    <div class="vuln-item"><div class="vuln-num">6</div>Denial of service vectors</div>
-    <div class="vuln-item"><div class="vuln-num">7</div>Timestamp dependence</div>
-    <div class="vuln-item"><div class="vuln-num">8</div>Gas limit issues</div>
-    <div class="vuln-item"><div class="vuln-num">9</div>Unsafe delegatecall patterns</div>
-    <div class="vuln-item"><div class="vuln-num">10</div>Uninitialized storage pointers</div>
-    <div class="vuln-item"><div class="vuln-num">11</div>Floating pragma versions</div>
-    <div class="vuln-item"><div class="vuln-num">12</div>Missing event emissions</div>
+    <div class="vuln-item"><div class="vuln-num">1</div>Reentrancy</div>
+    <div class="vuln-item"><div class="vuln-num">2</div>Unchecked external call return values</div>
+    <div class="vuln-item"><div class="vuln-num">3</div>tx.origin used for authorization</div>
+    <div class="vuln-item"><div class="vuln-num">4</div>Unprotected selfdestruct</div>
+    <div class="vuln-item"><div class="vuln-num">5</div>Delegatecall usage</div>
+    <div class="vuln-item"><div class="vuln-num">6</div>Unbounded loop over a dynamic array</div>
+    <div class="vuln-item"><div class="vuln-num">7</div>Integer overflow (Solidity below 0.8.0)</div>
+    <div class="vuln-item"><div class="vuln-num">8</div>Floating pragma version</div>
+    <div class="vuln-item"><div class="vuln-num">9</div>Unprotected ether: ETH received but not withdrawable</div>
+    <div class="vuln-item"><div class="vuln-num">10</div>Missing access control on mint, burn, pause, unpause, upgrade, setOwner or transferOwnership</div>
+    <div class="vuln-item"><div class="vuln-num">11</div>Front-running exposure</div>
+    <div class="vuln-item"><div class="vuln-num">12</div>Block timestamp dependence</div>
   </div>
 </section>
 
-<!-- Pricing -->
-<section class="section" id="pricing">
-  <h2 class="section-title">Audit Tiers</h2>
-  <p class="section-sub">Choose the depth of analysis your project requires</p>
-  <div class="pricing-grid">
-
-    <!-- Standard -->
-    <div class="price-card">
-      <div class="price-tier">Standard Audit</div>
-      <div class="price-amount">$299 <span>per audit</span></div>
-      <div class="price-desc">Automated Glasswing scan with full findings report</div>
-      <ul class="price-features">
-        <li>Full Glasswing automated security scan</li>
-        <li>Complete vulnerability findings report</li>
-        <li>Severity classification (Critical/High/Medium/Low/Info)</li>
-        <li>PDF-ready structured output</li>
-        <li>12 vulnerability class coverage</li>
-      </ul>
-      <button class="price-btn" onclick="selectTier('standard')">Select Standard</button>
-    </div>
-
-    <!-- Advanced -->
-    <div class="price-card featured">
-      <div class="price-tier">Advanced Audit</div>
-      <div class="price-amount">$599 <span>per audit</span></div>
-      <div class="price-desc">Automated scan plus manual review and gas optimisation</div>
-      <ul class="price-features">
-        <li>Everything in Standard, plus:</li>
-        <li>Manual review checklist (30-point inspection)</li>
-        <li>Gas optimisation analysis and recommendations</li>
-        <li>Code quality scoring</li>
-        <li>Best practices compliance check</li>
-        <li>Inline code annotations</li>
-      </ul>
-      <button class="price-btn" onclick="selectTier('advanced')">Select Advanced</button>
-    </div>
-
-    <!-- Enterprise -->
-    <div class="price-card">
-      <div class="price-tier">Enterprise Audit</div>
-      <div class="price-amount">$999 <span>per audit</span></div>
-      <div class="price-desc">Full audit with remediation, re-audit, and deployment certification</div>
-      <ul class="price-features">
-        <li>Everything in Advanced, plus:</li>
-        <li>Detailed remediation recommendations for every finding</li>
-        <li>Priority turnaround</li>
-        <li>One free re-audit after fixes are applied</li>
-        <li>Executive summary for stakeholders</li>
-        <li>Deployment readiness certification</li>
-      </ul>
-      <button class="price-btn" onclick="selectTier('enterprise')">Select Enterprise</button>
-    </div>
-
-  </div>
+<!-- What an audit returns -->
+<section class="section" id="report">
+  <h2 class="section-title">What an Audit Returns</h2>
+  <p class="section-sub">One automated scan: the 12 checks above, run on the source it is given</p>
+  <p class="section-sub">There are no audit tiers. Every Glasswing audit is the same automated scan, and it returns a structured report: a verdict (<code>passed</code>, <code>failed</code>, or <code>not_auditable</code> when the source has no function body to examine), the number of findings at each severity, and for each finding its rule id, severity, title, a one-line description of the problem (most checks also suggest a fix; the locked-ether, selfdestruct and timestamp checks do not), the line and the code it points at. A Critical finding fails the audit; a High one fails it only when <code>security.block_on_high</code> is on. Nobody reviews the report by hand, and nothing on this gateway takes an order or a payment for an audit.</p>
 </section>
 
 <!-- Submit Form -->
 <section class="section" id="submit">
   <div class="audit-form-wrap">
     <h2 class="form-title">Submit Contract for Audit</h2>
-    <p class="form-subtitle">Paste your Solidity source code below. You will receive a free preview of findings before payment.</p>
+    <p class="form-subtitle"><strong>Submitting through this page is not live.</strong> The gateway's <code>POST /audit/request</code> route has no audit service behind it and answers 503, so this form sends nothing and no preview is produced. Glasswing does scan source in two places that work: a contract tool call that carries source code, and <code>POST /badge/issue</code> (behind the gateway's API key), which audits the source before issuing a badge.</p>
 
     <form id="auditForm" onsubmit="submitAudit(event)">
       <div class="form-group">
@@ -441,184 +323,22 @@ body{
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Audit Tier</label>
-        <div class="tier-select">
-          <div class="tier-option">
-            <input type="radio" name="tier" id="tierStandard" value="standard" checked>
-            <label for="tierStandard"><strong>Standard</strong>$299</label>
-          </div>
-          <div class="tier-option">
-            <input type="radio" name="tier" id="tierAdvanced" value="advanced">
-            <label for="tierAdvanced"><strong>Advanced</strong>$599</label>
-          </div>
-          <div class="tier-option">
-            <input type="radio" name="tier" id="tierEnterprise" value="enterprise">
-            <label for="tierEnterprise"><strong>Enterprise</strong>$999</label>
-          </div>
-        </div>
-      </div>
-
-      <button class="form-submit" type="submit" id="submitBtn">Scan Contract &amp; Get Preview</button>
+      <button class="form-submit" type="submit" id="submitBtn" disabled>Submitting is not live</button>
     </form>
   </div>
 
-  <!-- Results -->
-  <div class="results-panel" id="resultsPanel">
-    <div class="results-header">
-      <div class="results-title" id="resultsTitle">Audit Preview</div>
-      <span class="results-badge preview">PREVIEW</span>
-    </div>
-
-    <div class="severity-bar" id="severityBar"></div>
-    <div class="finding-list" id="findingList"></div>
-
-    <div class="checkout-bar" id="checkoutBar" style="display:none">
-      <div class="checkout-text">
-        <strong id="checkoutTier"></strong> &mdash; <span id="checkoutPrice"></span><br>
-        <span style="font-size:.72rem;color:var(--text-muted)">Full report delivered after payment confirmation</span>
-      </div>
-      <a class="checkout-btn" id="checkoutLink" href="#" target="_blank">Proceed to Payment</a>
-    </div>
-  </div>
 </section>
 
 <!-- Footer -->
 <footer class="footer">
-  <p>The Matrix &middot; Glasswing Security Engine &middot; Professional Smart Contract Auditing</p>
+  <p>The Matrix &middot; Glasswing Security Engine &middot; Automated Smart Contract Scanning</p>
 </footer>
 
 <script>
-function selectTier(tier) {
-  const radios = {standard:'tierStandard',advanced:'tierAdvanced',enterprise:'tierEnterprise'};
-  if (radios[tier]) document.getElementById(radios[tier]).checked = true;
-  document.getElementById('submit').scrollIntoView({behavior:'smooth'});
-}
-
-async function submitAudit(e) {
+// Submitting through this page is not live: the gateway's audit routes have no
+// audit service behind them and answer 503, so the form sends nothing.
+function submitAudit(e) {
   e.preventDefault();
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  btn.textContent = 'Scanning...';
-
-  const form = document.getElementById('auditForm');
-  const tier = form.querySelector('input[name="tier"]:checked').value;
-
-  const payload = {
-    source_code: document.getElementById('sourceCode').value,
-    contract_name: document.getElementById('contractName').value,
-    email: document.getElementById('email').value,
-    tier: tier,
-  };
-
-  try {
-    const resp = await fetch('/audit/request', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-
-    if (data.status === 'ok') {
-      renderResults(data);
-    } else {
-      alert(data.message || 'Audit request failed. Please try again.');
-    }
-  } catch (err) {
-    alert('Connection error. Please check that the server is running.');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Scan Contract & Get Preview';
-  }
-}
-
-function renderResults(data) {
-  const panel = document.getElementById('resultsPanel');
-  const preview = data.preview || {};
-
-  // Title
-  document.getElementById('resultsTitle').textContent =
-    `${preview.contract_name || 'Contract'} - ${preview.findings_count || 0} finding(s) in ${preview.total_lines || 0} lines`;
-
-  // Severity bar
-  const sevBar = document.getElementById('severityBar');
-  sevBar.innerHTML = '';
-  const sev = preview.severity_summary || {};
-  const sevOrder = ['critical','high','medium','low','info'];
-  for (const s of sevOrder) {
-    const count = sev[s] || 0;
-    const chip = document.createElement('div');
-    chip.className = `sev-chip ${s}`;
-    chip.innerHTML = `${s.charAt(0).toUpperCase()+s.slice(1)} <span class="sev-count">${count}</span>`;
-    sevBar.appendChild(chip);
-  }
-
-  // Findings
-  const list = document.getElementById('findingList');
-  list.innerHTML = '';
-  const findings = preview.findings || [];
-  if (findings.length === 0) {
-    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--green);font-size:.84rem">No vulnerabilities detected. Your contract looks clean.</div>';
-  } else {
-    for (const f of findings.slice(0, 10)) {
-      const div = document.createElement('div');
-      div.className = `finding ${f.severity}`;
-      div.innerHTML = `
-        <div class="finding-head">
-          <span class="finding-title">${esc(f.title)}</span>
-          <span class="finding-sev ${f.severity}">${f.severity}</span>
-        </div>
-        <div class="finding-line">Line ${f.line} &middot; ${esc(f.vulnerability_class || '')}</div>
-        <div class="finding-desc">${esc(f.description)}</div>
-        ${f.code ? `<div class="finding-code">${esc(f.code)}</div>` : ''}
-      `;
-      list.appendChild(div);
-    }
-    if (findings.length > 10) {
-      list.innerHTML += `<div style="text-align:center;padding:12px;font-size:.76rem;color:var(--text-muted)">+ ${findings.length - 10} more findings in full report</div>`;
-    }
-  }
-
-  // Checkout
-  const bar = document.getElementById('checkoutBar');
-  document.getElementById('checkoutTier').textContent = data.tier;
-  document.getElementById('checkoutPrice').textContent = `$${data.price_usd}`;
-
-  if (data.checkout_url) {
-    document.getElementById('checkoutLink').href = data.checkout_url;
-    bar.style.display = 'flex';
-  } else {
-    bar.style.display = 'none';
-  }
-
-  // Gas optimisation
-  if (preview.gas_optimisation && preview.gas_optimisation.length > 0) {
-    let gasHtml = '<div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">';
-    gasHtml += '<div style="font-size:.82rem;font-weight:600;color:var(--text-bright);margin-bottom:10px">Gas Optimisation Hints</div>';
-    for (const g of preview.gas_optimisation) {
-      gasHtml += `<div style="font-size:.76rem;color:var(--text);padding:6px 0;border-bottom:1px solid rgba(30,30,30,.4)">Line ${g.line}: ${esc(g.hint)} <span style="color:var(--green)">(${esc(g.estimated_savings)})</span></div>`;
-    }
-    gasHtml += '</div>';
-    list.innerHTML += gasHtml;
-  }
-
-  // Code quality
-  if (preview.code_quality_score !== undefined) {
-    const score = preview.code_quality_score;
-    const scoreColor = score >= 80 ? 'var(--green)' : score >= 50 ? 'var(--yellow)' : 'var(--red)';
-    list.innerHTML += `<div style="margin-top:12px;text-align:center;font-size:.84rem">Code Quality Score: <span style="color:${scoreColor};font-weight:700;font-size:1.1rem">${score}/100</span></div>`;
-  }
-
-  panel.classList.add('visible');
-  panel.scrollIntoView({behavior:'smooth',block:'start'});
-}
-
-function esc(s) {
-  if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 </script>
 

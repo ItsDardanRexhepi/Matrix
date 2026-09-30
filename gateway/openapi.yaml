@@ -398,7 +398,7 @@ paths:
 
   /api/v1/contracts/convert:
     post:
-      summary: Component 1 — cross-chain contract conversion
+      summary: Component 1 — contract conversion (pseudocode, Solidity or Vyper into Solidity)
       requestBody:
         required: true
         content:
@@ -535,13 +535,24 @@ paths:
 
   /api/v1/stablecoin/transfer:
     post:
-      summary: Component 7 — stablecoin transfer
+      summary: Component 7 — stablecoin transfer (records nothing; answers 400 or 500)
+      description: |
+        This route records nothing, whatever the body: a caller it admits who
+        sends the four fields its handler requires, with an amount that is a
+        number between -1e308 and 1e308, is answered 400, because the handler,
+        which requires `sender`, `recipient`, `amount` and `token`, passes
+        `sender` and `recipient` to the stablecoin service's transfer, which
+        takes `from_addr` and `to_addr`. Each response below names only kinds
+        of body that are always given it. The `transfer_stablecoin` capability
+        is served through `POST /api/v1/capabilities/{id}/invoke`.
       responses:
-        "200":
-          description: Transfer accepted
+        "400":
+          description: A body that is not JSON; a JSON object that lacks one of the four fields; the four fields with an amount that is a number between -1e308 and 1e308
           content:
             application/json:
-              schema: {$ref: "#/components/schemas/ServiceEnvelope"}
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "500":
+          description: A body that is a JSON number, boolean or null; the four fields with an amount that is null, a list or an object
 
   /api/v1/attestation/verify/{uid}:
     get:
@@ -570,10 +581,10 @@ paths:
 
   /api/v1/payments/create:
     post:
-      summary: Component 10 — x402 payment
+      summary: Component 10 — record an x402 payment
       responses:
         "200":
-          description: Payment intent
+          description: Recorded, pending until it is authorised; no value moves
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ServiceEnvelope"}
@@ -665,10 +676,10 @@ paths:
 
   /api/v1/crossborder/send:
     post:
-      summary: Component 17 — cross-border transfer
+      summary: Component 17 — record a cross-border payment
       responses:
         "200":
-          description: Transfer accepted
+          description: Recorded, not settled; no value moves
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ServiceEnvelope"}

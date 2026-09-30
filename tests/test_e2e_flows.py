@@ -284,12 +284,15 @@ async def test_eas_attest_skips_gracefully():
 
 
 @pytest.mark.asyncio
-async def test_revenue_routing_queues_when_offline():
-    """NeoSafeRouter.route_revenue must queue when offline, never raise."""
+async def test_revenue_routing_is_recorded_unsent_when_offline():
+    """NeoSafeRouter.route_revenue offline records the routing, says it was not
+    sent, and never raises. Nothing sends a recorded entry later, so it is not
+    reported as queued."""
     from runtime.blockchain.services.neosafe import NeoSafeRouter
 
     router = NeoSafeRouter(OFFLINE_CONFIG)
     result = await router.route_revenue(amount_eth=0.01, source_action="test_action")
     assert isinstance(result, dict)
-    assert result.get("status") == "queued"
+    assert result.get("status") == "recorded_unqueued"
+    assert result.get("sent") is False
     assert result.get("amount_eth") == 0.01

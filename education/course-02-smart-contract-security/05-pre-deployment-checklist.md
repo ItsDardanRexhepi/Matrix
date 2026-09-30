@@ -48,7 +48,7 @@ Airline pilots use checklists before every flight, even after 10,000 hours of ex
 
 - [ ] **14. Contract source code is verified.** After deployment, verify the source code on the block explorer (Basescan for Base). This lets anyone read and audit your contract. Unverified contracts are treated with suspicion by users and integrators.
 
-- [ ] **15. Deployment transaction is reviewed.** Before signing the deployment transaction, review: the constructor arguments, the gas limit, the network (confirm it is mainnet, not testnet), and the deployer address. Morpheus handles this confirmation step in The Matrix, but double-check anyway.
+- [ ] **15. Deployment transaction is reviewed.** Before signing the deployment transaction, review: the constructor arguments, the gas limit, the network (confirm it is mainnet, not testnet), and the deployer address. You deploy from your own wallet, so this review is yours: nothing in The Matrix confirms a deployment for you.
 
 ## Using This Checklist
 
@@ -58,20 +58,17 @@ If any item fails, stop the deployment. Fix the issue. Re-run the checklist from
 
 ## Integrating with The Matrix
 
-When deploying through The Matrix, several checklist items are handled automatically:
+The Matrix does not deploy your contract: you deploy it from your own wallet, so every item is yours. One item has help from the platform:
 
-- **Item 7**: Glasswing audit runs automatically before deployment
-- **Item 6**: The Matrix deploys to testnet first by default
-- **Item 14**: Source verification can be requested through Trinity
-- **Item 15**: Morpheus presents the deployment details for confirmation
+- **Item 7**: a conversion returns Glasswing's report on the Solidity it generates, and you can run the same scan on your own source. It is the twelve automated checks, not a review; items 8 and 9 still need your reading of the code.
 
-The remaining items require your judgment and cannot be automated. They are your responsibility.
+Nothing in the platform deploys to testnet for you (item 6), verifies source on a block explorer (item 14), or confirms a deployment transaction (item 15).
 
 ## Key Takeaways
 
 - 15 items across five categories: code quality, testing, security, operations, deployment
 - No item is optional for mainnet deployments
-- Several items are automated by The Matrix, but most require human judgment
+- The Matrix's Glasswing scan helps with item 7; every other item is your own work
 - If any item fails, stop and fix before proceeding
 - Copy and use this checklist for every deployment
 

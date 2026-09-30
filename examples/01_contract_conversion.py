@@ -5,10 +5,11 @@ from __future__ import annotations
 
 Demonstrates the Matrix contract conversion flow, targeting Base:
 
-  1. Takes a plain English rental agreement description
+  1. Takes a rental agreement written as pseudocode (the converter reads
+     structured pseudocode, not free prose)
   2. Estimates the conversion cost
   3. Converts it to Solidity via ContractConversionService, which runs the
-     Glasswing (Morpheus) security audit on the result
+     Glasswing security audit on the result
   4. Hands the Solidity back to you — this example does not deploy it
 
 This example reads no private key and does not deploy. The platform CAN deploy
@@ -32,22 +33,13 @@ import asyncio
 import json
 import os
 import sys
-import time
 
 # Ensure repo root is importable
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
-
-# ── Colours ──────────────────────────────────────────────────────────
-CYAN = "\033[96m"; GREEN = "\033[92m"; YELLOW = "\033[93m"
-RED = "\033[91m"; BOLD = "\033[1m"; DIM = "\033[2m"; RESET = "\033[0m"
-
-def step(n, text):  print(f"\n{CYAN}{BOLD}[Step {n}]{RESET} {text}")
-def ok(text):       print(f"  {GREEN}+{RESET} {text}")
-def warn(text):     print(f"  {YELLOW}!{RESET} {text}")
-def fail(text):     print(f"  {RED}x{RESET} {text}")
+from examples._steps import BOLD, CYAN, DIM, RESET, Steps, fail, ok, shown, step, warn
 
 
 def load_config() -> dict:
@@ -134,88 +126,52 @@ async def main():
     dispatcher = ServiceDispatcher({**config, "conversion": conversion})
 
     # ── Step 1: Show the input ──────────────────────────────────────
-    step(1, "Input: Plain English Rental Agreement (pseudocode)")
+    step(1, "Input: Rental Agreement, written as pseudocode")
     print(f"{DIM}")
     for line in RENTAL_AGREEMENT_PSEUDOCODE.strip().splitlines():
         print(f"    {line}")
     print(f"{RESET}")
 
+    steps = Steps(dispatcher)
+
     # ── Step 2: Estimate conversion cost ────────────────────────────
     step(2, "Estimating conversion cost...")
-    try:
-        estimate_result = await dispatcher.execute(
-            action="estimate_contract_cost",
-            params={"source_code": RENTAL_AGREEMENT_PSEUDOCODE},
-        )
-        estimate = json.loads(estimate_result)
-        if estimate.get("status") == "ok":
-            est = estimate["result"]
-            ok(f"Tier: {est.get('tier', 'N/A')}")
-            ok(f"Estimated fee: {est.get('fee_display', 'N/A')}")
-            ok(f"Lines: {est.get('line_count', 'N/A')}")
-            ok(f"Complexity: {est.get('complexity_score', 'N/A')}")
-        else:
-            warn(f"Estimate returned: {estimate.get('error', 'unknown error')}")
-    except Exception as e:
-        warn(f"Cost estimation failed (non-critical): {e}")
+    est = await steps.run("estimate the cost", "estimate_contract_cost",
+                          {"source_code": RENTAL_AGREEMENT_PSEUDOCODE})
+    if est is not None:
+        ok(f"Tier: {shown(est, 'tier')}")
+        ok(f"Quoted fee: {shown(est, 'fee_display')} (a quote; nothing collects it)")
+        ok(f"Lines: {shown(est, 'line_count')}")
+        ok(f"Complexity: {shown(est, 'complexity_score')}")
 
     # ── Step 3: Convert to Solidity ─────────────────────────────────
-    step(3, "Converting pseudocode to optimised Solidity via ContractConversionService...")
-    t0 = time.monotonic()
-    try:
-        convert_result = await dispatcher.execute(
-            action="convert_contract",
-            params={
-                "source_code": RENTAL_AGREEMENT_PSEUDOCODE,
-                "source_lang": "pseudocode",
-                "target_chain": "base",
-            },
-        )
-        elapsed = (time.monotonic() - t0) * 1000
-        result = json.loads(convert_result)
+    step(3, "Converting pseudocode to Solidity via ContractConversionService...")
+    conv = await steps.run("convert the contract", "convert_contract", {
+        "source_code": RENTAL_AGREEMENT_PSEUDOCODE,
+        "source_lang": "pseudocode",
+        "target_chain": "base",
+    })
+    if conv is not None:
+        ok(f"Contract name: {shown(conv, 'contract_name')}")
+        ok(f"Target chain: {shown(conv, 'target_chain')}")
+        ok(f"Status: {shown(conv, 'status')}")
 
-        if result.get("status") != "ok":
-            fail(f"Conversion failed: {result.get('error', 'unknown')}")
-            sys.exit(1)
+        audit = conv.get("audit") or {}
+        ok(f"Glasswing verdict: {shown(audit, 'verdict')}")
+        for finding in (audit.get("findings") or [])[:3]:
+            print(f"    {DIM}[{finding.get('severity', '?')}] {finding.get('rule_id', '')} "
+                  f"{finding.get('title', '')} (line {finding.get('line')}){RESET}")
 
-        conv = result["result"]
-        ok(f"Contract name: {conv.get('contract_name', 'N/A')}")
-        ok(f"Target chain: {conv.get('target_chain', 'N/A')}")
-        ok(f"Conversion time: {conv.get('conversion_time_ms', elapsed):.1f}ms")
-        ok(f"Tier: {conv.get('tier', {}).get('tier', 'N/A')}")
-
-        # Show audit results
-        audit = conv.get("audit", {})
-        audit_passed = conv.get("audit_passed", None)
-        if audit_passed is True:
-            ok(f"Security audit: PASSED")
-        elif audit_passed is False:
-            warn(f"Security audit: FAILED — {audit.get('summary', 'see details')}")
-        else:
-            ok("Security audit: completed")
-
-        if audit.get("findings"):
-            for finding in audit["findings"][:3]:
-                severity = finding.get("severity", "info")
-                msg = finding.get("message", finding.get("description", ""))
-                print(f"    {DIM}[{severity}] {msg}{RESET}")
-
-        # Show generated Solidity
         generated = conv.get("generated_source", "")
         if generated:
             print(f"\n{DIM}{'=' * 50}")
-            print("Generated Solidity:")
+            print("Generated Solidity (a draft: read it and compile it yourself):")
             print(f"{'=' * 50}{RESET}")
             for i, line in enumerate(generated.splitlines()[:40], 1):
                 print(f"  {DIM}{i:3d}{RESET}  {line}")
             if len(generated.splitlines()) > 40:
                 print(f"  {DIM}... ({len(generated.splitlines()) - 40} more lines){RESET}")
             print(f"{DIM}{'=' * 50}{RESET}")
-
-    except Exception as e:
-        fail(f"Conversion failed: {e}")
-        fail("Make sure all dependencies are installed: pip install web3 eth-account py-solc-x")
-        sys.exit(1)
 
     # ── Step 4: What happens to the Solidity ────────────────────────
     # This step used to read blockchain.demo_wallet_private_key, print
@@ -225,13 +181,15 @@ async def main():
     # runs with conversion.auto_deploy off, so the service does not deploy
     # either: deploying the Solidity is yours to do, with your own tooling.
     step(4, "Deployment")
-    ok("Not deployed. This example generates the contract; it does not deploy it.")
-    ok("Deploy the Solidity above with your own tooling (Foundry, Hardhat, Remix).")
-    ok("demo.py shows one way, using a dedicated TESTNET wallet you configure —")
-    ok("never a wallet holding real funds.")
+    warn("Not deployed. This example generates the contract; it does not deploy it.")
+    if conv is None:
+        warn("There is no Solidity to deploy: the conversion did not happen.")
+    else:
+        ok("Compile the Solidity above and deploy it with your own tooling (Foundry, Hardhat, Remix).")
+        ok("demo.py shows one way, using a dedicated TESTNET wallet you configure —")
+        ok("never a wallet holding real funds.")
 
-    print(f"\n{DIM}Pipeline complete. This example demonstrated the contract")
-    print(f"conversion flow: pseudocode -> Solidity -> audit.{RESET}\n")
+    steps.summary("Contract conversion")
 
 
 if __name__ == "__main__":

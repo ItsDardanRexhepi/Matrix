@@ -116,56 +116,6 @@ body{
 }
 .step p{font-size:.78rem;color:var(--text-muted);line-height:1.6}
 
-/* ── Pricing Cards ── */
-.pricing-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
-  gap:20px;margin-bottom:48px;
-}
-.price-card{
-  padding:32px 28px;border-radius:var(--radius);
-  background:var(--bg-card);border:1px solid var(--border);
-  position:relative;transition:border-color .3s,transform .2s;
-}
-.price-card:hover{border-color:var(--border-green);transform:translateY(-2px)}
-.price-card.featured{border-color:var(--green-dim)}
-.price-card.featured::before{
-  content:"BEST VALUE";position:absolute;top:-11px;left:50%;
-  transform:translateX(-50%);
-  padding:3px 14px;border-radius:10px;
-  font-size:.62rem;font-weight:700;letter-spacing:1px;
-  background:var(--green);color:var(--bg);
-}
-.price-tier{font-size:.88rem;font-weight:600;color:var(--text-bright);margin-bottom:8px}
-.price-amount{
-  font-size:2.2rem;font-weight:700;color:var(--green);
-  text-shadow:var(--green-glow);margin-bottom:4px;
-}
-.price-amount span{font-size:.82rem;color:var(--text-muted);font-weight:400}
-.price-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:20px}
-.price-features{list-style:none;margin-bottom:24px}
-.price-features li{
-  font-size:.78rem;color:var(--text);
-  padding:6px 0;border-bottom:1px solid rgba(30,30,30,.6);
-  display:flex;align-items:flex-start;gap:8px;
-}
-.price-features li::before{
-  content:">";color:var(--green);font-weight:700;flex-shrink:0;
-}
-.price-btn{
-  display:block;width:100%;padding:12px;
-  border:1px solid var(--green);border-radius:6px;
-  background:transparent;color:var(--green);
-  font-family:inherit;font-size:.82rem;font-weight:600;
-  cursor:pointer;transition:all .2s;text-align:center;
-}
-.price-btn:hover{background:var(--green);color:var(--bg)}
-.price-card.featured .price-btn{
-  background:var(--green);color:var(--bg);
-}
-.price-card.featured .price-btn:hover{
-  background:var(--green-dim);
-}
-
 /* ── Form ── */
 .conv-form-wrap{
   max-width:720px;margin:0 auto;
@@ -205,24 +155,6 @@ body{
 }
 .form-submit:hover{background:var(--green-dim)}
 .form-submit:disabled{opacity:.5;cursor:not-allowed}
-
-.plan-select{display:flex;gap:10px;flex-wrap:wrap}
-.plan-option{flex:1;min-width:140px}
-.plan-option input{display:none}
-.plan-option label{
-  display:block;padding:14px 12px;text-align:center;
-  border:1px solid var(--border);border-radius:6px;
-  cursor:pointer;transition:all .2s;
-  font-size:.74rem;color:var(--text-muted);
-}
-.plan-option label strong{
-  display:block;font-size:.84rem;color:var(--text);margin-bottom:2px;
-}
-.plan-option input:checked+label{
-  border-color:var(--green);color:var(--green);
-  background:var(--green-subtle);
-}
-.plan-option label:hover{border-color:var(--border-green)}
 
 /* ── Preview Panel ── */
 .preview-panel{
@@ -314,12 +246,6 @@ body{
   margin-bottom:6px;
 }
 .portfolio-desc{font-size:.78rem;color:var(--text-muted);margin-bottom:14px;line-height:1.5}
-.portfolio-stats{
-  display:flex;gap:16px;padding-top:12px;
-  border-top:1px solid var(--border);
-}
-.portfolio-stat{font-size:.72rem;color:var(--text-muted)}
-.portfolio-stat strong{color:var(--text)}
 
 /* ── Footer ── */
 .footer{
@@ -335,12 +261,10 @@ body{
 @media(max-width:680px){
   .hero h1{font-size:1.4rem}
   .hero-stats{gap:24px}
-  .pricing-grid{grid-template-columns:1fr}
   .steps{grid-template-columns:1fr}
   .preview-meta{grid-template-columns:1fr}
   .preview-includes{grid-template-columns:1fr}
   .portfolio-grid{grid-template-columns:1fr}
-  .plan-select{flex-direction:column}
 }
 </style>
 </head>
@@ -351,29 +275,29 @@ body{
   <a href="/" class="nav-logo">The Matrix<span>convert</span></a>
   <div class="nav-links">
     <a href="#how-it-works">How It Works</a>
-    <a href="#pricing">Pricing</a>
-    <a href="#preview-form">Get Preview</a>
-    <a href="#portfolio">Portfolio</a>
-    <a href="/audit.html">Audit</a>
+    <a href="#returns">What It Returns</a>
+    <a href="#preview-form">Request</a>
+    <a href="#templates">Templates</a>
+    <a href="/audit">Audit</a>
   </div>
 </nav>
 
 <!-- Hero -->
 <header class="hero">
-  <h1>Plain English to Production<br>Smart Contract &mdash; <em>In Minutes</em></h1>
-  <p>Describe what you need in plain language. We generate a fully audited, gas-optimised, deployment-ready Solidity contract complete with OpenZeppelin security, NatSpec documentation, and comprehensive test coverage.</p>
+  <h1>Pseudocode, Solidity or Vyper<br>to Solidity &mdash; <em>Scanned by Glasswing</em></h1>
+  <p>Give it structured pseudocode (a <code>contract</code> line, <code>state</code> lines and <code>function</code> lines), or Solidity or Vyper source. A paragraph of prose is not read: it comes back as an empty contract marked <code>partial</code>. The conversion pipeline parses the source, generates Solidity from what it parsed, and runs Glasswing's automated checks on the result. The generated source is a draft: the pipeline writes no tests, and unless an operator turns on <code>conversion.auto_deploy</code> it does not compile it, so read it and compile it yourself before you deploy it.</p>
   <div class="hero-stats">
     <div class="hero-stat">
+      <div class="hero-stat-num">3</div>
+      <div class="hero-stat-label">Source Languages</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">2</div>
+      <div class="hero-stat-label">Templates It Starts From</div>
+    </div>
+    <div class="hero-stat">
       <div class="hero-stat-num">12</div>
-      <div class="hero-stat-label">Contract Types</div>
-    </div>
-    <div class="hero-stat">
-      <div class="hero-stat-num">100%</div>
-      <div class="hero-stat-label">Audit Included</div>
-    </div>
-    <div class="hero-stat">
-      <div class="hero-stat-num">&lt;5min</div>
-      <div class="hero-stat-label">Generation Time</div>
+      <div class="hero-stat-label">Automated Checks</div>
     </div>
   </div>
 </header>
@@ -381,91 +305,44 @@ body{
 <!-- How It Works -->
 <section class="section" id="how-it-works">
   <h2 class="section-title">How It Works</h2>
-  <p class="section-sub">Three steps from idea to deployed contract</p>
+  <p class="section-sub">Three steps from a description to a contract you deploy yourself</p>
   <div class="steps">
     <div class="step">
       <div class="step-num">1</div>
       <h3>Describe</h3>
-      <p>Write what your contract should do in plain English. No Solidity knowledge required. Include business rules, roles, payment flows, and any constraints.</p>
+      <p>Write what the contract should do as structured pseudocode, or bring Solidity or Vyper source. Include the roles, the payment flows and the rules it has to enforce.</p>
     </div>
     <div class="step">
       <div class="step-num">2</div>
-      <h3>Review</h3>
-      <p>Get an instant free preview of your contract structure. Review the architecture, then pay to receive the full production-ready source code with audit report.</p>
+      <h3>Convert</h3>
+      <p>Send it to <code>POST /api/v1/contracts/convert</code> with the gateway's API key or a wallet session. Trinity converts in chat too, for a caller who presents the key or a session; the chat page at <code>/chat</code> sends neither, so on a gateway with a key set she is refused the conversion there. The answer carries the generated Solidity, Glasswing's report on it and the conversion's tier quote.</p>
     </div>
     <div class="step">
       <div class="step-num">3</div>
       <h3>Deploy</h3>
-      <p>Receive your complete Solidity contract with Glasswing security audit, gas optimisation, and NatSpec documentation. Ready for mainnet deployment.</p>
+      <p>Read the contract and the report, then deploy it with your own wallet. The gateway's deploy route answers 501, and conversion deploys only when an operator turns on <code>conversion.auto_deploy</code>.</p>
     </div>
   </div>
 </section>
 
-<!-- Pricing -->
-<section class="section" id="pricing">
-  <h2 class="section-title">Conversion Plans</h2>
-  <p class="section-sub">From single contracts to unlimited enterprise generation</p>
-  <div class="pricing-grid">
-
-    <!-- Single -->
-    <div class="price-card">
-      <div class="price-tier">Single Contract</div>
-      <div class="price-amount">$499 <span>one-time</span></div>
-      <div class="price-desc">One production-ready contract from your specification</div>
-      <ul class="price-features">
-        <li>Full Solidity contract generation from plain English</li>
-        <li>Glasswing security audit included</li>
-        <li>Gas optimisation pass</li>
-        <li>Deployment-ready output</li>
-        <li>30-day support window</li>
-      </ul>
-      <button class="price-btn" onclick="selectPlan('single')">Get Started</button>
-    </div>
-
-    <!-- Monthly 5 -->
-    <div class="price-card featured">
-      <div class="price-tier">Professional (5/month)</div>
-      <div class="price-amount">$1,499 <span>/month</span></div>
-      <div class="price-desc">Up to five contracts per month with priority processing</div>
-      <ul class="price-features">
-        <li>Up to 5 contracts per month</li>
-        <li>Full Glasswing audit on each</li>
-        <li>Priority queue</li>
-        <li>Revision requests included</li>
-        <li>Dedicated support channel</li>
-      </ul>
-      <button class="price-btn" onclick="selectPlan('monthly_5')">Subscribe</button>
-    </div>
-
-    <!-- Unlimited -->
-    <div class="price-card">
-      <div class="price-tier">Enterprise (Unlimited)</div>
-      <div class="price-amount">$3,999 <span>/month</span></div>
-      <div class="price-desc">Unlimited generation with SLA-backed turnaround</div>
-      <ul class="price-features">
-        <li>Unlimited contract generation</li>
-        <li>Full audit + manual review</li>
-        <li>Custom template creation</li>
-        <li>SLA-backed turnaround</li>
-        <li>Direct engineering support</li>
-      </ul>
-      <button class="price-btn" onclick="selectPlan('unlimited')">Contact Sales</button>
-    </div>
-
-  </div>
+<!-- What a conversion returns -->
+<section class="section" id="returns">
+  <h2 class="section-title">What a Conversion Returns</h2>
+  <p class="section-sub">One pipeline, the same for every request</p>
+  <p class="section-sub">There are no conversion plans. A conversion returns the generated Solidity and the name of the contract in it, the Glasswing report on that source (the same automated scan the audit page describes), the complexity tier with its fee quote (0.01 ETH under 100 non-blank lines and 0.05 ETH from 100, until the complexity score, which starts at the line count, reaches 200 and the quote becomes "negotiated"; the 0.1 ETH tier for 500 lines and more is reached only where an operator raises <code>conversion.custom_threshold</code> above 500; nothing collects any of them), and, when a short pseudocode description reads as a creative work, which template it started from. When <code>blockchain.platform_wallet</code> is set, the generated contract also carries the platform fee described under Fees in <code>docs/blockchain.md</code>. Nothing on this gateway takes an order or a payment for a conversion.</p>
 </section>
 
 <!-- Preview Form -->
 <section class="section" id="preview-form">
   <div class="conv-form-wrap">
-    <h2 class="form-title">Get a Free Preview</h2>
-    <p class="form-subtitle">Describe your contract in plain English. We will generate a preview showing the contract structure, type detection, and included features.</p>
+    <h2 class="form-title">Request a Conversion</h2>
+    <p class="form-subtitle"><strong>Ordering through this page is not live.</strong> The gateway has no endpoint that takes a conversion request or a payment, so this form sends nothing. The conversion pipeline itself is an authenticated API call: <code>POST /api/v1/contracts/convert</code> with the gateway's API key.</p>
 
     <form id="convForm" onsubmit="submitConversion(event)">
       <div class="form-group">
         <label class="form-label" for="description">Contract Description</label>
         <textarea class="form-textarea" id="description" name="description"
-          placeholder="Example: I need a rental agreement contract where a landlord can list properties, tenants can sign leases and pay rent monthly, with automatic late fees after 5 days and a security deposit that is returned when the lease ends..." required></textarea>
+          placeholder="contract RentalAgreement&#10;state landlord: address&#10;state tenant: address&#10;state rent: uint256&#10;&#10;function payRent()&#10;    require(msg.sender == tenant)&#10;    require(msg.value == rent)" required></textarea>
       </div>
 
       <div class="form-group">
@@ -474,225 +351,41 @@ body{
           placeholder="you@company.com" required>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">Plan</label>
-        <div class="plan-select">
-          <div class="plan-option">
-            <input type="radio" name="plan" id="planSingle" value="single" checked>
-            <label for="planSingle"><strong>Single</strong>$499 one-time</label>
-          </div>
-          <div class="plan-option">
-            <input type="radio" name="plan" id="planMonthly" value="monthly_5">
-            <label for="planMonthly"><strong>Professional</strong>$1,499/mo</label>
-          </div>
-          <div class="plan-option">
-            <input type="radio" name="plan" id="planUnlimited" value="unlimited">
-            <label for="planUnlimited"><strong>Enterprise</strong>$3,999/mo</label>
-          </div>
-        </div>
-      </div>
-
-      <button class="form-submit" type="submit" id="submitBtn">Generate Free Preview</button>
+      <button class="form-submit" type="submit" id="submitBtn" disabled>Ordering is not live</button>
     </form>
   </div>
 
-  <!-- Preview Results -->
-  <div class="preview-panel" id="previewPanel">
-    <div class="preview-header">
-      <div class="preview-title" id="previewTitle">Contract Preview</div>
-      <span class="preview-badge">FREE PREVIEW</span>
-    </div>
-
-    <div class="preview-meta" id="previewMeta"></div>
-
-    <div class="preview-code" id="previewCode"></div>
-
-    <div style="font-size:.78rem;font-weight:600;color:var(--text-bright);margin-bottom:10px">Included in Full Version</div>
-    <ul class="preview-includes" id="previewIncludes"></ul>
-
-    <div class="checkout-bar" id="checkoutBar" style="display:none">
-      <div class="checkout-text">
-        <strong id="checkoutPlan"></strong> &mdash; <span id="checkoutPrice"></span><br>
-        <span style="font-size:.72rem;color:var(--text-muted)">Full contract with audit delivered after payment</span>
-      </div>
-      <a class="checkout-btn" id="checkoutLink" href="#" target="_blank">Get Full Contract</a>
-    </div>
-  </div>
 </section>
 
-<!-- Portfolio -->
-<section class="section" id="portfolio">
-  <h2 class="section-title">Example Contracts</h2>
-  <p class="section-sub">Types of contracts we have generated for clients</p>
-  <div class="portfolio-grid">
-
-    <div class="portfolio-card">
-      <div class="portfolio-type">DeFi</div>
-      <div class="portfolio-name">Lending Pool Agreement</div>
-      <div class="portfolio-desc">Multi-asset lending protocol with variable interest rates, liquidation mechanics, and flash loan support.</div>
-      <div class="portfolio-stats">
-        <div class="portfolio-stat"><strong>340</strong> lines</div>
-        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
-        <div class="portfolio-stat"><strong>A+</strong> quality</div>
-      </div>
-    </div>
-
-    <div class="portfolio-card">
-      <div class="portfolio-type">Real Estate</div>
-      <div class="portfolio-name">Tokenized Property Shares</div>
-      <div class="portfolio-desc">Fractional real estate ownership with dividend distribution, voting rights, and secondary market trading.</div>
-      <div class="portfolio-stats">
-        <div class="portfolio-stat"><strong>285</strong> lines</div>
-        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
-        <div class="portfolio-stat"><strong>A</strong> quality</div>
-      </div>
-    </div>
-
-    <div class="portfolio-card">
-      <div class="portfolio-type">Governance</div>
-      <div class="portfolio-name">DAO Treasury Manager</div>
-      <div class="portfolio-desc">Multi-sig treasury with proposal voting, timelock execution, and role-based access for community DAOs.</div>
-      <div class="portfolio-stats">
-        <div class="portfolio-stat"><strong>410</strong> lines</div>
-        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
-        <div class="portfolio-stat"><strong>A+</strong> quality</div>
-      </div>
-    </div>
-
-    <div class="portfolio-card">
-      <div class="portfolio-type">NFT</div>
-      <div class="portfolio-name">Generative Art Collection</div>
-      <div class="portfolio-desc">ERC-721A collection with reveal mechanics, royalty enforcement, allowlist minting, and on-chain metadata.</div>
-      <div class="portfolio-stats">
-        <div class="portfolio-stat"><strong>220</strong> lines</div>
-        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
-        <div class="portfolio-stat"><strong>A+</strong> quality</div>
-      </div>
-    </div>
-
-    <div class="portfolio-card">
-      <div class="portfolio-type">Payroll</div>
-      <div class="portfolio-name">Token Vesting Schedule</div>
-      <div class="portfolio-desc">Cliff-based vesting with linear unlock, revocation capability, and multi-beneficiary batch creation.</div>
-      <div class="portfolio-stats">
-        <div class="portfolio-stat"><strong>195</strong> lines</div>
-        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
-        <div class="portfolio-stat"><strong>A</strong> quality</div>
-      </div>
-    </div>
-
-    <div class="portfolio-card">
-      <div class="portfolio-type">Commerce</div>
-      <div class="portfolio-name">Subscription Billing</div>
-      <div class="portfolio-desc">Recurring payment contract with trial periods, tiered pricing, automatic renewal, and cancellation handling.</div>
-      <div class="portfolio-stats">
-        <div class="portfolio-stat"><strong>260</strong> lines</div>
-        <div class="portfolio-stat"><strong>0</strong> critical findings</div>
-        <div class="portfolio-stat"><strong>A</strong> quality</div>
-      </div>
-    </div>
-
+<!-- Templates -->
+<section class="section" id="templates">
+  <h2 class="section-title">Templates</h2>
+  <p class="section-sub">A conversion starts from a template in one case: a short pseudocode description (under 100 non-blank lines) that reads as a creative work. It then starts from one of these two, as <code>artist_classifier.py</code> recommends: erc721 for visual art, video, or no clear category, and erc1155 for music, collectibles and games. Every other conversion is generated from the parsed source.</p>
+  <div class="portfolio-grid" id="templates-used">
+    <div class="portfolio-card"><div class="portfolio-type">NFT</div><div class="portfolio-name">erc721</div><div class="portfolio-desc">ERC-721 NFT with enumeration, URI storage, and ERC-2981 royalties.</div></div>
+    <div class="portfolio-card"><div class="portfolio-type">NFT</div><div class="portfolio-name">erc1155</div><div class="portfolio-desc">ERC-1155 multi-token with supply tracking and ERC-2981 royalties.</div></div>
+  </div>
+  <p class="section-sub"><code>templates.py</code> holds six more. No conversion starts from them; the <code>list_templates</code> action names all eight.</p>
+  <div class="portfolio-grid" id="templates-unused">
+    <div class="portfolio-card"><div class="portfolio-type">Token</div><div class="portfolio-name">erc20</div><div class="portfolio-desc">ERC-20 token with burn, permit, and owner-only minting.</div></div>
+    <div class="portfolio-card"><div class="portfolio-type">Governance</div><div class="portfolio-name">governor</div><div class="portfolio-desc">DAO Governor with configurable voting parameters, quorum fraction, and timelock execution.</div></div>
+    <div class="portfolio-card"><div class="portfolio-type">Governance</div><div class="portfolio-name">timelock</div><div class="portfolio-desc">Timelock controller for DAO governance execution delays.</div></div>
+    <div class="portfolio-card"><div class="portfolio-type">Token</div><div class="portfolio-name">vesting</div><div class="portfolio-desc">Linear token vesting with cliff period and revocability.</div></div>
+    <div class="portfolio-card"><div class="portfolio-type">DeFi</div><div class="portfolio-name">staking</div><div class="portfolio-desc">Staking contract with configurable reward rate, lock periods, and compound rewards.</div></div>
+    <div class="portfolio-card"><div class="portfolio-type">Commerce</div><div class="portfolio-name">marketplace</div><div class="portfolio-desc">NFT marketplace with ERC-2981 royalty enforcement, platform fees, and listing management.</div></div>
   </div>
 </section>
 
 <!-- Footer -->
 <footer class="footer">
-  <p>The Matrix &middot; Smart Contract Conversion Service &middot; Plain English to Production Solidity</p>
+  <p>The Matrix &middot; Smart Contract Conversion &middot; Pseudocode, Solidity or Vyper to Solidity</p>
 </footer>
 
 <script>
-function selectPlan(plan) {
-  const radios = {single:'planSingle',monthly_5:'planMonthly',unlimited:'planUnlimited'};
-  if (radios[plan]) document.getElementById(radios[plan]).checked = true;
-  document.getElementById('preview-form').scrollIntoView({behavior:'smooth'});
-}
-
-async function submitConversion(e) {
+// Ordering through this page is not live: the gateway registers no endpoint
+// that takes a conversion request or a payment, so the form sends nothing.
+function submitConversion(e) {
   e.preventDefault();
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  btn.textContent = 'Generating preview...';
-
-  const form = document.getElementById('convForm');
-  const plan = form.querySelector('input[name="plan"]:checked').value;
-
-  const payload = {
-    description: document.getElementById('description').value,
-    email: document.getElementById('convEmail').value,
-    plan: plan,
-  };
-
-  try {
-    const resp = await fetch('/services/conversion/request', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json();
-
-    if (data.status === 'ok') {
-      renderPreview(data);
-    } else {
-      alert(data.message || 'Request failed. Please try again.');
-    }
-  } catch (err) {
-    alert('Connection error. Please check that the server is running.');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Generate Free Preview';
-  }
-}
-
-function renderPreview(data) {
-  const panel = document.getElementById('previewPanel');
-  const preview = data.preview || {};
-
-  // Title
-  document.getElementById('previewTitle').textContent =
-    `${preview.contract_name || 'Contract'} - ${preview.contract_type || 'Custom'}`;
-
-  // Meta
-  const meta = document.getElementById('previewMeta');
-  meta.innerHTML = `
-    <div class="preview-meta-item">
-      <div class="preview-meta-label">Contract Type</div>
-      <div class="preview-meta-value">${esc(preview.contract_type || 'Custom')}</div>
-    </div>
-    <div class="preview-meta-item">
-      <div class="preview-meta-label">Estimated Size</div>
-      <div class="preview-meta-value">~${preview.estimated_lines || 150} lines</div>
-    </div>
-  `;
-
-  // Code
-  document.getElementById('previewCode').textContent = preview.preview_code || '// Preview unavailable';
-
-  // Includes
-  const includes = document.getElementById('previewIncludes');
-  includes.innerHTML = '';
-  const items = preview.includes || [];
-  for (const item of items) {
-    const li = document.createElement('li');
-    li.textContent = item;
-    includes.appendChild(li);
-  }
-
-  // Checkout bar
-  const bar = document.getElementById('checkoutBar');
-  document.getElementById('checkoutPlan').textContent = data.plan;
-  document.getElementById('checkoutPrice').textContent =
-    `$${data.price_usd}${data.billing === 'monthly' ? '/mo' : ''}`;
-
-  if (data.checkout_url) {
-    document.getElementById('checkoutLink').href = data.checkout_url;
-    bar.style.display = 'flex';
-  } else {
-    bar.style.display = 'none';
-  }
-
-  panel.classList.add('visible');
-  panel.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 function esc(s) {

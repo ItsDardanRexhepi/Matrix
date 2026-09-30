@@ -26,22 +26,20 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "convert_contract": {
         "action_name": "convert_contract",
-        "description": "Convert a smart contract from one language or chain to another.",
+        "description": "Convert pseudocode, Solidity or Vyper into Solidity scaffolding tuned for an EVM chain (Base, Ethereum or Polygon).",
         "required_params": [
             {"name": "source_code", "type": "string", "description": "The source code of the contract to convert.", "example": "pragma solidity ^0.8.0; contract MyToken { ... }"},
-            {"name": "source_lang", "type": "string", "description": "Language of the source contract (solidity, vyper, rust, move, etc.).", "example": "solidity"},
-            {"name": "target_chain", "type": "string", "description": "Target blockchain to convert to (ethereum, solana, aptos, sui, etc.).", "example": "solana"},
+            {"name": "source_lang", "type": "string", "description": "Language of the source: solidity, vyper or pseudocode. Nothing else is parsed.", "example": "solidity"},
+            {"name": "target_chain", "type": "string", "description": "EVM chain the generated Solidity is tuned for: base, ethereum or polygon (any other name gets Base's settings; the output is Solidity either way).", "example": "base"},
         ],
-        "optional_params": [
-            {"name": "optimize", "type": "boolean", "description": "Apply gas optimizations during conversion.", "default": True},
-        ],
+        "optional_params": [],
         "keywords": ["convert contract", "translate contract", "port contract", "migrate contract", "change chain", "convert my contract", "move contract to"],
-        "follow_up": "I can convert your contract. Could you share the source code, what language it's written in, and which blockchain you'd like it converted to?",
+        "follow_up": "I can turn it into Solidity. Could you share the source: Solidity, Vyper, or the contract written as structured pseudocode (a contract line, state lines and function lines; a paragraph of prose is not read)? And is it for Base, Ethereum or Polygon?",
         "example_conversation": (
-            "User: I want to convert my lease agreement contract to Solana\n"
-            "Trinity: Sure! Could you paste or upload the contract source code? And what language is it currently written in — Solidity, Vyper, or something else?\n"
+            "User: I want to move my lease agreement contract to Polygon\n"
+            "Trinity: Sure! Could you paste the contract source? Is it Solidity, Vyper, or pseudocode?\n"
             "User: It's Solidity. [pastes code]\n"
-            "Trinity: [calls platform_action with action='convert_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'solana'}]"
+            "Trinity: [calls platform_action with action='convert_contract', params={source_code: ..., source_lang: 'solidity', target_chain: 'polygon'}]"
         ),
     },
 
@@ -584,18 +582,23 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "transfer_stablecoin": {
         "action_name": "transfer_stablecoin",
-        "description": "Transfer stablecoins to another address.",
+        "description": (
+            "Record a stablecoin transfer on the platform's in-memory ledger, with its tiered fee "
+            "(recorded, not settled: no value moves on chain)."
+        ),
         "required_params": [
-            {"name": "to_address", "type": "string", "description": "Recipient address.", "example": "0xabc..."},
-            {"name": "amount", "type": "number", "description": "Amount to transfer.", "example": 500},
             {"name": "token", "type": "string", "description": "Stablecoin token (USDC, USDT, DAI).", "example": "USDC"},
+            {"name": "from_addr", "type": "string", "description": "Sender's address on the ledger.", "example": "0xabc..."},
+            {"name": "to_addr", "type": "string", "description": "Recipient address.", "example": "0xdef..."},
+            {"name": "amount", "type": "number", "description": "Amount to record.", "example": 500},
         ],
         "optional_params": [],
         "keywords": ["send stablecoin", "transfer USDC", "transfer USDT", "send DAI", "stablecoin transfer"],
-        "follow_up": "How much, which stablecoin, and to whom?",
+        "follow_up": "How much, which stablecoin, from which address, and to whom?",
         "example_conversation": (
-            "User: Send 500 USDC to alice.eth\n"
-            "Trinity: [calls platform_action with action='transfer_stablecoin', params={to_address: 'alice.eth', amount: 500, token: 'USDC'}]"
+            "User: Send 500 USDC from 0xabc... to 0xdef...\n"
+            "Trinity: [calls platform_action with action='transfer_stablecoin', params={token: 'USDC', from_addr: '0xabc...', to_addr: '0xdef...', amount: 500}]\n"
+            "Trinity: That transfer is recorded on the platform's ledger, not settled: no value moved on chain."
         ),
     },
 
@@ -826,22 +829,25 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "create_payment": {
         "action_name": "create_payment",
-        "description": "Create an x402 micropayment.",
+        "description": (
+            "Create an x402 micropayment record, pending until it is authorised "
+            "(a record: no value moves)."
+        ),
         "required_params": [
+            {"name": "agent_id", "type": "string", "description": "The paying agent's id.", "example": "agent-1"},
+            {"name": "recipient", "type": "string", "description": "Recipient address.", "example": "0xdef..."},
             {"name": "amount", "type": "number", "description": "Payment amount.", "example": 0.01},
-            {"name": "currency", "type": "string", "description": "Payment currency.", "example": "USDC"},
-            {"name": "description", "type": "string", "description": "Payment description.", "example": "API access fee"},
+            {"name": "token", "type": "string", "description": "Payment token.", "example": "USDC"},
+            {"name": "purpose", "type": "string", "description": "What the payment is for.", "example": "API access fee"},
         ],
-        "optional_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient address.", "default": None},
-        ],
+        "optional_params": [],
         "keywords": ["create payment", "micropayment", "x402 payment", "pay-per-request", "create x402"],
         "follow_up": "How much, in what currency, and for what purpose?",
         "example_conversation": (
             "User: Create a micropayment for API access\n"
             "Trinity: How much should the payment be?\n"
             "User: 0.01 USDC\n"
-            "Trinity: [calls platform_action with action='create_payment', params={amount: 0.01, currency: 'USDC', description: 'API access fee'}]"
+            "Trinity: [calls platform_action with action='create_payment', params={agent_id: 'agent-1', recipient: '0xdef...', amount: 0.01, token: 'USDC', purpose: 'API access fee'}]"
         ),
     },
 
@@ -879,13 +885,13 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "complete_payment": {
         "action_name": "complete_payment",
-        "description": "Complete an authorized payment.",
+        "description": "Close an authorised payment's record (recorded, not settled: no value moves).",
         "required_params": [
             {"name": "payment_id", "type": "string", "description": "Payment ID.", "example": "pay_abc123"},
         ],
         "optional_params": [],
         "keywords": ["complete payment", "finalize payment", "finish payment"],
-        "follow_up": "Which payment should I complete?",
+        "follow_up": "Which payment's record should I close?",
         "example_conversation": (
             "User: Complete payment pay_abc123\n"
             "Trinity: [calls platform_action with action='complete_payment', params={payment_id: 'pay_abc123'}]"
@@ -1389,20 +1395,24 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "send_payment": {
         "action_name": "send_payment",
-        "description": "Send a cross-border payment.",
+        "description": (
+            "Record a cross-border payment with its currency conversion and flat fee "
+            "(recorded, not settled: no value moves)."
+        ),
         "required_params": [
-            {"name": "recipient", "type": "string", "description": "Recipient address or ENS.", "example": "alice.eth"},
-            {"name": "amount", "type": "number", "description": "Amount to send.", "example": 100},
-            {"name": "currency", "type": "string", "description": "Currency to send.", "example": "USDC"},
+            {"name": "sender", "type": "string", "description": "Sender wallet address.", "example": "0xme..."},
+            {"name": "recipient", "type": "string", "description": "Recipient wallet address.", "example": "0xalice..."},
+            {"name": "amount", "type": "number", "description": "Amount in the source currency.", "example": 100},
+            {"name": "from_currency", "type": "string", "description": "Source currency.", "example": "USDC"},
+            {"name": "to_currency", "type": "string", "description": "Currency the record converts to.", "example": "USDT"},
         ],
-        "optional_params": [
-            {"name": "memo", "type": "string", "description": "Payment memo.", "default": ""},
-        ],
+        "optional_params": [],
         "keywords": ["send money", "transfer", "pay", "send tokens", "send to", "transfer funds", "wire", "send payment", "pay someone"],
-        "follow_up": "Who, how much, and in what currency?",
+        "follow_up": "From which address, to whom, how much, and from and to which currency?",
         "example_conversation": (
-            "User: Send 100 USDC to alice.eth\n"
-            "Trinity: [calls platform_action with action='send_payment', params={recipient: 'alice.eth', amount: 100, currency: 'USDC'}]"
+            "User: Send 100 USDC from 0xme... to 0xalice..., paid out in USDT\n"
+            "Trinity: [calls platform_action with action='send_payment', params={sender: '0xme...', recipient: '0xalice...', amount: 100, from_currency: 'USDC', to_currency: 'USDT'}]\n"
+            "Trinity: The payment is recorded with its conversion and fee, not settled: no value has moved."
         ),
     },
 
@@ -2736,7 +2746,7 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "action_name": "credential_issue",
         "description": "Issue a verifiable credential — a signed digital statement proving something is true.",
         "required_params": [
-            {"name": "subject", "type": "string", "description": "DID or address of the credential subject.", "example": "did:0pn:abc123"},
+            {"name": "subject", "type": "string", "description": "DID or address of the credential subject.", "example": "did:matrix:base:0xabc123"},
             {"name": "claim_type", "type": "string", "description": "Type of claim being made (e.g. 'degree', 'membership', 'age_verification').", "example": "degree"},
             {"name": "claim_data", "type": "object", "description": "The actual claim data.", "example": {"institution": "MIT", "degree": "CS", "year": 2024}},
         ],
@@ -2749,9 +2759,9 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
         "example_conversation": (
             "User: I need to issue a credential for a course completion\n"
             "Trinity: Happy to help. Who is the credential for — their DID or wallet address — and what are the details of the course they completed?\n"
-            "User: For did:0pn:abc123, they completed Blockchain 101\n"
-            "Trinity: Issuing a verifiable credential for did:0pn:abc123 — Blockchain 101 completion. This is a cryptographically signed proof they can show anyone.\n"
-            "Trinity: [calls platform_action with action='credential_issue', params={subject: 'did:0pn:abc123', claim_type: 'course_completion', claim_data: {course: 'Blockchain 101'}}]"
+            "User: For did:matrix:base:0xabc123, they completed Blockchain 101\n"
+            "Trinity: Issuing a verifiable credential for did:matrix:base:0xabc123 — Blockchain 101 completion. This is a cryptographically signed proof they can show anyone.\n"
+            "Trinity: [calls platform_action with action='credential_issue', params={subject: 'did:matrix:base:0xabc123', claim_type: 'course_completion', claim_data: {course: 'Blockchain 101'}}]"
         ),
     },
 
@@ -3195,25 +3205,28 @@ INTENT_ACTION_MAP: dict[str, dict[str, Any]] = {
 
     "cross_border_remit": {
         "action_name": "cross_border_remit",
-        "description": "Send a cross-border remittance with automatic currency conversion.",
+        "description": (
+            "Record a cross-border remittance with its currency conversion and flat fee "
+            "(recorded, not settled: no value moves)."
+        ),
         "required_params": [
+            {"name": "sender", "type": "string", "description": "Sender wallet address.", "example": "0xsender..."},
             {"name": "recipient", "type": "string", "description": "Recipient wallet address or payment identifier.", "example": "0xrecipient..."},
-            {"name": "amount", "type": "number", "description": "Amount to send in the source currency.", "example": 500.0},
-            {"name": "source_currency", "type": "string", "description": "Currency you're sending from.", "example": "USD"},
-            {"name": "target_currency", "type": "string", "description": "Currency the recipient receives.", "example": "MXN"},
+            {"name": "amount", "type": "number", "description": "Amount in the source currency.", "example": 500.0},
+            {"name": "from_currency", "type": "string", "description": "Source currency.", "example": "USD"},
+            {"name": "to_currency", "type": "string", "description": "Currency the record converts to.", "example": "MXN"},
         ],
-        "optional_params": [
-            {"name": "speed", "type": "string", "description": "Transfer speed (instant, standard).", "default": "standard"},
-            {"name": "corridor", "type": "string", "description": "Specific payment corridor or route.", "default": "auto"},
-        ],
+        "optional_params": [],
         "keywords": ["remittance", "cross border", "send abroad", "international transfer", "foreign payment"],
         "follow_up": "Who are you sending to, how much, and what are the source and destination currencies?",
         "example_conversation": (
             "User: I need to send money to my family in Mexico\n"
             "Trinity: Of course. How much are you sending in USD, and do you have their wallet or payment address?\n"
             "User: $500 to 0xfamily\n"
-            "Trinity: Sending $500 USD to 0xfamily, converting to MXN on arrival. Much faster and cheaper than traditional wire transfers.\n"
-            "Trinity: [calls platform_action with action='cross_border_remit', params={recipient: '0xfamily', amount: 500.0, source_currency: 'USD', target_currency: 'MXN'}]"
+            "Trinity: And your own wallet address?\n"
+            "User: 0xme\n"
+            "Trinity: [calls platform_action with action='cross_border_remit', params={sender: '0xme', recipient: '0xfamily', amount: 500.0, from_currency: 'USD', to_currency: 'MXN'}]\n"
+            "Trinity: The remittance is recorded with its conversion to MXN and its fee, not settled: no money has moved yet."
         ),
     },
 

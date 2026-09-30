@@ -3,7 +3,7 @@ SourceParser — parse Solidity, Vyper, or pseudocode into an AST-like
 intermediate representation (IR).
 
 The IR is a plain dict with normalised keys so that the generator can
-produce optimised Solidity regardless of the source language.
+produce Solidity regardless of the source language.
 """
 
 from __future__ import annotations
