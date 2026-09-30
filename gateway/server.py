@@ -2394,16 +2394,21 @@ class GatewayServer:
         cannot be built is left out and the gateway serves as with the mode
         off, because recording is all shadow does."""
         self._durable_engine = None
-        try:
-            from runtime.durable import wiring as durable
-            mode = durable.durable_mode(self.config)
-            if mode == "off":
-                return
-            engine = durable.build_engine(self.config, self.react_loop.memory.db)
-        except Exception:
-            logger.exception("Durable execution (shadow) could not be built; nothing is "
-                             "recorded and the gateway serves as with the mode off")
+        from runtime.durable import wiring as durable
+        mode = durable.durable_mode(self.config)
+        if mode == "off":
             return
+        try:
+            engine = durable.build_engine(self.config, self.react_loop.memory.db)
+        except Exception as exc:
+            if mode != "on":
+                logger.exception("Durable execution (shadow) could not be built; nothing is "
+                                 "recorded and the gateway serves as with the mode off")
+                return
+            logger.exception("Durable execution (mode on) could not be built")
+            engine = durable.DurableEngine.unbuilt(
+                mode=mode, canary=durable.durable_canary(self.config),
+                fault=f"{type(exc).__name__}: {exc}")
         durable.install(engine)
         engine.start()
         self._durable_engine = engine

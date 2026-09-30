@@ -913,6 +913,25 @@ async def test_mode_on_whose_engine_cannot_be_built_refuses_its_actions_and_is_n
         f"an action ran with the configured engine not built: {w.effects.log}")
 
 
+async def test_mode_on_whose_build_itself_raises_still_refuses_and_is_not_ready(
+        tmp_path, monkeypatch):
+    """The gateway does not rely on build_engine to catch its own faults: if
+    the build raises in mode on, the gateway installs the engine that refuses."""
+    def raises(config, db, **kwargs):
+        raise RuntimeError("the stand-in build failed")
+    monkeypatch.setattr(wiring, "build_engine", raises)
+    async with gateway(tmp_path, monkeypatch) as (server, client, w):
+        eng = server._durable_engine
+        assert eng is not None and eng.fault and wiring.current() is eng, (
+            "a configured on whose build raised installed no engine")
+        assert (await client.get("/ready")).status == 503
+        answers = [await _post(client, params_for(ACTION, 1), key="build-raised")
+                   for _ in range(2)]
+    assert all(status == 503 and body.get("code") == "service_unavailable"
+               for status, body in answers), answers
+    assert w.effects.count("service") == 0, w.effects.log
+
+
 async def test_an_engine_that_cannot_be_built_does_not_make_a_twin_signing_call(
         tool_dispatcher):
     calls = _nft(tool_dispatcher, "returns")
