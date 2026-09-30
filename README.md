@@ -482,15 +482,20 @@ check behind it:
   layer: another method of its class, a function, a method of another
   service or of an object the service holds, the object's class read from
   what builds it and carried through the forms its docstring names, and a
-  method or a function held on `self`, in a class attribute (set in the
-  class body or by a method through `self`) or in a module name (whatever
-  statement or function of that module writes it there, by assignment or
-  through `update`, `append`, `extend`, `insert`, `setdefault`, `add` or
-  `__setitem__`; a write from another module, through an alias or through
-  a parameter, another mutator, and any write of a class attribute other
-  than the class body's and a method's through `self` - through the
-  class's name, `cls`, `type(self)` or `setattr`, inside a method or
-  outside one - are not read),
+  method or a function held on `self`, in a class attribute or in a
+  module name. A module name is read from the statements and functions of
+  its module that write it, by assignment or through `update`, `append`,
+  `extend`, `insert`, `setdefault`, `add` or `__setitem__`; a write from
+  another module, through an alias or through a parameter, or by another
+  mutator, is not read. A class attribute is read from the class body and
+  from a method's assignment through `self` (plain, annotated or chained,
+  or `setattr(self, ...)`); a write through the class's own name by code
+  of its module (`Front.sink = fn` or `setattr(Front, "sink", fn)`, in a
+  method or outside one) is read as a write into the module name `Front`, so it is
+  followed by code an action reaches that uses that name and not through
+  `self` alone; and a write through `cls`, `type(self)` or
+  `self.__class__`, or through `self` by unpacking or as a `for` or `with`
+  target, is not read. It reaches, too, what is
   in a lambda or handed to another object that holds it; an attribute
   `getattr` or `setattr` names by a constant is read as that attribute. It
   fails on any action that reaches what the walks find and is not refused,
