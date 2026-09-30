@@ -398,7 +398,7 @@ paths:
 
   /api/v1/contracts/convert:
     post:
-      summary: Component 1 — cross-chain contract conversion
+      summary: Component 1 — contract conversion (pseudocode, Solidity or Vyper into Solidity)
       requestBody:
         required: true
         content:
@@ -537,10 +537,10 @@ paths:
     post:
       summary: Component 7 — stablecoin transfer (operator key only; records nothing; answers 400 or 500)
       description: |
-        This route admits the operator key only: a user session is
-        answered 403, and `transfer_stablecoin` is refused to a session at
-        every dispatcher, because each takes its sender from the request
-        and nothing binds that sender to the caller. It records nothing,
+        This route admits the operator key only: a user session gets 403,
+        and `transfer_stablecoin` is refused to a session at every
+        dispatcher, because each takes its sender from the request and
+        nothing binds that sender to the caller. It records nothing,
         whatever the body: a caller it admits who sends the four fields
         its handler requires, with an amount that is a number between
         -1e308 and 1e308, is answered 400, because the handler, which
@@ -586,10 +586,10 @@ paths:
 
   /api/v1/payments/create:
     post:
-      summary: Component 10 — x402 payment
+      summary: Component 10 — record an x402 payment
       responses:
         "200":
-          description: Payment intent
+          description: Recorded, pending until it is authorised; no value moves
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ServiceEnvelope"}
@@ -681,10 +681,10 @@ paths:
 
   /api/v1/crossborder/send:
     post:
-      summary: Component 17 — cross-border transfer
+      summary: Component 17 — record a cross-border payment
       responses:
         "200":
-          description: Transfer accepted
+          description: Recorded, not settled; no value moves
           content:
             application/json:
               schema: {$ref: "#/components/schemas/ServiceEnvelope"}

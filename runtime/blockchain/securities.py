@@ -2,7 +2,7 @@
 Securities — tokenized securities management on Base L2.
 
 Create security tokens (ERC-3643 compatible), manage transfer restrictions,
-compliance, and investor management. All gas covered by the platform.
+compliance, and investor management. Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -23,7 +23,7 @@ class Securities(BlockchainInterface):
 
     @property
     def description(self) -> str:
-        return "Tokenized securities: create security tokens, manage compliance, investor whitelist. Gas covered by platform."
+        return "Tokenized securities: create security tokens, manage compliance, investor whitelist. Gas is paid by the platform within its sponsorship policy."
 
     @property
     def parameters(self) -> dict:
@@ -123,11 +123,12 @@ contract {symbol}Security is ERC20, Ownable {{
                 "whitelisted_at": int(time.time()),
             },
             recipient=params.get("investor_address", "0x0000000000000000000000000000000000000000"),
+            operation="securities.whitelist",
         )
         return json.dumps(result, indent=2, default=str)
 
     async def _transfer(self, params: dict) -> str:
-        """Transfer security tokens (requires whitelisted sender and recipient). Gas covered by platform."""
+        """Transfer security tokens (requires whitelisted sender and recipient). Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 
@@ -251,7 +252,7 @@ contract {symbol}Security is ERC20, Ownable {{
                 code="capability_error")
 
     async def _freeze(self, params: dict) -> str:
-        """Freeze an account on a security token contract. Gas covered by platform."""
+        """Freeze an account on a security token contract. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

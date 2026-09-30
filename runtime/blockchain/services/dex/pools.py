@@ -2,7 +2,8 @@
 LiquidityPoolManager — constant product AMM (x*y=k) pool management
 for the Matrix native DEX.
 
-Used as fallback when Uniswap pools are not available.
+These in-memory pools are the only ones the DEX service swaps through; there
+is no Uniswap integration.
 """
 
 from __future__ import annotations

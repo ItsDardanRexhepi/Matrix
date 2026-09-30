@@ -166,7 +166,9 @@ def attests(monkeypatch):
     """Every call that would have reached the platform-signed EAS attest."""
     calls = []
 
-    async def spy(self, action, agent, details, recipient=ZERO):
+    async def spy(self, action, agent, details, recipient=ZERO, **metering):
+        # ``metering`` is the operation and identity the sponsorship policy
+        # meters the write under; what is signed is the four above.
         calls.append({"action": action, "agent": agent, "recipient": recipient})
         return {"status": "skipped", "reason": "test spy"}
 
@@ -1879,10 +1881,27 @@ def test_a_relative_import_is_resolved():
                                "runtime.blockchain.services.attestation"}, _imported(tree)
 
 
+#: A module outside ``runtime/blockchain/*.py`` that attests somewhere, which a
+#: twin imports for one computation: the class, and the methods a twin may call
+#: on a new instance of it. The guard below reads that a twin calls nothing
+#: else on it, and that neither those methods, what they call on ``self``, nor
+#: the constructor names an attestation.
+READ_FOR_A_COMPUTATION = {
+    "runtime.blockchain.services.cross_border.service": ("CrossBorderService", {"fee_for"}),
+    "runtime.blockchain.services.stablecoin.service": ("StablecoinService", {"get_fee"}),
+}
+
+
+def _names_an_attestation(node) -> bool:
+    return any((isinstance(n, ast.Attribute) and n.attr in ("attest", "EASClient"))
+               or (isinstance(n, ast.Name) and n.id == "EASClient") for n in ast.walk(node))
+
+
 def test_the_twins_reach_no_attestation_the_walk_does_not_read():
     """[guard] The walk reads ``runtime/blockchain/*.py``. What a twin module
     imports from anywhere else under ``runtime/`` is named here, and none of it
-    attests; a module loaded at run time is reported by the walk itself."""
+    attests, or, for a module in ``READ_FOR_A_COMPUTATION``, none of what a twin
+    calls in it; a module loaded at run time is reported by the walk itself."""
     outside = {}
     for path in sorted(TWIN_DIR.glob("*.py")):
         for mod in _imported(ast.parse(path.read_text(encoding="utf-8"))):
@@ -1890,13 +1909,39 @@ def test_the_twins_reach_no_attestation_the_walk_does_not_read():
                     mod.startswith("runtime.blockchain.") and mod.count(".") == 2):
                 outside.setdefault(mod, set()).add(path.name)
     assert set(outside) <= {"runtime.access_policy", "runtime.auth.identity",
-                            "runtime.protocols.outcome_truth", "runtime.security.audit"}, outside
-    for mod in outside:
+                            "runtime.protocols.outcome_truth", "runtime.security.audit",
+                            *READ_FOR_A_COMPUTATION}, outside
+    for mod, twins in outside.items():
         source = (ROOT / (mod.replace(".", "/") + ".py")).read_text(encoding="utf-8")
         tree = ast.parse(source)
-        assert not any(isinstance(n, ast.Attribute) and n.attr in ("attest", "EASClient")
-                       for n in ast.walk(tree)), mod
-        assert not any(isinstance(n, ast.Name) and n.id == "EASClient" for n in ast.walk(tree)), mod
+        if mod not in READ_FOR_A_COMPUTATION:
+            assert not _names_an_attestation(tree), mod
+            continue
+        cls_name, methods = READ_FOR_A_COMPUTATION[mod]
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == cls_name)
+        defs = {n.name: n for n in cls.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        reached, todo = set(), sorted(methods | {"__init__"})
+        while todo:
+            name = todo.pop()
+            if name in reached:
+                continue
+            assert name in defs, (mod, name)
+            reached.add(name)
+            fn = defs[name]
+            assert not _names_an_attestation(fn), (mod, name)
+            for n in ast.walk(fn):
+                if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                        and n.value.id in ("self", "cls", cls_name) and n.attr in defs):
+                    todo.append(n.attr)
+        for twin in twins:
+            twin_tree = ast.parse((TWIN_DIR / twin).read_text(encoding="utf-8"))
+            uses = [n for n in ast.walk(twin_tree) if isinstance(n, ast.Name) and n.id == cls_name]
+            calls = [n for n in ast.walk(twin_tree)
+                     if isinstance(n, ast.Attribute) and n.attr in methods
+                     and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
+                     and n.value.func.id == cls_name]
+            assert len(uses) == len(calls), (
+                f"{twin} uses {cls_name} other than to call {sorted(methods)} on a new instance")
 
 
 

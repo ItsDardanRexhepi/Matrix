@@ -26,7 +26,7 @@ the service uses to report ITS outcome, and the reader cannot tell them apart.
 The rule this file pins is that it does not have to: a wrapper may report on the
 wrapping, and it may never report on what it wraps.
 
-The same assumption, away from the envelope, in three more places:
+The same assumption, away from the envelope, in four more places:
 
   * the HTTP live-feed ripple published a returned refusal as an executed action;
   * account deletion answered ``{"success": true}`` after swallowing the

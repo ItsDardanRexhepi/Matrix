@@ -343,7 +343,6 @@ a:hover{text-decoration:underline}
   <div class="nav-links" id="navLinks">
     <a href="/">Home</a>
     <a href="/chat">Chat</a>
-    <a href="/pricing">Pricing</a>
     <a href="/audit">Audit</a>
     <a href="/marketplace" class="active">Marketplace</a>
   </div>
@@ -353,7 +352,7 @@ a:hover{text-decoration:underline}
 <header class="hero">
   <div class="hero-badge">Open Plugin Ecosystem</div>
   <h1 style="margin-top:20px">Extend <em>The Matrix</em> &mdash;<br>Developer Plugin Marketplace</h1>
-  <p>Build, sell, and install plugins that add new capabilities to the platform. From gas monitors to portfolio dashboards, the marketplace has it all.</p>
+  <p>Plugins add new capabilities to the platform. The listings below are the ones this gateway serves. Listing a plugin does not install it, and paid plugin sales are not live.</p>
 </header>
 
 <!-- Search / Filter -->
@@ -362,13 +361,6 @@ a:hover{text-decoration:underline}
     <input class="search-input" type="text" id="searchInput" placeholder="Search plugins by name, author, or keyword...">
     <select class="filter-select" id="filterCategory">
       <option value="all">All Categories</option>
-      <option value="defi">DeFi</option>
-      <option value="nft">NFT</option>
-      <option value="analytics">Analytics</option>
-      <option value="security">Security</option>
-      <option value="governance">Governance</option>
-      <option value="utilities">Utilities</option>
-      <option value="alerts">Alerts</option>
     </select>
     <select class="filter-select" id="filterPrice">
       <option value="all">Any Price</option>
@@ -387,167 +379,10 @@ a:hover{text-decoration:underline}
 
 <!-- Plugin Grid -->
 <section class="section" id="plugins">
-  <h2 class="section-title">Featured Plugins</h2>
-  <p class="section-sub">Browse community-built plugins to extend your Matrix workspace</p>
-  <div class="plugin-grid" id="pluginGrid">
-
-    <!-- Hello World -->
-    <div class="plugin-card" data-category="utilities" data-price="free" data-tier="free">
-      <div class="plugin-header">
-        <div class="plugin-icon">&#128075;</div>
-        <span class="plugin-tier free">Free Tier</span>
-      </div>
-      <div class="plugin-name">Hello World</div>
-      <div class="plugin-author">by The Matrix Team</div>
-      <div class="plugin-desc">The canonical starter plugin. Demonstrates the plugin API, lifecycle hooks, configuration schema, and service registration. Perfect for learning how to build your own.</div>
-      <div class="plugin-meta">
-        <div class="plugin-meta-item"><strong>12,430</strong> downloads</div>
-        <div class="plugin-stars">
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="rating-num">5.0</span>
-        </div>
-      </div>
-      <div class="plugin-footer">
-        <span class="plugin-price">Free</span>
-        <button class="plugin-btn install" onclick="installPlugin('hello-world')">Install</button>
-      </div>
-    </div>
-
-    <!-- Portfolio Tracker -->
-    <div class="plugin-card" data-category="analytics" data-price="paid" data-tier="pro">
-      <div class="plugin-header">
-        <div class="plugin-icon">&#128200;</div>
-        <span class="plugin-tier pro">Pro Tier</span>
-      </div>
-      <div class="plugin-name">Portfolio Tracker</div>
-      <div class="plugin-author">by ChainMetrics Labs</div>
-      <div class="plugin-desc">Real-time cross-chain portfolio analytics with P&amp;L tracking, asset allocation charts, historical performance, and automated rebalancing alerts. Supports 12 chains.</div>
-      <div class="plugin-meta">
-        <div class="plugin-meta-item"><strong>8,712</strong> downloads</div>
-        <div class="plugin-stars">
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star empty">&#9733;</span>
-          <span class="rating-num">4.6</span>
-        </div>
-      </div>
-      <div class="plugin-footer">
-        <span class="plugin-price paid">$2.99</span>
-        <button class="plugin-btn purchase" onclick="purchasePlugin('portfolio-tracker')">Purchase</button>
-      </div>
-    </div>
-
-    <!-- Gas Price Alerts -->
-    <div class="plugin-card" data-category="alerts" data-price="free" data-tier="free">
-      <div class="plugin-header">
-        <div class="plugin-icon">&#9981;</div>
-        <span class="plugin-tier free">Free Tier</span>
-      </div>
-      <div class="plugin-name">Gas Price Alerts</div>
-      <div class="plugin-author">by GasWatch DAO</div>
-      <div class="plugin-desc">Monitor gas prices across Ethereum, Polygon, Arbitrum, and Base. Set custom thresholds and receive in-platform notifications when gas drops below your target.</div>
-      <div class="plugin-meta">
-        <div class="plugin-meta-item"><strong>6,245</strong> downloads</div>
-        <div class="plugin-stars">
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="rating-num">4.8</span>
-        </div>
-      </div>
-      <div class="plugin-footer">
-        <span class="plugin-price">Free</span>
-        <button class="plugin-btn install" onclick="installPlugin('gas-price-alerts')">Install</button>
-      </div>
-    </div>
-
-    <!-- Whale Watcher -->
-    <div class="plugin-card" data-category="analytics" data-price="paid" data-tier="pro">
-      <div class="plugin-header">
-        <div class="plugin-icon">&#128051;</div>
-        <span class="plugin-tier pro">Pro Tier</span>
-      </div>
-      <div class="plugin-name">Whale Watcher</div>
-      <div class="plugin-author">by DeepSea Analytics</div>
-      <div class="plugin-desc">Track large wallet movements in real time. Get alerts when whales accumulate, dump, or move assets across chains. Includes sentiment scoring and flow analysis.</div>
-      <div class="plugin-meta">
-        <div class="plugin-meta-item"><strong>4,891</strong> downloads</div>
-        <div class="plugin-stars">
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star empty">&#9733;</span>
-          <span class="rating-num">4.3</span>
-        </div>
-      </div>
-      <div class="plugin-footer">
-        <span class="plugin-price paid">$4.99</span>
-        <button class="plugin-btn purchase" onclick="purchasePlugin('whale-watcher')">Purchase</button>
-      </div>
-    </div>
-
-    <!-- DAO Toolkit -->
-    <div class="plugin-card" data-category="governance" data-price="paid" data-tier="enterprise">
-      <div class="plugin-header">
-        <div class="plugin-icon">&#127963;</div>
-        <span class="plugin-tier enterprise">Enterprise</span>
-      </div>
-      <div class="plugin-name">DAO Governance Toolkit</div>
-      <div class="plugin-author">by OpenGov Labs</div>
-      <div class="plugin-desc">Advanced governance module with quadratic voting, delegation trees, proposal templates, quorum analytics, and multi-chain treasury oversight for enterprise DAOs.</div>
-      <div class="plugin-meta">
-        <div class="plugin-meta-item"><strong>2,156</strong> downloads</div>
-        <div class="plugin-stars">
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="rating-num">4.9</span>
-        </div>
-      </div>
-      <div class="plugin-footer">
-        <span class="plugin-price paid">$9.99</span>
-        <button class="plugin-btn purchase" onclick="purchasePlugin('dao-toolkit')">Purchase</button>
-      </div>
-    </div>
-
-    <!-- Contract Diff -->
-    <div class="plugin-card" data-category="security" data-price="free" data-tier="free">
-      <div class="plugin-header">
-        <div class="plugin-icon">&#128269;</div>
-        <span class="plugin-tier free">Free Tier</span>
-      </div>
-      <div class="plugin-name">Contract Diff Viewer</div>
-      <div class="plugin-author">by SolidityTools</div>
-      <div class="plugin-desc">Side-by-side contract comparison with syntax highlighting, structural diff, and storage layout analysis. Quickly spot changes between contract versions.</div>
-      <div class="plugin-meta">
-        <div class="plugin-meta-item"><strong>3,820</strong> downloads</div>
-        <div class="plugin-stars">
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star">&#9733;</span>
-          <span class="star empty">&#9733;</span>
-          <span class="rating-num">4.4</span>
-        </div>
-      </div>
-      <div class="plugin-footer">
-        <span class="plugin-price">Free</span>
-        <button class="plugin-btn install" onclick="installPlugin('contract-diff')">Install</button>
-      </div>
-    </div>
-
-  </div>
+  <h2 class="section-title">Plugins on this gateway</h2>
+  <p class="section-sub">Read from <code>GET /marketplace/plugins</code> when this page loads.</p>
+  <p class="section-sub" id="pluginStatus">Loading listings&hellip;</p>
+  <div class="plugin-grid" id="pluginGrid"></div>
 </section>
 
 <!-- Developer Section -->
@@ -558,44 +393,15 @@ a:hover{text-decoration:underline}
       <!-- Left: Info -->
       <div class="dev-info">
         <h2>Become a <em>Plugin Developer</em></h2>
-        <p>The Matrix plugin system is fully open. Build plugins in Python or JavaScript, publish them to the marketplace, and earn revenue from every install.</p>
-        <div class="dev-revenue">
-          <div class="rev-split">90/10</div>
-          <div class="rev-label"><strong>You keep 90%.</strong><br>We take 10%.</div>
-        </div>
-        <p>Revenue is paid monthly to your connected wallet address. No minimum payout threshold. Transparent on-chain settlement.</p>
-        <a href="/docs/PLUGIN_DEVELOPMENT.md" class="dev-link">&#128214; Read the Plugin Development Guide</a>
+        <p>The Matrix plugin system is open. Plugins are Python packages. The plugin loader (<code>runtime/plugins/loader.py</code>) can import a package from <code>plugins/installed/</code>, but nothing in the gateway calls it: placing a package there runs nothing today. The marketplace lists plugins and does not install them.</p>
+        <p><strong>Paid plugin sales are not live yet.</strong> Nothing on the platform can complete a paid plugin purchase or pay out its revenue.</p>
+        <a href="https://github.com/ItsDardanRexhepi/Matrix/blob/main/docs/PLUGIN_DEVELOPMENT.md" target="_blank" class="dev-link">&#128214; Read the Plugin Development Guide</a>
       </div>
 
-      <!-- Right: Submit Form -->
+      <!-- Right: How to submit -->
       <div class="submit-form">
         <h3>Submit Your Plugin</h3>
-        <p class="form-sub">Fill out the form below. Our review team will evaluate your plugin within 48 hours.</p>
-        <form id="submitPluginForm" onsubmit="submitPlugin(event)">
-          <div class="form-group">
-            <label class="form-label" for="pluginName">Plugin Name</label>
-            <input class="form-input" type="text" id="pluginName" placeholder="My Awesome Plugin" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pluginDesc">Description</label>
-            <textarea class="form-textarea" id="pluginDesc" placeholder="Describe what your plugin does, what services it adds, and who it is for..." required></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="pluginRepo">Repository URL</label>
-              <input class="form-input" type="url" id="pluginRepo" placeholder="https://github.com/you/plugin" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="pluginPrice">Price (USD)</label>
-              <input class="form-input" type="number" id="pluginPrice" placeholder="0.00" min="0" step="0.01" value="0">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="pluginEmail">Contact Email</label>
-            <input class="form-input" type="email" id="pluginEmail" placeholder="dev@example.com" required>
-          </div>
-          <button class="form-submit" type="submit" id="submitPluginBtn">Submit for Review</button>
-        </form>
+        <p class="form-sub">Submitting is an authenticated API call, so this page cannot make it for you. Send <code>POST /marketplace/plugins/submit</code> to a gateway with its API key (<code>Authorization: Bearer &lt;key&gt;</code>) and a JSON body with <code>name</code>, <code>description</code>, <code>repository_url</code> and <code>author</code>. The listing is stored with status <code>pending</code>. This gateway has no route that approves or activates a listing, so a submitted plugin does not appear here on its own.</p>
       </div>
 
     </div>
@@ -608,18 +414,8 @@ a:hover{text-decoration:underline}
     <div class="rev-inner">
       <div class="rev-icon">&#128176;</div>
       <div class="rev-content">
-        <h3>Transparent Revenue Sharing</h3>
-        <p>Every paid plugin purchase is split between you and the platform. Revenue is settled on-chain monthly via the NeoSafe multisig. You can track every payment in the public ledger. No hidden fees, no surprises.</p>
-        <div class="rev-breakdown">
-          <div class="rev-item">
-            <div class="rev-pct dev">90%</div>
-            <div class="rev-who">Developer</div>
-          </div>
-          <div class="rev-item">
-            <div class="rev-pct platform">10%</div>
-            <div class="rev-who">Platform</div>
-          </div>
-        </div>
+        <h3>Revenue Sharing</h3>
+        <p>Paid plugin sales are not live yet: there is no purchase path and no payout. When they are, the platform commission is the operator's configured rate — the published Terms of Service state 10% — and a sale through Apple In-App Purchase also pays the App Store's commission before any split. Nothing is settled to a wallet today.</p>
       </div>
     </div>
   </div>
@@ -629,11 +425,10 @@ a:hover{text-decoration:underline}
 <footer class="footer">
   <ul class="footer-links">
     <li><a href="https://github.com/ItsDardanRexhepi/TheMatrix" target="_blank">GitHub</a></li>
-    <li><a href="/docs">API Docs</a></li>
+    <li><a href="https://github.com/ItsDardanRexhepi/Matrix/blob/main/docs/api-reference.md" target="_blank">API Docs</a></li>
     <li><a href="/chat">Chat</a></li>
-    <li><a href="/pricing">Pricing</a></li>
     <li><a href="/audit">Audit</a></li>
-    <li><a href="/docs/PLUGIN_DEVELOPMENT.md">Plugin Docs</a></li>
+    <li><a href="https://github.com/ItsDardanRexhepi/Matrix/blob/main/docs/PLUGIN_DEVELOPMENT.md" target="_blank">Plugin Docs</a></li>
   </ul>
   <p>&copy; 2026 The Matrix. Open source under MIT license.</p>
 </footer>
@@ -650,30 +445,90 @@ a:hover{text-decoration:underline}
     a.addEventListener("click", ()=> links.classList.remove("open"));
   });
 
-  // ── Search & Filter ──
+  // ── Listings ──
+  // Rendered from the gateway's own listing route, never from page copy. The
+  // route is behind the API key on a gateway that sets one; this page does not
+  // carry a key, so there it says so instead of inventing listings. Nothing in
+  // the marketplace installs a plugin and a paid purchase cannot complete, so
+  // the page offers no button that pretends to do either.
+  const grid = document.getElementById("pluginGrid");
+  const statusEl = document.getElementById("pluginStatus");
   const searchInput = document.getElementById("searchInput");
   const filterCat = document.getElementById("filterCategory");
   const filterPrice = document.getElementById("filterPrice");
   const filterTier = document.getElementById("filterTier");
   const searchBtn = document.getElementById("searchBtn");
-  const cards = document.querySelectorAll(".plugin-card");
+
+  function el(tag, cls, text){
+    const node = document.createElement(tag);
+    if(cls) node.className = cls;
+    if(text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function card(p){
+    const price = Number(p.price_usd) || 0;
+    const tier = String(p.min_tier_required || "free").toLowerCase();
+    const c = el("div", "plugin-card");
+    c.dataset.category = String(p.category || "");
+    c.dataset.price = price > 0 ? "paid" : "free";
+    c.dataset.tier = tier;
+    const head = el("div", "plugin-header");
+    head.appendChild(el("div", "plugin-icon", "\u{1F9E9}"));
+    head.appendChild(el("span", "plugin-tier " + (["free","pro","enterprise"].includes(tier) ? tier : "free"), tier + " tier"));
+    c.appendChild(head);
+    c.appendChild(el("div", "plugin-name", String(p.name || "")));
+    c.appendChild(el("div", "plugin-author", "by " + String(p.author || "unknown")));
+    c.appendChild(el("div", "plugin-desc", String(p.description || "")));
+    const meta = el("div", "plugin-meta");
+    meta.appendChild(el("div", "plugin-meta-item", String(p.category || "uncategorised") + " \u00b7 v" + String(p.version || "?")));
+    c.appendChild(meta);
+    const foot = el("div", "plugin-footer");
+    foot.appendChild(el("span", "plugin-price" + (price > 0 ? " paid" : ""),
+      price > 0 ? "$" + price.toFixed(2) + " \u2014 paid sales not live" : "Free"));
+    c.appendChild(foot);
+    return c;
+  }
 
   function applyFilters(){
     const query = searchInput.value.toLowerCase().trim();
     const cat = filterCat.value;
     const price = filterPrice.value;
     const tier = filterTier.value;
-
-    cards.forEach(card=>{
-      const text = card.textContent.toLowerCase();
-      const matchQuery = !query || text.includes(query);
-      const matchCat = cat === "all" || card.dataset.category === cat;
-      const matchPrice = price === "all" || card.dataset.price === price;
-      const matchTier = tier === "all" || card.dataset.tier === tier;
-
-      card.style.display = (matchQuery && matchCat && matchPrice && matchTier) ? "" : "none";
+    grid.querySelectorAll(".plugin-card").forEach(c=>{
+      const matchQuery = !query || c.textContent.toLowerCase().includes(query);
+      const matchCat = cat === "all" || c.dataset.category === cat;
+      const matchPrice = price === "all" || c.dataset.price === price;
+      const matchTier = tier === "all" || c.dataset.tier === tier;
+      c.style.display = (matchQuery && matchCat && matchPrice && matchTier) ? "" : "none";
     });
   }
+
+  fetch("/marketplace/plugins")
+    .then(r=>{
+      if(r.status === 401 || r.status === 403){
+        throw new Error("This gateway requires its API key to list plugins, and this page does not carry one, so it cannot show them.");
+      }
+      if(!r.ok) throw new Error("Plugin listings could not be loaded (HTTP " + r.status + ").");
+      return r.json();
+    })
+    .then(data=>{
+      const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+      if(!plugins.length){
+        statusEl.textContent = "No plugins are listed on this gateway.";
+        return;
+      }
+      statusEl.textContent = plugins.length + (plugins.length === 1 ? " listing." : " listings.") +
+        " Listing a plugin does not install it, and nothing in the gateway loads one: the plugin loader is never called.";
+      const cats = new Set();
+      plugins.forEach(p=>{ grid.appendChild(card(p)); if(p.category) cats.add(String(p.category)); });
+      [...cats].sort().forEach(cat=>{
+        const o = el("option", "", cat); o.value = cat; filterCat.appendChild(o);
+      });
+    })
+    .catch(err=>{
+      statusEl.textContent = err && err.message ? err.message : "Plugin listings could not be loaded.";
+    });
 
   searchBtn.addEventListener("click", applyFilters);
   searchInput.addEventListener("keydown", e=>{
@@ -682,73 +537,6 @@ a:hover{text-decoration:underline}
   filterCat.addEventListener("change", applyFilters);
   filterPrice.addEventListener("change", applyFilters);
   filterTier.addEventListener("change", applyFilters);
-
-  // ── Install / Purchase ──
-  window.installPlugin = function(slug){
-    const btn = event.target;
-    btn.textContent = "Installing...";
-    btn.disabled = true;
-    setTimeout(()=>{
-      btn.textContent = "Installed";
-      btn.style.background = "var(--bg-surface)";
-      btn.style.color = "var(--green)";
-      btn.style.borderColor = "var(--border)";
-    }, 1200);
-  };
-
-  window.purchasePlugin = function(slug){
-    const btn = event.target;
-    btn.textContent = "Processing...";
-    btn.disabled = true;
-    setTimeout(()=>{
-      btn.textContent = "Purchased";
-      btn.classList.remove("purchase");
-      btn.classList.add("install");
-      btn.style.background = "var(--bg-surface)";
-      btn.style.color = "var(--green)";
-      btn.style.borderColor = "var(--border)";
-    }, 1500);
-  };
-
-  // ── Submit Plugin Form ──
-  window.submitPlugin = function(e){
-    e.preventDefault();
-    const btn = document.getElementById("submitPluginBtn");
-    btn.disabled = true;
-    btn.textContent = "Submitting...";
-
-    const payload = {
-      name: document.getElementById("pluginName").value,
-      description: document.getElementById("pluginDesc").value,
-      repository_url: document.getElementById("pluginRepo").value,
-      price: parseFloat(document.getElementById("pluginPrice").value) || 0,
-      email: document.getElementById("pluginEmail").value
-    };
-
-    fetch("/marketplace/submit", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    })
-    .then(r=> r.json())
-    .then(data=>{
-      if(data.status === "ok"){
-        btn.textContent = "Submitted! We will review within 48h.";
-        btn.style.background = "var(--bg-surface)";
-        btn.style.color = "var(--green)";
-        document.getElementById("submitPluginForm").reset();
-      } else {
-        alert(data.message || "Submission failed. Please try again.");
-        btn.textContent = "Submit for Review";
-        btn.disabled = false;
-      }
-    })
-    .catch(()=>{
-      alert("Connection error. Please check that the server is running.");
-      btn.textContent = "Submit for Review";
-      btn.disabled = false;
-    });
-  };
 
   // ── Fade-in observer ──
   const observer = new IntersectionObserver((entries)=>{

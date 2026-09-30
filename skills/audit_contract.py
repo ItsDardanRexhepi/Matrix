@@ -2,7 +2,7 @@
 Audit Contract — runs Glasswing security audit on Solidity source code.
 
 Performs a 12-point vulnerability scan covering SWC Registry patterns,
-access control, front-running, and gas optimization issues.
+access control and front-running. It has no gas check.
 """
 
 SKILL_NAME = "audit_contract"

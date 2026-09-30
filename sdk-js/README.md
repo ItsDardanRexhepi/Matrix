@@ -4,8 +4,15 @@ JavaScript/TypeScript SDK for the Matrix AI agent platform.
 
 ## Installation
 
+This package is not published to npm. Build it from your clone and install
+it from that directory:
+
 ```bash
-npm install @the-matrix/sdk
+cd sdk-js
+npm install
+npm run build
+cd ../your-app
+npm install ../path/to/your/clone/sdk-js
 ```
 
 ## Quick Start
@@ -41,8 +48,8 @@ for await (const event of stream) {
 | `readMemory(agent)` | Read agent memory |
 | `writeMemory(agent, key, value)` | Write to agent memory |
 | `getComponents()` | Get component registry |
-| `subscriptionStatus()` | Get subscription status |
-| `checkout(tier)` | Start checkout session |
+| `verifyIap(signedTransaction)` | Report a StoreKit-signed transaction for server verification |
+| `subscriptionStatus()`, `checkout(tier)` | Deprecated: the gateway has no subscription or checkout endpoint (subscriptions are Apple In-App Purchases); both throw |
 
 ### `MatrixWebSocket`
 

@@ -1,11 +1,17 @@
 """
-TierManager — classify contract complexity and calculate conversion fees.
+TierManager — classify contract complexity and quote a conversion fee.
 
-Tiered pricing model:
+Tiered quote (a quote only: no route or service collects it; see "Quoted, not
+collected" under Fees in docs/blockchain.md):
   - Simple  (<100 lines):  0.01 ETH
   - Medium  (100-500 lines): 0.05 ETH
   - Complex (500+ lines):  0.1  ETH
   - Custom:                negotiated (returns sentinel)
+
+The custom tier is decided first, on a complexity score that starts at the
+non-blank line count. With the default threshold of 200, any source of 200 or
+more non-blank lines is custom, so medium covers 100-199 lines and complex is
+reached only where ``conversion.custom_threshold`` is raised above 500.
 """
 
 from __future__ import annotations

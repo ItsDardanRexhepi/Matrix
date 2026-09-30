@@ -3,7 +3,7 @@ Agent Identity — on-chain identity for AI agents in The Matrix.
 
 Each agent (Neo, Trinity, Morpheus) can have an on-chain identity
 attested via EAS, enabling verifiable agent actions.
-Gas covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -50,7 +50,8 @@ class AgentIdentity(BlockchainInterface):
         return ("Manage on-chain agent identities: register one of the platform's agents "
                 "(neo, trinity, morpheus), verify a registration, read an identity. "
                 "attest_action is refused: the platform attests an action when it executes "
-                "it, never from a description. Gas covered by platform.")
+                "it, never from a description. Gas is paid by the platform within its "
+                "sponsorship policy.")
 
     @property
     def parameters(self) -> dict:
@@ -100,6 +101,7 @@ class AgentIdentity(BlockchainInterface):
                 "registered_at": int(time.time()),
                 "capabilities": self._get_capabilities(agent_name),
             },
+            operation="agent_identity.register",
         )
         # Cache the real attestation UID (only when the attest actually produced
         # one) so verify() can resolve this agent later. Never fabricate.

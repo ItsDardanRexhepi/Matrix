@@ -1,13 +1,17 @@
 """
-Component Deployer — installs approved components into the live runtime.
+Component Deployer — writes approved components into the runtime service directory.
 
 Only deploys components that have:
     1. Passed sanitization (is_clean == True)
     2. Been approved by Dardan (ApprovalStatus.APPROVED)
-    3. A valid manifest entry
 
-Deployment targets the Matrix runtime service directory, registers the
-component with the ServiceRegistry, and records an EAS attestation on-chain.
+It does not look for a manifest entry: bridge/manifest.py is not imported here.
+
+Deployment writes the component's files, and a _deployment.json, into the
+runtime service directory, and hashes a record of the deployment with sha256.
+It does not add the component to the service registry, whose map of services
+is fixed in its source, and it signs, sends and attests nothing: the result's
+`attested` stays False, and the hash is its `record_hash`.
 """
 
 from __future__ import annotations
@@ -38,8 +42,9 @@ class DeploymentResult:
     deployed_at: float = field(default_factory=time.time)
     target_path: str = ""
     error: str = ""
-    attested: bool = False
+    attested: bool = False         # nothing in the bridge attests
     attestation_uid: str = ""
+    record_hash: str = ""          # sha256 of the deployment's record
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,18 +57,19 @@ class DeploymentResult:
             "error": self.error,
             "attested": self.attested,
             "attestation_uid": self.attestation_uid,
+            "record_hash": self.record_hash,
         }
 
 
 class ComponentDeployer:
-    """Deploys approved, sanitized components into the Matrix runtime.
+    """Writes approved, sanitized components into the runtime service directory.
 
     Usage::
 
         deployer = ComponentDeployer(runtime_dir="runtime/blockchain/services")
         result = await deployer.deploy(bundle, sanitizer_result, approval)
         if result.success:
-            # Component is live
+            # The component's files are written; the service registry does not list it
             ...
     """
 
@@ -81,7 +87,7 @@ class ComponentDeployer:
         sanitizer_result: SanitizationResult,
         approval: ApprovalDecision,
     ) -> DeploymentResult:
-        """Deploy a component to the runtime.
+        """Write a component's files into the runtime service directory.
 
         Guards:
             - Sanitizer must have passed (is_clean == True)
@@ -149,14 +155,13 @@ class ComponentDeployer:
             target_path=str(target_path),
         )
 
-        # Record EAS attestation
+        # Hash the deployment's record. Nothing is attested: `attested` stays
+        # False and `attestation_uid` empty.
         try:
-            attestation_uid = await self._attest_deployment(bundle, deployment_id)
-            result.attested = True
-            result.attestation_uid = attestation_uid
+            result.record_hash = await self._hash_deployment_record(bundle, deployment_id)
         except Exception as exc:
             logger.warning(
-                "EAS attestation failed for %s (non-blocking): %s",
+                "Hashing the deployment record failed for %s (non-blocking): %s",
                 bundle.component_name, exc,
             )
 
@@ -207,23 +212,23 @@ class ComponentDeployer:
 
         return component_dir
 
-    async def _attest_deployment(
+    async def _hash_deployment_record(
         self,
         bundle: ExportBundle,
         deployment_id: str,
     ) -> str:
-        """Record an EAS attestation for this deployment.
+        """Hash a record of this deployment with sha256.
+
+        The record names the bridge's schema constant (empty) and the NeoSafe
+        address as the attester an attestation would use, but nothing signs,
+        sends or attests it: no EAS contract is called.
 
         Returns:
-            The attestation UID string.
-
-        Note:
-            In production this calls the EAS contract on Base mainnet.
-            Currently returns a deterministic placeholder UID.
+            The record's sha256 as 0x-prefixed hex.
         """
         from bridge import EAS_CONTRACT, EAS_SCHEMA_UID, NEOSAFE_ADDRESS
 
-        # Build attestation data
+        # The record an attestation would carry
         attestation_data = {
             "schema_uid": EAS_SCHEMA_UID,
             "attester": NEOSAFE_ADDRESS,
@@ -235,13 +240,13 @@ class ComponentDeployer:
             "timestamp": int(time.time()),
         }
 
-        # Deterministic UID from attestation data
+        # The record's sha256
         uid_hash = hashlib.sha256(
             json.dumps(attestation_data, sort_keys=True).encode()
         ).hexdigest()
 
         logger.info(
-            "EAS attestation recorded: schema=%s, attester=%s, uid=%s",
+            "Deployment record hashed, not attested: schema=%s, attester=%s, hash=%s",
             EAS_SCHEMA_UID, NEOSAFE_ADDRESS, uid_hash[:16],
         )
 

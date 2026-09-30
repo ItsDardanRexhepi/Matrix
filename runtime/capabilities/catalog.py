@@ -18,7 +18,8 @@ used by services) with the following shape:
         "state_modifying": bool,  # True if it writes to chain / DB
         "feed_event": str | None, # live social feed event name (or None)
         "min_tier": str,          # "free" | "pro" | "enterprise"
-        "uses_paymaster": bool,   # True if platform sponsors the tx
+        "uses_paymaster": bool,   # True if the platform signs it, so it is eligible
+                                  # for sponsorship; static, not this deployment's policy
         "protocol": str | None,   # external protocol tag (eigenlayer, pyth, ...)
         "available": bool,        # True when backend+contracts deployed
     }
@@ -127,7 +128,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("convert_contract",       "Convert to Solidity",      "contracts", "contract_conversion", "convert",
          "Convert structured declarations (pseudocode, Solidity, Vyper) into Solidity scaffolding",
          feed_event="contract_converted"),
-    _cap("estimate_contract_cost", "Estimate Deployment Cost", "contracts", "contract_conversion", "estimate_cost",
+    _cap("estimate_contract_cost", "Quote Conversion Fee",     "contracts", "contract_conversion", "estimate_cost",
          state_modifying=False, uses_paymaster=False),
     _cap("list_templates",         "List Contract Templates",  "contracts", "contract_conversion", "get_available_templates",
          state_modifying=False, uses_paymaster=False),
@@ -236,7 +237,7 @@ CAPABILITIES: list[dict[str, Any]] = [
     # key signs no attestation a request composes and revokes none a request
     # names (runtime/access_policy.py REFUSED_ON_REQUEST). Routed, so a caller
     # gets the refusal, not a 404.
-    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest",       available=False),
+    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest_for_caller", available=False),
     _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke",       available=False),
     _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest", available=False),
 

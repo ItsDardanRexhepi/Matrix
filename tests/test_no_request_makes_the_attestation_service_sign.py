@@ -257,11 +257,13 @@ async def test_the_platforms_own_code_still_reaches_the_service(monkeypatch):
 
     ran = []
 
-    async def attest(self, schema_uid, data, recipient, time_critical=False):
+    # create_attestation runs attest_for_caller, and both it and attest run
+    # the service's one signing path, _attest.
+    async def _attest(self, schema_uid, data, recipient, time_critical=False, **metering):
         ran.append(("attest", recipient))
         return {"status": "queued"}
 
-    monkeypatch.setattr(AttestationService, "attest", attest)
+    monkeypatch.setattr(AttestationService, "_attest", _attest)
     d = ServiceDispatcher({})
     d._get_registry()._instances["attestation"] = AttestationService({})
     await d.execute("create_attestation", params={

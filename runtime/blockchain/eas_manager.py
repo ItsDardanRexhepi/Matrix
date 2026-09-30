@@ -7,14 +7,15 @@ the platform's key, so one whose action, agent and recipient the request
 writes is the platform vouching for whatever it was told, and a revocation of
 an attestation the request names voids a record about somebody else. The
 platform attests what it does when it does it; revoking is not a request's to
-make (register entry::B3-ATTEST-SIBLING, entry::U-ATTEST-AXIS). Gas covered by
-the platform.
+make (register entry::B3-ATTEST-SIBLING, entry::U-ATTEST-AXIS). Gas is paid by
+the platform within its sponsorship policy.
 """
 
 import json
 import logging
 
 from runtime.blockchain.interface import BlockchainInterface
+from runtime.blockchain.sponsorship import SponsorshipDenied
 from runtime.protocols.outcome_truth import refusal
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ class EASManager(BlockchainInterface):
         return ("Manage EAS attestations: create a schema, query an attestation. attest, "
                 "batch_attest and revoke are refused: the platform key signs no attestation "
                 "whose content a request writes, and revokes none a request names. "
-                "Gas covered by platform.")
+                "Gas is paid by the platform within its sponsorship policy.")
 
     @property
     def parameters(self) -> dict:
@@ -66,7 +67,7 @@ class EASManager(BlockchainInterface):
             code="unknown_action")
 
     async def _create_schema(self, params: dict) -> str:
-        """Create a new EAS schema on-chain via the SchemaRegistry. Gas covered by platform."""
+        """Create a new EAS schema on-chain via the SchemaRegistry. Gas is paid by the platform within its sponsorship policy."""
         try:
             from web3 import Web3
 

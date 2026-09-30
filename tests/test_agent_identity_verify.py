@@ -80,7 +80,7 @@ def test_an_agent_registered_under_any_spelling_verifies_under_it(monkeypatch, w
     not; passes where neither does, and where both do."""
     import asyncio
 
-    async def fake_attest(self, action, agent, details, recipient="0x" + "0" * 40):
+    async def fake_attest(self, action, agent, details, recipient="0x" + "0" * 40, **metering):
         return {"status": "attested", "uid": UID}
 
     async def fake_verify(self, uid):

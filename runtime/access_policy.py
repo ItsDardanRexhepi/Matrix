@@ -151,15 +151,16 @@ def dispatch_pair(action: object, service: object = None) -> tuple[str, str] | N
 # platform_action ``service`` override onto the same method is the same answer.
 #
 # The attestation service signs with the platform's key (a time-critical
-# category and a revocation through the unmetered signer), and these three take
+# category and a revocation through the unmetered signer), and these four take
 # what it signs from the request: the schema, the data — its action, its agent,
 # its category — and the recipient; or the uid of any attestation the platform
 # ever made, to void it. The platform attests what it EXECUTES: the
 # dispatcher's own record of an action it ran, each service's record of an
 # operation it performed. Those are called in process and never come through a
-# door, so they are untouched. The twin ``eas`` tool refuses the same three
-# (runtime/blockchain/eas_manager.py); tests/test_no_request_makes_the_
-# attestation_service_sign.py drives every door that reaches the dispatcher.
+# door, so they are untouched. The twin ``eas`` tool refuses its own attest,
+# batch_attest and revoke (runtime/blockchain/eas_manager.py);
+# tests/test_no_request_makes_the_attestation_service_sign.py drives every
+# door that reaches the dispatcher.
 _PLATFORM_KEY_STATEMENT = (
     "The platform's key signs no attestation a request composes and revokes none "
     "a request names; the platform attests an action when it executes it. "
@@ -198,6 +199,10 @@ _ACCOUNT_AUTHORITY_STATEMENT = (
     "the account the request names to a new owner or a new key. Nothing was signed.")
 REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
     ("attestation", "attest"): _PLATFORM_KEY_STATEMENT,
+    # The create_attestation capability's method: attest's mechanics, metered
+    # against the caller, but the schema, the data and the recipient are still
+    # the request's, signed with the platform's key.
+    ("attestation", "attest_for_caller"): _PLATFORM_KEY_STATEMENT,
     ("attestation", "batch_attest"): _PLATFORM_KEY_STATEMENT,
     ("attestation", "revoke"): _PLATFORM_KEY_STATEMENT,
     ("advanced_governance", "submit_retropgf"): _PLATFORM_KEY_STATEMENT,

@@ -54,7 +54,9 @@ def attests(monkeypatch):
     """Every call that would have reached the platform-signed EAS attest."""
     calls = []
 
-    async def spy(self, action, agent, details, recipient="0x" + "0" * 40):
+    async def spy(self, action, agent, details, recipient="0x" + "0" * 40, **metering):
+        # ``metering`` is the operation and identity the sponsorship policy
+        # meters the write under; what is signed is the four above.
         calls.append({"action": action, "agent": agent, "recipient": recipient})
         return {"status": "skipped", "reason": "test spy"}
 
