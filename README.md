@@ -473,9 +473,13 @@ check behind it:
   not name. `POST /api/v1/stablecoin/transfer` is not a session route: it
   records a transfer from the sender the body names, which nothing binds
   to the caller, and `transfer_stablecoin` is refused to a session at
-  every dispatcher with it. The component registry the app reads offers a
-  session none of the refused or handed-on actions, and the capability
-  invoke route runs nothing the catalog marks unavailable, whoever asks
+  every dispatcher with it. The component registry the app reads offers
+  none of the actions `runtime/access_policy.py` refuses a session, itself
+  or with what it hands the call to; it still offers 22 actions whose
+  dedicated routes a session is refused, `transfer_stablecoin` among them,
+  and every dispatcher refuses a session each of those as its route does.
+  The capability invoke route runs nothing the catalog marks unavailable,
+  whoever asks
 - **Identity is derived from your session**, not from a field in the
   request body, on all four chat entrances; a conversation belongs to
   whoever started it, and an id shaped like someone's account is refused
