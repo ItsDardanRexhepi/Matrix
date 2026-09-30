@@ -162,7 +162,8 @@ lambda or a def inside the method, alone or inside a dict, a list, a partial
 or any other value. A module name holds every value written into it: by the
 module's statements at any depth (an assignment of any form, a ``for`` or
 ``with`` target, ``n[k] = v``, ``n.append(v)`` and the mutators ``update``,
-``extend``, ``insert``, ``setdefault`` and ``add``), by a statement of a class
+``extend``, ``insert``, ``setdefault``, ``add`` and ``__setitem__``, the seven
+``signing.MUTATORS`` names), by a statement of a class
 body that writes into it, and by any function or lambda of that module that
 declares it ``global`` or writes into it without binding it; and a call
 the module or a class body makes hands a parameter what it passes, as a
@@ -216,10 +217,13 @@ a mapping holds which callable (a call on any element reaches every callable
 the mapping holds); a write into a module name, a class attribute or a held
 table made from another module (``front.HOOKS.append(...)``, or a name
 imported from it), through an alias of it or through a parameter a function
-writes into; a mutator other than those named (a queue's ``put_nowait``,
-``heapq.heappush``); an HTTP library bound by ``__import__`` or
-``importlib.import_module``; an attribute looked up by what the walk cannot
-read in code no action reaches; a request sent by any shape not named above; code
+writes into; a class attribute written through the class's name outside its
+body and its methods (``Front.sink = fn`` at module level or in a function,
+``setattr(Front, "sink", fn)``); a mutator other than the seven named (a
+queue's ``put_nowait``, ``heapq.heappush``); a call made on an HTTP library
+bound by ``__import__`` or ``importlib.import_module`` (a client built from it
+inside ``with`` is read); a ``getattr`` by a computed name in code no action
+reaches; a request sent by any shape not named above; code
 replaced at run time. What a parameter carries is read for every call
 together, not call by call, so a value one caller hands a helper is taken as
 what every caller hands it. A dedicated ``/api/v1`` route a session reaches

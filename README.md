@@ -482,11 +482,13 @@ check behind it:
   layer: another method of its class, a function, a method of another
   service or of an object the service holds, the object's class read from
   what builds it and carried through the forms its docstring names, and a
-  method or a function held on `self`, in a class attribute or a module
-  name (whatever statement or function of that module writes it there; a
-  write from another module, through an alias or through a parameter, and
-  a mutator outside `update`, `append`, `extend`, `insert`, `setdefault`
-  and `add`, is not read),
+  method or a function held on `self`, in a class attribute (set in the
+  class body or by a method through `self`) or in a module name (whatever
+  statement or function of that module writes it there, by assignment or
+  through `update`, `append`, `extend`, `insert`, `setdefault`, `add` or
+  `__setitem__`; a write from another module, through an alias or through
+  a parameter, another mutator, and a class attribute written through the
+  class's name outside its body and methods, are not read),
   in a lambda or handed to another object that holds it; an attribute
   `getattr` or `setattr` names by a constant is read as that attribute. It
   fails on any action that reaches what the walks find and is not refused,
@@ -498,13 +500,14 @@ check behind it:
   read; on a table entry the walks do not find; on a call in that reach on
   an object it cannot place whose method has the name of one that reaches
   a send; and on a call through a callable held on `self` or in a module
-  name that it cannot place. In code an action reaches, it fails on an
-  attribute or a name looked up or written by what it cannot read
-  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...).
-  Anywhere in the services layer, it fails on a decorator it does not
-  read and on an HTTP library an import statement binds under another
-  name; one bound by `__import__` or `importlib.import_module` is not
-  read. A read that carries a platform credential
+  name that it cannot place. In code an action reaches, it fails on a
+  `getattr` by a computed name. Anywhere in the services layer, it fails
+  on an attribute or a name written or looked up by what it cannot read
+  (`setattr` by a computed name, `vars`, `globals`, `__dict__`, ...), on a
+  decorator it does not read and on an HTTP library an import statement
+  binds under another name; a call made on a library bound by
+  `__import__` or `importlib.import_module` is not read (a client built
+  from it inside `with` is). A read that carries a platform credential
   and only query values the request writes, to an address the platform
   fixes, is kept for a session and listed with its reason: the weather
   reading and the cross-chain message tracker. It does not read an amount,

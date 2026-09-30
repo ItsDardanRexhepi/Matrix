@@ -35,7 +35,9 @@ four fields is answered 400 when the handler's float() reads its amount: a
 number between -1e308 and 1e308 among others (true, false and a string such
 as "5" too). It is answered 500 when float() raises: an amount that is null,
 a list, an object, a string float() cannot read as a number, or an integer
-beyond the largest float (about 1.8e308, of either sign), which is a number.
+of up to 4,300 digits beyond the largest float (about 1.8e308, of either sign),
+which is a number; an integer of more digits is refused by the body's parser as
+not JSON, and answered 400.
 So each sentence that says a body with the four fields is answered 400 must
 say which amount, as a number between -1e308 and 1e308, and no text may say
 "an amount that is a number" without that range; each kind of body
