@@ -2,7 +2,7 @@
 
 Every Web3 capability accessible through the gateway, organized by category.
 
-State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`). That policy binds them only when it sets a per-identity daily cap: then an operation past the cap, not on the action allowlist, or not attributable to a signed-in identity is refused rather than charged to the user. With no cap set, the allowlist applies only to app-signed user operations sent to `/api/v1/paymaster/sign`, and the platform signs a capability's transaction without reading the allowlist. The attestation capabilities (`create_attestation`, `batch_attest`, `revoke_attestation`) are metered the same way, as `attestation.<method>`, and so are 13 actions of Neo's blockchain tools `eas`, `agent_identity`, `identity`, `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain`, each under its own name. The writes listed in `UNMETERED_PLATFORM_OPERATIONS` are the platform's own records, signed with the platform key with no policy check: the service dispatcher's record of each state-modifying action it completes, `convert_contract`'s record of a contract it deployed with `conversion.auto_deploy` on, and the real-estate routes' records with `services.real_estate.enabled` set; the list also holds `GasSponsor.sponsor_transaction`, which nothing calls. [`docs/blockchain.md`](blockchain.md#signed-with-the-platform-key-with-no-policy-check) lists every path by file and function. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. Every capability in the catalog is free tier (its `min_tier` is `free`), so the tables carry no tier column.
+State-modifying capabilities below are signed by the platform, which pays their gas within the operator's sponsorship policy (`runtime/blockchain/sponsorship.py`). An action allowlist, when the policy sets one, binds the platform's signature with or without a daily cap: an operation not on the list is refused, and so is an app-signed user operation sent to `/api/v1/paymaster/sign`. A per-identity daily cap, when the policy sets one, also refuses an operation past the cap or not attributable to a signed-in identity, rather than charging it to the user. With neither set, the platform signs a capability's transaction without a limit. The attestation capabilities (`create_attestation`, `batch_attest`, `revoke_attestation`) are refused at every door, whoever asks, and are metered, as `attestation.attest`, `attestation.batch_attest` and `attestation.revoke`, only where the platform's own code calls them in process: the platform's key signs no attestation a request composes and revokes none a request names. 10 actions of Neo's blockchain tools `agent_identity`, `identity`, `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`, `securities` and `supply_chain` are metered the same way, each under its own name; the `eas` tool's `attest`, `batch_attest` and `revoke` are refused. The writes listed in `UNMETERED_PLATFORM_OPERATIONS` are the platform's own records, signed with the platform key with no policy check: the service dispatcher's record of each state-modifying action it completes, `convert_contract`'s record of a contract it deployed with `conversion.auto_deploy` on, and the real-estate routes' records with `services.real_estate.enabled` set; the list also holds `GasSponsor.sponsor_transaction`, which nothing calls. [`docs/blockchain.md`](blockchain.md#signed-with-the-platform-key-with-no-policy-check) lists every path by file and function. Read-only capabilities don't touch a chain. Some operations carry a platform fee; see **Fees** in `docs/blockchain.md`. Every capability in the catalog is free tier (its `min_tier` is `free`), so the tables carry no tier column.
 
 ---
 
@@ -12,7 +12,8 @@ The canonical inventory lives in [`runtime/capabilities/catalog.py`](../runtime/
 
 - **195 capabilities** across **20 categories**, backed by **43 services** in `runtime/blockchain/services/`. The catalog declares a twenty-first category, Security & Wallets, that holds none.
 - Every capability has an `id`, `category`, `subcategory`, `service`, `method`, `action`, `params_schema`, `min_tier` (the field takes `free`, `pro` or `enterprise`, and is `free` for every capability), `uses_paymaster` flag, `protocol` tag, and `available` flag.
-- Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them.
+- Capabilities marked `available: false` are catalogued but still awaiting backend or contract deployment — they appear in the API with `"available": false` so clients can feature-flag them, and `POST /api/v1/capabilities/{id}/invoke` does not run one: it answers `503` with `"error": "unavailable"`, whoever asks. `/bridge/v1/action` and the chat agents' tools still dispatch one for a caller they otherwise allow. In the tables below, "via capability registry" names the catalog entry.
+- A row marked **operator key only** is refused to a user session, and to chat acting for one, at every door a session reaches: the platform's wallet or a platform credential would sign, pay, publish or authorise what the request names, or the platform's server would send, with a platform credential, a request whose address, method, headers, query names or body the request writes, by the row's own method or by the method it hands the call to (the row says which). Transfer Stablecoin's dedicated route is one a session may not reach, and its operation is refused to a session at every dispatcher with it. A row marked **a session names only its own address** is kept for a session and must name the address it is bound to. The lists are in `runtime/access_policy.py` (`REFUSED_TO_A_SESSION`, `HANDS_THE_CALL_TO`, `BOUND_TO_THE_CALLER`) and `gateway/session_routes.py`, and `tests/test_no_session_has_the_platform_act_on_what_it_names.py` derives the three tables from the source, through the shapes it names, and reads what rides in each request the services layer sends. The generic oracle request (`oracle_request`, no row of its own) answers a session a price, a weather reading or randomness only, and any other value of its type, of any type, is refused (`HELD_FOR_A_SESSION`).
 
 Discover and invoke them over HTTP:
 
@@ -67,12 +68,12 @@ The sections below organise every capability by its high-level category. Older c
 |---|---|---|---|
 | Bridge Quote | Get a cross-chain bridge quote | POST /api/v1/defi/bridge/quote | Stargate, Hop, Across |
 | Bridge Execute | Execute a cross-chain bridge transfer | POST /api/v1/defi/bridge/execute | Stargate, Hop, Across |
-| Bridge via CCIP | Transfer tokens using Chainlink CCIP | via capability registry | Chainlink CCIP |
-| Cross-chain Message | Send an arbitrary message across chains | via capability registry | CCIP, Hyperlane |
-| Bridge via Hyperlane | Transfer using Hyperlane | via capability registry | Hyperlane |
-| Bridge via Wormhole | Transfer using Wormhole | via capability registry | Wormhole |
-| Bridge via Axelar | Transfer using Axelar GMP | via capability registry | Axelar |
-| Bridge via Stargate | Transfer stablecoins using Stargate | via capability registry | Stargate |
+| Bridge via CCIP | Transfer the platform's own tokens using Chainlink CCIP; it carries no message, and a request that brings one is refused | via capability registry · operator key only | Chainlink CCIP |
+| ~~Cross-chain Message~~ **REFUSED** | The receiving chain reads the platform's wallet as the sender of a message the request wrote. Refused in the service and at every door. | via capability registry → refused | CCIP |
+| ~~Bridge via Hyperlane~~ **REFUSED** | A Mailbox.dispatch of the request's message body from the platform's wallet; it moved no token. Refused in the service and at every door. | via capability registry → refused | Hyperlane |
+| ~~Bridge via Wormhole~~ **REFUSED** | A publishMessage of the request's payload with the platform as emitter; it moved no token. Refused in the service and at every door. | via capability registry → refused | Wormhole |
+| ~~Bridge via Axelar~~ **REFUSED** | A callContract with the request's payload to the request's contract, from the platform's wallet; it moved no token. Refused in the service and at every door. | via capability registry → refused | Axelar |
+| Bridge via Stargate | Transfer stablecoins using Stargate | via capability registry · operator key only | Stargate |
 | Query Remote Chain | Read state from a foreign chain | via capability registry | CCIP |
 
 ---
@@ -85,13 +86,13 @@ The sections below organise every capability by its high-level category. Older c
 | Unstake | Unstake tokens and claim rewards | POST /api/v1/staking/unstake | native |
 | Claim Staking Rewards | Claim accrued staking rewards | via capability registry | native |
 | Get Staking Position | View current staking position | via capability registry | native |
-| Liquid Stake (Lido) | Obtain stETH by liquid-staking ETH with Lido | via capability registry | Lido |
+| Liquid Stake (Lido) | Obtain stETH by liquid-staking ETH with Lido | via capability registry · operator key only | Lido |
 | Liquid Stake (Rocket Pool) | Obtain rETH by liquid-staking with Rocket Pool | via capability registry | Rocket Pool |
-| Restake on EigenLayer | Restake LSTs to EigenLayer AVSs | via capability registry | EigenLayer |
-| Restake on Symbiotic | Restake via Symbiotic | via capability registry | Symbiotic |
-| Restake on Karak | Restake via Karak | via capability registry | Karak |
-| Delegate to Operator | Delegate restaked capital to an AVS operator | via capability registry | EigenLayer |
-| Withdraw Restake | Initiate withdrawal from restaking | via capability registry | EigenLayer, Symbiotic, Karak |
+| Restake on EigenLayer | Restake LSTs to EigenLayer AVSs | via capability registry · operator key only | EigenLayer |
+| Restake on Symbiotic | Restake via Symbiotic | via capability registry · operator key only | Symbiotic |
+| Restake on Karak | Restake via Karak | via capability registry · operator key only | Karak |
+| Delegate to Operator | Delegate restaked capital to an AVS operator | via capability registry · operator key only | EigenLayer |
+| Withdraw Restake | Initiate withdrawal from restaking | via capability registry · operator key only | EigenLayer, Symbiotic, Karak |
 
 ---
 
@@ -123,11 +124,11 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
-| Borrow Against NFT | Take a loan collateralised by an NFT | via capability registry | BendDAO, NFTfi |
-| Liquidate NFT Loan | Liquidate a defaulted NFT loan | via capability registry | BendDAO, NFTfi |
-| Breed NFT | Breed two NFTs to produce a new one | via capability registry | custom |
-| Create Token-bound Account | Deploy an ERC-6551 account for a token | via capability registry | ERC-6551 |
-| Execute As TBA | Execute a transaction from a token-bound account | via capability registry | ERC-6551 |
+| Borrow Against NFT | Take a loan collateralised by an NFT | via capability registry · operator key only | BendDAO, NFTfi |
+| Liquidate NFT Loan | Liquidate a defaulted NFT loan | via capability registry · operator key only | BendDAO, NFTfi |
+| Breed NFT | Breed two NFTs to produce a new one; the call goes from the platform's wallet to the breeding contract the request names | via capability registry · operator key only | custom |
+| Create Token-bound Account | Deploy an ERC-6551 account for a token | via capability registry · operator key only | ERC-6551 |
+| ~~Execute As TBA~~ **REFUSED** | Signed the request's call (a delegatecall if asked) from the platform's wallet, with the platform's ETH, to whatever contract the request named. Refused in the service and at every door. | via capability registry → refused | ERC-6551 |
 
 ---
 
@@ -142,11 +143,11 @@ The sections below organise every capability by its high-level category. Older c
 | Issue Credential | Issue a verifiable credential to a subject | POST /api/v1/identity/credential/issue | W3C VC, EAS |
 | Verify Credential | Verify the validity of a credential | POST /api/v1/identity/credential/verify | W3C VC, EAS |
 | Reputation Query | Query aggregated on-chain reputation for an agent | via capability registry | custom |
-| Start KYC | Start a KYC session with the configured provider | via capability registry | Sumsub, Persona |
-| Check AML Risk | Screen an address for AML risk | via capability registry | Sumsub, Persona |
-| Issue KYC Credential | Issue a KYC-verified credential after approval | via capability registry | W3C VC |
+| Start KYC | Start a KYC session with the configured provider | via capability registry · operator key only | Sumsub, Persona |
+| Check AML Risk | Screen an address for AML risk | via capability registry · operator key only | Sumsub, Persona |
+| ~~Issue KYC Credential~~ **REFUSED** | The verification it attested was read from the request. Refused at every door until the service fetches the provider's own result. | via capability registry → refused | W3C VC |
 | Register / Update / Deregister Agent | Manage an AI agent identity | via capability registry | custom |
-| Create / Revoke / Batch Attest | On-chain attestations | via capability registry | EAS |
+| ~~Create / Revoke / Batch Attest~~ **REFUSED** | The platform's key signs no attestation a request composes and revokes none a request names; it attests an action when it executes it. Refused at every door. | via capability registry → refused | EAS |
 | Attestation Verify | Verify an on-chain attestation by UID | GET /api/v1/attestation/verify/{uid} | EAS |
 | ZK Proof | Generate a zero-knowledge proof for a claim | POST /api/v1/identity/zk-proof/generate | Semaphore, zkSNARK |
 
@@ -169,9 +170,9 @@ The sections below organise every capability by its high-level category. Older c
 | Parameter Change | Mutate a governed protocol parameter | via capability registry | Governor |
 | Vote-Escrow Lock | Lock tokens in a veToken gauge | via capability registry | Curve, Balancer |
 | Quadratic Vote | Cast a quadratic vote | via capability registry | Gitcoin, custom |
-| Submit RetroPGF | Submit a retroactive public-goods funding claim | via capability registry | Optimism RetroPGF |
-| Place Gauge Bribe | Bribe a gauge for vote weight | via capability registry | Convex, Hidden Hand |
-| Delegate Voting Power | Delegate voting to another address | via capability registry | Governor |
+| ~~Submit RetroPGF~~ **REFUSED** | Attested, with the platform's key, an application and recipient the request wrote. Refused in the service and at every door. | via capability registry → refused | Optimism RetroPGF |
+| Place Gauge Bribe | Bribe a gauge for vote weight | via capability registry · operator key only | Convex, Hidden Hand |
+| Delegate Voting Power | Delegate voting to another address | via capability registry · operator key only | Governor |
 | File / Submit Evidence / Resolve / Appeal Dispute | Dispute resolution lifecycle | POST /api/v1/dispute/file | custom |
 | Arbitration Request | Request third-party arbitration | via capability registry | custom |
 
@@ -188,11 +189,11 @@ The sections below organise every capability by its high-level category. Older c
 | Create Community | Launch a token-gated community | POST /api/v1/social/community/create | custom |
 | ~~Send Message (XMTP)~~ **NOT AVAILABLE** | The route answers 501 on every request: no message-sending implementation exists, and the route is not pointed at the method that reports delivery without delivering. | POST /api/v1/social/message/send → 501 | — |
 | Encrypted Message | Encrypt a payload for a recipient | via capability registry | XMTP |
-| Create Lens Profile | Mint a profile on the Lens Protocol | via capability registry | Lens |
-| Publish Farcaster Cast | Post a cast on Farcaster | via capability registry | Farcaster |
-| Subscribe to Push | Subscribe to Push Protocol notification channels | via capability registry | Push Protocol |
-| Launch Social Token | Launch a personal social token | via capability registry | custom |
-| Launch Creator Coin | Launch a creator coin with a bonding curve | via capability registry | custom |
+| Create Lens Profile | Mint a profile on the Lens Protocol | via capability registry · a session names only its own address | Lens |
+| Publish Farcaster Cast | Post a cast on Farcaster | via capability registry · operator key only | Farcaster |
+| Subscribe to Push | Subscribe to Push Protocol notification channels | via capability registry · a session names only its own address | Push Protocol |
+| Launch Social Token | Launch a personal social token | via capability registry · a session names only its own address | custom |
+| Launch Creator Coin | Launch a creator coin with a bonding curve | via capability registry · a session names only its own address | custom |
 
 ---
 
@@ -201,9 +202,9 @@ The sections below organise every capability by its high-level category. Older c
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
 | Monetize Content | Enable paywalls, tips, and subscriptions on content | via capability registry | custom |
-| Mint Sound.xyz Drop | Release a music drop on Sound.xyz | via capability registry | Sound.xyz |
-| Publish Mirror Post | Publish a long-form post on Mirror | via capability registry | Mirror |
-| Publish Paragraph Post | Publish a Paragraph newsletter | via capability registry | Paragraph |
+| Mint Sound.xyz Drop | Release a music drop on Sound.xyz | via capability registry · operator key only | Sound.xyz |
+| Publish Mirror Post | Publish a long-form post on Mirror | via capability registry · operator key only | Mirror |
+| Publish Paragraph Post | Publish a Paragraph newsletter | via capability registry · operator key only | Paragraph |
 | Register IP | Register intellectual property on-chain | via capability registry | EAS |
 | Transfer IP | Transfer IP ownership | via capability registry | custom |
 | License IP | Grant a license for intellectual property | via capability registry | custom |
@@ -218,9 +219,9 @@ The sections below organise every capability by its high-level category. Older c
 | Create Payment | Create a one-time x402 payment record, pending until it is authorised, with the agent's spend limits checked: recorded, not settled — no value moves | POST /api/v1/payments/create | x402 |
 | Complete Payment | Close an authorised x402 payment's record: recorded, not settled — no value moves (authorising and refunding are service methods, not registry capabilities) | via capability registry | x402 |
 | Send Payment | Record a cross-border payment to a wallet, with a flat 0.5% fee: recorded, not settled — no value moves | via capability registry | none (a record) |
-| Transfer Stablecoin | Record a stablecoin transfer on the service's in-memory ledger (tiered platform fee, 0.01%–0.1% by default): recorded, not settled — no value moves. The ledger starts empty and only a test helper funds it, so a transfer is refused for insufficient balance | via capability registry. POST /api/v1/stablecoin/transfer records nothing, whatever the body: a caller it admits who sends the four fields its handler requires, with an amount that is a number between -1e308 and 1e308, is answered 400, because its handler passes `sender` and `recipient` and the service's transfer takes `from_addr` and `to_addr` | USDC, USDT, DAI |
+| Transfer Stablecoin | Record a stablecoin transfer on the service's in-memory ledger (tiered platform fee, 0.01%–0.1% by default): recorded, not settled — no value moves; the sender is the one the request names. The ledger starts empty and only a test helper funds it, so a transfer is refused for insufficient balance | via capability registry · operator key only. POST /api/v1/stablecoin/transfer records nothing, whatever the body, and admits the operator key only: a caller it admits who sends the four fields its handler requires, with an amount that is a number between -1e308 and 1e308, is answered 400, because its handler passes `sender` and `recipient` and the service's transfer takes `from_addr` and `to_addr` | USDC, USDT, DAI |
 | Cross-Border Payment | Record a cross-border payment with FX conversion and a flat 0.5% fee: recorded, not settled — no value moves, and no payment provider is called | POST /api/v1/crossborder/send | none (a record) |
-| Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | via capability registry | state channels |
+| Open / Route / Close Channel | State-channel lifecycle for off-chain micropayments | via capability registry · operator key only | state channels |
 
 ---
 
@@ -232,9 +233,9 @@ The sections below organise every capability by its high-level category. Older c
 | ~~Private Transfer~~ **REMOVED** | Moved no balance, hardcoded `"shielded": true`, echoed amounts in plaintext (NEW-36). Removed, not gated — Railgun/Aztec were never integrated. | — | — |
 | ~~Stealth Address~~ **REMOVED** | Returned `0x` + random hex — an address with no key anyone holds; funds sent there were unrecoverable. Declared ERC-5564, implemented nothing. | — | — |
 | ZK Proof Generate | Generate a zero-knowledge proof | via capability registry | Semaphore, zkSNARK |
-| MPC Sign | Threshold-sign a transaction using an MPC quorum | via capability registry | MPC threshold sig |
-| Social Recovery | Recover a wallet through a social guardian set | via capability registry | custom |
-| Session Key | Issue a scoped session key for dApp interactions | via capability registry | ERC-4337 session keys |
+| MPC Sign | Threshold-sign a transaction using an MPC quorum | via capability registry · operator key only | MPC threshold sig |
+| ~~Social Recovery~~ **REFUSED** | Sent `initiateRecovery(account, newOwner)` from the platform's wallet with both addresses the request's, so the platform's standing with the recovery module, not the account holder's, authorized handing the account to a new owner. Refused in the service and at every door. | via capability registry → refused | custom |
+| ~~Session Key~~ **REFUSED** | Sent `registerSessionKey(account, key, validUntil)` from the platform's wallet with all three the request's, so the platform's standing with the module authorized a key of the request's choosing on an account of its choosing. Refused in the service and at every door. | via capability registry → refused | ERC-4337 session keys |
 
 ---
 
@@ -246,9 +247,9 @@ The sections below organise every capability by its high-level category. Older c
 | Oracle VRF | Request verifiable randomness | via capability registry | Chainlink VRF |
 | Weather Oracle | Query weather data for an address | via capability registry | custom |
 | Pyth Pull | Pull a Pyth price update on demand | via capability registry | Pyth |
-| RedStone Request | Fetch a signed RedStone data package | via capability registry | RedStone |
+| RedStone Request | Fetch a signed RedStone data package; with the platform's API key, at the data-service path the request names | via capability registry · operator key only | RedStone |
 | API3 Query | Query a first-party API3 dAPI | via capability registry | API3 |
-| Register Keeper Job | Register a Chainlink Keeper / upkeep job | via capability registry | Chainlink Keepers |
+| Register Keeper Job | Register a Chainlink Keeper / upkeep job | via capability registry · operator key only | Chainlink Keepers |
 
 ---
 
@@ -256,12 +257,12 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
-| Decentralized Store | Store data on a decentralised storage network | POST /api/v1/compute/store | IPFS, Arweave, Filecoin |
-| IPFS Pin | Pin content on IPFS for persistence | POST /api/v1/compute/ipfs/pin | IPFS |
+| Decentralized Store | Store data on a decentralised storage network; hands the call to Filecoin Store | POST /api/v1/compute/store · operator key only | IPFS, Arweave, Filecoin |
+| IPFS Pin | Pin content on IPFS for persistence; hands the call to Filecoin Store | POST /api/v1/compute/ipfs/pin · operator key only | IPFS |
 | ~~Arweave Store~~ **NOT AVAILABLE** | The route answers 501 on every request: the platform has no Arweave upload client, and nothing is stored by a call. | POST /api/v1/compute/arweave/store → 501 | — |
-| Filecoin Store | Make a Filecoin storage deal | via capability registry | Filecoin |
-| Ceramic Stream | Create a mutable Ceramic stream | via capability registry | Ceramic |
-| OrbitDB Write | Write to an OrbitDB peer-to-peer database | via capability registry | OrbitDB |
+| Filecoin Store | Make a Filecoin storage deal | via capability registry · operator key only | Filecoin |
+| Ceramic Stream | Create a mutable Ceramic stream | via capability registry · operator key only | Ceramic |
+| OrbitDB Write | Write to an OrbitDB peer-to-peer database | via capability registry · operator key only | OrbitDB |
 
 ---
 
@@ -269,10 +270,10 @@ The sections below organise every capability by its high-level category. Older c
 
 | Capability | Description | Gateway Endpoint | Protocols |
 |---|---|---|---|
-| Submit Compute Job | Submit a decentralised compute job | via capability registry | Akash, Gensyn, Render |
-| Rent DePIN Device | Rent a device on a DePIN network | via capability registry | custom |
-| Claim Compute Reward | Claim rewards for running compute workers | via capability registry | custom |
-| Legacy Compute Submit | Submit a job through the legacy compute pipeline | via capability registry | custom |
+| Submit Compute Job | Submit a decentralised compute job | via capability registry · operator key only | Akash, Gensyn, Render |
+| Rent DePIN Device | Rent a device on a DePIN network | via capability registry · operator key only | custom |
+| Claim Compute Reward | Claim rewards for running compute workers | via capability registry · operator key only | custom |
+| Legacy Compute Submit | Submit a job through the legacy compute pipeline; hands the call to Submit Compute Job | via capability registry · operator key only | custom |
 
 ---
 
@@ -309,7 +310,7 @@ The sections below organise every capability by its high-level category. Older c
 | Create Prediction Market | Create a new prediction market | via capability registry | Polymarket, custom |
 | Place Prediction Bet | Place a bet on a prediction market outcome | via capability registry | Polymarket, custom |
 | Resolve Market | Resolve a market to a final outcome | via capability registry | Polymarket, custom |
-| Create Auction | Create an English, Dutch, or sealed-bid auction | via capability registry | custom |
+| Create Auction | Create an English, Dutch, or sealed-bid auction | via capability registry · operator key only | custom |
 | Place Bid | Submit a bid to an auction | via capability registry | custom |
 | Settle Auction | Settle an auction and distribute proceeds | via capability registry | custom |
 | Create Fundraiser | Create a crowdfunding campaign with milestones | POST /api/v1/fundraising/campaign/create | custom |

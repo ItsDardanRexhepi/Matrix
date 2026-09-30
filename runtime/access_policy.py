@@ -145,6 +145,352 @@ def dispatch_pair(action: object, service: object = None) -> tuple[str, str] | N
     return (str(service) if service else pair[0], pair[1])
 
 
+# Operations no request may have dispatched, whoever sends it: the operator key,
+# a session, an anonymous chat, a caller with no HTTP request behind it. Keyed
+# on the pair a dispatch RUNS (dispatch_pair), so a new action name or a
+# platform_action ``service`` override onto the same method is the same answer.
+#
+# The attestation service signs with the platform's key (a time-critical
+# category and a revocation through the unmetered signer), and these four take
+# what it signs from the request: the schema, the data — its action, its agent,
+# its category — and the recipient; or the uid of any attestation the platform
+# ever made, to void it. The platform attests what it EXECUTES: the
+# dispatcher's own record of an action it ran, each service's record of an
+# operation it performed. Those are called in process and never come through a
+# door, so they are untouched. The twin ``eas`` tool refuses its own attest,
+# batch_attest and revoke (runtime/blockchain/eas_manager.py);
+# tests/test_no_request_makes_the_attestation_service_sign.py drives every
+# door that reaches the dispatcher.
+_PLATFORM_KEY_STATEMENT = (
+    "The platform's key signs no attestation a request composes and revokes none "
+    "a request names; the platform attests an action when it executes it. "
+    "Nothing was signed.")
+#
+# The same answer, for the same reason, where the services layer signs, with
+# the platform's key, a call or a statement the request composed. Each of these
+# is also refused inside the service itself, before anything is built, so a
+# door this table does not reach still signs nothing; the KYC credential is the
+# one kept callable in process (its lifting condition is in the service).
+# tests/test_no_request_chooses_the_call_the_platform_key_signs.py walks every
+# signing call and fails on one that carries bytes the request wrote.
+_COMPOSED_CALL_STATEMENT = (
+    "The platform's key makes no call a request composes: a token-bound "
+    "account's execute carries the request's target, value and calldata, and "
+    "would pay the platform's own ETH to the account the request names. "
+    "Nothing was signed.")
+_COMPOSED_MESSAGE_STATEMENT = (
+    "The platform's key sends no cross-chain message a request writes: the "
+    "receiving chain reads the platform's wallet as the message's sender. "
+    "Nothing was signed.")
+_KYC_STATEMENT = (
+    "The platform's key attests no KYC credential on a request: the "
+    "verification it would attest arrives in the request, and the platform "
+    "holds no provider result of its own to check it against. Nothing was signed.")
+# A recovery or a session key is a call on an account-abstraction module, and
+# the module decides by who calls it. Sent from the platform's wallet, the
+# platform's own standing with the module (as a guardian, if it lets the
+# platform be one) would authorize handing the account the request names to a
+# new owner or to a new key of the request's choosing, and nothing tied that
+# account to the caller. Both are refused in the service as well.
+_ACCOUNT_AUTHORITY_STATEMENT = (
+    "The platform's key recovers no account and registers no session key on a "
+    "request: the module call would be sent from the platform's wallet, so the "
+    "platform's standing with the module, not the account holder's, would hand "
+    "the account the request names to a new owner or a new key. Nothing was signed.")
+REFUSED_ON_REQUEST: dict[tuple[str, str], str] = {
+    ("attestation", "attest"): _PLATFORM_KEY_STATEMENT,
+    # The create_attestation capability's method: attest's mechanics, metered
+    # against the caller, but the schema, the data and the recipient are still
+    # the request's, signed with the platform's key.
+    ("attestation", "attest_for_caller"): _PLATFORM_KEY_STATEMENT,
+    ("attestation", "batch_attest"): _PLATFORM_KEY_STATEMENT,
+    ("attestation", "revoke"): _PLATFORM_KEY_STATEMENT,
+    ("advanced_governance", "submit_retropgf"): _PLATFORM_KEY_STATEMENT,
+    ("kyc", "issue_kyc_credential"): _KYC_STATEMENT,
+    ("tba", "execute_as_tba"): _COMPOSED_CALL_STATEMENT,
+    ("ccip", "send_cross_chain_message"): _COMPOSED_MESSAGE_STATEMENT,
+    ("ccip", "bridge_hyperlane"): _COMPOSED_MESSAGE_STATEMENT,
+    ("ccip", "bridge_wormhole"): _COMPOSED_MESSAGE_STATEMENT,
+    ("ccip", "bridge_axelar"): _COMPOSED_MESSAGE_STATEMENT,
+    ("mpc", "recover_wallet"): _ACCOUNT_AUTHORITY_STATEMENT,
+    ("mpc", "create_session_key"): _ACCOUNT_AUTHORITY_STATEMENT,
+}
+
+
+# The same answer for a TOOL call, where a tool has the platform's key sign a
+# call the request composed. ``smart_contract``'s ``send`` built
+# ``contract.functions[function_name](*args)`` on the contract, ABI, arguments
+# and value the request wrote and signed it from the platform wallet: aimed at
+# the EAS contract, an ``attest`` or a ``revoke`` of the request's making. The
+# tool refuses it before anything is built (runtime/blockchain/smart_contracts
+# .py); the tool dispatcher refuses it before the handler runs, whoever asks,
+# so a tool that lost its own refusal still signs nothing. Keyed on the tool
+# and its ``action``; the doors that dispatch an action by name cannot reach a
+# tool at all. tests/test_no_door_has_the_platform_key_sign_a_call_it_composed
+# .py drives every door with the EAS contract's attest and revoke.
+COMPOSED_CONTRACT_CALL_STATEMENT = (
+    "The platform's key signs no contract call a request composes: the "
+    "contract, the function, its arguments and the value would all be the "
+    "request's, sent from the platform wallet. Read with action 'call', and "
+    "write with your own signer. Nothing was signed.")
+REFUSED_TOOL_CALLS: dict[tuple[str, str], str] = {
+    ("smart_contract", "send"): COMPOSED_CONTRACT_CALL_STATEMENT,
+}
+
+
+def refused_tool_call(tool_name: object, arguments: object) -> str | None:
+    """Why no request may have *tool_name* run with *arguments*, or None."""
+    action = arguments.get("action") if isinstance(arguments, dict) else None
+    if not isinstance(tool_name, str) or not isinstance(action, str):
+        return None
+    return REFUSED_TOOL_CALLS.get((tool_name, action.strip().lower()))
+
+
+def refused_by_the_service(service: str, method: str) -> dict:
+    """What a service method in REFUSED_ON_REQUEST returns when it is reached
+    anyway: a refusal, before anything is built or signed."""
+    return {
+        "status": "refused",
+        "refused": True,
+        "service": service,
+        "method": method,
+        "error": REFUSED_ON_REQUEST[(service, method)],
+        "signed": False,
+    }
+
+
+def refused_on_request(action: object, service: object = None) -> str | None:
+    """Why no request may dispatch *action* (with *service* as a platform_action
+    override would set it), or None. Resolved on the pair, the way
+    ServiceDispatcher.execute resolves it."""
+    pair = dispatch_pair(action, service)
+    return REFUSED_ON_REQUEST.get(pair) if pair is not None else None
+
+
+# ── What a user session may not have the platform do for it ──────────────
+#
+# The platform's wallet signs, and platform credentials act, in the services
+# layer. Where the request names who is paid or credited (the payee, the
+# account), what is spent or bound (the asset), or what is signed or published
+# (a key id, a digest, content), a session would decide how the platform's own
+# standing is used: its funds, its signing cluster, its publishing account,
+# its storage node, its provider account. So would a request the platform's
+# server sends whose address, method, headers, query names or body the
+# request writes, with a platform credential riding along (or, the address,
+# with none). Those actions are refused to a session, and to chat acting for
+# one (request_execution and platform_action with the session's credential),
+# at every door a session reaches: capability invoke, /bridge/v1/action and
+# the tool dispatcher. The operator's key, and a dispatch with no HTTP caller
+# behind it, keep them. Any other caller kind (an anonymous caller, a kind
+# this module does not know) is refused them too.
+#
+# The list is not kept by hand alone. tests/test_no_session_has_the_platform_
+# act_on_what_it_names.py derives it from the source: every address a request
+# supplies to a call the services layer signs
+# (tests/test_no_request_chooses_the_call_the_platform_key_signs.py
+# SERVICE_ADDRESSES: a payee, an asset or the contract the call is sent to,
+# and the two payees encoded as bytes), every HTTP request a services-layer
+# method sends, and what rides in each part of each of those requests: the
+# request's own values, the platform's configuration, a credential read from
+# it. It follows each method a dispatch can run to what that method hands the
+# call on to inside the services layer, in the shapes its docstring names:
+# another method of its class, a function, a method of another service or of
+# an object the service holds, a method or a function held on ``self``, in a
+# class or a module table, or in a lambda. A pair that reaches what the walks
+# find must be here, bound or held below, handed on below, or listed there as
+# a read with its reason, and a pair that reaches a request of that class
+# cannot be listed as a read; the test fails on one that is none of these,
+# and on an entry here that the walks do not find.
+_SESSION_PLATFORM_FUNDS = (
+    "A user session does not have the platform's wallet act on a payee, an "
+    "account or an asset the request names: the call would be sent from the "
+    "platform's wallet, and what it pays, lends, stakes, bridges, delegates, "
+    "claims, auctions or creates would be the platform's. The operator's key "
+    "keeps this action. Nothing was signed.")
+_SESSION_PLATFORM_CREDENTIAL = (
+    "A user session does not have a platform credential sign, publish, pay or "
+    "authorise what the request names: the key id, the digest or the content "
+    "would go out under the platform's own account with the signing cluster, "
+    "the publisher, the storage node, the payment node or the provider. The "
+    "operator's key keeps this action. Nothing was sent.")
+_SESSION_PLATFORM_CONTRACT = (
+    "A user session does not have the platform's wallet send a call to a "
+    "contract the request names: that contract's own code would run with the "
+    "platform's wallet as its caller, on the platform's gas. The operator's key "
+    "keeps this action. Nothing was signed.")
+_SESSION_PLATFORM_SEND = (
+    "A user session does not have the platform's server send a request whose "
+    "address, method, headers, query names or body the request writes while a "
+    "platform credential rides with it: the provider would take whatever the "
+    "request chose as the platform's own call. The operator's key keeps this "
+    "action. Nothing was sent.")
+REFUSED_TO_A_SESSION: dict[tuple[str, str], str] = {
+    # The platform's wallet signs, with a payee or an asset the request names.
+    ("advanced_governance", "delegate_voting"): _SESSION_PLATFORM_FUNDS,
+    ("advanced_governance", "place_bribe"): _SESSION_PLATFORM_FUNDS,
+    ("auctions", "create_auction"): _SESSION_PLATFORM_FUNDS,
+    ("ccip", "bridge_stargate"): _SESSION_PLATFORM_FUNDS,
+    ("ccip", "bridge_token_ccip"): _SESSION_PLATFORM_FUNDS,
+    ("compute", "claim_compute_reward"): _SESSION_PLATFORM_FUNDS,
+    ("creator_platforms", "mint_sound"): _SESSION_PLATFORM_FUNDS,
+    ("nft_lending", "borrow_against_nft"): _SESSION_PLATFORM_FUNDS,
+    ("nft_lending", "liquidate_nft_loan"): _SESSION_PLATFORM_FUNDS,
+    ("oracles_plus", "register_keeper_job"): _SESSION_PLATFORM_FUNDS,
+    ("payment_channels", "close_channel"): _SESSION_PLATFORM_FUNDS,
+    ("payment_channels", "open_channel"): _SESSION_PLATFORM_FUNDS,
+    ("restaking", "delegate_to_operator"): _SESSION_PLATFORM_FUNDS,
+    ("restaking", "liquid_stake_lido"): _SESSION_PLATFORM_FUNDS,
+    ("restaking", "restake"): _SESSION_PLATFORM_FUNDS,
+    ("restaking", "restake_karak"): _SESSION_PLATFORM_FUNDS,
+    ("restaking", "restake_symbiotic"): _SESSION_PLATFORM_FUNDS,
+    ("restaking", "withdraw_restake"): _SESSION_PLATFORM_FUNDS,
+    ("tba", "create_tba"): _SESSION_PLATFORM_FUNDS,
+    # The platform's wallet signs a call to a contract the request names.
+    ("nft_lending", "breed_nft"): _SESSION_PLATFORM_CONTRACT,
+    # A platform credential signs, publishes, pays or authorises what the
+    # request names, over HTTP.
+    ("compute", "rent_device"): _SESSION_PLATFORM_CREDENTIAL,
+    ("compute", "submit_compute_job"): _SESSION_PLATFORM_CREDENTIAL,
+    ("creator_platforms", "publish_mirror_post"): _SESSION_PLATFORM_CREDENTIAL,
+    ("creator_platforms", "publish_paragraph_post"): _SESSION_PLATFORM_CREDENTIAL,
+    ("kyc", "check_aml_risk"): _SESSION_PLATFORM_CREDENTIAL,
+    ("kyc", "start_kyc"): _SESSION_PLATFORM_CREDENTIAL,
+    ("mpc", "mpc_sign"): _SESSION_PLATFORM_CREDENTIAL,
+    ("payment_channels", "route_payment"): _SESSION_PLATFORM_CREDENTIAL,
+    ("social_protocols", "publish_cast"): _SESSION_PLATFORM_CREDENTIAL,
+    ("storage", "ceramic_stream_create"): _SESSION_PLATFORM_CREDENTIAL,
+    ("storage", "orbit_db_write"): _SESSION_PLATFORM_CREDENTIAL,
+    ("storage", "store_filecoin"): _SESSION_PLATFORM_CREDENTIAL,
+    # The platform's server sends, with a platform credential, a request
+    # whose address the request writes: RedStone's gateway, with the
+    # platform's API key, at the data-service path the request names.
+    ("oracles_plus", "redstone_request"): _SESSION_PLATFORM_SEND,
+}
+
+# Where the one address the request names is the one the platform acts FOR,
+# and the platform spends nothing but gas on it, the action is kept for a
+# session and bound: every one of these fields the request carries must be
+# the address the session is bound to, and it must carry at least one. A
+# session bound to no address (an Apple sign-in with no wallet linked) names
+# none it can be held to, and is refused.
+BOUND_TO_THE_CALLER: dict[tuple[str, str], tuple[str, ...]] = {
+    # LensHub.createProfile((to, followModule, initData)): the profile NFT's owner.
+    ("social_protocols", "create_lens_profile"): ("to", "owner", "creator"),
+    # createToken(name, symbol, supply, owner): who owns the new token and its supply.
+    ("social_protocols", "launch_creator_coin"): ("owner", "creator"),
+    ("social_protocols", "launch_social_token"): ("owner", "creator"),
+    # The Push subscriber the platform submits to its channel.
+    ("social_protocols", "push_subscribe"): ("subscriber", "address"),
+}
+
+# Where one field of the request decides whether the platform's server acts
+# on what the request writes, a session may send only the values listed. The
+# oracle's ``custom`` type sends an HTTP request to the URL, with the method,
+# headers and body, the request writes, from the platform's own server; its
+# ``sports`` type reads the configured provider, with the platform's key, at a
+# path the request writes. A price, a weather reading and a randomness
+# request name no address.
+HELD_FOR_A_SESSION: dict[tuple[str, str], tuple[str, frozenset]] = {
+    ("oracle_gateway", "request"): (
+        "oracle_type", frozenset({"price_feed", "weather", "random_vrf"})),
+}
+_SESSION_ORACLE = (
+    "A user session asks the oracle for a price, a weather reading or "
+    "randomness only: a custom request would have the platform's server send "
+    "whatever the request writes to whatever address it names, and a sports "
+    "request reads the provider with the platform's key at a path the request "
+    "writes. The operator's key keeps them. Nothing was sent.")
+
+# What a session is refused is decided on the method an action REACHES, not
+# on the name it is called by. A method that hands the call on, inside the
+# services layer, to a method a session is refused, bound or held on is
+# refused with it: a second action name, a wrapper, a delegating method of
+# another service. The table is what the walk in tests/test_no_session_has_
+# the_platform_act_on_what_it_names.py finds, and that test fails when the
+# two differ. A binding or a hold reads the fields of the method it is on,
+# which a method that hands the call on need not pass under the same names,
+# so what reaches one of those through another method is refused too, unless
+# every call it makes pins a value the hold allows. A hand-on to a pair every
+# door refuses on request (the attestation service's attest) is not listed:
+# every door refuses that pair where a request names it, and a service that
+# reaches it in process writes its own record of an operation it ran, a limit
+# the README states.
+HANDS_THE_CALL_TO: dict[tuple[str, str], tuple[tuple[str, str], ...]] = {
+    # PrivacyService delegates to the storage and compute services.
+    ("privacy", "decentralized_store"): (("storage", "store_filecoin"),),
+    ("privacy", "pin_to_ipfs"): (("storage", "store_filecoin"),),
+    ("privacy", "submit_compute_job"): (("compute", "submit_compute_job"),),
+}
+
+
+def _handed_on(reached: tuple[str, str]) -> str:
+    """The refusal of a pair that hands the call on to *reached*."""
+    why = (REFUSED_TO_A_SESSION.get(reached)
+           or ("A user session is held to what it sends that method, and this "
+               "action does not send it under the same names. Nothing was sent."))
+    return (f"This action hands the call to {reached[0]}.{reached[1]}, which a user "
+            f"session is refused here. {why}")
+
+
+def _unbound(fields: tuple[str, ...], params: object, identity: object) -> str | None:
+    """Why *params* do not hold the request to the caller's own address. The
+    caller and each field are compared in the one spelling the platform names
+    a caller by (runtime/auth/identity.py)."""
+    from runtime.auth.identity import is_wallet_address, same_caller
+    own = identity
+    if not is_wallet_address(own):
+        return ("A user session names only its own address here, and this "
+                "session is bound to no wallet address. Nothing was signed.")
+    if not isinstance(params, dict):
+        return "The request's parameters could not be read. Nothing was signed."
+    named = [(f, params[f]) for f in fields if params.get(f) not in (None, "")]
+    if not named:
+        return (f"A user session names its own address as {' or '.join(fields)}; "
+                "this request names none. Nothing was signed.")
+    other = [f for f, v in named if not same_caller(v, own)]
+    if other:
+        return (f"A user session names only its own address as {', '.join(other)}: "
+                "the platform acts for the address the session is bound to, not "
+                "for one the request names. Nothing was signed.")
+    return None
+
+
+def refused_to_the_caller(caller_kind: object, action: object, service: object = None,
+                          params: object = None, identity: object = "") -> str | None:
+    """Why a caller of *caller_kind* may not have *action* dispatched (with
+    *service* as a platform_action override would set it, and *params* as the
+    service would read them), or None.
+
+    The operator (``"operator"``) and a dispatch with no HTTP caller (``""``)
+    are never refused here. Every other kind is refused REFUSED_TO_A_SESSION's
+    pairs and every pair in HANDS_THE_CALL_TO (with the method it hands the
+    call to), held to its own address (*identity*) in BOUND_TO_THE_CALLER's,
+    and to the listed values in HELD_FOR_A_SESSION's: a held value of any
+    other type or value is refused, never raised on. Resolved on the pair, the
+    way ServiceDispatcher.execute resolves it."""
+    if caller_kind in ("operator", ""):
+        return None
+    pair = dispatch_pair(action, service)
+    if pair is None:
+        return None
+    refused = REFUSED_TO_A_SESSION.get(pair)
+    if refused:
+        return refused
+    handed = HANDS_THE_CALL_TO.get(pair)
+    if handed:
+        return _handed_on(handed[0])
+    fields = BOUND_TO_THE_CALLER.get(pair)
+    if fields:
+        return _unbound(fields, params, identity)
+    held = HELD_FOR_A_SESSION.get(pair)
+    if held:
+        field, allowed = held
+        value = params.get(field) if isinstance(params, dict) else None
+        if not (isinstance(value, str) and value in allowed):
+            return _SESSION_ORACLE
+    return None
+
+
 def operation_could_move_value(action_type: str | None, service: str | None = None,
                                method: str | None = None) -> bool:
     """`could_move_value` for a label, AND for the pair that label runs: either

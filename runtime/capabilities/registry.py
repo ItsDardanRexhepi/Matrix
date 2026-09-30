@@ -124,6 +124,19 @@ class CapabilityRegistry:
                 "capability_id": capability_id,
             }
 
+        # What no caller may have dispatched (runtime/access_policy.py
+        # REFUSED_ON_REQUEST). The invoke route answers it 403 before this;
+        # the facade's other callers get the same refusal.
+        from runtime.access_policy import refused_on_request
+        refused = refused_on_request(cap["action"])
+        if refused:
+            return {
+                "status": "error",
+                "error": "refused",
+                "capability_id": capability_id,
+                "message": refused,
+            }
+
         dispatcher = self._dispatcher
         if dispatcher is None:
             # Lazy import to avoid circular deps at module import time.

@@ -213,6 +213,10 @@ CAPABILITIES: list[dict[str, Any]] = [
 
     # ── Token-bound accounts (ERC-6551) ───────────────────────────────────
     _cap("create_tba",              "Create Token-bound Account", "nft_finance", "tba", "create_tba",       protocol="erc6551", available=False),
+    # Refused at every door, whoever asks, and by the service itself: the
+    # platform's key makes no call a request composes
+    # (runtime/access_policy.py REFUSED_ON_REQUEST). Routed, so a caller gets
+    # the refusal, not a 404; the same for the rows so marked below.
     _cap("execute_as_tba",          "Execute As TBA",             "nft_finance", "tba", "execute_as_tba",   protocol="erc6551", available=False),
 
     # ── Identity ───────────────────────────────────────────────────────────
@@ -223,13 +227,19 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("reputation_query",        "Query Reputation",        "identity", "did_identity", "query_reputation", state_modifying=False, uses_paymaster=False),
     _cap("start_kyc",               "Start KYC",               "identity", "kyc", "start_kyc",         protocol="sumsub", available=False),
     _cap("check_aml_risk",          "Check AML Risk",          "identity", "kyc", "check_aml_risk",    state_modifying=False, uses_paymaster=False, available=False),
+    # Refused at every door (REFUSED_ON_REQUEST): the verification it attests
+    # arrives in the request.
     _cap("issue_kyc_credential",    "Issue KYC Credential",    "identity", "kyc", "issue_kyc_credential", available=False),
     _cap("register_agent",          "Register AI Agent",       "identity", "agent_identity", "register_agent", feed_event="ai_agent_registered"),
     _cap("update_agent",            "Update Agent",            "identity", "agent_identity", "update_agent"),
     _cap("deregister_agent",        "Deregister Agent",        "identity", "agent_identity", "deregister_agent"),
-    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest_for_caller"),
-    _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke"),
-    _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest"),
+    # Refused at every door that dispatches them, whoever asks: the platform's
+    # key signs no attestation a request composes and revokes none a request
+    # names (runtime/access_policy.py REFUSED_ON_REQUEST). Routed, so a caller
+    # gets the refusal, not a 404.
+    _cap("create_attestation",      "Create Attestation",      "identity", "attestation", "attest_for_caller", available=False),
+    _cap("revoke_attestation",      "Revoke Attestation",      "identity", "attestation", "revoke",       available=False),
+    _cap("batch_attest",            "Batch Attest",            "identity", "attestation", "batch_attest", available=False),
 
     # ── Governance ─────────────────────────────────────────────────────────
     _cap("create_dao",              "Create DAO",              "governance", "dao_management", "create_dao",         feed_event="dao_created"),
@@ -266,6 +276,8 @@ CAPABILITIES: list[dict[str, Any]] = [
     _cap("parameter_change",        "Parameter Change",        "governance", "governance", "parameter_change"),
     _cap("vote_escrow",             "Vote-Escrow Lock",        "governance", "advanced_governance", "vote_escrow",          subcategory="veToken",    protocol="curve",  available=False),
     _cap("quadratic_vote",          "Quadratic Vote",          "governance", "advanced_governance", "quadratic_vote",       subcategory="quadratic",  available=False),
+    # Refused at every door and by the service (REFUSED_ON_REQUEST): an
+    # attestation the request composed.
     _cap("submit_retropgf",         "Submit RetroPGF",         "governance", "advanced_governance", "submit_retropgf",      subcategory="retropgf",   protocol="optimism", available=False),
     _cap("place_bribe",             "Place Gauge Bribe",       "governance", "advanced_governance", "place_bribe",          subcategory="bribes",     protocol="convex", available=False),
     _cap("delegate_voting",         "Delegate Voting Power",   "governance", "advanced_governance", "delegate_voting",      available=False),
@@ -323,6 +335,8 @@ CAPABILITIES: list[dict[str, Any]] = [
     # ones marked unavailable. Now False, matching its honest siblings.
     _cap("cross_chain_bridge",      "Bridge Tokens",           "bridging", "cross_border", "bridge_transfer", available=False),
     _cap("bridge_token_ccip",       "Bridge via CCIP",         "bridging", "ccip",         "bridge_token_ccip",       protocol="ccip",      available=False),
+    # The four message sends: refused at every door and by the service
+    # (REFUSED_ON_REQUEST); the receiving chain reads the platform as sender.
     _cap("send_cross_chain_message","Cross-chain Message",     "bridging", "ccip",         "send_cross_chain_message",protocol="ccip",      available=False),
     _cap("bridge_hyperlane",        "Bridge via Hyperlane",    "bridging", "ccip",         "bridge_hyperlane",        protocol="hyperlane", available=False),
     _cap("bridge_wormhole",         "Bridge via Wormhole",     "bridging", "ccip",         "bridge_wormhole",         protocol="wormhole",  available=False),
@@ -339,9 +353,10 @@ CAPABILITIES: list[dict[str, Any]] = [
     # available=False — it is reachable and answers, and the answer is "not
     # available". The `execute_deletion` capability is REMOVED outright: its
     # ACTION_MAP entry is gone, so a descriptor for it would be a broken
-    # pointer, and `available=False` is only metadata (registry.list filters on
-    # it; `invoke` does not consult it) so it could not have disabled anything
-    # on its own.
+    # pointer, and `available=False` could not have disabled it on its own:
+    # registry.list filters on it and the capability invoke route refuses on
+    # it, but the registry's own `invoke`, /bridge/v1/action and the chat
+    # tools do not consult it.
     _cap("request_deletion",        "Request Deletion",        "privacy", "privacy", "request_deletion", available=False),
 
     # ── Oracles & Data ─────────────────────────────────────────────────────

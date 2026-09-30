@@ -32,7 +32,11 @@ SIGNING_ACTIONS: dict[str, dict[str, str]] = {
     # last place that still offered it. Left out rather than kept as a dead _TX
     # entry, because tests/test_twins_seam.py treats a classification for an
     # action nobody declares as staleness to be removed, not as harmless.
-    "smart_contract": {"send": _TX, "call": READ, "verify": READ, "compile": READ},
+    # "send" left the enum for the same reason: it signed, with the platform
+    # key, whatever call the request composed (contract, function, arguments,
+    # value). The tool still answers it, with a refusal; an undeclared verb is
+    # classified as a signing one below, so the gate still sees it as such.
+    "smart_contract": {"call": READ, "verify": READ, "compile": READ},
     "defi": {"supply": "deposit", "borrow": "borrow", "withdraw": "withdraw", "repay": "repay",
              "get_rates": READ, "get_positions": READ},
     "nft": {"mint": "mint", "transfer": "transfer", "deploy_collection": _TX,
@@ -68,6 +72,51 @@ TWIN_TOOLS = frozenset(SIGNING_ACTIONS)
 # somebody else's address (register entry::B3-TWIN-SUPPLY-ONBEHALF).
 BENEFICIARY_FIELDS = ("onBehalfOf", "on_behalf_of", "beneficiary")
 
+# ...and the field a particular signing action actually reads as the account it
+# acts FOR, where that is not one of the generic names. Three kinds:
+#
+#   * the account a position is opened for — the DeFi twin hands Aave its
+#     `user_address` as onBehalfOf (the insurance twin's is `beneficiary`,
+#     above);
+#   * the SUBJECT of a platform-signed attestation: its on-chain recipient, the
+#     address the statement is about. The identity twin's `address`, the gaming
+#     twin's `player_address`, the IP twin's `owner` and the securities twin's
+#     `investor_address` each become that recipient;
+#   * the account an asset is moved FROM: the NFT twin's `transfer` calls
+#     transferFrom(from_address, to) and the gaming twin's `transfer_item` calls
+#     safeTransferFrom(player_address, to), both signed by the platform key, so
+#     wherever that key holds an approval the request chose whose asset moved.
+#     Absent, each moves the platform's own.
+#
+# For every one of these the check above looked at names the tool never reads,
+# and refused nothing (a review of the T4 seam; register entry::U-ATTEST-AXIS).
+# An ABSENT field is not a violation: the tool then acts for the platform's own
+# account, or names no subject. tests/test_every_twin_attestation_is_the_
+# platforms_own.py walks every twin attestation and fails if its recipient
+# draws on a field this table does not bind.
+#
+# NOT here, deliberately: the address a payment, transfer or mint DELIVERS TO
+# (`to`, a mint's `player_address`). Paying somebody else is what those actions
+# are for; the gate evaluates them as value movement by their verb. Binding the
+# subject of a statement is a different thing from choosing a payee. Nor the
+# account an ADMIN action is about — the securities twin's `freeze`
+# (`investor_address`) and the governance twin's `grant_role` (`account`):
+# freezing somebody else, or granting a role to somebody else, is what those
+# actions are, and binding them to the caller would leave only freezing
+# yourself or granting yourself the role. Only Neo holds those tools; a chat
+# caller without the operator key is served by Trinity, who holds neither
+# (runtime/tools/dispatcher.py), and the gate evaluates them by their verb.
+ACTION_BENEFICIARY_FIELDS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("defi", "supply"): ("user_address",),
+    ("defi", "borrow"): ("user_address",),
+    ("identity", "register"): ("address",),
+    ("gaming", "record_achievement"): ("player_address",),
+    ("ip_royalties", "register_ip"): ("owner",),
+    ("securities", "whitelist_investor"): ("investor_address",),
+    ("nft", "transfer"): ("from_address",),
+    ("gaming", "transfer_item"): ("player_address",),
+}
+
 # Twin actions that grant a spender rights over the platform's own tokens
 # (register entry::B3-TWIN-APPROVE): refused unless the operator has set a cap.
 ALLOWANCE_ACTIONS = frozenset({("stablecoin", "approve"), ("tokenize", "approve")})
@@ -102,7 +151,8 @@ def beneficiary_violation(tool_name: str, arguments: Any, identity: str) -> str 
     _, signs = canonical_action(tool_name, arguments)
     if not signs or not isinstance(arguments, dict):
         return None
-    for field in BENEFICIARY_FIELDS:
+    verb = str(arguments.get("action") or "").strip().lower()
+    for field in BENEFICIARY_FIELDS + ACTION_BENEFICIARY_FIELDS.get((tool_name, verb), ()):
         value = str(arguments.get(field) or "").strip()
         if not value:
             continue

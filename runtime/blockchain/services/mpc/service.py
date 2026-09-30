@@ -1,35 +1,31 @@
 """
 Multi-party computation, threshold signatures, social recovery, session keys.
 
-Real protocol integration. Each method gates on the specific credential it
-needs (CREDENTIAL-GATED, testable) and otherwise performs the real protocol
-operation (UNVERIFIED — requires the MPC node account / a deployed recovery
-or session-key module on testnet to prove).
-
-Two integration surfaces, selected per-method by which config key is present:
-
-* On-chain modules (``recover_wallet``, ``create_session_key``) — a smart-account
-  recovery / session-key module the USER has already authorized on their
-  account abstraction wallet (e.g. a guardian/recovery module, or an ERC-4337
-  session-key validator). The platform paymaster only SPONSORS the gas of the
-  module call; the authorization to act on the user account comes from the
-  user-installed module, never from the server holding user keys.
-
-* Off-chain MPC node API (``mpc_sign``) — a threshold-signature node cluster
+* ``mpc_sign`` — an off-chain threshold-signature node cluster
   (``cfg.endpoint`` + ``cfg.api_key``). The server coordinates a signing
   request against the user's MPC key shares held by the node cluster; the
-  server never possesses a full private key.
+  server never possesses a full private key. It gates on the credential it
+  needs (CREDENTIAL-GATED, testable) and otherwise performs the real request
+  (UNVERIFIED — requires the MPC node account to prove).
 
-NON-CUSTODIAL: the server NEVER holds or moves a user's wallet funds. The only
-key the server signs with is the platform paymaster account, used solely to pay
-gas for module calls that the user's own on-chain module authorizes.
+* ``recover_wallet`` and ``create_session_key`` — REFUSED, before anything is
+  built or signed. Each was a call on a smart-account module
+  (``initiateRecovery(account, newOwner)``,
+  ``registerSessionKey(account, sessionKey, validUntil)``) built from the
+  request's addresses and sent from the platform's own wallet with the
+  platform paymaster key. A module decides by who calls it, so the platform
+  wallet was the caller whose standing authorized the call, not the account
+  holder, whatever the module's name for that standing (a guardian, a
+  manager); and nothing tied the account to the caller. A session reached
+  both through the capability route and through chat. Recovery and a session
+  key are the account's own operation, signed by its holder or its guardians;
+  the paymaster can sponsor the gas of that operation, which is the only part
+  of it the platform's key may sign. (runtime/access_policy.py
+  REFUSED_ON_REQUEST refuses both at every door too.)
 
 Config keys (under ``services.mpc``):
     endpoint            — MPC node cluster base URL (off-chain threshold signing)
     api_key             — MPC node API key
-    module_address      — generic module address fallback
-    recovery_module     — social-recovery module contract address
-    session_key_module  — session-key validator/module contract address
 """
 
 from __future__ import annotations
@@ -46,44 +42,8 @@ from runtime.blockchain.web3_manager import (
 logger = logging.getLogger(__name__)
 
 
-# ── Minimal ABIs (only the single function each method invokes) ───────────────
-# UNVERIFIED: these signatures follow common social-recovery / session-key
-# module conventions (Safe-style modules, ERC-4337 session-key validators) but
-# the exact module deployed by the operator must match. Confirm against the
-# configured module before relying on the write path.
-
-# Social-recovery module: kick off recovery of `account` to `newOwner`.
-RECOVERY_MODULE_ABI = [
-    {
-        "name": "initiateRecovery",
-        "type": "function",
-        "stateMutability": "nonpayable",
-        "inputs": [
-            {"name": "account", "type": "address"},
-            {"name": "newOwner", "type": "address"},
-        ],
-        "outputs": [{"name": "recoveryId", "type": "bytes32"}],
-    }
-]
-
-# Session-key module: register a scoped session key on `account`.
-SESSION_KEY_MODULE_ABI = [
-    {
-        "name": "registerSessionKey",
-        "type": "function",
-        "stateMutability": "nonpayable",
-        "inputs": [
-            {"name": "account", "type": "address"},
-            {"name": "sessionKey", "type": "address"},
-            {"name": "validUntil", "type": "uint48"},
-        ],
-        "outputs": [],
-    }
-]
-
-
 class MPCService:
-    """Multi-party computation, threshold signatures, social recovery, session keys."""
+    """Threshold (MPC) signing through a node cluster; recovery and session keys refused."""
 
     service_name = "mpc"
 
@@ -184,143 +144,35 @@ class MPCService:
                 "protocol": "MPC threshold-signature node cluster",
             }
 
-    # ── Social recovery (on-chain user-authorized module) ────────────────────
+    # ── Social recovery and session keys: refused ─────────────────────────────
 
     async def recover_wallet(self, **params: Any) -> dict:
-        """Initiate social recovery of a user smart account via its recovery module.
+        """Refused: the platform's key recovers no account a request names.
 
-        The platform paymaster only SPONSORS the gas of the module call. The
-        authority to recover the account comes from the recovery module the user
-        installed on their own smart account — the server never holds user keys
-        and never moves user funds.
-
-        Params: ``account`` (user smart account), ``new_owner`` (recovered owner).
+        This signed ``initiateRecovery(account, newOwner)`` on the configured
+        recovery module, from the platform wallet, with both addresses the
+        request's. The recovery module decides by who calls it, so what
+        authorized the recovery was the platform wallet's standing with the
+        module, not the account holder's: any caller could name any account
+        the module covers and a new owner of its choosing. It now answers
+        with a refusal before anything is built or signed. Recovery is started
+        by the account's own guardians, with their own keys.
         """
-        cfg = self._cfg()
-        module = cfg.get("recovery_module") or cfg.get("module_address") or ""
-
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "recover_wallet",
-                "missing": "blockchain.rpc_url (RPC unreachable)",
-                "protocol": "on-chain social-recovery module",
-            })
-        if is_placeholder_value(module):
-            return not_deployed_response(self.service_name, extra={
-                "method": "recover_wallet",
-                "missing": "services.mpc.recovery_module",
-                "protocol": "on-chain social-recovery module",
-            })
-
-        account = params.get("account") or params.get("wallet")
-        new_owner = params.get("new_owner") or params.get("owner")
-        if is_placeholder_value(account) or is_placeholder_value(new_owner):
-            return not_deployed_response(self.service_name, extra={
-                "method": "recover_wallet",
-                "missing": "params.account and params.new_owner",
-                "protocol": "on-chain social-recovery module",
-            })
-
-        try:
-            contract = self._web3.load_contract(module, RECOVERY_MODULE_ABI)
-            acct = self._web3.w3.to_checksum_address(account)
-            owner = self._web3.w3.to_checksum_address(new_owner)
-            tx = contract.functions.initiateRecovery(acct, owner).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-            })
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "recover_wallet",
-                "account": account,
-                "new_owner": new_owner,
-                "module": module,
-                "tx_hash": tx_hash,
-                "explorer_url": self._web3.explorer_url(tx_hash),
-                "custody": "non-custodial: recovery authorized by user-installed module; platform only sponsors gas",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("recover_wallet failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "recover_wallet",
-                "error": str(exc),
-                "protocol": "on-chain social-recovery module",
-            }
-
-    # ── Session keys (on-chain user-authorized module) ───────────────────────
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "recover_wallet")
 
     async def create_session_key(self, **params: Any) -> dict:
-        """Register a scoped, time-bounded session key on a user smart account.
+        """Refused: the platform's key registers no session key on an account
+        a request names.
 
-        Registers ``session_key`` on the user's account via the session-key
-        validator/module the user installed. The platform paymaster only
-        SPONSORS the gas; the server never holds the user's root key and the
-        session key's scope/expiry are enforced on-chain by the module.
-
-        Params: ``account`` (user smart account), ``session_key`` (the key to
-        authorize), optional ``valid_until`` (unix ts; default now+1h).
+        This signed ``registerSessionKey(account, sessionKey, validUntil)`` on
+        the configured session-key module, from the platform wallet, with the
+        account, the key and the expiry all the request's. The module decides
+        by who calls it, so the platform wallet's standing with the module,
+        not the account holder's, authorized a key of the request's choosing
+        on an account of the request's choosing. It now answers with a refusal
+        before anything is built or signed. A session key is registered by the
+        account itself, in an operation its holder signs.
         """
-        cfg = self._cfg()
-        module = cfg.get("session_key_module") or cfg.get("module_address") or ""
-
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "create_session_key",
-                "missing": "blockchain.rpc_url (RPC unreachable)",
-                "protocol": "on-chain session-key module (ERC-4337 validator)",
-            })
-        if is_placeholder_value(module):
-            return not_deployed_response(self.service_name, extra={
-                "method": "create_session_key",
-                "missing": "services.mpc.session_key_module",
-                "protocol": "on-chain session-key module (ERC-4337 validator)",
-            })
-
-        account = params.get("account") or params.get("wallet")
-        session_key = params.get("session_key") or params.get("key")
-        if is_placeholder_value(account) or is_placeholder_value(session_key):
-            return not_deployed_response(self.service_name, extra={
-                "method": "create_session_key",
-                "missing": "params.account and params.session_key",
-                "protocol": "on-chain session-key module (ERC-4337 validator)",
-            })
-
-        import time
-        valid_until = int(params.get("valid_until") or (time.time() + 3600))
-
-        try:
-            contract = self._web3.load_contract(module, SESSION_KEY_MODULE_ABI)
-            acct = self._web3.w3.to_checksum_address(account)
-            skey = self._web3.w3.to_checksum_address(session_key)
-            tx = contract.functions.registerSessionKey(
-                acct, skey, valid_until
-            ).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-            })
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "create_session_key",
-                "account": account,
-                "session_key": session_key,
-                "valid_until": valid_until,
-                "module": module,
-                "tx_hash": tx_hash,
-                "explorer_url": self._web3.explorer_url(tx_hash),
-                "custody": "non-custodial: session key scoped on-chain by user-installed module; platform only sponsors gas",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("create_session_key failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "create_session_key",
-                "error": str(exc),
-                "protocol": "on-chain session-key module (ERC-4337 validator)",
-            }
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "create_session_key")

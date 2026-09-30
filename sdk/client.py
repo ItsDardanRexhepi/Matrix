@@ -319,7 +319,13 @@ class MatrixClient:
         return await self.ablockchain("oracle", action="get_price", pair=pair)
 
     async def create_attestation(self, action: str, agent: str = "neo", **details) -> dict:
-        """Create an EAS attestation. Gas is paid by the platform within its sponsorship policy."""
+        """Ask for an EAS attestation — which the platform refuses.
+
+        The platform's key signs no attestation a request composes: the ``eas``
+        tool this asks Neo to use refuses ``attest``, and the reply says so.
+        The platform records an action on-chain itself, when it executes it.
+        Kept so a caller that uses this name is told that, not handed an
+        AttributeError."""
         return await self.ablockchain("eas", action="attest", data={"action": action, "agent": agent, **details})
 
     async def averify_iap(self, signed_transaction: str) -> dict:

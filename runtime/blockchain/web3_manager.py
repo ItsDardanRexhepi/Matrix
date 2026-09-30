@@ -262,8 +262,9 @@ class Web3Manager:
         ledger record; the caller identity comes from the ContextVar the tool
         dispatcher and the HTTP entry bind.
 
-        With no `daily_cap_usd` configured this behaves exactly as before —
-        `MeteredSigner` signs straight through. With one configured it prices
+        With no `daily_cap_usd` configured `MeteredSigner` prices nothing, and
+        still refuses an action outside a configured `allowed_actions`; with
+        neither it signs straight through. With a cap configured it prices
         the transaction and refuses rather than sign what it cannot meter.
         """
         if is_placeholder_value(self.paymaster_key):

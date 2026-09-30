@@ -262,7 +262,6 @@ _DRIVEN = {
     ("defi.py", "DeFi", "_repay"): dict(_POOL),
     ("eas_client.py", "EASClient", "attest"): {"action": "a", "agent": "neo", "details": {}},
     ("eas_manager.py", "EASManager", "_create_schema"): {"schema": "string action"},
-    ("eas_manager.py", "EASManager", "_revoke"): {"attestation_uid": "0x" + "ef" * 32},
     ("gaming.py", "Gaming", "_mint_item"): {"contract_address": ADDR, "player_address": ADDR},
     ("gaming.py", "Gaming", "_transfer_item"): {"contract_address": ADDR, "to": ADDR},
     ("gas_sponsor.py", "GasSponsor", "sponsor_transaction"): {"tx": {"to": ADDR}},
@@ -278,8 +277,6 @@ _DRIVEN = {
     ("payments.py", "Payments", "_send_token"): {"to": ADDR, "amount": "1", "token_address": ADDR},
     ("securities.py", "Securities", "_transfer"): {"contract_address": ADDR, "to": ADDR, "amount": "1"},
     ("securities.py", "Securities", "_freeze"): {"contract_address": ADDR, "investor_address": ADDR},
-    ("smart_contracts.py", "SmartContracts", "_send"): {
-        "contract_address": ADDR, "abi": [], "function_name": "set", "args": []},
     ("smart_contracts.py", "SmartContracts", "_deploy_disabled_implementation"): {
         "source_code": "contract C {}"},
     ("stablecoins.py", "Stablecoins", "_transfer"): {"token": "USDC", "amount": "1", "to": ADDR},

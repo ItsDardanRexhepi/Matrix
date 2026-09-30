@@ -226,5 +226,5 @@ class DAOs(BlockchainInterface):
             "status": "source_generated",
             "dao_name": dao_name,
             "components": ["GovernanceToken (ERC20Votes)", "TimelockController", "Governor"],
-            "note": "DAO deployment requires 3 contracts. Use smart_contract deploy for each. Gas is paid by the platform within its sponsorship policy.",
+            "note": "Nothing was deployed. A DAO needs these 3 contracts, and the platform does not deploy contracts: deploy each with your own signer.",
         }, indent=2)

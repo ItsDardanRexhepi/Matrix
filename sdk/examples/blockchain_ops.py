@@ -71,8 +71,10 @@ contract HelloMatrix {
     )
     print(f"Result: {result['response'][:200]}")
 
-    # 4. Create an attestation
-    print("\n── EAS Attestation ──")
+    # 4. Ask for an attestation. The platform refuses: its key signs no
+    #    attestation a request composes, and the reply says so. It records an
+    #    action on-chain itself when it executes it.
+    print("\n── EAS Attestation (refused on request) ──")
     result = await client.create_attestation(
         action="sdk_test",
         agent="neo",

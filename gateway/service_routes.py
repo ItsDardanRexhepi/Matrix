@@ -3292,6 +3292,13 @@ class ServiceRoutes:
         from runtime.capabilities import catalog as _catalog
         descriptor = _catalog.get_by_id(capability_id)
         action_label = str((descriptor or {}).get("action") or capability_id)
+        # What no caller may have dispatched, the operator key included
+        # (runtime/access_policy.py REFUSED_ON_REQUEST).
+        from runtime.access_policy import refused_on_request
+        refused_for_all = refused_on_request(action_label)
+        if refused_for_all:
+            return web.json_response({"error": "forbidden", "message": refused_for_all},
+                                     status=403)
         # aiohttp's Request is a mapping; the suite's fake request objects are not.
         auth = (request.get("auth") if hasattr(request, "get") else None) or {}
         if auth.get("kind") == "session":
@@ -3303,6 +3310,25 @@ class ServiceRoutes:
                      "message": "This capability is not available to a user session; "
                                 f"its route ({refused}) requires the operator key."},
                     status=403)
+        # What a user session may not have the platform do for it: the
+        # platform's wallet or a platform credential acting on a payee, an
+        # account, an asset, a key, a digest or content the request names
+        # (runtime/access_policy.py REFUSED_TO_A_SESSION; BOUND_TO_THE_CALLER
+        # holds a few to the session's own address). The operator key keeps them.
+        from runtime.access_policy import refused_to_the_caller
+        refused = refused_to_the_caller(str(auth.get("kind") or ""), action_label,
+                                        params=params, identity=authed)
+        if refused:
+            return web.json_response({"error": "forbidden", "message": refused}, status=403)
+        # The catalog's ``available`` is read here, for every caller: a
+        # capability catalogued as not available is not run through this route.
+        # It stays routed, so the caller hears why rather than a 404.
+        if descriptor is not None and descriptor.get("available") is False:
+            return web.json_response(
+                {"status": "unavailable", "error": "unavailable", "capability_id": capability_id,
+                 "message": "This capability is catalogued as not available, and this route "
+                            "does not run it. Nothing was done."},
+                status=503)
         from runtime.access_policy import dispatch_pair
         decision = await gate_action(action_label, params if isinstance(params, dict) else {}, security,
                                      operation=dispatch_pair(action_label))

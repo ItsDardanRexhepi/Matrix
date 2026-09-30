@@ -497,6 +497,9 @@ def _tokens(text: str) -> set[str]:
 
 
 def _row_names(name: str) -> list[str]:
+    # A row the map strikes through is a capability every door refuses; its
+    # name is still the catalog's.
+    name = re.sub(r"~~(.*?)~~\s*\*\*REFUSED\*\*", r"\1", name)
     name = re.sub(r"\(.*?\)", "", name)
     parts = [p.strip() for p in name.split("/")]
     if len(parts) == 1:
@@ -527,8 +530,12 @@ def test_the_registry_row_matcher_is_not_vacuous():
     caps = _registry_capabilities()
     planted = ("| Liquid Stake (Lido) | x | Free | via capability registry | Lido |\n"
                "| Register / Update / Deregister Agent | x | Pro | via capability registry | c |\n"
-               "| Options Trade | x | Pro | via capability registry | Lyra |\n")
-    assert _registry_rows_without_a_capability(planted, caps) == ["'Options Trade' ('Options Trade')"]
+               "| Options Trade | x | Pro | via capability registry | Lyra |\n"
+               "| ~~Session Key~~ **REFUSED** | x | — | via capability registry → refused | c |\n"
+               "| ~~Options Vault~~ **REFUSED** | x | — | via capability registry → refused | c |\n")
+    assert _registry_rows_without_a_capability(planted, caps) == [
+        "'Options Trade' ('Options Trade')",
+        "'~~Options Vault~~ **REFUSED**' ('Options Vault')"]
 
 
 def test_every_capability_map_registry_row_names_a_registry_capability():
