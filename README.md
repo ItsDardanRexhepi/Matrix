@@ -421,16 +421,17 @@ check behind it:
   route. `shadow` and `on` write a run of two transactions around each
   journaled dispatch, which puts its p95 at several times that of the same
   dispatch at `off`: at `on` about 8.6 times for the service dispatcher
-  (17.8 to 152.5 microseconds), 9.7 times for the bridge's keyed sequence
-  and 2.8 times for a twin tool's signing call, and 8.4, 9.4 and 3.0 times
-  at `shadow`. That is over the +10 percent latency budget. At `off` a dispatch costs about a microsecond more than on
-  the tree this work merges into, timed in two interpreters taking turns
-  block by block: 1.062 times its p95 (16.2 to 17.2 microseconds), between
-  1.037 and 1.068 over five stretches of the run, and 1.099 for the `off`
-  cell timed between `shadow` and `on` blocks, within the budget. The
-  budget is the project owner's decision, still open: this phase of the
-  engines work can merge dark, with the mode `off` by default, and is not
-  closed until that gate, G6, holds. The other two exit gates hold at `on`.
+  (18.9 to 161.8 microseconds), 9.8 times for the bridge's keyed sequence
+  and 2.8 times for a twin tool's signing call, and 8.3, 9.7 and 3.0 times
+  at `shadow`. That is over the +10 percent latency budget. At `off` a
+  dispatch costs about a microsecond more than on the tree this work
+  merges into, timed in two interpreters taking turns block by block:
+  1.082 times its p95 (17.1 to 18.5 microseconds), between 1.039 and 1.093
+  over five stretches of the run, within the budget; the `off` cell timed
+  in one interpreter between `shadow` and `on` blocks came to 1.105 times,
+  just over it. The budget is the project owner's decision, still open:
+  this phase of the engines work can merge dark, with the mode `off` by
+  default, and is not closed until that gate, G6, holds. The other two exit gates hold at `on`.
   G7, the plan's crash matrix at its ten Phase 2 cells (the bridge request
   at W2 and W4, the dispatch at W1, W2 and W4, the attestation at W1, W2 and
   W3, the feed entry at W1 and W2), is 100 seeded crashes a cell and 20

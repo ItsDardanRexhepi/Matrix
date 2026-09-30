@@ -2,32 +2,32 @@
  "added": {
   "execute": {
    "on": {
-    "p50_us": 108.3,
-    "p95_us": 134.7
+    "p50_us": 112.4,
+    "p95_us": 142.9
    },
    "shadow": {
-    "p50_us": 105.7,
-    "p95_us": 132.2
+    "p50_us": 108.6,
+    "p95_us": 137.8
    }
   },
   "execute_keyed": {
    "on": {
-    "p50_us": 134.9,
-    "p95_us": 166.3
+    "p50_us": 138.9,
+    "p95_us": 175.9
    },
    "shadow": {
-    "p50_us": 131.2,
-    "p95_us": 161.8
+    "p50_us": 135.2,
+    "p95_us": 173.6
    }
   },
   "tool_twin_signing": {
    "on": {
-    "p50_us": 79.4,
-    "p95_us": 100.3
+    "p50_us": 83.2,
+    "p95_us": 106.2
    },
    "shadow": {
-    "p50_us": 88.0,
-    "p95_us": 111.1
+    "p50_us": 92.3,
+    "p95_us": 118.0
    }
   }
  },
@@ -35,52 +35,52 @@
   "execute": {
    "off": {
     "n": 5000,
-    "p50_us": 14.1,
-    "p95_us": 17.8
+    "p50_us": 14.3,
+    "p95_us": 18.9
    },
    "on": {
     "n": 5000,
-    "p50_us": 122.4,
-    "p95_us": 152.5
+    "p50_us": 126.7,
+    "p95_us": 161.8
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 119.8,
-    "p95_us": 150.0
+    "p50_us": 122.9,
+    "p95_us": 156.7
    }
   },
   "execute_keyed": {
    "off": {
     "n": 5000,
-    "p50_us": 15.1,
-    "p95_us": 19.2
+    "p50_us": 15.3,
+    "p95_us": 19.9
    },
    "on": {
     "n": 5000,
-    "p50_us": 150.0,
-    "p95_us": 185.5
+    "p50_us": 154.2,
+    "p95_us": 195.8
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 146.3,
-    "p95_us": 181.0
+    "p50_us": 150.5,
+    "p95_us": 193.5
    }
   },
   "tool_twin_signing": {
    "off": {
     "n": 5000,
-    "p50_us": 49.7,
-    "p95_us": 55.9
+    "p50_us": 50.9,
+    "p95_us": 58.1
    },
    "on": {
     "n": 5000,
-    "p50_us": 129.1,
-    "p95_us": 156.2
+    "p50_us": 134.1,
+    "p95_us": 164.3
    },
    "shadow": {
     "n": 5000,
-    "p50_us": 137.7,
-    "p95_us": 167.0
+    "p50_us": 143.2,
+    "p95_us": 176.1
    }
   }
  },
@@ -88,14 +88,14 @@
  "host": {
   "cpus": 10,
   "load_average_after": [
-   2.59,
-   5.32,
-   6.14
+   2.6,
+   3.15,
+   4.66
   ],
   "load_average_before": [
-   2.71,
-   5.44,
-   6.19
+   2.45,
+   3.16,
+   4.69
   ],
   "machine": "arm64",
   "python": "3.11.15",
@@ -105,58 +105,58 @@
  "main_off": {
   "main": {
    "n": 25000,
-   "p50_us": 13.0,
-   "p95_us": 16.2
+   "p50_us": 13.3,
+   "p95_us": 17.1
   },
   "main_commit": "Merge audit-remediation-2026-07: a public sentence says what the code does, and a test reads it against the code",
   "ratio_cell_off_to_main": {
-   "p50": 1.085,
-   "p95": 1.099
+   "p50": 1.075,
+   "p95": 1.105
   },
   "ratio_p95_per_stretch": {
-   "max": 1.068,
-   "median": 1.056,
-   "min": 1.037
+   "max": 1.093,
+   "median": 1.079,
+   "min": 1.039
   },
   "ratio_this_tree_to_main": {
-   "p50": 1.046,
-   "p95": 1.062
+   "p50": 1.068,
+   "p95": 1.082
   },
   "stretches": [
    {
-    "main_p95_us": 16.3,
+    "main_p95_us": 17.2,
+    "ratio_p95": 1.093,
+    "this_tree_p95_us": 18.8
+   },
+   {
+    "main_p95_us": 16.5,
+    "ratio_p95": 1.079,
+    "this_tree_p95_us": 17.8
+   },
+   {
+    "main_p95_us": 17.2,
+    "ratio_p95": 1.087,
+    "this_tree_p95_us": 18.7
+   },
+   {
+    "main_p95_us": 17.9,
+    "ratio_p95": 1.039,
+    "this_tree_p95_us": 18.6
+   },
+   {
+    "main_p95_us": 16.4,
     "ratio_p95": 1.061,
-    "this_tree_p95_us": 17.3
-   },
-   {
-    "main_p95_us": 16.4,
-    "ratio_p95": 1.049,
-    "this_tree_p95_us": 17.2
-   },
-   {
-    "main_p95_us": 16.4,
-    "ratio_p95": 1.037,
-    "this_tree_p95_us": 17.0
-   },
-   {
-    "main_p95_us": 16.1,
-    "ratio_p95": 1.056,
-    "this_tree_p95_us": 17.0
-   },
-   {
-    "main_p95_us": 16.1,
-    "ratio_p95": 1.068,
-    "this_tree_p95_us": 17.2
+    "this_tree_p95_us": 17.4
    }
   ],
   "this_tree": {
    "n": 25000,
-   "p50_us": 13.6,
-   "p95_us": 17.2
+   "p50_us": 14.2,
+   "p95_us": 18.5
   }
  },
  "measured": {
-  "on_top_of": "G6 times the mode off on both trees at once, taking turns block by block",
+  "on_top_of": "A configured mode on whose build itself raises installs the engine that refuses, not no engine",
   "with_uncommitted_changes": false
  },
  "rule": "the latency engines.durable adds to one dispatch, in microseconds: for each surface, added = the mode's p50 (p95) minus mode off's p50 (p95), measured in the same rounds. A p95 difference is a difference of percentiles, not a percentile of per-call differences.",

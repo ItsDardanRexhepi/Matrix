@@ -194,7 +194,7 @@
  "gate": "G8",
  "instrument": "POST /bridge/v1/action through GatewayServer under aiohttp's test client with the operator key, the real ServiceDispatcher, durable engine and outbox loop over a scratch SQLite database; stand-in services that log each effect with the body's marker and answer settled, stand-ins for the chain (the outbox's attestation submission), the legacy attestation service and the feed, and an allow-all gate that counts its calls. The outbox loop is drained after the corpus. Counts only: no timings.",
  "measured": {
-  "on_top_of": "G6 times the mode off on both trees at once, taking turns block by block",
+  "on_top_of": "A configured mode on whose build itself raises installs the engine that refuses, not no engine",
   "with_uncommitted_changes": false
  },
  "on": {
