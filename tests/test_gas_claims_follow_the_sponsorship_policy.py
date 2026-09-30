@@ -457,17 +457,60 @@ _ALLOWLIST_ONLY_UNDER_A_CAP = re.compile(
     r"without reading the allowlist|allowlist[^.]*\bonly when a (?:daily )?cap is set|"
     r"only when a (?:daily )?cap is set[^.]*allowlist|"
     r"allowlist (?:applies|is applied|binds)[^.]*only to (?:app-signed )?user operations|"
-    r"binds them only when it sets a (?:per-identity )?daily cap")
+    r"binds them only when it sets a (?:per-identity )?daily cap|"
+    # The allowlist listed among what a cap brings, or no cap said to leave
+    # the signer unlimited or unread (the forms main's gas wording used).
+    r"with an? (?:per-identity )?(?:daily )?cap (?:set|configured), (?:an operation|a request) "
+    r"past (?:the cap|it), (?:not on|off) the (?:action )?allowlist|"
+    r"with no (?:daily )?cap,? the platform signs without a limit|"
+    r"no (?:daily )?cap[^.]*\bsigner (?:does not|doesn't|never) (?:consult|read)|"
+    r"on the queued path(?![^.]*with a cap)[^.]*(?:off|not on|the) (?:action )?allowlist")
+#: Where the code says what gas it pays: the docstrings and comments of the
+#: modules that sign and meter, and of every other tracked module there.
+_CODE_PROSE_ROOTS = ("runtime/", "gateway/")
+
+
+def _code_prose(source: str) -> str:
+    """A module's docstrings and comments, as one text."""
+    import ast
+    import io
+    import tokenize
+    parts = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node)
+            if doc:
+                parts.append(doc)
+    comments = []
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type == tokenize.COMMENT:
+            comments.append(tok.string.lstrip("#").strip())
+        elif comments and tok.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT):
+            parts.append(" ".join(comments))
+            comments = []
+    if comments:
+        parts.append(" ".join(comments))
+    return "\n\n".join(parts)
 
 
 def _prose_sentences() -> list[tuple[str, str]]:
-    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html"], cwd=ROOT, text=True)
+    out = subprocess.check_output(["git", "ls-files", "*.md", "*.html", "*.py"], cwd=ROOT,
+                                  text=True)
     sentences = []
     for rel in out.splitlines():
         if (rel.startswith(("tests/", "contracts/")) or rel in _NOT_EDITABLE_HERE
                 or rel == "CHANGELOG.md" or not (ROOT / rel).is_file()):
             continue
-        text = re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))
+        if rel.endswith(".py"):
+            if not rel.startswith(_CODE_PROSE_ROOTS):
+                continue
+            text = _code_prose((ROOT / rel).read_text(encoding="utf-8"))
+        else:
+            text = re.sub(r"<[^>]+>", " ", (ROOT / rel).read_text(encoding="utf-8"))
         flat = re.sub(r"\s*\n\s*(?:>\s*)?", " ", text)
         sentences.extend((rel, s) for s in re.split(r"(?<=[.!?])\s+", flat))
     return sentences
@@ -518,6 +561,38 @@ def test_the_cap_and_allowlist_scan_catches_the_old_sentences():
                                "platform's signature with or without a daily cap: an operation "
                                "not on the list is refused.")]
     assert not _cap_and_allowlist_offenders(uncapped_fixed, allowlist_binds_without_a_cap=True)
+
+
+def test_the_scan_catches_the_gas_wording_main_merged():
+    """The sentences main's gas wording left in the code's own prose and the
+    API reference, false under a signer that reads the allowlist with no cap,
+    are caught; and the code's docstrings and comments are read at all. At the
+    merge of main into this branch ("Merge main into fix/oldq-census: durable
+    execution, dark by default, as schema migration 11") the scan read no .py
+    file; with this scan, the prose test above fails there on five passages
+    in runtime/blockchain/__init__.py,
+    runtime/blockchain/services/attestation/service.py and
+    docs/api-reference.md, and passes once they say what the signer does."""
+    merged = [
+        ("runtime/blockchain/__init__.py", "Gas for an operation the platform signs is paid by "
+         "the platform within the deployment's sponsorship policy: with a per-identity daily "
+         "cap set, a request past it, off the action allowlist, or not attributable to a "
+         "signed-in identity is refused rather than charged to the user; with no cap, the "
+         "platform signs without a limit; with no paymaster key, nothing is sponsored."),
+        ("runtime/blockchain/services/attestation/service.py", "With no cap the signer does "
+         "not consult the policy, and neither does this."),
+        ("runtime/blockchain/services/attestation/service.py", "On the queued path the "
+         "allowlist, the identity requirement and whether the caller has any cap left are "
+         "checked when the write is queued (`_precheck`)."),
+        ("docs/api-reference.md", "Gas is paid by the platform only when an operator "
+         "configures the paymaster, and then within the sponsorship policy: with a daily cap "
+         "set, an operation past the cap, not on the action allowlist, or not attributable to "
+         "a signed-in identity is refused rather than charged."),
+    ]
+    assert len(_cap_and_allowlist_offenders(merged, allowlist_binds_without_a_cap=True)) == 4
+    read = {rel for rel, _s in _prose_sentences()}
+    assert {"runtime/blockchain/sponsorship.py", "runtime/blockchain/__init__.py",
+            "runtime/blockchain/services/attestation/service.py"} <= read
 
 
 def test_no_published_prose_promises_a_cap_or_an_allowlist_the_policy_may_not_apply(tmp_path):

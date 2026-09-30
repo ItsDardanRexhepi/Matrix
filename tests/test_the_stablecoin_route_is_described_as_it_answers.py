@@ -30,9 +30,20 @@ What it does not read: the transfer_stablecoin capability, which records on
 the service's in-memory ledger (tests/test_stablecoin_transfer_is_recorded_not_settled.py
 reads that), and a text that describes the route without naming its path.
 
-CONTROL. The one test is a [control]. Laid over the commit before it ("The
-README says which refused actions the component registry still offers") it
-fails, naming the six texts; it passes here.
+THE SECOND TEST reads what the texts say the route ANSWERS. A body with the
+four fields is answered 400 only when its amount is a number: an amount that
+is null, a list, an object or a string that is not a number reaches the
+handler's float() and is answered 500. So each sentence that says what a body
+with the four fields is answered must say which amount, and each kind of body
+gateway/openapi.yaml names under a status is driven and must get that status.
+
+CONTROL. Both tests are [control]s. Laid over the commit before it ("The
+README says which refused actions the component registry still offers") the
+first fails, naming the six texts; it passes here. Laid over the merge of
+main into this branch ("Merge main into fix/oldq-census: durable execution,
+dark by default, as schema migration 11") the second fails, naming the README
+and docs/api-reference.md, which said a body with the four fields is answered
+400 whatever its amount; it passes here.
 """
 from __future__ import annotations
 
@@ -168,3 +179,81 @@ async def test_each_text_that_names_the_stablecoin_route_says_what_it_records(mo
     what = ("recorded a transfer" if records
             else f"recorded nothing (answered {status}: {answer})")
     assert not wrong, f"the route {what}, and the texts say otherwise:\n" + "\n".join(wrong)
+
+
+#: Each kind of body gateway/openapi.yaml names under a status, driven.
+_FOUR = {"sender": SENDER, "recipient": RECIPIENT, "token": "USDC"}
+OPENAPI_KINDS = {
+    "400": {
+        "a body that is not JSON": b"not json",
+        "a JSON object that lacks one of the four fields": dict(_FOUR),
+        "the four fields with an amount that is a number between -1e308 and 1e308":
+            [{**_FOUR, "amount": a} for a in (1, 0, -1, 1e308, -1e308, 2.5)],
+    },
+    "500": {
+        "a body that is a JSON number, boolean or null": [5, True, None],
+        "the four fields with an amount that is null, a list or an object":
+            [{**_FOUR, "amount": a} for a in (None, [1], {})],
+    },
+}
+_FOUR_FIELDS_ANSWERED = re.compile(r"four fields[^.]*?\banswered (\d{3})", re.IGNORECASE)
+_WHICH_AMOUNT = re.compile(r"an amount that is a number", re.IGNORECASE)
+
+
+async def _answers(monkeypatch, tmp_path, bodies: list) -> list[int]:
+    from aiohttp.test_utils import TestClient, TestServer
+
+    sys.path.insert(0, str(REPO / "tests"))
+    from test_capability_catalog_truth import _session_server
+    from test_route_sweep import SWEEP_CONFIG
+
+    class _Allow:
+        async def initialize(self):
+            return None
+
+        async def evaluate(self, action, context):
+            return {"allow": True}
+
+    monkeypatch.setattr("runtime.security.get_morpheus_security", lambda *a, **k: _Allow())
+    server = _session_server(tmp_path, SWEEP_CONFIG)
+    out = []
+    async with TestClient(TestServer(server.create_app())) as client:
+        for body in bodies:
+            data = body if isinstance(body, bytes) else json.dumps(body)
+            resp = await client.post(ROUTE, headers=OPERATOR, data=data)
+            out.append(resp.status)
+    return out
+
+
+async def test_each_answer_the_texts_give_the_route_is_the_one_it_gives(monkeypatch, tmp_path):
+    """[control] Every kind of body the spec names under a status is driven
+    with the operator's key and gets it; a body with the four fields and an
+    amount that is null, a list or a string that is not a number is answered
+    500; and every sentence that says what a body with the four fields is
+    answered says which amount."""
+    import yaml
+
+    wrong = []
+    for status, kinds in OPENAPI_KINDS.items():
+        for kind, bodies in kinds.items():
+            bodies = bodies if isinstance(bodies, list) else [bodies]
+            got = await _answers(monkeypatch, tmp_path / f"{status}-{len(wrong)}-{len(kind)}", bodies)
+            if set(got) != {int(status)}:
+                wrong.append(f"the spec says {kind} is answered {status}; it was answered {got}")
+    other = await _answers(monkeypatch, tmp_path / "other", [{**_FOUR, "amount": a}
+                                                             for a in (None, "abc", [1])])
+    assert set(other) == {500}, f"an amount that is not a number was answered {other}"
+    spec = yaml.safe_load((REPO / "gateway" / "openapi.yaml").read_text())["paths"][ROUTE]["post"]
+    texts = {"gateway/openapi.yaml": " ".join(
+        [spec["summary"], spec["description"]]
+        + [f"{code}: {r['description']}" for code, r in spec["responses"].items()])}
+    for rel in DESCRIBED_IN:
+        if rel != "gateway/openapi.yaml":
+            texts[rel] = " ".join(_passages((REPO / rel).read_text()))
+    for rel, text in texts.items():
+        flat = " ".join(text.split())
+        for claim in _FOUR_FIELDS_ANSWERED.finditer(flat):
+            if not _WHICH_AMOUNT.search(claim.group(0)):
+                wrong.append(f"{rel} says a body with the four fields is answered "
+                             f"{claim.group(1)} without saying which amount: {claim.group(0)[:160]}")
+    assert not wrong, "\n".join(wrong)

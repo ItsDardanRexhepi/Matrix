@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,256 tests, run against the versions
+automated suite of 6,258 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -503,7 +503,9 @@ check behind it:
   sender to the caller. The route records nothing, for any caller: its
   handler hands the service's transfer `sender` and `recipient`, which it
   does not take (it takes `from_addr` and `to_addr`), so a body with the
-  four fields the handler requires is answered 400. The capability
+  four fields the handler requires and an amount that is a number is
+  answered 400, and one whose amount is null, a list, an object or a
+  string that is not a number is answered 500. The capability
   records only on the service's in-memory ledger, which starts empty and
   which only a test helper funds, so for the operator's key it answers
   that the balance is insufficient. The component registry the app reads offers
@@ -759,8 +761,9 @@ sponsored. What is checked depends on who signs:
   `crossborder_payment`, `gaming`, `insurance`, `ip_royalties`,
   `securities` and `supply_chain`. The `create_attestation`,
   `batch_attest` and `revoke_attestation` capabilities are refused at
-  every door, whoever asks, and are metered, as `attestation.<method>`,
-  only where the platform's own code calls them in process; the `eas`
+  every door, whoever asks, and are metered, as `attestation.attest`,
+  `attestation.batch_attest` and `attestation.revoke`, only where the
+  platform's own code calls them in process; the `eas`
   tool's `attest`, `batch_attest` and `revoke` are refused too. The
   platform's key signs no attestation a request composes and revokes
   none a request names;

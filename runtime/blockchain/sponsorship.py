@@ -839,7 +839,8 @@ def resolve_caller_identity() -> str:
 # `eas.attest` / `eas.attest_time_critical` / `eas.revoke`. A tool attestation
 # now passes its own `<capability>.<method>` to EASClient.attest, the three
 # capabilities reach metered entry points (AttestationService.attest_for_caller,
-# batch_attest, revoke — `attestation.<method>`), a batch is bounded, and
+# batch_attest, revoke — metered as `attestation.attest`,
+# `attestation.batch_attest` and `attestation.revoke`), a batch is bounded, and
 # `eas.revoke` is gone: nothing revokes on the platform's own behalf.
 # tests/test_platform_attestations_are_metered.py fails on an unmetered one.
 #
