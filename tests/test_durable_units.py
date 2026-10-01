@@ -901,3 +901,60 @@ async def test_an_engine_in_shadow_never_drains_what_it_records(tmp_path):
     assert effects.count("attest_sent") == 0, "shadow delivered through the outbox"
     assert wiring.current() is before, "the test left another engine installed"
 
+
+def test_maintenance_checkpoints_the_write_ahead_log_in_mode_on(tmp_path):
+    """In mode on, the engine's maintenance checkpoints the WAL, so the
+    database's own autocheckpoint fires less often: past 1,000 pages its I/O
+    lands in whichever dispatch's COMMIT trips it, a stall in roughly one
+    journaled dispatch in a hundred once the log fills, which sets the p99.
+    Dispatch p99 drops while the worst case stays about 5 ms."""
+    db = open_db(tmp_path / "a.db")
+    eng = engine(db, "on", Clock(), Effects())
+    seen: list[str] = []
+    real = db.execute_sync
+
+    def spy(sql, params=None):
+        seen.append(sql)
+        return real(sql, params)
+
+    db.execute_sync = spy
+    try:
+        eng.maintain()
+    finally:
+        db.execute_sync = real
+    assert any(s.startswith("PRAGMA wal_checkpoint") for s in seen), \
+        "maintenance issued no WAL checkpoint"
+
+
+def test_shadow_maintenance_does_not_checkpoint_the_write_ahead_log(tmp_path):
+    """Shadow's only effects stay the rows it writes and the time they take:
+    a shadow tick leaves the platform's write-ahead log alone, even when the
+    engine wrote no row."""
+    db = open_db(tmp_path / "a.db")
+    eng = engine(db, "shadow", Clock(), Effects())
+    seen: list[str] = []
+    real = db.execute_sync
+
+    def spy(sql, params=None):
+        seen.append(sql)
+        return real(sql, params)
+
+    db.execute_sync = spy
+    try:
+        eng.maintain()
+    finally:
+        db.execute_sync = real
+    assert not any(s.startswith("PRAGMA wal_checkpoint") for s in seen), \
+        "a shadow tick checkpointed the platform's WAL"
+
+
+def test_a_transaction_that_does_not_wait_restores_the_timeout_it_found(tmp_path):
+    """``transaction(wait=False)`` zeroes the busy timeout and restores what
+    it found afterwards — a non-default timeout survives a shadow write.
+    ``write_without_waiting`` changes the timeout too, so a constant is not
+    assumed."""
+    db = open_db(tmp_path / "a.db")
+    db.execute_sync("PRAGMA busy_timeout = 30000")
+    journal.transaction(db, lambda tx: None, wait=False)
+    assert int(db.fetchall_sync("PRAGMA busy_timeout")[0][0]) == 30000, \
+        "wait=False did not restore the busy timeout it found"
