@@ -4,9 +4,24 @@ The Matrix gateway is an `aiohttp` server that exposes a public REST
 surface, a WebSocket stream, a `/bridge/v1/` API for the MTRX iOS app,
 and Prometheus metrics.
 
-All JSON requests and responses are UTF-8. Every response carries an
-`X-Request-Id` header that matches the `request_id` field in the
-structured JSON logs — quote it when filing issues.
+All JSON requests and responses are UTF-8. A response a handler returns
+carries an `X-Request-Id` header that matches the `request_id` field in the
+structured JSON logs — quote it when filing issues — unless the response is
+streamed. Two kinds of answer go out without it:
+
+* **A streamed response**, whose headers are sent before the handler
+  finishes: `POST /chat/stream`, `GET /social/feed/stream`,
+  `GET /api/v1/events/stream` and the `GET /ws` upgrade.
+* **An answer raised as an exception.** On `/api/v1` that includes a `400` a
+  service route raises for a missing field or bad JSON
+  (`Missing required fields: …`, `Invalid JSON body`), a `403`, `404` or `501`
+  a service route raises, a redacted error raised with its `ref` (quote the
+  `ref` instead), the `500` of an exception no handler caught, and the
+  router's own unmatched-path `404` and wrong-method `405`.
+
+The sign-in and purchase routes (`POST /api/v1/auth/apple`,
+`POST /api/v1/iap/verify`, `POST /api/v1/iap/asn`) return their `400`s
+rather than raising them, so those carry the header.
 
 ---
 
@@ -15,7 +30,8 @@ structured JSON logs — quote it when filing issues.
 Every request passes through this chain (outer → inner):
 
 1. `request_id` — takes the caller's `X-Request-ID` or generates one,
-   returns it on the response, and publishes it through an async context
+   returns it on a response the handler returns (see the top of this page
+   for the answers that go out without it), and publishes it through an async context
    variable so every log line emitted for the request carries the same ID.
 2. `cors` — answers preflights and sets `Access-Control-Allow-Origin` only
    for the origins in `gateway.cors_origins` (empty by default, which
@@ -262,8 +278,8 @@ Return the 21 declared categories with per-category capability counts (Security 
 
 ### `GET /api/v1/capabilities/{id}`
 
-Full descriptor for a single capability. Returns `404 not_found` for
-unknown ids.
+Full descriptor for a single capability. An unknown id answers `404`
+`{"ok": false, "error": "unknown_capability", "capability_id": …}`.
 
 ### `POST /api/v1/capabilities/{id}/invoke`
 
@@ -313,6 +329,13 @@ states `call_outcome` beside its own `status` now, and a refusal that means the
 capability is absent carries the same HTTP status it carries everywhere else:
 `status` is this route saying the id resolved and the dispatcher ran,
 `call_outcome` is what the dispatcher answered.
+
+An id that names no capability never reaches the dispatcher: this route
+answers it `400`
+`{"status": "error", "error": "unknown_capability", "capability_id": …}`,
+where `GET /api/v1/capabilities/{id}` answers the same id `404` with
+`"ok": false` in place of `"status": "error"`. A session can be refused `403`
+first, for an id the session's refusal tables name.
 
 ```json
 { "params": { "token_in": "USDC", "token_out": "WETH", "amount": "1000" } }
@@ -382,8 +405,10 @@ record it returns. While the envelope used the bare word, resolving a market
 *to* `"failure"` was read as the CALL having failed — for an action the same
 response attested as real.
 
-Of the 101 `/api/v1` routes, 14 answer with something else, and each of them
-answers with its own status rather than dressing a refusal as a success:
+Of the 148 `/api/v1` routes, 74 answer with something else at this commit —
+the handler does not write the envelope, or the service call it makes can
+never succeed — and each of them answers with its own status rather than
+dressing a refusal as a success:
 
 * **The gateway's own answers**, which are not a service result to wrap —
   `GET /api/v1/price/eth-usd` (the price, `503` when no source is reachable),
@@ -396,16 +421,55 @@ answers with its own status rather than dressing a refusal as a success:
   cancelled mid-flight and may have acted. The completion event counts
   `success_count` and `refused_count` from those verdicts, and
   `abort_on_failure` stops on anything that is not a success) and
-  `GET /api/v1/events/stream` (SSE).
+  `GET /api/v1/events/stream` (SSE). `GET /api/v1/oracle/price/{pair}` gives
+  the same bare price when the pair is `eth-usd` (in any case, with `-` or
+  `_`, or as `ethusd`), but it is not counted here: any other pair goes to
+  the service, and a price the service returns is written inside the
+  envelope (a pair the service does not support answers `400`, and an
+  unreachable price backend `503 {"error": "price unavailable"}`).
 * **`POST /api/v1/capabilities/{id}/invoke`**, which relays the dispatcher
   under `{status, call_outcome, capability_id, action, result}`. The
   `call_outcome` rule holds there exactly as it does here, including the `503`.
-* **Eight routes that are not implemented and say so** — `501` with
-  `status: "not_implemented"`, what the platform does not do, and where to go
-  instead: `/api/v1/contracts/deploy`, `/api/v1/portfolio/history/{wallet}`,
-  `/api/v1/intent/summary/{plan_id}`, `/api/v1/intent/execute`,
-  `/api/v1/compute/arweave/store`, `/api/v1/governance/multisig/approve`,
-  `/api/v1/social/gate/create`, `/api/v1/social/message/send`.
+* **Sign-in and purchase** — `POST /api/v1/auth/apple`,
+  `DELETE /api/v1/auth/account`, `POST /api/v1/iap/verify` and
+  `POST /api/v1/iap/asn`, each answering in a shape of its own.
+  `DELETE /api/v1/auth/account` and its answers are described under
+  [Authentication](#authentication), where `POST /api/v1/auth/apple` is named
+  as a route that returns a session token; the two `iap` routes have sections
+  under In-app purchase endpoints below.
+* **Forty-six routes that are not implemented and say so** — `501` with a
+  not-implemented error. Nine carry detail of their own, saying what the
+  platform does not do. Four of them also name the route to use instead:
+  `/api/v1/contracts/deploy`, `/api/v1/portfolio/history/{wallet}`,
+  `/api/v1/intent/summary/{plan_id}` and `/api/v1/intent/execute`. Four more
+  are `/api/v1/compute/arweave/store`, `/api/v1/governance/multisig/approve`,
+  `/api/v1/social/gate/create` and `/api/v1/social/message/send` — the last
+  three validate their input first, so a missing-fields body answers `400`
+  and a valid one the `501`. `POST /api/v1/governance/snapshot/vote` does the
+  same: `400` on missing fields, then `501` saying Snapshot voting is
+  unavailable, or, when the body names a `space`, that Snapshot spaces are
+  not implemented. The remaining 37
+  are the client-skeleton legs — storage, messaging, groups, licensing,
+  events, indexer, oracle feeds and compute (jobs and providers), plus
+  `/api/v1/portfolio/performance/{wallet}` — each an honest `501` until its
+  service lands. `/api/v1/privacy/delete` answers `501` too, inside the
+  standard envelope (`call_outcome: "failure"`, `error_category:
+  "not_implemented"`), so it is not among these.
+* **Eighteen routes whose service call can never succeed at this commit.**
+  Seven call a method their service does not have and answer `404`
+  `{"error": "Method '…' not found on '…'"}`: `GET /api/v1/rwa/listings`,
+  `POST /api/v1/defi/swap/route`, `POST /api/v1/defi/swap/execute`,
+  `POST /api/v1/defi/bridge/quote`, `POST /api/v1/defi/bridge/execute`,
+  `POST /api/v1/identity/zk-proof/generate` and `POST /api/v1/social/post`.
+  Eleven pass the service method an argument it does not take and answer a
+  redacted `400` with `code: "invalid_request"`, or the plain `500` of an
+  exception no handler caught when the handler fails first on a value it
+  converts to a number: `/api/v1/agent/register`,
+  `/api/v1/fundraising/campaign/create`, `/api/v1/governance/proposal/create`,
+  `/api/v1/insurance/policy/create`, `/api/v1/ip/register`,
+  `/api/v1/nft/mint`, `/api/v1/rwa/tokenize`, `/api/v1/securities/create`,
+  `/api/v1/stablecoin/transfer`, `/api/v1/staking/stake` and
+  `/api/v1/staking/unstake` (all `POST`).
 
 A refusal that is a **domain answer** the caller asked for — a rejected claim,
 a failed transaction — stays `200` with `status: "ok"` and
@@ -423,26 +487,47 @@ platform relayed.
 
 ## Error envelope
 
-All error responses share this shape:
+There is no single error shape. The table lists the error answers measured at
+this commit; it is not exhaustive, and the service envelope and the invoke
+route above carry statuses of their own. The `X-Request-Id` header is on some
+of these answers and not others (see the top of this page), and no error body
+carries the correlation id as a top-level `request_id` field. A redacted error
+carries it as `ref`, both as its own field and at the end of the `error` text
+— quote it when filing issues:
 
 ```json
 {
-  "error": "rate_limited",
-  "message": "Too many requests",
-  "request_id": "01HV…"
+  "error": "That request could not be completed. (ref: …)",
+  "code": "internal_error",
+  "ref": "…"
 }
 ```
 
-| HTTP | `error` value      | When                                                 |
-|------|--------------------|------------------------------------------------------|
-| 400  | `invalid_request`  | Bad JSON, missing required field, schema violation  |
-| 401  | `unauthorized`     | Missing or invalid API key / session token           |
-| 403  | `forbidden`        | Valid credential but insufficient scope              |
-| 404  | `not_found`        | Unknown route or resource                            |
-| 408  | `request_timeout`  | Client did not finish sending the body in time       |
-| 429  | `rate_limited`     | Token bucket exhausted for wallet / key / IP         |
-| 500  | `internal_error`   | Unhandled server error — `request_id` is mandatory   |
-| 504  | `gateway_timeout`  | Request exceeded `request_timeout_seconds`           |
+| HTTP | Body | When |
+|------|------|------|
+| 400  | `{"error": "<what is wrong>"}`, e.g. `Invalid JSON body`, `Missing required fields: …` or `message is required` | Bad JSON, missing required field |
+| 400  | redacted, `code: "invalid_request"` | A service refused the request as malformed, or the gateway passed the service method an argument it does not take — how the eleven routes named above answer every request their handler accepts |
+| 400  | redacted, `code: "validation"` | The invoke route relaying a dispatcher validation refusal |
+| 401  | `{"error": "unauthorized", "message": …}` | Missing or invalid API key / session token |
+| 401  | `{"success": false, "error": "session required"}` | `DELETE /api/v1/auth/account` without a session |
+| 403  | `{"error": "forbidden", "message": …}` | A session asking for a route or capability that requires the operator key, or another access-policy refusal |
+| 403  | `{"error": "This action couldn't be authorized right now. Please try again."}` | The security gate refusing the action (only with the security package installed); raised on the service routes, so without `X-Request-Id` there. `POST /api/v1/capabilities/{id}/invoke` and `POST /bridge/v1/action` return the same refusal with the header (the bridge adds `ok` and `timestamp`) |
+| 403  | `{"error": "<service> is disabled", "detail": …}` | A regulated service that ships disabled |
+| 404  | plain text `404: Not Found` | Unmatched path (the router's own answer) |
+| 404  | `{"error": "<the dispatcher's sentence>", "code": "not_found"}`, no `ref` | An action the dispatcher does not know (`POST /bridge/v1/action` adds `ok` and `timestamp`) |
+| 404  | a route's own `{"error": …}`, e.g. `Method '…' not found on '…'` | Unknown resource; a service method that does not exist is raised, so without `X-Request-Id` |
+| 405  | plain text `405: Method Not Allowed` | Wrong method for a served path |
+| 422  | the service envelope, `call_outcome: "failure"` | A well-formed request the operation could not complete |
+| 429  | `{"error": "rate_limited", "message": "Too many requests. Please slow down."}` | Token bucket exhausted for wallet / key / IP |
+| 500  | redacted, `code: "internal_error"` | Server error a handler caught — quote `ref` |
+| 500  | aiohttp's own `500 Internal Server Error` page (plain text, or HTML for a client that accepts `text/html`) | An exception no handler caught; no id is returned |
+| 501  | `{"error": …, "status": "not_implemented"}` or a route's own detail | Not implemented (see above) |
+| 502  | redacted, `code: "service_error"` | The invoke route relaying a service error |
+| 503  | the service envelope with the refusal's own `status` (e.g. `not_deployed`); on invoke, `{"status": "ok", "call_outcome": "failure", …}` for a refusal the dispatcher relays, or `{"status": "unavailable", "error": "unavailable", …}` for a capability the catalog marks unavailable | The capability is absent (see above) |
+| 503  | `{"error": "<feature> not configured"}` | `POST /api/v1/paymaster/sign`, `POST /api/v1/auth/apple` or `POST /api/v1/iap/verify` on a gateway without that configuration |
+| 503 / 504 | redacted, `code: "upstream_unavailable"` / `"upstream_timeout"` | A service the request depends on is unreachable or slow |
+| 503  | `{"status": "unavailable", "error": "<sentence>"}`, raised: no `ref`, no `X-Request-Id` | `GET /api/v1/portfolio/complete/{wallet}` or `GET /api/v1/portfolio/positions/{wallet}` when reading the wallet's portfolio fails after its address was accepted |
+| 504  | `{"error": "request_timeout", "message": "Request exceeded Ns budget."}` | Request exceeded `request_timeout_seconds` |
 
 ---
 
