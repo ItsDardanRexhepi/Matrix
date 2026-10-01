@@ -176,7 +176,10 @@ def transaction(db: Any, work: Callable[[Tx], T], *, wait: bool) -> T:
     neither can land inside the other. ``wait=False`` sets the busy timeout to
     zero for this transaction only: when another connection holds the database
     the BEGIN raises at once instead of holding the event loop for up to five
-    seconds — for records that are dropped rather than waited for (shadow)."""
+    seconds — for records that are dropped rather than waited for (shadow).
+    The timeout is read back and restored to what was found, not a constant:
+    ``write_without_waiting`` (service_dispatcher) changes it too, and a
+    connection whose timeout is not the default keeps its own."""
     previous = None
     if not wait:
         previous = int(db.fetchall_sync("PRAGMA busy_timeout")[0][0])

@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,288 tests, run against the versions
+automated suite of 6,291 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -623,7 +623,11 @@ check behind it:
   included. Rows written, and the time it takes to write them (below), are
   shadow's only effects: it refuses nothing, and `GET /ready` does not read
   it, so a shadow instance whose engine or loop fails keeps serving as `off`
-  would, and says so in its log. At `on`, for
+  would, and says so in its log. At `on`, the maintenance tick additionally
+  checkpoints the write-ahead log between dispatches
+  (`PRAGMA wal_checkpoint(PASSIVE)`), keeping the log short so the
+  database's own 1,000-page autocheckpoint fires less often; what is durable
+  does not change, a checkpoint moves committed frames. For
   the actions of the canary, the run is the only way they run: it is written
   before the action is called, and an action whose run cannot be written is
   not called. The canary moves in two stages, first the blockchain tools'
