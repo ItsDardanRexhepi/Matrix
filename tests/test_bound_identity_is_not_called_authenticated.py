@@ -269,17 +269,21 @@ async def test_royalty_session_caller_is_stopped_and_a_written_identity_is_not(
     assert not _refused(written), written
     assert written["result"]["recipient"] == SESSION_B, written
     assert written["result"]["set_by"] == SESSION_A, written
-    # 17-J's label: the body-written identity is recorded as "authenticated".
-    assert written["result"]["set_by_source"] == "authenticated", written
+    # The body-written identity was named by a request the gateway treats as
+    # the operator's (auth is off here), and the record says so rather than
+    # labelling it like a session's
+    # (tests/test_the_record_says_the_operator_named_the_actor.py).
+    assert written["result"]["set_by_source"] == "operator", written
 
 
 # ── the chat path: the threaded identity is the chat body's wallet ──────────
 #
 # runtime/react_loop.py threads user_context["wallet_address"] to the tool
-# dispatcher as caller_identity. On /chat, gateway/server.py handle_chat builds
-# that field from the request body's `wallet` (or `wallet_address`), session or
-# not, and the session's identity is not consulted. Through the platform_action
-# tool it reaches the real ServiceDispatcher and is recorded as the grantor.
+# dispatcher as caller_identity. On every chat entrance gateway/server.py
+# _chat_user_context builds that field from the presented session, and, for an
+# operator request with no session, from the request body's `wallet` (or
+# `wallet_address`). Through the platform_action tool it reaches the real
+# ServiceDispatcher and is recorded as the grantor.
 # Trinity may not execute state-changing actions herself (they go through
 # runtime/agents/handoff.py with no identity), so the record is what a Neo
 # dispatch writes; Neo takes the operator key on /chat.

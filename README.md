@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,303 tests, run against the versions
+automated suite of 6,320 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -555,7 +555,10 @@ check behind it:
   where nothing was bound it is written down as a claim rather than
   promoted to the actor — so a caller who names somebody else shows up in
   the trail as exactly that, whichever of the three answers the record
-  gives, instead of the platform quietly agreeing. The one deliberate
+  gives, instead of the platform quietly agreeing. An integration holding
+  the operator key may name the user it acts for when no session is
+  presented, and the record says the operator named that user rather than
+  labelling it the way it labels a signed-in session. The one deliberate
   exception is a privacy action refused on the `/api/v1` path: its decline
   is recorded with no actor and no claim, because naming who was refused
   is exactly what the privacy exclusion exists to prevent
