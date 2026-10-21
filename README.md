@@ -124,6 +124,24 @@ then stops with a non-zero exit and the command to run setup yourself. The
 setup itself, run with its input redirected or closed, stops the same way at
 its first unanswered question instead of ending in a traceback.
 
+Or install the `matrix` command as a package, from a clone:
+
+```bash
+pipx install ./TheMatrix                  # a clone's folder; not a name on PyPI
+matrix setup                              # the same setup, written into ~/.matrix
+matrix gateway start -d                   # the gateway, run from that folder
+```
+
+An install keeps its configuration, its keys, its data and the gateway's PID
+and log in `~/.matrix`, created readable by you only, or in `$MATRIX_HOME`
+when that is set; a clone keeps them in the clone. Do not `pipx install
+the-matrix`: that name on PyPI belongs to an unrelated project. An install
+takes its dependencies from the ranges in `pyproject.toml`, not from the lock
+in `requirements.txt` that the suite runs on. The Homebrew formula under
+`packaging/homebrew/` is not published and is pinned to a commit from before
+the command could do this, so it cannot set the platform up yet; its page says
+what has been measured.
+
 ---
 
 ## Model Support
@@ -190,7 +208,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,560 tests, run against the versions
+automated suite of 6,572 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:

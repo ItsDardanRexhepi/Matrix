@@ -194,7 +194,7 @@ _STATES_A_DEFAULT = [
 
 def _what_setup_writes() -> dict:
     import importlib.util
-    spec = importlib.util.spec_from_file_location("matrix_setup_gateway_values", ROOT / "setup.py")
+    spec = importlib.util.spec_from_file_location("matrix_setup_gateway_values", ROOT / "setup" / "wizard.py")
     setup = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(setup)
     setup.ask = lambda prompt, default="", **kwargs: default

@@ -93,7 +93,9 @@ version = { attr = "runtime.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["cli*", "runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*"]
+# setup* is the wizard and its channel configurators: `matrix setup` runs them
+# from an installed package (cli/home.py).
+include = ["cli*", "runtime*", "gateway*", "hivemind*", "contracts*", "scripts*", "sdk*", "setup*"]
 exclude = ["tests*", "data*", "memory*", "site*", ".venv*"]
 
 # ── Pytest ──────────────────────────────────────────────────────────

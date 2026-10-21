@@ -22,16 +22,18 @@ from __future__ import annotations
 
 import json
 import os
-import pathlib
 import sys
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
-CONFIG_FILE = PROJECT_ROOT / "matrix.config.json"
+from cli.home import home
+
+# A clone's config is at its root; an installed package's is in ~/.matrix, or
+# $MATRIX_HOME (cli/home.py).
+CONFIG_FILE = home() / "matrix.config.json"
 
 
 def _load() -> dict:
     if not CONFIG_FILE.exists():
-        print(f"No config at {CONFIG_FILE}. Run: python3 setup.py")
+        print(f"No config at {CONFIG_FILE}. Run: matrix setup")
         raise SystemExit(1)
     return json.loads(CONFIG_FILE.read_text())
 
@@ -64,7 +66,7 @@ def cmd_models(args) -> None:
         else [resolve(chosen)]
     targets = [t for t in targets if t is not None]
     if not targets:
-        print(f"No provider configured. Run: python3 setup.py")
+        print("No provider configured. Run: matrix setup")
         raise SystemExit(1)
 
     exit_code = 0
