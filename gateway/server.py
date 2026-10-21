@@ -1358,13 +1358,18 @@ class GatewayServer:
         record it. Subscriptions upsert an entitlement row; the redos
         Consumable is recorded in the transaction ledger (never a tier).
 
-        Idempotent on transactionId: replaying the same signed transaction
-        returns 200 with replay=true and records nothing new. A purchase
-        belongs to the first account that verified it: another account's
+        Idempotent on transactionId: the same signed transaction posted again
+        by its holder or with no session returns 200 with replay=true and
+        adds no ledger row; the subscription follows its newest transaction,
+        so an older one moves nothing back, and a transaction carrying
+        Apple's revocationDate ends it. A purchase belongs to the first
+        account that verified it: another account's
         session presenting it (the same bytes, or another transaction of the
         same subscription) -> 409 ``bound_to_another_account``, with nothing
-        of it written (``EntitlementStore.record_verified``). Fail-closed:
-        unconfigured -> 503; any verification failure -> 401 (generic)."""
+        of it written (``EntitlementStore.record_verified``). An account is
+        the session's own subject: an Apple sign-in and the wallet linked to
+        it are two. Fail-closed: unconfigured -> 503; any verification
+        failure -> 401 (generic)."""
         from gateway.iap import (
             IAPError, IAPNotConfigured, check_bundle, check_environment,
             classify_product, transaction_fields, verify_signed_payload,
@@ -1414,6 +1419,7 @@ class GatewayServer:
                 environment=tx["environment"],
                 tier=tier,
                 expires_date=tx["expires_date"],
+                revoked=bool(tx["revocation_date"]),
             )
         except Exception:
             logger.exception("iap verify: store write failed")
@@ -1448,8 +1454,12 @@ class GatewayServer:
         ``signedTransactionInfo`` is verified independently before any store
         write (a valid envelope cannot smuggle an unverified transaction).
         DID_RENEW extends, EXPIRED expires, REFUND flips to refunded (and
-        marks consumable ledger rows), REVOKE revokes. Unverifiable -> 401
-        so a spoofer learns nothing and real Apple retries surface."""
+        marks consumable ledger rows), REVOKE revokes. Apple promises no
+        order: a renewal about an older transaction changes nothing, an
+        expiry about one older than the newest recorded is ignored, and a
+        refund or revoke that arrives before any verify writes the
+        subscription already ended. Unverifiable -> 401 so a spoofer learns
+        nothing and real Apple retries surface."""
         from gateway.iap import (
             IAPError, IAPNotConfigured, check_bundle, classify_product,
             transaction_fields, verify_signed_payload,
@@ -1507,15 +1517,27 @@ class GatewayServer:
                     environment=tx["environment"],
                 )
             elif notification_type == "EXPIRED":
-                await self._entitlements.set_status(original_id, "expired")
-            elif notification_type == "REFUND":
-                await self._entitlements.set_status(original_id, "refunded")
+                # A notice with no purchase date is applied, as before.
+                await self._entitlements.set_status(
+                    original_id, "expired", as_of=tx["purchase_date"] or None)
+            elif notification_type in ("REFUND", "REVOKE"):
+                ended = "refunded" if notification_type == "REFUND" else "revoked"
+                if not await self._entitlements.set_status(original_id, ended) \
+                        and product_type == "subscription" and tier:
+                    # The notice can reach the gateway before any verify of
+                    # the purchase: the subscription is written already
+                    # ended, so the verify that follows keeps it ended.
+                    await self._entitlements.upsert_entitlement(
+                        original_transaction_id=original_id,
+                        product_id=tx["product_id"],
+                        tier=tier,
+                        status=ended,
+                        purchase_date=tx["purchase_date"],
+                        expires_date=tx["expires_date"],
+                        environment=tx["environment"],
+                    )
                 await self._entitlements.mark_transaction(
-                    tx["transaction_id"], "refunded")
-            elif notification_type == "REVOKE":
-                await self._entitlements.set_status(original_id, "revoked")
-                await self._entitlements.mark_transaction(
-                    tx["transaction_id"], "revoked")
+                    tx["transaction_id"], ended)
             elif notification_type == "REFUND_REVERSED":
                 # Deliberately NOT auto-reactivated: terminal states are
                 # sticky (a replayed reversal after a second refund must not
