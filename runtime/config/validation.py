@@ -69,6 +69,11 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # deployment without sponsorship answers 503 on /paymaster/sign.
     ("blockchain.paymaster.signer_key", "MATRIX_PAYMASTER_SIGNER_KEY", False),
     ("blockchain.demo_wallet_private_key", "MATRIX_DEMO_WALLET_KEY", False),
+    # The second name the platform signing key is accepted under
+    # (runtime/blockchain/web3_manager.py `resolve_paymaster_key`, read after the
+    # flat key above). Same variable: set, it fills both names; unset, a key
+    # written here is stripped in production like one at the first name.
+    ("blockchain.paymaster_key", "MATRIX_PAYMASTER_KEY", False),
     # Model provider API keys (fallback to the per-provider env vars
     # that ``_apply_env_overrides`` in gateway/server.py already reads)
     # Every provider declared in runtime/models/providers.py that takes a key,
@@ -113,6 +118,27 @@ SECRET_FIELDS: tuple[tuple[str, str, bool], ...] = (
     # value to nowhere while the census called the key handled.
     ("oracle.weather.api_key", "WEATHER_API_KEY", False),
     ("oracle.sports.api_key",  "SPORTS_API_KEY",  False),
+    # The protocol services' own credentials, at the paths each service reads
+    # from its block (`services.<name>`). The shipped example carries these
+    # blocks without their keys, so a census of the example alone never saw
+    # them: the KYC secret stayed in the file in production, and a key written
+    # at any of the others stopped the boot with no variable able to supply it.
+    # tests/test_secret_fields_cover_what_the_services_read.py derives the list
+    # from the services' source.
+    ("services.kyc.api_key",                        "KYC_API_KEY",              False),
+    ("services.kyc.secret_key",                     "KYC_SECRET_KEY",           False),
+    ("services.creator_platforms.sound_api_key",    "SOUND_API_KEY",            False),
+    ("services.creator_platforms.mirror_api_key",   "MIRROR_API_KEY",           False),
+    ("services.creator_platforms.paragraph_api_key", "PARAGRAPH_API_KEY",       False),
+    ("services.storage.filecoin_api_key",           "FILECOIN_API_KEY",         False),
+    ("services.storage.orbitdb_api_key",            "ORBITDB_API_KEY",          False),
+    ("services.storage.api_key",                    "STORAGE_API_KEY",          False),
+    ("services.ccip.tracker_api_key",               "CCIP_TRACKER_API_KEY",     False),
+    ("services.oracles_plus.redstone_api_key",      "REDSTONE_API_KEY",         False),
+    ("services.social_protocols.farcaster_api_key", "FARCASTER_API_KEY",        False),
+    ("services.compute.api_key",                    "COMPUTE_API_KEY",          False),
+    ("services.mpc.api_key",                        "MPC_API_KEY",              False),
+    ("services.payment_channels.api_key",           "PAYMENT_CHANNELS_API_KEY", False),
     # Supply-chain authenticity. There is no default: without this the QR
     # generator refuses to issue or verify codes
     # (runtime/blockchain/services/supply_chain/qr_codes.py).
@@ -140,12 +166,14 @@ FILE_MOUNTED_SECRETS: tuple[tuple[str, str], ...] = (
 #: handed, so a secret added to the shipped example — or to an operator's own
 #: file — is named without anyone remembering to add it anywhere.
 #:
-#: ``signer_key`` is the whole word on purpose. A bare ``key`` would name every
-#: leaf that ends in it — a public key, a cache key — as a secret, and a census
-#: that cries wolf is one that stops being read.
+#: ``signer_key``, ``secret_key`` and ``paymaster_key`` are whole words on
+#: purpose. A bare ``key`` would name every leaf that ends in it — a public key,
+#: a cache key — as a secret, and a census that cries wolf is one that stops
+#: being read.
 SECRET_NAME_SUFFIXES: tuple[str, ...] = (
-    "api_key", "apikey", "secret", "password", "passwd", "_pass",
-    "private_key", "auth_key", "signing_key", "signer_key", "_p8", "_token", "_sid",
+    "api_key", "apikey", "secret", "secret_key", "password", "passwd", "_pass",
+    "private_key", "auth_key", "signing_key", "signer_key", "paymaster_key",
+    "_p8", "_token", "_sid",
     "_dsn", "webhook_url", "_webhook", "credential", "credentials",
     "passphrase", "mnemonic", "seed_phrase", "salt",
 )
@@ -160,7 +188,16 @@ NOT_SECRET_LEAVES: frozenset[str] = frozenset({
     "token_name", "token_symbol", "token_address", "token_uri", "token_type",
     "reward_token", "payment_token", "collateral_token", "base_token",
     "quote_token", "stake_token", "lp_token", "governance_token",
-    "from_token", "to_token", "native_token",
+    "from_token", "to_token", "native_token", "link_token",
+})
+
+#: Whole paths that end like a secret and hold a public value, for the case a
+#: leaf name cannot settle: ``salt`` stays secret-shaped everywhere else, and
+#: the ERC-6551 salt the token-bound-account service reads is written into
+#: public calldata (runtime/blockchain/services/tba/service.py). Named here,
+#: production no longer refuses to boot with it configured.
+NOT_SECRET_PATHS: frozenset[str] = frozenset({
+    "services.tba.salt",
 })
 
 
@@ -173,7 +210,8 @@ def is_secret_shaped(name: str) -> bool:
 
 
 def secret_shaped_paths(config: dict) -> tuple[str, ...]:
-    """Every dotted path in *config* whose leaf key names a secret, sorted.
+    """Every dotted path in *config* whose leaf key names a secret, sorted,
+    less the public values named in NOT_SECRET_PATHS.
 
     Values are not inspected: a secret that is currently empty or still holding
     a placeholder is exactly the one an operator is about to fill in.
@@ -187,7 +225,8 @@ def secret_shaped_paths(config: dict) -> tuple[str, ...]:
             path = f"{prefix}.{key}" if prefix else str(key)
             if isinstance(value, dict):
                 _walk(value, path)
-            elif not isinstance(value, list) and is_secret_shaped(str(key)):
+            elif (not isinstance(value, list) and is_secret_shaped(str(key))
+                    and path not in NOT_SECRET_PATHS):
                 found.append(path)
 
     _walk(config or {}, "")
@@ -567,6 +606,7 @@ __all__ = [
     "ConfigValidationError",
     "FILE_MOUNTED_SECRETS",
     "NOT_SECRET_LEAVES",
+    "NOT_SECRET_PATHS",
     "SECRET_FIELDS",
     "SECRET_NAME_SUFFIXES",
     "REQUIRED_FIELDS",

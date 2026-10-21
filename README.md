@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,323 tests, run against the versions
+automated suite of 6,399 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -987,7 +987,15 @@ launch:
   signer arrives as `MATRIX_PAYMASTER_SIGNER_KEY` at the location the
   example documents, and the oracle keys at `oracle.weather.api_key` and
   `oracle.sports.api_key` — an entry at a path nothing reads bridges a
-  value to nowhere while calling the key handled.
+  value to nowhere while calling the key handled. The protocol services'
+  own keys are in the table too, each with its own variable: the KYC
+  provider's token and signing secret, and the creator-platform, storage,
+  CCIP tracker, RedStone, Farcaster, compute, MPC and payment-channel
+  keys. A check lists them from what the services' code reads, not from
+  the example file, which ships those blocks without their keys. Two
+  settings that only end like secrets — the LINK token's address and the
+  token-bound-account salt — are named as public values, so configuring
+  either does not stop a production boot.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.
