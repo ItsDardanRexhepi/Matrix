@@ -83,6 +83,21 @@ services:
       # Data feeds
       WEATHER_API_KEY: "${WEATHER_API_KEY:-}"
       SPORTS_API_KEY: "${SPORTS_API_KEY:-}"
+      # Protocol services' keys
+      KYC_API_KEY: "${KYC_API_KEY:-}"
+      KYC_SECRET_KEY: "${KYC_SECRET_KEY:-}"
+      SOUND_API_KEY: "${SOUND_API_KEY:-}"
+      MIRROR_API_KEY: "${MIRROR_API_KEY:-}"
+      PARAGRAPH_API_KEY: "${PARAGRAPH_API_KEY:-}"
+      FILECOIN_API_KEY: "${FILECOIN_API_KEY:-}"
+      STORAGE_API_KEY: "${STORAGE_API_KEY:-}"
+      ORBITDB_API_KEY: "${ORBITDB_API_KEY:-}"
+      CCIP_TRACKER_API_KEY: "${CCIP_TRACKER_API_KEY:-}"
+      REDSTONE_API_KEY: "${REDSTONE_API_KEY:-}"
+      FARCASTER_API_KEY: "${FARCASTER_API_KEY:-}"
+      COMPUTE_API_KEY: "${COMPUTE_API_KEY:-}"
+      MPC_API_KEY: "${MPC_API_KEY:-}"
+      PAYMENT_CHANNELS_API_KEY: "${PAYMENT_CHANNELS_API_KEY:-}"
     volumes:
       # Mount config read-only so the container can't accidentally rewrite it.
       - ./matrix.config.json:/app/matrix.config.json:ro

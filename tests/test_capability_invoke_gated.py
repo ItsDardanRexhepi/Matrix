@@ -55,7 +55,8 @@ def invoked(monkeypatch):
     """Record every dispatcher-bound invoke instead of running it."""
     calls = []
 
-    async def fake_invoke(self, capability_id, params=None, *, caller_identity=""):
+    async def fake_invoke(self, capability_id, params=None, *, caller_identity="",
+                          caller_source=""):
         calls.append((capability_id, params, caller_identity))
         return {"status": "ok", "capability_id": capability_id}
 

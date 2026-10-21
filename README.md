@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,445 tests, run against the versions
+automated suite of 6,539 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -555,7 +555,10 @@ check behind it:
   where nothing was bound it is written down as a claim rather than
   promoted to the actor — so a caller who names somebody else shows up in
   the trail as exactly that, whichever of the three answers the record
-  gives, instead of the platform quietly agreeing. The one deliberate
+  gives, instead of the platform quietly agreeing. An integration holding
+  the operator key may name the user it acts for when no session is
+  presented, and the record says the operator named that user rather than
+  labelling it the way it labels a signed-in session. The one deliberate
   exception is a privacy action refused on the `/api/v1` path: its decline
   is recorded with no actor and no claim, because naming who was refused
   is exactly what the privacy exclusion exists to prevent
@@ -979,8 +982,8 @@ launch:
   `runtime/config/validation.py` strips placeholder values (`YOUR_`,
   `CHANGE-ME`, … in either spelling) from the env-only secret entries it
   lists, warns about every other placeholder at startup, and, with
-  `MATRIX_ENV=production`, refuses to start if a required secret is missing
-  from the environment.
+  `MATRIX_ENV=production` (or `prod`; no other value reads as production),
+  refuses to start if a required secret is missing from the environment.
   It also walks the loaded config for secret-shaped settings and reports
   any that no env-only entry covers — in production that refusal stops
   the boot, so a new third-party key cannot quietly live in the
@@ -989,7 +992,15 @@ launch:
   signer arrives as `MATRIX_PAYMASTER_SIGNER_KEY` at the location the
   example documents, and the oracle keys at `oracle.weather.api_key` and
   `oracle.sports.api_key` — an entry at a path nothing reads bridges a
-  value to nowhere while calling the key handled.
+  value to nowhere while calling the key handled. The protocol services'
+  own keys are in the table too, each with its own variable: the KYC
+  provider's token and signing secret, and the creator-platform, storage,
+  CCIP tracker, RedStone, Farcaster, compute, MPC and payment-channel
+  keys. A check lists them from what the services' code reads, not from
+  the example file, which ships those blocks without their keys. Two
+  settings that only end like secrets — the LINK token's address and the
+  token-bound-account salt — are named as public values, so configuring
+  either does not stop a production boot.
 - **Structured JSON logging** — every log line carries the per-request
   `request_id` via `contextvars`. See `runtime/logging/` and the
   `request_id` middleware in `gateway/server.py`.

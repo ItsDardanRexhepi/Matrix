@@ -126,7 +126,8 @@ async def test_a_direct_action_is_attributed_to_the_account_that_asked_not_the_o
     calls: list[dict] = []
 
     class _Recorder:
-        async def execute(self, action, service=None, params=None, *, caller_identity=""):
+        async def execute(self, action, service=None, params=None, *, caller_identity="",
+                          caller_source=""):
             calls.append({"action": action, "caller_identity": caller_identity})
             return json.dumps({"status": "ok"})
 

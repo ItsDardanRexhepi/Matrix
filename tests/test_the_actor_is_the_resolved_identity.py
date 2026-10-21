@@ -44,10 +44,11 @@ is the interesting case: it is the shape of one caller naming another.
 WHAT THIS DOES NOT CLAIM. "Resolved" means "bound by the entry point", not
 "authenticated". The middleware binds a session's subject when there is one and,
 for an operator request, the X-Wallet-Address header or a body field as written
-(gateway/server.py); /chat threads the chat body's wallet. That overstatement is
-older and wider than this change, is pinned by
-tests/test_bound_identity_is_not_called_authenticated.py, and is NOT narrowed
-here. What changes is that a value the request body wrote can no longer outrank
+(gateway/server.py); the chat entrances thread the session's identity, or an
+operator request's body wallet. That overstatement is older and wider than this
+change, is pinned by tests/test_bound_identity_is_not_called_authenticated.py,
+and is NOT narrowed here; the record's label for the operator's case is
+tests/test_the_record_says_the_operator_named_the_actor.py. What changes is that a value the request body wrote can no longer outrank
 the bound one, and can no longer be the actor when nothing was bound at all.
 
 17-J's three facts still render differently — see the parametrised test at the

@@ -434,18 +434,24 @@ class ReActLoop:
                 # an operator-key request may name, in its body, the user it
                 # acts for, and an anonymous caller has none.
                 # ServiceDispatcher.execute records whatever arrives here as the
-                # caller, labelled "authenticated" (17-J). On /chat that record
-                # is Neo's, who takes the operator key there; Trinity's
+                # caller: labelled "operator" when the operator key's request
+                # named it (the context's `identity_source`), else
+                # "authenticated" (17-J), with "agent" the channel when there is
+                # no identity. On /chat that record is Neo's, who takes the
+                # operator key there; Trinity's
                 # state-changing actions go through runtime/agents/handoff.py,
                 # whose gate is handed this identity while Neo's execution runs
                 # under its declared agent source. The dispatcher also hands it
                 # to the security seam at the tool boundary, so a decision about
                 # this caller can be made there.
                 _uc = context.metadata.get("user_context") or {}
+                _identity = str(_uc.get("wallet_address") or "")
                 outcome = await self.dispatcher.dispatch(
                     tool_name, arguments, agent_name=context.agent_name,
-                    caller_identity=str(_uc.get("wallet_address") or ""),
-                    caller_source="agent",
+                    caller_identity=_identity,
+                    caller_source=("operator" if _identity
+                                   and _uc.get("identity_source") == "operator"
+                                   else "agent"),
                     caller_kind=_caller_kind_of(_uc))
 
                 # NEW-27: three audiences, three values. These used to be one

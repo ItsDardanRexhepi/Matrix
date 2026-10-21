@@ -1011,10 +1011,15 @@ class BridgeRoutes:
         session_identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
         linked = self._visible_link(request, session_id)
         identity = session_identity or linked.get("address", "")
+        # Without a session the link is visible only to the operator, so the
+        # identity is one the operator key chose by naming the session id. The
+        # record of who acted says so (ServiceDispatcher's `actor_source`).
+        identity_source = "session" if session_identity else "operator"
         bind_request_security(
             identity=identity,
             app_attest=body.get("app_attest"),
             session_id=session_id,
+            identity_source=identity_source,
         )
         from runtime.access_policy import dispatch_pair
         decision = await gate_action(action, params if isinstance(params, dict) else {},
@@ -1081,6 +1086,7 @@ class BridgeRoutes:
                     action,
                     params=params,
                     caller_identity=identity,
+                    caller_source="operator" if identity and identity_source == "operator" else "",
                 )
         except Exception as e:
             # RUN-5: was the raw exception as the response body. And this
