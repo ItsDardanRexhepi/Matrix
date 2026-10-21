@@ -9,15 +9,19 @@ was pinned under the repository's old name, at a commit that is not in this
 history. The page beside it told the reader to ``pipx install the-matrix``, a
 name that on PyPI belongs to an unrelated project. And the page and the
 formula's caveats both told the reader to run ``matrix setup``, which exits 1
-from any install that is not a clone: the command looks for its setup beside
-its own files.
+from any install of the pinned commit that is not a clone: the command there
+looks for its setup beside its own files. The command in this tree keeps an
+install's files in a folder of the user's own; the formula installs it only
+once its pin moves, and the page says so.
 
 WHAT THESE CHECKS READ, AND WHAT THEY DO NOT. They read one formula,
 packaging/homebrew/matrix.rb, as text; every file under packaging/;
 requirements.txt in the tree and at the pinned commit; pyproject.toml; and
-runtime/__init__.py at the pinned commit. They import the command's own
-modules (cli, cli.info, cli.gateway) and call them in this process. None of
-them installs anything or uses the network. So:
+runtime/__init__.py at the pinned commit. They run the pinned commit's
+command (its cli package and runtime/__init__.py, taken from the history into
+a folder with nothing beside them) in a child process, and import cli.home
+from this tree for the folder it names. None of them installs anything or
+uses the network. So:
 
 * the source archive's own hash is not checked;
 * the path of a dependency's archive on the package index is not checked, only
@@ -32,21 +36,27 @@ them installs anything or uses the network. So:
 * the distribution's name is looked for in the spellings PEP 503 treats as one
   name (any case, any run of ``-``, ``_`` and ``.`` between its words), and a
   sentence that opens by refusing it is let through whole;
-* the page's table has five rows and each is held: the version the formula
-  declares, the commands the help lists, and what `matrix setup`,
-  `matrix config` and `matrix gateway start` say when no clone lies beside the
-  command. Those three commands are looked for wherever they are written under
-  packaging/, across a line break too. A promise of another command, or one
-  written in other words, is not read. The command is measured as this tree
-  has it, not as the pinned commit has it.
+* the page's table has five rows and each is held to the pinned command: the
+  version it prints, the commands its help lists, and what `matrix setup`,
+  `matrix config` and `matrix gateway start` say when no clone lies beside it.
+  It is run from its own files, not installed, so what the formula's
+  virtualenv adds around it is not measured. Those three commands are looked
+  for wherever they are written under packaging/, across a line break too,
+  outside the page's section on the command after the pin. A promise of
+  another command, or one written in other words, is not read;
+* the section on the command after the pin is held to name the folder, the
+  variable and the test, and to say the pin predates it while the pinned
+  commit has no cli/home.py. What that command does is measured by
+  tests/test_setup_from_an_installed_package.py, not here.
 """
 from __future__ import annotations
 
-import argparse
+import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
 
 import pytest
 from packaging.markers import Marker
@@ -368,36 +378,44 @@ def test_the_distribution_is_named_under_packaging_only_to_refuse_it():
     assert not wrong, "\n".join(wrong)
 
 
-# What the command does where nothing but the packages is installed: its own
-# folder holds no setup, no configuration and no data beside it.
+# What the pinned command does where nothing but its packages is installed: the
+# folder above them holds no setup, no configuration and no data.
 
-def _from_an_install(tmp_path, monkeypatch, capsys) -> dict[str, tuple[bool, str]]:
-    """command -> (whether it went on to run something, what it said)."""
-    import cli.gateway
-    import cli.info
-    went_on, measured = [], {}
-    for module in (cli.info, cli.gateway):
-        monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
-        monkeypatch.setattr(module, "CONFIG_FILE", tmp_path / "matrix.config.json")
-        monkeypatch.setattr(module.subprocess, "run",
-                            lambda *a, **k: went_on.append(a) or subprocess.CompletedProcess(a, 0))
-        monkeypatch.setattr(module.subprocess, "Popen",
-                            lambda *a, **k: went_on.append(a) or pytest.fail("a process was started"))
-    monkeypatch.setattr(cli.gateway, "PID_FILE", tmp_path / "data" / "gateway.pid")
-    monkeypatch.setattr(cli.gateway, "LOG_FILE", tmp_path / "data" / "gateway.log")
-    for command, call in (("matrix setup", cli.info.cmd_setup), ("matrix config", cli.info.cmd_config),
-                          ("matrix gateway start", cli.gateway.cmd_start)):
-        del went_on[:]
-        with pytest.raises(SystemExit) as stopped:
-            call(argparse.Namespace(daemon=False))
-        printed = capsys.readouterr()
-        measured[command] = (bool(went_on) and stopped.value.code == 0, printed.err + printed.out)
+_STARTS_IT = "import sys; sys.path.insert(0, sys.argv[1]); from cli import main; main(sys.argv[2:])"
+
+
+def _pinned_command(tmp_path) -> dict[str, tuple[int, str]]:
+    """command -> (exit status, what it said), for the pinned commit's command.
+
+    Its cli package and runtime/__init__.py (the one module it imports when it
+    starts) are taken from the history into a folder with nothing beside them,
+    as site-packages is in an install, and the command runs in a child process
+    from another folder, with HOME set to an empty one."""
+    commit, folder = _pinned_commit(), tmp_path / "site-packages"
+    listed = _git("ls-tree", "-r", "--name-only", commit, "cli/")
+    assert listed.returncode == 0 and listed.stdout.strip(), "the pinned commit has no cli package"
+    for path in [*listed.stdout.split(), "runtime/__init__.py"]:
+        shown = subprocess.run(["git", "-C", str(REPO), "show", f"{commit}:{path}"], capture_output=True)
+        assert shown.returncode == 0, f"the pinned commit has no {path}"
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        (folder / path).write_bytes(shown.stdout)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("PYTHON", "MATRIX_"))}
+    env["HOME"] = str(tmp_path)
+    measured = {}
+    for command in ("matrix version", "matrix --help", "matrix setup", "matrix config", "matrix gateway start"):
+        ran = subprocess.run([sys.executable, "-I", "-c", _STARTS_IT, str(folder), *command.split()[1:]],
+                             cwd=elsewhere, env=env, capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL, timeout=60)
+        measured[command] = (ran.returncode, ran.stdout + ran.stderr)
     return measured
 
 
 _ROW = re.compile(r'^\| `(matrix [a-z -]+?)` \| (.+?) \|$', re.M)
 _PROMISED = re.compile(r"\bmatrix\s+(?:setup|config|gateway)\b")
 _EXITS = re.compile(r'\| `matrix [a-z -]+` \| exits 1: "[^"]+" \|')
+_AFTER_THE_PIN = "## The command after the pin\n"
 
 
 def _caveats() -> str:
@@ -406,43 +424,84 @@ def _caveats() -> str:
     return " ".join(body.group(1).split())
 
 
-def test_a_command_that_does_not_run_from_an_install_is_promised_nowhere(tmp_path, monkeypatch, capsys):
-    """While ``matrix setup``, ``matrix config`` and ``matrix gateway start``
-    stop where no clone lies beside the command, the one place under
-    packaging/ that writes any of them is the page's table, in a row that
-    gives the exit and quotes what the command said; and the page and the
-    formula's caveats both say the install cannot set the platform up. Once one
-    of them runs from an install, its row may not go on saying that it exits
-    1. The table's other two rows are the version the formula declares and the
-    commands the help lists."""
-    import cli
-    measured = _from_an_install(tmp_path, monkeypatch, capsys)
+def _section_after_the_pin() -> tuple[int, int]:
+    """Where the page's section on the command after the pin starts and ends."""
+    text = PAGE.read_text()
+    start = text.find(_AFTER_THE_PIN)
+    if start < 0:
+        return -1, -1
+    end = text.find("\n## ", start + len(_AFTER_THE_PIN))
+    return start, len(text) if end < 0 else end
+
+
+def test_the_page_gives_what_the_pinned_command_does_from_an_install(tmp_path):
+    """The table's five rows are the pinned command, run where only its
+    packages are: the version it prints, the commands its help lists, and,
+    for `matrix setup`, `matrix config` and `matrix gateway start`, the exit
+    and what it said. A row that says a command exits 1 is wrong once it runs."""
+    measured = _pinned_command(tmp_path)
     rows = dict(_ROW.findall(PAGE.read_text()))
-    assert sorted(rows) == sorted([*measured, "matrix version", "matrix --help"]), sorted(rows)
-    listed = cli.build_parser().format_help()
-    assert rows["matrix --help"] == "lists the commands" and all(
+    assert sorted(rows) == sorted(measured), sorted(rows)
+    code, said = measured["matrix version"]
+    assert code == 0 and said.strip() == f"The Matrix v{_declared_version()}", (code, said)
+    assert rows["matrix version"] == f"prints `The Matrix v{_declared_version()}`", rows
+    code, listed = measured["matrix --help"]
+    assert code == 0 and rows["matrix --help"] == "lists the commands" and all(
         re.search(rf"^\s+{word}\s", listed, re.M) for word in ("setup", "config", "gateway", "version")), (
         rows["matrix --help"], listed)
     wrong = []
-    for command, (runs, said) in measured.items():
-        row = rows.get(command)
-        quoted = re.fullmatch(r'exits 1: "([^"]+)"', row or "")
-        if runs and quoted:
-            wrong.append(f"the page says `{command}` exits 1; from an install it runs")
-        elif not runs and not (quoted and quoted.group(1) in said):
-            wrong.append(f"`{command}` said {said.strip()!r}; the page's row is {row!r}")
-    assert rows.get("matrix version") == f"prints `The Matrix v{_declared_version()}`", rows
-    if not any(runs for runs, _ in measured.values()):
-        for path, text in _texts_under_packaging():
-            for found in _PROMISED.finditer(text):
-                start = text.rfind("\n", 0, found.start()) + 1
-                end = text.find("\n", found.start())
-                line = text[start:len(text) if end < 0 else end]
-                if found.end() > start + len(line) or not _EXITS.fullmatch(line.strip()):
-                    number = text.count("\n", 0, found.start()) + 1
-                    wrong.append(f"{path.relative_to(REPO)}:{number}: {' '.join(found.group(0).split())} "
-                                 f"in {line.strip()[:120]!r}")
-        for where, said in (("the page", " ".join(PAGE.read_text().split())), ("the caveats", _caveats())):
-            if "cannot set the platform up" not in said:
-                wrong.append(f"{where} does not say the install cannot set the platform up")
+    for command in ("matrix setup", "matrix config", "matrix gateway start"):
+        code, said = measured[command]
+        quoted = re.fullmatch(r'exits 1: "([^"]+)"', rows[command])
+        if code == 0 and quoted:
+            wrong.append(f"the page says `{command}` exits 1; the pinned command runs it")
+        elif code != 0 and not (code == 1 and quoted and quoted.group(1) in said):
+            wrong.append(f"`{command}` exited {code} saying {said.strip()!r}; the page's row is {rows[command]!r}")
     assert not wrong, "\n".join(wrong)
+
+
+def test_a_command_the_formula_installs_that_does_not_run_is_promised_nowhere(tmp_path):
+    """While the pinned `matrix setup` stops where only its packages are, the
+    page and the formula's caveats both say the install cannot set the
+    platform up, and `matrix setup`, `matrix config` and `matrix gateway` are
+    written under packaging/ only in a table row that gives the exit, or in
+    the page's section on the command after the pin."""
+    code, _ = _pinned_command(tmp_path)["matrix setup"]
+    if code == 0:
+        pytest.skip("the pinned command sets the platform up from an install")
+    wrong = []
+    start, end = _section_after_the_pin()
+    for path, text in _texts_under_packaging():
+        for found in _PROMISED.finditer(text):
+            if path == PAGE and start <= found.start() < end:
+                continue
+            first = text.rfind("\n", 0, found.start()) + 1
+            last = text.find("\n", found.start())
+            line = text[first:len(text) if last < 0 else last]
+            if found.end() > first + len(line) or not _EXITS.fullmatch(line.strip()):
+                number = text.count("\n", 0, found.start()) + 1
+                wrong.append(f"{path.relative_to(REPO)}:{number}: {' '.join(found.group(0).split())} "
+                             f"in {line.strip()[:120]!r}")
+    for where, said in (("the page", " ".join(PAGE.read_text().split())), ("the caveats", _caveats())):
+        if "cannot set the platform up" not in said:
+            wrong.append(f"{where} does not say the install cannot set the platform up")
+    assert not wrong, "\n".join(wrong)
+
+
+def test_the_page_says_where_the_command_after_the_pin_keeps_its_files():
+    """The command in this tree keeps an install's files in a folder of the
+    user's own (cli/home.py). The page's section on it names that folder, the
+    variable that moves it and the test that measures it, and, while the
+    pinned commit's command does not have it, says the pin predates it."""
+    from cli.home import DEFAULT_HOME_NAME, HOME_ENV
+
+    start, end = _section_after_the_pin()
+    assert start >= 0, f"the page has no {_AFTER_THE_PIN.strip()!r} section"
+    section = " ".join(PAGE.read_text()[start:end].split())
+    for wanted in (f"`~/{DEFAULT_HOME_NAME}`", f"`${HOME_ENV}`",
+                   "`tests/test_setup_from_an_installed_package.py`"):
+        assert wanted in section, f"the section does not name {wanted}"
+    assert (REPO / "tests" / "test_setup_from_an_installed_package.py").is_file()
+    if _git("cat-file", "-e", f"{_pinned_commit()}:cli/home.py").returncode != 0:
+        assert "The formula's pin predates this." in section, (
+            "the section does not say the formula's pin predates the command it describes")

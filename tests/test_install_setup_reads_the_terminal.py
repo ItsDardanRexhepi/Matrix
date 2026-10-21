@@ -125,7 +125,7 @@ def test_piped_with_a_terminal_the_wizard_reads_it(install_dir):
 
 
 def _wizard_module():
-    spec = importlib.util.spec_from_file_location("matrix_setup_wizard_eof", ROOT / "setup.py")
+    spec = importlib.util.spec_from_file_location("matrix_setup_wizard_eof", ROOT / "setup" / "wizard.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

@@ -1,8 +1,10 @@
 """Keep the files the setup wizards write keys into out of git commits.
 
-One implementation for every writer of those files: setup.py's wizard, and the
-channel wizards run on their own (setup_communications.py, setup_telegram.py,
-``python -m setup.<channel>``), which reach disk through setup/_shared.py.
+One implementation for every writer of those files: the setup wizard
+(setup/wizard.py, which a clone runs through setup.py and an install runs as
+`matrix setup`), and the channel wizards run on their own
+(setup_communications.py, setup_telegram.py, ``python -m setup.<channel>``),
+which reach disk through setup/_shared.py.
 Output goes through the caller's warn/info/success, so each entry point keeps
 its own look.
 """

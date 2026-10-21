@@ -16,6 +16,10 @@ pytest~=8.3
 pytest-asyncio~=0.24
 pytest-aiohttp~=1.0
 pytest-cov~=5.0
+# Builds the wheel tests/test_setup_from_an_installed_package.py installs. The
+# build runs offline, without build isolation, so the backend has to be here;
+# 70.1 is the first setuptools that builds a wheel without the `wheel` package.
+setuptools>=70.1
 
 # Type and docstring checks
 mypy~=1.11

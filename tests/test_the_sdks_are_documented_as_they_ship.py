@@ -165,7 +165,7 @@ def test_no_document_shows_a_chat_field_or_key_format_the_gateway_does_not_have(
     assert keys == {"response", "tool_calls", "session_id", "agent", "provider"}, keys
     code = "\n".join(p.read_text(encoding="utf-8") for d in ("gateway", "runtime")
                      for p in (ROOT / d).rglob("*.py"))
-    code += (ROOT / "setup.py").read_text(encoding="utf-8")
+    code += "".join((ROOT / p).read_text(encoding="utf-8") for p in ("setup.py", "setup/wizard.py"))
     assert "tools_used" not in code and "mtrx_k_" not in code, "re-derive this check"
     offenders = []
     for rel in _documents():

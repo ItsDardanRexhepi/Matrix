@@ -101,7 +101,7 @@ def test_declining_overwrite_leaves_config_byte_identical(sandbox, monkeypatch):
     """
     import setup as _  # noqa: F401  (package import guard)
 
-    spec = importlib.util.spec_from_file_location("setup_main", ROOT / "setup.py")
+    spec = importlib.util.spec_from_file_location("setup_main", ROOT / "setup" / "wizard.py")
     setup_main = importlib.util.module_from_spec(spec)
     sys.modules["setup_main"] = setup_main
     spec.loader.exec_module(setup_main)
@@ -150,13 +150,13 @@ def test_overwrite_check_runs_before_any_work(sandbox, monkeypatch):
     step before it is an opportunity for some future writer to land on disk
     first. Moving the gate to the top makes the safe path structural.
     """
-    spec = importlib.util.spec_from_file_location("setup_main2", ROOT / "setup.py")
+    spec = importlib.util.spec_from_file_location("setup_main2", ROOT / "setup" / "wizard.py")
     setup_main = importlib.util.module_from_spec(spec)
     sys.modules["setup_main2"] = setup_main
     spec.loader.exec_module(setup_main)
 
     assert hasattr(setup_main, "confirm_overwrite_upfront"), (
-        "setup.py must expose confirm_overwrite_upfront() and call it at the "
+        "the wizard must expose confirm_overwrite_upfront() and call it at the "
         "top of main(), so the operator is asked before any work is done."
     )
 
@@ -214,7 +214,7 @@ def _drive_to_update_env(monkeypatch, tmp_path, *, on_test=None):
 
 
 def _load_wizard(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "setup.py")
+    spec = importlib.util.spec_from_file_location(name, ROOT / "setup" / "wizard.py")
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
