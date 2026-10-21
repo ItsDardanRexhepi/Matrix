@@ -406,7 +406,7 @@ class GatewayServer:
         except Exception as exc:
             if is_production_mode():
                 raise RuntimeError(
-                    "MATRIX_ENV=production but the security OTP services failed to "
+                    "MATRIX_ENV says production but the security OTP services failed to "
                     f"initialise: {exc}. Refusing to start rather than running with "
                     "phone and owner verification silently unavailable. Fix the named "
                     "cause, or unset MATRIX_ENV for a non-production run."
@@ -445,7 +445,7 @@ class GatewayServer:
                 "morpheus_security is not installed or failed to load"
             )
             raise RuntimeError(
-                "MATRIX_ENV=production but the security backend is 'noop' — "
+                "MATRIX_ENV says production but the security backend is 'noop' — "
                 f"{cause}, so nothing is enforcing. Refusing to start. Install the "
                 "private security package and fix the named cause, or unset "
                 "MATRIX_ENV for a non-production run."
@@ -471,7 +471,7 @@ class GatewayServer:
         # one hole for another. The example stays empty; production refuses.
         if is_production_mode() and not self.auth_enabled:
             raise RuntimeError(
-                "MATRIX_ENV=production but no gateway API key is configured, so "
+                "MATRIX_ENV says production but no gateway API key is configured, so "
                 "authentication is DISABLED and every protected route would serve "
                 "anonymously. Refusing to start. Set MATRIX_API_KEY (or "
                 "gateway.api_key in the config), or unset MATRIX_ENV for a "
@@ -2338,7 +2338,7 @@ class GatewayServer:
             self._security_gate_cause = str(exc)
             if is_production_mode():
                 raise RuntimeError(
-                    f"MATRIX_ENV=production but {exc}. Refusing to start rather "
+                    f"MATRIX_ENV says production but {exc}. Refusing to start rather "
                     "than serving with the security gate replaced by a lesser one "
                     "or by none. Fix the named cause, or unset MATRIX_ENV for a "
                     "non-production run."

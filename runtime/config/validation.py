@@ -375,16 +375,23 @@ def is_placeholder(value: Any) -> bool:
     return _is_placeholder(value)
 
 
+#: The values of ``MATRIX_ENV`` that mean production, compared after stripping
+#: surrounding space and lower-casing. ``prod`` is the other common spelling of
+#: the same intent; read as anything else, it ran the development path — auth
+#: off with no key, secrets left in the file — with nothing said.
+PRODUCTION_ENVIRONMENTS: frozenset[str] = frozenset({"production", "prod"})
+
+
 def is_production_mode() -> bool:
     """Return ``True`` if the environment says we're running in production.
 
-    Controlled by the ``MATRIX_ENV`` env var: set it to ``production``
-    (case-insensitive) to enable the strict validation path. Anything
-    else — unset, ``development``, ``testnet``, etc. — uses lenient
-    mode so local testing and Sepolia runs don't need a fully-wired
-    secret stack.
+    Controlled by the ``MATRIX_ENV`` env var: set it to ``production`` or
+    ``prod`` (case-insensitive) to enable the strict validation path.
+    Anything else — unset, ``development``, ``testnet``, ``preprod``,
+    etc. — uses lenient mode so local testing and Sepolia runs don't need
+    a fully-wired secret stack.
     """
-    return os.environ.get("MATRIX_ENV", "").strip().lower() == "production"
+    return os.environ.get("MATRIX_ENV", "").strip().lower() in PRODUCTION_ENVIRONMENTS
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -607,6 +614,7 @@ __all__ = [
     "FILE_MOUNTED_SECRETS",
     "NOT_SECRET_LEAVES",
     "NOT_SECRET_PATHS",
+    "PRODUCTION_ENVIRONMENTS",
     "SECRET_FIELDS",
     "SECRET_NAME_SUFFIXES",
     "REQUIRED_FIELDS",

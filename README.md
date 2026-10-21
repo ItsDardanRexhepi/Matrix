@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,399 tests, run against the versions
+automated suite of 6,417 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -977,8 +977,8 @@ launch:
   `runtime/config/validation.py` strips placeholder values (`YOUR_`,
   `CHANGE-ME`, … in either spelling) from the env-only secret entries it
   lists, warns about every other placeholder at startup, and, with
-  `MATRIX_ENV=production`, refuses to start if a required secret is missing
-  from the environment.
+  `MATRIX_ENV=production` (or `prod`; no other value reads as production),
+  refuses to start if a required secret is missing from the environment.
   It also walks the loaded config for secret-shaped settings and reports
   any that no env-only entry covers — in production that refusal stops
   the boot, so a new third-party key cannot quietly live in the
