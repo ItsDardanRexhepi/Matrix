@@ -7,13 +7,20 @@ indentation, the indented `constructor` takes `payRent` into its body,
 `payable function payRent()` comes back not payable, and no statement has the
 `;` Solidity needs, so the draft does not compile.
 
-The service is built with no `blockchain.platform_wallet`, so no platform fee
-is added to the draft. The first test reads the draft, so it needs no
-compiler: for each function the README declares, the draft has the function
-once, its statements in order and each ended with `;`, the constructor holds
-no function, and `payable` is on exactly the functions the README writes it on.
-The second compiles the draft with the newest solc from 0.8.20 on that is
-already installed, and is skipped where none is; it downloads nothing.
+The first two tests build the service with no `blockchain.platform_wallet`,
+so no platform fee is added to the draft. The first reads the draft, so it
+needs no compiler: for each function the README declares, the draft has the
+function once, its statements in order and each ended with `;`, the
+constructor holds no function, and `payable` is on exactly the functions the
+README writes it on. The second compiles the draft with the newest solc from
+0.8.20 on that is already installed, and is skipped where none is; it
+downloads nothing.
+
+The third sets a platform wallet. The fee's two setters use `onlyOwner`; the
+README example's draft neither defines nor inherits it, and each template
+convert() can return inherits it from OpenZeppelin's `Ownable`. The fee row in
+docs/blockchain.md has to say both. That the fee-injected templates compile is
+checked in tests/test_template_conversion_is_judged_on_the_template.py.
 """
 from __future__ import annotations
 
@@ -26,6 +33,8 @@ from pathlib import Path
 import pytest
 
 README = Path(__file__).resolve().parent.parent / "README.md"
+DOCS = README.parent / "docs" / "blockchain.md"
+FEE_CONFIG = {"blockchain": {"platform_wallet": "0x000000000000000000000000000000000000bEEF"}}
 
 
 def _example_source() -> str:
@@ -68,12 +77,12 @@ def _blocks(draft: str) -> dict[str, tuple[str, list[str]]]:
     return out
 
 
-def _draft(source: str) -> str:
+def _draft(source: str, config: dict | None = None) -> str:
     from runtime.blockchain.services.contract_conversion.service import ContractConversionService
 
     logging.disable(logging.CRITICAL)
     try:
-        return asyncio.run(ContractConversionService({"blockchain": {}}).convert(
+        return asyncio.run(ContractConversionService(config or {"blockchain": {}}).convert(
             source, "pseudocode"))["generated_source"]
     finally:
         logging.disable(logging.NOTSET)
@@ -116,3 +125,21 @@ def test_the_readme_example_draft_compiles_where_a_solc_is_installed():
 
     compiled = solcx.compile_source(_draft(_example_source()), solc_version=version)
     assert any(name.endswith(":Rental") for name in compiled), compiled.keys()
+
+
+def test_the_fee_row_names_the_drafts_the_fee_setters_keep_from_compiling():
+    from runtime.blockchain.services.contract_conversion import artist_classifier
+    from runtime.blockchain.services.contract_conversion.templates import TEMPLATES
+
+    draft = _draft(_example_source(), FEE_CONFIG)
+    assert re.search(r"\bonlyOwner\b", draft), "the fee setters no longer use onlyOwner"
+    assert not re.search(r"\bmodifier\s+onlyOwner\b|\bOwnable\b", draft), (
+        "the README example's draft now defines or inherits onlyOwner")
+    for name in sorted(set(artist_classifier._TEMPLATE_MAP.values()) | {"erc721"}):
+        assert re.search(r"\bcontract\s+\{\{NAME\}\}\s+is\b[^{]*\bOwnable\b", TEMPLATES[name]), (
+            f"the {name} template convert() can return does not inherit Ownable")
+
+    rows = [ln for ln in DOCS.read_text(encoding="utf-8").splitlines()
+            if ln.startswith("| Contract conversion |")]
+    assert len(rows) == 1, rows
+    assert "neither defines nor inherits" in rows[0] and "`Ownable`" in rows[0], rows[0]

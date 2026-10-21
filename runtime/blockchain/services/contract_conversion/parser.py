@@ -582,10 +582,10 @@ class SourceParser:
     def _layout_prefix(source: str, pos: int) -> tuple[str, bool] | None:
         """For a `function` keyword at pos: (indent, whether `payable` is
         written before it) when the line's text before the keyword is only
-        spaces or tabs, then optionally `payable`; otherwise None. That text
-        is read only when it is under 256 characters long, at the start of
-        the source as on any later line, so no more than the 256 characters
-        before the keyword are looked at."""
+        spaces or tabs, then optionally `payable` and one or more spaces or
+        tabs; otherwise None. That text is read only when it is under 256
+        characters long, at the start of the source as on any later line, so
+        no more than the 256 characters before the keyword are looked at."""
         if not source.startswith("function", pos):
             return None
         lo = max(0, pos - _LAYOUT_LOOKBACK)
@@ -602,19 +602,26 @@ class SourceParser:
                      ahead: dict[str, int]) -> str | None:
         """Body of an indented `function` line, or None to use the base body.
 
-        The base body runs from the line after the header to the next line
-        that starts with a character other than whitespace, or to the end of
-        the source. None when the header line has text after the signature
-        and its optional return type, when the header is the last line, or
-        when the base body contains any of `; { } /* */ // #` `assembly`
-        `unchecked` `try` `catch`, also inside a longer word.
+        The header is what the base pattern reads: `function`, the name, the
+        parameter list and an optional return type (`->`, `:`, or `return` or
+        `returns` in any letter case, then a word). That pattern reads across
+        line ends, so a first body line such as `return n` is read as the
+        return type `n` and the header ends on that line. The base body runs
+        from the line after the one the header ends on to the next line that
+        starts with a character other than whitespace, or to the end of the
+        source. None when the rest of the line the header ends on holds
+        anything but spaces, tabs or a carriage return, when that line is the
+        last one, or when the base body contains any of `; { } /* */ // #`
+        `assembly` `unchecked` `try` `catch`, also inside a longer word.
 
         Otherwise the body is the base body up to the first line in it that
-        holds only spaces or tabs, then optionally `payable`, before a
-        `function` keyword (all of it when there is no such line). None
-        unless that line starts at the function's indent or at a leading
-        part of it and goes on with `function name(...)` or `payable
-        function name(...)` on the same line.
+        holds only spaces or tabs, then optionally `payable` and one or more
+        spaces or tabs, before a `function` keyword that is a whole word (all
+        of it when there is no such line). None unless that line starts at
+        the function's indent or at a leading part of it and goes on, on the
+        same line, with `function`, one or more spaces or tabs, a name of
+        letters, digits or `_`, optional spaces or tabs, and a parameter
+        list that closes on that line.
 
         Then, if every line of that body is a plain one-line statement, each
         non-blank line gets a `;` before its trailing whitespace. If one line
@@ -623,8 +630,10 @@ class SourceParser:
         `+ - * / % & | ^ < > = ! ? : ~ , . ( [` (before trailing spaces, tabs
         or a carriage return); after its leading spaces or tabs it does not
         begin with any of `+ - * / % & | ^ < > = ? : . , ) ]` or the words
-        `if else for while do`, and is not a bare `return`; and it has as
-        many `(` as `)` and `[` as `]`.
+        `if else for while do`, and is not a bare `return` (nothing after
+        it but spaces, tabs or a carriage return); and it has as many `(` as
+        `)` and `[` as `]`. The last line is held to the same rules when the
+        source ends on it.
         """
         rest = _BLANK_REST.match(source, header_end)
         if rest is None or not rest.group().endswith("\n"):
