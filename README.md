@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,303 tests, run against the versions
+automated suite of 6,323 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -584,11 +584,24 @@ check behind it:
   subscription, is answered `409` and nothing of it is recorded. Who holds
   the purchase is read and the records are written in one database
   transaction, so two accounts presenting a new purchase at the same
-  moment cannot both be given it. The account that holds a purchase can
-  present it again from any of its sessions. A purchase restored into a
-  second account, even one the same person signs in to, stays with the
-  first: refusing is the cautious answer, and moving a purchase between
-  accounts is not built
+  moment cannot both be given it. An account here is the sign-in a
+  session was made with, so the holder presents its purchase again from
+  any session of that sign-in, while an Apple sign-in and the wallet
+  linked to it are two accounts and the second is answered `409`. A
+  purchase restored into a second account, even one the same person signs
+  in to, stays with the first: refusing is the cautious answer, and moving
+  a purchase between accounts is not built. A subscription that an earlier
+  version of the gateway moved to the account that presented it last
+  stays with that account
+- **A subscription follows its newest transaction.** Its plan, product and
+  expiry come from the transaction with the latest purchase date the
+  gateway has seen. An older one, posted by anyone or delivered late by
+  the App Store, takes nothing back, and an expiry notice about a
+  transaction older than the newest one changes nothing; only a newer
+  transaction makes an expired subscription active again. The App Store's
+  refund or revoke notice ends the subscription even when it reaches the
+  gateway before the purchase does, a transaction that carries its
+  revocation date ends it too, and an ended subscription stays ended
 - **A batch request carries the credential it was sent with.** Each item
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it
