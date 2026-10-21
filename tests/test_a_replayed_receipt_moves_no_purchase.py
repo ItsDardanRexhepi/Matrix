@@ -15,9 +15,13 @@ same bytes, or another transaction of the same subscription) is answered
 ledger, not the subscription. The check and the writes are one database
 transaction, so two accounts presenting the same new purchase at once cannot
 both be told it is theirs. The account that holds a purchase presents it as
-often as it likes, from any of its sessions. A purchase recorded with no
-account (Apple's notification, or a post with no session) goes to the first
-account that presents it, and a post with no session never takes one away.
+often as it likes, from any session of the sign-in it holds it under (an Apple
+sign-in and the wallet linked to it are two accounts here:
+tests/test_the_purchase_rule_is_described_as_it_answers.py). A purchase
+recorded with no account (Apple's notification, or a post with no session)
+goes to the first account that presents it, and a post with no session never
+moves a purchase from an account. An older transaction moving a subscription
+back is tests/test_an_older_transaction_takes_nothing_back.py's.
 
 Refusing, rather than moving the subscription, is the cautious answer: an
 Apple ID that signs in to a second account keeps its subscription on the

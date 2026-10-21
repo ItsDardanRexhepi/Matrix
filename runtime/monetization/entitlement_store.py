@@ -5,7 +5,7 @@ Two tables, async sqlite (house style of ``runtime.notifications.token_store``):
 * ``iap_transactions`` — one row per verified signed transaction, keyed on
   ``transaction_id``. This is the idempotency ledger: replaying the same
   signed transaction (client retry, purchase-return + updates listener, or a
-  re-posted webhook) records NOTHING new. Consumables live here — accepted
+  re-posted webhook) adds NO row. Consumables live here — accepted
   and recorded, never entitlement rows, never a tier.
 * ``iap_entitlements`` — one row per subscription lineage, keyed on
   ``originalTransactionId``. ASN flips update ``status`` in place: refund
@@ -17,13 +17,30 @@ transaction is a bearer object, so ``record_verified`` checks who holds the
 purchase and writes in one database transaction, and refuses whole when
 another account holds it; ``upsert_entitlement`` never moves a lineage bound
 to one account to another. A purchase recorded with no account goes to the
-first account that presents it.
+first account that presents it. An account is the ``user_key`` a session
+carries (an Apple sign-in's ``apple:<sub>``, or a wallet in any spelling): an
+Apple sign-in and the wallet linked to it are two. A lineage that an earlier
+version of the gateway moved to the account that presented it last stays with
+that account; nothing here moves a bound lineage back.
+
+A lineage follows its NEWEST transaction. Apple's notifications and a
+client's restore arrive in no guaranteed order, and an older transaction's
+signature still verifies after its subscription renews, so the product, tier,
+expiry and environment come from the transaction with the latest purchase
+date seen: an older one changes none of them, only a newer one lifts
+``expired`` back to ``active``, and ``set_status(..., as_of=...)`` ignores an
+expiry about a transaction older than the newest one.
 
 ``refunded``/``revoked`` are TERMINAL: Apple delivers notifications with no
 ordering guarantee, and after a refund the client still (correctly) reports
 the next renewal JWS to /iap/verify — so the blanket upsert refuses to lift a
 terminal status, and ``set_status`` refuses to leave one without an explicit
-``allow_terminal_override``. Refund wins regardless of arrival order.
+``allow_terminal_override``. A terminal status takes effect whatever the date
+of the transaction it names. A refund or revoke notice about a lineage no row
+holds yet writes the row already ended (``upsert_entitlement`` with that
+status), and a transaction carrying its ``revocationDate`` is recorded
+``revoked`` (``record_verified(revoked=True)``), so a refund wins whichever
+reaches the gateway first, the notice or the purchase.
 (A rare REFUND_REVERSED is deliberately NOT auto-reactivated — the ASN
 handler logs it for manual review; fail-closed means toward less
 entitlement, never more.)
@@ -79,12 +96,19 @@ INSERT OR IGNORE INTO iap_transactions
     (transaction_id, original_transaction_id, product_id,
      product_type, user_key, quantity, purchase_date,
      environment, status, recorded_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'recorded', ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 # A lineage bound to an account keeps that account: a blank ``user_key`` (a
 # webhook carries no session) never unbinds it, and another account's key
 # never moves it. Only a lineage no account holds yet takes the key given.
+#
+# A lineage follows its newest transaction: the product, tier, expiry and
+# environment are taken only from a transaction purchased no earlier than the
+# one the row holds, and a non-terminal status only from a later one, so an
+# older transaction (a sessionless replay, a restore, a late notification)
+# changes none of them and the latest one posted again does not lift an
+# expiry. A terminal status already held stays; an incoming one always lands.
 _UPSERT_ENTITLEMENT = """
 INSERT INTO iap_entitlements
     (original_transaction_id, user_key, product_id, tier, status,
@@ -94,14 +118,22 @@ ON CONFLICT(original_transaction_id) DO UPDATE SET
     user_key = CASE WHEN iap_entitlements.user_key != ''
                     THEN iap_entitlements.user_key
                     ELSE excluded.user_key END,
-    product_id = excluded.product_id,
-    tier = excluded.tier,
+    product_id = CASE WHEN excluded.purchase_date >= COALESCE(iap_entitlements.purchase_date, 0)
+                      THEN excluded.product_id ELSE iap_entitlements.product_id END,
+    tier = CASE WHEN excluded.purchase_date >= COALESCE(iap_entitlements.purchase_date, 0)
+                THEN excluded.tier ELSE iap_entitlements.tier END,
     status = CASE WHEN iap_entitlements.status IN ('refunded', 'revoked')
                   THEN iap_entitlements.status
-                  ELSE excluded.status END,
-    purchase_date = excluded.purchase_date,
-    expires_date = excluded.expires_date,
-    environment = excluded.environment,
+                  WHEN excluded.status IN ('refunded', 'revoked')
+                  THEN excluded.status
+                  WHEN excluded.purchase_date > COALESCE(iap_entitlements.purchase_date, 0)
+                  THEN excluded.status
+                  ELSE iap_entitlements.status END,
+    expires_date = CASE WHEN excluded.purchase_date >= COALESCE(iap_entitlements.purchase_date, 0)
+                        THEN excluded.expires_date ELSE iap_entitlements.expires_date END,
+    environment = CASE WHEN excluded.purchase_date >= COALESCE(iap_entitlements.purchase_date, 0)
+                       THEN excluded.environment ELSE iap_entitlements.environment END,
+    purchase_date = MAX(excluded.purchase_date, COALESCE(iap_entitlements.purchase_date, 0)),
     updated_at = excluded.updated_at
 """
 
@@ -155,7 +187,7 @@ class EntitlementStore:
             _INSERT_TRANSACTION,
             (transaction_id, original_transaction_id, product_id,
              product_type, user_key, quantity, purchase_date,
-             environment, time.time()),
+             environment, "recorded", time.time()),
         )
         return True
 
@@ -202,11 +234,13 @@ class EntitlementStore:
         environment: str = "",
         tier: str | None = None,
         expires_date: float = 0.0,
+        revoked: bool = False,
     ) -> dict[str, bool]:
         """Record a transaction whose signature verified and, for a
         subscription with a ``tier``, refresh its lineage as ``active`` — in
         ONE database transaction, refused whole when the purchase belongs to
-        another account.
+        another account. ``revoked`` (the transaction carries Apple's
+        ``revocationDate``) records it, and its lineage, ``revoked`` instead.
 
         When ``user_key`` names an account and another account holds the
         purchase (``_holder_in``; two spellings of one wallet are one
@@ -223,6 +257,7 @@ class EntitlementStore:
         if subscription and not original_transaction_id:
             raise ValueError("original_transaction_id required")
         now = time.time()
+        status = "revoked" if revoked else "active"
 
         def work(conn: sqlite3.Connection) -> dict[str, bool]:
             holder = self._holder_in(conn, original_transaction_id, transaction_id)
@@ -231,16 +266,22 @@ class EntitlementStore:
             fresh = conn.execute(_INSERT_TRANSACTION, (
                 transaction_id, original_transaction_id, product_id,
                 product_type, user_key, quantity, purchase_date,
-                environment, now)).rowcount == 1
+                environment, "revoked" if revoked else "recorded",
+                now)).rowcount == 1
             if not fresh and user_key:
                 conn.execute(
                     "UPDATE iap_transactions SET user_key = ? "
                     "WHERE transaction_id = ? AND user_key = ''",
                     (user_key, transaction_id))
+            if not fresh and revoked:
+                conn.execute(
+                    "UPDATE iap_transactions SET status = 'revoked' "
+                    "WHERE transaction_id = ? AND status NOT IN ('refunded', 'revoked')",
+                    (transaction_id,))
             if subscription:
                 conn.execute(_UPSERT_ENTITLEMENT, (
                     original_transaction_id, user_key, product_id, tier,
-                    "active", purchase_date, expires_date, environment, now))
+                    status, purchase_date, expires_date, environment, now))
             return {"refused": False, "fresh": fresh}
 
         return await self._db.run_in_transaction(work)
@@ -280,10 +321,14 @@ class EntitlementStore:
         """Create/refresh a subscription lineage row. A lineage bound to an
         account keeps it: a blank ``user_key`` (webhooks carry no session)
         never unbinds it and another account's key never moves it; only a
-        lineage no account holds yet takes the key given. A TERMINAL status
-        (refunded/revoked) is sticky: a late-arriving renewal or a
-        post-refund client /verify report can update dates but can NEVER
-        lift the row back to active. Refund wins regardless of order."""
+        lineage no account holds yet takes the key given. The product, tier,
+        expiry and environment follow the newest ``purchase_date`` (an older
+        transaction changes none of them), and a non-terminal ``status``
+        lands only from a newer one. A TERMINAL status (refunded/revoked)
+        given here always lands, and once held is sticky: a late-arriving
+        renewal or a post-refund client /verify report can update dates but
+        can NEVER lift the row back to active. Refund wins regardless of
+        order."""
         await self._ensure_tables()
         if not original_transaction_id:
             raise ValueError("original_transaction_id required")
@@ -297,39 +342,54 @@ class EntitlementStore:
 
     async def set_status(self, original_transaction_id: str, status: str,
                          *, expires_date: float | None = None,
-                         allow_terminal_override: bool = False) -> bool:
+                         allow_terminal_override: bool = False,
+                         as_of: float | None = None) -> bool:
         """Flip an entitlement row's status (ASN: refund/revoke/expire).
         Returns False when no such lineage exists — or when the row sits in a
         TERMINAL state (refunded/revoked) and the new status would leave it;
         only an explicit ``allow_terminal_override=True`` (a deliberate,
-        human-reviewed reversal) may do that."""
+        human-reviewed reversal) may do that. With ``as_of`` (the purchase
+        date of the transaction a notification names), a non-terminal status
+        is not applied to a lineage that already holds a newer transaction:
+        an expiry about the transaction before a renewal comes too late.
+        The read and the write are one database transaction."""
         await self._ensure_tables()
         if status not in STATUSES:
             raise ValueError(f"invalid status {status!r}")
-        rows = await self._db.fetchall(
-            "SELECT status FROM iap_entitlements WHERE original_transaction_id = ?",
-            (original_transaction_id,))
-        if not rows:
-            return False
-        current = str(rows[0]["status"] if not isinstance(rows[0], tuple)
-                      else rows[0][0])
-        if current in TERMINAL_STATUSES and status not in TERMINAL_STATUSES \
-                and not allow_terminal_override:
-            logger.warning(
-                "iap: refused %s -> %s for lineage %s (terminal state is sticky)",
-                current, status, original_transaction_id)
-            return False
-        if expires_date is None:
-            await self._db.execute(
-                "UPDATE iap_entitlements SET status = ?, updated_at = ? "
+
+        def work(conn: sqlite3.Connection) -> bool:
+            row = conn.execute(
+                "SELECT status, purchase_date FROM iap_entitlements "
                 "WHERE original_transaction_id = ?",
-                (status, time.time(), original_transaction_id))
-        else:
-            await self._db.execute(
-                "UPDATE iap_entitlements SET status = ?, expires_date = ?, "
-                "updated_at = ? WHERE original_transaction_id = ?",
-                (status, expires_date, time.time(), original_transaction_id))
-        return True
+                (original_transaction_id,)).fetchone()
+            if row is None:
+                return False
+            current = str(row[0])
+            if current in TERMINAL_STATUSES and status not in TERMINAL_STATUSES \
+                    and not allow_terminal_override:
+                logger.warning(
+                    "iap: refused %s -> %s for lineage %s (terminal state is sticky)",
+                    current, status, original_transaction_id)
+                return False
+            if as_of is not None and status not in TERMINAL_STATUSES \
+                    and float(row[1] or 0.0) > as_of:
+                logger.info(
+                    "iap: ignored %s for lineage %s: it names a transaction older "
+                    "than the newest one recorded", status, original_transaction_id)
+                return False
+            if expires_date is None:
+                conn.execute(
+                    "UPDATE iap_entitlements SET status = ?, updated_at = ? "
+                    "WHERE original_transaction_id = ?",
+                    (status, time.time(), original_transaction_id))
+            else:
+                conn.execute(
+                    "UPDATE iap_entitlements SET status = ?, expires_date = ?, "
+                    "updated_at = ? WHERE original_transaction_id = ?",
+                    (status, expires_date, time.time(), original_transaction_id))
+            return True
+
+        return await self._db.run_in_transaction(work)
 
     async def entitlement(self, original_transaction_id: str) -> dict[str, Any] | None:
         await self._ensure_tables()
