@@ -70,23 +70,27 @@ flat JSON file passed as their first argument), not `matrix.config.json`.
 ## 4. The 14 protocol services — each CREDENTIAL-GATED until its key is set
 
 Set under `services.<name>.*` in `matrix.config.json`. Each service returns a
-`not_deployed` response naming its exact missing key until configured.
+`not_deployed` response naming its exact missing key until configured. A
+service's API key or secret is the exception: set it as the environment
+variable named beside it. Under `MATRIX_ENV=production` a copy written in the
+file is removed when the config loads, and the variable is what reaches the
+service.
 
 | Service | Required key(s) | Unlocks |
 |---|---|---|
-| payment_channels | `services.payment_channels.endpoint` (Raiden node) + `.token_address` (+ `.contract_address` for on-chain fallback) | L2 state-channel open/route/close |
-| compute | `services.compute.endpoint` + `.api_key` (Akash/Render/Gensyn) | Compute job submit, device rental, reward claim, for the operator key only |
-| mpc | `services.mpc.endpoint` + `.api_key` | Threshold sign, for the operator key only (social recovery and session keys refused) |
-| social_protocols | `services.social_protocols.{lens,farcaster,push}_*` keys | Lens/Farcaster/Push + token launches |
+| payment_channels | `services.payment_channels.endpoint` (Raiden node) + `.token_address` (+ `.contract_address` for on-chain fallback); a bearer token for a proxy in front of the node, if it has one: env `PAYMENT_CHANNELS_API_KEY` | L2 state-channel open/route/close |
+| compute | `services.compute.endpoint` + env `COMPUTE_API_KEY` (Akash/Render/Gensyn) | Compute job submit, device rental, reward claim, for the operator key only |
+| mpc | `services.mpc.endpoint` + env `MPC_API_KEY` | Threshold sign, for the operator key only (social recovery and session keys refused) |
+| social_protocols | `services.social_protocols.{lens,farcaster,push}_*` settings; the Farcaster (Neynar) key is env `FARCASTER_API_KEY` | Lens/Farcaster/Push + token launches |
 | advanced_governance | `services.advanced_governance.*_address` + Snapshot hub | veToken, quadratic vote, bribes, delegation (RetroPGF refused) |
-| oracles_plus | `services.oracles_plus.pyth_contract_address` (Base `0x8250f4aF4B972684F7b336503E2D6dFeDeB1487a`) + hermes endpoint; RedStone/API3 keys | Pyth/RedStone/API3 feeds, Keeper jobs |
+| oracles_plus | `services.oracles_plus.pyth_contract_address` (Base `0x8250f4aF4B972684F7b336503E2D6dFeDeB1487a`) + hermes endpoint; the RedStone key, if you have one, is env `REDSTONE_API_KEY` | Pyth/RedStone/API3 feeds, Keeper jobs |
 | tba | `services.tba.account_implementation` (registry is canonical `0x000000006551c19487814612e58FE06813775758`) | ERC-6551 token-bound accounts |
-| storage | `services.storage.api_key` + `.endpoint` (Lighthouse/Ceramic) | Filecoin/Ceramic/OrbitDB, for the operator key only |
-| creator_platforms | `services.creator_platforms.{sound,mirror,paragraph}_api_key` | Sound/Mirror/Paragraph |
-| kyc | `services.kyc.api_key` + `.secret_key` (Sumsub/Persona) | KYC/AML start, risk check, credential issue |
+| storage | `services.storage.endpoint` (Lighthouse/Ceramic) + env `FILECOIN_API_KEY` (or `STORAGE_API_KEY`, read when the Filecoin one is unset); an OrbitDB gateway token is env `ORBITDB_API_KEY` | Filecoin/Ceramic/OrbitDB, for the operator key only |
+| creator_platforms | env `SOUND_API_KEY`, `MIRROR_API_KEY`, `PARAGRAPH_API_KEY` | Sound/Mirror/Paragraph |
+| kyc | env `KYC_API_KEY` + `KYC_SECRET_KEY` (Sumsub/Persona) | KYC/AML start, risk check, credential issue |
 | restaking | `services.restaking.{eigenlayer,symbiotic,karak,lido,rocketpool}_*` addresses | Restaking + liquid staking |
 | nft_lending | `services.nft_lending.pool_address` (BendDAO/NFTfi/Arcade) | NFT-backed loans, for the operator key only |
-| ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + `services.ccip.stargate_router` | CCIP and Stargate token bridges, for the operator key only (message sends refused) |
+| ccip | `services.ccip.router_address` (Base Sepolia CCIP router) + `services.ccip.stargate_router`; a message tracker's key, if it takes one, is env `CCIP_TRACKER_API_KEY` | CCIP and Stargate token bridges, for the operator key only (message sends refused) |
 | auctions | `services.auctions.auction_address` + `.orderbook_address` | Dutch/English/sealed-bid + orderbook |
 
 ## 5. Security layer — a separately installed private package

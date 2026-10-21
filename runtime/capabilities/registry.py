@@ -74,6 +74,7 @@ class CapabilityRegistry:
         params: dict | None = None,
         *,
         caller_identity: str = "",
+        caller_source: str = "",
     ) -> dict:
         """Execute a capability via its descriptor.
 
@@ -85,12 +86,17 @@ class CapabilityRegistry:
         ----------
         caller_identity:
             The identity the gateway bound for this request, or "" when there is
-            none: a session's identity when a session is presented, otherwise
-            the caller-written X-Wallet-Address header, else a body ``wallet``,
-            ``from``, ``sender`` or ``account`` field or ``params.from``, so it is
-            authenticated only in the first case. See DOMAIN 17-D below. Keyword-only and
+            none: a session's identity when a session is presented; with no
+            session and the operator key, the X-Wallet-Address header the
+            request wrote, else a body ``wallet``, ``from``, ``sender`` or
+            ``account`` field or ``params.from``, so it is authenticated only in
+            the first case. See DOMAIN 17-D below. Keyword-only and
             defaulting to "" so the existing two-argument call sites keep
             working unchanged.
+        caller_source:
+            ``"operator"`` when the operator key's request named
+            ``caller_identity`` (no session), else "". Handed to the dispatcher,
+            which records the actor's source from it.
         """
         # ── DOMAIN 17-D, SECOND GATEWAY ENTRY POINT ───────────────────────
         # `gateway/bridge.py` was not the only live HTTP path that knew the
@@ -182,6 +188,7 @@ class CapabilityRegistry:
         # as `caller_identity`. It is then recorded as the caller.
         result = await dispatcher.execute(
             action=action, params=params or {}, caller_identity=caller_identity,
+            caller_source=caller_source,
         )
         # `status` is about THIS layer: the capability id resolved, the
         # dispatcher ran, and its answer is in hand. It said "ok" over a

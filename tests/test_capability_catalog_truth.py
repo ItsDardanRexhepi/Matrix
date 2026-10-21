@@ -620,7 +620,8 @@ async def test_a_session_cannot_invoke_any_derived_escape(monkeypatch):
 
     invoked = []
 
-    async def fake_invoke(self, capability_id, params=None, *, caller_identity=""):
+    async def fake_invoke(self, capability_id, params=None, *, caller_identity="",
+                          caller_source=""):
         invoked.append(capability_id)
         return {"status": "ok", "capability_id": capability_id}
 

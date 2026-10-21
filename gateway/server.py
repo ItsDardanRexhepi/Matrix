@@ -406,7 +406,7 @@ class GatewayServer:
         except Exception as exc:
             if is_production_mode():
                 raise RuntimeError(
-                    "MATRIX_ENV=production but the security OTP services failed to "
+                    "MATRIX_ENV says production but the security OTP services failed to "
                     f"initialise: {exc}. Refusing to start rather than running with "
                     "phone and owner verification silently unavailable. Fix the named "
                     "cause, or unset MATRIX_ENV for a non-production run."
@@ -445,7 +445,7 @@ class GatewayServer:
                 "morpheus_security is not installed or failed to load"
             )
             raise RuntimeError(
-                "MATRIX_ENV=production but the security backend is 'noop' — "
+                "MATRIX_ENV says production but the security backend is 'noop' — "
                 f"{cause}, so nothing is enforcing. Refusing to start. Install the "
                 "private security package and fix the named cause, or unset "
                 "MATRIX_ENV for a non-production run."
@@ -471,7 +471,7 @@ class GatewayServer:
         # one hole for another. The example stays empty; production refuses.
         if is_production_mode() and not self.auth_enabled:
             raise RuntimeError(
-                "MATRIX_ENV=production but no gateway API key is configured, so "
+                "MATRIX_ENV says production but no gateway API key is configured, so "
                 "authentication is DISABLED and every protected route would serve "
                 "anonymously. Refusing to start. Set MATRIX_API_KEY (or "
                 "gateway.api_key in the config), or unset MATRIX_ENV for a "
@@ -2338,7 +2338,7 @@ class GatewayServer:
             self._security_gate_cause = str(exc)
             if is_production_mode():
                 raise RuntimeError(
-                    f"MATRIX_ENV=production but {exc}. Refusing to start rather "
+                    f"MATRIX_ENV says production but {exc}. Refusing to start rather "
                     "than serving with the security gate replaced by a lesser one "
                     "or by none. Fix the named cause, or unset MATRIX_ENV for a "
                     "non-production run."
@@ -3331,7 +3331,8 @@ class GatewayServer:
         (§EE — a verdict may not rest on what the caller writes about itself).
         The body speaks for the user only when the operator key is presented
         (development, where auth is off, counts as operator): an operator
-        integration names the user it acts for. ``app_attest`` is taken from
+        integration names the user it acts for, and ``identity_source`` says
+        which of the two resolved ``wallet_address``. ``app_attest`` is taken from
         the body for everyone because it is not a claim — it is a signed
         assertion the gate verifies.
 
@@ -3344,11 +3345,13 @@ class GatewayServer:
         body = body if isinstance(body, dict) else {}
         operator = self._is_operator(request)
         identity = self._session_identity(request)
+        identity_source = "session" if identity else ""
         apple_id = self._session_apple_id(request)
         if not identity and operator:
             from runtime.auth.identity import canonical_identity
             identity = canonical_identity(
                 str(body.get("wallet") or body.get("wallet_address") or "").strip())
+            identity_source = "operator" if identity else ""
             apple_id = apple_id or str(body.get("apple_id") or "").strip()
         context: dict = {
             "session_id": session_id,
@@ -3356,6 +3359,10 @@ class GatewayServer:
             "agent": agent,
             "caller_kind": self._caller_kind(request),
             "wallet_address": identity,
+            # How `wallet_address` was resolved — "session", "operator" (the
+            # body of an operator-key request named it) or "" (none) — so the
+            # record of a tool's action can say which (runtime/react_loop.py).
+            "identity_source": identity_source,
             "apple_id": apple_id,
             "app_attest": body.get("app_attest"),
         }
@@ -3412,7 +3419,8 @@ class GatewayServer:
             # docs/api-reference.md, "Identity"). Derived where a session
             # exists; asserted, and named as such, where one does not.
             stated = self._is_operator(request)
-            identity = self._session_identity(request) or (
+            session_identity = self._session_identity(request)
+            identity = session_identity or (
                 request.headers.get("X-Wallet-Address", "") if stated else "") or ""
             apple_id = self._session_apple_id(request) or (
                 request.headers.get("X-Apple-Id", "") if stated else "") or ""
@@ -3435,10 +3443,14 @@ class GatewayServer:
                 app_attest = body.get("app_attest")
                 if app_attest is None and isinstance(params, dict):
                     app_attest = params.get("app_attest")
+            # Which of the two it was travels with it, so the record of who
+            # acted can say whether a session established the identity or the
+            # operator key named it (ServiceDispatcher's `actor_source`).
             from gateway.security_gate import bind_request_security
             bind_request_security(
                 identity=identity, app_attest=app_attest, apple_id=apple_id,
                 session_id=request.headers.get("X-Session-Id", ""),
+                identity_source="session" if session_identity else "operator",
             )
         return await handler(request)
 
