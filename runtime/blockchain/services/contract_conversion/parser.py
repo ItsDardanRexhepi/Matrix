@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 # Supported source languages
 SUPPORTED_LANGUAGES: set[str] = {"solidity", "vyper", "pseudocode"}
 
+# The README's convert example indents each `function` line under `contract`
+# and writes `payable` before the keyword. These patterns serve only that layout.
+_LAYOUT_PREFIX = re.compile(r"([ \t]*)(payable[ \t]+)?")
+_LAYOUT_LOOKBACK = 256
+_NEXT_FUNCTION_LINE = re.compile(r"\n([ \t]+)(?:payable[ \t]+)?function\b")
+_SIGNATURE = re.compile(r"function[ \t]+\w+[ \t]*\([^)\n]*\)")
+_COLUMN0 = re.compile(r"\n(?=\S)")
+_BLANK_REST = re.compile(r"[ \t\r]*(?:\n|\Z)")
+_LEFT_AS_BASE = (";", "{", "}", "/*", "*/", "//", "#", "assembly", "unchecked", "try", "catch")
+_ENDS_OPEN = re.compile(r"[-+*/%&|^<>=!?:,.(\[~][ \t\r]*(?:\n|\Z)")
+_BEGINS_AS_CONTINUATION = re.compile(
+    r"\n[ \t]*(?:[-+*/%&|^<>=?:.,)\]]|(?:if|else|for|while|do)\b|return[ \t\r]*(?:\n|\Z))")
+
 
 class SourceParser:
     """Parse smart-contract source code into an intermediate representation.
@@ -393,6 +406,8 @@ class SourceParser:
             r"(?:\s*(?:->|returns?|:)\s*(\w+))?",
             re.IGNORECASE,
         )
+        first_block_comment = source.find("/*")
+        ahead: dict[str, int] = {}
         for m in func_pattern.finditer(source):
             name = m.group(1)
             params = self._parse_pseudo_params(m.group(2).strip())
@@ -423,8 +438,21 @@ class SourceParser:
             if "payable" in qualifiers:
                 mutability = "payable"
 
-            # Extract body as everything indented after the function line
-            body = self._extract_pseudo_body(source, m.end())
+            # `payable` written before `function` counts when what is read
+            # after the parameter list leaves the function public and
+            # nonpayable, and no `/*` comes earlier in the source.
+            body = None
+            layout = self._layout_prefix(source, m.start())
+            if layout is not None:
+                indent, written_payable = layout
+                if (written_payable and (visibility, mutability) == ("public", "nonpayable")
+                        and not 0 <= first_block_comment < m.start()):
+                    mutability = "payable"
+                if indent:
+                    body = self._layout_body(source, m.end(), indent, ahead)
+            if body is None:
+                # Extract body as everything indented after the function line
+                body = self._extract_pseudo_body(source, m.end())
 
             ir["functions"].append({
                 "name": name,
@@ -549,6 +577,92 @@ class SourceParser:
                 break
             body_lines.append(line)
         return "\n".join(body_lines).strip()
+
+    @staticmethod
+    def _layout_prefix(source: str, pos: int) -> tuple[str, bool] | None:
+        """For a `function` keyword at pos: (indent, whether `payable` is
+        written before it) when the line's text before the keyword is only
+        spaces or tabs, then optionally `payable`; otherwise None. That text
+        is read only when it is under 256 characters long, at the start of
+        the source as on any later line, so no more than the 256 characters
+        before the keyword are looked at."""
+        if not source.startswith("function", pos):
+            return None
+        lo = max(0, pos - _LAYOUT_LOOKBACK)
+        line_start = source.rfind("\n", lo, pos) + 1
+        if line_start == 0 and pos >= _LAYOUT_LOOKBACK:
+            return None
+        m = _LAYOUT_PREFIX.fullmatch(source, line_start, pos)
+        if m is None:
+            return None
+        return m.group(1), m.group(2) is not None
+
+    @staticmethod
+    def _layout_body(source: str, header_end: int, indent: str,
+                     ahead: dict[str, int]) -> str | None:
+        """Body of an indented `function` line, or None to use the base body.
+
+        The base body runs from the line after the header to the next line
+        that starts with a character other than whitespace, or to the end of
+        the source. None when the header line has text after the signature
+        and its optional return type, when the header is the last line, or
+        when the base body contains any of `; { } /* */ // #` `assembly`
+        `unchecked` `try` `catch`, also inside a longer word.
+
+        Otherwise the body is the base body up to the first line in it that
+        holds only spaces or tabs, then optionally `payable`, before a
+        `function` keyword (all of it when there is no such line). None
+        unless that line starts at the function's indent or at a leading
+        part of it and goes on with `function name(...)` or `payable
+        function name(...)` on the same line.
+
+        Then, if every line of that body is a plain one-line statement, each
+        non-blank line gets a `;` before its trailing whitespace. If one line
+        is not, None: such a body is the base body, not cut at the next
+        function. A plain one-line statement does not end with any of
+        `+ - * / % & | ^ < > = ! ? : ~ , . ( [` (before trailing spaces, tabs
+        or a carriage return); after its leading spaces or tabs it does not
+        begin with any of `+ - * / % & | ^ < > = ? : . , ) ]` or the words
+        `if else for while do`, and is not a bare `return`; and it has as
+        many `(` as `)` and `[` as `]`.
+        """
+        rest = _BLANK_REST.match(source, header_end)
+        if rest is None or not rest.group().endswith("\n"):
+            return None
+        first = rest.end() - 1
+        start = first + 1
+        # Positions only move forward across functions, so each search resumes.
+        end = ahead.get("col0", -2)
+        if end != -1 and end < first:
+            c0 = _COLUMN0.search(source, first)
+            end = ahead["col0"] = c0.start() if c0 else -1
+        if end == -1:
+            end = len(source)
+        for token in _LEFT_AS_BASE:
+            at = ahead.get(token, -2)
+            if at != -1 and at < start:
+                at = ahead[token] = source.find(token, start)
+            if start <= at < end:
+                return None
+        cut = end
+        nxt = _NEXT_FUNCTION_LINE.search(source, first, end)
+        if nxt is not None:
+            if not (indent.startswith(nxt.group(1))
+                    and _SIGNATURE.match(source, nxt.end() - len("function"), end)):
+                return None
+            cut = nxt.start() + 1
+        if _ENDS_OPEN.search(source, start, cut) or _BEGINS_AS_CONTINUATION.search(source, first, cut):
+            return None
+        region = source[start:cut]
+        check_brackets = any(c in region for c in "()[]")
+        lines = []
+        for line in region.split("\n"):
+            if check_brackets and (line.count("(") != line.count(")")
+                                   or line.count("[") != line.count("]")):
+                return None
+            code = line.rstrip()
+            lines.append(code + ";" + line[len(code):] if code else line)
+        return "\n".join(lines).strip()
 
     @staticmethod
     def _extract_pseudo_body(source: str, start_pos: int) -> str:

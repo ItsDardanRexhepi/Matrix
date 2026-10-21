@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,417 tests, run against the versions
+automated suite of 6,539 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -875,7 +875,12 @@ curl -X POST http://localhost:18790/api/v1/contracts/convert \
 converter reads structured pseudocode, Solidity or Vyper, not a
 description in prose; it answers with the Solidity draft and Glasswing's
 report on it. Unless the operator has turned on `conversion.auto_deploy`,
-it deploys nothing.
+it deploys nothing. On a gateway with no `blockchain.platform_wallet` set,
+the draft this example returns compiles as it comes back (checked with solc
+0.8.24). With a platform wallet set, the converter adds the platform fee to
+the draft unless the operator has turned off `conversion.inject_fees`, and
+that version does not compile: the fee's two setters use an `onlyOwner`
+modifier the draft does not define (Fees in `docs/blockchain.md`).
 
 **Check platform health**
 ```bash
