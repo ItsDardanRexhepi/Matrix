@@ -555,18 +555,32 @@ verifies what the App Store signed.
 Verify a StoreKit `signedTransaction` JWS (the certificate chain to the pinned
 Apple root, and the bundle id) and record it. A subscription records an
 entitlement row; a consumable is recorded in the transaction ledger but never
-grants a tier. Replaying the same transaction returns `200` with `replay: true`
-and records nothing new.
+grants a tier. A transaction the gateway has recorded, posted again by the
+account that holds it or with no session, returns `200` with `replay: true` and
+adds no ledger row.
+
+A subscription follows its newest transaction: its product, plan, expiry and
+environment come from the transaction with the latest `purchaseDate` the
+gateway has seen, so an older transaction — posted again, or delivered late in
+an App Store notification — moves nothing back, and only a newer one makes an
+expired subscription active again. A transaction carrying a `revocationDate`,
+when it is not refused, ends the subscription (`revoked`), as the App Store's
+refund and revoke notifications do, whichever reaches the gateway first; an
+ended subscription stays ended.
 
 A purchase belongs to the first account that verified it, by its
 `originalTransactionId`. A session of another account presenting it — the same
 signed transaction, or another transaction of the same subscription — is
 answered `409` and nothing of it is recorded: the subscription stays with the
-account that holds it. That account can present the purchase again from any of
-its sessions. A purchase recorded with no account (an App Store notification,
-or a post with no session) goes to the first account that presents it, and a
-post with no session never takes one away from an account. A purchase is not
-transferred between accounts.
+account that holds it. An account is the sign-in a session was made with: the
+holder can present the purchase again from any session of that sign-in, while
+an Apple sign-in and the wallet linked to it are two accounts, and the second
+is answered `409`. A purchase recorded with no account (an App Store
+notification, or a post with no session) goes to the first account that
+presents it, and a post with no session never moves a purchase from an account.
+A purchase is not transferred between accounts, and a subscription that an
+earlier version of the gateway moved to the account that presented it last
+stays with that account.
 
 ```json
 { "signedTransaction": "eyJhbGciOi..." }
@@ -588,7 +602,10 @@ is not configured on this gateway, or the store could not be read or written.
 ### `POST /api/v1/iap/asn`
 
 App Store Server Notifications V2 receiver. Called by Apple's servers, not by a
-client; authenticated by the Apple-signed JWS chain.
+client; authenticated by the Apple-signed JWS chain. Apple promises no order:
+a renewal about an older transaction changes nothing, an expiry about a
+transaction older than the newest one recorded is ignored, and a refund or
+revoke that arrives before any verify writes the subscription already ended.
 
 ---
 
