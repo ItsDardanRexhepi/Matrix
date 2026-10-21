@@ -1359,7 +1359,11 @@ class GatewayServer:
         Consumable is recorded in the transaction ledger (never a tier).
 
         Idempotent on transactionId: replaying the same signed transaction
-        returns 200 with replay=true and records nothing new. Fail-closed:
+        returns 200 with replay=true and records nothing new. A purchase
+        belongs to the first account that verified it: another account's
+        session presenting it (the same bytes, or another transaction of the
+        same subscription) -> 409 ``bound_to_another_account``, with nothing
+        of it written (``EntitlementStore.record_verified``). Fail-closed:
         unconfigured -> 503; any verification failure -> 401 (generic)."""
         from gateway.iap import (
             IAPError, IAPNotConfigured, check_bundle, check_environment,
@@ -1395,7 +1399,11 @@ class GatewayServer:
         user_key = self._iap_user_key(request)
 
         try:
-            fresh = await self._entitlements.record_transaction(
+            # Who holds the purchase is read, and the ledger and the lineage
+            # written, in one database transaction: a signed transaction is a
+            # bearer object, and another account's session presenting it moves
+            # nothing.
+            applied = await self._entitlements.record_verified(
                 transaction_id=tx["transaction_id"],
                 original_transaction_id=tx["original_transaction_id"],
                 product_id=tx["product_id"],
@@ -1404,21 +1412,23 @@ class GatewayServer:
                 quantity=tx["quantity"],
                 purchase_date=tx["purchase_date"],
                 environment=tx["environment"],
+                tier=tier,
+                expires_date=tx["expires_date"],
             )
-            if product_type == "subscription" and tier:
-                await self._entitlements.upsert_entitlement(
-                    original_transaction_id=tx["original_transaction_id"],
-                    product_id=tx["product_id"],
-                    tier=tier,
-                    user_key=user_key,
-                    status="active",
-                    purchase_date=tx["purchase_date"],
-                    expires_date=tx["expires_date"],
-                    environment=tx["environment"],
-                )
         except Exception:
             logger.exception("iap verify: store write failed")
             return web.json_response({"error": "storage failure"}, status=503)
+        if applied["refused"]:
+            logger.warning("iap verify: refused a purchase another account holds "
+                           "(original transaction %s)", tx["original_transaction_id"])
+            return web.json_response({
+                "error": "bound_to_another_account",
+                "message": ("This App Store purchase belongs to another account; "
+                            "it was not applied to this one."),
+                "transactionId": tx["transaction_id"],
+                "originalTransactionId": tx["original_transaction_id"],
+            }, status=409)
+        fresh = applied["fresh"]
 
         return web.json_response({
             "status": "recorded",

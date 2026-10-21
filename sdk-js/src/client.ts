@@ -272,7 +272,8 @@ export class MatrixClient {
    * Report a StoreKit-signed transaction JWS to POST /api/v1/iap/verify.
    * The server verifies the full x5c chain to Apple's pinned root and records
    * the transaction (subscriptions and the consumable). Fail-closed
-   * server-side: unconfigured -> 503, any verification failure -> 401.
+   * server-side: unconfigured -> 503, any verification failure -> 401, a
+   * purchase another account already holds -> 409 (each thrown here).
    *
    * There is deliberately no method for /api/v1/iap/asn — that webhook is
    * called by Apple's servers (App Store Server Notifications), not by a client.

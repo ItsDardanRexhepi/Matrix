@@ -12,6 +12,13 @@ Two tables, async sqlite (house style of ``runtime.notifications.token_store``):
   flips the row to ``refunded``, revoke to ``revoked``, expiry to
   ``expired``; a renewal writes the fresh ``expires_date`` back to ``active``.
 
+A purchase belongs to the FIRST account that verified it. A signed
+transaction is a bearer object, so ``record_verified`` checks who holds the
+purchase and writes in one database transaction, and refuses whole when
+another account holds it; ``upsert_entitlement`` never moves a lineage bound
+to one account to another. A purchase recorded with no account goes to the
+first account that presents it.
+
 ``refunded``/``revoked`` are TERMINAL: Apple delivers notifications with no
 ordering guarantee, and after a refund the client still (correctly) reports
 the next renewal JWS to /iap/verify — so the blanket upsert refuses to lift a
@@ -30,8 +37,11 @@ chain first; there is no unverified write path.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 from typing import Any
+
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +72,37 @@ CREATE TABLE IF NOT EXISTS iap_entitlements (
     environment             TEXT,
     updated_at              REAL
 )
+"""
+
+_INSERT_TRANSACTION = """
+INSERT OR IGNORE INTO iap_transactions
+    (transaction_id, original_transaction_id, product_id,
+     product_type, user_key, quantity, purchase_date,
+     environment, status, recorded_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'recorded', ?)
+"""
+
+# A lineage bound to an account keeps that account: a blank ``user_key`` (a
+# webhook carries no session) never unbinds it, and another account's key
+# never moves it. Only a lineage no account holds yet takes the key given.
+_UPSERT_ENTITLEMENT = """
+INSERT INTO iap_entitlements
+    (original_transaction_id, user_key, product_id, tier, status,
+     purchase_date, expires_date, environment, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(original_transaction_id) DO UPDATE SET
+    user_key = CASE WHEN iap_entitlements.user_key != ''
+                    THEN iap_entitlements.user_key
+                    ELSE excluded.user_key END,
+    product_id = excluded.product_id,
+    tier = excluded.tier,
+    status = CASE WHEN iap_entitlements.status IN ('refunded', 'revoked')
+                  THEN iap_entitlements.status
+                  ELSE excluded.status END,
+    purchase_date = excluded.purchase_date,
+    expires_date = excluded.expires_date,
+    environment = excluded.environment,
+    updated_at = excluded.updated_at
 """
 
 #: statuses an entitlement row can hold.
@@ -111,18 +152,98 @@ class EntitlementStore:
         if existing:
             return False
         await self._db.execute(
-            """
-            INSERT OR IGNORE INTO iap_transactions
-                (transaction_id, original_transaction_id, product_id,
-                 product_type, user_key, quantity, purchase_date,
-                 environment, status, recorded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'recorded', ?)
-            """,
+            _INSERT_TRANSACTION,
             (transaction_id, original_transaction_id, product_id,
              product_type, user_key, quantity, purchase_date,
              environment, time.time()),
         )
         return True
+
+    # ── Who a purchase belongs to ───────────────────────────────────
+
+    @staticmethod
+    def _holder_in(conn: sqlite3.Connection, original_transaction_id: str,
+                   transaction_id: str) -> str:
+        """The account a purchase belongs to, read on *conn*: the first
+        account that verified it, or ``''`` when no account has.
+
+        A subscription lineage bound to an account decides. Otherwise the
+        account whose session recorded a transaction of the purchase first
+        holds it (a consumable has no lineage; its ``originalTransactionId``
+        is its own). A failed read raises: it is never taken to mean that
+        nobody holds the purchase."""
+        if original_transaction_id:
+            row = conn.execute(
+                "SELECT user_key FROM iap_entitlements WHERE original_transaction_id = ?",
+                (original_transaction_id,)).fetchone()
+            if row is not None and str(row[0] or ""):
+                return str(row[0])
+            first = conn.execute(
+                "SELECT user_key FROM iap_transactions WHERE user_key != '' "
+                "AND (original_transaction_id = ? OR transaction_id = ?) "
+                "ORDER BY recorded_at, transaction_id LIMIT 1",
+                (original_transaction_id, transaction_id)).fetchone()
+        else:
+            first = conn.execute(
+                "SELECT user_key FROM iap_transactions WHERE user_key != '' "
+                "AND transaction_id = ? LIMIT 1", (transaction_id,)).fetchone()
+        return str(first[0]) if first is not None else ""
+
+    async def record_verified(
+        self,
+        *,
+        transaction_id: str,
+        original_transaction_id: str,
+        product_id: str,
+        product_type: str,
+        user_key: str = "",
+        quantity: int = 1,
+        purchase_date: float = 0.0,
+        environment: str = "",
+        tier: str | None = None,
+        expires_date: float = 0.0,
+    ) -> dict[str, bool]:
+        """Record a transaction whose signature verified and, for a
+        subscription with a ``tier``, refresh its lineage as ``active`` — in
+        ONE database transaction, refused whole when the purchase belongs to
+        another account.
+
+        When ``user_key`` names an account and another account holds the
+        purchase (``_holder_in``; two spellings of one wallet are one
+        account), nothing is written, not the replay ledger and not the
+        lineage, and ``{"refused": True, "fresh": False}`` comes back.
+        Otherwise ``fresh`` says whether the transaction id is new; a
+        transaction already recorded with no account goes to ``user_key``,
+        and the lineage follows ``upsert_entitlement``'s rules. With no
+        ``user_key`` (no session) nothing is claimed and nothing refused."""
+        await self._ensure_tables()
+        if not transaction_id:
+            raise ValueError("transaction_id required")
+        subscription = product_type == "subscription" and bool(tier)
+        if subscription and not original_transaction_id:
+            raise ValueError("original_transaction_id required")
+        now = time.time()
+
+        def work(conn: sqlite3.Connection) -> dict[str, bool]:
+            holder = self._holder_in(conn, original_transaction_id, transaction_id)
+            if user_key and holder and not same_caller(holder, user_key):
+                return {"refused": True, "fresh": False}
+            fresh = conn.execute(_INSERT_TRANSACTION, (
+                transaction_id, original_transaction_id, product_id,
+                product_type, user_key, quantity, purchase_date,
+                environment, now)).rowcount == 1
+            if not fresh and user_key:
+                conn.execute(
+                    "UPDATE iap_transactions SET user_key = ? "
+                    "WHERE transaction_id = ? AND user_key = ''",
+                    (user_key, transaction_id))
+            if subscription:
+                conn.execute(_UPSERT_ENTITLEMENT, (
+                    original_transaction_id, user_key, product_id, tier,
+                    "active", purchase_date, expires_date, environment, now))
+            return {"refused": False, "fresh": fresh}
+
+        return await self._db.run_in_transaction(work)
 
     async def mark_transaction(self, transaction_id: str, status: str) -> None:
         """Flip a recorded transaction's status (e.g. consumable refund)."""
@@ -156,10 +277,12 @@ class EntitlementStore:
         expires_date: float = 0.0,
         environment: str = "",
     ) -> None:
-        """Create/refresh a subscription lineage row. A blank ``user_key``
-        never overwrites a known one (webhooks carry no session), and a
-        TERMINAL status (refunded/revoked) is sticky: a late-arriving renewal
-        or a post-refund client /verify report can update dates but can NEVER
+        """Create/refresh a subscription lineage row. A lineage bound to an
+        account keeps it: a blank ``user_key`` (webhooks carry no session)
+        never unbinds it and another account's key never moves it; only a
+        lineage no account holds yet takes the key given. A TERMINAL status
+        (refunded/revoked) is sticky: a late-arriving renewal or a
+        post-refund client /verify report can update dates but can NEVER
         lift the row back to active. Refund wins regardless of order."""
         await self._ensure_tables()
         if not original_transaction_id:
@@ -167,25 +290,7 @@ class EntitlementStore:
         if status not in STATUSES:
             raise ValueError(f"invalid status {status!r}")
         await self._db.execute(
-            """
-            INSERT INTO iap_entitlements
-                (original_transaction_id, user_key, product_id, tier, status,
-                 purchase_date, expires_date, environment, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(original_transaction_id) DO UPDATE SET
-                user_key = CASE WHEN excluded.user_key != ''
-                                THEN excluded.user_key
-                                ELSE iap_entitlements.user_key END,
-                product_id = excluded.product_id,
-                tier = excluded.tier,
-                status = CASE WHEN iap_entitlements.status IN ('refunded', 'revoked')
-                              THEN iap_entitlements.status
-                              ELSE excluded.status END,
-                purchase_date = excluded.purchase_date,
-                expires_date = excluded.expires_date,
-                environment = excluded.environment,
-                updated_at = excluded.updated_at
-            """,
+            _UPSERT_ENTITLEMENT,
             (original_transaction_id, user_key, product_id, tier, status,
              purchase_date, expires_date, environment, time.time()),
         )
