@@ -46,6 +46,7 @@ from runtime.logging import (
 from runtime.monitoring.metrics import MetricsCollector
 from runtime.monitoring.otel import OTelMetricsBridge
 from runtime.monitoring.sentry import initialize_sentry
+from runtime.shipped import shipped
 from runtime.config.validation import (
     ConfigValidationError,
     enforce_env_only_secrets,
@@ -1784,8 +1785,9 @@ class GatewayServer:
         return self._serve_html("web/terms.html")
 
     def _serve_html(self, path: str) -> web.Response:
-        """Serve a static HTML file."""
-        filepath = Path(path)
+        """Serve a static HTML file: the working folder's, or the copy an
+        installed package carries (runtime/shipped.py)."""
+        filepath = shipped(path)
         if filepath.exists():
             return web.Response(
                 text=filepath.read_text(encoding="utf-8"),
@@ -1797,7 +1799,7 @@ class GatewayServer:
 
     async def handle_extensions_registry(self, request: web.Request) -> web.Response:
         """GET /extensions/registry — serve the component registry JSON."""
-        registry_path = Path("extensions/registry.json")
+        registry_path = shipped("extensions/registry.json")
         if not registry_path.exists():
             return web.json_response({"error": "Registry not found"}, status=404)
         import json as _json
@@ -1807,7 +1809,7 @@ class GatewayServer:
     async def handle_extensions_component(self, request: web.Request) -> web.Response:
         """GET /extensions/registry/{component_id} — single component."""
         component_id = request.match_info.get("component_id", "")
-        registry_path = Path("extensions/registry.json")
+        registry_path = shipped("extensions/registry.json")
         if not registry_path.exists():
             return web.json_response({"error": "Registry not found"}, status=404)
         import json as _json
@@ -2168,7 +2170,7 @@ class GatewayServer:
 
     async def handle_badge_widget_js(self, request: web.Request) -> web.Response:
         """GET /badge/widget.js — serve the embeddable badge widget."""
-        filepath = Path("web/badge-widget.js")
+        filepath = shipped("web/badge-widget.js")
         if filepath.exists():
             return web.Response(
                 text=filepath.read_text(encoding="utf-8"),
@@ -3626,7 +3628,31 @@ class GatewayServer:
             raise
 
 
+def _run_where_an_install_keeps_its_files() -> None:
+    """From an installed package, move into the folder its files are kept in.
+
+    `matrix setup` writes an install's configuration, its keys and data/ into
+    ~/.matrix, or $MATRIX_HOME (cli/home.py), and `matrix gateway start` starts
+    this process there. The `matrix-gateway` command an install also puts on
+    PATH would otherwise run wherever it is typed, where there is no
+    configuration, or another folder's. When the folder does not exist yet
+    there is nothing to run, and the setup is what makes it. A clone runs in
+    the folder it is started in, as it always has.
+    """
+    from cli.home import checkout, home
+
+    if checkout() is not None:
+        return
+    folder = home()
+    if not folder.is_dir():
+        print(f"No configuration in {folder}: run `matrix setup` first.", file=sys.stderr)
+        sys.exit(1)
+    os.chdir(folder)
+
+
 def main():
+    _run_where_an_install_keeps_its_files()
+
     # Emit JSON logs by default in production, plain text otherwise.
     json_logs = os.environ.get("MATRIX_LOG_FORMAT", "").strip().lower() == "json" or (
         is_production_mode()

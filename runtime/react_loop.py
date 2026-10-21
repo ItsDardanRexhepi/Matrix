@@ -12,7 +12,8 @@ Implements the Reason-Act cycle:
 
 Model-agnostic: works with any provider that implements ModelInterface.
 Loads config from matrix.config.json. Injects temporal context on
-every turn. Loads agent identity from agents/{agent}/identity.md.
+every turn. Loads agent identity from agents/{agent}/identity.md: the
+working folder's, or the copy an installed package carries.
 
 Protocol integration: the ProtocolStack is initialised per agent and
 wired into the loop at four points — pre-process, pre-action,
@@ -31,7 +32,6 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from runtime.models.router import ModelRouter
@@ -40,6 +40,7 @@ from runtime.tools.untrusted import wrap_tool_output
 from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
 from runtime.protocols import outcome_truth as _truth
+from runtime.shipped import shipped_folders
 
 
 def _caller_kind_of(user_context: Any) -> str:
@@ -200,14 +201,15 @@ class ReActLoop:
         return str(user_context.get("memory_scope") or "")
 
     def _load_agent_prompts(self):
-        agents_dir = Path("agents")
-        if not agents_dir.exists():
-            return
-        for agent_dir in agents_dir.iterdir():
-            if agent_dir.is_dir():
-                identity_file = agent_dir / "identity.md"
-                if identity_file.exists():
-                    self._agent_prompts[agent_dir.name] = identity_file.read_text()
+        # The agents/ an installed package carries, then the working folder's
+        # (a clone's root, read once): a prompt there replaces the packaged
+        # one of the same agent (runtime/shipped.py).
+        for agents_dir in shipped_folders("agents"):
+            for agent_dir in agents_dir.iterdir():
+                if agent_dir.is_dir():
+                    identity_file = agent_dir / "identity.md"
+                    if identity_file.exists():
+                        self._agent_prompts[agent_dir.name] = identity_file.read_text()
 
     def get_agent_prompt(self, agent_name: str) -> str:
         return self._agent_prompts.get(agent_name, "")

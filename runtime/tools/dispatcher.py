@@ -230,15 +230,18 @@ class ToolDispatcher:
         """
         try:
             from runtime.skills.loader import SkillLoader
+            from runtime.shipped import shipped_folders
+            # The skills/ an installed package carries, then the workspace's
+            # (a clone's root, read once): a skill there replaces the packaged
+            # one of the same name (runtime/shipped.py).
             workspace = config.get("workspace", ".")
-            loader = SkillLoader(f"{workspace}/skills")
-            skills = loader.load_all()
-            for skill in skills:
-                self.register(
-                    skill.name,
-                    _with_server_config(skill.as_tool_handler(), config),
-                    skill.to_tool_schema(),
-                )
+            for skills_dir in shipped_folders("skills", folder=workspace):
+                for skill in SkillLoader(str(skills_dir)).load_all():
+                    self.register(
+                        skill.name,
+                        _with_server_config(skill.as_tool_handler(), config),
+                        skill.to_tool_schema(),
+                    )
         except Exception as e:
             logger.debug(f"Skill loading skipped: {e}")
 
