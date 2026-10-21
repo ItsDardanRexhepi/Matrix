@@ -34,7 +34,7 @@ from setup._shared import (
 def _relaunch_in_venv() -> None:
     """Run under the .venv that setup.py created, when there is one.
 
-    Same reason as setup.py's bootstrap: the global python3 on macOS is
+    Same reason as the setup's bootstrap (setup/wizard.py): the global python3 on macOS is
     Apple's 3.9 or Homebrew's externally-managed build, neither of which has
     the dependencies. Only re-launches when .venv exists (setup.py owns its
     creation); MATRIX_SETUP_NO_VENV=1 opts out.

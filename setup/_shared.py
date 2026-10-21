@@ -164,12 +164,12 @@ def keep_secret_files_out_of_git(check=None) -> None:
     """Check .gitignore once per directory, before the first key is written there.
 
     Every write of a file holding keys goes through write_secret_file(), which
-    calls this. Only setup.py's commit_setup() used to run the check, so the
+    calls this. Only the wizard's commit_setup() used to run the check, so the
     channel wizards run on their own (setup_communications.py, setup_telegram.py,
     ``python -m setup.<channel>``) wrote the config and .env into a project
     whose .gitignore listed neither, said nothing, and `git add -A` staged both.
 
-    *check* is how setup.py runs the same check with its own output; by default
+    *check* is how the wizard (setup/wizard.py) runs the same check with its own output; by default
     it is setup/_gitignore.py's with this module's warn/info/success. The
     directory is the working directory, because that is where CONFIG_PATH and
     ENV_PATH are.
