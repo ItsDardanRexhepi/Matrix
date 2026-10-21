@@ -125,11 +125,12 @@ class RightsManagement:
         #
         # `set_by` IS WHATEVER THE ENTRY POINT BOUND, WHICH CAN BE WRITTEN BY
         # THE CALLER. On POST /api/v1/capabilities/set_nft_rights/invoke with no
-        # session and no X-Wallet-Address header, the security middleware binds
-        # a body `wallet`, `from`, `sender` or `account` field, or `params.from`,
-        # and that address is recorded here as the grantor, with source
-        # "authenticated" (see ServiceDispatcher.execute, 17-J). Only a
-        # session-derived identity is authenticated.
+        # session and no X-Wallet-Address header, the security middleware binds,
+        # for a request carrying the operator key, a body `wallet`, `from`,
+        # `sender` or `account` field, or `params.from`, and that address is
+        # recorded here as the grantor, with source "operator" (see
+        # ServiceDispatcher.execute, 17-J). Only a session-derived identity is
+        # authenticated.
         _set_by = caller_identity or ""
         # 17-J: WHO, and separately HOW WE KNOW. `set_by: ""` alone could not
         # distinguish "no human initiated this" from "we dropped the identity"

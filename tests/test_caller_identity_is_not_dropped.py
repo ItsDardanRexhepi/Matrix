@@ -352,13 +352,15 @@ class _RecordingDispatcher:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    async def execute(self, action, service=None, params=None, *, caller_identity=""):
+    async def execute(self, action, service=None, params=None, *, caller_identity="",
+                      caller_source=""):
         self.calls.append(
             {
                 "action": action,
                 "service": service,
                 "params": params,
                 "caller_identity": caller_identity,
+                "caller_source": caller_source,
             }
         )
         return json.dumps({"status": "ok", "action": action})

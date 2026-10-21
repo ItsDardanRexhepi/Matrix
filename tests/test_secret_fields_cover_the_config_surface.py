@@ -46,6 +46,9 @@ name that path (tests/test_secret_fields_reach_the_paths_the_code_reads.py
 measures it). The same pass added `signer_key` to the suffix list — the
 paymaster's documented signer location, which the census did not see — so the
 independent walk below carries it too; the two walks agreeing is the point.
+`secret_key` and `paymaster_key` joined it when a walk of what the services
+read found the KYC signing secret and the platform key's second name unseen
+(tests/test_secret_fields_cover_what_the_services_read.py).
 """
 
 from __future__ import annotations
@@ -100,8 +103,9 @@ def _table_paths() -> set[str]:
 #: needs nothing the fix introduced. `is_secret_shaped` is checked against it
 #: separately — one of them being wrong is then visible, rather than both being
 #: the same mistake agreeing with itself.
-_SUFFIXES = ("api_key", "apikey", "secret", "password", "passwd", "_pass",
-             "private_key", "auth_key", "signing_key", "signer_key", "_p8", "_token", "_sid",
+_SUFFIXES = ("api_key", "apikey", "secret", "secret_key", "password", "passwd", "_pass",
+             "private_key", "auth_key", "signing_key", "signer_key", "paymaster_key",
+             "_p8", "_token", "_sid",
              "_dsn", "webhook_url", "_webhook", "credential", "credentials",
              "passphrase", "mnemonic", "seed_phrase", "salt")
 

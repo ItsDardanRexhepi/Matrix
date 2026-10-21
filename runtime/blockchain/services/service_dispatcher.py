@@ -1494,22 +1494,27 @@ class ServiceDispatcher:
             Keyword arguments forwarded to the underlying service method.
         caller_identity:
             The wallet address the entry point bound for the caller, or "" when
-            it binds none: on the bridge, the wallet linked to the SIWE
-            session; on POST /api/v1/capabilities/{id}/invoke, the security
-            middleware's binding (a session's identity, else the caller-written
-            X-Wallet-Address header, else a body ``wallet``/``from``/``sender``/
-            ``account`` field or ``params.from``); on /chat, through the
-            ``platform_action`` tool, the chat body's ``wallet`` or
-            ``wallet_address`` field, session or not (runtime/react_loop.py);
-            /chat/stream and /ws thread none. This method never reads
+            it binds none. A presented wallet session decides it wherever there
+            is one. With no session, only a request carrying the operator key
+            can name one: on the bridge, the wallet linked to the session id
+            the request names; on POST /api/v1/capabilities/{id}/invoke, the
+            security middleware's binding (the X-Wallet-Address header the
+            request wrote, else a body ``wallet``/``from``/``sender``/
+            ``account`` field or ``params.from``); on the chat entrances,
+            through the ``platform_action`` tool, the chat body's ``wallet`` or
+            ``wallet_address`` field (gateway/server.py ``_chat_user_context``,
+            runtime/react_loop.py). This method never reads
             ``params["caller_identity"]``, but the value it is handed can be a
             copy of ``params.from``, made by the middleware before the
-            dispatcher runs. It is authenticated only when a session was its source,
-            although the ``caller_source`` recorded for it says "authenticated"
-            either way (see 17-J below). See DOMAIN 17-D below. Keyword-only and
+            dispatcher runs. See DOMAIN 17-D below. Keyword-only and
             defaulting to "" so every existing call site — including the
             positional ``execute(action, None, params)`` in
             ``runtime/agents/handoff.py`` — keeps working unchanged.
+        caller_source:
+            The channel, for the record of who acted (see 17-J below):
+            ``"operator"`` when the operator key's request named
+            ``caller_identity``; ``"agent_handoff"`` or ``"agent"`` for an
+            agent's call; "" otherwise.
 
         Returns
         -------
@@ -1560,20 +1565,23 @@ class ServiceDispatcher:
         # path. The source describes the CHANNEL the identity arrived through,
         # not whether some address is present.
         #
-        # THE LABEL OVERSTATES THAT CHANNEL. "authenticated" here means only
-        # "threaded by an entry point". The dispatcher cannot see where the
-        # entry point got it. On POST /api/v1/capabilities/{id}/invoke with no
-        # session, the security middleware binds the X-Wallet-Address header,
-        # a body wallet/from/sender/account field, or params.from, and that
-        # caller-written value is recorded here as "authenticated". On /chat
-        # the react loop threads the chat body's `wallet` field, session or
-        # not, with the same label (for Neo, who takes the operator key there;
-        # Trinity's state-changing actions arrive through handoff.py with no
-        # identity). Changing
-        # the label changes stored records and the 17-J tests; it is disclosed,
-        # not changed.
+        # WHO NAMED THE IDENTITY. The dispatcher cannot see where an entry
+        # point got the identity it threads, so the entry point says. A session
+        # is the one source the platform established; with no session, only the
+        # operator key's request can name an identity (the X-Wallet-Address
+        # header or a body field on POST /api/v1/capabilities/{id}/invoke, the
+        # chat body's `wallet` on the chat entrances, the wallet linked to a
+        # session id named on /bridge/v1/action), and those entry points pass
+        # caller_source "operator". That identity is recorded as the actor —
+        # the operator key acts for the user it names — with actor_source
+        # "operator", so the record no longer reads like a session's. Any
+        # other threaded identity is labelled "authenticated", which means
+        # "threaded by an entry point that did not say the operator named it".
+        # A label is evidence, not a permission: what a caller may do is
+        # decided before this line and is unchanged by it.
         _actor_source = (
-            "authenticated" if caller_identity
+            ("operator" if caller_source == "operator" else "authenticated")
+            if caller_identity
             else (caller_source or "unauthenticated")
         )
 

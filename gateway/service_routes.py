@@ -3265,11 +3265,13 @@ class ServiceRoutes:
         # idiom `_handle_governance_vote` and `_handle_insurance_claim` already
         # use, and passed to the registry as `caller_identity` rather than read
         # from `params`. Bound, not authenticated. The middleware binds a session's identity
-        # when one is presented; without one, the X-Wallet-Address header; and
-        # without that, a body `wallet`, `from`, `sender` or `account` field or
-        # `params.from` — so a self-asserted address DOES become the identity
-        # when the request carries no session and no header. With none of
-        # those, the identity is "" ("unknown"), never a refusal.
+        # when one is presented; without one, and only on the operator key's
+        # request, the X-Wallet-Address header; and without that, a body
+        # `wallet`, `from`, `sender` or `account` field or `params.from` — so an
+        # address the operator's request wrote DOES become the identity when it
+        # carries no session and no header, and the record of who acted says the
+        # operator named it. With none of those, the identity is "" ("unknown"),
+        # never a refusal.
         from gateway.security_gate import (
             current_request_security, gate_action, generic_denial, is_blocked,
         )
@@ -3334,7 +3336,12 @@ class ServiceRoutes:
                                      operation=dispatch_pair(action_label))
         if is_blocked(decision):
             return web.json_response({"error": generic_denial(decision)}, status=403)
-        result = await reg.invoke(capability_id, params, caller_identity=authed)
+        # The record of who acted says whether a session established `authed`
+        # or the operator key named it (ServiceDispatcher's `actor_source`).
+        from gateway.security_gate import bound_identity_source
+        result = await reg.invoke(
+            capability_id, params, caller_identity=authed,
+            caller_source="operator" if authed and bound_identity_source() == "operator" else "")
         if result.get("status") != "ok":
             return web.json_response(result, status=400)
         # The registry wraps the dispatcher's payload as {"status": "ok",

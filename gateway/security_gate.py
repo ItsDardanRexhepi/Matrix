@@ -34,6 +34,18 @@ _request_security: contextvars.ContextVar[dict] = contextvars.ContextVar(
     "request_security", default={}
 )
 
+# HOW the bound identity was resolved, beside the context rather than inside it:
+# the context is what the gate is handed, and this is read by the platform's own
+# record of who acted (ServiceDispatcher's ``actor_source``), not by the gate.
+# "session" — derived from the wallet session the request presented; "operator" —
+# named by a request that carried the operator key and no session (an
+# integration naming the user it acts for, docs/api-reference.md "Identity");
+# "" — no identity was bound. Inherited by batch sub-calls like the context.
+_identity_source: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "identity_source", default=""
+)
+IDENTITY_SOURCES = frozenset({"session", "operator"})
+
 # Generic, non-leaking client message. The real (internal) reason from the gate is
 # never surfaced to the client — only this is.
 _GENERIC_DENY = "This action couldn't be authorized right now. Please try again."
@@ -46,6 +58,7 @@ def bind_request_security(
     apple_id: str = "",
     session_id: str = "",
     extra: Optional[dict] = None,
+    identity_source: str = "",
 ) -> None:
     """Bind the security context for the current request task.
 
@@ -54,7 +67,16 @@ def bind_request_security(
     every spelling of one wallet is attributed to the same caller; ``app_attest``
     is the client's App Attest assertion block (or None). Read later via
     ``current_request_security`` at each gate call site.
+
+    ``identity_source`` says how ``identity`` was resolved — ``"session"`` or
+    ``"operator"`` — and is read back with ``bound_identity_source``. Every bind
+    sets it, so a bind that does not say is recorded as not saying (""), never
+    as the previous bind's answer; it is "" whenever no identity is bound, and
+    a value outside the two is refused.
     """
+    if identity_source and identity_source not in IDENTITY_SOURCES:
+        raise ValueError(f"identity_source must be one of {sorted(IDENTITY_SOURCES)} "
+                         f"or empty, not {identity_source!r}")
     from runtime.auth.identity import canonical_identity
 
     ctx: dict[str, Any] = {
@@ -67,11 +89,18 @@ def bind_request_security(
     if extra:
         ctx.update(extra)
     _request_security.set(ctx)
+    _identity_source.set(identity_source if ctx["wallet"] else "")
 
 
 def current_request_security() -> dict:
     """A copy of the security context bound for the current request (or empty)."""
     return dict(_request_security.get())
+
+
+def bound_identity_source() -> str:
+    """How the identity bound for the current request was resolved:
+    ``"session"``, ``"operator"``, or "" (none bound, or the binder did not say)."""
+    return _identity_source.get()
 
 
 def action_type_for(service_name: str, method_name: str) -> str:
