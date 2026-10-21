@@ -517,6 +517,7 @@ carries it as `ref`, both as its own field and at the end of the `error` text
 | 404  | `{"error": "<the dispatcher's sentence>", "code": "not_found"}`, no `ref` | An action the dispatcher does not know (`POST /bridge/v1/action` adds `ok` and `timestamp`) |
 | 404  | a route's own `{"error": …}`, e.g. `Method '…' not found on '…'` | Unknown resource; a service method that does not exist is raised, so without `X-Request-Id` |
 | 405  | plain text `405: Method Not Allowed` | Wrong method for a served path |
+| 409  | `{"error": "bound_to_another_account", "message": …, "transactionId": …, "originalTransactionId": …}` | `POST /api/v1/iap/verify` when a session presents an App Store purchase another account holds |
 | 422  | the service envelope, `call_outcome: "failure"` | A well-formed request the operation could not complete |
 | 429  | `{"error": "rate_limited", "message": "Too many requests. Please slow down."}` | Token bucket exhausted for wallet / key / IP |
 | 500  | redacted, `code: "internal_error"` | Server error a handler caught — quote `ref` |
@@ -557,12 +558,32 @@ entitlement row; a consumable is recorded in the transaction ledger but never
 grants a tier. Replaying the same transaction returns `200` with `replay: true`
 and records nothing new.
 
+A purchase belongs to the first account that verified it, by its
+`originalTransactionId`. A session of another account presenting it — the same
+signed transaction, or another transaction of the same subscription — is
+answered `409` and nothing of it is recorded: the subscription stays with the
+account that holds it. That account can present the purchase again from any of
+its sessions. A purchase recorded with no account (an App Store notification,
+or a post with no session) goes to the first account that presents it, and a
+post with no session never takes one away from an account. A purchase is not
+transferred between accounts.
+
 ```json
 { "signedTransaction": "eyJhbGciOi..." }
 ```
 
-`400` missing or invalid body · `401` the transaction did not verify · `503` IAP
-is not configured on this gateway.
+`400` missing or invalid body · `401` the transaction did not verify · `409`
+`bound_to_another_account`, the purchase belongs to another account · `503` IAP
+is not configured on this gateway, or the store could not be read or written.
+
+```json
+{
+  "error": "bound_to_another_account",
+  "message": "This App Store purchase belongs to another account; it was not applied to this one.",
+  "transactionId": "…",
+  "originalTransactionId": "…"
+}
+```
 
 ### `POST /api/v1/iap/asn`
 

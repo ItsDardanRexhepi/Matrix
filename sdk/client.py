@@ -333,7 +333,8 @@ class MatrixClient:
 
         The server verifies the full x5c chain to Apple's pinned root and
         records the transaction (subscriptions and the consumable). Fail-closed
-        server-side: unconfigured -> 503, any verification failure -> 401.
+        server-side: unconfigured -> 503, any verification failure -> 401, a
+        purchase another account already holds -> 409 (each raised here).
 
         Note: there is deliberately NO SDK method for /api/v1/iap/asn — that is
         the App Store Server Notifications webhook, called by Apple's servers,

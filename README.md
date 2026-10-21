@@ -190,7 +190,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,291 tests, run against the versions
+automated suite of 6,303 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -576,6 +576,19 @@ check behind it:
   again — it may already have been taken, so it waits for someone to
   check it with the gateway. A renewal nobody tried to charge, because no
   gateway is configured, simply stays due
+- **An App Store purchase belongs to the account that verified it
+  first.** A transaction the App Store signs can be posted again by anyone
+  who holds its bytes, and the signature still checks out, so the post
+  does not get to say whose the purchase is. A session of another account
+  presenting a purchase, the same transaction or a later one of the same
+  subscription, is answered `409` and nothing of it is recorded. Who holds
+  the purchase is read and the records are written in one database
+  transaction, so two accounts presenting a new purchase at the same
+  moment cannot both be given it. The account that holds a purchase can
+  present it again from any of its sessions. A purchase restored into a
+  second account, even one the same person signs in to, stays with the
+  first: refusing is the cautious answer, and moving a purchase between
+  accounts is not built
 - **A batch request carries the credential it was sent with.** Each item
   inherits the batch's caller, so an operator's batch reaches what an
   operator reaches and an anonymous one does not borrow more than it
