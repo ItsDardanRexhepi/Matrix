@@ -2,31 +2,42 @@
 
 The README's convert example indents each `function` line under `contract` and
 writes `payable` before the keyword. `SourceParser._layout_prefix` and
-`SourceParser._layout_body` state the rules in full; these tests hold the
-parser to them:
+`SourceParser._layout_body` state the rules in full; the tests below check each
+rule listed here:
 
 - a `function` keyword takes the layout only when the text before it on its
-  line is spaces or tabs, then optionally `payable` and spaces or tabs, and
-  that text is under 256 characters long, both at the start of the source and
-  on a later line (255 is read, 256 is not);
+  line is spaces or tabs, then optionally `payable` and spaces or tabs (not
+  `payable` written against the keyword), and that text is under 256
+  characters long, both at the start of the source and on a later line (255
+  is read, 256 is not);
 - `payable` there makes the function payable when what is read after the
   parameter list leaves it public and nonpayable and no `/*` comes earlier in
-  the source, wherever that `/*` is; a `/*` after the function does not count;
-- an indented function keeps the body the base parser reads when its header
-  line has text after the signature and return type, or when that base body
-  holds any of `; { } /* */ // #` `assembly` `unchecked` `try` `catch`, also
-  inside a longer word and also in a later function before the next line that
-  starts at column 0, but not after it;
+  the source, wherever that `/*` is, its first character included; a `/*`
+  after the function does not count;
+- the header is the signature and optional return type the base pattern
+  reads, and that pattern reads across line ends: a first body line such as
+  `return n` is read as the return type, and the header ends on it;
+- an indented function keeps the body the base parser reads when the line its
+  header ends on has text after it other than spaces, tabs or a carriage
+  return, or when that base body holds any of `; { } /* */ // #` `assembly`
+  `unchecked` `try` `catch`, also inside a longer word and also in a later
+  function before the next line that starts at column 0, but not after it;
 - otherwise its body ends before the next line that is spaces or tabs, then
-  optionally `payable`, then `function name(...)` on that one line, at the
-  function's indent or a leading part of it, or, with no such line, at the
-  next line that starts at column 0; any other line of spaces or tabs, then
-  optionally `payable`, then `function` leaves the base body;
+  optionally `payable` and spaces or tabs, then `function`, spaces or tabs, a
+  name of letters, digits or `_` and a parameter list on that one line, at
+  the function's indent or a leading part of it, or, with no such line, at the
+  next line that starts at column 0, also when that line comes right after
+  the header; any other line of spaces or tabs, then optionally `payable`,
+  then `function` leaves the base body, and a `payablefunction` line is an
+  ordinary body line;
 - that body gets a `;` before the trailing whitespace of each non-blank line
   only when every line is a plain one-line statement. There is a test for
-  each character a line may not end with and each it may not begin with, each
-  opening word, a bare `return`, an unbalanced `(` or `[`, a continuation
-  indented with a tab, and CRLF line endings. When one line is not plain, the
+  each character a line may not end with and each it may not begin with,
+  each opening word and a bare `return`; for an open character, then spaces
+  or a tab; for a bare `return`, then spaces; for an open character or a
+  bare `return` on the last line of the source; for more `(` than `)`, more
+  `)` than `(`, and the same for `[` and `]`; for a continuation indented
+  with a tab; and for CRLF line endings. When one line is not plain, the
   function keeps the whole base body: it is not cut at the next function.
 
 Every other body is the base body, read by `_extract_pseudo_body`.
@@ -115,6 +126,28 @@ def test_a_line_beginning_as_a_continuation_leaves_the_base_body(body):
     assert parsed == base
 
 
+MORE_LEFT_AS_BASE = {
+    "open character, then spaces": "        n = x +  \n            1\n",
+    "open character, then a tab": "        n = x +\t\n            1\n",
+    "bare return, then spaces": "        n = x\n        return  \n",
+    "more ) than (": "        n = (x))\n",
+    "more ] than [": "        n = x]\n",
+}
+
+
+@pytest.mark.parametrize("body", MORE_LEFT_AS_BASE.values(), ids=MORE_LEFT_AS_BASE.keys())
+def test_trailing_blanks_and_closing_brackets_are_held_to_the_same_shape(body):
+    parsed, base = _body_of_f(body)
+    assert parsed == base
+
+
+@pytest.mark.parametrize("tail", ["        n = x +", "        n = x\n        return"],
+                         ids=["open character", "bare return"])
+def test_a_last_line_the_source_ends_on_is_held_to_the_same_shape(tail):
+    source = HEAD + "    function f(x: uint256)\n" + tail
+    assert _functions(source)["f"]["body"] == _base_body(source, "f")
+
+
 @pytest.mark.parametrize("body", [
     "        n = x +\n            1\n",
     "        n = x\n        return\n",
@@ -142,9 +175,17 @@ def test_a_return_type_after_the_signature_still_takes_the_layout(returns):
     assert _functions(source)["f"]["body"] == "n = x;"
 
 
-def test_spaces_after_the_signature_still_take_the_layout():
-    source = HEAD + "    function f(x: uint256)   \n        n = x\n" + SIBLING
+@pytest.mark.parametrize("blank", ["   ", "\t"], ids=["spaces", "a tab"])
+def test_blanks_after_the_signature_still_take_the_layout(blank):
+    source = HEAD + f"    function f(x: uint256){blank}\n        n = x\n" + SIBLING
     assert _functions(source)["f"]["body"] == "n = x;"
+
+
+@pytest.mark.parametrize("line", ["        return n\n", "\n        return n\n", "        -> n\n"],
+                         ids=["return", "return after a blank line", "arrow"])
+def test_a_first_body_line_the_base_pattern_reads_as_the_return_type_ends_the_header(line):
+    f = _functions(HEAD + "    function get()\n" + line + SIBLING)["get"]
+    assert (f["returns"], f["body"]) == ("n", "")
 
 
 def test_text_after_the_signature_on_the_header_line_leaves_the_base_body():
@@ -232,6 +273,31 @@ def test_a_sibling_at_a_leading_part_of_the_indent_ends_the_body():
     assert _functions(source)["f"]["body"] == "n = x;"
 
 
+def test_a_sibling_on_the_line_right_after_the_header_ends_an_empty_body():
+    fns = _functions(HEAD + "    function f()\n" + SIBLING)
+    assert (fns["f"]["body"], fns["g"]["body"]) == ("", "n = x;")
+
+
+def test_a_column_0_line_right_after_the_header_ends_an_empty_body():
+    assert _functions(HEAD + "    function f()\nevent E(x: uint256)\n" + SIBLING)["f"]["body"] == ""
+
+
+@pytest.mark.parametrize("line", [
+    "    payable\tfunction g()\n",
+    "    function\tg(x: uint256)\n",
+    "    function g (x: uint256)\n",
+    "    function set_n2(x: uint256)\n",
+], ids=["tab after payable", "tab after function", "space before (", "digits and _ in the name"])
+def test_each_sibling_spelling_the_rule_allows_ends_the_body(line):
+    source = HEAD + "    function f(x: uint256)\n        n = x\n" + line + "        n = 1\n"
+    assert _functions(source)["f"]["body"] == "n = x;"
+
+
+def test_payable_written_against_function_is_not_a_sibling_line():
+    parsed, _ = _body_of_f("        n = x\n    payablefunction g()\n        n = 1\n")
+    assert parsed == "n = x;\n    payablefunction g();\n        n = 1;"
+
+
 def test_a_line_beginning_with_a_longer_word_than_function_does_not_end_the_body():
     parsed, _ = _body_of_f("        n = x\n        functionCount = n\n")
     assert parsed == "n = x;\n        functionCount = n;"
@@ -305,6 +371,15 @@ def test_payable_is_not_read_after_other_text_on_its_line(source):
 ], ids=["on the line before", "more than 256 characters before"])
 def test_payable_is_not_read_after_an_earlier_block_comment_opens(source):
     assert _functions(source)["g"]["mutability"] == "nonpayable"
+
+
+def test_a_block_comment_at_the_first_character_of_the_source_stops_payable():
+    source = "/* note */\n" + HEAD + "    payable function g()\n        n = 1\n"
+    assert _functions(source)["g"]["mutability"] == "nonpayable"
+
+
+def test_payable_written_against_function_is_not_read():
+    assert _functions(HEAD + "    payablefunction f()\n        n = 1\n")["f"]["mutability"] == "nonpayable"
 
 
 def test_a_block_comment_after_the_function_does_not_stop_payable():
