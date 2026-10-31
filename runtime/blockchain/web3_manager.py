@@ -278,10 +278,12 @@ class Web3Manager:
         with it, and `send_transaction` is the signing path the services in
         `services/**` use, so every platform signature it produced was exempt
         from the D-045 cap the repo documents as enforced. (It is not their only
-        one: contract_conversion's deploy signs and broadcasts on its own, now
-        through the metered signer, and the attestation service's revoke and
-        time-critical write sign with the listed unmetered exemptions.) The
-        exemption's claim was the whole of its argument and nothing checked it.
+        one: contract_conversion's deploy and the attestation service's revoke
+        sign and broadcast on their own, through the metered signer, and so
+        does the attestation service's time-critical write, metered when a
+        caller asks for it and the listed `eas.attest_time_critical` only as the
+        platform's own record.) The exemption's claim was the whole of its
+        argument and nothing checked it.
 
         35 call sites want `.address` for a transaction's `from`, and those are
         unchanged. A signature now comes from `signer()`, which is metered.

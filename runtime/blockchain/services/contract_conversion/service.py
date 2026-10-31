@@ -142,8 +142,9 @@ class ContractConversionService:
         try:
             # One of the three places in services/** that sign a transaction
             # themselves rather than through `Web3Manager.send_transaction`
-            # (the attestation service's revoke and time-critical write are the
-            # other two, and sign with listed exemptions) — it needs the
+            # (the attestation service's revoke, metered as
+            # `attestation.revoke`, and its time-critical write, metered when a
+            # caller asks for it, are the other two) — it needs the
             # receipt's contractAddress, so it drives the broadcast itself. It took the
             # account handle and signed with it, which was an UNMETERED
             # exemption; a contract deployment is the most expensive thing the

@@ -26,7 +26,9 @@ only delivery: the provider does not re-send a raw transaction.
 SIBLING AXIS, named and not changed: the metered blockchain capabilities in
 runtime/blockchain/*.py (nfts, staking, daos, payments, gaming, eas_manager,
 stablecoins, tokenization, ip_royalties, securities, governance,
-smart_contracts, defi) and contract_conversion's deploy sign through the
+smart_contracts, defi), EASClient.attest when a tool names its operation, and
+in services/** contract_conversion's deploy, the attestation service's revoke
+and its time-critical write when a caller asks for it, sign through the
 metered signer and broadcast with their own `send_raw_transaction`, so a node
 refusal there still leaves the row SIGNED until the sweep (the budget is held,
 never over-granted). Their receipts DO settle: they wait through `_receipt` ->
