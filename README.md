@@ -217,7 +217,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,768 tests, run against the versions
+automated suite of 6,770 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:
@@ -306,7 +306,10 @@ check behind it:
   turns a transaction away at its pool — the sender cannot pay for it,
   the fee is below what the node accepts, the gas is below the minimum,
   and a short list like them — and the node, asked right after, holds no
-  transaction under that hash, pending or mined. Any other answer keeps
+  transaction under that hash, pending or mined. The node is asked in a
+  worker thread once the nonce lock is let go, so a slow answer holds up
+  only the send it is about, and what comes back is only the budget that
+  send's own signature holds. Any other answer keeps
   holding it, because the transaction may still be mined: a send whose
   fate nobody learned, a timeout the node or a proxy reports as an error,
   a relayed internal error, an error nobody listed, and a node answering

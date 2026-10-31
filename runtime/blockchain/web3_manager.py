@@ -356,10 +356,14 @@ class Web3Manager:
 
         account = await self.signer(action)
         # A signature the node refused, to be given back once the node says it
-        # holds no copy. That question is asked after the nonce lock is let go:
-        # it is a read the provider may retry, and no other sender should wait
-        # on it.
+        # holds no copy. That question is a read the provider retries on a
+        # timeout, so a slow node can take most of a minute to answer it. It is
+        # asked once the nonce lock is let go, and in a worker thread, so the
+        # wait holds up only this send: every web3 call here is synchronous, and
+        # one made on the event loop, inside the lock or out of it, stops every
+        # other sender and every other request until it returns.
         refused_hash = None
+        refused_row = None
         try:
             async with self._get_nonce_lock():
                 try:
@@ -397,6 +401,11 @@ class Web3Manager:
                             from runtime.blockchain.sponsorship import node_refused
                             if signed_hash is not None and node_refused(send_exc):
                                 refused_hash = signed_hash
+                                # The row THIS signature opened, read now: once
+                                # the lock is let go another send can sign the
+                                # same bytes, and its row is filed under the
+                                # same hash.
+                                refused_row = getattr(account, "last_reservation_id", None)
                         except Exception as ledger_exc:  # noqa: BLE001
                             logger.warning("sponsorship ledger: could not read a "
                                            "refusal: %s", ledger_exc)
@@ -411,8 +420,8 @@ class Web3Manager:
                     from runtime.blockchain.sponsorship import (
                         abandon_signature, node_holds_no_copy,
                     )
-                    if node_holds_no_copy(self.w3, refused_hash):
-                        abandon_signature(refused_hash)
+                    if await asyncio.to_thread(node_holds_no_copy, self.w3, refused_hash):
+                        abandon_signature(refused_hash, refused_row)
                 except Exception as ledger_exc:  # noqa: BLE001
                     logger.warning("sponsorship ledger: could not release a "
                                    "refused signature: %s", ledger_exc)

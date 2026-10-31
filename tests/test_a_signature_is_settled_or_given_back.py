@@ -687,8 +687,8 @@ async def test_a_listed_refusal_about_a_hash_the_node_does_not_hold_gives_the_bu
 
 async def test_the_node_is_asked_about_a_refused_hash_after_the_nonce_lock_is_let_go(tmp_path):
     """The lookup is a read the provider retries on a timeout, so on a slow
-    node it can take the better part of a minute. Every other sender waits on
-    the nonce lock; the question is asked once the lock is released."""
+    node it can take the better part of a minute. It is not made with the
+    nonce lock held. What that alone did not do is said by the next test."""
     from web3.exceptions import Web3RPCError
 
     policy = _policy(tmp_path)
@@ -708,3 +708,128 @@ async def test_the_node_is_asked_about_a_refused_hash_after_the_nonce_lock_is_le
     assert held_during_lookup == [False], (
         f"the node was asked with the nonce lock held: {held_during_lookup}")
     assert policy.state_of(signer.last_reservation_id) is None
+
+
+# ── a slow answer to the lookup holds up only the send it is about ──────────
+#
+# Asking after the nonce lock was let go was meant to let every other sender
+# go on while a slow node answered. It did not, and the test above could not
+# show it: the region the lock guards awaits nothing, and every web3 call in
+# it is synchronous, so no sender ever found the lock held. What the others
+# waited on was the event loop, and the lookup, made inline once the lock was
+# let go, held the loop exactly as it had inside the lock. With the provider's
+# read retry and a ten-second timeout per attempt, that was most of a minute
+# in which nothing else in the gateway ran. The lookup now runs in a worker
+# thread, as the receipt wait already does.
+
+
+def _manager_signing_afresh(w3, policy, signers, *, account=None) -> Web3Manager:
+    """A manager whose every send gets a signer of its own, as production's
+    `Web3Manager.signer()` builds one per call. With *account* every signer
+    signs with that one key; without it each has a key of its own."""
+    mgr = _manager(w3, None)
+
+    async def _signer_for(_action=None):
+        signer = MeteredSigner(account if account is not None else Account.create(),
+                               policy, "web3.send_transaction", "0xA", 3000.0)
+        signers.append(signer)
+        return signer
+
+    mgr.signer = _signer_for
+    return mgr
+
+
+class _SecondSendDuringLookup(_Eth):
+    """The first send is refused; the node's answer to the lookup waits until
+    a second send has reached the node, so a lookup that holds the event loop
+    never sees it (bounded, so that fails the test instead of hanging it)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        import threading
+
+        self.sends = 0
+        self.second_sent = threading.Event()
+        self.second_sent_during_lookup: list[bool] = []
+
+    def send_raw_transaction(self, raw):
+        from web3.exceptions import Web3RPCError
+
+        self.sends += 1
+        if self.sends == 1:
+            raise Web3RPCError(repr(_INSUFFICIENT))
+        self.second_sent.set()
+        return super().send_raw_transaction(raw)
+
+    def get_transaction(self, tx_hash):
+        self.second_sent_during_lookup.append(self.second_sent.wait(timeout=2.0))
+        return super().get_transaction(tx_hash)
+
+
+async def _first_refused_then_a_second_send(mgr):
+    import asyncio
+
+    async def _second():
+        await asyncio.sleep(0.05)
+        return await mgr.send_transaction(dict(_TX))
+
+    return await asyncio.gather(mgr.send_transaction(dict(_TX)), _second(),
+                                return_exceptions=True)
+
+
+async def test_a_refused_sends_lookup_holds_up_no_other_sender(tmp_path):
+    """DEFECT-PROVER. A second send, started while the node is being asked
+    about the first one's hash, reaches the node before the answer does."""
+    from web3.exceptions import Web3RPCError
+
+    policy = _policy(tmp_path)
+    signers: list[MeteredSigner] = []
+    eth = _SecondSendDuringLookup()
+    mgr = _manager_signing_afresh(_W3(eth), policy, signers)
+
+    first, second = await _first_refused_then_a_second_send(mgr)
+
+    assert isinstance(first, Web3RPCError), first
+    assert isinstance(second, str), second
+    assert eth.second_sent_during_lookup == [True], (
+        "the second send reached the node only after the first one's lookup was "
+        "answered: the lookup held the event loop")
+    assert policy.state_of(signers[0].last_reservation_id) is None, (
+        "the refused signature, about a hash the node does not hold, kept its budget")
+    assert policy.state_of(signers[1].last_reservation_id) == SPEND_STATES.SIGNED
+
+
+async def test_a_refused_send_gives_back_only_the_signature_it_made(tmp_path):
+    """The window the worker thread opens is one in which another send can sign
+    the very same bytes: signing is deterministic, so the same key and the same
+    fields give the same hash, and the newer signature is filed under it. A
+    client that sends a refused request again can do exactly that, and once
+    the sender can pay, the node takes the second copy. The refused send gives back
+    the row it opened and no other: when the row filed under the hash is no
+    longer its own, nothing is given back, and both rows hold their budget,
+    the side that never over-grants. The second copy's receipt settles the
+    second row."""
+    from web3.exceptions import Web3RPCError
+
+    policy = _policy(tmp_path)
+    signers: list[MeteredSigner] = []
+    eth = _SecondSendDuringLookup(receipt={"status": 1, "blockNumber": 9})
+    mgr = _manager_signing_afresh(_W3(eth), policy, signers, account=Account.create())
+
+    first, second = await _first_refused_then_a_second_send(mgr)
+
+    assert isinstance(first, Web3RPCError), first
+    assert isinstance(second, str), second
+    assert eth.second_sent_during_lookup == [True], (
+        "the second send reached the node only after the first one's lookup was "
+        "answered, so the two never overlapped")
+    first_row, second_row = (s.last_reservation_id for s in signers)
+    assert first_row != second_row
+    assert policy.state_of(second_row) == SPEND_STATES.SIGNED, (
+        "the refused send gave back the budget of a signature it did not make, "
+        "whose transaction the node took")
+    assert policy.state_of(first_row) == SPEND_STATES.SIGNED
+
+    await wait_for_receipt_on(_W3(eth), second, timeout=2)
+
+    assert policy.state_of(second_row) == SPEND_STATES.SPENT

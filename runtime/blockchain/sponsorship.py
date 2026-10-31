@@ -1015,18 +1015,32 @@ def settle_signature(tx_hash: Any) -> bool:
     return True
 
 
-def abandon_signature(tx_hash: Any) -> bool:
+def abandon_signature(tx_hash: Any, reservation_id: Optional[str]) -> bool:
     """The node REFUSED *tx_hash*'s raw transaction: it will not be mined, no
     gas is paid, and the budget goes back. Only for a refusal the node named
     (`node_refused`) about a hash it then said it does not hold
     (`node_holds_no_copy`) — a transport fault, a timeout or any answer off
     that list says nothing about whether the bytes arrived, and the row must
-    then stay SIGNED."""
-    entry = _take_signature(tx_hash)
-    if entry is None:
+    then stay SIGNED.
+
+    ONLY THE ROW THE REFUSED SEND OPENED. *reservation_id* names it, and it is
+    given back only while it is still the row filed under the hash. Signing is
+    deterministic, so another send that signs the same bytes (the same key,
+    nonce and fields, which a client sending a refused request again can
+    produce) files its own row under the same hash, and the node may hold that
+    copy by the time this one is given back. Then nothing is released, and both rows hold
+    their budget: the side that never over-grants. False when nothing was
+    released."""
+    if not reservation_id:
         return False
-    policy, reservation_id = entry
-    policy.abandon(reservation_id)
+    key = _tx_key(tx_hash)
+    with _signed_rows_lock:
+        entry = _signed_rows.get(key)
+        if entry is None or entry[1] != reservation_id:
+            return False
+        del _signed_rows[key]
+    policy, filed = entry
+    policy.abandon(filed)
     return True
 
 
