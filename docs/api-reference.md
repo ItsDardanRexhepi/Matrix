@@ -567,9 +567,12 @@ delivered late in an App Store notification — moves nothing back, and only a
 transaction newer than the one an expiry named makes an expired subscription
 active again. A transaction carrying a `revocationDate`, when it is not
 refused, ends the subscription (`revoked`), as the App Store's refund and
-revoke notifications do, whichever reaches the gateway first, and a refund or
-revoke notification the gateway kept from before it knew the product ends the
-subscription the first verify writes; an ended subscription stays ended.
+revoke notifications do, whichever reaches the gateway first and whichever
+period it names: a refund of an earlier period ends a later one already paid
+for. A refund or revoke notification the gateway kept from before it knew the
+product ends the subscription the first verify writes, and an ended
+subscription stays ended, also when a later period is posted or named in a
+`SUBSCRIBED` or `DID_RENEW` notification.
 
 A purchase belongs to the first account that verified it, by its
 `originalTransactionId`. A session of another account presenting it — the same
