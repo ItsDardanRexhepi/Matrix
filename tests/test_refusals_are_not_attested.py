@@ -552,7 +552,11 @@ def test_the_walker_sees_every_form_it_has_been_blind_to():
     # gaming.place_prediction_bet), and those methods now say
     # `recorded_unsettled`. The literals were fixed, not the walker blinded —
     # the same distinction the `payment_attested` canary above draws. (Measured
-    # with the fix merged over 7391ea6, which stamps 150; over 91a89fb, the tree
+    # with the fix merged over the commit "Merge audit-remediation-2026-07: a
+    # test for each layout rule a single parser edit still passed, and the
+    # README says comments are not skipped", which stamps 150; over the commit
+    # "Merge audit-remediation-2026-07: links point at the repository's current
+    # name, and the quick start and Homebrew notes say what is true", the tree
     # the fix was first written against, it was 149 -> 146.)
     assert len(censused) >= 147, (
         f"census collapsed to {len(censused)} statuses, was 147 — the walker is "
