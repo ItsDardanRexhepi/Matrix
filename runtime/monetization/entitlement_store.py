@@ -27,9 +27,12 @@ A lineage follows its NEWEST transaction. Apple's notifications and a
 client's restore arrive in no guaranteed order, and an older transaction's
 signature still verifies after its subscription renews, so the product, tier,
 expiry and environment come from the transaction with the latest purchase
-date seen: an older one changes none of them, only a newer one lifts
-``expired`` back to ``active``, and ``set_status(..., as_of=...)`` ignores an
-expiry about a transaction older than the newest one.
+date among those written to the lineage: the ones verified, and the ones a
+subscribe, renewal, expiry, refund or revoke notice names (every other
+notification is kept on the ledger only). An older one changes none of them,
+only a newer one lifts ``expired`` back to ``active``, an expiry notice
+writes the period it names already expired, and ``set_status(..., as_of=...)``
+ignores an expiry about a transaction older than the newest one.
 
 ``refunded``/``revoked`` are TERMINAL: Apple delivers notifications with no
 ordering guarantee, and after a refund the client still (correctly) reports
@@ -40,7 +43,13 @@ of the transaction it names. A refund or revoke notice about a lineage no row
 holds yet writes the row already ended (``upsert_entitlement`` with that
 status), and a transaction carrying its ``revocationDate`` is recorded
 ``revoked`` (``record_verified(revoked=True)``), so a refund wins whichever
-reaches the gateway first, the notice or the purchase.
+reaches the gateway first, the notice or the purchase. A notice about a
+product the gateway does not know yet can write no row and is kept on the
+ledger only; the first write of that lineage's row, once the product is
+configured, reads the ledger (``_ended_on_ledger``) and writes the row already
+ended. Only that first write reads it: a row that exists keeps the status its
+own notices gave it, so one an operator reinstated with
+``allow_terminal_override`` stays as the operator left it.
 (A rare REFUND_REVERSED is deliberately NOT auto-reactivated — the ASN
 handler logs it for manual review; fail-closed means toward less
 entitlement, never more.)
@@ -221,6 +230,39 @@ class EntitlementStore:
                 "AND transaction_id = ? LIMIT 1", (transaction_id,)).fetchone()
         return str(first[0]) if first is not None else ""
 
+    @staticmethod
+    def _status_to_write(conn: sqlite3.Connection, original_transaction_id: str,
+                         status: str) -> str:
+        """The status a lineage row is written with, read on *conn*: *status*,
+        or — when no row holds the lineage yet — the refund or revocation the
+        ledger holds for a transaction of it (``_ended_on_ledger``).
+
+        A refund or revoke notice about a product the gateway did not know
+        when the notice arrived could write no row; it is kept on the ledger
+        only, and the first row written for that lineage, once the product is
+        configured, is written already ended. A row that exists keeps the
+        status its own notices gave it."""
+        if status in TERMINAL_STATUSES:
+            return status
+        exists = conn.execute(
+            "SELECT 1 FROM iap_entitlements WHERE original_transaction_id = ?",
+            (original_transaction_id,)).fetchone()
+        if exists is not None:
+            return status
+        return EntitlementStore._ended_on_ledger(conn, original_transaction_id) or status
+
+    @staticmethod
+    def _ended_on_ledger(conn: sqlite3.Connection, original_transaction_id: str) -> str:
+        """``'refunded'`` or ``'revoked'`` when the ledger holds a refund or a
+        revocation of a transaction of the lineage (the latest recorded of
+        them), read on *conn*; ``''`` when it holds none."""
+        row = conn.execute(
+            "SELECT status FROM iap_transactions WHERE original_transaction_id = ? "
+            "AND status IN ('refunded', 'revoked') "
+            "ORDER BY recorded_at DESC, transaction_id DESC LIMIT 1",
+            (original_transaction_id,)).fetchone()
+        return str(row[0]) if row is not None else ""
+
     async def record_verified(
         self,
         *,
@@ -241,6 +283,9 @@ class EntitlementStore:
         ONE database transaction, refused whole when the purchase belongs to
         another account. ``revoked`` (the transaction carries Apple's
         ``revocationDate``) records it, and its lineage, ``revoked`` instead.
+        A lineage no row holds yet whose transactions the ledger holds a
+        refund or revocation of is written with that status
+        (``_status_to_write``).
 
         When ``user_key`` names an account and another account holds the
         purchase (``_holder_in``; two spellings of one wallet are one
@@ -281,7 +326,8 @@ class EntitlementStore:
             if subscription:
                 conn.execute(_UPSERT_ENTITLEMENT, (
                     original_transaction_id, user_key, product_id, tier,
-                    status, purchase_date, expires_date, environment, now))
+                    self._status_to_write(conn, original_transaction_id, status),
+                    purchase_date, expires_date, environment, now))
             return {"refused": False, "fresh": fresh}
 
         return await self._db.run_in_transaction(work)
@@ -328,17 +374,25 @@ class EntitlementStore:
         given here always lands, and once held is sticky: a late-arriving
         renewal or a post-refund client /verify report can update dates but
         can NEVER lift the row back to active. Refund wins regardless of
-        order."""
+        order, also over a refund the ledger holds from before the lineage
+        had a row (``_status_to_write``); the read and the write are one
+        database transaction."""
         await self._ensure_tables()
         if not original_transaction_id:
             raise ValueError("original_transaction_id required")
         if status not in STATUSES:
             raise ValueError(f"invalid status {status!r}")
-        await self._db.execute(
-            _UPSERT_ENTITLEMENT,
-            (original_transaction_id, user_key, product_id, tier, status,
-             purchase_date, expires_date, environment, time.time()),
-        )
+        now = time.time()
+
+        def work(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                _UPSERT_ENTITLEMENT,
+                (original_transaction_id, user_key, product_id, tier,
+                 self._status_to_write(conn, original_transaction_id, status),
+                 purchase_date, expires_date, environment, now),
+            )
+
+        await self._db.run_in_transaction(work)
 
     async def set_status(self, original_transaction_id: str, status: str,
                          *, expires_date: float | None = None,
