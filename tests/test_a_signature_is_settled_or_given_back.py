@@ -445,6 +445,25 @@ async def test_a_row_the_table_no_longer_holds_stays_signed(tmp_path, monkeypatc
     assert policy.state_of(evicted.last_reservation_id) == SPEND_STATES.SIGNED
 
 
+def test_one_slot_signed_again_and_again_keeps_the_tables_bounded(tmp_path, monkeypatch):
+    """SCOPE PIN for the bound. While a node refuses every send, the shared send
+    signs each new transaction at the nonce none of them took, so one slot
+    gathers every signature of the outage. The tables stay within their bound
+    all the same; the oldest are the ones no longer tracked, and they hold
+    their budget."""
+    from runtime.blockchain import sponsorship
+
+    monkeypatch.setattr(sponsorship, "_MAX_TRACKED_SIGNATURES", 3)
+    policy = _policy(tmp_path)
+    account = Account.create()
+    for value in range(10):
+        _signer(policy, account).sign_transaction({**_TX, "value": value})
+
+    in_slots = sum(len(hashes) for hashes in sponsorship._hashes_in_slot.values())
+    assert in_slots <= 3, f"{in_slots} signatures held in slot tables bounded at 3"
+    assert len(sponsorship._slot_of) <= 3 and len(sponsorship._rows_by_hash) <= 3
+
+
 async def test_refused_sends_hold_up_no_receipt_wait(tmp_path):
     """DEFECT-PROVER. The lookup the release made after a refusal ran in the
     process's shared worker pool, one unsliced call, for most of a minute against

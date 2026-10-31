@@ -1069,7 +1069,15 @@ def _note_signature(tx_hash: Any, slot: Optional[_Slot]) -> None:
         _slot_of.move_to_end(key)
         _hashes_in_slot.setdefault(slot, set()).add(key)
         _hashes_in_slot.move_to_end(slot)
-        _bound(_slot_of)
+        # A slot holds only signatures still tracked by hash: one slot can
+        # gather a signature per send for as long as a node refuses them all.
+        while len(_slot_of) > _MAX_TRACKED_SIGNATURES:
+            evicted, its_slot = _slot_of.popitem(last=False)
+            hashes = _hashes_in_slot.get(its_slot)
+            if hashes is not None:
+                hashes.discard(evicted)
+                if not hashes:
+                    del _hashes_in_slot[its_slot]
         _bound(_hashes_in_slot)
 
 
