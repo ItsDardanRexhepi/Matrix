@@ -560,13 +560,16 @@ account that holds it or with no session, returns `200` with `replay: true` and
 adds no ledger row.
 
 A subscription follows its newest transaction: its product, plan, expiry and
-environment come from the transaction with the latest `purchaseDate` the
-gateway has seen, so an older transaction — posted again, or delivered late in
-an App Store notification — moves nothing back, and only a newer one makes an
-expired subscription active again. A transaction carrying a `revocationDate`,
-when it is not refused, ends the subscription (`revoked`), as the App Store's
-refund and revoke notifications do, whichever reaches the gateway first; an
-ended subscription stays ended.
+environment come from the transaction with the latest `purchaseDate` among
+those posted here and those named in a `SUBSCRIBED`, `DID_RENEW`, `EXPIRED`,
+`REFUND` or `REVOKE` notification, so an older transaction — posted again, or
+delivered late in an App Store notification — moves nothing back, and only a
+transaction newer than the one an expiry named makes an expired subscription
+active again. A transaction carrying a `revocationDate`, when it is not
+refused, ends the subscription (`revoked`), as the App Store's refund and
+revoke notifications do, whichever reaches the gateway first, and a refund or
+revoke notification the gateway kept from before it knew the product ends the
+subscription the first verify writes; an ended subscription stays ended.
 
 A purchase belongs to the first account that verified it, by its
 `originalTransactionId`. A session of another account presenting it — the same
@@ -602,10 +605,17 @@ is not configured on this gateway, or the store could not be read or written.
 ### `POST /api/v1/iap/asn`
 
 App Store Server Notifications V2 receiver. Called by Apple's servers, not by a
-client; authenticated by the Apple-signed JWS chain. Apple promises no order:
-a renewal about an older transaction changes nothing, an expiry about a
-transaction older than the newest one recorded is ignored, and a refund or
-revoke that arrives before any verify writes the subscription already ended.
+client; authenticated by the Apple-signed JWS chain. Every notification's
+transaction is kept on the ledger. Apple promises no order: a renewal or an
+expiry about a transaction older than the newest one the subscription holds
+moves nothing back, an expiry about the newest one or a newer one writes that
+period expired, and a refund or revoke that arrives before any verify writes the
+subscription already ended. A refund or revoke about a product the gateway
+does not know yet ends the subscription if it has a record, and is otherwise
+kept on the ledger only, so the record a later verify or renewal writes is
+written ended. A `REFUND_REVERSED` is logged for an operator and the
+subscription stays ended; the other notification types change nothing on the
+subscription.
 
 ---
 

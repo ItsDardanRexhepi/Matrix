@@ -1,4 +1,4 @@
-"""A subscription follows the newest transaction the gateway has seen.
+"""A subscription follows the newest transaction written to it.
 
 The subscription record took the product, the plan, the expiry and the status
 of whichever transaction reached it last. A transaction the App Store signed
@@ -13,11 +13,13 @@ a resubscription. Posting the latest transaction again after the App Store
 said it expired set the record back to active.
 
 The rule now: the product, the plan, the expiry and the environment come from
-the transaction with the latest purchase date the gateway has seen, and an
-older one changes none of them. Only a newer transaction takes an expired
-subscription back to active, and an expiry notice about a transaction older
-than the newest one changes nothing. A refund or a revocation still ends the
-subscription whatever the date of the transaction it names
+the transaction with the latest purchase date among those written to the
+subscription (posted to /api/v1/iap/verify, or named in a subscribe, renewal,
+expiry, refund or revoke notice), and an older one changes none of them. Only
+a newer transaction takes an expired subscription back to active, and an
+expiry notice about a transaction older than the newest one changes nothing. A
+refund or a revocation still ends the subscription whatever the date of the
+transaction it names
 (tests/test_a_refund_ends_the_subscription_whichever_arrives_first.py).
 
 The JWS fixture chain and the route configuration are tests/test_iap_verify.py's.
