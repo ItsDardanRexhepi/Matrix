@@ -634,6 +634,10 @@ class SourceParser:
         it but spaces, tabs or a carriage return); and it has as many `(` as
         `)` and `[` as `]`. The last line is held to the same rules when the
         source ends on it.
+
+        Comments are not skipped, here or by the base pattern: a function
+        inside a `/* */` whose `*/` is at column 0 is read like any other, as
+        the `*/` line ends its base body and so is not in it.
         """
         rest = _BLANK_REST.match(source, header_end)
         if rest is None or not rest.group().endswith("\n"):
