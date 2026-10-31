@@ -1100,16 +1100,24 @@ _REFUSED_AT_ADMISSION = (
 _METHOD_NOT_FOUND = -32601
 
 
+def _web3_error_type(name: str) -> Optional[type]:
+    """web3's exception class *name*, or None where the installed web3 has no
+    class of that name, as an older web3 may not."""
+    try:
+        import web3.exceptions as web3_exceptions
+    except Exception:  # noqa: BLE001
+        return None
+    found = getattr(web3_exceptions, name, None)
+    return found if isinstance(found, type) else None
+
+
 def _rpc_error(exc: BaseException) -> Optional[tuple[Optional[int], str]]:
     """The (code, message) of a JSON-RPC error answer, or None when *exc* is
     not one. web3 7 raises `Web3RPCError` and keeps the answer on
     `rpc_response`; web3 6 raised `ValueError` carrying the error dict. The
     message is read from the answer's own `message`, not from its `data`."""
-    try:
-        from web3.exceptions import Web3RPCError
-    except Exception:  # noqa: BLE001 — older web3 has no such type
-        Web3RPCError = ()  # type: ignore[assignment]
-    if Web3RPCError and isinstance(exc, Web3RPCError):
+    rpc_error_type = _web3_error_type("Web3RPCError")
+    if rpc_error_type is not None and isinstance(exc, rpc_error_type):
         response = getattr(exc, "rpc_response", None)
         error = response.get("error") if isinstance(response, dict) else None
         if isinstance(error, dict) and isinstance(error.get("message"), str):
@@ -1143,11 +1151,8 @@ def node_refused(exc: BaseException) -> bool:
     A True here is not enough to give budget back on its own: the caller also
     asks the node whether it holds the transaction (`node_holds_no_copy`).
     """
-    try:
-        from web3.exceptions import RequestTimedOut
-    except Exception:  # noqa: BLE001 — older web3 has no such type
-        RequestTimedOut = ()  # type: ignore[assignment]
-    if RequestTimedOut and isinstance(exc, RequestTimedOut):
+    timed_out = _web3_error_type("RequestTimedOut")
+    if timed_out is not None and isinstance(exc, timed_out):
         return False
     answer = _rpc_error(exc)
     if answer is None:

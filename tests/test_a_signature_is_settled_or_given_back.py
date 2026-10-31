@@ -523,6 +523,17 @@ def test_web3s_own_timeout_answer_is_not_a_refusal():
     assert node_refused(ValueError({"code": -32000, "message": "context deadline exceeded"})) is False
 
 
+def test_a_timeout_answer_is_not_a_refusal_whatever_else_it_names():
+    """web3 raises `RequestTimedOut` for an answer that says the request timed
+    out. That is a send whose fate nobody learned, so a listed refusal named in
+    the same answer does not make it one: the type is read before the list."""
+    from web3.exceptions import RequestTimedOut
+
+    mixed = {"code": -32002,
+             "message": "request timed out: insufficient funds for gas * price + value"}
+    assert node_refused(RequestTimedOut(repr(mixed), rpc_response={"error": mixed})) is False
+
+
 # The answers geth and the clients that share its errors (op-geth, reth,
 # erigon, anvil) give when they turn a transaction away before it enters the
 # pool. None is taken on its word alone: the budget comes back only when the
