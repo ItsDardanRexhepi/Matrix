@@ -546,14 +546,16 @@ def test_the_walker_sees_every_form_it_has_been_blind_to():
     assert any(where.startswith("crossborder.py:") for where in censused.values()), (
         "SCOPE narrowed: runtime/blockchain/crossborder.py is no longer walked"
     )
-    # 149 -> 146 when the attest-money F19 class took RECORDED_UNSETTLED:
+    # 150 -> 147 when the attest-money F19 class took RECORDED_UNSETTLED:
     # `traded`, `entered` and `placed` were each stamped by exactly one method
     # (agent_identity.trade_model_access, gaming.enter_tournament,
     # gaming.place_prediction_bet), and those methods now say
     # `recorded_unsettled`. The literals were fixed, not the walker blinded —
-    # the same distinction the `payment_attested` canary above draws.
-    assert len(censused) >= 146, (
-        f"census collapsed to {len(censused)} statuses, was 146 — the walker is "
+    # the same distinction the `payment_attested` canary above draws. (Measured
+    # on main merged with that fix; on the tree the fix was first written
+    # against it was 149 -> 146.)
+    assert len(censused) >= 147, (
+        f"census collapsed to {len(censused)} statuses, was 147 — the walker is "
         f"seeing less than it did, which makes the classification ratchet pass "
         f"for the wrong reason"
     )
