@@ -301,32 +301,22 @@ check behind it:
   data being signed rather than read from a label the caller supplies. The
   ledger says what became of each signature: it holds budget as signed,
   becomes spent when a receipt shows the transaction was mined (a revert
-  pays gas too), and gives the budget back only when two things hold: the
-  node answered the send with one of the refusals a node gives when it
-  turns a transaction away at its pool — the sender cannot pay for it,
-  the fee is below what the node accepts, the gas is below the minimum,
-  and a short list like them — or said it has no method for sending at
-  all, and the node, asked right after, holds no transaction under that
-  hash, pending or mined. The node is asked in a
-  worker thread once the nonce lock is let go, so a slow answer holds up
-  only the send it is about, and what comes back is only the budget that
-  send's own signature holds. Any other answer keeps
-  holding it, because the transaction may still be mined: a send whose
-  fate nobody learned, a timeout the node or a proxy reports as an error,
-  a relayed internal error, an error nobody listed, and a node answering
-  "nonce too low" or "already known", which is what a node says once the
-  transaction is mined or waiting to be. Every web3 connection the
-  running platform opens sends a raw transaction once and never retries
-  it, so the answer read is the answer to the one delivery; a retried send
-  whose first reply was lost used to hear "nonce too low" about a
-  transaction that had been mined, and gave its budget back. A node
-  refusal is read on the shared web3 manager's send, which the services
-  send through, save three paths that sign and broadcast on their own:
-  the conversion pipeline's deploy, an attestation's revocation and the
-  time-critical attestation. Those three, and the blockchain capabilities
-  that broadcast on their own, the attestations their tools write among
-  them, do not read it yet, so a metered signature the node refused there
-  holds its budget until the day's window passes. An
+  pays gas too), and gives the budget back only when the receipt of
+  another transaction the platform signed, from the same account on the
+  same chain with the same nonce, shows that one mined instead: only one
+  of them can ever be, so the other never will be, whichever path
+  broadcast either. That covers a send the node refused, one whose fate
+  nobody learned and one never broadcast, and when the same bytes were
+  signed twice, the copy mined is held once. No answer to a send gives
+  budget back: a node can name a refusal for bytes a proxy delivered to
+  another of its backends, and a lookup by hash can be answered by a
+  backend that cannot see them, so a refused send keeps holding its
+  budget until a later transaction from the platform account takes its
+  nonce and is mined, or the day's window passes. A receipt counts when the
+  platform waits for it in the process that signed, as its services and
+  blockchain capabilities do; one read anywhere else gives nothing back.
+  Every web3 connection the running platform opens sends a raw
+  transaction once and never retries it. An
   operator who configures no cap keeps the previous behaviour
 - **The deployment tools will not put the old paymaster on a chain.** The
   paymaster the platform uses is the ERC-4337 verifying one, which pays
