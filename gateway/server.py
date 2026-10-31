@@ -3635,16 +3635,18 @@ def _run_where_an_install_keeps_its_files() -> None:
     ~/.matrix, or $MATRIX_HOME (cli/home.py), and `matrix gateway start` starts
     this process there. The `matrix-gateway` command an install also puts on
     PATH would otherwise run wherever it is typed, where there is no
-    configuration, or another folder's. When the folder does not exist yet
-    there is nothing to run, and the setup is what makes it. A clone runs in
-    the folder it is started in, as it always has.
+    configuration, or another folder's. Until the setup has written the
+    configuration there is nothing to run, and the folder alone does not say
+    it has: the setup makes the folder before it asks its first question, so
+    a setup quit there leaves it empty. A clone runs in the folder it is
+    started in, as it always has.
     """
     from cli.home import checkout, home
 
     if checkout() is not None:
         return
     folder = home()
-    if not folder.is_dir():
+    if not (folder / CONFIG_PATH).is_file():
         print(f"No configuration in {folder}: run `matrix setup` first.", file=sys.stderr)
         sys.exit(1)
     os.chdir(folder)

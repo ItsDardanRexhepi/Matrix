@@ -21,9 +21,9 @@ What a clone also has at its root and that folder does not, the agents'
 identity prompts, the web pages, the component registry and the skills, the
 install carries beside its packages, and the gateway reads them there; one
 put in the folder under the same name is read in their place
-(runtime/shipped.py). The
-``matrix-gateway`` command runs the gateway in the folder as well
-(gateway/server.py), as ``matrix gateway start`` does.
+(runtime/shipped.py). The ``matrix-gateway`` command runs the gateway in the
+folder as well (gateway/server.py), as ``matrix gateway start`` does, once
+the setup has written a configuration there.
 """
 from __future__ import annotations
 

@@ -142,13 +142,14 @@ an install runs gives each agent its prompt, loads the skills and serves
 `/chat` and the other pages as a clone's does; a page, the registry, an
 agent's prompt or a skill put in that folder under the same name is read
 instead of the packaged one. `matrix-gateway`, which the install also puts on
-your PATH, runs the gateway in that folder too. Do not `pipx install
-the-matrix`: that name on PyPI belongs to an unrelated project. An install
-takes its dependencies from the ranges in `pyproject.toml`, not from the lock
-in `requirements.txt` that the suite runs on. The Homebrew formula under
-`packaging/homebrew/` is not published and is pinned to a commit from before
-the command could do this, so it cannot set the platform up yet; its page says
-what has been measured.
+your PATH, runs the gateway in that folder too; until `matrix setup` has
+written a configuration there, it and `matrix gateway start` stop and say to
+run the setup. Do not `pipx install the-matrix`: that name on PyPI belongs to
+an unrelated project. An install takes its dependencies from the ranges in
+`pyproject.toml`, not from the lock in `requirements.txt` that the suite runs
+on. The Homebrew formula under `packaging/homebrew/` is not published and is
+pinned to a commit from before the command could do this, so it cannot set the
+platform up yet; its page says what has been measured.
 
 ---
 
@@ -216,7 +217,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,581 tests, run against the versions
+automated suite of 6,582 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:

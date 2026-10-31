@@ -32,9 +32,10 @@ install read its folder.
 WHAT THEY DO NOT. The new environment reaches the packages the platform
 depends on through the environment running the suite (a path file), not
 through a resolver, so what pip would pick from pyproject.toml's ranges is not
-run; neither are pipx or Homebrew. The gateway's app is driven in-process by
-aiohttp's test server, not as a server listening on a port. The wheel is
-built offline, without build isolation, by the setuptools installed here.
+run; neither are pipx or Homebrew. The gateway's app is driven in-process
+through aiohttp's test server, on a loopback port it picks for the run, not
+through `matrix gateway start` or `matrix-gateway`. The wheel is built
+offline, without build isolation, by the setuptools installed here.
 """
 from __future__ import annotations
 
@@ -295,7 +296,9 @@ def test_the_matrix_gateway_command_of_an_install_runs_in_its_folder(installed, 
     """`matrix-gateway`, which an install puts on PATH beside `matrix`, reads
     the configuration in ~/.matrix, wherever it is typed. Given one that is
     not JSON, it stops on that file, not for want of one in the folder it was
-    typed in; with no such folder it says to run the setup."""
+    typed in; with no such folder, or with the folder the setup makes before
+    its first question but no configuration in it yet, it names the folder
+    and says to run the setup."""
     home, elsewhere = tmp_path / "home", tmp_path / "elsewhere"
     home.mkdir()
     elsewhere.mkdir()
@@ -308,6 +311,12 @@ def test_the_matrix_gateway_command_of_an_install_runs_in_its_folder(installed, 
     assert not (home / ".matrix").exists(), "starting the gateway made the folder the setup makes"
 
     (home / ".matrix").mkdir()
+    ran = _run([gateway], cwd=elsewhere, env=_clean_env(home), timeout=120)
+    said = ran.stdout + ran.stderr
+    assert ran.returncode == 1, said[-2000:]
+    assert str(home / ".matrix") in said and "matrix setup" in said, said[-2000:]
+    assert not any((home / ".matrix").iterdir()), "the gateway wrote into the folder the setup left empty"
+
     (home / ".matrix" / "matrix.config.json").write_text("{ not json")
     ran = _run([gateway], cwd=elsewhere, env=_clean_env(home), timeout=120)
     said = ran.stdout + ran.stderr
@@ -461,6 +470,34 @@ def test_the_gateway_from_an_install_runs_in_the_users_folder_and_reads_no_input
     assert kwargs["cwd"] == str(tmp_path) and kwargs.get("stdin") is subprocess.DEVNULL
     assert (tmp_path / "data" / "gateway.pid").read_text() == "4242"
     assert "PID 4242" in capsys.readouterr().out
+
+
+def test_the_matrix_gateway_command_stops_where_the_setup_left_no_configuration(tmp_path, monkeypatch, capsys):
+    """`matrix setup` makes the install's folder before it asks its first
+    question, so a setup quit there leaves the folder with nothing in it.
+    `matrix-gateway` tested for the folder alone, moved into it, and stopped
+    on a missing matrix.config.json with no folder named and no word of the
+    setup. It stops for want of the configuration as it does for want of the
+    folder, and names both."""
+    import cli.home
+    from gateway.server import _run_where_an_install_keeps_its_files
+
+    folder = tmp_path / "home" / ".matrix"
+    folder.mkdir(parents=True)
+    monkeypatch.setattr(cli.home, "checkout", lambda parent=None: None)
+    monkeypatch.setattr(cli.home, "home", lambda env=None, parent=None: folder)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SystemExit) as stopped:
+        _run_where_an_install_keeps_its_files()
+    assert stopped.value.code == 1
+    said = capsys.readouterr().err
+    assert str(folder) in said and "matrix setup" in said, said
+    assert Path.cwd().resolve() == tmp_path.resolve(), "the gateway moved into a folder with nothing to run"
+
+    (folder / "matrix.config.json").write_text("{}")
+    _run_where_an_install_keeps_its_files()
+    assert Path.cwd().resolve() == folder.resolve()
 
 
 def test_a_copy_in_the_working_folder_is_read_before_the_packaged_one(tmp_path, monkeypatch):
