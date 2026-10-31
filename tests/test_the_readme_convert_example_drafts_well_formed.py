@@ -1,0 +1,173 @@
+"""The README's convert example comes back as a draft that is well formed.
+
+The README's "Convert a contract" example posts a rental contract written as
+pseudocode, its functions indented under the `contract` line, to
+POST /api/v1/contracts/convert. Without the parser's layout rules for that
+indentation, the indented `constructor` takes `payRent` into its body,
+`payable function payRent()` comes back not payable, and no statement has the
+`;` Solidity needs, so the draft does not compile.
+
+The first two tests build the service with no `blockchain.platform_wallet`,
+so no platform fee is added to the draft. The first reads the draft, so it
+needs no compiler: for each function the README declares, the draft has the
+function once, its statements in order and each ended with `;`, the
+constructor holds no function, and `payable` is on exactly the functions the
+README writes it on. The second compiles the draft with the newest solc from
+0.8.20 on that is already installed, and is skipped where none is; it
+downloads nothing.
+
+The third sets a platform wallet. The fee's two setters use `onlyOwner`; the
+README example's draft neither defines nor inherits it, and each template
+convert() can return inherits it from OpenZeppelin's `Ownable`. The fee row in
+docs/blockchain.md has to say both. That the fee-injected templates compile is
+checked in tests/test_template_conversion_is_judged_on_the_template.py.
+
+The last two convert a source with a function inside a `/* */` whose `*/`
+begins a line. The converter does not skip comments, so the draft has that
+function with its body, and where a solc is installed it compiles with it; the
+README's convert section has to say so.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+from pathlib import Path
+
+import pytest
+
+README = Path(__file__).resolve().parent.parent / "README.md"
+DOCS = README.parent / "docs" / "blockchain.md"
+FEE_CONFIG = {"blockchain": {"platform_wallet": "0x000000000000000000000000000000000000bEEF"}}
+
+
+def _example_source() -> str:
+    text = README.read_text(encoding="utf-8")
+    m = re.search(r"/api/v1/contracts/convert.*?-d\s+'(\{.*?\})'\n", text, re.S)
+    assert m, "the README no longer shows a convert request with a body"
+    body = json.loads(m.group(1))
+    assert body["source_lang"] == "pseudocode"
+    return body["source_code"]
+
+
+def _declared(source: str) -> dict[str, tuple[bool, list[str]]]:
+    """name -> (written payable, statements): a function line, then the lines
+    indented deeper than it."""
+    out: dict[str, tuple[bool, list[str]]] = {}
+    current, indent = None, 0
+    for line in source.splitlines():
+        if not line.strip():
+            continue
+        m = re.match(r"(\s*)(payable\s+)?function\s+(\w+)\(", line)
+        if m:
+            current, indent = out.setdefault(m.group(3), (bool(m.group(2)), [])), len(m.group(1))
+        elif current is not None and len(line) - len(line.lstrip()) > indent:
+            current[1].append(line.strip())
+        else:
+            current = None
+    return out
+
+
+def _blocks(draft: str) -> dict[str, tuple[str, list[str]]]:
+    """name -> (header, body lines) for the constructor and each function."""
+    out = {}
+    for m in re.finditer(r"^[ \t]*(?:constructor|function\s+(\w+))\b([^{]*)\{", draft, re.M):
+        depth, i = 1, m.end()
+        while depth and i < len(draft):
+            depth += {"{": 1, "}": -1}.get(draft[i], 0)
+            i += 1
+        out[m.group(1) or "constructor"] = (
+            m.group(0), [ln.strip() for ln in draft[m.end():i - 1].splitlines() if ln.strip()])
+    return out
+
+
+def _draft(source: str, config: dict | None = None) -> str:
+    from runtime.blockchain.services.contract_conversion.service import ContractConversionService
+
+    logging.disable(logging.CRITICAL)
+    try:
+        return asyncio.run(ContractConversionService(config or {"blockchain": {}}).convert(
+            source, "pseudocode"))["generated_source"]
+    finally:
+        logging.disable(logging.NOTSET)
+
+
+def test_the_readme_example_draft_has_each_function_once_ended_and_payable_where_written():
+    source = _example_source()
+    declared = _declared(source)
+    assert set(declared) == {"constructor", "payRent"}, "precondition: the example's functions"
+    draft = _draft(source)
+    blocks = _blocks(draft)
+
+    assert set(blocks) == set(declared), blocks.keys()
+    assert len(re.findall(r"\bfunction\b", draft)) == len(declared) - 1, (
+        "the draft declares a function the README does not, or declares one twice")
+    assert not re.search(r"\bfunction\b", "\n".join(blocks["constructor"][1])), (
+        "the constructor holds a function declaration")
+    for name, (payable, statements) in declared.items():
+        header, body = blocks[name]
+        assert body == [s + ";" for s in statements], (name, body)
+        assert bool(re.search(r"\bpayable\b", header)) == payable, (name, header)
+
+
+def _installed_solc():
+    try:
+        import solcx
+
+        versions = [v for v in solcx.get_installed_solc_versions()
+                    if (v.major, v.minor) == (0, 8) and v.micro >= 20]
+    except Exception:
+        return None
+    return max(versions) if versions else None
+
+
+def test_the_readme_example_draft_compiles_where_a_solc_is_installed():
+    version = _installed_solc()
+    if version is None:
+        pytest.skip("no solc 0.8.20 or later is installed, and nothing is downloaded")
+    import solcx
+
+    compiled = solcx.compile_source(_draft(_example_source()), solc_version=version)
+    assert any(name.endswith(":Rental") for name in compiled), compiled.keys()
+
+
+def test_the_fee_row_names_the_drafts_the_fee_setters_keep_from_compiling():
+    from runtime.blockchain.services.contract_conversion import artist_classifier
+    from runtime.blockchain.services.contract_conversion.templates import TEMPLATES
+
+    draft = _draft(_example_source(), FEE_CONFIG)
+    assert re.search(r"\bonlyOwner\b", draft), "the fee setters no longer use onlyOwner"
+    assert not re.search(r"\bmodifier\s+onlyOwner\b|\bOwnable\b", draft), (
+        "the README example's draft now defines or inherits onlyOwner")
+    for name in sorted(set(artist_classifier._TEMPLATE_MAP.values()) | {"erc721"}):
+        assert re.search(r"\bcontract\s+\{\{NAME\}\}\s+is\b[^{]*\bOwnable\b", TEMPLATES[name]), (
+            f"the {name} template convert() can return does not inherit Ownable")
+
+    rows = [ln for ln in DOCS.read_text(encoding="utf-8").splitlines()
+            if ln.startswith("| Contract conversion |")]
+    assert len(rows) == 1, rows
+    assert "neither defines nor inherits" in rows[0] and "`Ownable`" in rows[0], rows[0]
+
+
+COMMENTED_OUT = ("contract Vault\n    state total: uint256\n\n    function add(x: uint256)\n"
+                 "        total = total + x\n/*\n    function drain()\n        total = 0\n*/\n")
+
+
+def test_the_readme_says_a_function_inside_a_block_comment_comes_back_in_the_draft():
+    blocks = _blocks(_draft(COMMENTED_OUT))
+    assert blocks.get("drain", ("", []))[1] == ["total = 0;"], blocks.keys()
+    text = README.read_text(encoding="utf-8")
+    section = text[text.index("**Convert a contract**"):text.index("**Check platform health**")]
+    assert "does not skip comments" in section, "the README's convert section no longer says so"
+
+
+def test_a_draft_with_a_function_inside_a_block_comment_compiles_where_a_solc_is_installed():
+    version = _installed_solc()
+    if version is None:
+        pytest.skip("no solc 0.8.20 or later is installed, and nothing is downloaded")
+    import solcx
+
+    compiled = solcx.compile_source(_draft(COMMENTED_OUT), solc_version=version)
+    abi = next(v for k, v in compiled.items() if k.endswith(":Vault"))["abi"]
+    assert {"add", "drain"} <= {f.get("name") for f in abi if f.get("type") == "function"}

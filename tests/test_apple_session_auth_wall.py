@@ -368,7 +368,8 @@ async def test_siwe_verify_while_holding_an_apple_session_links_the_wallet():
             "address": acct.address, "message": challenge["message"],
             "signature": signature, "nonce": challenge["nonce"]})
         assert resp.status == 200, await resp.text()
-        assert server.apple_users.wallet_for("sub-link") == acct.address
+        # Linked in the one spelling of a caller (runtime/auth/identity.py).
+        assert server.apple_users.wallet_for("sub-link") == acct.address.lower()
 
 
 # ── the public access policy ─────────────────────────────────────────────────

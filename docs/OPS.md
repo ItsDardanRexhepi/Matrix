@@ -31,18 +31,16 @@ Runs, and fails on the first problem:
 
 ### If you turn on GitHub Pages
 
-The `API Docs` workflow builds the API reference with pdoc and then tries to
-publish it to GitHub Pages. **Pages is disabled for this repository**, so the
-deploy step returns 404. It no longer fails the workflow — publication is not a
-test, and the `build` job is what gates the documentation.
+The `API Docs` workflow builds the API reference with pdoc. Publishing it to
+GitHub Pages takes the upload step of the `build` job and the `deploy` job.
+**Pages is disabled for this repository**, so both are skipped: they run only
+while the repository variable `PAGES_ENABLED` is `true`. The build is what
+gates the documentation.
 
-**The caveat, where you will need it:** the deploy job carries
-`continue-on-error: true`. The moment you enable Pages (Settings → Pages →
-Source: GitHub Actions), that tolerance applies to *real* publication failures
-too — a broken deploy will leave the run green and only its own step log will
-say the site did not update. **Remove `continue-on-error` from the deploy job in
-`.github/workflows/docs.yml` when you enable Pages**, so a failed publish is
-visible in the run's status again.
+To publish, do both: turn Pages on (Settings → Pages → Source: GitHub Actions),
+and set the repository variable `PAGES_ENABLED` to `true` (Settings → Secrets
+and variables → Actions → Variables). With only the first, nothing is
+published. With both, a deploy that fails fails the run.
 
 ## Deploy (side-effectful, run deliberately)
 
@@ -52,8 +50,9 @@ Kubernetes stack in `k8s/` (README → Production Deployment).
 
 Both run the gateway with `MATRIX_ENV=production` (`docker-compose.prod.yml` and
 `k8s/deployment.yaml` set it, `docker-compose.yml` defaults to it), and a
-production gateway refuses to start on the no-op security backend, naming the
-cause. The `Dockerfile` installs only the public requirements, so the commands
+production gateway refuses to start on the no-op security backend, or on an
+installed security core whose gate cannot be built or cannot load its saved
+state at startup, naming the cause. The `Dockerfile` installs only the public requirements, so the commands
 below bring up a gateway only from an image that also carries the separately
 installed security core (`CREDENTIALS_NEEDED.md`, section 5). For a testnet run
 without the core, start `docker-compose.yml` alone with a non-production

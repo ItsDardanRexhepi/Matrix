@@ -1,6 +1,7 @@
 """23-A — `passed` was the source literal `True` on a public attestation.
 
-MEASURED at pin 42c9b19 by decoding the calldata handed to
+MEASURED at the commit "22-G: two config keys for one cap, and the documented
+one did not govern the live path" by decoding the calldata handed to
 `contract.functions.attest()`:
 
     encode(["string","bool","uint256"], [kyc_level, True, issued_at])
@@ -117,7 +118,8 @@ def test_passed_is_not_a_literal_in_the_attestation_payload():
 # ─────────────────────────────── 23-B ───────────────────────────────
 # THE FALSE-POSITIVE-ON-A-PERSON PATH.
 #
-# MEASURED at pin 42c9b19, synthetic placeholders only:
+# MEASURED at the commit "22-G: two config keys for one cap, and the documented
+# one did not govern the live path", synthetic placeholders only:
 #   applicant_id = "TEST_ENTITY_A/../TEST_ENTITY_B"
 #   path served  : /resources/applicants/TEST_ENTITY_B/status
 #   returned     : applicant_id=TEST_ENTITY_A/../TEST_ENTITY_B, risk=high, RED

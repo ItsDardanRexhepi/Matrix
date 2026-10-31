@@ -63,7 +63,7 @@ def test_every_offered_provider_loads_from_the_shape_the_wizard_used_to_write(pr
 def test_the_setup_menu_offers_every_provider():
     """The wizard builds its menu from the registry, so the menu cannot be short."""
     import ast
-    src = (REPO / "setup.py").read_text()
+    src = (REPO / "setup" / "wizard.py").read_text()
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "configure_model")
@@ -76,7 +76,7 @@ def test_the_setup_menu_offers_every_provider():
 
 def test_the_wizard_writes_the_shape_the_router_reads():
     import ast
-    src = (REPO / "setup.py").read_text()
+    src = (REPO / "setup" / "wizard.py").read_text()
     fn = next(n for n in ast.walk(ast.parse(src))
               if isinstance(n, ast.FunctionDef) and n.name == "configure_model")
     body = ast.get_source_segment(src, fn) or ""

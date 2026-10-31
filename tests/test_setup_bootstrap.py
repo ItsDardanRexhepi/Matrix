@@ -33,8 +33,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_wizard():
-    # `import setup` would find the setup/ PACKAGE; the wizard is the file.
-    spec = importlib.util.spec_from_file_location("matrix_setup_wizard", ROOT / "setup.py")
+    # The wizard is setup/wizard.py; setup.py is the clone's entry point to it.
+    spec = importlib.util.spec_from_file_location("matrix_setup_wizard", ROOT / "setup" / "wizard.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -43,6 +43,15 @@ def load_wizard():
 @pytest.fixture
 def wizard():
     return load_wizard()
+
+
+@pytest.fixture
+def entry():
+    # `import setup` would find the setup/ PACKAGE; the entry point is the file.
+    spec = importlib.util.spec_from_file_location("matrix_setup_entry", ROOT / "setup.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 @pytest.fixture
@@ -150,12 +159,12 @@ def test_bootstrap_refuses_to_build_a_venv_from_an_interpreter_below_the_floor(w
 
 # ── setuptools must never reach the questions ────────────────────────────────
 
-def test_setuptools_invocations_are_recognised(wizard):
-    assert wizard.invoked_by_setuptools(["setup.py", "egg_info"])
-    assert wizard.invoked_by_setuptools(["setup.py", "editable_wheel", "--dist-dir", "/x"])
-    assert wizard.invoked_by_setuptools(["setup.py", "bdist_wheel"])
-    assert not wizard.invoked_by_setuptools(["setup.py"])
-    assert not wizard.invoked_by_setuptools(["setup.py", "--verbose"])
+def test_setuptools_invocations_are_recognised(entry):
+    assert entry.invoked_by_setuptools(["setup.py", "egg_info"])
+    assert entry.invoked_by_setuptools(["setup.py", "editable_wheel", "--dist-dir", "/x"])
+    assert entry.invoked_by_setuptools(["setup.py", "bdist_wheel"])
+    assert not entry.invoked_by_setuptools(["setup.py"])
+    assert not entry.invoked_by_setuptools(["setup.py", "--verbose"])
 
 
 def test_a_setuptools_style_run_does_not_launch_the_wizard():

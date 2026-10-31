@@ -92,6 +92,18 @@ def broadcast_safe_http_provider(rpc_url: str, *, timeout: float | None = None):
     return provider
 
 
+def resolve_paymaster_key(config: dict | None) -> str:
+    """The platform signing key under either of its two accepted names.
+
+    One resolver for Web3Manager, the sponsorship signer and the gas-policy
+    description, so what a user is told about sponsorship reads the key the
+    same way the code that signs does.
+    """
+    bc = (config or {}).get("blockchain", {}) if isinstance(config, dict) else {}
+    bc = bc if isinstance(bc, dict) else {}
+    return str(bc.get("paymaster_private_key") or bc.get("paymaster_key") or "")
+
+
 class Web3Manager:
     """Singleton-style shared web3 connection manager.
 
@@ -110,11 +122,7 @@ class Web3Manager:
         self.rpc_url: str = bc.get("rpc_url", "") or ""
         self.chain_id: int = int(bc.get("chain_id", 84532) or 84532)
         self.platform_wallet: str = bc.get("platform_wallet", "") or ""
-        self.paymaster_key: str = (
-            bc.get("paymaster_private_key")
-            or bc.get("paymaster_key")
-            or ""
-        )
+        self.paymaster_key: str = resolve_paymaster_key(self.config)
         self.eas_contract: str = bc.get("eas_contract", "") or ""
         self.eas_schema: str = bc.get("eas_schema", "") or ""
         self.network: str = bc.get("network", "base-sepolia") or "base-sepolia"
@@ -301,8 +309,9 @@ class Web3Manager:
         ledger record; the caller identity comes from the ContextVar the tool
         dispatcher and the HTTP entry bind.
 
-        With no `daily_cap_usd` configured this behaves exactly as before —
-        `MeteredSigner` signs straight through. With one configured it prices
+        With no `daily_cap_usd` configured `MeteredSigner` prices nothing, and
+        still refuses an action outside a configured `allowed_actions`; with
+        neither it signs straight through. With a cap configured it prices
         the transaction and refuses rather than sign what it cannot meter.
         """
         if is_placeholder_value(self.paymaster_key):

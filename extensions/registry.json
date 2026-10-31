@@ -3,8 +3,8 @@
   "platform": "The Matrix",
   "description": "Component registry for all Web3 capabilities. Used by the MTRX iOS app and web interface.",
   "generated_from": "runtime/capabilities/catalog.py",
-  "total_capabilities": 195,
-  "total_categories": 20,
+  "total_capabilities": 147,
+  "total_categories": 17,
   "components": [
     {
       "id": "contracts",
@@ -110,33 +110,9 @@
       "capability_count": 17
     },
     {
-      "id": "nft_finance",
-      "name": "NFT Finance",
-      "description": "5 capabilities in the NFT Finance category",
-      "category": "nft_finance",
-      "min_tier": "free",
-      "limits": {
-        "free": {},
-        "pro": {},
-        "enterprise": {
-          "unlimited": true
-        }
-      },
-      "gateway_actions": [
-        "borrow_against_nft",
-        "breed_nft",
-        "create_tba",
-        "execute_as_tba",
-        "liquidate_nft_loan"
-      ],
-      "icon": "dollarsign.square",
-      "available": true,
-      "capability_count": 5
-    },
-    {
       "id": "identity",
       "name": "Identity",
-      "description": "14 capabilities in the Identity category",
+      "description": "8 capabilities in the Identity category",
       "category": "identity",
       "min_tier": "free",
       "limits": {
@@ -147,29 +123,23 @@
         }
       },
       "gateway_actions": [
-        "batch_attest",
-        "check_aml_risk",
-        "create_attestation",
         "create_did",
         "credential_issue",
         "deactivate_did",
         "deregister_agent",
-        "issue_kyc_credential",
         "register_agent",
         "reputation_query",
-        "revoke_attestation",
-        "start_kyc",
         "update_agent",
         "update_did"
       ],
       "icon": "person.text.rectangle",
       "available": true,
-      "capability_count": 14
+      "capability_count": 8
     },
     {
       "id": "governance",
       "name": "Governance",
-      "description": "23 capabilities in the Governance category",
+      "description": "19 capabilities in the Governance category",
       "category": "governance",
       "min_tier": "free",
       "limits": {
@@ -184,7 +154,6 @@
         "arbitration_request",
         "create_dao",
         "create_proposal",
-        "delegate_voting",
         "dispute_file",
         "file_dispute",
         "finalize_proposal",
@@ -193,24 +162,22 @@
         "multisig_approve",
         "multisig_propose",
         "parameter_change",
-        "place_bribe",
         "quadratic_vote",
         "resolve_dispute",
         "snapshot_vote",
         "submit_dispute_evidence",
-        "submit_retropgf",
         "timelock_queue",
         "vote",
         "vote_escrow"
       ],
       "icon": "person.3.fill",
       "available": true,
-      "capability_count": 22
+      "capability_count": 19
     },
     {
       "id": "social",
       "name": "Social",
-      "description": "12 capabilities in the Social category",
+      "description": "11 capabilities in the Social category",
       "category": "social",
       "min_tier": "free",
       "limits": {
@@ -227,7 +194,6 @@
         "launch_creator_coin",
         "launch_social_token",
         "message_encrypt",
-        "publish_cast",
         "push_subscribe",
         "send_message",
         "social_gate",
@@ -236,12 +202,12 @@
       ],
       "icon": "bubble.left.and.bubble.right",
       "available": true,
-      "capability_count": 12
+      "capability_count": 11
     },
     {
       "id": "creator",
       "name": "Creator Economy",
-      "description": "8 capabilities in the Creator Economy category",
+      "description": "5 capabilities in the Creator Economy category",
       "category": "creator",
       "min_tier": "free",
       "limits": {
@@ -255,20 +221,17 @@
         "agreement_execute",
         "creator_monetize",
         "license_ip",
-        "mint_sound",
-        "publish_mirror_post",
-        "publish_paragraph_post",
         "register_ip",
         "transfer_ip"
       ],
       "icon": "music.note",
       "available": true,
-      "capability_count": 8
+      "capability_count": 5
     },
     {
       "id": "payments",
       "name": "Payments",
-      "description": "8 capabilities in the Payments category",
+      "description": "5 capabilities in the Payments category",
       "category": "payments",
       "min_tier": "free",
       "limits": {
@@ -279,23 +242,20 @@
         }
       },
       "gateway_actions": [
-        "close_channel",
         "complete_payment",
         "create_payment",
         "cross_border_remit",
-        "open_channel",
-        "route_payment",
         "send_payment",
         "transfer_stablecoin"
       ],
       "icon": "creditcard",
       "available": true,
-      "capability_count": 8
+      "capability_count": 5
     },
     {
       "id": "bridging",
       "name": "Cross-chain",
-      "description": "8 capabilities in the Cross-chain category",
+      "description": "2 capabilities in the Cross-chain category",
       "category": "bridging",
       "min_tier": "free",
       "limits": {
@@ -306,23 +266,17 @@
         }
       },
       "gateway_actions": [
-        "bridge_axelar",
-        "bridge_hyperlane",
-        "bridge_stargate",
-        "bridge_token_ccip",
-        "bridge_wormhole",
         "cross_chain_bridge",
-        "query_remote_chain",
-        "send_cross_chain_message"
+        "query_remote_chain"
       ],
       "icon": "arrow.left.arrow.right",
       "available": true,
-      "capability_count": 8
+      "capability_count": 2
     },
     {
       "id": "staking",
       "name": "Staking & Restake",
-      "description": "11 capabilities in the Staking & Restake category",
+      "description": "5 capabilities in the Staking & Restake category",
       "category": "staking",
       "min_tier": "free",
       "limits": {
@@ -334,25 +288,19 @@
       },
       "gateway_actions": [
         "claim_staking_rewards",
-        "delegate_to_operator",
         "get_staking_position",
-        "liquid_stake_lido",
         "liquid_stake_rocketpool",
-        "restake_eigenlayer",
-        "restake_karak",
-        "restake_symbiotic",
         "stake",
-        "unstake",
-        "withdraw_restake"
+        "unstake"
       ],
       "icon": "lock.square.stack",
       "available": true,
-      "capability_count": 11
+      "capability_count": 5
     },
     {
       "id": "privacy",
       "name": "Privacy & ZK",
-      "description": "5 capabilities in the Privacy & ZK category",
+      "description": "2 capabilities in the Privacy & ZK category",
       "category": "privacy",
       "min_tier": "free",
       "limits": {
@@ -363,20 +311,17 @@
         }
       },
       "gateway_actions": [
-        "create_session_key",
-        "mpc_sign",
-        "recover_wallet",
         "request_deletion",
         "zk_proof_generate"
       ],
       "icon": "lock.shield",
       "available": true,
-      "capability_count": 5
+      "capability_count": 2
     },
     {
       "id": "oracles",
       "name": "Oracles & Data",
-      "description": "7 capabilities in the Oracles & Data category",
+      "description": "5 capabilities in the Oracles & Data category",
       "category": "oracles",
       "min_tier": "free",
       "limits": {
@@ -391,60 +336,11 @@
         "oracle_price_query",
         "oracle_vrf_request",
         "oracle_weather_query",
-        "pyth_pull",
-        "redstone_request",
-        "register_keeper_job"
+        "pyth_pull"
       ],
       "icon": "antenna.radiowaves.left.and.right",
       "available": true,
-      "capability_count": 7
-    },
-    {
-      "id": "storage",
-      "name": "Storage",
-      "description": "5 capabilities in the Storage category",
-      "category": "storage",
-      "min_tier": "free",
-      "limits": {
-        "free": {},
-        "pro": {},
-        "enterprise": {
-          "unlimited": true
-        }
-      },
-      "gateway_actions": [
-        "ceramic_stream_create",
-        "decentralized_store",
-        "ipfs_pin",
-        "orbit_db_write",
-        "store_filecoin"
-      ],
-      "icon": "externaldrive",
-      "available": true,
       "capability_count": 5
-    },
-    {
-      "id": "compute",
-      "name": "Compute & DePIN",
-      "description": "4 capabilities in the Compute & DePIN category",
-      "category": "compute",
-      "min_tier": "free",
-      "limits": {
-        "free": {},
-        "pro": {},
-        "enterprise": {
-          "unlimited": true
-        }
-      },
-      "gateway_actions": [
-        "claim_compute_reward",
-        "compute_job_submit",
-        "rent_device",
-        "submit_compute_job"
-      ],
-      "icon": "cpu",
-      "available": true,
-      "capability_count": 4
     },
     {
       "id": "real_world",
@@ -489,7 +385,7 @@
     {
       "id": "markets",
       "name": "Markets",
-      "description": "26 capabilities in the Markets category",
+      "description": "25 capabilities in the Markets category",
       "category": "markets",
       "min_tier": "free",
       "limits": {
@@ -506,7 +402,6 @@
         "cancel_subscription",
         "claim_cashback",
         "contribute_to_campaign",
-        "create_auction",
         "create_brand_campaign",
         "create_campaign",
         "create_security",
@@ -529,7 +424,7 @@
       ],
       "icon": "chart.xyaxis.line",
       "available": true,
-      "capability_count": 26
+      "capability_count": 25
     },
     {
       "id": "gaming",

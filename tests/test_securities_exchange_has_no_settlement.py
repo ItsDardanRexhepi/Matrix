@@ -220,9 +220,10 @@ def test_the_matching_engine_still_cannot_reach_balances():
 
 # ── Defects the ADVERSARIAL PASS found in the fixes above ────────────────
 #
-# All three were introduced by 4c99131 — the commit that fixed 13-A/B/C — and
-# all three passed a green suite. Recorded here rather than quietly repaired,
-# because how they escaped is the transferable part.
+# All three were introduced by the commit "The securities exchange has no
+# settlement path — stop acting as though it does" — the commit that fixed
+# 13-A/B/C — and all three passed a green suite. Recorded here rather than
+# quietly repaired, because how they escaped is the transferable part.
 
 
 async def test_trade_history_is_readable_after_a_match():

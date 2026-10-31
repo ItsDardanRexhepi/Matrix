@@ -16,6 +16,7 @@ from runtime.blockchain.services.fundraising.milestone_verification import (
 )
 from runtime.blockchain.services.fundraising.refunds import RefundManager
 from runtime.blockchain.services.fundraising.vesting import VestingManager
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -746,7 +747,7 @@ class FundraisingService:
         # "none" and `str(0)` is "0", so non-string holders collapse into
         # ordinary strings rather than erroring — another reason this is a
         # consistency check and not an identity check.
-        if str(credit.get("buyer", "")).lower() != str(holder).lower():
+        if not same_caller(str(credit.get("buyer", "")), str(holder)):
             raise PermissionError(
                 f"{holder!r} does not hold credit {credit_id!r}; it belongs to "
                 f"{credit.get('buyer')!r}."

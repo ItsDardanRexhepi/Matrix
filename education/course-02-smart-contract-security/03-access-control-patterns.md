@@ -78,16 +78,11 @@ The process works like this:
 
 **Why single-key ownership is dangerous**: If one person controls a contract holding millions of dollars, their private key becomes the single point of failure. Phishing attacks, compromised hardware, lost seed phrases, or even coercion can lead to total loss. A 3-of-5 multisig means an attacker would need to compromise three separate individuals using three separate key storage methods.
 
-### The Matrix NeoSafe Multisig
+### The Matrix and NeoSafe
 
-The Matrix uses a multisig called **NeoSafe** for its own protocol contracts. NeoSafe is a purpose-built multisig that integrates with the agent system:
+**NeoSafe** is the address The Matrix's deployment script (`scripts/deploy_all.py`, `MATRIX_NEOSAFE_ADDRESS`) sets as every platform contract's fee recipient. Whatever wallet holds that address is the multisig, and its signers approve in that wallet, not through the platform.
 
-- **Proposal via Trinity**: Authorized members propose transactions through the chat interface
-- **Morpheus confirmation**: Each signer sees the exact transaction details through Morpheus before approving
-- **On-chain execution**: Once the threshold is met, Neo executes the transaction
-- **Audit trail**: Every proposal, approval, and execution is logged with EAS attestations
-
-NeoSafe demonstrates a practical pattern: the multisig does not just protect the contract -- it integrates with the workflow that people actually use.
+The platform's own multisig actions are not a working multisig yet: `multisig_propose` records a proposal in the governance service's memory, and `multisig_approve` refuses (it is marked unavailable until it checks the signer, records the approval and counts it against the threshold). Nothing in the platform collects approvals or executes a multisig transaction. Morpheus shows no signer anything to approve: his note reaches a user with a tool's result, and he does not block.
 
 ## Pattern 4: Timelock Contracts
 

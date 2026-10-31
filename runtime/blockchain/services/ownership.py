@@ -89,7 +89,12 @@ def assert_owner(
             "established and the operation is refused."
         )
 
-    if caller != owner:
+    # One wallet is one caller whatever case its address is written in: the
+    # caller arrives in the platform's one spelling (runtime/auth/identity.py)
+    # and the owner as whoever recorded it wrote it.
+    from runtime.auth.identity import same_caller
+
+    if not same_caller(caller, owner):
         raise OwnershipError(
             f"Caller does not own this {what}."
         )

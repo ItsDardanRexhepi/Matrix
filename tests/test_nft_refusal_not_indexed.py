@@ -1,7 +1,8 @@
 """22-B — the factory refused honestly and the caller indexed a success-only key.
 
-MEASURED at pin 84a6c3e under THE SHIPPED CONFIG (which has no top-level `nft`
-block at all):
+MEASURED at the commit "21-S: 21-I's offload moved the cost rather than
+removing it" under THE SHIPPED CONFIG (which has no top-level `nft` block at
+all):
 
     deploy_erc721(...) -> {status: 'not_deployed', action_required,
                            deployment_guide, message, operation, requested,

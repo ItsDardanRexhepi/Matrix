@@ -12,15 +12,24 @@ attests a deployment it made; and thirteen actions of Neo's blockchain tools
 call EASClient.attest directly, each one a platform signature at the moment
 it is called.
 
+Since then the attestations a caller asks for, through those three
+capabilities or through Neo's tools, are metered by the policy under their own
+`<capability>.<method>` names (tests/test_platform_attestations_are_metered.py);
+the platform's own records (the dispatcher's, the conversion pipeline's and
+the real-estate queue's) stay exempt.
+
 The tests measure this from the code:
 
-* Every call into an exempt signer's method in runtime/ and gateway/ is found
-  by reading the source, and docs/blockchain.md has to account for each one,
-  by file and function, as a path that signs or as one that does not.
+* Every call into an EAS signer's method or GasSponsor.sponsor_transaction
+  in runtime/ and gateway/ is found by reading the source, and
+  docs/blockchain.md has to account for each one, by file and function, as a
+  path that signs or as one that does not.
 * Under a policy that allows nothing and caps at zero, against a stand-in
   chain, the tool actions, the dispatcher's record and the real-estate queue
   are driven, and every signature that reaches the network is recovered to
-  the platform key. The three documents have to name each path that signed.
+  the platform key. No tool action may sign; the dispatcher's record and the
+  real-estate queue do, and the three documents have to name each path that
+  signed and each tool action that was refused.
 * The callers the documentation says do not sign are driven or read too,
   and fail the test if one of them starts signing.
 """
@@ -169,6 +178,16 @@ def chain(tmp_path, monkeypatch):
     fake = _fake_web3(sent)
     monkeypatch.setattr(web3, "Web3", fake)
 
+    # A metered signer prices the transaction before the policy decides; a
+    # fixed price keeps that from reaching the network, so a refusal is the
+    # policy's and not a failed price fetch.
+    from runtime.blockchain.price_feed import PriceFeed
+
+    async def _price(self, **_kw):
+        return {"price": 3000.0}
+
+    monkeypatch.setattr(PriceFeed, "eth_usd", _price)
+
     class _Manager:
         available = True
         w3 = fake()
@@ -231,45 +250,92 @@ _TOOL_PARAMS = {
 }
 
 
-def _signed_tool_actions(config, sent) -> dict[str, list[str]]:
+def _drive_tool_actions(config, sent) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Run each tool action that calls EASClient.attest. Returns (signed,
+    refused): the actions that put a transaction on the network, and the ones
+    the sponsorship policy refused before anything was signed."""
+    from runtime.blockchain.sponsorship import SponsorshipDenied
+
     signed: dict[str, list[str]] = {}
+    refused: dict[str, list[str]] = {}
     for cls, actions in _tool_actions_calling_eas_client().items():
         tool = cls(config)
         for action in actions:
             before = len(sent)
-            asyncio.run(tool.execute(action=action, **_TOOL_PARAMS))
+            try:
+                result = asyncio.run(tool.execute(action=action, **_TOOL_PARAMS))
+            except SponsorshipDenied:
+                result = "gas sponsorship not available"
             if len(sent) > before:
                 signed.setdefault(tool.name, []).append(action)
-    return signed
+            elif "gas sponsorship not available" in str(result):
+                refused.setdefault(tool.name, []).append(action)
+    return signed, refused
 
 
-def test_each_tool_action_that_signs_under_no_policy_is_named(chain):
+def _metered_operation(cls: type, action: str) -> str:
+    """The `operation=` the handler behind *action* passes to EASClient.attest."""
+    import inspect
+
+    tree = ast.parse(inspect.getsource(inspect.getmodule(cls)))
+    execute = next(fn for fn in ast.walk(tree)
+                   if isinstance(fn, ast.AsyncFunctionDef) and fn.name == "execute")
+    handler = None
+    for node in ast.walk(execute):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+                and isinstance(node.test.comparators[0], ast.Constant)
+                and node.test.comparators[0].value == action):
+            for stmt in node.body:
+                call = getattr(stmt, "value", None)
+                call = getattr(call, "value", call)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute):
+                    handler = call.func.attr
+    fn = next(f for f in ast.walk(tree)
+              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)) and f.name == handler)
+    ops = [k.value.value for node in ast.walk(fn) if isinstance(node, ast.Call)
+           and getattr(node.func, "attr", "") == "attest"
+           for k in node.keywords if k.arg == "operation" and isinstance(k.value, ast.Constant)]
+    assert len(set(ops)) == 1, f"{cls.__name__}.{action}: operations {ops}"
+    return ops[0]
+
+
+def test_no_tool_action_signs_under_a_policy_that_allows_nothing_and_each_is_named(chain):
     config, platform, sent = chain
     candidates = _tool_actions_calling_eas_client()
     assert candidates, "precondition: tool actions that call EASClient.attest are found"
-    signed = _signed_tool_actions(config, sent)
-    assert signed, "precondition: a tool action signed under the policy"
-    assert _signers(sent) == {platform}, "precondition: the platform key signed"
+    signed, refused = _drive_tool_actions(config, sent)
+    assert not signed, (
+        f"under a policy that allows nothing and caps at zero, the tool actions "
+        f"{signed} signed with the platform key: a tool attestation is a caller's "
+        f"request and is metered")
+    assert not sent, f"precondition: nothing reached the chain ({len(sent)} sent)"
+    count = sum(len(actions) for actions in candidates.values())
+    assert sum(len(a) for a in refused.values()) == count, (
+        f"every tool action that attests should have been refused by the policy; "
+        f"refused {refused} of {count}")
 
-    count = sum(len(actions) for actions in signed.values())
     for rel in POLICY_DOCS:
         passage = _passage(rel)
-        silent = sorted(name for name in signed if f"`{name}`" not in passage)
+        silent = sorted(name for name in refused if f"`{name}`" not in passage)
         assert not silent, (
-            f"under a policy that allows nothing and caps at zero, the tools "
-            f"{sorted(signed)} signed with the platform key, and {rel} does not name "
-            f"{silent} where it lists the exemptions")
+            f"the tools {sorted(refused)} attest under the sponsorship policy, and "
+            f"{rel} does not name {silent} where it describes the policy")
         stated = re.search(r"(\d+) actions of Neo's blockchain tools", passage)
         assert stated and int(stated.group(1)) == count, (
-            f"{count} tool actions signed with the platform key under a policy that "
-            f"allows nothing; {rel} says {stated.group(1) if stated else 'no number'}")
+            f"{count} tool actions attest under the policy; "
+            f"{rel} says {stated.group(1) if stated else 'no number'}")
     table = _doc("docs/blockchain.md")
-    unnamed = sorted(f"{name}.{action}" for name, actions in signed.items()
-                     for action in actions
-                     if not re.search(rf"`{re.escape(name)}`[^\n]*`{re.escape(action)}`", table))
+    unnamed = []
+    for cls, actions in candidates.items():
+        name = cls(config).name
+        for action in actions:
+            op = _metered_operation(cls, action)
+            if not re.search(rf"`{re.escape(name)}`[^\n]*`{re.escape(action)}`[^\n]*"
+                             rf"`{re.escape(op)}`", table):
+                unnamed.append(f"{name}.{action} ({op})")
     assert not unnamed, (
-        f"these tool actions signed with the platform key under a policy that "
-        f"allows nothing, and docs/blockchain.md does not name them: {unnamed}")
+        f"docs/blockchain.md does not name these tool actions with the operation "
+        f"they are metered under: {unnamed}")
 
 
 # ── the service dispatcher's record, and the real-estate queue ──────────────

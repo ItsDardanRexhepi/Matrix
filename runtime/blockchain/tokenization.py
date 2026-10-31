@@ -2,7 +2,7 @@
 Tokenization — create and manage ERC-20 tokens on Base L2.
 
 Deploy custom tokens, transfer, approve, and check balances.
-All gas fees are covered by the platform.
+Gas is paid by the platform within its sponsorship policy.
 """
 
 import json
@@ -77,7 +77,7 @@ class Tokenization(BlockchainInterface):
         return await handler(kwargs)
 
     async def _deploy(self, params: dict) -> str:
-        """Deploy a new ERC-20 token. Gas covered by platform."""
+        """Deploy a new ERC-20 token. Gas is paid by the platform within its sponsorship policy."""
         name = params.get("token_name", "MatrixToken")
         symbol = params.get("token_symbol", "MTRX")
         supply = params.get("initial_supply", "1000000")

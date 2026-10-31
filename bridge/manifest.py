@@ -2,7 +2,11 @@
 Manifest Manager — tracks every component through the bridge lifecycle.
 
 Each component's journey is recorded:
-    export -> sanitization -> approval -> deployment -> attestation -> ios_packaging
+    export -> sanitization -> approval -> deployment -> ios_packaging
+
+Nothing in the bridge attests a deployment (bridge/deployer.py hashes its
+record), so nothing here marks an entry `attested`, a status
+update_deployment accepts from a caller.
 
 The manifest enforces invariants:
     - No deployment without explicit Dardan approval

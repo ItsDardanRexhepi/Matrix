@@ -1,16 +1,16 @@
 # What Makes The Matrix Different
 
-## Everything Is Free
+## Free to Start, Fees Stated
 
-Every capability on The Matrix is free. Smart contracts, DeFi loans, NFTs, identity, governance, payments, insurance — all of it. No subscriptions. No premium tiers. No hidden fees. No gas fees. The platform covers all blockchain transaction costs for every user, for every capability, forever. Users never pay gas on The Matrix.
+The software is open source and free to run. Using the platform has a free tier; Pro and Enterprise subscriptions are sold in the MTRX app. Gas is paid by the platform when an operator configures sponsorship, within the operator's policy. When that policy sets a per-identity daily cap, an operation past the cap is refused rather than charged to you (this includes attestations you ask for, through an agent tool or the attestation capabilities; only the platform's own records — its record of each capability call and records it writes after another operation — are not counted against it); a deployment that sets no cap sponsors without a daily limit. Some operations carry a platform fee (marketplace sales, staking rewards, stablecoin transfers, cross-border payments and others); the fees and their rates are listed in `docs/blockchain.md` under **Fees**, together with how that list is checked against the code and what the check cannot see.
 
 ## Everything Is Conversation
 
-There are no forms. No dashboards. No settings pages. No documentation users need to read. Every single capability is accessible through a conversation with Trinity. A user who has never touched blockchain in their life can deploy a smart contract by describing what they want in their own words, in their own language.
+Every capability in the catalog can be asked for in a conversation with Trinity, in the user's own words and language; what she can run depends on the caller's credentials and on whether the capability is available yet. A user who has never touched blockchain can have a contract written from a description, read the Glasswing report on it, and deploy it from their own wallet.
 
 ## Everything Is Governed
 
-Every decision made by every agent passes through the Unified Rexhepi Framework before execution. This is not optional. It cannot be bypassed. Every smart contract execution, every blockchain transaction, every tool call, every agent response is evaluated consistently, transparently, and with full awareness of its constraints, risks, and value.
+Every tool call the agents' reasoning loop makes passes through the Unified Rexhepi Framework before it is dispatched (`RexhepiGate`, `runtime/protocols/rexhepi_gate.py`, run by `ProtocolStack.pre_action`). It scores six gates, applies the hard rules and resolves one outcome, EXECUTE, PROBE, ASK, DEFER or ABORT, and only EXECUTE runs the call. It is this repository's own code, so a fork can change it or take it out; what keeps it in place here is that this repository runs it and its tests pin how it decides. `docs/unified-rexhepi-framework.md` says more.
 
 ## Three Agents, Not One
 

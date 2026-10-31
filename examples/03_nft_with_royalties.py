@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 """
-03 — NFT with Royalties: Mint, List, Sell with Automatic Royalty Enforcement
+03 — NFT with Royalties: Create, Mint, List and Sell
 
-Demonstrates NFT Services (Component 3) and IP/Royalties (Component 15):
+Calls the NFT service's actions through ServiceDispatcher:
 
-  1. Creates an NFT collection on Base Sepolia
-  2. Mints a token with metadata and 5% royalty configuration
-  3. Lists the NFT for sale on the marketplace
-  4. Simulates a purchase — royalties are distributed automatically
-  5. Shows the royalty split breakdown
+  1. create_nft_collection: an ERC-721 collection with a 5% (500 bps) royalty
+  2. configure_nft_royalty: the EIP-2981 royalty for token 1
+  3. mint_nft: token 1 with metadata
+  4. list_nft_for_sale: token 1 at 0.5 ETH
+  5. buy_nft: a buyer's purchase, which the service settles with the royalty
+
+Each step prints what the service answered, and a step counts as done only
+when the dispatcher reports that it happened (its call_outcome is "success").
+The royalty split of a sale is the service's to report; this example does
+not compute one. Until the NFT factory is deployed and wired in, the
+collection answers ``not_deployed`` and the steps that need its address are
+skipped. Deploying the contracts is covered in contracts/DEPLOYMENT_GUIDE.md.
 
 Usage:
     python examples/03_nft_with_royalties.py
@@ -24,14 +31,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
-
-CYAN = "\033[96m"; GREEN = "\033[92m"; YELLOW = "\033[93m"
-RED = "\033[91m"; BOLD = "\033[1m"; DIM = "\033[2m"; RESET = "\033[0m"
-
-def step(n, text):  print(f"\n{CYAN}{BOLD}[Step {n}]{RESET} {text}")
-def ok(text):       print(f"  {GREEN}+{RESET} {text}")
-def warn(text):     print(f"  {YELLOW}!{RESET} {text}")
-def fail(text):     print(f"  {RED}x{RESET} {text}")
+from examples._steps import BOLD, CYAN, RESET, Steps, fail, ok, shown, step
 
 
 def load_config() -> dict:
@@ -46,216 +46,77 @@ def load_config() -> dict:
 async def main():
     print(f"""
 {CYAN}{BOLD}{'=' * 60}
-  The Matrix Example 03: NFT with Automatic Royalties
+  The Matrix Example 03: NFT with Royalties
 {'=' * 60}{RESET}
 
-  Creates an NFT with EIP-2981 royalty enforcement.
-  Every resale automatically distributes 5% to the creator.
+  An ERC-721 collection with an EIP-2981 royalty of 5%, one token,
+  a listing and a sale.
 """)
 
     config = load_config()
     dispatcher = ServiceDispatcher(config)
-    bc = config.get("blockchain", {})
-    creator = bc.get("demo_wallet_address", "0xCreator")
+    creator = config.get("blockchain", {}).get("demo_wallet_address", "0xCreator")
     buyer = "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18"  # example buyer
+    steps = Steps(dispatcher)
 
-    # ── Step 1: Create NFT collection ───────────────────────────────
-    step(1, "Creating NFT collection: 'Genesis Art Collection'")
+    step(1, "Creating the NFT collection 'Genesis Art Collection' (GART)...")
+    made = await steps.run("create the collection", "create_nft_collection", {
+        "creator": creator,
+        "name": "Genesis Art Collection",
+        "symbol": "GART",
+        "collection_type": "erc721",
+        "royalty_bps": 500,
+    })
+    collection = None
+    if made is not None:
+        collection = made.get("collection_address") or made.get("contract_address") or made.get("collection")
+        ok(f"Collection: {collection or 'not reported'}")
+        if made.get("tx_hash"):
+            ok(f"Tx: https://sepolia.basescan.org/tx/{made['tx_hash']}")
 
-    try:
-        result = await dispatcher.execute(
-            action="create_nft_collection",
-            params={
-                "name": "Genesis Art Collection",
-                "symbol": "GART",
-                "creator": creator,
-                "max_supply": 10000,
-                "base_uri": "ipfs://QmExampleMetadataHash/",
-                "royalty_bps": 500,  # 5%
-                "royalty_recipient": creator,
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            collection = data["result"]
-            collection_address = collection.get("collection_address", collection.get("contract_address", "N/A"))
-            ok(f"Collection deployed: {collection_address}")
-            ok(f"Name: Genesis Art Collection (GART)")
-            ok(f"Max supply: 10,000")
-            ok(f"Royalty: 5% (500 bps)")
-            if collection.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{collection['tx_hash']}")
-        else:
-            collection_address = "0xCollectionAddress"
-            warn(f"Collection: {data.get('error', 'check config')}")
-    except Exception as e:
-        collection_address = "0xCollectionAddress"
-        warn(f"Collection creation: {e}")
+    step(2, "Configuring the EIP-2981 royalty for token 1 (500 bps to the creator)...")
+    royalty = await steps.run("configure the royalty", "configure_nft_royalty", {
+        "collection": collection, "token_id": 1, "recipient": creator, "bps": 500,
+    }, needs=[("collection address", collection)])
+    if royalty is not None:
+        ok(f"Royalty: {shown(royalty, 'bps', 'royalty_bps')} bps to {shown(royalty, 'recipient')}")
 
-    # ── Step 2: Configure royalty (EIP-2981) ────────────────────────
-    step(2, "Configuring royalty distribution (EIP-2981)...")
+    step(3, "Minting token 1: 'Quantum Dreams #001'...")
+    minted = await steps.run("mint the token", "mint_nft", {
+        "collection": collection,
+        "creator": creator,
+        "metadata": {
+            "name": "Quantum Dreams #001",
+            "description": "A generative art piece exploring quantum probability fields.",
+            "image": "ipfs://QmExampleImageHash/001.png",
+        },
+        "royalty_bps": 500,
+    }, needs=[("collection address", collection)])
+    token_id = None
+    if minted is not None:
+        token_id = minted.get("token_id")
+        ok(f"Token: {token_id if token_id is not None else 'not reported'}")
+        if minted.get("tx_hash"):
+            ok(f"Tx: https://sepolia.basescan.org/tx/{minted['tx_hash']}")
 
-    try:
-        result = await dispatcher.execute(
-            action="configure_nft_royalty",
-            params={
-                "collection_address": collection_address,
-                "token_id": 1,
-                "royalty_recipient": creator,
-                "royalty_bps": 500,
-                "distribution": [
-                    {"recipient": creator, "share_bps": 8000},   # 80% to creator
-                    {"recipient": "0xPlatform", "share_bps": 2000},  # 20% platform
-                ],
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            ok("Royalty configured: 5% on every resale")
-            ok("  Creator gets 80% of royalty (4% of sale)")
-            ok("  Platform gets 20% of royalty (1% of sale)")
-        else:
-            warn(f"Royalty config: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Royalty configuration: {e}")
+    step(4, "Listing the token for sale at 0.5 ETH...")
+    listing = await steps.run("list the token", "list_nft_for_sale", {
+        "collection": collection, "token_id": token_id, "price": 0.5,
+    }, needs=[("collection address", collection), ("token id", token_id is not None)])
+    if listing is not None:
+        ok(f"Listing: {shown(listing, 'listing_id', 'id')}")
 
-    # ── Step 3: Mint an NFT ─────────────────────────────────────────
-    step(3, "Minting NFT #1: 'Quantum Dreams #001'")
+    step(5, "The buyer purchases the token...")
+    sale = await steps.run("sell the token", "buy_nft", {
+        "collection": collection, "token_id": token_id, "sale_price": 0.5,
+        "seller": creator, "buyer": buyer,
+    }, needs=[("listing", listing)])
+    if sale is not None:
+        ok(f"Royalty paid: {shown(sale, 'royalty_amount', 'royalty')}")
+        ok(f"Seller received: {shown(sale, 'seller_proceeds', 'seller_amount')}")
+        ok(f"Token transferred: {shown(sale, 'nft_transferred')}")
 
-    metadata = {
-        "name": "Quantum Dreams #001",
-        "description": "A generative art piece exploring quantum probability fields.",
-        "image": "ipfs://QmExampleImageHash/001.png",
-        "attributes": [
-            {"trait_type": "Style", "value": "Generative"},
-            {"trait_type": "Palette", "value": "Cosmic"},
-            {"trait_type": "Complexity", "value": "High"},
-            {"trait_type": "Edition", "value": "1/1"},
-        ],
-    }
-
-    try:
-        result = await dispatcher.execute(
-            action="mint_nft",
-            params={
-                "collection_address": collection_address,
-                "to": creator,
-                "token_id": 1,
-                "metadata": metadata,
-                "royalty_bps": 500,
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            mint = data["result"]
-            ok(f"Minted: Quantum Dreams #001 (token ID 1)")
-            ok(f"Owner: {creator}")
-            ok(f"Metadata: {json.dumps(metadata['attributes'], indent=0)[:80]}...")
-            if mint.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{mint['tx_hash']}")
-        else:
-            warn(f"Mint: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Minting: {e}")
-
-    # ── Step 4: List for sale ───────────────────────────────────────
-    step(4, "Listing NFT for sale at 0.5 ETH...")
-
-    try:
-        result = await dispatcher.execute(
-            action="list_nft_for_sale",
-            params={
-                "collection_address": collection_address,
-                "token_id": 1,
-                "seller": creator,
-                "price_eth": 0.5,
-                "currency": "ETH",
-                "duration_hours": 168,  # 7 days
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            listing = data["result"]
-            ok(f"Listed for: 0.5 ETH")
-            ok(f"Duration: 7 days")
-            ok(f"Listing ID: {listing.get('listing_id', 'N/A')}")
-        else:
-            warn(f"Listing: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Listing: {e}")
-
-    # ── Step 5: Simulate purchase with royalty distribution ─────────
-    step(5, "Buyer purchases NFT — royalties distributed automatically")
-
-    try:
-        result = await dispatcher.execute(
-            action="buy_nft",
-            params={
-                "collection_address": collection_address,
-                "token_id": 1,
-                "buyer": buyer,
-                "price_eth": 0.5,
-            },
-        )
-        data = json.loads(result)
-        if data.get("status") == "ok":
-            sale = data["result"]
-            ok(f"Sale completed at 0.5 ETH")
-            ok(f"New owner: {buyer[:10]}...{buyer[-6:]}")
-            if sale.get("tx_hash"):
-                ok(f"Tx: https://sepolia.basescan.org/tx/{sale['tx_hash']}")
-        else:
-            warn(f"Purchase: {data.get('error', 'N/A')}")
-    except Exception as e:
-        warn(f"Purchase: {e}")
-
-    # Show the royalty breakdown
-    print(f"\n  {BOLD}Royalty Distribution Breakdown:{RESET}")
-    sale_price = 0.5
-    royalty_total = sale_price * 0.05  # 5%
-    creator_share = royalty_total * 0.80
-    platform_share = royalty_total * 0.20
-    seller_receives = sale_price - royalty_total
-
-    print(f"  {DIM}{'─' * 45}{RESET}")
-    print(f"  Sale price:        {sale_price:.4f} ETH")
-    print(f"  Royalty (5%):      {royalty_total:.4f} ETH")
-    print(f"    Creator (80%):   {creator_share:.4f} ETH")
-    print(f"    Platform (20%):  {platform_share:.4f} ETH")
-    print(f"  Seller receives:   {seller_receives:.4f} ETH")
-    print(f"  {DIM}{'─' * 45}{RESET}")
-
-    # ── Step 6: Show secondary sale royalties ───────────────────────
-    step(6, "Simulating resale — royalties enforce on every transfer")
-
-    resale_price = 2.0
-    royalty_2 = resale_price * 0.05
-    print(f"  {DIM}If resold at {resale_price} ETH:{RESET}")
-    print(f"    Royalty: {royalty_2:.4f} ETH (creator gets {royalty_2 * 0.80:.4f} ETH)")
-    print(f"    Seller receives: {resale_price - royalty_2:.4f} ETH")
-    print(f"\n  {DIM}EIP-2981 royalties are enforced on-chain — the creator")
-    print(f"  earns on every resale, automatically and permanently.{RESET}")
-
-    print(f"""
-{GREEN}{BOLD}{'=' * 60}
-  NFT WITH ROYALTIES COMPLETE
-{'=' * 60}{RESET}
-
-  {BOLD}Actions demonstrated:{RESET}
-    1. create_nft_collection  - Deploy ERC-721 with royalties
-    2. configure_nft_royalty   - Set EIP-2981 royalty splits
-    3. mint_nft               - Mint with metadata + attributes
-    4. list_nft_for_sale      - List on marketplace
-    5. buy_nft                - Purchase with automatic royalty
-    6. (resale scenario)      - Perpetual creator earnings
-
-  {BOLD}Services used:{RESET}
-    - NFT Services (Component 3)
-    - IP & Royalties (Component 15)
-    - Marketplace (Component 24)
-
-{GREEN}{'=' * 60}{RESET}
-""")
+    steps.summary("NFT with royalties")
 
 
 if __name__ == "__main__":

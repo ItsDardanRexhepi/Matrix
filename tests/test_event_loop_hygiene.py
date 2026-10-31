@@ -1,6 +1,7 @@
 """No retiring event-loop API, and no event loop nobody can close.
 
-c902961 swept `asyncio.get_event_loop().run_until_complete(...)` out of three
+The commit "fix: CI failures — remove phantom A2AProtocol import, fix asyncio event
+loop in tests" swept `asyncio.get_event_loop().run_until_complete(...)` out of three
 test fixtures in favour of `asyncio.run`. The same family survived in a second
 spelling — `asyncio.get_event_loop_policy().new_event_loop().run_until_complete(...)`
 — which is worse on both axes:

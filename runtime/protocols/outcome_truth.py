@@ -227,7 +227,7 @@ def _status_of(value: Any) -> str:
 #
 # `report_of` believed the outermost verdict — correctly, by its own rule, since
 # that IS a named field a layer set deliberately. So `platform_action`, the one
-# handler through which the agent reaches all 45 services, relayed every refusal
+# handler through which the agent reaches 44 of the 45 services, relayed every refusal
 # to the learner as a success. The fix was real and it reached nothing that went
 # through the mega-tool.
 #

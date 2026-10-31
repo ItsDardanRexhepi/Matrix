@@ -81,7 +81,8 @@ ACTION_LABELS: Dict[str, str] = {
     # it, and the action-keyed entry makes the honest sentence reachable now.
     "claim_rewards": "recorded a staking reward claim (not settled)",
     "claim_staking_rewards": "recorded a staking reward claim (not settled)",
-    "send_payment": "sent a payment",
+    # Recorded, not settled: cross_border.send_payment moves no value.
+    "send_payment": "recorded a payment (not settled)",
     "create_invoice": "created an invoice",
     "register_ip": "registered intellectual property",
     "create_license": "created a license agreement",

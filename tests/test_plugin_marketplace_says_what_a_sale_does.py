@@ -13,6 +13,11 @@ pays a developer.
 Whether paid plugins are sold, and on what split, is the owner's decision.
 These tests only hold the words to the code: when a paid sale can complete,
 the statements have to change with it.
+
+The paid branch now answers `not_built` rather than `requires_iap`, and the
+commission is the deployment's configuration (`plugin_marketplace.
+commission_rate`, read by platform_commission_rate) instead of a constant, so
+no text may state a commission or a split as a number of the store's own.
 """
 from __future__ import annotations
 
@@ -53,7 +58,7 @@ def _paid_purchase():
 
 def _a_paid_sale_completes() -> bool:
     store, answer, owned = _paid_purchase()
-    return owned or answer.get("status") not in ("requires_iap",) or hasattr(
+    return owned or answer.get("status") not in ("requires_iap", "not_built") or hasattr(
         store, "record_purchase")
 
 
@@ -76,20 +81,23 @@ def test_the_store_does_not_claim_a_payment_path_it_lacks():
         "and nothing records it")
 
 
-def test_every_commission_stated_is_the_constant():
-    from runtime.marketplace.plugin_store import PLATFORM_COMMISSION
+def test_no_commission_is_stated_as_a_number_of_the_stores_own():
+    import runtime.marketplace.plugin_store as store
 
-    platform = round(PLATFORM_COMMISSION * 100)
+    # The measured premise: no constant, and an unconfigured deployment has no rate.
+    assert not hasattr(store, "PLATFORM_COMMISSION")
+    assert store.platform_commission_rate(None) is None
+
     stated = re.findall(r"(\d+)%\s+commission", _package_text())
-    assert all(int(n) == platform for n in stated), (
-        f"runtime/marketplace states a commission of {stated}%; "
-        f"PLATFORM_COMMISSION is {platform}%")
+    assert not stated, (
+        f"runtime/marketplace states a commission of {stated}%; the commission is "
+        "the deployment's plugin_marketplace.commission_rate")
 
     section = _readme_plugin_section()
-    for dev, plat in re.findall(r"(\d+)/(\d+) split", section):
-        assert (int(dev), int(plat)) == (100 - platform, platform), (
-            f"the README quotes a {dev}/{plat} split; the store quotes "
-            f"{100 - platform}/{platform}")
+    splits = re.findall(r"(\d+)/(\d+) split", section)
+    assert not splits, (
+        f"the README quotes a {splits} split; the store has no split of its own, "
+        "only the deployment's plugin_marketplace.commission_rate")
 
 
 def test_the_readme_does_not_sell_what_cannot_be_bought():

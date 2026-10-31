@@ -12,7 +12,8 @@ Implements the Reason-Act cycle:
 
 Model-agnostic: works with any provider that implements ModelInterface.
 Loads config from matrix.config.json. Injects temporal context on
-every turn. Loads agent identity from agents/{agent}/identity.md.
+every turn. Loads agent identity from agents/{agent}/identity.md: the
+working folder's, or the copy an installed package carries.
 
 Protocol integration: the ProtocolStack is initialised per agent and
 wired into the loop at four points — pre-process, pre-action,
@@ -31,14 +32,15 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from runtime.models.router import ModelRouter
 from runtime.tools.dispatcher import ToolDispatcher
+from runtime.tools.untrusted import wrap_tool_output
 from runtime.memory.manager import MemoryManager
 from runtime.time.temporal_context import TemporalContext
 from runtime.protocols import outcome_truth as _truth
+from runtime.shipped import shipped_folders
 
 
 def _caller_kind_of(user_context: Any) -> str:
@@ -199,14 +201,15 @@ class ReActLoop:
         return str(user_context.get("memory_scope") or "")
 
     def _load_agent_prompts(self):
-        agents_dir = Path("agents")
-        if not agents_dir.exists():
-            return
-        for agent_dir in agents_dir.iterdir():
-            if agent_dir.is_dir():
-                identity_file = agent_dir / "identity.md"
-                if identity_file.exists():
-                    self._agent_prompts[agent_dir.name] = identity_file.read_text()
+        # The agents/ an installed package carries, then the working folder's
+        # (a clone's root, read once): a prompt there replaces the packaged
+        # one of the same agent (runtime/shipped.py).
+        for agents_dir in shipped_folders("agents"):
+            for agent_dir in agents_dir.iterdir():
+                if agent_dir.is_dir():
+                    identity_file = agent_dir / "identity.md"
+                    if identity_file.exists():
+                        self._agent_prompts[agent_dir.name] = identity_file.read_text()
 
     def get_agent_prompt(self, agent_name: str) -> str:
         return self._agent_prompts.get(agent_name, "")
@@ -427,21 +430,30 @@ class ReActLoop:
                 # dispatcher enforces the per-agent tool boundary regardless of prompt.
                 # The caller identity travels the same way: from the entry
                 # point's context, never from the model's arguments (§CD sibling
-                # axis of the identity class). That does not make it
-                # authenticated. On /bridge/v1/chat it is the wallet linked to
-                # the SIWE session; on /chat it is the request body's `wallet`
-                # (or `wallet_address`) field as the caller wrote it, session
-                # or not (gateway/server.py handle_chat); /chat/stream and /ws
-                # thread none. ServiceDispatcher.execute records whatever
-                # arrives here as the caller, labelled "authenticated" (17-J).
-                # On /chat that record is Neo's, who takes the operator key
-                # there; Trinity's state-changing actions go through
-                # runtime/agents/handoff.py with no identity at all.
+                # axis of the identity class). On every chat entrance (/chat,
+                # /chat/stream, /ws, /bridge/v1/chat) it is derived from the
+                # presented session (gateway/server.py _chat_user_context); only
+                # an operator-key request may name, in its body, the user it
+                # acts for, and an anonymous caller has none.
+                # ServiceDispatcher.execute records whatever arrives here as the
+                # caller: labelled "operator" when the operator key's request
+                # named it (the context's `identity_source`), else
+                # "authenticated" (17-J), with "agent" the channel when there is
+                # no identity. On /chat that record is Neo's, who takes the
+                # operator key there; Trinity's
+                # state-changing actions go through runtime/agents/handoff.py,
+                # whose gate is handed this identity while Neo's execution runs
+                # under its declared agent source. The dispatcher also hands it
+                # to the security seam at the tool boundary, so a decision about
+                # this caller can be made there.
                 _uc = context.metadata.get("user_context") or {}
+                _identity = str(_uc.get("wallet_address") or "")
                 outcome = await self.dispatcher.dispatch(
                     tool_name, arguments, agent_name=context.agent_name,
-                    caller_identity=str(_uc.get("wallet_address") or ""),
-                    caller_source="agent",
+                    caller_identity=_identity,
+                    caller_source=("operator" if _identity
+                                   and _uc.get("identity_source") == "operator"
+                                   else "agent"),
                     caller_kind=_caller_kind_of(_uc))
 
                 # NEW-27: three audiences, three values. These used to be one
@@ -453,8 +465,15 @@ class ReActLoop:
                 #   client_preview — for a CLIENT. Redacted, with the ref.
                 #   outcome.ok     — stated by the dispatcher, never inferred.
                 tool_result_str = outcome.model_text
+                # What the tool RETURNED is text from outside the platform: the
+                # model gets it inside an envelope that names the tool, says it
+                # is data and not an instruction, and closes on a nonce the text
+                # cannot know (register entry::TOOL-OUTPUT-INJECT). Morpheus's
+                # note is the platform's own and stays outside the envelope.
+                # Provenance, not a sandbox — runtime/tools/untrusted.py.
+                model_view = wrap_tool_output(tool_name, tool_result_str)
                 display_result = (
-                    morpheus_prefix + tool_result_str if morpheus_prefix else tool_result_str
+                    morpheus_prefix + model_view if morpheus_prefix else model_view
                 )
                 client_preview = (
                     morpheus_prefix + outcome.client_preview

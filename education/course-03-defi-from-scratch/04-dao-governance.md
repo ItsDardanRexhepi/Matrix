@@ -12,7 +12,7 @@ Think of it like this: a traditional company is a monarchy. A DAO is a direct de
 
 ## Creating a DAO on The Matrix
 
-Setting up a DAO through The Matrix is a conversation with Trinity:
+Setting up a DAO through The Matrix is meant to be a conversation with Trinity. The exchanges in this module are that intended flow, written for the course rather than recorded. Today, on a gateway where the platform's DAO contract is not deployed, a DAO request answers `not_deployed` and nothing in them happens:
 
 ```
 You: Create a DAO called "BuilderDAO" for our development community. 
@@ -27,7 +27,7 @@ Trinity: I'll set up BuilderDAO with these parameters:
   - Approval threshold: 51% of votes must be in favor
   - Timelock: 48-hour delay between approval and execution
   
-  [Morpheus confirms the deployment]
+  (If Morpheus has a note for this action, it arrives with the result. Nothing waits for an answer to it.)
   
   BuilderDAO is live.
   Governance contract: 0x...
@@ -35,7 +35,7 @@ Trinity: I'll set up BuilderDAO with these parameters:
   Timelock contract: 0x...
 ```
 
-Three contracts are deployed: the governance token (voting power), the governor contract (proposal and voting logic), and the timelock (delay between approval and execution).
+In this intended flow a DAO is three contracts: the governance token (voting power), the governor contract (proposal and voting logic), and the timelock (delay between approval and execution).
 
 ## Proposals, Voting, and Execution
 
@@ -84,7 +84,7 @@ You: Execute proposal 42 in BuilderDAO
 Trinity: Proposal #42 has passed and the timelock has expired.
   Executing: Transfer 10,000 USDC to bounty multisig
   
-  [Morpheus confirms the transaction]
+  (If Morpheus has a note for this action, it arrives with the result. Nothing waits for an answer to it.)
   
   Executed successfully. 
   10,000 USDC transferred from treasury to 0x...

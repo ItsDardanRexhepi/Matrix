@@ -370,7 +370,7 @@ def test_no_install_mixes_the_hashed_lock_with_an_unhashed_file():
     that installs requirements.txt must install nothing else, and no other
     requirements file may pull it in with `-r` (requirements-dev.txt did)."""
     problems = []
-    sources = [ROOT / p for p in ("Dockerfile", "install.sh", "setup.py")]
+    sources = [ROOT / p for p in ("Dockerfile", "install.sh", "setup.py", "setup/wizard.py")]
     sources += sorted((ROOT / ".github" / "workflows").glob("*.yml"))
     for src in sources:
         if not src.is_file():

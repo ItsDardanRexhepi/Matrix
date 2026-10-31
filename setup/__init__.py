@@ -1,7 +1,10 @@
 """
-The Matrix setup package — modular, re-runnable channel configurators.
+The Matrix setup package — the setup wizard and its channel configurators.
 
-Each module in this package configures one notification channel
+wizard.py is the first-boot setup. A clone runs it through setup.py at its
+root; an installed package runs it as `matrix setup` (cli/info.py).
+
+Each other module in this package configures one notification channel
 (telegram, discord, slack, email, sms, whatsapp, web_chat, ios_push,
 webhook). Each module exposes a `configure(config)` function that
 prompts for only its own credentials, verifies the channel by sending a

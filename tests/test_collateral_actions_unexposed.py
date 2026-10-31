@@ -1,9 +1,10 @@
 """NEW-64 — the collateral actions come back off every surface.
 
-This reverses part of NEW-61 (commit 13e5e17). NEW-61 removed the fabricated
-collateral_manage and, finding its twin real, registered
-deposit_collateral / withdraw_collateral / get_health_factor in its place.
-That registration was wrong.
+This reverses part of NEW-61 (the commit "fix(NEW-61): the defi exotics cull —
+10 fabrications removed, 1 real capability restored"). NEW-61 removed the
+fabricated collateral_manage and, finding its twin real, registered
+deposit_collateral / withdraw_collateral / get_health_factor in its place. That
+registration was wrong.
 
 THE ERROR: "real" is not one property. CollateralManager does genuine
 arithmetic over prior state — real AS COMPUTATION — but it increments a

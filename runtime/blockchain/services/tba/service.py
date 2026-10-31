@@ -2,19 +2,23 @@
 ERC-6551 token-bound accounts — every NFT can act as a smart wallet.
 
 This service wires the ERC-6551 protocol (token-bound accounts) to the
-platform. Two operations are exposed:
+platform. Two operations are named:
 
 - ``create_tba`` — deploy / bind a token-bound account for an NFT via the
-  canonical ERC-6551 ``Registry.createAccount(...)``.
-- ``execute_as_tba`` — call ``IERC6551Account.execute(...)`` on an existing
-  token-bound account so the NFT-as-wallet can act on-chain.
-
-Both are on-chain WRITES. They are signed by the **platform paymaster
-account** (via ``Web3Manager.send_transaction``) so the platform pays gas
-and no user key is ever custodied server-side. Deploying / executing a TBA
-is a platform-level operation; this service never moves a user's wallet
-funds — ``execute_as_tba`` operates the token-bound account whose
-controller is the NFT, and the call is sponsored, not user-signed.
+  canonical ERC-6551 ``Registry.createAccount(...)``. An on-chain WRITE,
+  signed by the **platform paymaster account** (via
+  ``Web3Manager.send_transaction``), so the platform pays gas and no user key
+  is ever custodied server-side.
+- ``execute_as_tba`` — REFUSED, before anything is built or signed.
+  ``IERC6551Account.execute(to, value, data, operation)`` carries a call the
+  request writes: its target, its calldata, a DELEGATECALL if it asks, and an
+  ETH value paid from the platform's own wallet to whatever contract the
+  request names as the ``account``. Signed with the platform key, that was a
+  call the request composed, made in the platform's name and with its money;
+  a contract at ``account`` with a payable ``execute`` kept the ETH. A
+  token-bound account is executed by the NFT's holder with the holder's own
+  key. (runtime/access_policy.py REFUSED_ON_REQUEST refuses it at every door
+  too.)
 
 Each method gates on its required config FIRST and returns the canonical
 CREDENTIAL-GATED ``not_deployed_response`` when a credential is missing or
@@ -78,24 +82,6 @@ _REGISTRY_ABI: list[dict] = [
             {"name": "tokenId", "type": "uint256"},
         ],
         "outputs": [{"name": "account", "type": "address"}],
-    },
-]
-
-# Minimal ABI for IERC6551Account.execute — the canonical execution
-# entrypoint of a token-bound account. operation 0 == CALL.
-# Verified against the ERC-6551 reference IERC6551Executable interface.
-_ACCOUNT_ABI: list[dict] = [
-    {
-        "type": "function",
-        "name": "execute",
-        "stateMutability": "payable",
-        "inputs": [
-            {"name": "to", "type": "address"},
-            {"name": "value", "type": "uint256"},
-            {"name": "data", "type": "bytes"},
-            {"name": "operation", "type": "uint8"},
-        ],
-        "outputs": [{"name": "result", "type": "bytes"}],
     },
 ]
 
@@ -223,76 +209,18 @@ class TokenBoundAccountService:
             }
 
     async def execute_as_tba(self, **params: Any) -> dict:
-        """Execute a call from an existing ERC-6551 token-bound account.
+        """Refused: the platform's key executes no call a request writes.
 
-        Params: ``account`` (the TBA address), ``to`` (call target),
-        optional ``value`` (wei, default 0), optional ``data`` (hex calldata,
-        default empty), optional ``operation`` (default 0 == CALL).
-
-        On-chain WRITE: ``IERC6551Account.execute(to, value, data,
-        operation)``, signed by the platform paymaster (gas-sponsored). The
-        platform never custodies a user wallet key — it operates the
-        token-bound account on the platform's behalf.
+        This signed ``IERC6551Account.execute(to, value, data, operation)``
+        with the platform paymaster key, from the platform wallet, with every
+        argument the request's: the contract it was sent to (``account``), the
+        inner call's target, calldata and operation (1 is DELEGATECALL), and an
+        ETH ``value`` taken from the platform wallet. Nothing checked that
+        ``account`` was a token-bound account, or one the platform may operate;
+        a session reached it through the capability route and through chat.
+        It now answers with a refusal before anything is built or signed. A
+        token-bound account is executed by its NFT's holder, with the holder's
+        own key.
         """
-        account = params.get("account") or params.get("tba")
-        to = params.get("to") or params.get("target")
-        value = int(params.get("value") or 0)
-        data = params.get("data") or "0x"
-        operation = int(params.get("operation") or 0)
-
-        # ── CREDENTIAL-GATED gate FIRST ──────────────────────────────
-        if not self._web3.available:
-            return not_deployed_response(self.service_name, extra={
-                "method": "execute_as_tba",
-                "missing": "blockchain.rpc_url",
-                "protocol": "ERC-6551 (IERC6551Account.execute)",
-            })
-        if is_placeholder_value(account) or is_placeholder_value(to):
-            return not_deployed_response(self.service_name, extra={
-                "method": "execute_as_tba",
-                "missing": "account / to (call params)",
-                "protocol": "ERC-6551 (IERC6551Account.execute)",
-            })
-
-        # ── REAL path: IERC6551Account.execute(...) via platform paymaster ─
-        try:
-            w3 = self._web3.w3
-            tba = self._web3.load_contract(account, _ACCOUNT_ABI)
-            to_cs = w3.to_checksum_address(to)
-
-            if isinstance(data, str):
-                data_bytes = bytes.fromhex(data[2:] if data.startswith("0x") else data)
-            else:
-                data_bytes = bytes(data)
-
-            tx = tba.functions.execute(
-                to_cs, value, data_bytes, operation
-            ).build_transaction({
-                "from": self._web3.get_account().address,
-                "chainId": self._web3.chain_id,
-                "value": value,
-            })
-
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "execute_as_tba",
-                "protocol": "ERC-6551",
-                "account": w3.to_checksum_address(account),
-                "to": to_cs,
-                "value": value,
-                "operation": operation,
-                "tx_hash": tx_hash,
-                "explorer": self._web3.explorer_url(tx_hash),
-                "gas_paid_by": "platform_paymaster",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("execute_as_tba on-chain call failed: %s", exc)
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "execute_as_tba",
-                "error": str(exc),
-                "error_type": type(exc).__name__,
-            }
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "execute_as_tba")

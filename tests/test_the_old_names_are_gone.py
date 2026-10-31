@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -55,3 +56,39 @@ def test_the_quick_start_clones_and_enters_the_same_directory():
     readme = (REPO / "README.md").read_text()
     assert "cd TheMatrix" in readme
     assert "cd The Matrix" not in readme, "that is not a valid shell command"
+
+
+# The name guard knows the old names themselves; it does not know what was
+# coined from them. examples/09_full_user_journey.py staked a token named after
+# the former name, and Trinity's credential examples in
+# runtime/chat/intent_actions.py used a DID method coined from it, one the DID
+# service never mints (it writes did:<method>:<network>:0x…, "matrix" by
+# default). This runs without the guard. Legal copy is changed only by counsel
+# and the changelog records history; neither is read.
+_COINED = re.compile(r"\b0pn(?!matrx\b)[a-z0-9_]*|\bdid:0pn\b", re.I)
+_LEFT_FOR_COUNSEL = {"CHANGELOG.md", "web/terms.html", "web/privacy.html"}
+
+
+def test_the_coined_name_scan_sees_the_old_tokens():
+    prefix = "0" + "pn"  # the former name's first letters, not written out whole here
+    assert _COINED.search(f'"token": "{prefix}MTX",')
+    assert _COINED.search(f'"example": "did:{prefix}:abc123"')
+    assert not _COINED.search(f"{prefix}Matrx is the name the guard owns; "
+                              "did:matrix:base:0xabc is not coined")
+
+
+def test_no_tracked_file_carries_a_name_coined_from_the_old_one():
+    out = subprocess.check_output(["git", "ls-files"], cwd=REPO, text=True)
+    offenders = []
+    for rel in out.splitlines():
+        if rel in _LEFT_FOR_COUNSEL or rel.startswith("tests/"):
+            continue
+        path = REPO / rel
+        if not path.is_file() or path.suffix not in (".py", ".md", ".html", ".js", ".ts",
+                                                      ".json", ".yaml", ".yml", ".sh", ".txt"):
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8", errors="replace")
+                                      .splitlines(), 1):
+            for m in _COINED.finditer(line):
+                offenders.append(f"{rel}:{lineno}: {m.group(0)}")
+    assert not offenders, "\n".join(offenders)

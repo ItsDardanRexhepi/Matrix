@@ -17,6 +17,7 @@ from typing import Any
 from runtime.blockchain.services.supply_chain.product_registry import ProductRegistry
 from runtime.blockchain.services.supply_chain.qr_codes import QRCodeGenerator
 from runtime.blockchain.services.supply_chain.ownership_listener import OwnershipListener
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -351,7 +352,7 @@ class SupplyChainService:
                 "error": f"No custody record for product: {product_id}",
             }
 
-        if current_holder != from_handler:
+        if not same_caller(current_holder, from_handler):
             return {
                 "status": "error",
                 "error": (

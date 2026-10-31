@@ -457,6 +457,19 @@ class ProtocolStack:
             "risk": None,
         }
 
+        # While the gateway's security gate is not up (still starting, or its
+        # start failed) the seam hands out no gate, and this check refuses
+        # every call before anything else is asked: neither the fail direction
+        # below (_deny_on_gate_fault) nor any other gate decides in its place.
+        from runtime.security import security_gate_withheld
+        if security_gate_withheld():
+            logger.error("security gate not up; tool call refused (tool=%s)", tool_name)
+            result["approved"] = False
+            result["denial_reason"] = (
+                "This action couldn't be authorized right now. Please try again."
+            )
+            return result
+
         # What the call DOES, not what the tool is called (§DL.4): the twin
         # tools take their real verb in arguments.action, and a contract
         # deployment or an ERC-20 approve signed with the platform key must
@@ -490,9 +503,14 @@ class ProtocolStack:
                 return result
 
         # Morpheus — the security spine. Runs FIRST, so every execution path
-        # passes him. Authoritative server-side allow/deny (binding only in
-        # ENFORCE mode; OBSERVE logs without blocking while the layer is
-        # unverified). App-side Morpheus is UX only; THIS is the boundary.
+        # passes him. Authoritative server-side allow/deny, and every deny he
+        # answers is applied here, whichever mode he reports. The mode is his:
+        # OBSERVE, the default while the layer is unverified, does not apply a
+        # verdict's deny, but a fault on a call that could move value or change
+        # state and App Attest, when it is enforced, still deny; ENFORCE
+        # applies the verdict too. A fault this frame catches takes this
+        # frame's fail direction (_deny_on_gate_fault). App-side Morpheus is UX
+        # only; THIS is the boundary.
         if self._morpheus_security is None and self._morpheus_init_failed:
             # The gate could not be CONSTRUCTED. That is a fault, not a posture,
             # and it gets the same fail-direction the evaluate-time fault gets:

@@ -1,0 +1,164 @@
+{
+ "added": {
+  "execute": {
+   "on": {
+    "p50_us": 112.4,
+    "p95_us": 142.9
+   },
+   "shadow": {
+    "p50_us": 108.6,
+    "p95_us": 137.8
+   }
+  },
+  "execute_keyed": {
+   "on": {
+    "p50_us": 138.9,
+    "p95_us": 175.9
+   },
+   "shadow": {
+    "p50_us": 135.2,
+    "p95_us": 173.6
+   }
+  },
+  "tool_twin_signing": {
+   "on": {
+    "p50_us": 83.2,
+    "p95_us": 106.2
+   },
+   "shadow": {
+    "p50_us": 92.3,
+    "p95_us": 118.0
+   }
+  }
+ },
+ "cells": {
+  "execute": {
+   "off": {
+    "n": 5000,
+    "p50_us": 14.3,
+    "p95_us": 18.9
+   },
+   "on": {
+    "n": 5000,
+    "p50_us": 126.7,
+    "p95_us": 161.8
+   },
+   "shadow": {
+    "n": 5000,
+    "p50_us": 122.9,
+    "p95_us": 156.7
+   }
+  },
+  "execute_keyed": {
+   "off": {
+    "n": 5000,
+    "p50_us": 15.3,
+    "p95_us": 19.9
+   },
+   "on": {
+    "n": 5000,
+    "p50_us": 154.2,
+    "p95_us": 195.8
+   },
+   "shadow": {
+    "n": 5000,
+    "p50_us": 150.5,
+    "p95_us": 193.5
+   }
+  },
+  "tool_twin_signing": {
+   "off": {
+    "n": 5000,
+    "p50_us": 50.9,
+    "p95_us": 58.1
+   },
+   "on": {
+    "n": 5000,
+    "p50_us": 134.1,
+    "p95_us": 164.3
+   },
+   "shadow": {
+    "n": 5000,
+    "p50_us": 143.2,
+    "p95_us": 176.1
+   }
+  }
+ },
+ "gate": "G6",
+ "host": {
+  "cpus": 10,
+  "load_average_after": [
+   2.6,
+   3.15,
+   4.66
+  ],
+  "load_average_before": [
+   2.45,
+   3.16,
+   4.69
+  ],
+  "machine": "arm64",
+  "python": "3.11.15",
+  "system": "Darwin"
+ },
+ "instrument": "in-process time.perf_counter around one call, B4's percentile method; 50 rounds, each timing a block of 100 calls per surface per mode with the mode order rotating every round, after a discarded warm-up of 200 per cell; gc.collect() at the start of each round; one DurableEngine per mode over one scratch SQLite file (the platform Database, WAL), installed for its block only; the outbox loop not running, ticked between blocks outside the stopwatch so every held delivery is handed off; stand-in services, feed and attestation client that answer at once \u2014 the platform's own cost, no chain, no network. main_off: surface execute in mode off, serve_blocks() in two interpreters running at once, one importing a checkout of the base tree and one this tree, taking turns block by block (250 blocks of 100 each, the first of each turn alternating, gc.collect() every third block as a round collects), samples pooled per tree; ratio_this_tree_to_main compares those two, stretches and ratio_p95_per_stretch the same over 5 consecutive stretches of the run, and ratio_cell_off_to_main the in-process off cell (timed between shadow and on blocks, in the interpreter whose engines write) against the base tree. Not timed: pre_action, which no durable code runs in, and the HTTP route itself. Host-dependent: host gives the processor count and the load averages.",
+ "main_off": {
+  "main": {
+   "n": 25000,
+   "p50_us": 13.3,
+   "p95_us": 17.1
+  },
+  "main_commit": "Merge audit-remediation-2026-07: a public sentence says what the code does, and a test reads it against the code",
+  "ratio_cell_off_to_main": {
+   "p50": 1.075,
+   "p95": 1.105
+  },
+  "ratio_p95_per_stretch": {
+   "max": 1.093,
+   "median": 1.079,
+   "min": 1.039
+  },
+  "ratio_this_tree_to_main": {
+   "p50": 1.068,
+   "p95": 1.082
+  },
+  "stretches": [
+   {
+    "main_p95_us": 17.2,
+    "ratio_p95": 1.093,
+    "this_tree_p95_us": 18.8
+   },
+   {
+    "main_p95_us": 16.5,
+    "ratio_p95": 1.079,
+    "this_tree_p95_us": 17.8
+   },
+   {
+    "main_p95_us": 17.2,
+    "ratio_p95": 1.087,
+    "this_tree_p95_us": 18.7
+   },
+   {
+    "main_p95_us": 17.9,
+    "ratio_p95": 1.039,
+    "this_tree_p95_us": 18.6
+   },
+   {
+    "main_p95_us": 16.4,
+    "ratio_p95": 1.061,
+    "this_tree_p95_us": 17.4
+   }
+  ],
+  "this_tree": {
+   "n": 25000,
+   "p50_us": 14.2,
+   "p95_us": 18.5
+  }
+ },
+ "measured": {
+  "on_top_of": "A configured mode on whose build itself raises installs the engine that refuses, not no engine",
+  "with_uncommitted_changes": false
+ },
+ "rule": "the latency engines.durable adds to one dispatch, in microseconds: for each surface, added = the mode's p50 (p95) minus mode off's p50 (p95), measured in the same rounds. A p95 difference is a difference of percentiles, not a percentile of per-call differences.",
+ "scope": "execute: ServiceDispatcher.execute of every state-modifying ACTION_MAP name in turn (184), params {to, amount, marker}, the caller's identity bound, no Idempotency-Key. execute_keyed: the same inside wiring.keyed with a fresh Idempotency-Key per call (the bridge's sequence after the gate). tool_twin_signing: ToolDispatcher.dispatch('nft', {action: mint, ...}) as agent neo with a session identity. Every service answers a settled success at once; in shadow and on every dispatch writes one run (two transactions), and in on a settled execute also writes an attestation and a feed outbox row."
+}

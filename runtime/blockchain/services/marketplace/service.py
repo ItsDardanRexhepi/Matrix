@@ -15,6 +15,7 @@ from runtime.blockchain.web3_manager import recorded_unsettled_response
 
 from .compliance_filter import ComplianceFilter
 from .appeals import AppealProcess
+from runtime.auth.identity import same_caller
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class MarketplaceService:
             raise ValueError(f"Listing '{listing_id}' not found")
         if listing["status"] != "active":
             raise ValueError(f"Listing '{listing_id}' is not active (status={listing['status']})")
-        if listing["seller"] == buyer:
+        if same_caller(listing["seller"], buyer):
             raise ValueError("Buyer cannot be the seller")
 
         fee_pct = self.config["platform_fee_pct"] / 100.0
@@ -189,7 +190,7 @@ class MarketplaceService:
         listing = self._listings.get(listing_id)
         if not listing:
             raise ValueError(f"Listing '{listing_id}' not found")
-        if listing["seller"] != seller:
+        if not same_caller(listing["seller"], seller):
             raise ValueError("Only the seller can cancel a listing")
         if listing["status"] not in ("active", "flagged", "pending_review"):
             raise ValueError(f"Cannot cancel listing with status '{listing['status']}'")
@@ -232,7 +233,7 @@ class MarketplaceService:
                 continue
             if listing["price"] < min_price or listing["price"] > max_price:
                 continue
-            if seller_filter and listing["seller"] != seller_filter:
+            if seller_filter and not same_caller(listing["seller"], seller_filter):
                 continue
             if keyword:
                 title = listing["metadata"].get("title", "").lower()

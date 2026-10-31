@@ -243,9 +243,10 @@ async def test_trigger_params_cannot_overwrite_the_gated_coverage_amount(svc):
     OVERWROTE the value every gate had just validated, and `ClaimsProcessor`
     pays `policy["coverage"]["amount"]`.
 
-    MEASURED at 5eee277 with all of 18-F's gates in place: an honest premium
-    of 75.0 for 1,000 of cover, a legitimate in-band predicate, and an HONEST
-    oracle reporting a real M7.8 paid out 5,000,000 — five times
+    MEASURED at the commit "18-E/18-F/18-G: the buyer wrote the test, stated
+    the price, and was told it renewed" with all of 18-F's gates in place: an
+    honest premium of 75.0 for 1,000 of cover, a legitimate in-band predicate,
+    and an HONEST oracle reporting a real M7.8 paid out 5,000,000 — five times
     `max_coverage`, a figure neither solvency nor the fee engine ever saw.
 
     §AK.2 at its sharpest: guarding the INPUT to a record while leaving the

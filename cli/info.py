@@ -4,10 +4,14 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_FILE = PROJECT_ROOT / "matrix.config.json"
+from cli.home import checkout, home, make_home, module_command
+
+# A clone keeps its config at its root, as it always has; an installed package
+# keeps it in ~/.matrix, or $MATRIX_HOME (cli/home.py says why).
+CHECKOUT = checkout()
+HOME_DIR = home()
+CONFIG_FILE = HOME_DIR / "matrix.config.json"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -51,26 +55,12 @@ def cmd_health(args) -> None:
     config = json.loads(CONFIG_FILE.read_text())
     port = config.get("gateway", {}).get("port", 18790)
 
+    # Only the request is inside the try: a gateway that answered is reachable,
+    # whatever its answer holds.
     try:
         import urllib.request
         req = urllib.request.urlopen(f"http://localhost:{port}/health", timeout=5)
         data = json.loads(req.read())
-        print()
-        print(f"  {GREEN}●{NC} {BOLD}Gateway healthy{NC}")
-        print(f"  {DIM}Status:{NC}  {data.get('status', 'unknown')}")
-        print(f"  {DIM}Port:{NC}    {port}")
-
-        uptime = data.get("uptime_seconds", 0)
-        hours = int(uptime // 3600)
-        mins = int((uptime % 3600) // 60)
-        print(f"  {DIM}Uptime:{NC}  {hours}h {mins}m")
-
-        agents = data.get("agents", {})
-        if agents:
-            enabled = [k for k, v in agents.items() if v.get("enabled")]
-            print(f"  {DIM}Agents:{NC}  {', '.join(enabled)}")
-
-        print()
     except Exception:
         print()
         print(f"  {RED}●{NC} {BOLD}Gateway not reachable{NC}")
@@ -79,18 +69,39 @@ def cmd_health(args) -> None:
         _info(f"Start with: {CYAN}matrix gateway start{NC}")
         sys.exit(1)
 
+    print()
+    print(f"  {GREEN}●{NC} {BOLD}Gateway healthy{NC}")
+    print(f"  {DIM}Status:{NC}  {data.get('status', 'unknown')}")
+    print(f"  {DIM}Port:{NC}    {port}")
+
+    uptime = data.get("uptime_seconds", 0)
+    hours = int(uptime // 3600)
+    mins = int((uptime % 3600) // 60)
+    print(f"  {DIM}Uptime:{NC}  {hours}h {mins}m")
+
+    # /health lists the enabled agents by name (gateway/server.py handle_health).
+    agents = data.get("agents") or []
+    if agents:
+        print(f"  {DIM}Agents:{NC}  {', '.join(str(name) for name in agents)}")
+
+    print()
+
 
 def cmd_setup(args) -> None:
-    """Run interactive first-boot setup."""
-    setup_script = PROJECT_ROOT / "setup.py"
-    if not setup_script.exists():
-        _error("setup.py not found in project root.")
-        sys.exit(1)
+    """Run interactive first-boot setup.
 
-    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python3"
-    python = str(venv_python) if venv_python.exists() else sys.executable
+    From a clone: the clone's setup.py, under its .venv when there is one. From
+    an installed package: the same wizard from the package, writing into the
+    install's folder, which is kept off its import path (cli/home.py).
+    """
+    if CHECKOUT is not None:
+        venv_python = CHECKOUT / ".venv" / "bin" / "python3"
+        python = str(venv_python) if venv_python.exists() else sys.executable
+        proc = subprocess.run([python, str(CHECKOUT / "setup.py")], cwd=str(CHECKOUT))
+        sys.exit(proc.returncode)
 
-    proc = subprocess.run([python, str(setup_script)], cwd=str(PROJECT_ROOT))
+    make_home(HOME_DIR)
+    proc = subprocess.run(module_command("setup.wizard", "--home", str(HOME_DIR)), cwd=str(HOME_DIR))
     sys.exit(proc.returncode)
 
 

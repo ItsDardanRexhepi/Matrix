@@ -1,5 +1,6 @@
 """
-veToken locks, quadratic voting, RetroPGF, gauge bribes, voting delegation.
+veToken locks, quadratic voting, gauge bribes, voting delegation; RetroPGF
+submission refused.
 
 Real protocol wiring (CREDENTIAL-GATED until the operator configures keys):
 
@@ -9,7 +10,9 @@ Real protocol wiring (CREDENTIAL-GATED until the operator configures keys):
                        are EIP-712 signed by the *voter*; we NEVER sign a user's
                        vote server-side, so we return the prepared unsigned typed
                        data for the user's wallet (non-custodial).
-- ``submit_retropgf``→ EAS attestation registry (RetroPGF round application).
+- ``submit_retropgf``→ REFUSED. It attested a RetroPGF application with the
+                       platform's key, the project, metadata and recipient all
+                       the request's (see the method).
 - ``place_bribe``    → gauge bribe-market ``deposit_bribe`` (platform-funded
                        incentive, on-chain WRITE via paymaster).
 - ``delegate_voting``→ Snapshot Delegate Registry ``setDelegate`` for the platform
@@ -19,8 +22,6 @@ Config (read from ``services.advanced_governance`` unless noted):
     ve_token_address        — Curve VotingEscrow contract (vote_escrow)
     snapshot_hub            — Snapshot hub base URL (quadratic_vote)
     snapshot_space          — Snapshot space id, e.g. "myspace.eth"
-    eas_address / eas_schema — EAS contract + schema uid (submit_retropgf)
-                               (falls back to blockchain.eas_contract/eas_schema)
     bribe_market_address    — gauge bribe market contract (place_bribe)
     delegate_registry_address — Snapshot Delegate Registry (delegate_voting)
 
@@ -309,100 +310,24 @@ class AdvancedGovernanceService:
             "typed_data": typed_data,
         }
 
-    # ── submit_retropgf — EAS attestation registry ─────────────────────
+    # ── submit_retropgf — refused ──────────────────────────────────────
 
     async def submit_retropgf(self, **params: Any) -> dict:
-        """Register a RetroPGF application via an EAS attestation (on-chain WRITE).
+        """Refused: the platform's key signs no attestation a request composes.
 
-        Platform-level: the platform account attests the application reference
-        on the Ethereum Attestation Service. Uses cfg.eas_address (falling back
-        to blockchain.eas_contract) + cfg.eas_schema (blockchain.eas_schema).
-
-        params: project_id, recipient (address), metadata_uri.
+        This had the platform paymaster account sign an EAS ``attest`` whose
+        data was ``"<project_id>|<metadata_uri>"`` and whose recipient was the
+        address the request named, under ``eas_schema`` — which falls back to
+        ``blockchain.eas_schema``, the schema the platform's own agent
+        registrations are written under. That is the platform putting its name
+        to a statement the request wrote, about an address nobody showed they
+        control: the attestation service's ``attest``, refused at every door on
+        the same ground (runtime/access_policy.py REFUSED_ON_REQUEST), under
+        another name. It now answers with a refusal before anything is built or
+        signed. An application is the applicant's to attest, with their own key.
         """
-        cfg = self._cfg()
-        bc = self._config.get("blockchain", {})
-        eas_addr = cfg.get("eas_address") or bc.get("eas_contract", "")
-        eas_schema = cfg.get("eas_schema") or bc.get("eas_schema", "")
-
-        if is_placeholder_value(eas_addr):
-            return self._gate("submit_retropgf", "services.advanced_governance.eas_address (or blockchain.eas_contract)",
-                              "RetroPGF via EAS (Ethereum Attestation Service)")
-        if is_placeholder_value(eas_schema):
-            return self._gate("submit_retropgf", "services.advanced_governance.eas_schema (or blockchain.eas_schema)",
-                              "RetroPGF via EAS (Ethereum Attestation Service)")
-        if not self._web3.available:
-            return self._gate("submit_retropgf", "blockchain.rpc_url",
-                              "RetroPGF via EAS (Ethereum Attestation Service)")
-
-        project_id = params.get("project_id")
-        recipient = params.get("recipient")
-        metadata_uri = params.get("metadata_uri", "")
-        if not project_id or not recipient:
-            return {
-                "status": "error",
-                "service": self.service_name,
-                "method": "submit_retropgf",
-                "error": "project_id and recipient are required",
-            }
-
-        # Real EAS ``attest`` ABI (canonical IEAS.attest with AttestationRequest).
-        eas_abi = [{
-            "name": "attest",
-            "stateMutability": "payable",
-            "type": "function",
-            "inputs": [{
-                "name": "request", "type": "tuple",
-                "components": [
-                    {"name": "schema", "type": "bytes32"},
-                    {"name": "data", "type": "tuple", "components": [
-                        {"name": "recipient", "type": "address"},
-                        {"name": "expirationTime", "type": "uint64"},
-                        {"name": "revocable", "type": "bool"},
-                        {"name": "refUID", "type": "bytes32"},
-                        {"name": "data", "type": "bytes"},
-                        {"name": "value", "type": "uint256"},
-                    ]},
-                ],
-            }],
-            "outputs": [{"name": "", "type": "bytes32"}],
-        }]
-        try:
-            w3 = self._web3.w3
-            schema_b32 = _to_bytes32(eas_schema)
-            # Encoded application payload (project ref + metadata URI) as bytes.
-            data_bytes = f"{project_id}|{metadata_uri}".encode("utf-8")
-            request = (
-                schema_b32,
-                (
-                    w3.to_checksum_address(recipient),
-                    0,           # expirationTime: no expiry
-                    True,        # revocable
-                    b"\x00" * 32,  # refUID
-                    data_bytes,
-                    0,           # value
-                ),
-            )
-            contract = self._web3.load_contract(eas_addr, eas_abi)
-            tx = contract.functions.attest(request).build_transaction(
-                {"from": self._web3.get_account().address}
-            )
-            tx_hash = await self._web3.send_transaction(tx)
-            return {
-                "status": "submitted",
-                "service": self.service_name,
-                "method": "submit_retropgf",
-                "protocol": "EAS (RetroPGF application attestation)",
-                "tx_hash": tx_hash,
-                "explorer_url": self._web3.explorer_url(tx_hash),
-                "eas_address": eas_addr,
-                "schema": eas_schema,
-                "project_id": project_id,
-                "signer": "platform_paymaster",
-            }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("submit_retropgf failed: %s", exc)
-            return {"status": "error", "service": self.service_name, "method": "submit_retropgf", "error": str(exc)}
+        from runtime.access_policy import refused_by_the_service
+        return refused_by_the_service(self.service_name, "submit_retropgf")
 
     # ── place_bribe — gauge bribe market depositBribe (on-chain WRITE) ──
 

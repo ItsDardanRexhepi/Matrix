@@ -1,6 +1,11 @@
 # Plugin Development Guide
 
-Build and sell plugins for the Matrix platform.
+Build plugins for The Matrix platform. The plugin loader
+(`runtime/plugins/loader.py`) can import a package from `plugins/installed/`, but
+nothing in the gateway calls it: placing a package there runs nothing today, and
+a plugin's hooks run only in a process that loads it itself (see **Running a
+plugin** below). The marketplace lists plugins and does not install them, and
+paid plugin sales are not live.
 
 ## Quick Start
 
@@ -23,24 +28,41 @@ class MyPlugin(MatrixPlugin):
         print("Plugin unloaded!")
 ```
 
-## Plugin Lifecycle
+## Running a plugin
 
-1. **Discovery** — The `PluginLoader` scans `plugins/installed/` for Python packages
-2. **Loading** — Each package is imported and scanned for `MatrixPlugin` subclasses
-3. **Initialization** — `on_load(config)` is called with the platform config
-4. **Runtime** — Hooks are called during message processing
-5. **Shutdown** — `on_unload()` is called on platform shutdown
+Nothing in the gateway loads plugins, so the lifecycle below runs only where
+your own code drives `PluginLoader`:
+
+```python
+import asyncio
+from runtime.plugins.loader import PluginLoader
+
+async def main():
+    loader = PluginLoader()              # scans plugins/installed/
+    plugins = await loader.load_all({})  # imports each, then awaits on_load(config)
+    print([p.name for p in plugins], [t["name"] for p in plugins for t in p.get_tools()])
+    await loader.unload_all()            # awaits on_unload()
+
+asyncio.run(main())
+```
+
+1. **Discovery** — `PluginLoader.discover()` lists packages in `plugins/installed/`
+2. **Loading** — `load()` imports one and takes the first `MatrixPlugin` subclass it finds
+3. **Initialization** — `on_load(config)` is awaited with the config you passed
+4. **Runtime** — `on_message` / `on_tool_call` run only if your code calls them:
+   the gateway's chat path and tool dispatcher do not
+5. **Shutdown** — `unload_all()` awaits `on_unload()`
 
 ## Available Hooks
 
 | Hook | When Called | Can Modify? |
 |------|-----------|-------------|
-| `on_load(config)` | Plugin startup | No |
-| `on_unload()` | Plugin shutdown | No |
-| `on_message(agent, message)` | Before agent processes a message | Yes — return modified message |
-| `on_tool_call(tool_name, args)` | Before a tool executes | Yes — return modified args |
-| `get_tools()` | During initialization | Registers new tools |
-| `get_commands()` | During initialization | Registers slash commands |
+| `on_load(config)` | `PluginLoader.load()`, after the import | No |
+| `on_unload()` | `PluginLoader.unload()` | No |
+| `on_message(agent, message)` | `PluginRegistry.run_message_hooks()`, which nothing in the gateway calls | Yes — return modified message |
+| `on_tool_call(tool_name, args)` | Nothing calls it | Yes — return modified args |
+| `get_tools()` | `PluginRegistry.get_all_tools()`, which nothing in the gateway calls | Returns tool definitions; no dispatcher registers them |
+| `get_commands()` | `PluginRegistry.get_all_commands()`, which nothing in the gateway calls | Returns command definitions; nothing serves them |
 
 ## Registering Custom Tools
 
@@ -65,24 +87,35 @@ async def handle_tool(self, input: str, **kwargs) -> str:
 
 ## Plugin Marketplace
 
-### Selling Your Plugin
+### Listing Your Plugin
 
 1. Build and test your plugin locally
-2. Submit it via `POST /marketplace/plugins/submit` (requires Enterprise tier)
-3. Wait for review and approval
-4. Your plugin appears on the marketplace
+2. Submit it via `POST /marketplace/plugins/submit` with the gateway API key (no
+   subscription tier is checked)
+3. The listing is stored with status `pending`. Nothing in this gateway reviews,
+   approves or activates a listing, so it never appears in
+   `GET /marketplace/plugins`: the route lists `active` listings held in memory,
+   and stored listing rows are not read back after a restart.
 
 ### Revenue Share
 
-**You keep 90%. We take 10%.**
+**Paid plugin sales are not live yet.** `POST /marketplace/plugins/{plugin_id}/purchase`
+answers `501 not_built` for a paid plugin: there is no App Store product for a
+plugin and no server path that records a paid purchase. For a free listing the
+route answers `already_purchased` with `installed: false`: free listings count as
+owned by every caller, and nothing is recorded or installed.
 
-Set your price when submitting. Free plugins are always welcome and don't require
-any revenue share.
+When paid sales exist, the platform commission is the operator's
+`plugin_marketplace.commission_rate` setting (the published Terms of Service state
+10%). A sale made through Apple In-App Purchase also pays the App Store's
+commission, which comes off before any platform split.
 
-### Pricing Options
+### Pricing Fields
 
-- **One-time** — User pays once, gets the plugin forever
-- **Monthly** — Recurring subscription for ongoing access
+A listing can carry `price_usd` and `price_type` (`one_time` or `monthly`), and
+the store keeps them. Neither is sold today: a listing with a price above zero
+cannot be bought (the purchase route answers `501`), and nothing bills a
+monthly price.
 
 ## Directory Structure
 
@@ -101,7 +134,7 @@ Plugins can specify a minimum tier:
 ```python
 @property
 def min_tier(self) -> str:
-    return "pro"  # Only Pro and Enterprise users can install
+    return "pro"  # declared and listed; nothing enforces it when a plugin loads
 ```
 
 ## Example: Portfolio Tracker Plugin

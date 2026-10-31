@@ -59,7 +59,7 @@ Mitigation: stake in audited protocols, prefer protocols with track records, and
 
 ## Using The Matrix Staking Service
 
-The Matrix provides a staking service accessible through Trinity:
+The Matrix provides a staking service accessible through Trinity. The exchanges below are the intended flow, written for the course rather than recorded, and their pools and rates are examples. Today a stake answers `not_deployed` on a gateway where the platform's staking contract is not deployed, and then nothing in them happens:
 
 ```
 You: What staking options are available right now?
@@ -90,7 +90,7 @@ Trinity: Staking 0.5 ETH in the liquid staking pool:
   - Lock period: None (you can unstake anytime)
   - You will receive 0.5 stETH (liquid staking token)
   
-  [Morpheus confirms the transaction]
+  (If Morpheus has a note for this action, it arrives with the result. Nothing waits for an answer to it.)
 ```
 
 The liquid staking token (stETH in this example) represents your staked position. You can hold it, use it as collateral for loans, or sell it. When you want to unstake, you redeem the stETH for ETH plus accumulated rewards.

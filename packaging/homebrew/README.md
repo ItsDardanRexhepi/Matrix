@@ -1,55 +1,123 @@
 # Homebrew
 
-`matrix.rb` installs The Matrix as a command-line tool:
+`matrix.rb` is a Homebrew formula for The Matrix's command-line tool. It is not
+published, and it is not ready to be: no tap carries it, and an install made
+from it cannot set the platform up (see below). To run The Matrix today, clone
+the repository and run its setup, as the Quick Start of the main README says:
 
 ```bash
-brew tap ItsDardanRexhepi/matrix
-brew install matrix
-matrix setup
+git clone https://github.com/ItsDardanRexhepi/Matrix
+cd Matrix
+python3 setup.py
 ```
 
-## What is verified, and what is not
+Do not `pip install the-matrix` or `pipx install the-matrix`. This project is
+not on PyPI, and that name there belongs to an unrelated project.
 
-Verified here, by running it rather than by reading it:
+## What the formula installs
 
-* the source tarball URL resolves: under the repository's old name it redirects
-  to the new one;
-* all 61 Python dependencies pin to a real PyPI sdist with its own `sha256`,
-  taken from the versions a clean `pip install .` actually resolved;
-* the formula is valid Ruby (`ruby -c`);
-* everything the formula's `test do` block asserts is true of a clean install —
-  `matrix version` prints `The Matrix v1.1.0` and `matrix --help` offers `setup`.
+* **The source** is this repository at one commit, named in `url`, with the
+  `sha256` of the archive GitHub serves for it. The pin names a commit, so it
+  does not follow `main`: it is moved, with its hash, when a release is cut.
+* **The dependencies** are the 61 packages of `requirements.txt` that install
+  on macOS and Linux under the formula's Python, each at the version the lock
+  names at the pinned commit, from the source archive whose `sha256` the lock
+  records. The four locked packages the formula leaves out install only on
+  Windows or on a Python older than 3.11.
+* **The version** the formula declares is the one the pinned commit reports.
 
-NOT verified: `brew install` itself. Homebrew on the machine this was prepared
-on cannot run any install — `brew install jq` fails the same way — with
+## What an install from it can and cannot do
 
-```
-JSON.generator=: undefined method 'default_sort_keys_proc=' for class JSON::Ext::Generator::State
-```
+The formula installs the commit it pins, and there the `matrix` command looks
+for its setup, its configuration file and its data folder beside its own
+files. In a clone they are there. In an install made by the formula, or by
+`pip install .` of that commit, they are not. Measured on a clean install of
+the pinned source from the lock, in a virtual environment on Python 3.11:
 
-which is a gem conflict inside Homebrew and not a property of this formula.
-Repair it with `brew update-reset` (or reinstall Homebrew), then
-`brew install --build-from-source dardanrexhepi/matrix/matrix` is the check
-that closes this out.
+| Command | Result |
+|---|---|
+| `matrix version` | prints `The Matrix v1.1.0` |
+| `matrix --help` | lists the commands |
+| `matrix setup` | exits 1: "setup.py not found in project root" |
+| `matrix config` | exits 1: "No config found" |
+| `matrix gateway start` | exits 1: "No configuration found" |
 
-## Two things that are the owner's
+Until its pin moves, the formula installs a command that cannot set the
+platform up, and its caveats say so.
 
-1. **The tap.** `brew install matrix` on its own needs homebrew-core, which has
-   notability requirements this project does not meet yet. A TAP needs no
-   approval: create a public repo named `homebrew-matrix` under
-   ItsDardanRexhepi, put this file in `Formula/matrix.rb`, and once the pin below
-   is refreshed the two commands above work. Creating a public repository is a
-   new public surface, so it is yours to make, not mine.
-2. **The pin.** `url` points at a specific commit so the hash is exact, and the
-   hash is now stale: since the repository was renamed to Matrix, GitHub serves
-   that commit's archive with a `Matrix-<commit>/` top directory, and it no longer
-   hashes to the pinned `sha256`. Point `url` at a release tag when you cut one,
-   or at the same commit under the new name, and update `sha256` to that
-   tarball's.
+## The command after the pin
 
-## Why a tap and not just pip
+The command in this tree keeps an install's files in a folder of the user's
+own: `~/.matrix`, or `$MATRIX_HOME` when that is set. A clone keeps them in the
+clone, as before. From an install, `matrix setup` runs the same setup a clone
+runs and writes the configuration and its keys into that folder, created
+readable by its owner only, and `matrix config` reads them there. `matrix
+gateway start` runs the gateway in that folder and keeps its PID and log in
+`data/` there, and `matrix-gateway` runs it there too; until the setup has
+written a configuration into the folder, both stop and say to run it. The
+package also carries the files beside the code that the gateway reads, at the
+paths a clone has them: the agents' identity prompts, the web pages, the
+component registry, the skills and Apple's root certificate.
 
-`pipx install the-matrix` works today and is the more standard channel for a
-Python CLI. Homebrew is the nicer front door on macOS — it installs the Python,
-builds the native dependencies, and `brew upgrade` handles updates. It is a
-convenience over pip, not a replacement for it.
+`tests/test_setup_from_an_installed_package.py` measures the setup and those
+paths on every run of the suite: it builds a wheel of the tree, installs it
+into a new virtual environment, and runs `matrix setup` from a folder outside
+the tree. It also drives the installed gateway's app in-process, through
+aiohttp's test server on a loopback port picked for the run, from an empty
+folder, and holds that its pages, its agents' prompts, its tools and its Apple
+root are a clone's; and it runs `matrix-gateway` from another folder with the
+install's folder missing, then empty, and holds that it stops and names the
+folder and the setup. It does not run pipx, Homebrew, or the gateway as
+`matrix gateway start` or `matrix-gateway` serve it.
+
+Checked once by hand, with pipx 1.18.4 on Python 3.11 and HOME set to an empty
+folder: pipx installed a wheel of the tree, taking the dependencies from the
+package index within `pyproject.toml`'s ranges. From that install, run from
+another empty folder, `matrix setup`, `matrix config`, `matrix gateway start
+-d`, `matrix health`, `matrix gateway status` and `matrix gateway stop` ran.
+The gateway answered each of its eleven pages, its badge script and its
+registry with the tree's own file, loaded the four skills, and sent Trinity's
+identity prompt to a stand-in model server with a chat turn. `matrix-gateway`,
+started from the other folder, ran in `~/.matrix` and served `/chat`; started
+before the setup, with `~/.matrix` missing, and again after a setup quit at
+its first question had left the folder empty, it stopped and named the folder
+and `matrix setup`. `python -m gateway.doctor` read the configuration in
+`~/.matrix`. The configuration, the database, the log and, while the gateway
+ran, its PID were in `~/.matrix`; nothing else was written under HOME or into
+the folder they ran from.
+
+The formula's pin predates this. An install through the formula gets it when
+the pin moves, with its hash and its resources, to a commit that has it, which
+is done when a release is cut; and `brew install` itself has still not been
+run (below).
+
+## What has been checked, and what has not
+
+`tests/test_the_homebrew_formula_installs_the_locked_set.py` holds the formula
+and this page to what is above. It runs the pinned commit's command from its
+own files for the table, without installing it. It uses no network, so three
+things are outside it: the hash of the source archive, the path of each
+dependency's archive on the package index, and which of the hashes the lock
+accepts for a package is the source archive's and not a wheel's. It reads the
+pinned commit from the history, so in a checkout without history those checks
+are skipped; the test job of this repository's CI checks out the whole history.
+
+Checked once, by running it, when the pins were written:
+
+* the source archive downloads from the pinned address and hashes to the
+  pinned `sha256`;
+* every dependency's address and `sha256` are the ones the package index
+  gives for that release's source archive;
+* the table above.
+
+Not checked: `brew install` itself. No install of this formula through
+Homebrew has been run. The check that closes this is
+`brew install --build-from-source` against the formula in a tap.
+
+## Publishing it
+
+Two things come first: the pin has to move to a commit whose command works
+from an install, and `brew install` has to be run. After that, `brew install matrix` with no tap
+needs homebrew-core, which has notability requirements this project does not
+meet yet. A tap needs no approval: a public repository named `homebrew-matrix`
+under ItsDardanRexhepi with this file at `Formula/matrix.rb`.

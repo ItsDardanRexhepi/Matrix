@@ -1,8 +1,8 @@
 """
 Smart Contract Conversion Service — Component 1.
 
-Converts Solidity, Vyper, or pseudocode contracts into optimized Solidity
-targeting Base L2. Handles complexity classification, tiered pricing,
+Converts Solidity, Vyper, or pseudocode contracts into a Solidity draft
+for Base, Ethereum or Polygon. Handles complexity classification, tiered pricing,
 platform fee injection, and artist/creative contract detection.
 """
 

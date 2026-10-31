@@ -28,9 +28,15 @@ from typing import Any
 from aiohttp import web
 
 from gateway.error_contract import client_error, dispatcher_failure, refusal_http_status
+from runtime.durable.wiring import caller_scope as _durable_scope, keyed as _durable_keyed
 from runtime.protocols.outcome_truth import FAILURE, OUTCOME_FIELD, SUCCESS, report_of
 
 logger = logging.getLogger(__name__)
+
+
+def _gas_sponsorship_configured(config: dict) -> bool:
+    from runtime.blockchain.sponsorship import describe_gas_policy
+    return bool(describe_gas_policy(config)["sponsored"])
 
 
 class MobileResponse:
@@ -206,7 +212,7 @@ SERVICE_CATALOG = [
         "id": "payments",
         "name": "Payments",
         "icon": "creditcard",
-        "description": "Send money anywhere instantly. Zero fees.",
+        "description": "Quote and record cross-border payments. A platform fee is deducted (0.5% unless the operator sets another rate; the quote shows it). Recorded payments are not settled yet, so no money moves.",
         "category": "finance",
         "actions": ["send_payment", "get_payment_quote", "create_payment"],
     },
@@ -964,6 +970,14 @@ class BridgeRoutes:
         # `send_payment`. The refusal is keyed on the (service, method) the
         # action resolves to, so every dispatcher gives one answer; the operator
         # key is unaffected.
+        # What no caller may have dispatched, the operator key included
+        # (runtime/access_policy.py REFUSED_ON_REQUEST): the attestation
+        # service signing or revoking what the request composed.
+        from runtime.access_policy import refused_on_request
+        refused_for_all = refused_on_request(action)
+        if refused_for_all:
+            return MobileResponse.error(refused_for_all, 403)
+
         caller_kind = str(getattr(self._server, "_caller_kind", lambda _r: "")(request) or "")
         if caller_kind and caller_kind != "operator":
             # One refusal for every dispatcher and every credential tier.
@@ -971,6 +985,15 @@ class BridgeRoutes:
             refused = caller_refused_route(caller_kind, action)
             if refused:
                 return MobileResponse.error(caller_refusal_message(caller_kind, refused), 403)
+            # The platform's wallet or a platform credential acting on what the
+            # request names (runtime/access_policy.py REFUSED_TO_A_SESSION), and
+            # the few actions held to the session's own address.
+            from runtime.access_policy import refused_to_the_caller
+            refused = refused_to_the_caller(
+                caller_kind, action, params=params,
+                identity=getattr(self._server, "_session_identity", lambda _r: "")(request))
+            if refused:
+                return MobileResponse.error(refused, 403)
 
         # Security gate (boundary call): this direct action path skips the ReAct
         # loop, so it must consult the Morpheus contract itself before executing.
@@ -988,10 +1011,15 @@ class BridgeRoutes:
         session_identity = getattr(self._server, "_session_identity", lambda _r: "")(request)
         linked = self._visible_link(request, session_id)
         identity = session_identity or linked.get("address", "")
+        # Without a session the link is visible only to the operator, so the
+        # identity is one the operator key chose by naming the session id. The
+        # record of who acted says so (ServiceDispatcher's `actor_source`).
+        identity_source = "session" if session_identity else "operator"
         bind_request_security(
             identity=identity,
             app_attest=body.get("app_attest"),
             session_id=session_id,
+            identity_source=identity_source,
         )
         from runtime.access_policy import dispatch_pair
         decision = await gate_action(action, params if isinstance(params, dict) else {},
@@ -1046,11 +1074,20 @@ class BridgeRoutes:
             # linked a wallet to was GATED as B and EXECUTED as W: the service
             # decided ownership for the account that linked, not the one that
             # asked. The dispatcher now gets exactly the identity the gate saw.
-            result = await dispatcher.execute(
-                action,
-                params=params,
-                caller_identity=identity,
-            )
+            # Engines Phase 2: with engines.durable.mode shadow or on, the
+            # dispatcher is told this request's Idempotency-Key header, whose it
+            # is (the credential's own subject, which linking a wallet does not
+            # change) and the gate decision it passed (runtime/durable/wiring.py
+            # keyed). With the mode off (the default) no engine is installed and
+            # `keyed` reads and computes nothing.
+            with _durable_keyed(request, decision=decision, scope=lambda: _durable_scope(
+                    self._server, request, caller_kind, identity)):
+                result = await dispatcher.execute(
+                    action,
+                    params=params,
+                    caller_identity=identity,
+                    caller_source="operator" if identity and identity_source == "operator" else "",
+                )
         except Exception as e:
             # RUN-5: was the raw exception as the response body. And this
             # caught TypeError as "Invalid parameters" (422, the raw binding
@@ -1241,7 +1278,9 @@ class BridgeRoutes:
             "features": {
                 "glasswing_audit": True,
                 "eas_attestations": True,
-                "gas_sponsorship": True,
+                # Derived, not asserted: the app used to be told sponsorship
+                # was on whatever the deployment configured.
+                "gas_sponsorship": _gas_sponsorship_configured(self._config),
                 "managed_agents": True,
             },
             "endpoints": {

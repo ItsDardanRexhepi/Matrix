@@ -28,19 +28,11 @@ logger = logging.getLogger(__name__)
 BUILTIN_SERVICES: list[dict] = [
     {
         "agent_id": "trinity",
-        "name": "Natural Language Contract Specification",
-        "description": "Convert plain English requirements into structured smart contract specifications",
+        "name": "Contract Conversion",
+        "description": "Generate Solidity from a contract written as structured pseudocode, Solidity or Vyper, and scan it with Glasswing",
         "category": ServiceCategory.GENERATION.value,
         "price_usd": 0.0,
-        "capabilities": ["contract_spec", "requirements_analysis", "solidity_generation"],
-    },
-    {
-        "agent_id": "neo",
-        "name": "Smart Contract Deployment",
-        "description": "Deploy and verify smart contracts on Base and other EVM chains",
-        "category": ServiceCategory.INTEGRATION.value,
-        "price_usd": 0.0,
-        "capabilities": ["contract_deployment", "verification", "gas_estimation"],
+        "capabilities": ["contract_conversion", "solidity_generation"],
     },
     {
         "agent_id": "morpheus",
@@ -53,10 +45,10 @@ BUILTIN_SERVICES: list[dict] = [
     {
         "agent_id": "trinity",
         "name": "Security Audit Analysis",
-        "description": "Analyse smart contracts for security vulnerabilities using Glasswing",
+        "description": "Scan a contract's source with Glasswing's twelve automated pattern checks",
         "category": ServiceCategory.ANALYSIS.value,
         "price_usd": 0.0,
-        "capabilities": ["vulnerability_scan", "gas_analysis", "best_practices"],
+        "capabilities": ["vulnerability_scan"],
     },
     {
         "agent_id": "neo",

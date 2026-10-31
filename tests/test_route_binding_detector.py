@@ -1,10 +1,11 @@
 """D8 — every gateway handler must be able to CALL the method it targets.
 
-THE LAYER FINDING. This is not a collection of local defects. Measured at
-b81a00f, 49 of 105 handler→method bindings could not execute: fewer than 54% of
-the platform's HTTP routes could reach the method they name. The route layer was
-written against IMAGINED signatures and never once exercised against the service
-layer.
+THE LAYER FINDING. This is not a collection of local defects. Measured at the
+commit "security(NEW-86/87/88): remit delegates, bridge disabled,
+bridge_completed removed", 49 of 105 handler→method bindings could not execute:
+fewer than 54% of the platform's HTTP routes could reach the method they name.
+The route layer was written against IMAGINED signatures and never once exercised
+against the service layer.
 
 That reframes earlier findings retroactively. Domain 4 found one dead route.
 Domain 5 found five. Domain 7 found `/claim/settle` pointing at a method that

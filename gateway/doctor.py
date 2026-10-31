@@ -31,9 +31,14 @@ ROOT = Path(__file__).resolve().parent.parent
 # ── Config (read-only; no env-override side effects, no secret enforcement) ──
 
 def _load_config_readonly(path: str = "matrix.config.json") -> dict:
+    """The configuration the gateway reads: a relative path is taken from a
+    clone's root, or from the folder an installed package keeps its files in
+    (~/.matrix, or $MATRIX_HOME; cli/home.py), where `matrix setup` wrote it."""
+    from cli.home import home
+
     p = Path(path)
     if not p.is_absolute():
-        p = ROOT / path
+        p = home() / path
     if not p.exists():
         return {}
     try:
@@ -157,6 +162,15 @@ def check_security_backend(config: dict) -> tuple:
         installed = False
 
     if SECURITY_BACKEND == "morpheus_security":
+        from runtime.security import backend_names_callers_as_the_platform_does
+
+        if not backend_names_callers_as_the_platform_does():
+            # The gateway will not start this core's gate (the seam's rule
+            # check), so READY would describe a gateway that is not going to run.
+            return ("security backend", STUB,
+                    "morpheus_security is loaded but does not name a caller the "
+                    "way the platform does (canonical_identity, "
+                    "runtime/auth/identity.py); the gateway will not start its gate")
         return ("security backend", READY,
                 "morpheus_security ACTIVE (real enforcement available)")
 
@@ -177,8 +191,16 @@ def check_security_backend(config: dict) -> tuple:
 def check_route_table(config: dict) -> tuple:
     try:
         from scripts.generate_route_table import collect  # type: ignore
+        from cli.home import checkout
+
         routes, public = collect()
         public_count = sum(1 for r in routes if r[1] in public)
+        if checkout() is None:
+            # docs/ROUTES.md is a document of the clone; an installed package
+            # carries no docs/, so there is nothing to find stale.
+            return ("route table", UNCONFIGURED,
+                    f"{len(routes)} routes ({public_count} public); not compared: "
+                    "docs/ROUTES.md is kept in a clone, and an install has none")
         out = ROOT / "docs" / "ROUTES.md"
         fresh = out.exists() and str(len(routes)) in out.read_text()[:400]
         status = READY if fresh else HALF

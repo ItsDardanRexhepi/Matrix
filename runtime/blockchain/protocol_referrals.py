@@ -8,8 +8,11 @@ integrators earn a cut for delivering users.
 Nothing in the platform collects these fees yet. The gateway constructs
 ProtocolReferralCollector at start-up, but no swap or lending path reads
 its parameters or records a referral event, so no referral fee is
-requested or received. The recipient these configurations name is the
-NeoSafe multisig.
+requested or received. The configs name the NeoSafe multisig as the fee
+recipient and referrer, so a caller that put these parameters on a swap,
+supply or borrow would send the protocol's referral share there. That
+caller does not exist (tests/test_fee_disclosure_matches_code.py lists this
+file as not charged for that reason).
 
 Supported programmes
 --------------------

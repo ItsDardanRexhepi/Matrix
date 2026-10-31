@@ -52,15 +52,17 @@ will print a warning and continue with the remaining steps.
 
 | # | Script | What it demonstrates | Components |
 |---|--------|---------------------|------------|
-| 01 | `01_contract_conversion.py` | Plain English -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
-| 02 | `02_defi_loan.py` | Collateralised lending: deposit, borrow, monitor health, repay | 2, 11 |
-| 03 | `03_nft_with_royalties.py` | Mint NFT with EIP-2981 royalties, list, sell, royalty split | 3, 15, 24 |
-| 04 | `04_parametric_insurance.py` | Weather-based crop insurance with oracle trigger and auto-payout | 13, 11 |
+| 01 | `01_contract_conversion.py` | Pseudocode -> Solidity -> audit (runs with `conversion.auto_deploy` off; deploying it is yours to do) | 1 |
+| 02 | `02_defi_loan.py` | Collateralised lending: create a loan, read it back, repay it | 2 |
+| 03 | `03_nft_with_royalties.py` | ERC-721 collection with an EIP-2981 royalty: create, mint, list, sell | 3 |
+| 04 | `04_parametric_insurance.py` | Crop insurance: policy, weather oracle reading, claim judged on the service's own oracle data | 13, 11 |
 | 05 | `05_marketplace_flow.py` | List, search, view and buy; the sale is recorded with its fee split (no escrow, nothing moves on chain) | 24 |
-| 06 | `06_eas_attestation_chain.py` | Writing EAS attestations, batching them, verifying one | 8 |
-| 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording | 1, NeoSafe |
-| 08 | `08_oracle_routing.py` | Chainlink price feeds, weather data, VRF randomness | 11 |
+| 06 | `06_eas_attestation_chain.py` | Attest sample records (where `blockchain.eas_schema` is a well-formed bytes32 UID, queued unless time-critical); batch attest; verify | 8 |
+| 07 | `07_revenue_to_neosafe.py` | RevenueEnforcer fee injection, NeoSafeRouter fee recording (in memory, nothing moves) | 1, NeoSafe |
+| 08 | `08_oracle_routing.py` | Price feeds, a weather reading and a VRF request through the oracle gateway | 11 |
 | 09 | `09_full_user_journey.py` | Complete journey: DID -> DAO -> tokenize -> NFT -> govern -> fund -> stake | 3-6, 16, 19, 22 |
+
+Every step an example dispatches prints what the service answered, and it counts as done only when the dispatcher reports that it happened: the envelope's `call_outcome` is `"success"`. The envelope's own `"status": "ok"` says only that the dispatch ran, and it says that when the service answered `not_deployed`. A step whose outcome is `"unknown"` is reported as not confirmed, with what the service said. A step that needs an id an earlier step did not produce is skipped, and each example ends with how many of its steps happened. `examples/_steps.py` holds that check.
 
 ## Architecture
 
@@ -79,7 +81,7 @@ result = await dispatcher.execute(
 The `ServiceDispatcher.execute()` method:
 1. Resolves the action to a service and method via `ACTION_MAP`
 2. Calls the service method with the provided params
-3. Automatically creates an EAS attestation for state-modifying actions
+3. For a state-modifying action that settles, hands the attestation service a record of it, which is queued until a batch fills when `blockchain.eas_schema` is a well-formed bytes32 UID and refused otherwise (see below)
 4. Returns a JSON string with `status`, `result`, and timing info
 
 ## Network
@@ -104,20 +106,24 @@ Every example works on mainnet with zero code changes — just update your confi
 
 **Before going to mainnet:**
 - Contract conversion runs the Glasswing security audit on generated Solidity; it does not deploy it unless `conversion.auto_deploy` is on, in which case it deploys with the platform's paymaster account (example 01 always runs with it off)
-- A state-modifying action the service dispatcher completes is queued for an EAS attestation, written to the chain in batches of 50 (see below)
-- Contracts the conversion pipeline generates carry a platform fee paid to `platform_wallet`; there is no single flow that routes every platform fee to NeoSafe (see below)
-- Oracle data feeds switch to mainnet Chainlink contracts automatically
+- When a state-modifying action settles, the dispatcher hands the attestation service a record of it; with `blockchain.eas_schema` set to your chain's registered schema UID, it is queued in memory and written on-chain only when a batch fills (see below)
+- Contract fees reach NeoSafe through deployment, not through a router: each platform contract pays its fee to `platformFeeRecipient`, which `scripts/deploy_all.py` sets to the configured NeoSafe address (where each fee goes is listed under **Fees** in `docs/blockchain.md`). `NeoSafeRouter.route_fee` is called only by `examples/07_revenue_to_neosafe.py`. Nothing outside the tests calls `route_revenue`.
+- The oracle service's default Chainlink feeds are the Base mainnet aggregator addresses on every network; nothing switches them. On Base Sepolia, set `oracle.price_feeds` to that network's feeds
 
-## EAS Attestations
+## EAS Attestation of State-Modifying Actions
 
-`ServiceDispatcher.execute()` queues an EAS (Ethereum Attestation Service) attestation for a state-modifying action it completes; a refusal or an unconfirmed broadcast is not queued as done. The queue is written to the chain once 50 have gathered in the same process. Nothing drains it on a timer, and what is queued is lost if the process exits first.
+When an action on the dispatcher's state-modifying list settles, `ServiceDispatcher.execute()` hands the attestation service a record of it. The record holds the action, the service, the actor the request was bound to, a hash of the parameters and a timestamp; it carries no amounts, addresses or transaction hashes. The attestation service resolves its schema first: when `blockchain.eas_schema` is not a well-formed bytes32 UID, as in the shipped example config, it refuses the record, the dispatcher logs the refusal, and nothing is queued. When it is one, the record is not written on-chain straight away: it joins an in-memory batch that is submitted when 50 records have queued in the same process. There is no timer, so a batch that has not filled is lost when the process exits. A refusal, and a transaction that was broadcast and not yet confirmed, are logged, not attested. Contract deployment is not among the actions: `/api/v1/contracts/deploy` answers `501`.
 
-The dispatcher's record carries the action, the service, the caller it resolved and a hash of the parameters. What reaches the chain is narrower: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
+What reaches the chain is narrower than that record: each attestation encodes the platform name, the action, the agent (`system` for the dispatcher's records) and a timestamp (`runtime/blockchain/eas_client.py`).
 
-See `examples/06_eas_attestation_chain.py` for the attestation calls.
+See `examples/06_eas_attestation_chain.py` for the attestation flow.
 
-## Revenue Routing to NeoSafe
+## Where Fees Go, and What NeoSafe Receives
 
-The conversion pipeline's `RevenueEnforcer` writes a platform fee into the contracts it generates, paid to the configured `platform_wallet` when the contract collects it. Protocol referral fees name the NeoSafe address as their recipient (`runtime/blockchain/protocol_referrals.py`). `NeoSafeRouter` can record fees and send revenue to the NeoSafe wallet, but nothing in the gateway calls it yet. There is no single flow that routes every platform fee to NeoSafe.
+The platform contracts pay their on-chain fees (marketplace 5%, staking 5% of rewards, DAO withdrawal tiers, NFT mint proceeds, insurance excess) to each contract's `platformFeeRecipient`, and `scripts/deploy_all.py` — the deployment `CREDENTIALS_NEEDED.md` describes — sets that to the configured NeoSafe address (`MATRIX_NEOSAFE_ADDRESS`) for every platform contract, so on a deployment built that way those fees are paid to NeoSafe by the contracts themselves. `RevenueEnforcer` injects fee logic into generated contracts, paying that contract's fee to `blockchain.platform_wallet`, which the same setup calls the NeoSafe wallet.
 
-See `examples/07_revenue_to_neosafe.py`, which calls the router directly.
+`NeoSafeRouter` (`runtime/blockchain/services/neosafe.py`) is not on that path, and no service calls it. It can record a fee on an in-memory ledger (`route_fee`), which only `examples/07_revenue_to_neosafe.py` calls. It can also send ETH to the multisig when a chain is configured (`route_revenue`); nothing outside the tests calls `route_revenue`. Service fees (stablecoin transfers, cross-border payments, the service-ledger staking commission and others) are computed on the service's own ledger, some recorded and not settled; nothing moves them anywhere. Protocol referral fees name the NeoSafe address as their recipient, and nothing collects them (`runtime/blockchain/protocol_referrals.py`).
+
+The fees the code is known to take, with their rates, are listed under **Fees** in `docs/blockchain.md`, where a test derives each rate from the file that sets it. That test finds a fee by its name, so a fee computed under a name that says neither "fee" nor "commission" would not be listed; and for the service-ledger fees the table can say only that they are recorded and not settled, because nothing moves them anywhere.
+
+`examples/07_revenue_to_neosafe.py` shows what `route_fee` does when called directly.

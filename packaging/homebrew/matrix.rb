@@ -3,9 +3,9 @@ class Matrix < Formula
 
   desc "The Matrix — multi-agent, crypto-native AI platform (Trinity, Neo, Morpheus)"
   homepage "https://github.com/ItsDardanRexhepi/Matrix"
-  url "https://github.com/ItsDardanRexhepi/TheMatrix/archive/a8d6ab43d9c38676a99422bec90d2bebe9f36038.tar.gz"
+  url "https://github.com/ItsDardanRexhepi/Matrix/archive/58b8b4d33ef746bf95a00c6b45bbb36a59dabd6e.tar.gz"
   version "1.1.0"
-  sha256 "e25f47e3d7b38d2692dbe2a17c3fb684f07df3fe3d857195ab44204c8442ddf1"
+  sha256 "ce45666b73c86b0c24b932b482e506e9798922cba53c22611904916f9b6f1c35"
   license "MIT"
 
   depends_on "rust" => :build          # cryptography and pynacl build native extensions
@@ -143,8 +143,8 @@ class Matrix < Formula
   end
 
   resource "hexbytes" do
-    url "https://files.pythonhosted.org/packages/27/4f/eabe45c58f2d27cd0b338ecc41b0b475a3751ed70eb1a21db08497e3ceec/hexbytes-2.0.0.tar.gz"
-    sha256 "01312fcd5c57e8a8d2d7dd3274dcf84ea50422aff2abcc2d9fd89ad6a32498e5"
+    url "https://files.pythonhosted.org/packages/7f/87/adf4635b4b8c050283d74e6db9a81496063229c9263e6acc1903ab79fbec/hexbytes-1.3.1.tar.gz"
+    sha256 "a657eebebdfe27254336f98d8af6e2236f3f83aed164b87466b6cf6c5f5a4765"
   end
 
   resource "httpcore" do
@@ -188,13 +188,13 @@ class Matrix < Formula
   end
 
   resource "primp" do
-    url "https://files.pythonhosted.org/packages/c7/01/c2a43378aaaf29539971766a007f3185fbe3f208f431b0969fa85c5a2111/primp-2.0.1.tar.gz"
-    sha256 "82ba17b077bef19a189d9ec8d77ca632496cb444e0f4fa37e27e90041cf0da8f"
+    url "https://files.pythonhosted.org/packages/bc/2d/ca248003402f6863375acc77a886b0ab638efc6defb1be0ae9f99249cb66/primp-2.0.0.tar.gz"
+    sha256 "714ec75081b7a84f63d83f966eb36649b9a8ba93625113b142400c317f6e83c5"
   end
 
   resource "propcache" do
-    url "https://files.pythonhosted.org/packages/b3/9a/9fbf4e4ec0c2d7f1c32519fff782ef467859b8faa9fbc5331a96f6395d43/propcache-0.5.4.tar.gz"
-    sha256 "ff6b113f50bc066a698db5d944d2c6dc7507168dd3341e255a8892fd0715a558"
+    url "https://files.pythonhosted.org/packages/ec/44/c87281c333769159c50594f22610f77398a47ccbfbbf23074e744e86f87c/propcache-0.5.2.tar.gz"
+    sha256 "01c4fc7480cd0598bb4b57022df55b9ca296da7fc5a8760bd8451a7e63a7d427"
   end
 
   resource "py-solc-x" do
@@ -298,8 +298,8 @@ class Matrix < Formula
   end
 
   resource "urllib3" do
-    url "https://files.pythonhosted.org/packages/e3/05/b17359e1cefb4f909b5e40b1b90a496d987258916dbbf88e842c729f510e/urllib3-2.8.0.tar.gz"
-    sha256 "63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63"
+    url "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz"
+    sha256 "231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c"
   end
 
   resource "web3" do
@@ -313,8 +313,8 @@ class Matrix < Formula
   end
 
   resource "yarl" do
-    url "https://files.pythonhosted.org/packages/75/16/e8be8e2fb175bbf41a0680381a319f1199fae256588241a2ac8677eafb49/yarl-1.25.1.tar.gz"
-    sha256 "03dd38de09bc213e9a8b29761eec33ee1d5318dac0e49d8af36e4d27830e23a7"
+    url "https://files.pythonhosted.org/packages/31/33/ebe9e3d1f86c7a0b51094c0a146392045ca1631d2664889539dec8088a33/yarl-1.24.5.tar.gz"
+    sha256 "e81b83143bee16329c23db3c1b2d82b29892fcbcb849186d2f6e98a5abe9a57f"
   end
 
   def install
@@ -323,12 +323,13 @@ class Matrix < Formula
 
   def caveats
     <<~EOS
-      Set it up with:
-        matrix setup
-
-      That asks which model provider to use, takes your API key, and writes
-      ~/.config or ./matrix.config.json. Nothing is configured until you run it,
-      and no key leaves your machine except to the provider you chose.
+      This installs the matrix command and what it depends on. The command
+      looks for its setup and its configuration beside a clone of the
+      repository, so from this install it reports its version and its help
+      and cannot set the platform up. To run The Matrix, clone the repository
+      and run the setup there:
+        git clone https://github.com/ItsDardanRexhepi/Matrix
+        cd Matrix && python3 setup.py
 
       The Matrix is pre-production. It signs real transactions when you configure
       a real chain, so start on a testnet and read what an action will do before

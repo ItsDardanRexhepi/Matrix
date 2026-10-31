@@ -1,19 +1,30 @@
 #!/usr/bin/env python3
 """
-The Matrix Live Demo — Smart Contract Conversion & Deployment
+The Matrix Live Demo — Smart Contract Conversion, and a Deployment From Your Own Wallet
 
-Demonstrates the full pipeline:
-  1. User describes a contract in plain English (pseudocode)
-  2. The Matrix parses it into an intermediate representation
-  3. Generates gas-optimised Solidity for Base L2
-  4. Compiles with solc 0.8.24
-  5. Deploys to Base Sepolia testnet
-  6. Prints contract address + block explorer link
+What it does:
+  1. Parses a contract written as structured pseudocode (a `contract` line,
+     `state name: type` lines and `function name(params)` lines) into an
+     intermediate representation. A paragraph of prose is not read.
+  2. Generates Solidity from what it parsed, and prints it
+  3. Tries to compile that source with solc 0.8.24
+  4. Deploys the compiled contract to Base Sepolia from the demo wallet in
+     matrix.config.json (your key, your gas)
+  5. Prints the contract address and a block explorer link
+
+When the generated source does not compile, the demo prints the compiler's
+error and deploys a hand-written stand-in instead: SimpleVault when the
+parsed functions include deposit or withdraw, an ERC-20 otherwise. The
+stand-in is not the contract the converter generated, and the demo says so
+beside the result and in demo_deployment.json. A template (--template) is
+deployed only if it compiles on its own; every template imports
+OpenZeppelin, which this demo does not supply, so only erc20 falls back to
+the ERC-20 stand-in, and any other template stops there.
 
 Usage:
-    python demo.py                    # Interactive mode — type your own description
-    python demo.py --example          # Run with a built-in example contract
-    python demo.py --template erc20   # Deploy a template (erc20, erc721, staking, etc.)
+    python demo.py                    # Interactive mode — type your own pseudocode
+    python demo.py --example          # Run with the built-in SimpleVault pseudocode
+    python demo.py --template erc20   # Try a template (see above)
 
 Requirements:
     pip install web3 eth-account py-solc-x
@@ -79,7 +90,7 @@ def banner():
     ╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝
 {RESET}
     {DIM}Smart Contract Conversion — Live Demo on Base Sepolia{RESET}
-    {DIM}Describe a contract in plain English. We compile & deploy it.{RESET}
+    {DIM}Structured pseudocode in, Solidity out; you deploy it from your own demo wallet.{RESET}
 """)
 
 
@@ -185,7 +196,7 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
         sys.exit(1)
 
     # ── Step 2: Parse / Generate Solidity ────────────────────────────
-    step(2, "Converting to optimised Solidity...")
+    step(2, "Generating Solidity from the parsed source...")
 
     from runtime.blockchain.services.contract_conversion.parser import SourceParser
     from runtime.blockchain.services.contract_conversion.generator import ContractGenerator
@@ -243,38 +254,33 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
         fail("py-solc-x not installed. Run: pip install py-solc-x")
         sys.exit(1)
 
-    # For templates with OpenZeppelin or pseudocode-generated code,
-    # produce a standalone deployable version for the demo
-    needs_standalone = "@openzeppelin" in solidity_source or source_lang == "pseudocode"
-    if needs_standalone:
-        if "@openzeppelin" in solidity_source:
-            warn("Template uses OpenZeppelin imports — switching to standalone compilation.")
-        if source_lang == "pseudocode":
-            ok("Generating deployable standalone version from IR...")
-        solidity_source = _make_standalone_contract(contract_name, wallet_address, ir if not template_name else None)
-        ok(f"Standalone contract ready ({len(solidity_source.splitlines())} lines, no external deps)")
-        print(f"\n{DIM}{'─' * 60}")
-        print(f"Deployable Solidity:")
-        print(f"{'─' * 60}{RESET}")
-        for i, line in enumerate(solidity_source.splitlines(), 1):
-            print(f"  {DIM}{i:3d}{RESET}  {line}")
-        print(f"{DIM}{'─' * 60}{RESET}")
-
     try:
         install_solc("0.8.24", show_progress=True)
         ok("solc 0.8.24 ready")
     except Exception as e:
         warn(f"solc install note: {e}")
 
-    try:
-        compiled = compile_source(
-            solidity_source,
-            output_values=["abi", "bin"],
-            solc_version="0.8.24",
-        )
-    except Exception as e:
-        fail(f"Compilation failed: {e}")
+    def _compile(source_text):
+        return compile_source(source_text, output_values=["abi", "bin"], solc_version="0.8.24")
+
+    choice = _source_to_deploy(solidity_source, _compile, contract_name,
+                               ir=ir if not template_name else None, template_name=template_name)
+    if choice["compile_error"]:
+        fail(f"The generated source does not compile: {choice['compile_error']}")
+    if choice["source"] is None:
+        fail(choice["note"])
         sys.exit(1)
+    stand_in = choice["stand_in"]
+    solidity_source = choice["source"]
+    compiled = choice["compiled"]
+    if stand_in:
+        warn(choice["note"])
+        print(f"\n{DIM}{'─' * 60}")
+        print("Stand-in Solidity (hand-written, not the converter's output):")
+        print(f"{'─' * 60}{RESET}")
+        for i, line in enumerate(solidity_source.splitlines(), 1):
+            print(f"  {DIM}{i:3d}{RESET}  {line}")
+        print(f"{DIM}{'─' * 60}{RESET}")
 
     # Get the first (or matching) contract
     contract_key = None
@@ -344,7 +350,7 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
 
     print(f"""
 {GREEN}{BOLD}{'=' * 60}
-  CONTRACT DEPLOYED SUCCESSFULLY
+  {_deployment_headline(stand_in)}
 {'=' * 60}{RESET}
 
   {BOLD}Contract:{RESET}    {contract_address}
@@ -356,13 +362,14 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
   {BOLD}Explorer:{RESET}    {explorer_base}/address/{contract_address}
   {BOLD}Tx link:{RESET}     {explorer_base}/tx/{tx_hash.hex()}
 
-{DIM}  Powered by The Matrix — Smart Contract Conversion Engine{RESET}
+{DIM}  {_deployment_footnote(stand_in)}{RESET}
 {GREEN}{'=' * 60}{RESET}
 """)
 
     # Save deployment artifact
     artifact = {
         "contract_name": contract_name,
+        "deployed_source": "stand-in" if stand_in else "converted",
         "contract_address": contract_address,
         "network": network,
         "chain_id": chain_id,
@@ -384,6 +391,43 @@ def run_demo(config: dict, source: str, source_lang: str = "pseudocode", templat
     return artifact
 
 
+def _source_to_deploy(generated: str, compile_fn, contract_name: str, *,
+                      ir: dict | None = None, template_name: str | None = None) -> dict:
+    """Decide what the demo deploys: the generated source if it compiles, and
+    otherwise a hand-written stand-in, named as one, or nothing.
+
+    Returns ``source`` (None when nothing is deployed), ``compiled``,
+    ``stand_in``, ``compile_error`` and a ``note`` saying what happened.
+    """
+    try:
+        return {"source": generated, "compiled": compile_fn(generated), "stand_in": False,
+                "compile_error": "", "note": "Deploying the converted contract."}
+    except Exception as exc:  # the compiler's refusal, reported as it came
+        error = str(exc).strip().splitlines()[-1] if str(exc).strip() else type(exc).__name__
+    if template_name and template_name != "erc20":
+        return {"source": None, "compiled": None, "stand_in": False, "compile_error": error,
+                "note": (f"The {template_name} template imports OpenZeppelin, which this demo does "
+                         "not supply, and the demo has no stand-in for it. Nothing was deployed. "
+                         "Compile it with forge (remappings.txt) and deploy it yourself.")}
+    stand_in = _make_standalone_contract(contract_name, "", ir)
+    kind = "SimpleVault" if _wants_a_vault(ir) else "ERC-20"
+    return {"source": stand_in, "compiled": compile_fn(stand_in), "stand_in": True,
+            "compile_error": error,
+            "note": (f"Deploying a hand-written {kind} stand-in instead. It is not the contract "
+                     "the converter generated; the converted source is printed above.")}
+
+
+def _deployment_headline(stand_in: bool) -> str:
+    return ("STAND-IN CONTRACT DEPLOYED (not the converted contract)" if stand_in
+            else "CONVERTED CONTRACT DEPLOYED")
+
+
+def _deployment_footnote(stand_in: bool) -> str:
+    return ("The converted source did not compile; this address holds the demo's hand-written "
+            "stand-in." if stand_in else "Generated by The Matrix's contract converter; "
+            "deployed from your demo wallet.")
+
+
 def _make_standalone_contract(name: str, owner_address: str, ir: dict | None = None) -> str:
     """Generate a standalone deployable contract.
 
@@ -391,13 +435,15 @@ def _make_standalone_contract(name: str, owner_address: str, ir: dict | None = N
     SimpleVault. Otherwise generates an ERC-20 token. All contracts compile
     standalone without OpenZeppelin.
     """
-    # Detect vault pattern from IR
-    if ir:
-        func_names = {f["name"] for f in ir.get("functions", [])}
-        if "deposit" in func_names or "withdraw" in func_names:
-            return _make_standalone_vault(name)
-
+    if _wants_a_vault(ir):
+        return _make_standalone_vault(name)
     return _make_standalone_erc20(name)
+
+
+def _wants_a_vault(ir: dict | None) -> bool:
+    """The parsed functions include deposit or withdraw."""
+    func_names = {f["name"] for f in (ir or {}).get("functions", [])}
+    return bool({"deposit", "withdraw"} & func_names)
 
 
 def _make_standalone_vault(name: str) -> str:
@@ -561,7 +607,7 @@ def main():
     )
     parser.add_argument(
         "--template", type=str, default=None,
-        help="Deploy a pre-built template (erc20, erc721, erc1155, staking, marketplace, etc.)",
+        help="Try a template: deployed only if it compiles on its own (erc20 falls back to the ERC-20 stand-in)",
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -650,7 +696,8 @@ def main():
     else:
         # Interactive mode
         print(f"  Mode: {BOLD}Interactive{RESET}")
-        print(f"\n  Describe your contract in plain English / pseudocode.")
+        print("\n  Write your contract as structured pseudocode: a `contract` line, `state name: type`")
+        print("  lines and `function name(params)` lines. A paragraph of prose is not read.")
         print(f"  Type your contract below, then press {BOLD}Ctrl+D{RESET} (or {BOLD}Ctrl+Z{RESET} on Windows) when done:\n")
 
         try:
