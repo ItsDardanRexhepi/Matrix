@@ -48,8 +48,16 @@ class ServiceListing:
     input_schema: dict = field(default_factory=dict)
     output_schema: dict = field(default_factory=dict)
     avg_response_time_ms: int = 5000
-    success_rate: float = 1.0
+    # MEASURED OR NOTHING. This defaulted to 1.0 and nothing anywhere wrote it,
+    # so every listing advertised a perfect record to the buyers who pick a
+    # service on it. It is None until a job with an ESTABLISHED outcome
+    # finishes, then completed / (completed + failed) over those jobs — see
+    # `A2AMarketplace.complete_job`. A disputed job is in `total_jobs` and in
+    # neither count: its outcome was not established either way.
+    success_rate: float | None = None
     total_jobs: int = 0
+    completed_jobs: int = 0
+    failed_jobs: int = 0
     rating: float = 5.0
     available: bool = True
     created_at: float = field(default_factory=time.time)

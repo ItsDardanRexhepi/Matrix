@@ -48,6 +48,50 @@ def is_placeholder_value(value: Any) -> bool:
     return stripped.startswith("YOUR_") or stripped.upper().startswith("YOUR_")
 
 
+# RPC methods whose request changes state. A POST of one whose reply was lost
+# may have been carried out, so it is never sent again on the caller's behalf.
+_NEVER_RESENT = frozenset({"eth_sendRawTransaction", "eth_sendTransaction"})
+
+
+def broadcast_safe_http_provider(rpc_url: str, *, timeout: float | None = None):
+    """A web3 HTTP provider that sends a raw transaction ONCE.
+
+    web3 7's HTTPProvider retries every method on its default allowlist up to
+    five times after a timeout, a connection error or an HTTP error, and that
+    list includes eth_sendRawTransaction. A first POST can deliver the signed
+    bytes and lose its reply; the retry then sends the same bytes, and the
+    caller reads the node's answer to the SECOND delivery. Once the first is
+    mined that answer is "nonce too low", and the sponsorship ledger read it as
+    the node refusing the transaction and handed back budget for gas the
+    platform had paid.
+
+    Everything else keeps web3's retry: the same errors, the same count and
+    back-off, and every read on its list. A send that times out raises, and its
+    caller treats it as a send whose fate is unknown.
+
+    Every HTTP provider the platform builds under runtime/ and gateway/ comes
+    from here; tests/test_a_signature_is_settled_or_given_back.py fails on one
+    built anywhere else.
+    """
+    from web3.providers.rpc import HTTPProvider
+    from web3.providers.rpc.utils import ExceptionRetryConfiguration
+
+    kwargs: dict[str, Any] = {}
+    if timeout is not None:
+        kwargs["request_kwargs"] = {"timeout": timeout}
+    provider = HTTPProvider(rpc_url, **kwargs)
+    default = provider.exception_retry_configuration
+    if default is not None:
+        provider.exception_retry_configuration = ExceptionRetryConfiguration(
+            errors=default.errors,
+            retries=default.retries,
+            backoff_factor=default.backoff_factor,
+            method_allowlist=[m for m in default.method_allowlist
+                              if m not in _NEVER_RESENT],
+        )
+    return provider
+
+
 def resolve_paymaster_key(config: dict | None) -> str:
     """The platform signing key under either of its two accepted names.
 
@@ -99,7 +143,7 @@ class Web3Manager:
             return
 
         try:
-            provider = Web3.HTTPProvider(self.rpc_url, request_kwargs={"timeout": 10})
+            provider = broadcast_safe_http_provider(self.rpc_url, timeout=10)
             self.w3 = Web3(provider)
             if self.w3.is_connected():
                 self.available = True
@@ -231,10 +275,15 @@ class Web3Manager:
         This returned ``unmetered_platform_signer(key, "web3.platform_account")``,
         and that exemption's stated justification was that "every USE of it is a
         call site metered on its own". None was. `send_transaction` below signed
-        with it, and `send_transaction` is the only signing path the 45 services
-        in `services/**` have, so every platform signature they produce was
-        exempt from the D-045 cap the repo documents as enforced. The
-        exemption's claim was the whole of its argument and nothing checked it.
+        with it, and `send_transaction` is the signing path the services in
+        `services/**` use, so every platform signature it produced was exempt
+        from the D-045 cap the repo documents as enforced. (It is not their only
+        one: contract_conversion's deploy and the attestation service's revoke
+        sign and broadcast on their own, through the metered signer, and so
+        does the attestation service's time-critical write, metered when a
+        caller asks for it and the listed `eas.attest_time_critical` only as the
+        platform's own record.) The exemption's claim was the whole of its
+        argument and nothing checked it.
 
         35 call sites want `.address` for a transaction's `from`, and those are
         unchanged. A signature now comes from `signer()`, which is metered.
@@ -308,28 +357,76 @@ class Web3Manager:
             raise RuntimeError("Web3Manager not available — cannot send transaction")
 
         account = await self.signer(action)
-        async with self._get_nonce_lock():
-            try:
-                tx_to_sign = dict(tx)
-                tx_to_sign.setdefault("from", account.address)
-                tx_to_sign.setdefault("chainId", self.chain_id)
-                if "nonce" not in tx_to_sign:
-                    tx_to_sign["nonce"] = self.w3.eth.get_transaction_count(account.address)
-                if "gasPrice" not in tx_to_sign and "maxFeePerGas" not in tx_to_sign:
-                    tx_to_sign["gasPrice"] = self.w3.eth.gas_price
-                if "gas" not in tx_to_sign:
-                    try:
-                        tx_to_sign["gas"] = int(self.w3.eth.estimate_gas(tx_to_sign) * 1.2)
-                    except Exception:
-                        tx_to_sign["gas"] = 500_000
+        # A signature the node refused, to be given back once the node says it
+        # holds no copy. That question is a read the provider retries on a
+        # timeout, so a slow node can take most of a minute to answer it. It is
+        # asked once the nonce lock is let go, and in a worker thread, so the
+        # wait holds up only this send: every web3 call here is synchronous, and
+        # one made on the event loop, inside the lock or out of it, stops every
+        # other sender and every other request until it returns.
+        refused_hash = None
+        refused_row = None
+        try:
+            async with self._get_nonce_lock():
+                try:
+                    tx_to_sign = dict(tx)
+                    tx_to_sign.setdefault("from", account.address)
+                    tx_to_sign.setdefault("chainId", self.chain_id)
+                    if "nonce" not in tx_to_sign:
+                        tx_to_sign["nonce"] = self.w3.eth.get_transaction_count(account.address)
+                    if "gasPrice" not in tx_to_sign and "maxFeePerGas" not in tx_to_sign:
+                        tx_to_sign["gasPrice"] = self.w3.eth.gas_price
+                    if "gas" not in tx_to_sign:
+                        try:
+                            tx_to_sign["gas"] = int(self.w3.eth.estimate_gas(tx_to_sign) * 1.2)
+                        except Exception:
+                            tx_to_sign["gas"] = 500_000
 
-                signed = account.sign_transaction(tx_to_sign)
-                raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
-                tx_hash = self.w3.eth.send_raw_transaction(raw)
-                return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
-            except Exception as exc:
-                logger.error("Web3Manager.send_transaction failed: %s", exc)
-                raise
+                    signed = account.sign_transaction(tx_to_sign)
+                    raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+                    try:
+                        tx_hash = self.w3.eth.send_raw_transaction(raw)
+                    except Exception as send_exc:
+                        # THE NODE SAID NO: nothing will be mined and no gas is
+                        # paid, so the sponsorship budget this signature holds
+                        # goes back. Only when both hold: the answer to the one
+                        # delivery (this provider does not re-send the bytes) is
+                        # a refusal on the node's admission list, and the node,
+                        # asked afterwards, holds no transaction under this
+                        # hash, pending or mined. Everything else keeps the row
+                        # SIGNED: a transport fault or a timeout, which may have
+                        # delivered the bytes; "nonce too low" and "already
+                        # known"; a relayed internal error; a lookup that finds
+                        # the transaction or fails.
+                        signed_hash = getattr(signed, "hash", None)
+                        try:
+                            from runtime.blockchain.sponsorship import node_refused
+                            if signed_hash is not None and node_refused(send_exc):
+                                refused_hash = signed_hash
+                                # The row THIS signature opened, read now: once
+                                # the lock is let go another send can sign the
+                                # same bytes, and its row is filed under the
+                                # same hash.
+                                refused_row = getattr(account, "last_reservation_id", None)
+                        except Exception as ledger_exc:  # noqa: BLE001
+                            logger.warning("sponsorship ledger: could not read a "
+                                           "refusal: %s", ledger_exc)
+                        raise
+                    return tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+                except Exception as exc:
+                    logger.error("Web3Manager.send_transaction failed: %s", exc)
+                    raise
+        finally:
+            if refused_hash is not None:
+                try:
+                    from runtime.blockchain.sponsorship import (
+                        abandon_signature, node_holds_no_copy,
+                    )
+                    if await asyncio.to_thread(node_holds_no_copy, self.w3, refused_hash):
+                        abandon_signature(refused_hash, refused_row)
+                except Exception as ledger_exc:  # noqa: BLE001
+                    logger.warning("sponsorship ledger: could not release a "
+                                   "refused signature: %s", ledger_exc)
 
     async def wait_for_receipt(self, tx_hash: str, timeout: int = 120):
         """Wait for a transaction receipt. Returns the receipt or raises.
@@ -427,7 +524,7 @@ async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
         if remaining <= 0:
             break
         try:
-            return await asyncio.to_thread(
+            receipt = await asyncio.to_thread(
                 w3.eth.wait_for_transaction_receipt,
                 tx_hash,
                 timeout=min(slice_s, remaining),
@@ -439,6 +536,25 @@ async def wait_for_receipt_on(w3: Any, tx_hash: Any, timeout: int = 120):
             # cannot reliably name web3's timeout type across versions, so
             # the DEADLINE decides and the last error is re-raised at it.
             last_exc = exc
+            continue
+        if receipt is not None:
+            # MINED — reverted or not, gas was paid. The services and the
+            # blockchain capabilities wait for their receipts here (through
+            # `wait_for_receipt`, `_receipt`, `receipt_within` and
+            # `settle_transaction`), so it is where a metered signature's ledger
+            # row becomes SPENT. It is not the tree's only receipt wait: the
+            # deploy tools in contracts/ and demo.py wait on their own, and
+            # crossborder, the dashboard and real estate read receipts by hash.
+            # A row whose receipt is read only there stays SIGNED, holding
+            # budget, never released early. Outside the `try` above: a
+            # ledger fault must neither be read as a slice expiring nor cost
+            # the caller the receipt it is holding.
+            try:
+                from runtime.blockchain.sponsorship import settle_signature
+                settle_signature(tx_hash)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("sponsorship ledger: could not settle %s: %s", tx_hash, exc)
+        return receipt
     if last_exc is not None:
         raise last_exc
     raise TimeoutError(

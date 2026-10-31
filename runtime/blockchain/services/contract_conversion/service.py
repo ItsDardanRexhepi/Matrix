@@ -140,9 +140,12 @@ class ContractConversionService:
             return {"status": "error", "stage": "compile", "error": "empty bytecode"}
 
         try:
-            # The one site in services/** that signs without going through
-            # `Web3Manager.send_transaction` — it needs the receipt's
-            # contractAddress, so it drives the broadcast itself. It took the
+            # One of the three places in services/** that sign a transaction
+            # themselves rather than through `Web3Manager.send_transaction`
+            # (the attestation service's revoke, metered as
+            # `attestation.revoke`, and its time-critical write, metered when a
+            # caller asks for it, are the other two) — it needs the
+            # receipt's contractAddress, so it drives the broadcast itself. It took the
             # account handle and signed with it, which was an UNMETERED
             # exemption; a contract deployment is the most expensive thing the
             # platform signs and the D-045 cap could not see it. Metered here

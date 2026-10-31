@@ -1006,20 +1006,34 @@ def _shadow_the_verdict(action: str, service: str, actor: str, params: Any,
 
 #: Keys a service uses to report the figure its action actually moved, most
 #: specific first. `value_usd` is the settled figure where a service states one.
-_FEED_VALUE_KEYS: tuple[str, ...] = ("value_usd", "amount", "value", "total", "price")
+#:
+#: `price` IS NOT ONE OF THEM. A price is what something costs, not what an
+#: action moved: `subscriptions.subscribe` and `subscriptions.cancel` return the
+#: plan's list price on a record whose `total_paid` is 0.0, a marketplace
+#: listing carries its asking price, and a plan's creation carries the price it
+#: will charge. With `price` in this tuple the public feed announced a $30
+#: subscription and a $30 cancellation that moved nothing — measured through
+#: `execute` with a spy feed, not reasoned.
+_FEED_VALUE_KEYS: tuple[str, ...] = ("value_usd", "amount", "value", "total")
 
 
 def _feed_value_of(result: Any) -> float | None:
     """The figure the PUBLIC FEED may announce for an action, or None.
 
-    IT TOOK ITS PARAMETER. The ingest block read an amount-like key out of
-    `params` — the request body — so the feed announced the number the caller
-    ASKED for. That is not the number the service acted on whenever the two can
-    differ, and they differ on exactly the paths that matter: a partial fill, a
-    capped amount, a fee-adjusted total, a price that moved between quote and
-    execution. `_outcome_is_real` was already reading the RESULT to decide
-    whether to publish at all; the value published alongside it came from the
-    other side of the call.
+    IT TOOK ITS PARAMETER. The ingest block used to read an amount-like key out
+    of `params` — the request body — so the feed announced the number the
+    caller ASKED for. That is not the number the service acted on whenever the
+    two can differ, and they differ on exactly the paths that matter: a partial
+    fill, a capped amount, a fee-adjusted total, a price that moved between
+    quote and execution. It reads the RESULT now, the same structure
+    `_outcome_is_real` reads to decide whether to publish at all.
+
+    THE RECORD'S OWN DISCLOSURE OUTRANKS ANY FIGURE IN IT. A record may be a
+    real outcome and still say that no money changed hands: a subscription is
+    genuinely active with `charges_settled: False`, and a record that states
+    `value_moved` as anything but True (None is "the question does not arise")
+    has said it moved nothing. Publishing a figure beside that statement is the
+    public feed contradicting the record it was built from.
 
     THE THIRD ANSWER, ON A PUBLIC SURFACE. A result that names no figure
     publishes none. Falling back to the request is the move that made the number
@@ -1032,6 +1046,10 @@ def _feed_value_of(result: Any) -> float | None:
     the feed, where 19-D put it.
     """
     if not isinstance(result, dict):
+        return None
+    if "value_moved" in result and result.get("value_moved") is not True:
+        return None
+    if result.get("charges_settled") is False or result.get("settled") is False:
         return None
     for key in _FEED_VALUE_KEYS:
         raw = result.get(key)

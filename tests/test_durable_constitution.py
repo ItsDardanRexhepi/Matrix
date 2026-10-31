@@ -1047,7 +1047,7 @@ INVARIANT_DIGESTS = {
     "tests/test_a_broadcast_is_not_a_settlement.py":
         "0da6aa91ad04bcfe39516e5937108bb1440b38284eebc297d76b94e03af38630",
     "tests/test_a_record_says_what_happened.py":
-        "a921361c6b153cb9ac8b9c2df7eb509e511018aa9e8189b5b5da3a62f3dbb499",
+        "854e30c49215163c2b611b3596d8488963e07c194529df1e029ecd06af266dc7",
     "tests/test_gate_fault_fail_direction.py":
         "903867fc56550e4f8bdfeabc5f32b945e5719d6900630690dd8cb606b0f40bf0",
 }
@@ -1064,6 +1064,12 @@ CHANGED_BEFORE_THE_TARGET = {
         "senders stopped signing a call or a message the request composed and refuse "
         "before anything is built (27 to 19 functions and action names, 26 to 18 "
         "senders that do not wait for a receipt)"),
+    "tests/test_a_record_says_what_happened.py": (
+        "a921361c6b153cb9ac8b9c2df7eb509e511018aa9e8189b5b5da3a62f3dbb499",
+        "its public-feed DEFECT-PROVER drives execute with a request that names 999 "
+        "over a service that acted on 5, where it called the pure helper with no "
+        "request at all and could not fail on the params-reading block it was named "
+        "for (attest-money F12/F14)"),
 }
 #: Where the target branch is looked for: the local branch, then the ref a
 #: CI checkout with its whole history has (``fetch-depth: 0`` fetches every

@@ -634,17 +634,58 @@ async def test_a_settled_renewal_does_not_hold_the_next_one():
 
 
 # ── 7. the public feed's value_usd came from the request ──────────────────
+#
+# The list-price half of this (a subscription announced at its plan's price
+# while its record says nothing was charged) is driven in
+# tests/test_the_feed_value_is_what_moved.py.
 
 
-def test_the_feed_value_is_read_from_the_result_not_the_request():
+async def test_the_feed_value_is_read_from_the_result_not_the_request():
     """DEFECT-PROVER. The ingest block read an amount-like key out of ``params``
     — the REQUEST — so the public feed announced the figure the caller asked
     for, which is not necessarily the figure the service acted on. A partial
     fill, a capped amount, a fee-adjusted total and a refusal-then-retry all
-    publish the request's number."""
-    from runtime.blockchain.services.service_dispatcher import _feed_value_of
+    publish the request's number.
 
-    assert _feed_value_of({"amount": 5.0}) == 5.0, (
+    It SUPPLIES A REQUEST. An earlier version of this test called
+    ``_feed_value_of({"amount": 5.0})`` and nothing else, so no ``params``
+    existed for a params-reading block to prefer and the test could not fail
+    on the code it was named for. This one drives ``execute`` with a request
+    that names 999 over a service that acted on 5, and reads what the feed
+    was handed."""
+    import asyncio
+
+    from runtime.blockchain.services.service_dispatcher import ServiceDispatcher
+
+    published: list[dict] = []
+
+    class _Feed:
+        async def ingest(self, **kwargs):
+            published.append(kwargs)
+
+    class _Service:
+        async def subscribe(self, **_params):
+            return {"amount": 5.0}
+
+    class _Registry:
+        def get(self, _name):
+            return _Service()
+
+    async def _noop(*_a, **_k):
+        return None
+
+    d = ServiceDispatcher({})
+    d._feed_engine = _Feed()
+    d._registry = _Registry()
+    d._attest_action = _noop
+    d._attest_refusal = _noop
+    d._record_broadcast = _noop
+
+    await d.execute("subscribe", params={"amount": 999.0, "value_usd": 999.0},
+                    caller_identity="0xA")
+    await asyncio.sleep(0)  # the publish is a scheduled task
+
+    assert [e["value_usd"] for e in published] == [5.0], (
         "the caller's number won over the service's"
     )
 

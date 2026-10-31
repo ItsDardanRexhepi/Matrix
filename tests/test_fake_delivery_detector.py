@@ -52,7 +52,8 @@ Without it the detector fires on two honest methods:
 Both move the thing they claim to move. `remit` writes `_payments[remit_id]` —
 a record OF the claim, not the asset. `GamingService.trade_item` writes
 `_assets[trade_id]`, keyed by the TRADE, so the item's owner never changes.
-That distinction is the whole finding.
+That distinction is the whole finding. (trade_item has since been struck: it
+still changes no owner, and now says so — `recorded_unsettled`.)
 
 RATCHET: this inventory may only SHRINK. Frozen by NAME, not by count, so a
 fix and a new instance cannot cancel out.
@@ -193,9 +194,11 @@ KNOWN_FAKE_DELIVERY = {
     # genuine engine remained, so the fix was vocabulary — it now returns
     # recorded_unsettled with settled/value_moved/disclosure. Struck rather
     # than left stale: the ratchet tightens with the fix.
-    # Writes _assets[trade_id] — keyed by the TRADE, so the item's owner is
-    # never changed. Buyer and seller both keep what they had.
-    "services/gaming/service.py::GamingService.trade_item",
+    # trade_item STRUCK by attest-money F19 (3 -> 2). It still writes
+    # _assets[trade_id], keyed by the TRADE, and the item's owner still never
+    # changes — but it no longer says "completed": it returns
+    # recorded_unsettled with settled/value_moved False and a disclosure, so
+    # it claims nothing reached anyone.
     # No store write at all, and the content_hash is a second uuid4 — not a
     # hash of the content. No XMTP client is contacted.
     "services/social/service.py::SocialService.send_encrypted_message",
@@ -223,14 +226,14 @@ def test_the_inventory_only_shrinks():
 
 
 def test_the_measured_count_is_recorded():
-    """BURN-DOWN: 6 at introduction (2026-08-11) -> 5 (NEW-85) -> 3 (NEW-86/87).
+    """BURN-DOWN: 6 at introduction (2026-08-11) -> 5 (NEW-85) -> 3 (NEW-86/87)
+    -> 2 (attest-money F19, gaming.trade_item).
 
-    All three cross-border instances are cleared. The remaining three are in
-    gaming, social and nft_services — untouched, and deliberately so: this
-    burn-down followed the domain, not the detector.
+    All three cross-border instances are cleared, and so is gaming's. The
+    remaining two are in social and nft_services.
     """
-    assert len(KNOWN_FAKE_DELIVERY) == 3
-    assert len(find_fake_delivery()) == 3
+    assert len(KNOWN_FAKE_DELIVERY) == 2
+    assert len(find_fake_delivery()) == 2
 
 
 def test_the_axis_that_justifies_a_second_detector_still_holds():

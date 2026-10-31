@@ -754,7 +754,9 @@ Get one registered component. `404` when the id is not in the registry.
 ### `POST /social/post`
 
 Post to the configured social media platforms. Returns
-`{"status": "not_configured"}` when none is configured.
+`{"status": "not_configured"}` when none is configured. Otherwise
+`platform` must be `twitter`, `discord` or `all` (the default): any other
+value is answered `400`, and nothing is posted.
 
 ```json
 {
