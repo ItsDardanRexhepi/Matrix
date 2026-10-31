@@ -859,13 +859,16 @@ def resolve_caller_identity() -> str:
 # signer, `Web3Manager.send_transaction` signed with it, and that method is the
 # signing path the services in runtime/blockchain/services/** send through, so
 # every signature it produced for them was one the D-045 cap never saw. (It is
-# not their only one: contract_conversion's deploy, the attestation service's
-# revoke and its time-critical write sign and broadcast on their own. The deploy
-# and the revoke are metered, as `contract_conversion.deploy` and
-# `attestation.revoke`; the time-critical write is metered when a caller asks
-# for it, and is the listed `eas.attest_time_critical` below only as the
-# platform's own record.) The claim was the whole justification; nothing
-# checked it.
+# not their only one. The conversion pipeline's deploy and the attestation
+# service's revoke, time-critical write and queued writes sign and broadcast on
+# their own, the queued writes through the EAS client, as NeoSafe's revenue
+# record does. The deploy and the revoke are metered, as
+# `contract_conversion.deploy` and `attestation.revoke`; the time-critical write
+# and the queued writes are metered when a caller asks for them, as
+# `attestation.attest` or `attestation.batch_attest`, and are the listed
+# `eas.attest_time_critical` and `eas.attest` below only as the platform's own
+# record, as the revenue record is.) The claim was the whole justification;
+# nothing checked it.
 #
 # The exemption is gone. `Web3Manager.signer()` is metered like every other
 # capability's `_platform_signer`, and `get_account()` hands back an address, not
