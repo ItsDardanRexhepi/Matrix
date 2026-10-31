@@ -21,6 +21,11 @@ README example's draft neither defines nor inherits it, and each template
 convert() can return inherits it from OpenZeppelin's `Ownable`. The fee row in
 docs/blockchain.md has to say both. That the fee-injected templates compile is
 checked in tests/test_template_conversion_is_judged_on_the_template.py.
+
+The last two convert a source with a function inside a `/* */` whose `*/`
+begins a line. The converter does not skip comments, so the draft has that
+function with its body, and where a solc is installed it compiles with it; the
+README's convert section has to say so.
 """
 from __future__ import annotations
 
@@ -143,3 +148,26 @@ def test_the_fee_row_names_the_drafts_the_fee_setters_keep_from_compiling():
             if ln.startswith("| Contract conversion |")]
     assert len(rows) == 1, rows
     assert "neither defines nor inherits" in rows[0] and "`Ownable`" in rows[0], rows[0]
+
+
+COMMENTED_OUT = ("contract Vault\n    state total: uint256\n\n    function add(x: uint256)\n"
+                 "        total = total + x\n/*\n    function drain()\n        total = 0\n*/\n")
+
+
+def test_the_readme_says_a_function_inside_a_block_comment_comes_back_in_the_draft():
+    blocks = _blocks(_draft(COMMENTED_OUT))
+    assert blocks.get("drain", ("", []))[1] == ["total = 0;"], blocks.keys()
+    text = README.read_text(encoding="utf-8")
+    section = text[text.index("**Convert a contract**"):text.index("**Check platform health**")]
+    assert "does not skip comments" in section, "the README's convert section no longer says so"
+
+
+def test_a_draft_with_a_function_inside_a_block_comment_compiles_where_a_solc_is_installed():
+    version = _installed_solc()
+    if version is None:
+        pytest.skip("no solc 0.8.20 or later is installed, and nothing is downloaded")
+    import solcx
+
+    compiled = solcx.compile_source(_draft(COMMENTED_OUT), solc_version=version)
+    abi = next(v for k, v in compiled.items() if k.endswith(":Vault"))["abi"]
+    assert {"add", "drain"} <= {f.get("name") for f in abi if f.get("type") == "function"}
