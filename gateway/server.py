@@ -1363,7 +1363,9 @@ class GatewayServer:
         by its holder or with no session returns 200 with replay=true and
         adds no ledger row; the subscription follows its newest transaction,
         so an older one moves nothing back, and a transaction carrying
-        Apple's revocationDate ends it. A purchase belongs to the first
+        Apple's revocationDate ends it, as does a refund or revoke notice the
+        ledger kept from before the subscription had a record (one about a
+        product the gateway did not know yet). A purchase belongs to the first
         account that verified it: another account's
         session presenting it (the same bytes, or another transaction of the
         same subscription) -> 409 ``bound_to_another_account``, with nothing
@@ -1455,11 +1457,18 @@ class GatewayServer:
         ``signedTransactionInfo`` is verified independently before any store
         write (a valid envelope cannot smuggle an unverified transaction).
         DID_RENEW extends, EXPIRED expires, REFUND flips to refunded (and
-        marks consumable ledger rows), REVOKE revokes. Apple promises no
-        order: a renewal about an older transaction changes nothing, an
-        expiry about one older than the newest recorded is ignored, and a
-        refund or revoke that arrives before any verify writes the
-        subscription already ended. Unverifiable -> 401 so a spoofer learns
+        marks consumable ledger rows), REVOKE revokes. Every notification's
+        transaction is kept on the ledger. Apple promises no order: a
+        renewal or an expiry about a transaction older than the newest one
+        the subscription holds moves nothing back, an expiry about the
+        newest one or a newer one writes that period expired, and a refund
+        or revoke that arrives before any verify writes the subscription
+        already ended. One about a product the gateway does not know yet
+        ends the subscription if it has a record, and is otherwise kept on
+        the ledger only, so the record a later verify or renewal writes is
+        written ended. REFUND_REVERSED is logged for an operator and the
+        subscription stays ended; the other notification types change
+        nothing on the subscription. Unverifiable -> 401 so a spoofer learns
         nothing and real Apple retries surface."""
         from gateway.iap import (
             IAPError, IAPNotConfigured, check_bundle, classify_product,
@@ -1518,13 +1527,27 @@ class GatewayServer:
                     environment=tx["environment"],
                 )
             elif notification_type == "EXPIRED":
+                if product_type == "subscription" and tier:
+                    # The notice can name a period no verify has posted yet:
+                    # the subscription takes it as it takes any newer
+                    # transaction, already expired, so posting that period
+                    # afterwards leaves it expired. An older one changes
+                    # nothing.
+                    await self._entitlements.upsert_entitlement(
+                        original_transaction_id=original_id,
+                        product_id=tx["product_id"],
+                        tier=tier,
+                        status="expired",
+                        purchase_date=tx["purchase_date"],
+                        expires_date=tx["expires_date"],
+                        environment=tx["environment"],
+                    )
                 # A notice with no purchase date is applied, as before.
                 await self._entitlements.set_status(
                     original_id, "expired", as_of=tx["purchase_date"] or None)
             elif notification_type in ("REFUND", "REVOKE"):
                 ended = "refunded" if notification_type == "REFUND" else "revoked"
-                if not await self._entitlements.set_status(original_id, ended) \
-                        and product_type == "subscription" and tier:
+                if product_type == "subscription" and tier:
                     # The notice can reach the gateway before any verify of
                     # the purchase: the subscription is written already
                     # ended, so the verify that follows keeps it ended.
@@ -1537,6 +1560,11 @@ class GatewayServer:
                         expires_date=tx["expires_date"],
                         environment=tx["environment"],
                     )
+                # A record that exists is ended whatever the product: one the
+                # gateway does not know, in a subscription another product
+                # wrote, writes nothing above. With no record, the ledger mark
+                # below is what the subscription's first record reads.
+                await self._entitlements.set_status(original_id, ended)
                 await self._entitlements.mark_transaction(
                     tx["transaction_id"], ended)
             elif notification_type == "REFUND_REVERSED":
