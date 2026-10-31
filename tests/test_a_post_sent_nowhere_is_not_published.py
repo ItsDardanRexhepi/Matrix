@@ -127,3 +127,18 @@ async def test_the_live_route_refuses_an_unrouted_platform():
 
     assert resp.status == 400, (resp.status, resp.text)
     assert "platform" in json.loads(resp.text)["error"]
+
+
+def test_the_api_reference_says_which_platforms_the_route_takes():
+    """The route answers 400 for a platform no client routes, and the API
+    reference said only that it posts to the configured platforms, so a client
+    reading it could not know a post to any other name is refused."""
+    import pathlib
+
+    ref = (pathlib.Path(__file__).resolve().parent.parent / "docs" / "api-reference.md").read_text()
+    start = ref.index("### `POST /social/post`")
+    section = " ".join(ref[start:ref.index("\n---", start)].split())
+    missing = [p for p in sorted(ROUTED_PLATFORMS) if f"`{p}`" not in section]
+    assert not missing, f"the API reference's POST /social/post section does not name {missing}"
+    assert "`400`" in section, (
+        "the API reference does not say a post to another platform is answered 400")
