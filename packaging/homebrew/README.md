@@ -53,22 +53,31 @@ clone, as before. From an install, `matrix setup` runs the same setup a clone
 runs and writes the configuration and its keys into that folder, created
 readable by its owner only, and `matrix config` reads them there. `matrix
 gateway start` runs the gateway in that folder and keeps its PID and log in
-`data/` there.
+`data/` there, and `matrix-gateway` runs it there too. The package also
+carries the files beside the code that the gateway reads, at the paths a clone
+has them: the agents' identity prompts, the web pages, the component
+registry, the skills and Apple's root certificate.
 
 `tests/test_setup_from_an_installed_package.py` measures the setup and those
 paths on every run of the suite: it builds a wheel of the tree, installs it
 into a new virtual environment, and runs `matrix setup` from a folder outside
-the tree. It does not run pipx, Homebrew, or the gateway as a server.
+the tree. It also drives the installed gateway's app in-process from an empty
+folder and holds that its pages, its agents' prompts, its tools and its Apple
+root are a clone's. It does not run pipx, Homebrew, or the gateway as a
+server.
 
 Checked once by hand, with pipx 1.18.4 on Python 3.11 and HOME set to an empty
 folder: pipx installed a wheel of the tree, taking the dependencies from the
-package index within `pyproject.toml`'s ranges, and from that install
-`matrix setup`, `matrix config`, `matrix gateway start -d`, `matrix gateway
-status` and `matrix gateway stop` ran and the gateway answered `/health`. The
-configuration, the database, the log and, while the gateway ran, its PID were
-in `~/.matrix`; nothing else was written under HOME or into the folder they
-ran from. pipx also installed the tree from a folder, and `matrix setup` ran
-from that install the same way.
+package index within `pyproject.toml`'s ranges. From that install, run from
+another empty folder, `matrix setup`, `matrix config`, `matrix gateway start
+-d`, `matrix health`, `matrix gateway status` and `matrix gateway stop` ran.
+The gateway answered each of its twelve pages and its registry with the
+tree's own file, loaded the four skills, and sent Trinity's identity prompt to
+a stand-in model server with a chat turn. `matrix-gateway`, started from the
+other folder, ran in `~/.matrix` and served `/chat`, and `python -m
+gateway.doctor` read the configuration there. The configuration, the database,
+the log and, while the gateway ran, its PID were in `~/.matrix`; nothing else
+was written under HOME or into the folder they ran from.
 
 The formula's pin predates this. An install through the formula gets it when
 the pin moves, with its hash and its resources, to a commit that has it, which

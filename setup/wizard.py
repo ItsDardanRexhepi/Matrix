@@ -12,9 +12,11 @@ matrix.config.json with your settings, verifies connectivity, and prints
 how to start the gateway.
 
 An installed package (pipx, pip, a Homebrew formula) runs the same wizard
-as `matrix setup`, which starts it as `python -I -m setup.wizard --home
-<folder>`. There it writes matrix.config.json and .env into that folder
-(~/.matrix, or $MATRIX_HOME; see cli/home.py) and installs nothing: the
+as `matrix setup`, in the install's folder (~/.matrix, or $MATRIX_HOME; see
+cli/home.py). It starts it there as `python -P -m setup.wizard --home
+<folder>`, which keeps that folder off the import path; Python 3.10 has no
+-P, and there it goes through runpy instead. The wizard writes
+matrix.config.json and .env into that folder and installs nothing: the
 install brought the dependencies, and there is no clone for a .venv to sit
 beside.
 

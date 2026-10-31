@@ -16,6 +16,14 @@ there, and the gateway runs with that folder as its working directory, so the
 platform reads the config, the .env and the database there exactly as it reads
 them at a clone's root. ``MATRIX_HOME`` is read only by an install; a clone
 keeps its files in the clone whatever it says.
+
+What a clone also has at its root and that folder does not, the agents'
+identity prompts, the web pages, the component registry and the skills, the
+install carries beside its packages, and the gateway reads them there; one
+put in the folder under the same name is read in their place
+(runtime/shipped.py). The
+``matrix-gateway`` command runs the gateway in the folder as well
+(gateway/server.py), as ``matrix gateway start`` does.
 """
 from __future__ import annotations
 
@@ -64,8 +72,10 @@ def make_home(path: Path) -> Path:
 
 
 # Python 3.10 has no -P. There the command is run through runpy with the
-# folder it starts in (the first entry of sys.path under -c) taken off first.
-_WITHOUT_THE_FOLDER = ("import runpy, sys; del sys.path[0]; "
+# folder it starts in (the first entry of sys.path under -c) taken off first:
+# before runpy itself is imported, because 3.10 does not freeze runpy into the
+# interpreter, so a runpy.py in that folder would be the one imported.
+_WITHOUT_THE_FOLDER = ("import sys; del sys.path[0]; import runpy; "
                        "runpy.run_module(sys.argv.pop(1), run_name='__main__', alter_sys=True)")
 
 
@@ -73,11 +83,11 @@ def module_command(module: str, *args: str, version=None) -> list[str]:
     """The command that runs *module* as a script under this interpreter.
 
     An install starts the wizard and the gateway in its own folder, which
-    holds the user's data and not code, so that folder is kept off the import
-    path: nothing in it can stand in for an installed module. -P does that on
-    Python 3.11 and later. Unlike -I it keeps the user's site-packages, where
-    ``pip install --user`` puts the package, and PYTHONPATH, which a
-    ``pip install --target`` folder needs.
+    holds the user's data, so that folder is kept off the import path: a
+    module there named like an installed one is not imported in its place.
+    -P does that on Python 3.11 and later. Unlike -I it keeps the user's
+    site-packages, where ``pip install --user`` puts the package, and
+    PYTHONPATH, which a ``pip install --target`` folder needs.
     """
     version = sys.version_info if version is None else version
     if tuple(version[:2]) >= (3, 11):

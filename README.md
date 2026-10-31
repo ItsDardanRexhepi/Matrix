@@ -127,14 +127,22 @@ its first unanswered question instead of ending in a traceback.
 Or install the `matrix` command as a package, from a clone:
 
 ```bash
-pipx install ./TheMatrix                  # a clone's folder; not a name on PyPI
+pipx install .                            # inside the clone; not a name on PyPI
 matrix setup                              # the same setup, written into ~/.matrix
 matrix gateway start -d                   # the gateway, run from that folder
 ```
 
 An install keeps its configuration, its keys, its data and the gateway's PID
 and log in `~/.matrix`, created readable by you only, or in `$MATRIX_HOME`
-when that is set; a clone keeps them in the clone. Do not `pipx install
+when that is set; a clone keeps them in the clone. The package also carries
+the files beside the code that the gateway reads, at the paths a clone has
+them: the agents' identity prompts, the web pages, the component registry,
+the skills and Apple's root certificate for in-app purchases. So the gateway
+an install runs gives each agent its prompt, loads the skills and serves
+`/chat` and the other pages as a clone's does; a page, the registry, an
+agent's prompt or a skill put in that folder under the same name is read
+instead of the packaged one. `matrix-gateway`, which the install also puts on
+your PATH, runs the gateway in that folder too. Do not `pipx install
 the-matrix`: that name on PyPI belongs to an unrelated project. An install
 takes its dependencies from the ranges in `pyproject.toml`, not from the lock
 in `requirements.txt` that the suite runs on. The Homebrew formula under
@@ -208,7 +216,7 @@ service registry (`runtime/blockchain/services/registry.py`).
 `ServiceDispatcher`, the agents' way in, reaches 44 of them;
 the forty-fifth, real-estate escrow, is reached only by its own routes,
 which answer 403 while it is disabled. All of it is exercised by an
-automated suite of 6,572 tests, run against the versions
+automated suite of 6,581 tests, run against the versions
 `requirements.txt` locks.
 
 What works today, no chain required:

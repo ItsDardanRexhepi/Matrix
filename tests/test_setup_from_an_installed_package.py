@@ -17,10 +17,23 @@ folder and the setup's answers on its input. The rest hold, in this process,
 where the command keeps its files from a clone and from an install, and how it
 starts the setup and the gateway from each.
 
+WHAT A CLONE HAS AT ITS ROOT. Run from an install, the gateway's working
+folder is the user's (~/.matrix), which holds the configuration and the data
+and none of what a clone has at its root: the agents' identity prompts, the
+web pages, the component registry and the skills. The wheel carried only the
+packages' Python files, so from an install Trinity, Neo and Morpheus answered
+with no identity prompt, no skill loaded, every page (/chat among them)
+answered 404, and the in-app purchase routes had no Apple root to verify
+against. Checks below hold that the wheel carries those files, that the
+installed gateway's app run from an empty folder serves and loads exactly what
+a clone's does, and that the `matrix-gateway` command and the doctor of an
+install read its folder.
+
 WHAT THEY DO NOT. The new environment reaches the packages the platform
 depends on through the environment running the suite (a path file), not
 through a resolver, so what pip would pick from pyproject.toml's ranges is not
-run; neither are pipx, Homebrew, or the gateway as a server. The wheel is
+run; neither are pipx or Homebrew. The gateway's app is driven in-process by
+aiohttp's test server, not as a server listening on a port. The wheel is
 built offline, without build isolation, by the setuptools installed here.
 """
 from __future__ import annotations
@@ -47,6 +60,61 @@ ROOT = Path(__file__).resolve().parent.parent
 # nothing listens on, so the check after it reaches no network; no
 # blockchain (choice 3), so no RPC is called; every other question its default.
 ANSWERS = "\n".join(["", "http://127.0.0.1:9", "", "3"] + [""] * 60) + "\n"
+
+# Drives the gateway's own app in-process and prints what it serves and
+# loads: each page's status and a hash of its body, a hash of each agent's
+# identity prompt, the tools registered (the skills among them), and how many
+# Apple roots the purchase routes would verify against. Run from a clone's root and from an
+# install's empty folder, the two must print the same. The database goes where
+# argv[1] says, so a run from the clone writes nothing into the clone.
+GATEWAY_PROBE = """
+import asyncio, hashlib, json, sys
+from aiohttp.test_utils import TestClient, TestServer
+from gateway.server import GatewayServer
+from gateway import iap
+
+PAGES = ["/", "/chat", "/audit", "/marketplace", "/services/conversion", "/privacy",
+         "/terms", "/social", "/glasswing", "/badge/b1", "/learn", "/badge/widget.js",
+         "/extensions/registry"]
+CONFIG = {"timezone": "UTC", "max_steps": 2,
+          "database": {"path": sys.argv[1]},
+          "model": {"provider": "ollama", "providers": {"ollama": {"base_url": "http://127.0.0.1:9"}}},
+          "agents": {"neo": {"enabled": True}, "trinity": {"enabled": True},
+                     "morpheus": {"enabled": True}},
+          "gateway": {"api_key": "", "rate_limit_rpm_anonymous": 6000,
+                      "rate_limit_burst_anonymous": 1000},
+          "security": {}}
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+async def main():
+    server = GatewayServer(CONFIG)
+    pages = {}
+    async with TestClient(TestServer(server.create_app())) as client:
+        for path in PAGES:
+            answer = await client.get(path)
+            pages[path] = [answer.status, digest(await answer.read())]
+    loop = server.react_loop
+    print(json.dumps({
+        "pages": pages,
+        "prompts": {name: digest(text.encode()) for name, text in sorted(loop._agent_prompts.items())},
+        "tools": sorted(loop.dispatcher._tools),
+        "apple_roots": len(iap.trusted_roots_pem({})),
+    }))
+
+asyncio.run(main())
+"""
+
+
+def _files_the_gateway_reads() -> list[str]:
+    """What the gateway reads from its working folder or beside its code,
+    as this tree has it: the agents' prompts, the pages, the registry, the
+    skills, and the Apple root the purchase routes verify against."""
+    found = [*ROOT.glob("agents/*/identity.md"), *ROOT.glob("web/*.html"), *ROOT.glob("web/*.js"),
+             ROOT / "extensions" / "registry.json", *ROOT.glob("skills/*.py"),
+             *ROOT.glob("gateway/certs/*.pem")]
+    return sorted(str(p.relative_to(ROOT)) for p in found)
 
 
 def _clean_env(home: Path, **extra: str) -> dict[str, str]:
@@ -178,6 +246,97 @@ def test_an_install_keeps_its_pid_log_and_config_in_the_users_folder(installed, 
             *[str(folder / "matrix.config.json")] * 3], (extra, shown.stdout)
 
 
+def test_the_wheel_carries_the_files_the_gateway_reads(installed):
+    wanted = _files_the_gateway_reads()
+    assert len([f for f in wanted if f.startswith("agents/")]) == 3, wanted
+    missing = [f for f in wanted if not (installed["site"] / f).is_file()]
+    assert not missing, f"the wheel does not carry: {missing}"
+    differ = [f for f in wanted if (installed["site"] / f).read_bytes() != (ROOT / f).read_bytes()]
+    assert not differ, differ
+
+
+def _probe_the_gateway(python, cwd: Path, scratch: Path) -> dict:
+    """GATEWAY_PROBE under *python* in *cwd*. A clone imports the platform
+    from its root, which -c puts on the path; an install from its
+    site-packages, with the folder it runs in kept off the path, as the
+    gateway's own command keeps it (cli/home.py)."""
+    off = ["-P"] if cwd != ROOT and sys.version_info >= (3, 11) else []
+    ran = _run([python, *off, "-c", GATEWAY_PROBE, scratch / "the-matrix.db"], cwd=cwd,
+               env=_clean_env(scratch, PYTHONDONTWRITEBYTECODE="1"), timeout=180)
+    assert ran.returncode == 0, ran.stdout[-2000:] + ran.stderr[-3000:]
+    return json.loads(ran.stdout.splitlines()[-1])
+
+
+def test_an_installs_gateway_serves_and_loads_what_a_clones_does(installed, tmp_path):
+    """Run from the folder an install keeps its files in, which has none of
+    the clone's: every page answers with the clone's bytes, each agent has
+    the clone's identity prompt, the same tools (the skills among them) are
+    registered, and the purchase routes have the bundled Apple root."""
+    from runtime.skills.loader import SkillLoader
+
+    (tmp_path / "from-clone").mkdir()
+    (tmp_path / "from-install").mkdir()
+    users = tmp_path / "users-folder"
+    users.mkdir()
+    clone = _probe_the_gateway(sys.executable, ROOT, tmp_path / "from-clone")
+    assert {path: status for path, (status, _) in clone["pages"].items()} == \
+        dict.fromkeys(clone["pages"], 200), clone["pages"]
+    assert sorted(clone["prompts"]) == ["morpheus", "neo", "trinity"]
+    skills = {skill.name for skill in SkillLoader(str(ROOT / "skills")).load_all()}
+    assert skills and skills <= set(clone["tools"]), (skills, clone["tools"])
+    assert clone["apple_roots"] == 1
+
+    install = _probe_the_gateway(installed["python"], users, tmp_path / "from-install")
+    assert install == clone
+    assert sorted(p.name for p in users.iterdir()) == [], "the probe wrote into the users folder"
+
+
+def test_the_matrix_gateway_command_of_an_install_runs_in_its_folder(installed, tmp_path):
+    """`matrix-gateway`, which an install puts on PATH beside `matrix`, reads
+    the configuration in ~/.matrix, wherever it is typed. Given one that is
+    not JSON, it stops on that file, not for want of one in the folder it was
+    typed in; with no such folder it says to run the setup."""
+    home, elsewhere = tmp_path / "home", tmp_path / "elsewhere"
+    home.mkdir()
+    elsewhere.mkdir()
+    gateway = installed["venv"] / "bin" / "matrix-gateway"
+
+    ran = _run([gateway], cwd=elsewhere, env=_clean_env(home), timeout=120)
+    said = ran.stdout + ran.stderr
+    assert ran.returncode == 1, said[-2000:]
+    assert str(home / ".matrix") in said and "matrix setup" in said, said[-2000:]
+    assert not (home / ".matrix").exists(), "starting the gateway made the folder the setup makes"
+
+    (home / ".matrix").mkdir()
+    (home / ".matrix" / "matrix.config.json").write_text("{ not json")
+    ran = _run([gateway], cwd=elsewhere, env=_clean_env(home), timeout=120)
+    said = ran.stdout + ran.stderr
+    assert ran.returncode == 1, said[-2000:]
+    assert "is not valid JSON" in said, said[-2000:]
+    assert not any(elsewhere.iterdir()), "the gateway wrote into the folder it was typed in"
+
+
+def test_the_doctor_of_an_install_reads_the_configuration_in_its_folder(installed, tmp_path):
+    """`python -m gateway.doctor` looked for the configuration beside the
+    package, site-packages in an install, and so reported none; it found no
+    Apple root there either, and it judged docs/ROUTES.md stale because an
+    install has no docs/. Each made the doctor of every install fail."""
+    home, elsewhere = tmp_path / "home", tmp_path / "elsewhere"
+    (home / ".matrix").mkdir(parents=True)
+    elsewhere.mkdir()
+    (home / ".matrix" / "matrix.config.json").write_text(json.dumps(
+        {"iap": {"bundle_id": "com.example.app"}}))
+    ran = _run([installed["python"], "-P", "-m", "gateway.doctor", "--json"], cwd=elsewhere,
+               env=_clean_env(home), timeout=120)
+    report = {row["check"]: row for row in json.loads(ran.stdout)}
+    assert report["config file"]["status"] == "READY", report["config file"]
+    assert report["iap verify"]["status"] == "READY", report["iap verify"]
+    # An install carries no docs/ROUTES.md: nothing to find stale, so nothing
+    # to fail on.
+    assert report["route table"]["status"] != "HALF-CONFIGURED", report["route table"]
+    assert ran.returncode == 0, ran.stdout[-2000:] + ran.stderr[-2000:]
+
+
 # ── in this process ──────────────────────────────────────────────────────────
 
 def test_a_clone_keeps_its_files_where_it_always_has(monkeypatch):
@@ -302,3 +461,126 @@ def test_the_gateway_from_an_install_runs_in_the_users_folder_and_reads_no_input
     assert kwargs["cwd"] == str(tmp_path) and kwargs.get("stdin") is subprocess.DEVNULL
     assert (tmp_path / "data" / "gateway.pid").read_text() == "4242"
     assert "PID 4242" in capsys.readouterr().out
+
+
+def test_a_copy_in_the_working_folder_is_read_before_the_packaged_one(tmp_path, monkeypatch):
+    from runtime.shipped import PACKAGE_PARENT, shipped, shipped_folders
+
+    assert PACKAGE_PARENT == ROOT
+    monkeypatch.chdir(ROOT)
+    assert shipped_folders("agents") == [ROOT / "agents"], "a clone's root is read twice"
+    monkeypatch.chdir(tmp_path)
+    assert shipped("web/index.html") == ROOT / "web" / "index.html"
+    assert shipped_folders("skills", folder=tmp_path) == [ROOT / "skills"]
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "index.html").write_text("mine")
+    (tmp_path / "skills").mkdir()
+    assert shipped("web/index.html").read_text() == "mine"
+    assert shipped_folders("skills", folder=tmp_path) == [ROOT / "skills", tmp_path / "skills"]
+    assert shipped("web/no-such-page.html") == ROOT / "web" / "no-such-page.html"
+
+
+def test_an_agent_or_skill_put_in_the_folder_is_added_and_replaces_only_its_namesake(tmp_path, monkeypatch):
+    """An agent imported into the folder (migration/ writes agents/<name>/)
+    and a skill put in the workspace join the packaged ones, and replace only
+    the one of the same name: read from the folder alone, one imported agent
+    left Trinity, Neo and Morpheus with no prompt."""
+    from runtime.react_loop import ReActLoop
+    from runtime.tools.dispatcher import ToolDispatcher
+
+    for name, text in (("trinity", "my trinity"), ("imported", "an imported agent")):
+        (tmp_path / "agents" / name).mkdir(parents=True)
+        (tmp_path / "agents" / name / "identity.md").write_text(text)
+    monkeypatch.chdir(tmp_path)
+    loop = ReActLoop.__new__(ReActLoop)
+    loop._agent_prompts = {}
+    loop._load_agent_prompts()
+    assert sorted(loop._agent_prompts) == ["imported", "morpheus", "neo", "trinity"]
+    assert loop._agent_prompts["trinity"] == "my trinity"
+    assert loop._agent_prompts["imported"] == "an imported agent"
+    assert loop._agent_prompts["neo"] == (ROOT / "agents" / "neo" / "identity.md").read_text()
+
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "skills" / "check_balance.py").write_text(
+        "SKILL_NAME = 'check_balance'\nSKILL_DESCRIPTION = 'mine'\n"
+        "async def execute(**kwargs):\n    return 'mine'\n")
+    (tmp_path / "skills" / "added.py").write_text(
+        "SKILL_NAME = 'added'\nSKILL_DESCRIPTION = 'added'\n"
+        "async def execute(**kwargs):\n    return 'added'\n")
+    registered = {}
+
+    class _Registry:
+        def register(self, name, handler, schema):
+            registered[name] = schema
+
+    ToolDispatcher._register_skills(_Registry(), {"workspace": str(tmp_path)})
+    from runtime.skills.loader import SkillLoader
+    packaged = {skill.name for skill in SkillLoader(str(ROOT / "skills")).load_all()}
+    assert set(registered) == packaged | {"added"}, sorted(registered)
+    assert registered["check_balance"]["description"] == "mine"
+
+
+class _Answer:
+    def __init__(self, body: dict):
+        self._body = json.dumps(body).encode()
+
+    def read(self):
+        return self._body
+
+
+def test_matrix_health_reads_the_agents_the_gateway_reports(tmp_path, monkeypatch, capsys):
+    """/health answers with the enabled agents as a list of names. The command
+    read it as a mapping, failed on it inside the try that covers the network
+    call, and so said "Gateway not reachable" and exited 1 about a gateway
+    that had just answered."""
+    import urllib.request
+    import cli.info
+
+    (tmp_path / "matrix.config.json").write_text(json.dumps({"gateway": {"port": 18790}}))
+    monkeypatch.setattr(cli.info, "CONFIG_FILE", tmp_path / "matrix.config.json")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout: _Answer(
+        {"status": "ok", "agents": ["neo", "trinity"], "model_provider": "ollama", "models": {}}))
+    cli.info.cmd_health(argparse.Namespace())
+    said = capsys.readouterr().out
+    assert "Gateway healthy" in said and "not reachable" not in said, said
+    assert "neo, trinity" in said, said
+
+    def unreachable(url, timeout):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", unreachable)
+    with pytest.raises(SystemExit) as stopped:
+        cli.info.cmd_health(argparse.Namespace())
+    assert stopped.value.code == 1
+    assert "Gateway not reachable" in capsys.readouterr().out
+
+
+def test_on_python_3_10_the_users_folder_is_off_the_path_before_anything_is_imported(tmp_path):
+    """Python 3.10 has no -P, and its runpy is not frozen into the
+    interpreter, so the command that stands in for -P must take the folder off
+    sys.path before it imports runpy: a runpy.py in the folder ran instead.
+    Python 3.11 started without its frozen modules imports runpy the way 3.10
+    does."""
+    from cli.home import module_command
+
+    installed, users = tmp_path / "installed", tmp_path / "users"
+    for folder in (installed, users):
+        folder.mkdir()
+    (installed / "probe_target.py").write_text("print('INSTALLED')\n")
+    (users / "runpy.py").write_text("print('RUNPY FROM THE USERS FOLDER')\nraise SystemExit(0)\n")
+    python, *rest = module_command("probe_target", version=(3, 10))
+    ran = _run([python, "-X", "frozen_modules=off", *rest], cwd=users,
+               env={**_clean_env(tmp_path), "PYTHONPATH": str(installed)}, timeout=60)
+    assert ran.returncode == 0, ran.stderr
+    assert ran.stdout.strip() == "INSTALLED", ran.stdout
+
+
+def test_the_wizard_names_the_command_an_install_starts_it_with():
+    import setup.wizard
+    from cli.home import module_command
+
+    said = " ".join(setup.wizard.__doc__.split())
+    assert "python -I" not in said, "the wizard names -I, which the command no longer uses"
+    assert module_command("setup.wizard", version=(3, 11))[1] == "-P"
+    assert "-P" in said and "3.10" in said, said[:1200]
+

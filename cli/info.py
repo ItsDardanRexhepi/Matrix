@@ -55,26 +55,12 @@ def cmd_health(args) -> None:
     config = json.loads(CONFIG_FILE.read_text())
     port = config.get("gateway", {}).get("port", 18790)
 
+    # Only the request is inside the try: a gateway that answered is reachable,
+    # whatever its answer holds.
     try:
         import urllib.request
         req = urllib.request.urlopen(f"http://localhost:{port}/health", timeout=5)
         data = json.loads(req.read())
-        print()
-        print(f"  {GREEN}●{NC} {BOLD}Gateway healthy{NC}")
-        print(f"  {DIM}Status:{NC}  {data.get('status', 'unknown')}")
-        print(f"  {DIM}Port:{NC}    {port}")
-
-        uptime = data.get("uptime_seconds", 0)
-        hours = int(uptime // 3600)
-        mins = int((uptime % 3600) // 60)
-        print(f"  {DIM}Uptime:{NC}  {hours}h {mins}m")
-
-        agents = data.get("agents", {})
-        if agents:
-            enabled = [k for k, v in agents.items() if v.get("enabled")]
-            print(f"  {DIM}Agents:{NC}  {', '.join(enabled)}")
-
-        print()
     except Exception:
         print()
         print(f"  {RED}●{NC} {BOLD}Gateway not reachable{NC}")
@@ -82,6 +68,23 @@ def cmd_health(args) -> None:
         print()
         _info(f"Start with: {CYAN}matrix gateway start{NC}")
         sys.exit(1)
+
+    print()
+    print(f"  {GREEN}●{NC} {BOLD}Gateway healthy{NC}")
+    print(f"  {DIM}Status:{NC}  {data.get('status', 'unknown')}")
+    print(f"  {DIM}Port:{NC}    {port}")
+
+    uptime = data.get("uptime_seconds", 0)
+    hours = int(uptime // 3600)
+    mins = int((uptime % 3600) // 60)
+    print(f"  {DIM}Uptime:{NC}  {hours}h {mins}m")
+
+    # /health lists the enabled agents by name (gateway/server.py handle_health).
+    agents = data.get("agents") or []
+    if agents:
+        print(f"  {DIM}Agents:{NC}  {', '.join(str(name) for name in agents)}")
+
+    print()
 
 
 def cmd_setup(args) -> None:
