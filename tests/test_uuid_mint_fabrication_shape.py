@@ -385,13 +385,14 @@ def test_the_measured_count_is_recorded():
         nft_services/service.py::NFTService.rent
         nft_services/service.py::NFTService.mint_soulbound
 
-    Eight more in the same pass are fixed the same way and were never in this
-    inventory, because the detector's assignment-only write clause or its
-    `not awaits` clause did not see them: NFTService.fractionalize,
-    batch_mint, royalty_claim, bridge_nft, dynamic_update, and
-    RWAService.fractional_buy / claim_income / verify_provenance. The count
-    moves by three; the fix is wider than the count, which is what "43 under
-    an assignment-only write clause" means.
+    Eight more in the same pass are fixed the same way and were not in this
+    inventory then. NFTService.fractionalize had left it at 47 -> 46, when it
+    began to await an on-chain ownership read; batch_mint, royalty_claim,
+    bridge_nft, dynamic_update, and RWAService.fractional_buy / claim_income /
+    verify_provenance were never in it, because the detector's
+    assignment-only write clause or its `not awaits` clause did not see them.
+    The count moves by three; the fix is wider than the count, which is what
+    "43 under an assignment-only write clause" means.
 
     43 -> 38, THE REST OF THAT CLASS (attest-money F19). The pass above fixed
     `attest_achievement` and left `trade_item` beside it in the same service,
@@ -768,3 +769,23 @@ def test_the_shape_inventory_is_at_the_documented_baseline():
     current = find_fabrication_shape()
     assert len(KNOWN_FABRICATION_SHAPE) == 38
     assert "nft_services/rights.py::RightsManagement.transfer_rights" in current
+
+
+def test_no_method_that_left_the_inventory_is_said_never_to_have_been_in_it():
+    """The 46 -> 43 note listed NFTService.fractionalize first among eight
+    methods it said had never been in this inventory, and the baseline test
+    above says the count was 47 until fractionalize stopped matching. A method
+    this file records as having left the inventory is not one it may say was
+    never in it."""
+    import re
+    from pathlib import Path
+
+    text = " ".join(Path(__file__).read_text(encoding="utf-8").split())
+    left = set(re.findall(r"until `(\w+\.\w+)` stopped matching", text))
+    assert left, "re-derive this test: the file no longer records a method leaving the inventory"
+    for clause in re.split(r"[.;] ", text):
+        if re.search(r"\bnever in (?:this inventory|it)\b", clause):
+            named = sorted(name for name in left if name in clause)
+            assert not named, (
+                f"{named} left this inventory (see the baseline test) and is said "
+                f"never to have been in it: {clause}")
